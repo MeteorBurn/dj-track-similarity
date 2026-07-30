@@ -14,34 +14,18 @@ from dj_track_similarity.analysis_models import (
     EmbeddingOutput,
     EmbeddingWrite,
     SonaraWrite,
+    current_embedding_spec,
 )
 from dj_track_similarity.analysis_model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import SonaraRowV7
-from dj_track_similarity.prepare_sonara_release import (
-    CONFIRM_STRING,
-    prepare_sonara_release,
-)
-from dj_track_similarity.sonara_contract import (
-    SONARA_EXPECTED_VERSION,
-    SonaraContractSet,
-    sonara_runtime_contracts,
-)
+from dj_track_similarity.db_ddl import SonaraRow
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 _NOW = "2026-07-24T12:00:00.000000Z"
-
-
-class _FakeSonara:
-    __version__ = SONARA_EXPECTED_VERSION
-    SIMILARITY_VERSION = 2
-    __sonara_build_id__ = "sha256:" + "5" * 64
-    __sonara_vocalness_model_id__ = "sonara-vocalness"
-    __sonara_vocalness_model_build_id__ = "sha256:" + "6" * 64
 
 
 def test_sonara_search_endpoint_uses_stored_sonara_features(
@@ -49,25 +33,22 @@ def test_sonara_search_endpoint_uses_stored_sonara_features(
 ) -> None:
     monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
     db_path = tmp_path / "library.sqlite"
-    db, contracts = _sonara_library(db_path)
+    db = _sonara_library(db_path)
     seed = _add_sonara_track(
         db,
         tmp_path,
-        contracts,
         "seed.wav",
         {"energy": 0.8, "danceability": 0.8, "valence": 0.25, "acousticness": 0.1},
     )
     close = _add_sonara_track(
         db,
         tmp_path,
-        contracts,
         "close.wav",
         {"energy": 0.78, "danceability": 0.79, "valence": 0.27, "acousticness": 0.12},
     )
     far = _add_sonara_track(
         db,
         tmp_path,
-        contracts,
         "far.wav",
         {"energy": 0.15, "danceability": 0.2, "valence": 0.8, "acousticness": 0.65},
     )
@@ -126,11 +107,10 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
 ) -> None:
     monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
     db_path = tmp_path / "library.sqlite"
-    db, contracts = _sonara_library(db_path)
+    db = _sonara_library(db_path)
     seed = _add_sonara_track(
         db,
         tmp_path,
-        contracts,
         "seed.wav",
         {
             "mfcc_mean": [0.2, 0.4],
@@ -142,7 +122,6 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
     brighter = _add_sonara_track(
         db,
         tmp_path,
-        contracts,
         "brighter.wav",
         {
             "mfcc_mean": [0.22, 0.41],
@@ -154,7 +133,6 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
     darker = _add_sonara_track(
         db,
         tmp_path,
-        contracts,
         "darker.wav",
         {
             "mfcc_mean": [0.21, 0.39],
@@ -234,34 +212,23 @@ def test_generic_search_endpoint_rejects_invalid_numeric_fields(
     assert response.status_code == 422
 
 
-def _sonara_library(db_path: Path) -> tuple[LibraryDatabase, SonaraContractSet]:
-    db = LibraryDatabase(db_path)
-    backup_dir = db_path.parent / "sonara-backups"
-    backup_dir.mkdir()
-    prepare_sonara_release(
-        db,
-        backup_dir=backup_dir,
-        confirm=CONFIRM_STRING,
-        sonara_module=_FakeSonara,
-    )
-    return db, _sonara_contracts()
+def _sonara_library(db_path: Path) -> LibraryDatabase:
+    return LibraryDatabase(db_path)
 
 
 def _add_sonara_track(
     db: LibraryDatabase,
     root: Path,
-    contracts: SonaraContractSet,
     name: str,
     features: dict[str, float | list[float]],
 ) -> AnalysisTarget:
     target = _track(db, root, name)
-    values = {field.name: None for field in fields(SonaraRowV7)}
+    values = {field.name: None for field in fields(SonaraRow)}
     energy = _float(features.get("energy"))
     values.update(
         {
             "track_id": target.track_id,
             "content_generation": target.content_generation,
-            "contract_hash": contracts.core.contract_hash,
             "energy_score": energy,
             "danceability_score": _float(features.get("danceability")),
             "valence_score": _float(features.get("valence")),
@@ -275,9 +242,7 @@ def _add_sonara_track(
     )
     result = db.save_sonara_results(
         (
-            SonaraWrite(
-                target=target, core_contract=contracts.core, core=SonaraRowV7(**values)
-            ),
+            SonaraWrite(target=target, core=SonaraRow(**values)),
         )
     )[0]
     assert result.ok, result.error
@@ -292,7 +257,10 @@ def _add_embedding_track(
     embedding: list[float],
 ) -> AnalysisTarget:
     target = _track(db, root, name)
-    vector = np.zeros(output.contract.dim, dtype=np.float32)
+    vector = np.zeros(
+        current_embedding_spec(output.analysis_family).dimension,
+        dtype=np.float32,
+    )
     vector[: len(embedding)] = embedding
     vector /= np.linalg.norm(vector)
     result = db.save_embedding_results(
@@ -300,7 +268,9 @@ def _add_embedding_track(
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=output.contract, vector=vector, analyzed_at=_NOW
+                    family=output.analysis_family,
+                    vector=vector,
+                    analyzed_at=_NOW,
                 ),
             ),
         )
@@ -333,10 +303,6 @@ def _track(db: LibraryDatabase, root: Path, name: str) -> AnalysisTarget:
 
 def _mert_output() -> AnalysisOutput:
     return current_embedding_analysis_output("mert")
-
-
-def _sonara_contracts() -> SonaraContractSet:
-    return sonara_runtime_contracts(_FakeSonara)
 
 
 def _float(value: float | list[float] | None) -> float | None:

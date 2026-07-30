@@ -17,7 +17,6 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 
 class _FakeAnalysisManager:
     last_kwargs: dict[str, object] = {}
-    preflight_calls = 0
 
     def __init__(self, _database: LibraryDatabase) -> None:
         self.status = SimpleNamespace(
@@ -37,9 +36,6 @@ class _FakeAnalysisManager:
             top_k=3,
             avg_seconds_per_track=0.5,
         )
-
-    def validate_sonara_preflight(self) -> None:
-        type(self).preflight_calls += 1
 
     def create_job(self, **kwargs: object) -> str:
         type(self).last_kwargs = dict(kwargs)
@@ -138,7 +134,7 @@ def test_serve_without_database_starts_unselected_and_creates_no_bundle(
     assert captured["uvicorn_kwargs"]["port"] == 8877
 
 
-def test_serve_creates_selected_v7_database_and_passes_log_config(
+def test_serve_creates_selected_current_database_and_passes_log_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -186,7 +182,7 @@ def test_serve_creates_selected_v7_database_and_passes_log_config(
     assert log_config["handlers"]["file"]["filename"] == str(log_path.resolve())
 
 
-def test_serve_opens_existing_selected_v7_database(
+def test_serve_opens_existing_selected_current_database(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -220,7 +216,7 @@ def test_serve_opens_existing_selected_v7_database(
     assert LibraryDatabase(db_path).catalog_uuid == catalog_uuid
 
 
-def test_relocate_library_cli_applies_typed_v7_path_update(
+def test_relocate_library_cli_applies_typed_current_path_update(
     tmp_path: Path,
 ) -> None:
     old_root = tmp_path / "ssd"
@@ -305,13 +301,12 @@ def test_analyze_cli_prints_default_ml_progress_and_settings(
     assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == []
 
 
-def test_analyze_cli_uses_exact_sonara_outputs_and_preflight(
+def test_analyze_cli_uses_exact_sonara_outputs_without_release_preflight(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
     _FakeAnalysisManager.last_kwargs = {}
-    _FakeAnalysisManager.preflight_calls = 0
 
     result = CliRunner().invoke(
         cli.app,
@@ -327,7 +322,6 @@ def test_analyze_cli_uses_exact_sonara_outputs_and_preflight(
     )
 
     assert result.exit_code == 0
-    assert _FakeAnalysisManager.preflight_calls == 1
     assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == [
         "core",
         "timeline",

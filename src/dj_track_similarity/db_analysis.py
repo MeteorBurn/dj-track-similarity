@@ -1,9 +1,8 @@
-"""Canonical v7 AnalysisRepository.
+"""Canonical AnalysisRepository.
 
-All writes are fenced by the active immutable contract, catalog UUID, track
-UUID, and content generation.  Core ``BEGIN IMMEDIATE`` is the coordinator for
-each write batch; the required Artifacts database is opened explicitly and
-never attached as a legacy sidecar.
+All writes are fenced by catalog UUID, track UUID, and content generation.
+Core ``BEGIN IMMEDIATE`` is the coordinator for each write batch; the required
+Artifacts database is opened explicitly and never attached as a sidecar.
 """
 
 from __future__ import annotations
@@ -18,14 +17,7 @@ from types import MappingProxyType
 
 import numpy as np
 
-from .analysis_contracts import (
-    OUTPUT_KINDS_BY_FAMILY,
-    read_registered_contract,
-    register_contract,
-    utc_timestamp,
-)
 from .analysis_models import (
-    ACTIVE_CONTRACT_SETTING_PREFIX,
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisResetResult,
@@ -38,15 +30,11 @@ from .analysis_models import (
     ClassifierScoreWrite,
     ClassifierSpecification,
     EmbeddingWrite,
-    InactiveAnalysisOutputError,
     MaestWrite,
-    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
+    OUTPUT_KINDS_BY_FAMILY,
     SonaraFeatureRow,
     SonaraWrite,
     StaleAnalysisTargetError,
-    active_classifier_required_outputs_hashes,
-    active_contract_setting_key,
-    validate_production_contract,
 )
 from .db_analysis_candidates import (
     artifact_table_for_output,
@@ -66,7 +54,7 @@ from .db_artifacts import (
     validate_timeline_row_payload,
     write_valid_embedding_in_transaction,
 )
-from .db_schema_v7 import ClassifierScoreV7
+from .db_ddl import ClassifierScoreRecord
 from .maest_analysis_validation import validate_maest_analysis_row
 from .sonara_core_validation import (
     SONARA_CORE_COLUMNS,
@@ -75,13 +63,22 @@ from .sonara_core_validation import (
 )
 
 
-_CLASSIFIER_SCORE_COLUMNS = tuple(field.name for field in fields(ClassifierScoreV7))
+_CLASSIFIER_SCORE_COLUMNS = tuple(field.name for field in fields(ClassifierScoreRecord))
 _SONARA_IDENTITY_COLUMNS = {
     "track_id",
     "content_generation",
-    "contract_hash",
 }
 _CLASSIFIER_PROBABILITY_TOLERANCE = 1e-9
+
+
+def _classifier_feature_names_json(
+    specification: ClassifierSpecification,
+) -> str:
+    return json.dumps(
+        list(specification.feature_names),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def _catalog_uuid(core_connection: sqlite3.Connection) -> str:
@@ -231,7 +228,6 @@ def _upsert_sonara_core(
     row = write.core
     valid, reason = validate_sonara_core_row(
         row,
-        expected_contract=write.core_contract,
         expected_track_id=write.target.track_id,
         expected_content_generation=write.target.content_generation,
     )
@@ -261,7 +257,6 @@ def _upsert_maest_analysis(
     row = {
         "track_id": write.target.track_id,
         "content_generation": write.target.content_generation,
-        "contract_hash": write.analysis_contract.contract_hash,
         "syncopated_rhythm": (
             None if write.syncopated_rhythm is None else int(write.syncopated_rhythm)
         ),
@@ -270,7 +265,6 @@ def _upsert_maest_analysis(
     }
     valid, reason = validate_maest_analysis_row(
         row,
-        expected_contract=write.analysis_contract,
         expected_track_id=write.target.track_id,
         expected_content_generation=write.target.content_generation,
     )
@@ -279,12 +273,11 @@ def _upsert_maest_analysis(
     core_connection.execute(
         """
         INSERT INTO maest_scores (
-            track_id, content_generation, contract_hash,
+            track_id, content_generation,
             syncopated_rhythm, genres_json, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(track_id) DO UPDATE SET
             content_generation = excluded.content_generation,
-            contract_hash = excluded.contract_hash,
             syncopated_rhythm = excluded.syncopated_rhythm,
             genres_json = excluded.genres_json,
             analyzed_at = excluded.analyzed_at
@@ -294,7 +287,6 @@ def _upsert_maest_analysis(
             for column in (
                 "track_id",
                 "content_generation",
-                "contract_hash",
                 "syncopated_rhythm",
                 "genres_json",
                 "analyzed_at",
@@ -317,10 +309,8 @@ def _upsert_sonara_timeline(
             "track_id": write.target.track_id,
             "track_uuid": write.target.track_uuid,
             "content_generation": write.target.content_generation,
-            "contract_hash": timeline.contract.contract_hash,
             "payload_json": payload_json,
         },
-        expected_contract=timeline.contract,
         expected_track=_artifact_track(write.target),
     )
     if not valid:
@@ -333,13 +323,12 @@ def _upsert_sonara_timeline(
     artifacts_connection.execute(
         """
         INSERT INTO sonara_timeline (
-            track_id, track_uuid, content_generation, contract_hash,
+            track_id, track_uuid, content_generation,
             payload_json, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(track_id) DO UPDATE SET
             track_uuid = excluded.track_uuid,
             content_generation = excluded.content_generation,
-            contract_hash = excluded.contract_hash,
             payload_json = excluded.payload_json,
             analyzed_at = excluded.analyzed_at
         """,
@@ -347,7 +336,6 @@ def _upsert_sonara_timeline(
             write.target.track_id,
             write.target.track_uuid,
             write.target.content_generation,
-            timeline.contract.contract_hash,
             payload_json,
             timeline.analyzed_at,
         ),
@@ -369,13 +357,11 @@ def _upsert_sonara_fingerprint(
             "track_id": write.target.track_id,
             "track_uuid": write.target.track_uuid,
             "content_generation": write.target.content_generation,
-            "contract_hash": fingerprint.contract.contract_hash,
             "fingerprint_version": fingerprint.fingerprint_version,
             "word_count": word_count,
             "byte_order": "little",
             "fingerprint_blob": fingerprint_blob,
         },
-        expected_contract=fingerprint.contract,
         expected_track=_artifact_track(write.target),
     )
     if not valid:
@@ -388,14 +374,13 @@ def _upsert_sonara_fingerprint(
     artifacts_connection.execute(
         """
         INSERT INTO sonara_fingerprints (
-            track_id, track_uuid, content_generation, contract_hash,
+            track_id, track_uuid, content_generation,
             fingerprint_version, word_count, byte_order,
             fingerprint_blob, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'little', ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, 'little', ?, ?)
         ON CONFLICT(track_id) DO UPDATE SET
             track_uuid = excluded.track_uuid,
             content_generation = excluded.content_generation,
-            contract_hash = excluded.contract_hash,
             fingerprint_version = excluded.fingerprint_version,
             word_count = excluded.word_count,
             byte_order = excluded.byte_order,
@@ -406,7 +391,6 @@ def _upsert_sonara_fingerprint(
             write.target.track_id,
             write.target.track_uuid,
             write.target.content_generation,
-            fingerprint.contract.contract_hash,
             fingerprint.fingerprint_version,
             word_count,
             fingerprint_blob,
@@ -417,7 +401,7 @@ def _upsert_sonara_fingerprint(
 
 def _upsert_classifier_score(
     core_connection: sqlite3.Connection,
-    score: ClassifierScoreV7,
+    score: ClassifierScoreRecord,
 ) -> None:
     placeholders = ", ".join("?" for _ in _CLASSIFIER_SCORE_COLUMNS)
     updates = ", ".join(
@@ -437,15 +421,14 @@ def _upsert_classifier_score(
 
 
 def _validate_classifier_score(
-    score: ClassifierScoreV7,
+    score: ClassifierScoreRecord,
     specification: ClassifierSpecification,
 ) -> None:
     for field_name in (
+        "track_uuid",
         "classifier_key",
-        "model_id",
         "feature_set",
-        "feature_manifest_hash",
-        "required_outputs_hash",
+        "feature_names_json",
         "positive_label",
         "predicted_class",
         "analyzed_at",
@@ -453,8 +436,16 @@ def _validate_classifier_score(
         value = getattr(score, field_name)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"classifier score {field_name} is required")
-    if score.uses_sonara not in {0, 1}:
-        raise ValueError("classifier score uses_sonara must be 0 or 1")
+    try:
+        feature_names = json.loads(score.feature_names_json)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "classifier feature_names_json must be valid JSON"
+        ) from error
+    if feature_names != list(specification.feature_names):
+        raise ValueError(
+            "classifier feature_names_json does not match ordered feature_names"
+        )
     if score.score_bucket not in {"low", "medium", "high"}:
         raise ValueError("classifier score_bucket is invalid")
     for field_name in ("score", "confidence"):
@@ -532,74 +523,6 @@ def _validate_classifier_score(
     )
     if score.score_bucket != expected_bucket:
         raise ValueError("classifier score_bucket does not match the selected score")
-    if score.uses_sonara == 1 and not score.sonara_release_hash:
-        raise ValueError("SONARA-dependent classifier score requires release hash")
-    if score.uses_sonara == 0 and score.sonara_release_hash is not None:
-        raise ValueError("non-SONARA classifier score must not carry release hash")
-
-
-def _active_classifier_hashes(
-    core_connection: sqlite3.Connection,
-) -> frozenset[str]:
-    active_release_row = core_connection.execute(
-        """
-        SELECT setting_value
-        FROM library_settings
-        WHERE setting_key = ?
-        """,
-        (SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,),
-    ).fetchone()
-    active_release = None if active_release_row is None else str(active_release_row[0])
-    outputs: list[AnalysisOutput] = []
-    for row in core_connection.execute(
-        """
-        SELECT setting_value
-        FROM library_settings
-        WHERE setting_key LIKE ?
-        ORDER BY setting_key
-        """,
-        (f"{ACTIVE_CONTRACT_SETTING_PREFIX}.%",),
-    ):
-        identity = read_registered_contract(core_connection, str(row[0]))
-        if identity is None:
-            raise RuntimeError("active analysis setting references an unknown contract")
-        validate_production_contract(identity)
-        if (
-            identity.analysis_family == "sonara"
-            and identity.release_hash != active_release
-        ):
-            raise RuntimeError(
-                "active SONARA contract does not match the active release"
-            )
-        outputs.append(AnalysisOutput(identity))
-    return active_classifier_required_outputs_hashes(outputs)
-
-
-def _delete_scores_with_inactive_required_outputs(
-    core_connection: sqlite3.Connection,
-) -> int:
-    active_hashes = _active_classifier_hashes(core_connection)
-    if not active_hashes:
-        cursor = core_connection.execute("DELETE FROM classifier_scores")
-    else:
-        cursor = core_connection.execute(
-            """
-            DELETE FROM classifier_scores
-            WHERE required_outputs_hash NOT IN (
-                SELECT CAST(value AS TEXT)
-                FROM json_each(?)
-            )
-            """,
-            (
-                json.dumps(
-                    sorted(active_hashes),
-                    separators=(",", ":"),
-                ),
-            ),
-        )
-    return max(0, int(cursor.rowcount))
-
-
 def _selected_targets(
     core_connection: sqlite3.Connection,
     *,
@@ -665,84 +588,6 @@ def _vector_value(vector: np.ndarray, key: str) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _canonical_sonara_release_outputs(
-    outputs: Sequence[AnalysisOutput],
-) -> tuple[AnalysisOutput, ...]:
-    normalized = normalize_analysis_outputs(outputs)
-    if any(output.contract.analysis_family != "sonara" for output in normalized):
-        raise ValueError("SONARA release activation accepts only SONARA outputs")
-    by_kind = {output.contract.output_kind: output for output in normalized}
-    expected_kinds = ("core", "timeline", "embedding", "fingerprint")
-    if set(by_kind) != set(expected_kinds):
-        raise ValueError(
-            "SONARA release activation requires exactly "
-            "core, timeline, embedding, and fingerprint"
-        )
-    ordered = tuple(by_kind[kind] for kind in expected_kinds)
-    for output in ordered:
-        validate_production_contract(output.contract)
-
-    from .sonara_contract import (
-        SONARA_CORE_REQUESTED_FEATURES,
-        SONARA_EMBEDDING_REQUESTED_FEATURES,
-        SONARA_FINGERPRINT_REQUESTED_FEATURES,
-        SONARA_TIMELINE_REQUESTED_FEATURES,
-        SonaraRuntimeIdentity,
-        build_sonara_contracts,
-    )
-
-    common = dict(by_kind["core"].contract.parameters)
-    embedding = dict(by_kind["embedding"].contract.parameters)
-    fingerprint = dict(by_kind["fingerprint"].contract.parameters)
-    try:
-        runtime = SonaraRuntimeIdentity(
-            package_version=common["package_version"],
-            package_build_id=common["package_build_id"],
-            schema_version=common["schema_version"],
-            mode=common["mode"],
-            sample_rate_hz=common["sample_rate_hz"],
-            bpm_min=common["bpm_min"],
-            bpm_max=common["bpm_max"],
-            project_feature_revision=common["project_feature_revision"],
-            decoder_backend=common["decoder_backend"],
-            execution_path=common["execution_path"],
-            analysis_hop_samples=common["analysis_hop_samples"],
-            unit_interval_clamp_policy=common["unit_interval_clamp_policy"],
-            unit_interval_clamp_epsilon=common["unit_interval_clamp_epsilon"],
-            unit_interval_clamp_fields=tuple(common["unit_interval_clamp_fields"]),
-            vocalness_model_id=common["vocalness_model_id"],
-            vocalness_model_build_id=common["vocalness_model_build_id"],
-            embedding_version=embedding["embedding_version"],
-            embedding_dim=embedding["embedding_dim"],
-            embedding_normalization=embedding["embedding_normalization"],
-            embedding_encoding=embedding["embedding_encoding"],
-            fingerprint_version=fingerprint["fingerprint_version"],
-            fingerprint_encoding=fingerprint["fingerprint_encoding"],
-            fingerprint_byte_order=fingerprint["fingerprint_byte_order"],
-            core_requested_features=SONARA_CORE_REQUESTED_FEATURES,
-            timeline_requested_features=SONARA_TIMELINE_REQUESTED_FEATURES,
-            embedding_requested_features=SONARA_EMBEDDING_REQUESTED_FEATURES,
-            fingerprint_requested_features=SONARA_FINGERPRINT_REQUESTED_FEATURES,
-        )
-    except (KeyError, TypeError, ValueError, RuntimeError) as error:
-        raise ValueError(
-            "SONARA output contracts do not contain one complete runtime identity"
-        ) from error
-
-    canonical = build_sonara_contracts(runtime)
-    expected_by_kind = {
-        contract.output_kind: contract for contract in canonical.identities
-    }
-    for output in ordered:
-        expected = expected_by_kind[output.contract.output_kind]
-        if output.contract.canonical_payload_json != expected.canonical_payload_json:
-            raise ValueError(
-                "SONARA output contract does not match the internally "
-                f"derived canonical release: {output.contract.output_kind}"
-            )
-    return ordered
-
-
 class AnalysisRepository:
     """Mixin implemented by :class:`LibraryDatabase`."""
 
@@ -760,369 +605,16 @@ class AnalysisRepository:
                 f"unsupported output_kind {output_kind!r} "
                 f"for analysis_family {family!r}"
             )
-        setting_key = f"{ACTIVE_CONTRACT_SETTING_PREFIX}.{family}.{kind}"
-        with self._write_lock:
-            with closing(self.connect()) as core_connection:
-                row = core_connection.execute(
-                    """
-                    SELECT setting_value
-                    FROM library_settings
-                    WHERE setting_key = ?
-                    """,
-                    (setting_key,),
-                ).fetchone()
-                if row is None:
-                    return None
-                identity = read_registered_contract(
-                    core_connection,
-                    str(row[0]),
-                )
-                if identity is None:
-                    raise RuntimeError(
-                        "active analysis setting references an unknown contract"
-                    )
-                output = AnalysisOutput(identity)
-                validate_production_contract(identity)
-                require_active_analysis_outputs(
-                    core_connection,
-                    (output,),
-                )
-                return output
+        return AnalysisOutput(family, kind)
 
     def register_analysis_outputs(
         self,
         outputs: Sequence[AnalysisOutput],
     ) -> tuple[str, ...]:
         normalized = normalize_analysis_outputs(outputs)
-        for output in normalized:
-            validate_production_contract(output.contract)
-
-        sonara_outputs = tuple(
-            output
+        return tuple(
+            f"{output.analysis_family}/{output.output_kind}"
             for output in normalized
-            if output.contract.analysis_family == "sonara"
-        )
-        if sonara_outputs:
-            sonara_outputs = _canonical_sonara_release_outputs(sonara_outputs)
-
-        with self._write_lock:
-            with closing(self.connect()) as core_connection:
-                try:
-                    core_connection.execute("BEGIN IMMEDIATE")
-                    if sonara_outputs:
-                        active_release_row = core_connection.execute(
-                            """
-                            SELECT setting_value
-                            FROM library_settings
-                            WHERE setting_key = ?
-                            """,
-                            (SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,),
-                        ).fetchone()
-                        active_release = (
-                            None
-                            if active_release_row is None
-                            else str(active_release_row[0])
-                        )
-                        requested_release = sonara_outputs[0].contract.release_hash
-                        if active_release is None:
-                            raise InactiveAnalysisOutputError(
-                                "SONARA release is not active; run "
-                                "prepare-sonara-release before analysis"
-                            )
-                        if active_release != requested_release:
-                            raise InactiveAnalysisOutputError(
-                                "SONARA release changes require "
-                                "activate_sonara_release()"
-                            )
-                    timestamp = utc_timestamp()
-                    for output in normalized:
-                        register_contract(
-                            core_connection,
-                            output.contract,
-                            created_at=timestamp,
-                        )
-                        core_connection.execute(
-                            """
-                            INSERT INTO library_settings (
-                                setting_key, setting_value, updated_at
-                            ) VALUES (?, ?, ?)
-                            ON CONFLICT(setting_key) DO UPDATE SET
-                                setting_value = excluded.setting_value,
-                                updated_at = excluded.updated_at
-                            """,
-                            (
-                                active_contract_setting_key(output),
-                                output.contract_hash,
-                                timestamp,
-                            ),
-                        )
-                    _delete_scores_with_inactive_required_outputs(core_connection)
-                    core_connection.commit()
-                except BaseException:
-                    if core_connection.in_transaction:
-                        core_connection.rollback()
-                    raise
-        return tuple(output.contract_hash for output in normalized)
-
-    def activate_sonara_outputs_if_empty(
-        self,
-        outputs: Sequence[AnalysisOutput],
-    ) -> bool:
-        """Activate the exact runtime outputs only before SONARA has any state.
-
-        This is the narrow first-analysis path. It writes only the immutable
-        contracts and active Core settings. Historical immutable contracts may
-        remain after an explicit reset; existing active settings, analysis
-        rows, or SONARA-dependent classifier rows leave the database unchanged
-        so the caller can fail closed.
-        """
-
-        normalized = _canonical_sonara_release_outputs(outputs)
-        requested_release = normalized[0].contract.release_hash
-        expected_settings = {
-            SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY: requested_release,
-            **{
-                active_contract_setting_key(output): output.contract_hash
-                for output in normalized
-            },
-        }
-        with self._write_lock:
-            with (
-                closing(self.connect()) as core_connection,
-                closing(self.connect_artifacts()) as artifacts_connection,
-            ):
-                try:
-                    core_connection.execute("BEGIN IMMEDIATE")
-                    validate_storage_binding(
-                        core_connection,
-                        artifacts_connection,
-                    )
-                    active_settings = {
-                        str(row[0]): str(row[1])
-                        for row in core_connection.execute(
-                            """
-                            SELECT setting_key, setting_value
-                            FROM library_settings
-                            WHERE setting_key = ?
-                               OR setting_key LIKE ?
-                            """,
-                            (
-                                SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-                                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.%",
-                            ),
-                        )
-                    }
-                    if active_settings == expected_settings:
-                        require_active_analysis_outputs(
-                            core_connection,
-                            normalized,
-                        )
-                        core_connection.commit()
-                        return True
-
-                    has_existing_state = bool(active_settings)
-                    if not has_existing_state:
-                        has_existing_state = (
-                            core_connection.execute(
-                                "SELECT 1 FROM sonara LIMIT 1"
-                            ).fetchone()
-                            is not None
-                        )
-                    if not has_existing_state:
-                        has_existing_state = (
-                            core_connection.execute(
-                                """
-                                SELECT 1
-                                FROM classifier_scores
-                                WHERE uses_sonara = 1
-                                LIMIT 1
-                                """
-                            ).fetchone()
-                            is not None
-                        )
-                    if not has_existing_state:
-                        for table in (
-                            "sonara_timeline",
-                            "sonara_similarity_embeddings",
-                            "sonara_fingerprints",
-                        ):
-                            if (
-                                artifacts_connection.execute(
-                                    f"SELECT 1 FROM {table} LIMIT 1"
-                                ).fetchone()
-                                is not None
-                            ):
-                                has_existing_state = True
-                                break
-                    if has_existing_state:
-                        core_connection.commit()
-                        return False
-
-                    timestamp = utc_timestamp()
-                    for output in normalized:
-                        register_contract(
-                            core_connection,
-                            output.contract,
-                            created_at=timestamp,
-                        )
-                    for setting_key, setting_value in expected_settings.items():
-                        core_connection.execute(
-                            """
-                            INSERT INTO library_settings (
-                                setting_key, setting_value, updated_at
-                            ) VALUES (?, ?, ?)
-                            """,
-                            (setting_key, setting_value, timestamp),
-                        )
-                    core_connection.commit()
-                    return True
-                except BaseException:
-                    if core_connection.in_transaction:
-                        core_connection.rollback()
-                    raise
-
-    def activate_sonara_release(
-        self,
-        outputs: Sequence[AnalysisOutput],
-        *,
-        preparation_proof: object | None = None,
-    ) -> AnalysisResetResult:
-        """Activate one canonical SONARA release from an empty SONARA state.
-
-        The higher-level release-preparation workflow must supply its private,
-        one-shot proof that confirmation, the exact receipt, and the verified
-        Core + Artifacts backup pair all match this database and release.
-        """
-
-        from .prepare_sonara_release import (
-            _require_sonara_release_activation_proof,
-        )
-
-        _require_sonara_release_activation_proof(
-            preparation_proof,
-            self,
-            outputs,
-        )
-        normalized = _canonical_sonara_release_outputs(outputs)
-        with self._write_lock:
-            with (
-                closing(self.connect()) as core_connection,
-                closing(self.connect_artifacts()) as artifacts_connection,
-            ):
-                try:
-                    core_connection.execute("BEGIN IMMEDIATE")
-                    validate_storage_binding(
-                        core_connection,
-                        artifacts_connection,
-                    )
-                    active_settings = {
-                        str(row[0]): str(row[1])
-                        for row in core_connection.execute(
-                            """
-                            SELECT setting_key, setting_value
-                            FROM library_settings
-                            WHERE setting_key = ?
-                               OR setting_key LIKE ?
-                            """,
-                            (
-                                SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-                                (f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.%"),
-                            ),
-                        )
-                    }
-                    requested_release = normalized[0].contract.release_hash
-                    exact_active_release = active_settings.get(
-                        SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY
-                    ) == requested_release and all(
-                        active_settings.get(active_contract_setting_key(output))
-                        == output.contract_hash
-                        for output in normalized
-                    )
-                    if exact_active_release:
-                        require_active_analysis_outputs(
-                            core_connection,
-                            normalized,
-                        )
-                        core_connection.commit()
-                        return AnalysisResetResult()
-
-                    timestamp = utc_timestamp()
-                    for output in normalized:
-                        register_contract(
-                            core_connection,
-                            output.contract,
-                            created_at=timestamp,
-                        )
-
-                    artifacts_connection.execute("BEGIN IMMEDIATE")
-                    artifact_deleted = 0
-                    for table in (
-                        "sonara_timeline",
-                        "sonara_similarity_embeddings",
-                        "sonara_fingerprints",
-                    ):
-                        cursor = artifacts_connection.execute(f"DELETE FROM {table}")
-                        artifact_deleted += max(0, int(cursor.rowcount))
-
-                    core_cursor = core_connection.execute("DELETE FROM sonara")
-                    core_deleted = max(0, int(core_cursor.rowcount))
-                    classifier_cursor = core_connection.execute(
-                        """
-                        DELETE FROM classifier_scores
-                        WHERE uses_sonara = 1
-                        """
-                    )
-                    classifier_deleted = max(
-                        0,
-                        int(classifier_cursor.rowcount),
-                    )
-
-                    for output in normalized:
-                        core_connection.execute(
-                            """
-                            INSERT INTO library_settings (
-                                setting_key, setting_value, updated_at
-                            ) VALUES (?, ?, ?)
-                            ON CONFLICT(setting_key) DO UPDATE SET
-                                setting_value = excluded.setting_value,
-                                updated_at = excluded.updated_at
-                            """,
-                            (
-                                active_contract_setting_key(output),
-                                output.contract_hash,
-                                timestamp,
-                            ),
-                        )
-                    release_hash = normalized[0].contract.release_hash
-                    core_connection.execute(
-                        """
-                        INSERT INTO library_settings (
-                            setting_key, setting_value, updated_at
-                        ) VALUES (?, ?, ?)
-                        ON CONFLICT(setting_key) DO UPDATE SET
-                            setting_value = excluded.setting_value,
-                            updated_at = excluded.updated_at
-                        """,
-                        (
-                            SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-                            release_hash,
-                            timestamp,
-                        ),
-                    )
-                    _commit_coordinated(
-                        core_connection,
-                        artifacts_connection,
-                    )
-                except BaseException:
-                    _rollback_coordinated(
-                        core_connection,
-                        artifacts_connection,
-                    )
-                    raise
-        return AnalysisResetResult(
-            core_rows_deleted=core_deleted,
-            artifact_rows_deleted=artifact_deleted,
-            classifier_rows_deleted=classifier_deleted,
         )
 
     def list_analysis_candidates(
@@ -1218,7 +710,7 @@ class AnalysisRepository:
                                         core_connection=core_connection,
                                         artifacts_connection=(coordinated_artifacts),
                                         track=_artifact_track(write.target),
-                                        contract=(write.similarity_embedding.contract),
+                                        family=write.similarity_embedding.family,
                                         embedding=(write.similarity_embedding.vector),
                                         analyzed_at=(
                                             write.similarity_embedding.analyzed_at
@@ -1321,7 +813,7 @@ class AnalysisRepository:
                                     core_connection=core_connection,
                                     artifacts_connection=(coordinated_artifacts),
                                     track=_artifact_track(write.target),
-                                    contract=write.embedding.contract,
+                                    family=write.embedding.family,
                                     embedding=write.embedding.vector,
                                     analyzed_at=write.embedding.analyzed_at,
                                     storage_binding=storage_binding,
@@ -1386,7 +878,10 @@ class AnalysisRepository:
                             artifacts_connection,
                             index,
                         )
-                        output = AnalysisOutput(write.output.contract)
+                        output = AnalysisOutput(
+                            write.output.family,
+                            "embedding",
+                        )
                         try:
                             require_active_analysis_outputs(
                                 core_connection,
@@ -1411,7 +906,7 @@ class AnalysisRepository:
                                 core_connection=core_connection,
                                 artifacts_connection=artifacts_connection,
                                 track=_artifact_track(write.target),
-                                contract=write.output.contract,
+                                family=write.output.family,
                                 embedding=write.output.vector,
                                 analyzed_at=write.output.analyzed_at,
                                 storage_binding=storage_binding,
@@ -1453,7 +948,7 @@ class AnalysisRepository:
         *,
         targets: Sequence[AnalysisTarget] | None = None,
     ) -> tuple[AnalysisVectorRow, ...]:
-        if output.contract.output_kind != "embedding":
+        if output.output_kind != "embedding":
             raise ValueError("vector loading requires an embedding output")
         with self._write_lock:
             with (
@@ -1477,11 +972,10 @@ class AnalysisRepository:
                 rows: list[AnalysisVectorRow] = []
                 for target in selected:
                     vector = read_valid_embedding(
-                        family=output.contract.analysis_family,
+                        family=output.analysis_family,
                         track_id=target.track_id,
                         core_connection=core_connection,
                         artifacts_connection=artifacts_connection,
-                        expected_contract=output.contract,
                         storage_binding=storage_binding,
                     )
                     if vector is None:
@@ -1523,14 +1017,10 @@ class AnalysisRepository:
                     f"""
                     SELECT {", ".join(SONARA_CORE_COLUMNS)}
                     FROM sonara
-                    WHERE contract_hash = ?
-                      AND track_id IN ({placeholders})
+                    WHERE track_id IN ({placeholders})
                     ORDER BY track_id
                     """,
-                    (
-                        output.contract_hash,
-                        *selected_by_id.keys(),
-                    ),
+                    tuple(selected_by_id.keys()),
                 ).fetchall()
                 result: list[SonaraFeatureRow] = []
                 for row in rows:
@@ -1539,7 +1029,6 @@ class AnalysisRepository:
                         continue
                     valid, _reason = validate_sonara_core_row(
                         row,
-                        expected_contract=output.contract,
                         expected_track_id=target.track_id,
                         expected_content_generation=target.content_generation,
                     )
@@ -1577,7 +1066,6 @@ class AnalysisRepository:
         if not isinstance(specification, ClassifierSpecification):
             raise TypeError("specification must be a ClassifierSpecification")
         outputs = normalize_analysis_outputs(specification.required_outputs)
-        uses_sonara = int(specification.sonara_release_hash is not None)
         with self._write_lock:
             with closing(self.connect()) as core_connection:
                 try:
@@ -1591,18 +1079,14 @@ class AnalysisRepository:
                         DELETE FROM classifier_scores
                         WHERE classifier_key = ?
                           AND (
-                              model_id <> ?
-                              OR feature_set <> ?
-                              OR feature_manifest_hash <> ?
-                              OR required_outputs_hash <> ?
-                              OR positive_label <> ?
-                              OR uses_sonara <> ?
-                              OR sonara_release_hash IS NOT ?
+                              feature_names_json <> ?
                               OR NOT EXISTS (
                                   SELECT 1
                                   FROM tracks
                                   WHERE tracks.track_id =
                                         classifier_scores.track_id
+                                    AND tracks.track_uuid =
+                                        classifier_scores.track_uuid
                                     AND tracks.content_generation =
                                         classifier_scores.content_generation
                                     AND tracks.missing_since IS NULL
@@ -1611,13 +1095,7 @@ class AnalysisRepository:
                         """,
                         (
                             specification.classifier_key,
-                            specification.model_id,
-                            specification.feature_set,
-                            specification.feature_manifest_hash,
-                            specification.required_outputs_hash,
-                            specification.positive_label,
-                            uses_sonara,
-                            specification.sonara_release_hash,
+                            _classifier_feature_names_json(specification),
                         ),
                     )
                     deleted = max(0, int(cursor.rowcount))
@@ -1678,11 +1156,8 @@ class AnalysisRepository:
                     int(row["track_id"]): row
                     for row in core_connection.execute(
                         """
-                        SELECT track_id, content_generation, model_id,
-                               feature_set, feature_manifest_hash,
-                               required_outputs_hash,
-                               uses_sonara, sonara_release_hash,
-                               positive_label
+                        SELECT track_id, track_uuid, content_generation,
+                               feature_names_json
                         FROM classifier_scores
                         WHERE classifier_key = ?
                         """,
@@ -1695,10 +1170,7 @@ class AnalysisRepository:
                 missing_count = 0
                 already_count = 0
                 missing_by_output = {
-                    (
-                        f"{output.contract.analysis_family}/"
-                        f"{output.contract.output_kind}"
-                    ): 0
+                    f"{output.analysis_family}/{output.output_kind}": 0
                     for output in outputs
                 }
                 for row in read_current_track_rows(core_connection):
@@ -1715,33 +1187,18 @@ class AnalysisRepository:
                     if missing:
                         missing_count += 1
                         for output in missing:
-                            key = (
-                                f"{output.contract.analysis_family}/"
-                                f"{output.contract.output_kind}"
-                            )
+                            key = f"{output.analysis_family}/{output.output_kind}"
                             missing_by_output[key] += 1
                         continue
                     ready_count += 1
                     score = score_rows.get(target.track_id)
-                    sonara_hash = specification.sonara_release_hash
                     already_current = (
                         score is not None
+                        and str(score["track_uuid"]) == target.track_uuid
                         and int(score["content_generation"])
                         == target.content_generation
-                        and str(score["model_id"]) == specification.model_id
-                        and str(score["feature_set"]) == specification.feature_set
-                        and str(score["feature_manifest_hash"])
-                        == specification.feature_manifest_hash
-                        and str(score["required_outputs_hash"])
-                        == specification.required_outputs_hash
-                        and int(score["uses_sonara"]) == int(sonara_hash is not None)
-                        and (
-                            None
-                            if score["sonara_release_hash"] is None
-                            else str(score["sonara_release_hash"])
-                        )
-                        == sonara_hash
-                        and str(score["positive_label"]) == specification.positive_label
+                        and str(score["feature_names_json"])
+                        == _classifier_feature_names_json(specification)
                     )
                     if already_current:
                         already_count += 1
@@ -1773,9 +1230,9 @@ class AnalysisRepository:
         if not isinstance(specification, ClassifierSpecification):
             raise TypeError("specification must be a ClassifierSpecification")
         outputs_by_family = {
-            output.contract.analysis_family: output
+            output.analysis_family: output
             for output in specification.required_outputs
-            if output.contract.output_kind in {"core", "embedding"}
+            if output.output_kind in {"core", "embedding"}
         }
         for feature_name in specification.feature_names:
             family, separator, _key = feature_name.partition(":")
@@ -1804,7 +1261,7 @@ class AnalysisRepository:
             }
         vectors: dict[str, dict[int, np.ndarray]] = {}
         for family, output in outputs_by_family.items():
-            if output.contract.output_kind != "embedding":
+            if output.output_kind != "embedding":
                 continue
             vectors[family] = {
                 row.target.track_id: row.vector
@@ -1863,19 +1320,6 @@ class AnalysisRepository:
                 try:
                     core_connection.execute("BEGIN IMMEDIATE")
                     catalog_uuid = _catalog_uuid(core_connection)
-                    active_release_row = core_connection.execute(
-                        """
-                        SELECT setting_value
-                        FROM library_settings
-                        WHERE setting_key = ?
-                        """,
-                        (SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,),
-                    ).fetchone()
-                    active_release = (
-                        None
-                        if active_release_row is None
-                        else str(active_release_row[0])
-                    )
                     for index, write in enumerate(selected):
                         name = _savepoint(
                             core_connection,
@@ -1896,13 +1340,6 @@ class AnalysisRepository:
                                 write.score,
                                 write.specification,
                             )
-                            if (
-                                write.score.uses_sonara == 1
-                                and write.score.sonara_release_hash != active_release
-                            ):
-                                raise InactiveAnalysisOutputError(
-                                    "classifier score uses an inactive SONARA release"
-                                )
                             _upsert_classifier_score(
                                 core_connection,
                                 write.score,
@@ -1962,24 +1399,14 @@ class AnalysisRepository:
                     artifact_deleted = 0
                     for output in normalized:
                         if output.key == ("sonara", "core"):
-                            cursor = core_connection.execute(
-                                """
-                                DELETE FROM sonara
-                                WHERE contract_hash = ?
-                                """,
-                                (output.contract_hash,),
-                            )
+                            cursor = core_connection.execute("DELETE FROM sonara")
                             core_deleted += max(
                                 0,
                                 int(cursor.rowcount),
                             )
                         elif output.key == ("maest", "analysis"):
                             cursor = core_connection.execute(
-                                """
-                                DELETE FROM maest_scores
-                                WHERE contract_hash = ?
-                                """,
-                                (output.contract_hash,),
+                                "DELETE FROM maest_scores"
                             )
                             core_deleted += max(
                                 0,
@@ -1990,39 +1417,17 @@ class AnalysisRepository:
                             if table is None or coordinated_artifacts is None:
                                 raise ValueError("unsupported analysis output reset")
                             cursor = coordinated_artifacts.execute(
-                                f"""
-                                DELETE FROM {table}
-                                WHERE contract_hash = ?
-                                """,
-                                (output.contract_hash,),
+                                f"DELETE FROM {table}"
                             )
                             artifact_deleted += max(
                                 0,
                                 int(cursor.rowcount),
                             )
-                    sonara_releases = {
-                        output.contract.release_hash
-                        for output in normalized
-                        if output.contract.analysis_family == "sonara"
-                    }
                     classifier_deleted = 0
-                    for release_hash in sonara_releases:
-                        cursor = core_connection.execute(
-                            """
-                            DELETE FROM classifier_scores
-                            WHERE uses_sonara = 1
-                              AND sonara_release_hash = ?
-                            """,
-                            (release_hash,),
-                        )
-                        classifier_deleted += max(
-                            0,
-                            int(cursor.rowcount),
-                        )
                     sonara_output_kinds = {
-                        output.contract.output_kind
+                        output.output_kind
                         for output in normalized
-                        if output.contract.analysis_family == "sonara"
+                        if output.analysis_family == "sonara"
                     }
                     if sonara_output_kinds == {
                         "core",
@@ -2030,17 +1435,7 @@ class AnalysisRepository:
                         "embedding",
                         "fingerprint",
                     }:
-                        core_connection.execute(
-                            """
-                            DELETE FROM library_settings
-                            WHERE setting_key = ?
-                               OR setting_key LIKE ?
-                            """,
-                            (
-                                SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-                                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.%",
-                            ),
-                        )
+                        pass
                     _commit_coordinated(
                         core_connection,
                         coordinated_artifacts,

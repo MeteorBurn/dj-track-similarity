@@ -13,7 +13,7 @@ from dj_track_similarity.db_connection import (
 from dj_track_similarity.db_storage import storage_database_paths
 
 
-def test_runtime_connections_apply_pragmas_to_bound_v7_pair(tmp_path) -> None:
+def test_runtime_connections_apply_pragmas_to_bound_current_pair(tmp_path) -> None:
     core_path = tmp_path / "library.sqlite"
     catalog_uuid = ensure_database_schema(core_path)
     artifacts_path = storage_database_paths(core_path).artifacts
@@ -79,7 +79,7 @@ def test_write_lock_for_path_is_scoped_to_resolved_database_path(
     assert first is not second
 
 
-def test_ensure_database_schema_creates_bound_v7_pair(tmp_path) -> None:
+def test_ensure_database_schema_creates_bound_current_pair(tmp_path) -> None:
     core_path = tmp_path / "nested" / "library.sqlite"
     paths = storage_database_paths(core_path)
     lock = write_lock_for_path(core_path)
@@ -101,12 +101,6 @@ def test_ensure_database_schema_creates_bound_v7_pair(tmp_path) -> None:
             expected_catalog_uuid=catalog_uuid,
         )
     ) as artifacts_connection:
-        core_version = core_connection.execute(
-            "PRAGMA user_version"
-        ).fetchone()[0]
-        artifacts_version = artifacts_connection.execute(
-            "PRAGMA user_version"
-        ).fetchone()[0]
         stored_core_uuid = core_connection.execute(
             """
             SELECT catalog_uuid
@@ -122,6 +116,4 @@ def test_ensure_database_schema_creates_bound_v7_pair(tmp_path) -> None:
             """
         ).fetchone()[0]
 
-    assert int(core_version) == 7
-    assert int(artifacts_version) == 1
     assert stored_core_uuid == stored_artifacts_uuid == catalog_uuid

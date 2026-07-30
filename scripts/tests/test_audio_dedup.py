@@ -10,14 +10,7 @@ import zipfile
 import numpy as np
 import pytest
 
-from dj_track_similarity.analysis_contracts import (
-    ContractIdentity,
-    register_contract,
-)
-from dj_track_similarity.analysis_model_runners import (
-    current_embedding_analysis_output,
-)
-from dj_track_similarity.analysis_models import ACTIVE_CONTRACT_SETTING_PREFIX
+from dj_track_similarity.analysis_models import current_embedding_spec
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -86,19 +79,19 @@ def _create_rhythm_lab_db(path: Path) -> None:
 def _current_embedding_fixture(
     family: str,
     values: list[float],
-) -> tuple[ContractIdentity, np.ndarray]:
-    contract = current_embedding_analysis_output(family).contract
+) -> tuple[int, np.ndarray]:
+    specification = current_embedding_spec(family)
     supplied = np.asarray(values, dtype="<f4")
-    if supplied.ndim != 1 or supplied.size > contract.dim:
+    if supplied.ndim != 1 or supplied.size > specification.dimension:
         raise ValueError(
-            f"{family} fixture must contain at most {contract.dim} values"
+            f"{family} fixture must contain at most {specification.dimension} values"
         )
-    vector = np.zeros(contract.dim, dtype="<f4")
+    vector = np.zeros(specification.dimension, dtype="<f4")
     vector[: supplied.size] = supplied
     norm = float(np.linalg.norm(vector))
     if not np.isfinite(norm) or norm <= 0:
         raise ValueError(f"{family} fixture must have a finite positive norm")
-    return contract, np.ascontiguousarray(vector / norm, dtype="<f4")
+    return specification.dimension, np.ascontiguousarray(vector / norm, dtype="<f4")
 
 
 def _insert_track(
@@ -139,33 +132,11 @@ def _insert_track(
     assert identity.track_id == track_id
 
     if sonara is not None:
-        contract = ContractIdentity(
-            analysis_family="sonara",
-            output_kind="core",
-            model_name="sonara-test",
-            model_version="1",
-            release_hash="sha256:test-sonara-release",
-        )
         with database.connect() as connection:
-            register_contract(connection, contract)
-            connection.execute(
-                """
-                INSERT INTO library_settings(
-                    setting_key, setting_value, updated_at
-                ) VALUES (?, ?, '2026-07-24T00:00:00.000000Z')
-                ON CONFLICT(setting_key) DO UPDATE
-                SET setting_value = excluded.setting_value,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.core",
-                    contract.contract_hash,
-                ),
-            )
             connection.execute(
                 """
                 INSERT INTO sonara(
-                    track_id, content_generation, contract_hash,
+                    track_id, content_generation,
                     detected_bpm, onset_density_per_second,
                     energy_score, danceability_score, valence_score,
                     acousticness_score, spectral_centroid_hz,
@@ -173,7 +144,7 @@ def _insert_track(
                     mfcc_mean_blob, chroma_mean_blob,
                     spectral_contrast_mean_blob, analyzed_at
                 ) VALUES(
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     zeroblob(52), zeroblob(48), zeroblob(28),
                     '2026-07-24T00:00:00.000000Z'
                 )
@@ -181,7 +152,6 @@ def _insert_track(
                 (
                     identity.track_id,
                     identity.content_generation,
-                    contract.contract_hash,
                     sonara.get("bpm"),
                     sonara.get("onset_density"),
                     sonara.get("energy"),
@@ -196,33 +166,16 @@ def _insert_track(
             connection.commit()
 
     for key, values in (vectors or {}).items():
-        contract, vector = _current_embedding_fixture(key, values)
-        with database.connect() as connection:
-            register_contract(connection, contract)
-            connection.execute(
-                """
-                INSERT INTO library_settings(
-                    setting_key, setting_value, updated_at
-                ) VALUES (?, ?, '2026-07-24T00:00:00.000000Z')
-                ON CONFLICT(setting_key) DO UPDATE
-                SET setting_value = excluded.setting_value,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    f"{ACTIVE_CONTRACT_SETTING_PREFIX}.{key}.embedding",
-                    contract.contract_hash,
-                ),
-            )
-            connection.commit()
+        dimension, vector = _current_embedding_fixture(key, values)
         with database.connect_artifacts() as connection:
             connection.execute(
                 f"""
                 INSERT INTO {key}_embeddings(
                     track_id, track_uuid, content_generation,
-                    contract_hash, dim, normalization,
+                    dim, normalization,
                     embedding_blob, analyzed_at
                 ) VALUES(
-                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
                     '2026-07-24T00:00:00.000000Z'
                 )
                 """,
@@ -230,9 +183,8 @@ def _insert_track(
                     identity.track_id,
                     identity.track_uuid,
                     identity.content_generation,
-                    contract.contract_hash,
-                    contract.dim,
-                    contract.normalization,
+                    dimension,
+                    "l2",
                     vector.tobytes(),
                 ),
             )
@@ -292,8 +244,8 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
         vectors=vectors,
     )
 
-    mert_contract = current_embedding_analysis_output("mert").contract
-    malformed = np.zeros(mert_contract.dim, dtype="<f4")
+    mert_specification = current_embedding_spec("mert")
+    malformed = np.zeros(mert_specification.dimension, dtype="<f4")
     malformed[0] = 2.0
     database = LibraryDatabase(db_path)
     with database.connect_artifacts() as connection:
@@ -325,7 +277,7 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
     )
 
 
-def test_load_tracks_uses_only_exact_current_muq_contract(
+def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
     tmp_path: Path,
 ) -> None:
     dedup = _load_dedup_module()
@@ -354,40 +306,24 @@ def test_load_tracks_uses_only_exact_current_muq_contract(
         expected_muq,
     )
 
-    current = current_embedding_analysis_output("muq").contract
-    stale = ContractIdentity(
-        analysis_family="muq",
-        output_kind="embedding",
-        model_name="muq-stale-test",
-        model_version="0",
-        dim=current.dim,
-        encoding=current.encoding,
-        normalization=current.normalization,
-    )
     database = LibraryDatabase(db_path)
-    with database.connect() as connection:
-        register_contract(connection, stale)
+    with database.connect_artifacts() as connection:
         connection.execute(
             """
-            UPDATE library_settings
-            SET setting_value = ?,
-                updated_at = '2026-07-24T00:00:00.000000Z'
-            WHERE setting_key = ?
+            UPDATE muq_embeddings
+            SET normalization = 'none'
+            WHERE track_id = 1
             """,
-            (
-                stale.contract_hash,
-                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.muq.embedding",
-            ),
         )
         connection.commit()
 
-    stale_tracks = dedup.load_tracks(
+    invalid_tracks = dedup.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
     )
 
-    assert "muq" not in stale_tracks[0].embeddings
+    assert "muq" not in invalid_tracks[0].embeddings
 
 
 def test_muq_influences_scores_and_disabling_it_restores_legacy_scores(
@@ -1305,8 +1241,8 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
             """
             INSERT INTO sonara_timeline (
                 track_id, track_uuid, content_generation,
-                contract_hash, payload_json, analyzed_at
-            ) VALUES (?, ?, ?, 'sha256:test-timeline', '{}', ?)
+                payload_json, analyzed_at
+            ) VALUES (?, ?, ?, '{}', ?)
             """,
             (
                 duplicate_identity.track_id,
@@ -1319,10 +1255,10 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
             """
             INSERT INTO sonara_fingerprints(
                 track_id, track_uuid, content_generation,
-                contract_hash, fingerprint_version, word_count,
+                fingerprint_version, word_count,
                 byte_order, fingerprint_blob, analyzed_at
             ) VALUES(
-                ?, ?, ?, 'sha256:test-fingerprint', '1', 1,
+                ?, ?, ?, '1', 1,
                 'little', ?, ?
             )
             """,

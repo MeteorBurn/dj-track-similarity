@@ -9,20 +9,12 @@ from pathlib import Path
 import re
 from typing import Any
 
-from .analysis_contracts import ContractIdentity
-from .analysis_models import (
-    AnalysisOutput,
-    classifier_required_outputs_hash,
-    validate_production_contract,
-)
+from .analysis_models import current_embedding_spec
 
 
-CLASSIFIER_MANIFEST_VERSION = 2
-CLASSIFIER_SUPPORTED_MANIFEST_VERSIONS = (CLASSIFIER_MANIFEST_VERSION,)
 CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap", "muq")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
-CLASSIFIER_PUBLICATION_POINTER_VERSION = 1
 CLASSIFIER_PUBLICATION_POINTER_NAME = "current.json"
 CLASSIFIER_PUBLICATION_GENERATIONS_DIR = "generations"
 CLASSIFIER_HYBRID_SIGNAL_ROLES = (
@@ -54,12 +46,6 @@ _OUTPUT_KIND_BY_FEATURE_SOURCE = {
 }
 
 
-class ManifestVersionError(ValueError):
-    """Signal that a classifier artifact requires re-training and re-promotion."""
-
-    status: str = "unsupported"
-
-
 @dataclass(frozen=True)
 class ClassifierArtifactPaths:
     model_path: Path
@@ -82,14 +68,10 @@ class ClassifierManifestSummary:
     feature_set: str | None = None
     feature_names: tuple[str, ...] = ()
     feature_count: int | None = None
-    feature_manifest_hash: str | None = None
-    required_outputs: tuple[AnalysisOutput, ...] = ()
     label_order: tuple[str, ...] = ()
     positive_label: str | None = None
     negative_label: str | None = None
     trained_label_counts: dict[str, int] | None = None
-    manifest_version: int | None = None
-    model_id: str | None = None
     artifact_hash: str | None = None
     promoted_at: str | None = None
     score_semantics: str = CLASSIFIER_SCORE_SEMANTICS
@@ -118,35 +100,14 @@ class ClassifierManifestSummary:
 
     @property
     def required_inputs(self) -> tuple[str, ...]:
-        """Analysis families in the manifest's authoritative source order."""
+        """Analysis families in first-occurrence feature order."""
 
-        return tuple(
-            output.contract.analysis_family for output in self.required_outputs
-        )
-
-    @property
-    def uses_sonara(self) -> bool:
-        return any(source == "sonara" for source in self.required_inputs)
-
-    @property
-    def required_outputs_hash(self) -> str | None:
-        if not self.required_outputs:
-            return None
-        return classifier_required_outputs_hash(self.required_outputs)
-
-    @property
-    def sonara_release_hash(self) -> str | None:
-        releases = {
-            output.contract.release_hash
-            for output in self.required_outputs
-            if output.contract.analysis_family == "sonara"
-        }
-        releases.discard(None)
-        if not releases:
-            return None
-        if len(releases) != 1:
-            return None
-        return next(iter(releases))
+        result: list[str] = []
+        for feature_name in self.feature_names:
+            source, separator, _key = feature_name.partition(":")
+            if separator and source not in result:
+                result.append(source)
+        return tuple(result)
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -165,15 +126,10 @@ class ClassifierManifestSummary:
             "feature_set": self.feature_set,
             "feature_names": list(self.feature_names),
             "feature_count": self.feature_count,
-            "feature_manifest_hash": self.feature_manifest_hash,
-            "required_outputs": _required_outputs_api_payload(self.required_outputs),
-            "required_outputs_hash": self.required_outputs_hash,
             "label_order": list(self.label_order),
             "positive_label": self.positive_label,
             "negative_label": self.negative_label,
             "trained_label_counts": dict(self.trained_label_counts or {}),
-            "manifest_version": self.manifest_version,
-            "model_id": self.model_id,
             "artifact_hash": self.artifact_hash,
             "promoted_at": self.promoted_at,
             "score_semantics": self.score_semantics,
@@ -182,8 +138,6 @@ class ClassifierManifestSummary:
             "calibration": dict(self.calibration or {}),
             "has_calibrated_probability": self.has_calibrated_probability,
             "required_inputs": list(self.required_inputs),
-            "uses_sonara": self.uses_sonara,
-            "sonara_release_hash": self.sonara_release_hash,
             **classifier_hybrid_signal_api_fields(self),
         }
 
@@ -222,9 +176,6 @@ def resolve_classifier_artifact_paths(
         ) from error
     if not isinstance(pointer, Mapping):
         raise ValueError("Classifier publication pointer must contain an object")
-    if pointer.get("publication_version") != CLASSIFIER_PUBLICATION_POINTER_VERSION:
-        raise ValueError("Classifier publication pointer version is unsupported")
-
     generation_id = pointer.get("generation_id")
     if (
         not isinstance(generation_id, str)
@@ -280,30 +231,6 @@ def resolve_classifier_artifact_paths(
     )
 
 
-def classifier_feature_manifest_hash(feature_names: Iterable[str]) -> str:
-    """Hash the canonical JSON representation of an ordered feature-name list."""
-
-    if isinstance(feature_names, (str, bytes, bytearray)):
-        raise TypeError("feature_names must be an iterable of feature-name strings")
-    names = tuple(feature_names)
-    if not names:
-        raise ValueError("feature_names must not be empty")
-    if any(not isinstance(name, str) or not name.strip() for name in names):
-        raise ValueError("feature_names must contain only non-empty strings")
-    if any(name != name.strip() for name in names):
-        raise ValueError("feature_names must not contain surrounding whitespace")
-    if len(set(names)) != len(names):
-        raise ValueError("feature_names must not contain duplicates")
-    payload = json.dumps(
-        list(names),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
-    return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
-
-
 def load_classifier_manifest_summary(
     model_path: str | Path,
     *,
@@ -357,30 +284,13 @@ def load_classifier_manifest_summary(
             artifact_prefix,
             "model.json must contain a JSON object",
         )
-    try:
-        return _parse_manifest_payload(
-            payload,
-            clean_key,
-            clean_model_path,
-            clean_metadata_path,
-            artifact_prefix,
-        )
-    except ManifestVersionError as error:
-        raw_version = payload.get("manifest_version")
-        manifest_version = (
-            raw_version
-            if isinstance(raw_version, int) and not isinstance(raw_version, bool)
-            else None
-        )
-        return ClassifierManifestSummary(
-            classifier_key=clean_key,
-            metadata_path=clean_metadata_path,
-            model_path=clean_model_path,
-            status=error.status,
-            errors=(str(error),),
-            artifact_prefix=artifact_prefix,
-            manifest_version=manifest_version,
-        )
+    return _parse_manifest_payload(
+        payload,
+        clean_key,
+        clean_model_path,
+        clean_metadata_path,
+        artifact_prefix,
+    )
 
 
 def require_scoring_compatible_manifest(
@@ -422,22 +332,15 @@ def classifier_manifest_api_fields(
         "manifest_errors": list(summary.errors),
         "manifest_warnings": list(summary.warnings),
         "is_scoring_compatible": summary.is_scoring_compatible,
-        "manifest_version": summary.manifest_version,
-        "model_id": summary.model_id,
         "artifact_hash": summary.artifact_hash,
         "promoted_at": summary.promoted_at,
         "feature_names": list(summary.feature_names),
-        "feature_manifest_hash": summary.feature_manifest_hash,
-        "required_outputs": _required_outputs_api_payload(summary.required_outputs),
-        "required_outputs_hash": summary.required_outputs_hash,
         "score_semantics": summary.score_semantics,
         "calibration_status": summary.calibration_status,
         "production_status": summary.production_status,
         "calibration": dict(summary.calibration or {}),
         "has_calibrated_probability": summary.has_calibrated_probability,
         "required_inputs": list(summary.required_inputs),
-        "uses_sonara": summary.uses_sonara,
-        "sonara_release_hash": summary.sonara_release_hash,
         **classifier_hybrid_signal_api_fields(summary),
     }
 
@@ -460,22 +363,6 @@ def _parse_manifest_payload(
     metadata_path: Path,
     artifact_prefix: str | None,
 ) -> ClassifierManifestSummary:
-    raw_version = payload.get("manifest_version")
-    if (
-        isinstance(raw_version, bool)
-        or not isinstance(raw_version, int)
-        or raw_version != CLASSIFIER_MANIFEST_VERSION
-    ):
-        if raw_version in (None, 1):
-            raise ManifestVersionError(
-                "Manifest version 1 or an unversioned manifest is no longer "
-                "supported. Re-train and re-promote the classifier."
-            )
-        raise ManifestVersionError(
-            f"Manifest version {raw_version!r} is not supported; expected "
-            f"{CLASSIFIER_MANIFEST_VERSION}. Re-train and re-promote the classifier."
-        )
-
     errors: list[str] = []
     warnings: list[str] = []
     classifier_key = _required_text_field(
@@ -491,7 +378,6 @@ def _parse_manifest_payload(
             f"requested classifier {expected_classifier_key!r}"
         )
 
-    model_id = _required_text_field(payload.get("model_id"), "model_id", errors)
     artifact_hash = _required_sha256(
         payload.get("artifact_hash"),
         "artifact_hash",
@@ -520,26 +406,6 @@ def _parse_manifest_payload(
         errors.append(
             "model.json feature_count must exactly match the ordered feature_names"
         )
-    feature_manifest_hash = (
-        classifier_feature_manifest_hash(feature_names) if feature_names else None
-    )
-    raw_feature_hash = payload.get("feature_manifest_hash")
-    if raw_feature_hash is not None:
-        declared_feature_hash = _required_sha256(
-            raw_feature_hash,
-            "feature_manifest_hash",
-            errors,
-        )
-        if (
-            declared_feature_hash is not None
-            and feature_manifest_hash is not None
-            and declared_feature_hash != feature_manifest_hash
-        ):
-            errors.append(
-                "model.json feature_manifest_hash does not match the canonical "
-                "ordered feature_names"
-            )
-
     label_order = _strict_string_tuple(
         payload.get("label_order"),
         "label_order",
@@ -568,20 +434,9 @@ def _parse_manifest_payload(
     score_semantics = CLASSIFIER_SCORE_SEMANTICS
     calibration_status = "uncalibrated"
     calibration_payload: dict[str, Any] | None = None
-    required_outputs: tuple[AnalysisOutput, ...] = ()
     if not isinstance(production, Mapping):
         errors.append("model.json production must be an object")
     else:
-        if "required_inputs" in production:
-            errors.append(
-                "model.json production.required_inputs is not supported; "
-                "use production.required_outputs"
-            )
-        if "sonara_analysis_signature" in production:
-            errors.append(
-                "model.json production.sonara_analysis_signature is not supported; "
-                "use the canonical SONARA contract in production.required_outputs"
-            )
         score_semantics_value = _required_text_field(
             production.get("score_semantics"),
             "production.score_semantics",
@@ -593,10 +448,6 @@ def _parse_manifest_payload(
                 errors.append(
                     f"Unsupported classifier score semantics: {score_semantics!r}"
                 )
-        required_outputs = _production_required_outputs(
-            production.get("required_outputs"),
-            errors,
-        )
         calibration = production.get("calibration")
         if calibration is None:
             warnings.append(
@@ -611,15 +462,9 @@ def _parse_manifest_payload(
             )
             calibration_payload = dict(calibration)
 
-    feature_sources = _feature_sources(feature_names, errors)
-    _validate_required_output_order(
-        feature_sources=feature_sources,
-        required_outputs=required_outputs,
-        errors=errors,
-    )
+    _feature_sources(feature_names, errors)
     _validate_embedding_feature_indices(
         feature_names=feature_names,
-        required_outputs=required_outputs,
         errors=errors,
     )
 
@@ -646,14 +491,10 @@ def _parse_manifest_payload(
         feature_set=feature_set,
         feature_names=feature_names,
         feature_count=feature_count,
-        feature_manifest_hash=feature_manifest_hash,
-        required_outputs=required_outputs,
         label_order=label_order,
         positive_label=positive_label,
         negative_label=negative_label,
         trained_label_counts=trained_label_counts,
-        manifest_version=raw_version,
-        model_id=model_id,
         artifact_hash=artifact_hash,
         promoted_at=_optional_text(payload.get("promoted_at")),
         score_semantics=score_semantics,
@@ -662,75 +503,6 @@ def _parse_manifest_payload(
         hybrid_signal=hybrid_signal,
         hybrid_signal_source="manifest" if hybrid_signal is not None else None,
     )
-
-
-def _production_required_outputs(
-    value: object,
-    errors: list[str],
-) -> tuple[AnalysisOutput, ...]:
-    if not isinstance(value, list) or not value:
-        errors.append(
-            "model.json production.required_outputs must be a non-empty ordered list"
-        )
-        return ()
-
-    outputs: list[AnalysisOutput] = []
-    for index, raw_output in enumerate(value):
-        field_name = f"production.required_outputs[{index}]"
-        if not isinstance(raw_output, Mapping):
-            errors.append(f"model.json {field_name} must be an object")
-            continue
-        actual_keys = set(raw_output)
-        expected_keys = {"contract_hash", "canonical_payload"}
-        if actual_keys != expected_keys:
-            missing = sorted(expected_keys - actual_keys)
-            extra = sorted(actual_keys - expected_keys)
-            errors.append(
-                f"model.json {field_name} keys must be exactly "
-                f"contract_hash and canonical_payload; missing={missing}, extra={extra}"
-            )
-            continue
-        contract_hash = _required_sha256(
-            raw_output.get("contract_hash"),
-            f"{field_name}.contract_hash",
-            errors,
-        )
-        canonical_payload = raw_output.get("canonical_payload")
-        if not isinstance(canonical_payload, Mapping):
-            errors.append(
-                f"model.json {field_name}.canonical_payload must be an object"
-            )
-            continue
-        try:
-            canonical_json = json.dumps(
-                dict(canonical_payload),
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            )
-            contract = ContractIdentity.from_canonical_payload_json(canonical_json)
-            validate_production_contract(contract)
-        except (TypeError, ValueError) as error:
-            errors.append(
-                f"model.json {field_name}.canonical_payload is not a valid "
-                f"production contract: {error}"
-            )
-            continue
-        if contract_hash is not None and contract_hash != contract.contract_hash:
-            errors.append(
-                f"model.json {field_name}.contract_hash does not match "
-                "canonical_payload"
-            )
-            continue
-        outputs.append(AnalysisOutput(contract))
-
-    keys = [output.key for output in outputs]
-    if len(keys) != len(set(keys)):
-        errors.append(
-            "model.json production.required_outputs must not repeat an output"
-        )
-    return tuple(outputs)
 
 
 def _feature_sources(
@@ -757,41 +529,14 @@ def _feature_sources(
     return tuple(sources)
 
 
-def _validate_required_output_order(
-    *,
-    feature_sources: Sequence[str],
-    required_outputs: Sequence[AnalysisOutput],
-    errors: list[str],
-) -> None:
-    if not feature_sources or not required_outputs:
-        return
-    expected = tuple(
-        (source, _OUTPUT_KIND_BY_FEATURE_SOURCE[source]) for source in feature_sources
-    )
-    actual = tuple(output.key for output in required_outputs)
-    if actual != expected:
-        errors.append(
-            "model.json production.required_outputs must exactly follow the "
-            "first-occurrence feature source order; "
-            f"expected={list(expected)!r}, actual={list(actual)!r}"
-        )
-
-
 def _validate_embedding_feature_indices(
     *,
     feature_names: Sequence[str],
-    required_outputs: Sequence[AnalysisOutput],
     errors: list[str],
 ) -> None:
-    contracts = {
-        output.contract.analysis_family: output.contract for output in required_outputs
-    }
     for feature_name in feature_names:
         source, separator, key = feature_name.partition(":")
         if not separator or source == "sonara":
-            continue
-        contract = contracts.get(source)
-        if contract is None:
             continue
         if not key.isdigit() or str(int(key)) != key:
             errors.append(
@@ -800,23 +545,12 @@ def _validate_embedding_feature_indices(
             )
             continue
         index = int(key)
-        if contract.dim is None or index >= contract.dim:
+        dimension = current_embedding_spec(source).dimension
+        if index >= dimension:
             errors.append(
                 f"model.json embedding feature {feature_name!r} is outside "
-                f"the declared contract dimension {contract.dim!r}"
+                f"the current {source} dimension {dimension}"
             )
-
-
-def _required_outputs_api_payload(
-    outputs: Sequence[AnalysisOutput],
-) -> list[dict[str, object]]:
-    return [
-        {
-            "contract_hash": output.contract_hash,
-            "canonical_payload": output.contract.canonical_payload,
-        }
-        for output in outputs
-    ]
 
 
 def _invalid_manifest(

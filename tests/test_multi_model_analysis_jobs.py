@@ -62,7 +62,9 @@ class _Repository:
         selected = tuple(outputs)
         self.events.append(("register", selected))
         self.active_by_key.update({output.key: output for output in selected})
-        return tuple(output.contract_hash for output in selected)
+        return tuple(
+            f"{output.analysis_family}/{output.output_kind}" for output in selected
+        )
 
     def active_analysis_output(
         self,

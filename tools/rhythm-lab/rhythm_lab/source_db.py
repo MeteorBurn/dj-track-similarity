@@ -13,16 +13,8 @@ import sqlite3
 
 import numpy as np
 
-from dj_track_similarity.analysis_contracts import (
-    ContractIdentity,
-)
-from dj_track_similarity.analysis_model_runners import (
-    current_embedding_analysis_output,
-)
 from dj_track_similarity.analysis_models import (
-    ACTIVE_CONTRACT_SETTING_PREFIX,
-    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-    validate_production_contract,
+    current_embedding_spec,
 )
 from dj_track_similarity.db_artifacts import validate_artifacts_sidecar_schema
 from dj_track_similarity.db_connection import connect_database, write_lock_for_path
@@ -40,7 +32,7 @@ EmbeddingFamily: TypeAlias = Literal["maest", "mert", "muq", "clap"]
 AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert", "muq", "clap"]
 OutputKind: TypeAlias = Literal["core", "analysis", "embedding"]
 FeatureSource: TypeAlias = Literal["sonara", "mert", "maest", "clap", "muq"]
-FeatureStateStatus: TypeAlias = Literal["current", "missing", "stale"]
+FeatureStateStatus: TypeAlias = Literal["current", "missing"]
 
 _EMBEDDING_TABLES: Mapping[EmbeddingFamily, str] = MappingProxyType(
     {
@@ -129,17 +121,15 @@ FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
 
 @dataclass(frozen=True)
 class SourceFeatureState:
-    """Current-contract availability for one classifier feature source."""
+    """Current-generation availability for one classifier feature source."""
 
     status: FeatureStateStatus
     reason: str | None
-    contract_hash: str | None
 
     def payload(self) -> dict[str, object]:
         return {
             "status": self.status,
             "reason": self.reason,
-            "contract_hash": self.contract_hash,
         }
 
 
@@ -216,9 +206,7 @@ class SourceTrack:
     file_tags: FileTags | None
     liked: bool
     sonara_features: SourceSonaraFeatures | None
-    sonara_contract: ContractIdentity | None
     maest: MaestAnalysis | None
-    maest_contract: ContractIdentity | None
     analysis_coverage: AnalysisCoverage
     feature_status: Mapping[str, SourceFeatureState] = field(
         default_factory=lambda: MappingProxyType({})
@@ -227,17 +215,18 @@ class SourceTrack:
 
 @dataclass(frozen=True)
 class SourceEmbeddingMatrix:
-    """One ordered, current-generation embedding matrix and its exact contract."""
+    """One ordered, structurally valid current-generation embedding matrix."""
 
     family: EmbeddingFamily
-    contract: ContractIdentity
+    dimension: int
+    normalization: str
     tracks: tuple[SourceTrack, ...]
     matrix: np.ndarray
     not_ready_track_ids: tuple[int, ...]
 
 
 class SourceDatabase:
-    """Mostly read-only Rhythm Lab view over one bound v7 storage pair."""
+    """Mostly read-only Rhythm Lab view over one bound storage pair."""
 
     def __init__(
         self,
@@ -323,28 +312,12 @@ class SourceDatabase:
             connection.close()
             raise
 
-    def active_contracts(self) -> Mapping[SourceOutput, ContractIdentity]:
-        with closing(self.connect()) as connection:
-            active = _active_contracts(connection)
-        return MappingProxyType(
-            {
-                output: identity
-                for output in SOURCE_OUTPUTS
-                if (identity := active.get(output.key)) is not None
-            }
-        )
-
-    def active_contract(self, output: SourceOutput) -> ContractIdentity | None:
-        if not isinstance(output, SourceOutput):
-            raise TypeError("output must be a SourceOutput")
-        return self.active_contracts().get(output)
-
     def feature_states(self) -> Mapping[str, SourceFeatureState]:
-        """Return five fail-closed feature-source contract states."""
+        """Return current-generation availability for all feature sources."""
 
         with closing(self.connect()) as connection:
-            _, output_states = _contract_snapshot(connection)
-        return _feature_source_states(output_states)
+            counts = _feature_counts(connection)
+        return _feature_source_states(counts)
 
     def count_tracks(self) -> int:
         with closing(self.connect()) as connection:
@@ -359,46 +332,13 @@ class SourceDatabase:
 
     def count_sonara_features(self) -> int:
         with closing(self.connect()) as connection:
-            active = _active_contracts(connection)
-            contract = active.get(SONARA_CORE_OUTPUT.key)
-            if contract is None:
-                return 0
-            return _count_sonara_features(connection, contract)
+            return _count_sonara_features(connection)
 
     def feature_counts(self) -> Mapping[str, int]:
-        """Count all five current feature sources under one contract snapshot."""
+        """Count structurally valid current-generation feature rows."""
 
         with closing(self.connect()) as connection:
-            active = _active_contracts(connection)
-            sonara_contract = active.get(SONARA_CORE_OUTPUT.key)
-            counts = {
-                "sonara": (
-                    _count_sonara_features(connection, sonara_contract)
-                    if sonara_contract is not None
-                    else 0
-                )
-            }
-            counts.update(
-                {
-                    family: (
-                        len(
-                            _ready_embedding_vectors(
-                                connection,
-                                family=family,
-                                contract=contract,
-                            )
-                        )
-                        if (
-                            contract := active.get(
-                                EMBEDDING_OUTPUTS[family].key
-                            )
-                        )
-                        is not None
-                        else 0
-                    )
-                    for family in ("mert", "maest", "clap", "muq")
-                }
-            )
+            counts = _feature_counts(connection)
         return MappingProxyType(counts)
 
     def count_liked_tracks(self) -> int:
@@ -450,14 +390,9 @@ class SourceDatabase:
     def embedding_track_ids(self, family: EmbeddingFamily) -> set[int]:
         clean_family = _embedding_family(family)
         with closing(self.connect()) as connection:
-            active = _active_contracts(connection)
-            contract = active.get(EMBEDDING_OUTPUTS[clean_family].key)
-            if contract is None:
-                return set()
             vectors = _ready_embedding_vectors(
                 connection,
                 family=clean_family,
-                contract=contract,
             )
         return set(vectors)
 
@@ -466,20 +401,13 @@ class SourceDatabase:
         family: EmbeddingFamily,
     ) -> SourceEmbeddingMatrix:
         clean_family = _embedding_family(family)
+        spec = current_embedding_spec(clean_family)
         with closing(self.connect()) as connection:
-            active, contract_states = _contract_snapshot(connection)
-            contract = active.get(EMBEDDING_OUTPUTS[clean_family].key)
-            if contract is None:
-                raise SourceDataNotReadyError(
-                    f"No active {clean_family}/embedding ContractIdentity"
-                )
             tracks = tuple(
                 sorted(
                     _load_tracks(
                         connection,
                         catalog_uuid=self.catalog_uuid,
-                        active=active,
-                        contract_states=contract_states,
                     ),
                     key=lambda track: track.track_id,
                 )
@@ -487,7 +415,6 @@ class SourceDatabase:
             vectors = _ready_embedding_vectors(
                 connection,
                 family=clean_family,
-                contract=contract,
                 track_ids=[track.track_id for track in tracks],
             )
 
@@ -499,12 +426,12 @@ class SourceDatabase:
                 [vectors[track.track_id] for track in ready_tracks]
             ).astype(np.float32, copy=False)
         else:
-            assert contract.dim is not None
-            matrix = np.empty((0, contract.dim), dtype=np.float32)
+            matrix = np.empty((0, spec.dimension), dtype=np.float32)
         matrix.setflags(write=False)
         return SourceEmbeddingMatrix(
             family=clean_family,
-            contract=contract,
+            dimension=spec.dimension,
+            normalization=spec.normalization,
             tracks=ready_tracks,
             matrix=matrix,
             not_ready_track_ids=tuple(
@@ -628,13 +555,6 @@ class SourceDatabase:
 
         with closing(self.connect()) as connection:
             _attach_labels(connection, labels_path)
-            active, contract_states = _contract_snapshot(connection)
-            params["sonara_contract_hash"] = _contract_hash_or_unavailable(
-                active.get(SONARA_CORE_OUTPUT.key)
-            )
-            params["maest_contract_hash"] = _contract_hash_or_unavailable(
-                active.get(MAEST_ANALYSIS_OUTPUT.key)
-            )
             collection_join = ""
             if collection_id is not None:
                 _require_collection_identity_schema(connection)
@@ -688,8 +608,6 @@ class SourceDatabase:
                     connection,
                     catalog_uuid=self.catalog_uuid,
                     track_ids=[int(row["track_id"]) for row in rows],
-                    active=active,
-                    contract_states=contract_states,
                 )
             }
             total = _page_total(
@@ -765,13 +683,6 @@ class SourceDatabase:
 
         with closing(self.connect()) as connection:
             _attach_labels(connection, labels_path)
-            active, contract_states = _contract_snapshot(connection)
-            params["sonara_contract_hash"] = _contract_hash_or_unavailable(
-                active.get(SONARA_CORE_OUTPUT.key)
-            )
-            params["maest_contract_hash"] = _contract_hash_or_unavailable(
-                active.get(MAEST_ANALYSIS_OUTPUT.key)
-            )
             where_sql = _prediction_page_filter_sql(
                 params=params,
                 query=query,
@@ -807,8 +718,6 @@ class SourceDatabase:
                     connection,
                     catalog_uuid=self.catalog_uuid,
                     track_ids=current_ids,
-                    active=active,
-                    contract_states=contract_states,
                 )
             }
             total = _page_total(
@@ -875,171 +784,7 @@ def _readonly_connection(path: Path) -> sqlite3.Connection:
         raise
 
 
-def _active_contracts(
-    connection: sqlite3.Connection,
-) -> dict[tuple[str, str], ContractIdentity]:
-    active, _ = _contract_snapshot(connection)
-    return active
-
-
-def _contract_snapshot(
-    connection: sqlite3.Connection,
-) -> tuple[
-    dict[tuple[str, str], ContractIdentity],
-    dict[tuple[str, str], SourceFeatureState],
-]:
-    settings = {
-        str(row["setting_key"]): str(row["setting_value"])
-        for row in connection.execute(
-            "SELECT setting_key, setting_value FROM library_settings"
-        )
-    }
-    active_release = settings.get(SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY)
-    selected_hashes = tuple(
-        dict.fromkeys(
-            contract_hash
-            for output in SOURCE_OUTPUTS
-            if (
-                contract_hash := settings.get(
-                    f"{ACTIVE_CONTRACT_SETTING_PREFIX}."
-                    f"{output.analysis_family}.{output.output_kind}"
-                )
-            )
-        )
-    )
-    registered = _registered_contracts(connection, selected_hashes)
-    active: dict[tuple[str, str], ContractIdentity] = {}
-    states: dict[tuple[str, str], SourceFeatureState] = {}
-    for output in SOURCE_OUTPUTS:
-        setting_key = (
-            f"{ACTIVE_CONTRACT_SETTING_PREFIX}."
-            f"{output.analysis_family}.{output.output_kind}"
-        )
-        contract_hash = settings.get(setting_key)
-        if contract_hash is None:
-            states[output.key] = SourceFeatureState(
-                status="missing",
-                reason=(
-                    f"No active {output.analysis_family}/{output.output_kind} "
-                    "contract is registered."
-                ),
-                contract_hash=None,
-            )
-            continue
-        identity = registered.get(contract_hash)
-        if identity is None:
-            raise SourceDatabaseIntegrityError(
-                f"Active contract is absent from the registry for {output.key}"
-            )
-        if (identity.analysis_family, identity.output_kind) != output.key:
-            raise SourceDatabaseIntegrityError(
-                "Active contract setting points at another family/output: "
-                f"{output.key}"
-            )
-        if (
-            identity.output_kind == "embedding"
-            and identity.analysis_family in {"maest", "mert", "muq", "clap"}
-        ):
-            current = current_embedding_analysis_output(identity.analysis_family)
-            if (
-                identity.contract_hash != current.contract_hash
-                or identity.canonical_payload_json
-                != current.contract.canonical_payload_json
-            ):
-                states[output.key] = SourceFeatureState(
-                    status="stale",
-                    reason=(
-                        f"Active {output.analysis_family}/embedding contract "
-                        "does not match the current runtime contract."
-                    ),
-                    contract_hash=identity.contract_hash,
-                )
-                continue
-        if identity.analysis_family == "sonara":
-            if active_release is None or identity.release_hash != active_release:
-                states[output.key] = SourceFeatureState(
-                    status="stale",
-                    reason=(
-                        "Active SONARA contract is not bound to the active "
-                        "SONARA release."
-                    ),
-                    contract_hash=identity.contract_hash,
-                )
-                continue
-        try:
-            validate_production_contract(identity)
-        except ValueError as error:
-            raise SourceDatabaseIntegrityError(
-                f"Active contract is not a complete production identity: {output.key}"
-            ) from error
-        active[output.key] = identity
-        states[output.key] = SourceFeatureState(
-            status="current",
-            reason=None,
-            contract_hash=identity.contract_hash,
-        )
-    return active, states
-
-
-def _registered_contracts(
-    connection: sqlite3.Connection,
-    contract_hashes: Iterable[str],
-) -> dict[str, ContractIdentity]:
-    """Load the small active-contract set with one validated registry query."""
-
-    selected = tuple(dict.fromkeys(str(value) for value in contract_hashes))
-    if not selected:
-        return {}
-    placeholders = ", ".join("?" for _ in selected)
-    rows = connection.execute(
-        f"""
-        SELECT contract_hash, analysis_family, output_kind, model_name,
-               model_version, release_hash, canonical_payload_json
-        FROM contracts
-        WHERE contract_hash IN ({placeholders})
-        """,
-        selected,
-    ).fetchall()
-    result: dict[str, ContractIdentity] = {}
-    for row in rows:
-        stored_hash = str(row["contract_hash"])
-        try:
-            identity = ContractIdentity.from_canonical_payload_json(
-                str(row["canonical_payload_json"])
-            )
-        except Exception as error:
-            raise SourceDatabaseIntegrityError(
-                f"Active contract registry row is invalid: {stored_hash}"
-            ) from error
-        if stored_hash != identity.contract_hash:
-            raise SourceDatabaseIntegrityError(
-                f"Active contract fails its registry self-hash: {stored_hash}"
-            )
-        stored_columns = (
-            str(row["analysis_family"]),
-            str(row["output_kind"]),
-            str(row["model_name"]),
-            None if row["model_version"] is None else str(row["model_version"]),
-            None if row["release_hash"] is None else str(row["release_hash"]),
-        )
-        expected_columns = (
-            identity.analysis_family,
-            identity.output_kind,
-            identity.model_name,
-            identity.model_version,
-            identity.release_hash,
-        )
-        if stored_columns != expected_columns:
-            raise SourceDatabaseIntegrityError(
-                "Active contract registry columns do not match the canonical "
-                f"payload: {stored_hash}"
-            )
-        result[stored_hash] = identity
-    return result
-
-
 _SONARA_SELECT = """
-    s.contract_hash AS sonara_contract_hash,
     s.detected_bpm AS sonara_detected_bpm,
     s.raw_bpm AS sonara_raw_bpm,
     s.bpm_confidence AS sonara_bpm_confidence,
@@ -1122,7 +867,6 @@ def _base_track_query(id_clause: str) -> str:
             ft.tags_read_at,
             l.track_id IS NOT NULL AS liked,
             {_SONARA_SELECT},
-            ms.contract_hash AS maest_contract_hash,
             ms.syncopated_rhythm AS maest_syncopated_rhythm,
             ms.genres_json AS maest_genres_json,
             ms.analyzed_at AS maest_analyzed_at
@@ -1132,11 +876,9 @@ def _base_track_query(id_clause: str) -> str:
         LEFT JOIN sonara AS s
           ON s.track_id = t.track_id
          AND s.content_generation = t.content_generation
-         AND s.contract_hash = ?
         LEFT JOIN maest_scores AS ms
           ON ms.track_id = t.track_id
          AND ms.content_generation = t.content_generation
-         AND ms.contract_hash = ?
         WHERE t.missing_since IS NULL
           {id_clause}
         ORDER BY COALESCE(ft.artist, ''), COALESCE(ft.title, ''), t.file_path,
@@ -1149,27 +891,10 @@ def _load_tracks(
     *,
     catalog_uuid: str,
     track_ids: Iterable[int] | None = None,
-    active: Mapping[tuple[str, str], ContractIdentity] | None = None,
-    contract_states: Mapping[
-        tuple[str, str], SourceFeatureState
-    ] | None = None,
 ) -> tuple[SourceTrack, ...]:
-    if active is None or contract_states is None:
-        snapshot_active, snapshot_states = _contract_snapshot(connection)
-        active_contracts = dict(active or snapshot_active)
-        output_states = dict(contract_states or snapshot_states)
-    else:
-        active_contracts = dict(active)
-        output_states = dict(contract_states)
-    sonara_contract = active_contracts.get(SONARA_CORE_OUTPUT.key)
-    maest_contract = active_contracts.get(MAEST_ANALYSIS_OUTPUT.key)
-    query_params = (
-        _contract_hash_or_unavailable(sonara_contract),
-        _contract_hash_or_unavailable(maest_contract),
-    )
     rows: list[sqlite3.Row] = []
     if track_ids is None:
-        rows.extend(connection.execute(_base_track_query(""), query_params))
+        rows.extend(connection.execute(_base_track_query("")))
     else:
         clean_ids = list(dict.fromkeys(_positive_track_id(value) for value in track_ids))
         for start in range(0, len(clean_ids), _READ_CHUNK_SIZE):
@@ -1178,7 +903,7 @@ def _load_tracks(
             rows.extend(
                 connection.execute(
                     _base_track_query(f"AND t.track_id IN ({placeholders})"),
-                    (*query_params, *chunk),
+                    chunk,
                 )
             )
 
@@ -1188,21 +913,24 @@ def _load_tracks(
             _ready_embedding_vectors(
                 connection,
                 family=family,
-                contract=contract,
                 track_ids=selected_ids,
             )
         )
-        for family, output in EMBEDDING_OUTPUTS.items()
-        if (contract := active_contracts.get(output.key)) is not None
+        for family in EMBEDDING_OUTPUTS
     }
+    source_counts = {
+        "sonara": sum(
+            _sonara_features_from_row(row) is not None for row in rows
+        ),
+        **{family: len(ready_embeddings[family]) for family in ready_embeddings},
+    }
+    source_states = _feature_source_states(source_counts)
     result = tuple(
         _source_track_from_row(
             row,
             catalog_uuid=catalog_uuid,
-            sonara_contract=sonara_contract,
-            maest_contract=maest_contract,
             ready_embeddings=ready_embeddings,
-            contract_states=output_states,
+            source_states=source_states,
         )
         for row in rows
     )
@@ -1216,16 +944,12 @@ def _source_track_from_row(
     row: sqlite3.Row,
     *,
     catalog_uuid: str,
-    sonara_contract: ContractIdentity | None,
-    maest_contract: ContractIdentity | None,
     ready_embeddings: Mapping[str, set[int]],
-    contract_states: Mapping[tuple[str, str], SourceFeatureState],
+    source_states: Mapping[str, SourceFeatureState],
 ) -> SourceTrack:
     track_id = int(row["track_id"])
     sonara = _sonara_features_from_row(row)
     maest = _maest_from_row(row)
-    sonara_identity = sonara_contract if sonara is not None else None
-    maest_identity = maest_contract if maest is not None else None
     coverage = AnalysisCoverage(
         sonara_core=sonara is not None,
         maest_analysis=maest is not None,
@@ -1249,13 +973,11 @@ def _source_track_from_row(
         file_tags=_file_tags_from_row(row),
         liked=bool(row["liked"]),
         sonara_features=sonara,
-        sonara_contract=sonara_identity,
         maest=maest,
-        maest_contract=maest_identity,
         analysis_coverage=coverage,
         feature_status=_track_feature_states(
             coverage,
-            _feature_source_states(contract_states),
+            source_states,
         ),
     )
 
@@ -1331,7 +1053,7 @@ _SONARA_FLOAT_FIELDS = (
 def _sonara_features_from_row(
     row: sqlite3.Row,
 ) -> SourceSonaraFeatures | None:
-    if row["sonara_contract_hash"] is None:
+    if row["sonara_analyzed_at"] is None:
         return None
     mfcc = _float_tuple(row["sonara_mfcc_mean_blob"], 13)
     chroma = _float_tuple(row["sonara_chroma_mean_blob"], 12)
@@ -1418,7 +1140,7 @@ def _sonara_features_from_row(
 
 
 def _maest_from_row(row: sqlite3.Row) -> MaestAnalysis | None:
-    if row["maest_contract_hash"] is None:
+    if row["maest_analyzed_at"] is None:
         return None
     raw_syncopated = row["maest_syncopated_rhythm"]
     return MaestAnalysis(
@@ -1434,13 +1156,12 @@ def _ready_embedding_vectors(
     connection: sqlite3.Connection,
     *,
     family: EmbeddingFamily,
-    contract: ContractIdentity,
     track_ids: Iterable[int] | None = None,
 ) -> dict[int, np.ndarray]:
     table = _EMBEDDING_TABLES[family]
+    spec = current_embedding_spec(family)
     base_clauses = [
         "t.missing_since IS NULL",
-        "a.contract_hash = ?",
         "a.track_uuid = t.track_uuid",
         "a.content_generation = t.content_generation",
     ]
@@ -1458,7 +1179,7 @@ def _ready_embedding_vectors(
     vectors: dict[int, np.ndarray] = {}
     for chunk in chunks:
         clauses = list(base_clauses)
-        params: list[object] = [contract.contract_hash]
+        params: list[object] = []
         if chunk is not None:
             placeholders = ", ".join("?" for _ in chunk)
             clauses.append(f"a.track_id IN ({placeholders})")
@@ -1466,7 +1187,7 @@ def _ready_embedding_vectors(
         rows = connection.execute(
             f"""
             SELECT a.track_id, a.track_uuid, a.content_generation,
-                   a.contract_hash, a.dim, a.normalization, a.embedding_blob
+                   a.dim, a.normalization, a.embedding_blob
             FROM artifacts.{table} AS a
             JOIN tracks AS t ON t.track_id = a.track_id
             WHERE {' AND '.join(clauses)}
@@ -1475,7 +1196,11 @@ def _ready_embedding_vectors(
             params,
         ).fetchall()
         for row in rows:
-            vector = _embedding_vector(row, contract=contract)
+            vector = _embedding_vector(
+                row,
+                dimension=spec.dimension,
+                normalization=spec.normalization,
+            )
             if vector is not None:
                 vectors[int(row["track_id"])] = vector
     return vectors
@@ -1484,23 +1209,22 @@ def _ready_embedding_vectors(
 def _embedding_vector(
     row: sqlite3.Row,
     *,
-    contract: ContractIdentity,
+    dimension: int,
+    normalization: str,
 ) -> np.ndarray | None:
-    if contract.dim is None or contract.normalization is None:
+    if int(row["dim"]) != dimension:
         return None
-    if int(row["dim"]) != contract.dim:
-        return None
-    if str(row["normalization"]) != contract.normalization:
+    if str(row["normalization"]) != normalization:
         return None
     blob = row["embedding_blob"]
     if not isinstance(blob, (bytes, bytearray, memoryview)):
         return None
-    if len(blob) != contract.dim * 4:
+    if len(blob) != dimension * 4:
         return None
     vector = np.frombuffer(blob, dtype="<f4")
-    if vector.shape != (contract.dim,) or not bool(np.all(np.isfinite(vector))):
+    if vector.shape != (dimension,) or not bool(np.all(np.isfinite(vector))):
         return None
-    if contract.normalization == "l2":
+    if normalization == "l2":
         norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
         if not math.isfinite(norm) or not np.isclose(
             norm,
@@ -1519,11 +1243,9 @@ def _track_page_joins(collection_join: str) -> str:
         LEFT JOIN sonara AS s
           ON s.track_id = t.track_id
          AND s.content_generation = t.content_generation
-         AND s.contract_hash = :sonara_contract_hash
         LEFT JOIN maest_scores AS ms
           ON ms.track_id = t.track_id
          AND ms.content_generation = t.content_generation
-         AND ms.contract_hash = :maest_contract_hash
         {collection_join}
         LEFT JOIN labels.classifier_labels AS rl
           ON rl.classifier_key = :classifier_key
@@ -1729,11 +1451,9 @@ def _prediction_page_cte(trained_members: str) -> str:
             LEFT JOIN sonara AS s
               ON s.track_id = t.track_id
              AND s.content_generation = t.content_generation
-             AND s.contract_hash = :sonara_contract_hash
             LEFT JOIN maest_scores AS ms
               ON ms.track_id = t.track_id
              AND ms.content_generation = t.content_generation
-             AND ms.contract_hash = :maest_contract_hash
             LEFT JOIN labels.classifier_labels AS rl
               ON rl.classifier_key = :classifier_key
              AND rl.catalog_uuid = p.catalog_uuid
@@ -1926,22 +1646,19 @@ def _prediction_page_item(
 
 
 def _feature_source_states(
-    contract_states: Mapping[tuple[str, str], SourceFeatureState],
+    counts: Mapping[str, int],
 ) -> Mapping[str, SourceFeatureState]:
     return MappingProxyType(
         {
-            source: contract_states.get(
-                output.key,
-                SourceFeatureState(
-                    status="missing",
-                    reason=(
-                        f"No active {output.analysis_family}/{output.output_kind} "
-                        "contract is registered."
-                    ),
-                    contract_hash=None,
+            source: SourceFeatureState(
+                status="current" if int(counts.get(source, 0)) > 0 else "missing",
+                reason=(
+                    None
+                    if int(counts.get(source, 0)) > 0
+                    else f"No valid current-generation {source.upper()} data is available."
                 ),
             )
-            for source, output in FEATURE_SOURCE_OUTPUTS.items()
+            for source in FEATURE_SOURCE_OUTPUTS
         }
     )
 
@@ -1971,7 +1688,6 @@ def _track_feature_states(
                             f"Current {source.upper()} output is missing for "
                             "this track."
                         ),
-                        contract_hash=state.contract_hash,
                     )
                 )
             )
@@ -1989,7 +1705,6 @@ def _feature_status_payload(
                 source: SourceFeatureState(
                     status="missing",
                     reason="The prediction no longer resolves to current track content.",
-                    contract_hash=None,
                 )
                 for source in FEATURE_SOURCE_OUTPUTS
             }
@@ -2010,7 +1725,6 @@ def _feature_status_payload(
                         if ready
                         else f"Current {source.upper()} output is missing for this track."
                     ),
-                    contract_hash=None,
                 )
                 for source, ready in {
                     "sonara": coverage.sonara_core,
@@ -2058,7 +1772,7 @@ def _require_collection_identity_schema(
     }
     if columns != _COLLECTION_COLUMNS:
         raise SourceDatabaseIntegrityError(
-            "Review collection rows do not use the exact v7 source identity"
+            "Review collection rows do not use the exact source identity"
         )
     collection_columns = {
         str(row["name"])
@@ -2144,7 +1858,6 @@ def _probabilities_from_json(payload: object) -> dict[str, float]:
 
 def _count_sonara_features(
     connection: sqlite3.Connection,
-    contract: ContractIdentity,
 ) -> int:
     rows = connection.execute(
         """
@@ -2155,9 +1868,7 @@ def _count_sonara_features(
           ON t.track_id = s.track_id
          AND t.content_generation = s.content_generation
         WHERE t.missing_since IS NULL
-          AND s.contract_hash = ?
-        """,
-        (contract.contract_hash,),
+        """
     ).fetchall()
     return sum(
         1
@@ -2179,10 +1890,19 @@ def _float_tuple(payload: object, dim: int) -> tuple[float, ...] | None:
     return tuple(float(value) for value in vector)
 
 
-def _contract_hash_or_unavailable(
-    contract: ContractIdentity | None,
-) -> str:
-    return contract.contract_hash if contract is not None else "__not_active__"
+def _feature_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    return {
+        "sonara": _count_sonara_features(connection),
+        **{
+            family: len(
+                _ready_embedding_vectors(
+                    connection,
+                    family=family,
+                )
+            )
+            for family in ("mert", "maest", "clap", "muq")
+        },
+    }
 
 
 def _embedding_family(value: object) -> EmbeddingFamily:

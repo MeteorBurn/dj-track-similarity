@@ -5,7 +5,6 @@ from collections.abc import Sequence
 import numpy as np
 import pytest
 
-from dj_track_similarity.analysis_contracts import FLOAT32_LE_ENCODING
 from dj_track_similarity.analysis_model_runners import (
     current_embedding_analysis_output,
 )
@@ -21,53 +20,10 @@ from dj_track_similarity.library_models import (
     TrackSummary,
 )
 from dj_track_similarity.set_builder import SetBuilderConfig, SmartSetBuilder
-from dj_track_similarity.sonara_contract import (
-    SONARA_CORE_REQUESTED_FEATURES,
-    SONARA_EMBEDDING_REQUESTED_FEATURES,
-    SONARA_EXPECTED_SCHEMA_VERSION,
-    SONARA_EXPECTED_VERSION,
-    SONARA_FINGERPRINT_REQUESTED_FEATURES,
-    SONARA_PROJECT_FEATURE_REVISION,
-    SONARA_TIMELINE_REQUESTED_FEATURES,
-    SonaraContractSet,
-    SonaraRuntimeIdentity,
-    build_sonara_contracts,
-)
 from dj_track_similarity.track_models import TrackIdentity
 
 
 _CATALOG_UUID = "00000000-0000-4000-8000-000000000001"
-
-
-def _sonara_contracts() -> SonaraContractSet:
-    return build_sonara_contracts(
-        SonaraRuntimeIdentity(
-            package_version=SONARA_EXPECTED_VERSION,
-            package_build_id="sha256:" + "5" * 64,
-            schema_version=SONARA_EXPECTED_SCHEMA_VERSION,
-            mode="playlist",
-            sample_rate_hz=22_050,
-            bpm_min=70,
-            bpm_max=180,
-            project_feature_revision=SONARA_PROJECT_FEATURE_REVISION,
-            decoder_backend="sonara-symphonia",
-            execution_path="analyze_batch",
-            analysis_hop_samples=512,
-            vocalness_model_id="sonara-vocalness",
-            vocalness_model_build_id="sha256:" + "6" * 64,
-            embedding_version=2,
-            embedding_dim=48,
-            embedding_normalization="none",
-            embedding_encoding=FLOAT32_LE_ENCODING,
-            fingerprint_version=1,
-            fingerprint_encoding="uint32-le",
-            fingerprint_byte_order="little",
-            core_requested_features=SONARA_CORE_REQUESTED_FEATURES,
-            timeline_requested_features=SONARA_TIMELINE_REQUESTED_FEATURES,
-            embedding_requested_features=SONARA_EMBEDDING_REQUESTED_FEATURES,
-            fingerprint_requested_features=SONARA_FINGERPRINT_REQUESTED_FEATURES,
-        )
-    )
 
 
 def _identity(track_id: int) -> TrackIdentity:
@@ -175,9 +131,8 @@ def _sonara_row(
 
 class _Repository:
     def __init__(self) -> None:
-        contracts = _sonara_contracts()
         self.outputs = {
-            ("sonara", "core"): AnalysisOutput(contracts.core),
+            ("sonara", "core"): AnalysisOutput("sonara", "core"),
             **{
                 (family, "embedding"): current_embedding_analysis_output(family)
                 for family in ("mert", "maest", "muq", "clap")
@@ -268,7 +223,7 @@ class _Repository:
         return tuple(
             AnalysisVectorRow(_target(track_id), output, vector)
             for track_id, vector in self.vectors[
-                output.contract.analysis_family
+                output.analysis_family
             ].items()
         )
 
@@ -294,10 +249,12 @@ def _embedding_vector(
     output: AnalysisOutput,
     values: Sequence[float],
 ) -> np.ndarray:
-    vector = np.zeros(int(output.contract.dim), dtype=np.float32)
+    from dj_track_similarity.analysis_models import current_embedding_spec
+
+    vector = np.zeros(current_embedding_spec(output.analysis_family).dimension, dtype=np.float32)
     source = np.asarray(values, dtype=np.float32)
     if source.ndim != 1 or source.size > vector.size:
-        raise ValueError("fixture embedding values must fit the active contract")
+        raise ValueError("fixture embedding values must fit the current family spec")
     vector[: source.size] = source
     norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
     if norm <= 0.0:

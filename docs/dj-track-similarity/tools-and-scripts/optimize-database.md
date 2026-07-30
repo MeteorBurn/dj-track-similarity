@@ -8,7 +8,7 @@
 python scripts\optimize_database.py --db .\data\library.sqlite
 ```
 
-For a v7 library, the script works with Core and the mandatory adjacent
+For a library bundle, the script works with Core and the mandatory adjacent
 `*.artifacts.sqlite` database. It validates their schemas and shared `catalog_uuid`, checks integrity,
 creates verified backups, and then runs SQLite maintenance on each selected file. It reports the
 paths, backup paths, integrity results, and size before/after.

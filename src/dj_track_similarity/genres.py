@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 import hashlib
-from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 import time
 
@@ -17,16 +16,12 @@ from .analysis_models import (
 )
 from .audio_loader import DecodedAudio, load_audio_mono, torch_compatible_audio
 from .runtime import select_torch_device
-from .verified_assets import VerifiedAssetBinding, bind_verified_file
 
 
 class MaestGenreAdapter:
     embedding_key = "maest"
     adapter_revision = MAEST_ADAPTER_REVISION
     model_name = MAEST_MODEL_NAME
-    package_name = "maest-infer"
-    package_version = "0.1.0"
-    package_wheel_sha256 = "1638ad5b6590ffecadbd9b71f7d4f0e0a9beb5d3862dde0ee447323a1e693e6e"
     checkpoint_release = "v0.0.0-beta"
     checkpoint_filename = "discogs-maest-30s-pw-129e-519l-swa.ckpt"
     checkpoint_url = (
@@ -58,7 +53,7 @@ class MaestGenreAdapter:
         self._embeddings_by_path: dict[str, np.ndarray] = {}
         self.last_batch_timing: dict[str, float | int] = {}
 
-    def contract_parameters(self) -> dict[str, object]:
+    def runtime_parameters(self) -> dict[str, object]:
         return {
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
@@ -77,8 +72,6 @@ class MaestGenreAdapter:
             "score_pooling": "window-mean-then-top-k",
             "dtype": "float32",
             "device_precision": "float32-eval",
-            "loader_package": f"{self.package_name}=={self.package_version}",
-            "package_wheel_sha256": self.package_wheel_sha256,
             "checkpoint_release": self.checkpoint_release,
         }
 
@@ -86,7 +79,7 @@ class MaestGenreAdapter:
         return self.predict_batch([path])[0]
 
     def preflight(self) -> None:
-        """Verify and construct the pinned loader before contract activation."""
+        """Verify model assets and construct the configured loader."""
 
         self._load_model()
 
@@ -217,23 +210,16 @@ class MaestGenreAdapter:
         import torchaudio
         from maest_infer import get_maest
 
-        _require_distribution_version(self.package_name, self.package_version)
         self._torch = torch
         self._torchaudio = torchaudio
         self.device = self._device()
-        binding = _verified_maest_checkpoint(
+        _ensure_verified_maest_checkpoint(
             torch,
             checkpoint_url=self.checkpoint_url,
             checkpoint_filename=self.checkpoint_filename,
             expected_sha256=self.checkpoint_sha256,
         )
-        with binding as verified:
-            model = get_maest(
-                arch=self.model_name,
-                pretrained=False,
-                checkpoint=str(verified.path),
-                checkpoint_swa_weigts=True,
-            )
+        model = get_maest(arch=self.model_name)
         self._model = model.to(self.device).eval()
         _move_maest_runtime_modules(self._model, self.device)
 
@@ -260,31 +246,22 @@ class MaestGenreAdapter:
             vector = np.mean(np.vstack(track_rows), axis=0).astype(np.float32)
             if not np.isfinite(vector).all():
                 raise ValueError(f"MAEST model produced non-finite embeddings: {path}")
-            embeddings_by_path[str(path)] = vector
+            norm = float(np.linalg.norm(vector))
+            if not np.isfinite(norm) or norm <= 0.0:
+                raise ValueError(f"MAEST model produced a zero embedding: {path}")
+            embeddings_by_path[str(path)] = np.asarray(vector / norm, dtype=np.float32)
         return embeddings_by_path
 
 
-def _require_distribution_version(distribution: str, expected: str) -> None:
-    try:
-        actual = distribution_version(distribution)
-    except PackageNotFoundError as error:
-        raise RuntimeError(
-            f"Pinned model loader is not installed: {distribution}=={expected}"
-        ) from error
-    if actual != expected:
-        raise RuntimeError(
-            f"Pinned model loader version mismatch for {distribution}: "
-            f"expected {expected}, got {actual}"
-        )
-
-
-def _verified_maest_checkpoint(
+def _ensure_verified_maest_checkpoint(
     torch_module,
     *,
     checkpoint_url: str,
     checkpoint_filename: str,
     expected_sha256: str,
-) -> VerifiedAssetBinding:
+) -> Path:
+    """Populate and verify the torch-hub cache before maest-infer loads it."""
+
     checkpoint_dir = Path(torch_module.hub.get_dir()) / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = checkpoint_dir / checkpoint_filename
@@ -300,11 +277,7 @@ def _verified_maest_checkpoint(
         expected_sha256=expected_sha256,
         description=checkpoint_url,
     )
-    return bind_verified_file(
-        checkpoint_path,
-        expected_sha256=expected_sha256,
-        description=checkpoint_url,
-    )
+    return checkpoint_path
 
 
 def _verify_checkpoint_sha256(
@@ -316,7 +289,8 @@ def _verify_checkpoint_sha256(
     checkpoint_path = Path(path)
     if not checkpoint_path.is_file():
         raise RuntimeError(
-            f"Pinned checkpoint is unavailable after download: {description} ({checkpoint_path})"
+            "Pinned checkpoint is unavailable after download: "
+            f"{description} ({checkpoint_path})"
         )
     digest = hashlib.sha256()
     with checkpoint_path.open("rb") as checkpoint:

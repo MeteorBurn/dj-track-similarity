@@ -8,11 +8,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .artifact_io import TRAINING_METADATA_VERSION, artifact_sha256
+from .artifact_io import artifact_sha256
 from .features import (
     FEATURE_SETS,
     build_labeled_feature_matrix,
-    required_outputs_payload,
 )
 from .lab_db import RhythmLabDatabase
 from .source_db import SourceDatabaseError
@@ -48,7 +47,6 @@ def train_feature_set(
     classifier_key: str,
     random_state: int = 42,
     calibrate: bool = False,
-    required_outputs: list[dict[str, object]],
 ) -> TrainResult:
     from joblib import dump
     from sklearn.calibration import CalibratedClassifierCV
@@ -59,8 +57,6 @@ def train_feature_set(
     labels = [str(label) for label in labels]
     ordered_labels = [str(label) for label in label_order]
     positive_label = str(positive_label)
-    if not required_outputs:
-        raise ValueError("Training requires exact ordered analysis output contracts")
     _validate_training_data(matrix, labels, label_order=ordered_labels)
 
     train_x, test_x, train_y, test_y = train_test_split(
@@ -106,7 +102,7 @@ def train_feature_set(
         "feature_names": list(feature_names),
         "label_order": ordered_labels,
         "positive_label": positive_label,
-        "required_outputs": required_outputs,
+        "feature_count": int(matrix.shape[1]),
         "created_at": stamp,
     }
     positive_discovery = _positive_discovery_metrics(test_y, positive_probabilities, positive_label=positive_label)
@@ -131,13 +127,12 @@ def train_feature_set(
     dump(payload, artifact_path)
     artifact_hash = artifact_sha256(artifact_path.read_bytes())
     metrics = {
-        "training_metadata_version": TRAINING_METADATA_VERSION,
         "classifier_key": classifier_key,
         "feature_set": feature_set,
         "created_at": stamp,
         "label_order": ordered_labels,
         "positive_label": positive_label,
-        "required_outputs": required_outputs,
+        "feature_names": list(feature_names),
         "trained_rows": len(labels),
         "test_rows": len(test_y),
         "feature_count": int(matrix.shape[1]),
@@ -187,7 +182,6 @@ def benchmark_lab_database(
                 classifier_key=profile.classifier_key,
                 random_state=random_state,
                 calibrate=calibrate,
-                required_outputs=required_outputs_payload(features.required_outputs),
             )
             results[feature_set] = {
                 "status": "trained",

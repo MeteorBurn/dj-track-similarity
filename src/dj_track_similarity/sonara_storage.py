@@ -1,4 +1,4 @@
-"""Pure SONARA result conversion for the typed v7 analysis repository."""
+"""Pure SONARA result conversion for the typed analysis repository."""
 
 from __future__ import annotations
 
@@ -17,11 +17,13 @@ from .analysis_models import (
     SonaraTimelineOutput,
     SonaraWrite,
 )
-from .db_schema_v7 import SonaraRowV7
-from .sonara_contract import (
-    SonaraContractSet,
+from .db_ddl import SonaraRow
+from .sonara_runtime import (
+    SONARA_BPM_MAX,
+    SONARA_BPM_MIN,
+    SONARA_EMBEDDING_DIM,
+    SONARA_UNIT_INTERVAL_EPSILON,
     normalize_sonara_outputs,
-    sonara_requested_features,
 )
 
 
@@ -65,7 +67,6 @@ def prepare_sonara_write(
     candidate: AnalysisCandidate,
     analysis: Mapping[str, object],
     *,
-    contracts: SonaraContractSet,
     outputs: Sequence[str] | None,
     analyzed_at: str,
 ) -> SonaraWrite:
@@ -75,24 +76,11 @@ def prepare_sonara_write(
         raise TypeError("candidate must be an AnalysisCandidate")
     if not isinstance(analysis, Mapping):
         raise TypeError("SONARA analysis result must be a mapping")
-    declared_clamp_fields = frozenset(contracts.runtime.unit_interval_clamp_fields)
-    if declared_clamp_fields != _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS:
-        raise ValueError(
-            "SONARA unit-interval clamp field contract does not match "
-            "the converter implementation"
-        )
     selected = normalize_sonara_outputs(outputs)
-    requested_features = sonara_requested_features(runtime=contracts.runtime)
-    _validate_provenance(
-        analysis,
-        contracts=contracts,
-        requested_features=requested_features,
-    )
 
     core = _sonara_core_row(
         candidate,
         analysis,
-        contracts=contracts,
         analyzed_at=analyzed_at,
     )
 
@@ -100,31 +88,22 @@ def prepare_sonara_write(
     if "timeline" in selected:
         timeline_payload = _timeline_payload(
             analysis,
-            unit_interval_epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            unit_interval_epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         )
         timeline = SonaraTimelineOutput(
-            contract=contracts.timeline,
             payload=timeline_payload,
             analyzed_at=analyzed_at,
         )
 
     similarity_embedding = None
     if "embedding" in selected:
-        embedding_version = _required_positive_int(
-            analysis.get("embedding_version"),
-            "embedding_version",
-        )
-        if embedding_version != contracts.runtime.embedding_version:
-            raise ValueError(
-                "SONARA embedding_version does not match the active runtime contract"
-            )
         vector = _float32_vector(
             analysis.get("embedding"),
-            dim=contracts.runtime.embedding_dim,
+            dim=SONARA_EMBEDDING_DIM,
             field_name="embedding",
         )
         similarity_embedding = EmbeddingOutput(
-            contract=contracts.embedding,
+            family="sonara",
             vector=vector,
             analyzed_at=analyzed_at,
         )
@@ -135,13 +114,8 @@ def prepare_sonara_write(
             analysis.get("fingerprint_version"),
             "fingerprint_version",
         )
-        if fingerprint_version != contracts.runtime.fingerprint_version:
-            raise ValueError(
-                "SONARA fingerprint_version does not match the active runtime contract"
-            )
         words = _decode_fingerprint_words(analysis.get("fingerprint"))
         fingerprint = SonaraFingerprintOutput(
-            contract=contracts.fingerprint,
             fingerprint_version=str(fingerprint_version),
             words=words,
             analyzed_at=analyzed_at,
@@ -149,7 +123,6 @@ def prepare_sonara_write(
 
     return SonaraWrite(
         target=candidate.target,
-        core_contract=contracts.core,
         core=core,
         timeline=timeline,
         similarity_embedding=similarity_embedding,
@@ -157,68 +130,23 @@ def prepare_sonara_write(
     )
 
 
-def _validate_provenance(
-    analysis: Mapping[str, object],
-    *,
-    contracts: SonaraContractSet,
-    requested_features: tuple[str, ...],
-) -> None:
-    provenance = analysis.get("provenance")
-    if not isinstance(provenance, Mapping):
-        raise ValueError("SONARA result provenance must be an object")
-    runtime = contracts.runtime
-    expected = {
-        "schema_version": runtime.schema_version,
-        "sample_rate": runtime.sample_rate_hz,
-        "hop_length": runtime.analysis_hop_samples,
-        "mode": runtime.mode,
-    }
-    for field_name, expected_value in expected.items():
-        if provenance.get(field_name) != expected_value:
-            raise ValueError(
-                f"SONARA provenance {field_name} does not match the active runtime"
-            )
-    raw_features = provenance.get("requested_features")
-    if not isinstance(raw_features, (list, tuple)) or any(
-        not isinstance(feature, str) or not feature.strip() for feature in raw_features
-    ):
-        raise ValueError(
-            "SONARA provenance requested_features must be a list of strings"
-        )
-    if tuple(raw_features) != requested_features:
-        raise ValueError(
-            "SONARA provenance requested_features do not match the requested outputs"
-        )
-    if "vocalness" in requested_features:
-        if provenance.get("vocalness_model_id") != runtime.vocalness_model_id:
-            raise ValueError(
-                "SONARA provenance vocalness_model_id does not match the active runtime"
-            )
-    package_version = provenance.get("package_version")
-    if package_version is not None and package_version != runtime.package_version:
-        raise ValueError(
-            "SONARA provenance package_version does not match the active runtime"
-        )
-
-
 def _sonara_core_row(
     candidate: AnalysisCandidate,
     analysis: Mapping[str, object],
     *,
-    contracts: SonaraContractSet,
     analyzed_at: str,
-) -> SonaraRowV7:
+) -> SonaraRow:
     detected_bpm = _optional_float(
         analysis,
         "bpm",
-        minimum=float(contracts.runtime.bpm_min),
-        maximum=float(contracts.runtime.bpm_max),
+        minimum=float(SONARA_BPM_MIN),
+        maximum=float(SONARA_BPM_MAX),
     )
     raw_bpm = _optional_float(analysis, "bpm_raw", minimum=0.0, strict_minimum=True)
     bpm_confidence = _optional_unit_interval(
         analysis,
         "bpm_confidence",
-        epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+        epsilon=SONARA_UNIT_INTERVAL_EPSILON,
     )
     beat_count = _beat_count(analysis)
     detected_key_name = _optional_text(analysis, "key")
@@ -226,7 +154,7 @@ def _sonara_core_row(
 
     energy_curve = _optional_float32_curve(
         analysis.get("energy_curve"),
-        epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+        epsilon=SONARA_UNIT_INTERVAL_EPSILON,
     )
     if energy_curve is None:
         energy_curve_hop_seconds = _optional_float(
@@ -274,10 +202,9 @@ def _sonara_core_row(
     if intro_end is not None and outro_start is not None and intro_end > outro_start:
         raise ValueError("intro_end_sec must not exceed outro_start_sec")
 
-    return SonaraRowV7(
+    return SonaraRow(
         track_id=candidate.target.track_id,
         content_generation=candidate.target.content_generation,
-        contract_hash=contracts.core.contract_hash,
         detected_bpm=detected_bpm,
         raw_bpm=raw_bpm,
         bpm_confidence=bpm_confidence,
@@ -300,7 +227,7 @@ def _sonara_core_row(
         beat_grid_stability=_optional_unit_interval(
             analysis,
             "grid_stability",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         bpm_candidates_json=_bpm_candidates_json(analysis.get("bpm_candidates")),
         detected_key_name=detected_key_name,
@@ -308,7 +235,7 @@ def _sonara_core_row(
         key_confidence=_optional_unit_interval(
             analysis,
             "key_confidence",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         predominant_chord=_optional_text(analysis, "predominant_chord"),
         chord_changes_per_second=_optional_float(
@@ -320,12 +247,12 @@ def _sonara_core_row(
             analysis.get("key_candidates"),
             detected_key_name=detected_key_name,
             detected_key_camelot=detected_key_camelot,
-            unit_interval_epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            unit_interval_epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         energy_score=_optional_unit_interval(
             analysis,
             "energy",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         energy_level=_optional_int(
             analysis,
@@ -336,22 +263,22 @@ def _sonara_core_row(
         danceability_score=_optional_unit_interval(
             analysis,
             "danceability",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         valence_score=_optional_unit_interval(
             analysis,
             "valence",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         acousticness_score=_optional_unit_interval(
             analysis,
             "acousticness",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         dissonance_score=_optional_unit_interval(
             analysis,
             "dissonance",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         spectral_centroid_hz=_optional_float(
             analysis,
@@ -371,12 +298,12 @@ def _sonara_core_row(
         spectral_flatness=_optional_unit_interval(
             analysis,
             "spectral_flatness_mean",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         zero_crossing_rate=_optional_unit_interval(
             analysis,
             "zero_crossing_rate",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         rms_mean=_optional_float(analysis, "rms_mean", minimum=0.0),
         rms_max=_optional_float(analysis, "rms_max", minimum=0.0),
@@ -419,27 +346,27 @@ def _sonara_core_row(
         vocal_probability=_optional_unit_interval(
             analysis,
             "vocalness",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         mood_happy_score=_optional_unit_interval(
             analysis,
             "mood_happy",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         mood_aggressive_score=_optional_unit_interval(
             analysis,
             "mood_aggressive",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         mood_relaxed_score=_optional_unit_interval(
             analysis,
             "mood_relaxed",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         mood_sad_score=_optional_unit_interval(
             analysis,
             "mood_sad",
-            epsilon=contracts.runtime.unit_interval_clamp_epsilon,
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         mfcc_mean_blob=_float32_blob(analysis.get("mfcc_mean"), 13, "mfcc_mean"),
         chroma_mean_blob=_float32_blob(

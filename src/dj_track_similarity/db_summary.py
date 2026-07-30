@@ -1,7 +1,7 @@
 """Library summary repository export.
 
-The implementation lives with the rest of the v7 read model so every summary
-uses the same active-contract and cross-file identity rules.
+The implementation lives with the rest of the read model so every summary
+uses the same structural and cross-file identity rules.
 """
 
 from __future__ import annotations

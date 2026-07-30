@@ -1,6 +1,6 @@
 import type { Track } from "./api";
 
-export const libraryPageSize = 500;
+export const libraryPageSize = 200;
 
 export type LibraryRequestKeyParts = {
   databaseKey: string;

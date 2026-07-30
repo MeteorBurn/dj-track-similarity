@@ -123,7 +123,7 @@ class ReferenceCompareQuery:
 
 @dataclass(frozen=True, slots=True)
 class ReferenceCompareResult:
-    """One search hit hydrated with the typed v7 library summary."""
+    """One search hit hydrated with the typed library summary."""
 
     target: AnalysisTarget
     track: TrackSummary

@@ -26,7 +26,6 @@ import type {
   HybridSearchPayload,
   HybridSearchResponse,
   LibrarySummary,
-  PrepareSonaraReleaseResult,
   PromotedClassifier,
   ReferenceComparePayload,
   ReferenceCompareResponse,
@@ -45,10 +44,10 @@ import type {
   SonaraMixerWeights,
   SonaraModifiers,
   SonaraOutput,
-  SonaraReleaseStatus,
+  SonaraStatus,
   SonaraSearchMode,
   Track,
-  TrackDetailV7,
+  TrackDetail,
   TrackPage
 } from "./api";
 
@@ -194,7 +193,7 @@ const libraryApi = {
       })
     }),
   track: (trackId: number, options?: { signal?: AbortSignal }) =>
-    request<TrackDetailV7>(`/api/tracks/${trackId}`, {
+    request<TrackDetail>(`/api/tracks/${trackId}`, {
       signal: options?.signal,
     }),
   sonaraTimeline: (trackId: number) => request<SonaraTimeline>(`/api/tracks/${trackId}/sonara-timeline`),
@@ -281,21 +280,7 @@ const helperToolsApi = {
 };
 
 const analysisApi = {
-  sonaraReleaseStatus: () =>
-    request<SonaraReleaseStatus>("/api/analysis/sonara/releases/status"),
-  prepareSonaraRelease: (
-    catalogUuid: string,
-    backupDir: string,
-    confirm: string
-  ) =>
-    request<PrepareSonaraReleaseResult>("/api/analysis/sonara/releases/prepare", {
-      method: "POST",
-      body: JSON.stringify({
-        catalog_uuid: catalogUuid,
-        backup_dir: backupDir,
-        confirm,
-      }),
-    }),
+  sonaraStatus: () => request<SonaraStatus>("/api/analysis/sonara/status"),
   resetAnalysis: (analysisFamily: AnalysisModel) =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",

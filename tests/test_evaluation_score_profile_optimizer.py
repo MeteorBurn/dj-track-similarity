@@ -9,7 +9,7 @@ from dj_track_similarity.evaluation.score_profile_optimizer import (
     build_score_profile_optimizer_report,
 )
 from dj_track_similarity.evaluation.score_profile_optimizer import _ranked_relevances as ranked_relevances_for_optimizer_test
-from evaluation_v7_fixtures import EvaluationRepository
+from evaluation_fixtures import EvaluationRepository
 
 
 def test_optimizer_rejects_insufficient_matched_judged_pairs() -> None:

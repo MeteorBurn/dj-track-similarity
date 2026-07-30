@@ -1,4 +1,4 @@
-"""Background and synchronous jobs for the sole v7 scan repository path."""
+"""Background and synchronous jobs for the sole scan repository path."""
 
 from __future__ import annotations
 

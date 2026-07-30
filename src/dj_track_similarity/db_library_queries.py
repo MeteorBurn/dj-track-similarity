@@ -1,4 +1,4 @@
-"""V7-only library queries over one validated Core/Artifacts bundle."""
+"""Library queries over one validated Core/Artifacts bundle."""
 
 from __future__ import annotations
 
@@ -12,13 +12,10 @@ from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from .analysis_contracts import ContractIdentity, ContractIdentityError
-from .analysis_model_runners import current_embedding_analysis_output
 from .analysis_models import (
-    ACTIVE_CONTRACT_SETTING_PREFIX,
     AnalysisOutput,
-    active_classifier_required_outputs_hashes,
-    validate_production_contract,
+    ClassifierSpecification,
+    OUTPUT_KINDS_BY_FAMILY,
 )
 from .db_artifacts import (
     ArtifactTrackIdentity,
@@ -26,7 +23,6 @@ from .db_artifacts import (
     validate_fingerprint_row_payload,
     validate_timeline_row_payload,
 )
-from .db_schema import SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY
 from .db_tracks import utc_now_text
 from .library_models import (
     AnalysisCoverage,
@@ -91,9 +87,7 @@ _HUMAN_FTS_COLUMNS = (
 @dataclass(frozen=True)
 class _ReadContext:
     catalog_uuid: str
-    active_release_hash: str | None
-    active_contracts: Mapping[tuple[str, str], ContractIdentity]
-    active_classifier_required_outputs_hashes: frozenset[str]
+    outputs: Mapping[tuple[str, str], AnalysisOutput]
 
 
 def _json_ids(track_ids: Iterable[int]) -> str:
@@ -182,6 +176,47 @@ def _parse_probabilities(raw: object) -> Mapping[str, float] | None:
     return probabilities
 
 
+def _parse_feature_names(raw: object) -> tuple[str, ...] | None:
+    values = _json_array(raw, "classifier_scores.feature_names_json")
+    if (
+        not values
+        or any(not isinstance(value, str) or not value.strip() for value in values)
+        or len(set(values)) != len(values)
+    ):
+        return None
+    return tuple(str(value) for value in values)
+
+
+def _classifier_specifications_by_key(
+    values: Sequence[ClassifierSpecification] | None,
+) -> Mapping[str, ClassifierSpecification]:
+    if values is None:
+        return {}
+    result: dict[str, ClassifierSpecification] = {}
+    for value in values:
+        if not isinstance(value, ClassifierSpecification):
+            raise TypeError(
+                "classifier_specifications must contain "
+                "ClassifierSpecification values"
+            )
+        if value.classifier_key in result:
+            raise ValueError(
+                "classifier_specifications must contain unique classifier keys"
+            )
+        result[value.classifier_key] = value
+    return result
+
+
+def _classifier_feature_names_json(
+    specification: ClassifierSpecification,
+) -> str:
+    return json.dumps(
+        list(specification.feature_names),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
 def _fts_query(raw: str) -> str:
     terms = [term for term in raw.split() if term]
     if not terms:
@@ -194,37 +229,6 @@ def _fts_query(raw: str) -> str:
 def _like_pattern(raw: str) -> str:
     escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
-
-
-def _contract_from_row(row: sqlite3.Row) -> ContractIdentity:
-    stored_hash = str(row["contract_hash"])
-    try:
-        identity = ContractIdentity.from_canonical_payload_json(
-            str(row["canonical_payload_json"])
-        )
-    except ContractIdentityError as error:
-        raise RuntimeError(
-            f"contract registry contains invalid payload for {stored_hash}"
-        ) from error
-    if identity.contract_hash != stored_hash:
-        raise RuntimeError(f"contract registry hash mismatch for {stored_hash}")
-    stored_identity = (
-        str(row["analysis_family"]),
-        str(row["output_kind"]),
-        str(row["model_name"]),
-        _optional_text(row["model_version"]),
-        _optional_text(row["release_hash"]),
-    )
-    expected_identity = (
-        identity.analysis_family,
-        identity.output_kind,
-        identity.model_name,
-        identity.model_version,
-        identity.release_hash,
-    )
-    if stored_identity != expected_identity:
-        raise RuntimeError(f"contract registry columns mismatch for {stored_hash}")
-    return identity
 
 
 def _read_context(
@@ -255,74 +259,14 @@ def _read_context(
     ):
         raise RuntimeError("Core and Artifacts do not belong to the selected catalog")
 
-    settings = {
-        str(row["setting_key"]): str(row["setting_value"])
-        for row in core_connection.execute(
-            "SELECT setting_key, setting_value FROM library_settings"
-        )
+    outputs = {
+        (family, kind): AnalysisOutput(family, kind)
+        for family, kinds in OUTPUT_KINDS_BY_FAMILY.items()
+        for kind in kinds
     }
-    contracts_by_hash = {
-        identity.contract_hash: identity
-        for identity in (
-            _contract_from_row(row)
-            for row in core_connection.execute(
-                """
-                SELECT contract_hash, analysis_family, output_kind,
-                       model_name, model_version, release_hash,
-                       canonical_payload_json
-                FROM contracts
-                """
-            )
-        )
-    }
-    active_release = settings.get(SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY)
-    active: dict[tuple[str, str], ContractIdentity] = {}
-    for key, contract_hash in settings.items():
-        prefix = f"{ACTIVE_CONTRACT_SETTING_PREFIX}."
-        if not key.startswith(prefix):
-            continue
-        suffix = key[len(prefix) :]
-        try:
-            family, output_kind = suffix.split(".", maxsplit=1)
-        except ValueError:
-            continue
-        identity = contracts_by_hash.get(contract_hash)
-        if identity is None or (
-            identity.analysis_family,
-            identity.output_kind,
-        ) != (family, output_kind):
-            continue
-        try:
-            validate_production_contract(identity)
-        except ValueError:
-            continue
-        if output_kind == "embedding" and family in {
-            "maest",
-            "mert",
-            "muq",
-            "clap",
-        }:
-            current = current_embedding_analysis_output(family)
-            if (
-                identity.contract_hash != current.contract_hash
-                or identity.canonical_payload_json
-                != current.contract.canonical_payload_json
-            ):
-                continue
-        if family == "sonara" and (
-            active_release is None or identity.release_hash != active_release
-        ):
-            continue
-        active[(family, output_kind)] = identity
     return _ReadContext(
         catalog_uuid=expected_catalog_uuid,
-        active_release_hash=active_release,
-        active_contracts=active,
-        active_classifier_required_outputs_hashes=(
-            active_classifier_required_outputs_hashes(
-                tuple(AnalysisOutput(identity) for identity in active.values())
-            )
-        ),
+        outputs=outputs,
     )
 
 
@@ -373,6 +317,7 @@ def _filter_sql(
     syncopated_only: bool,
     classifier_filters: Sequence[tuple[str, float]],
     primary_classifier: tuple[str, float] | None,
+    classifier_specifications: Mapping[str, ClassifierSpecification],
     include_missing: bool,
 ) -> tuple[str, list[object]]:
     conditions: list[str] = []
@@ -422,8 +367,8 @@ def _filter_sql(
         conditions.append("EXISTS(SELECT 1 FROM likes l WHERE l.track_id = t.track_id)")
 
     if syncopated_only:
-        contract = context.active_contracts.get(("maest", "analysis"))
-        if contract is None:
+        output = context.outputs.get(("maest", "analysis"))
+        if output is None:
             conditions.append("0")
         else:
             conditions.append(
@@ -433,48 +378,37 @@ def _filter_sql(
                     FROM maest_scores ms
                     WHERE ms.track_id = t.track_id
                       AND ms.content_generation = t.content_generation
-                      AND ms.contract_hash = ?
                       AND ms.syncopated_rhythm = 1
                 )
                 """
             )
-            params.append(contract.contract_hash)
 
     if primary_classifier is not None:
         classifier_key, score = primary_classifier
+        specification = classifier_specifications.get(classifier_key)
+        feature_condition = "AND primary_cs.feature_names_json = ?"
+        if specification is None:
+            conditions.append("0")
+            feature_condition = ""
         conditions.append(
-            """
+            f"""
             primary_cs.classifier_key = ?
             AND primary_cs.score >= ?
+            AND primary_cs.track_uuid = t.track_uuid
             AND primary_cs.content_generation = t.content_generation
-            AND primary_cs.required_outputs_hash IN (
-                SELECT CAST(value AS TEXT)
-                FROM json_each(?)
-            )
-            AND (
-                primary_cs.uses_sonara = 0
-                OR (
-                    ? IS NOT NULL
-                    AND primary_cs.sonara_release_hash = ?
-                )
-            )
+            {feature_condition}
             """
         )
-        params.extend(
-            [
-                classifier_key,
-                score,
-                json.dumps(
-                    sorted(context.active_classifier_required_outputs_hashes),
-                    separators=(",", ":"),
-                ),
-                context.active_release_hash,
-                context.active_release_hash,
-            ]
-        )
+        params.extend([classifier_key, score])
+        if specification is not None:
+            params.append(_classifier_feature_names_json(specification))
 
     for classifier_key, score in classifier_filters:
         if primary_classifier is not None and classifier_key == primary_classifier[0]:
+            continue
+        specification = classifier_specifications.get(classifier_key)
+        if specification is None:
+            conditions.append("0")
             continue
         conditions.append(
             """
@@ -484,18 +418,9 @@ def _filter_sql(
                 WHERE cs.track_id = t.track_id
                   AND cs.classifier_key = ?
                   AND cs.score >= ?
+                  AND cs.track_uuid = t.track_uuid
                   AND cs.content_generation = t.content_generation
-                  AND cs.required_outputs_hash IN (
-                      SELECT CAST(value AS TEXT)
-                      FROM json_each(?)
-                  )
-                  AND (
-                      cs.uses_sonara = 0
-                      OR (
-                          ? IS NOT NULL
-                          AND cs.sonara_release_hash = ?
-                      )
-                  )
+                  AND cs.feature_names_json = ?
             )
             """
         )
@@ -503,12 +428,7 @@ def _filter_sql(
             [
                 classifier_key,
                 score,
-                json.dumps(
-                    sorted(context.active_classifier_required_outputs_hashes),
-                    separators=(",", ":"),
-                ),
-                context.active_release_hash,
-                context.active_release_hash,
+                _classifier_feature_names_json(specification),
             ]
         )
 
@@ -578,6 +498,7 @@ def _query_base_rows(
     include_missing: bool,
     limit: int | None,
     offset: int,
+    classifier_specifications: Mapping[str, ClassifierSpecification] | None = None,
 ) -> tuple[list[sqlite3.Row], int]:
     classifier_filters = _validated_classifier_filters(classifier_min_scores)
     primary_classifier = (
@@ -591,6 +512,7 @@ def _query_base_rows(
         syncopated_only=syncopated_only,
         classifier_filters=classifier_filters,
         primary_classifier=primary_classifier,
+        classifier_specifications=classifier_specifications or {},
         include_missing=include_missing,
     )
     from_sql = _base_from_sql(
@@ -642,11 +564,11 @@ def _identity_map(
 def _valid_sonara_core_ids(
     connection: sqlite3.Connection,
     *,
-    contract: ContractIdentity | None,
+    output: AnalysisOutput | None,
     identities: Mapping[int, tuple[str, int]],
     drive_from_requested: bool,
 ) -> set[int]:
-    if contract is None or not identities:
+    if output is None or not identities:
         return set()
     if drive_from_requested:
         rows = connection.execute(
@@ -655,22 +577,20 @@ def _valid_sonara_core_ids(
             FROM json_each(?) requested
             CROSS JOIN sonara stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
-              AND stored.contract_hash = ?
             """,
-            (_json_ids(identities), contract.contract_hash),
+            (_json_ids(identities),),
         ).fetchall()
     else:
         rows = connection.execute(
             f"""
             SELECT {", ".join(SONARA_CORE_COLUMNS)}
             FROM sonara
-            WHERE contract_hash = ?
-              AND track_id IN (
+            WHERE track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
               )
             """,
-            (contract.contract_hash, _json_ids(identities)),
+            (_json_ids(identities),),
         ).fetchall()
     valid_ids: set[int] = set()
     for row in rows:
@@ -681,7 +601,6 @@ def _valid_sonara_core_ids(
         _track_uuid, content_generation = expected_identity
         valid, _reason = validate_sonara_core_row(
             row,
-            expected_contract=contract,
             expected_track_id=track_id,
             expected_content_generation=content_generation,
         )
@@ -693,11 +612,11 @@ def _valid_sonara_core_ids(
 def _valid_maest_analysis_ids(
     connection: sqlite3.Connection,
     *,
-    contract: ContractIdentity | None,
+    output: AnalysisOutput | None,
     identities: Mapping[int, tuple[str, int]],
     drive_from_requested: bool,
 ) -> set[int]:
-    if contract is None or not identities:
+    if output is None or not identities:
         return set()
     if drive_from_requested:
         rows = connection.execute(
@@ -706,22 +625,20 @@ def _valid_maest_analysis_ids(
             FROM json_each(?) requested
             CROSS JOIN maest_scores stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
-              AND stored.contract_hash = ?
             """,
-            (_json_ids(identities), contract.contract_hash),
+            (_json_ids(identities),),
         ).fetchall()
     else:
         rows = connection.execute(
             f"""
             SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
             FROM maest_scores
-            WHERE contract_hash = ?
-              AND track_id IN (
+            WHERE track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
               )
             """,
-            (contract.contract_hash, _json_ids(identities)),
+            (_json_ids(identities),),
         ).fetchall()
     valid_ids: set[int] = set()
     for row in rows:
@@ -732,7 +649,6 @@ def _valid_maest_analysis_ids(
         _track_uuid, content_generation = expected_identity
         valid, _reason = validate_maest_analysis_row(
             row,
-            expected_contract=contract,
             expected_track_id=track_id,
             expected_content_generation=content_generation,
         )
@@ -746,41 +662,39 @@ def _valid_artifact_rows(
     *,
     catalog_uuid: str,
     table: str,
-    contract: ContractIdentity | None,
+    output: AnalysisOutput | None,
     identities: Mapping[int, tuple[str, int]],
     embedding: bool,
     drive_from_requested: bool,
 ) -> dict[int, Mapping[str, object]]:
-    if contract is None or not identities:
+    if output is None or not identities:
         return {}
     embedding_fields = ", dim, normalization, embedding_blob" if embedding else ""
     if drive_from_requested:
         rows = connection.execute(
             f"""
             SELECT stored.track_id, stored.track_uuid, stored.content_generation,
-                   stored.contract_hash, stored.analyzed_at
+                   stored.analyzed_at
                    {embedding_fields}
             FROM json_each(?) requested
             CROSS JOIN {table} stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
-              AND stored.contract_hash = ?
             """,
-            (_json_ids(identities), contract.contract_hash),
+            (_json_ids(identities),),
         )
     else:
         rows = connection.execute(
             f"""
-            SELECT track_id, track_uuid, content_generation, contract_hash,
+            SELECT track_id, track_uuid, content_generation,
                    analyzed_at
                    {embedding_fields}
             FROM {table}
-            WHERE contract_hash = ?
-              AND track_id IN (
+            WHERE track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
               )
             """,
-            (contract.contract_hash, _json_ids(identities)),
+            (_json_ids(identities),),
         )
     valid: dict[int, Mapping[str, object]] = {}
     for row in rows:
@@ -795,9 +709,8 @@ def _valid_artifact_rows(
             content_generation=expected[1],
         )
         is_valid, _reason = validate_embedding_row_payload(
-            family=contract.analysis_family,
+            family=output.analysis_family,
             row=row,
-            expected_contract=contract,
             expected_track=expected_track,
         )
         if not is_valid:
@@ -817,37 +730,35 @@ def _valid_timeline_rows(
     connection: sqlite3.Connection,
     *,
     catalog_uuid: str,
-    contract: ContractIdentity | None,
+    output: AnalysisOutput | None,
     identities: Mapping[int, tuple[str, int]],
     drive_from_requested: bool,
 ) -> dict[int, Mapping[str, object]]:
-    if contract is None or not identities:
+    if output is None or not identities:
         return {}
     if drive_from_requested:
         rows = connection.execute(
             """
             SELECT stored.track_id, stored.track_uuid, stored.content_generation,
-                   stored.contract_hash, stored.payload_json, stored.analyzed_at
+                   stored.payload_json, stored.analyzed_at
             FROM json_each(?) requested
             CROSS JOIN sonara_timeline stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
-              AND stored.contract_hash = ?
             """,
-            (_json_ids(identities), contract.contract_hash),
+            (_json_ids(identities),),
         )
     else:
         rows = connection.execute(
             """
-            SELECT track_id, track_uuid, content_generation, contract_hash,
+            SELECT track_id, track_uuid, content_generation,
                    payload_json, analyzed_at
             FROM sonara_timeline
-            WHERE contract_hash = ?
-              AND track_id IN (
+            WHERE track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
               )
             """,
-            (contract.contract_hash, _json_ids(identities)),
+            (_json_ids(identities),),
         )
     valid: dict[int, Mapping[str, object]] = {}
     for row in rows:
@@ -857,7 +768,6 @@ def _valid_timeline_rows(
             continue
         is_valid, _reason = validate_timeline_row_payload(
             row=row,
-            expected_contract=contract,
             expected_track=ArtifactTrackIdentity(
                 catalog_uuid=catalog_uuid,
                 track_id=track_id,
@@ -874,39 +784,37 @@ def _valid_fingerprint_ids(
     connection: sqlite3.Connection,
     *,
     catalog_uuid: str,
-    contract: ContractIdentity | None,
+    output: AnalysisOutput | None,
     identities: Mapping[int, tuple[str, int]],
     drive_from_requested: bool,
 ) -> set[int]:
-    if contract is None or not identities:
+    if output is None or not identities:
         return set()
     if drive_from_requested:
         rows = connection.execute(
             """
             SELECT stored.track_id, stored.track_uuid, stored.content_generation,
-                   stored.contract_hash, stored.fingerprint_version,
+                   stored.fingerprint_version,
                    stored.word_count, stored.byte_order, stored.fingerprint_blob
             FROM json_each(?) requested
             CROSS JOIN sonara_fingerprints stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
-              AND stored.contract_hash = ?
             """,
-            (_json_ids(identities), contract.contract_hash),
+            (_json_ids(identities),),
         )
     else:
         rows = connection.execute(
             """
-            SELECT track_id, track_uuid, content_generation, contract_hash,
+            SELECT track_id, track_uuid, content_generation,
                    fingerprint_version, word_count, byte_order,
                    fingerprint_blob
             FROM sonara_fingerprints
-            WHERE contract_hash = ?
-              AND track_id IN (
+            WHERE track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
               )
             """,
-            (contract.contract_hash, _json_ids(identities)),
+            (_json_ids(identities),),
         )
     valid: set[int] = set()
     for row in rows:
@@ -916,7 +824,6 @@ def _valid_fingerprint_ids(
             continue
         is_valid, _reason = validate_fingerprint_row_payload(
             row=row,
-            expected_contract=contract,
             expected_track=ArtifactTrackIdentity(
                 catalog_uuid=catalog_uuid,
                 track_id=track_id,
@@ -933,15 +840,15 @@ def _current_classifier_details(
     connection: sqlite3.Connection,
     *,
     identities: Mapping[int, tuple[str, int]],
-    active_release_hash: str | None,
-    active_required_outputs_hashes: frozenset[str],
     drive_from_requested: bool,
+    classifier_specifications: Mapping[str, ClassifierSpecification],
 ) -> dict[int, tuple[ClassifierScoreDetail, ...]]:
-    if not identities or not active_required_outputs_hashes:
+    if not identities:
         return {}
     select_fields = """
         SELECT
             cs.track_id,
+            cs.track_uuid,
             cs.classifier_key,
             cs.score,
             cs.predicted_class,
@@ -949,37 +856,12 @@ def _current_classifier_details(
             cs.confidence,
             cs.probabilities_json,
             cs.feature_set,
-            cs.feature_manifest_hash,
-            cs.required_outputs_hash,
-            cs.model_id,
-            cs.uses_sonara,
-            cs.sonara_release_hash,
+            cs.feature_names_json,
             cs.positive_label,
             cs.analyzed_at
     """
-    current_sql = """
-          AND cs.required_outputs_hash IN (
-              SELECT CAST(value AS TEXT)
-              FROM json_each(?)
-          )
-          AND (
-              cs.uses_sonara = 0
-              OR (
-                  ? IS NOT NULL
-                  AND cs.sonara_release_hash = ?
-              )
-          )
-        ORDER BY cs.track_id, cs.classifier_key
-    """
-    params = (
-        _json_ids(identities),
-        json.dumps(
-            sorted(active_required_outputs_hashes),
-            separators=(",", ":"),
-        ),
-        active_release_hash,
-        active_release_hash,
-    )
+    current_sql = " ORDER BY cs.track_id, cs.classifier_key"
+    params = (_json_ids(identities),)
     if drive_from_requested:
         rows = connection.execute(
             select_fields
@@ -989,6 +871,7 @@ def _current_classifier_details(
             CROSS JOIN classifier_scores cs
             WHERE t.track_id = CAST(requested.value AS INTEGER)
               AND cs.track_id = t.track_id
+              AND cs.track_uuid = t.track_uuid
               AND cs.content_generation = t.content_generation
             """
             + current_sql,
@@ -1001,6 +884,7 @@ def _current_classifier_details(
             FROM classifier_scores cs
             JOIN tracks t ON t.track_id = cs.track_id
             WHERE cs.content_generation = t.content_generation
+              AND cs.track_uuid = t.track_uuid
               AND cs.track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
@@ -1011,6 +895,13 @@ def _current_classifier_details(
         )
     grouped: defaultdict[int, list[ClassifierScoreDetail]] = defaultdict(list)
     for row in rows:
+        feature_names = _parse_feature_names(row["feature_names_json"])
+        if feature_names is None:
+            continue
+        classifier_key = str(row["classifier_key"])
+        specification = classifier_specifications.get(classifier_key)
+        if specification is None or feature_names != specification.feature_names:
+            continue
         probabilities = _parse_probabilities(row["probabilities_json"])
         if probabilities is None:
             continue
@@ -1019,18 +910,14 @@ def _current_classifier_details(
             continue
         grouped[int(row["track_id"])].append(
             ClassifierScoreDetail(
-                classifier_key=str(row["classifier_key"]),
+                classifier_key=classifier_key,
                 score=float(row["score"]),
                 predicted_class=str(row["predicted_class"]),
                 score_bucket=bucket,  # type: ignore[arg-type]
                 confidence=float(row["confidence"]),
                 probabilities=probabilities,
                 feature_set=str(row["feature_set"]),
-                feature_manifest_hash=str(row["feature_manifest_hash"]),
-                required_outputs_hash=str(row["required_outputs_hash"]),
-                model_id=str(row["model_id"]),
-                uses_sonara=bool(row["uses_sonara"]),
-                sonara_release_hash=_optional_text(row["sonara_release_hash"]),
+                feature_names=feature_names,
                 positive_label=str(row["positive_label"]),
                 analyzed_at=str(row["analyzed_at"]),
             )
@@ -1044,6 +931,7 @@ def _coverage_and_classifiers(
     *,
     context: _ReadContext,
     rows: Sequence[sqlite3.Row],
+    classifier_specifications: Mapping[str, ClassifierSpecification] | None = None,
 ) -> tuple[
     dict[int, AnalysisCoverage],
     dict[int, tuple[ClassifierScoreDetail, ...]],
@@ -1053,13 +941,13 @@ def _coverage_and_classifiers(
     drive_from_requested = len(identities) <= 500
     sonara_core = _valid_sonara_core_ids(
         core_connection,
-        contract=context.active_contracts.get(("sonara", "core")),
+        output=context.outputs.get(("sonara", "core")),
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
     maest_analysis = _valid_maest_analysis_ids(
         core_connection,
-        contract=context.active_contracts.get(("maest", "analysis")),
+        output=context.outputs.get(("maest", "analysis")),
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
@@ -1072,7 +960,7 @@ def _coverage_and_classifiers(
             artifacts_connection,
             catalog_uuid=context.catalog_uuid,
             table=table,
-            contract=context.active_contracts.get((family, output_kind)),
+            output=context.outputs.get((family, output_kind)),
             identities=identities,
             embedding=True,
             drive_from_requested=drive_from_requested,
@@ -1080,7 +968,7 @@ def _coverage_and_classifiers(
     timeline = _valid_timeline_rows(
         artifacts_connection,
         catalog_uuid=context.catalog_uuid,
-        contract=context.active_contracts.get(("sonara", "timeline")),
+        output=context.outputs.get(("sonara", "timeline")),
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
@@ -1088,7 +976,7 @@ def _coverage_and_classifiers(
     fingerprint = _valid_fingerprint_ids(
         artifacts_connection,
         catalog_uuid=context.catalog_uuid,
-        contract=context.active_contracts.get(("sonara", "fingerprint")),
+        output=context.outputs.get(("sonara", "fingerprint")),
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
@@ -1109,11 +997,8 @@ def _coverage_and_classifiers(
     classifiers = _current_classifier_details(
         core_connection,
         identities=identities,
-        active_release_hash=context.active_release_hash,
-        active_required_outputs_hashes=(
-            context.active_classifier_required_outputs_hashes
-        ),
         drive_from_requested=drive_from_requested,
+        classifier_specifications=classifier_specifications or {},
     )
     return coverage, classifiers, artifact_rows
 
@@ -1164,12 +1049,14 @@ def _assemble_summaries(
     *,
     context: _ReadContext,
     rows: Sequence[sqlite3.Row],
+    classifier_specifications: Mapping[str, ClassifierSpecification] | None = None,
 ) -> tuple[TrackSummary, ...]:
     coverage, classifiers, _artifact_rows = _coverage_and_classifiers(
         core_connection,
         artifacts_connection,
         context=context,
         rows=rows,
+        classifier_specifications=classifier_specifications,
     )
     return tuple(
         _track_summary(
@@ -1209,9 +1096,9 @@ def _sonara_core(
     *,
     track_id: int,
     generation: int,
-    contract: ContractIdentity | None,
+    output: AnalysisOutput | None,
 ) -> SonaraCore | None:
-    if contract is None:
+    if output is None:
         return None
     row = connection.execute(
         f"""
@@ -1219,15 +1106,13 @@ def _sonara_core(
         FROM sonara
         WHERE track_id = ?
           AND content_generation = ?
-          AND contract_hash = ?
         """,
-        (track_id, generation, contract.contract_hash),
+        (track_id, generation),
     ).fetchone()
     if row is None:
         return None
     valid, _reason = validate_sonara_core_row(
         row,
-        expected_contract=contract,
         expected_track_id=track_id,
         expected_content_generation=generation,
     )
@@ -1304,9 +1189,9 @@ def _maest_analysis(
     *,
     track_id: int,
     generation: int,
-    contract: ContractIdentity | None,
+    output: AnalysisOutput | None,
 ) -> MaestAnalysis | None:
-    if contract is None:
+    if output is None:
         return None
     row = connection.execute(
         f"""
@@ -1314,15 +1199,13 @@ def _maest_analysis(
         FROM maest_scores
         WHERE track_id = ?
           AND content_generation = ?
-          AND contract_hash = ?
         """,
-        (track_id, generation, contract.contract_hash),
+        (track_id, generation),
     ).fetchone()
     if row is None:
         return None
     valid, _reason = validate_maest_analysis_row(
         row,
-        expected_contract=contract,
         expected_track_id=track_id,
         expected_content_generation=generation,
     )
@@ -1337,7 +1220,7 @@ def _maest_analysis(
 
 
 class LibraryQueryRepository:
-    """Read-model mixin for the v7 Core and mandatory Artifacts databases."""
+    """Read-model mixin for the Core and mandatory Artifacts databases."""
 
     catalog_uuid: str
     _write_lock: threading.RLock
@@ -1367,7 +1250,11 @@ class LibraryQueryRepository:
         self,
         *,
         include_missing: bool = False,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> tuple[TrackSummary, ...]:
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
+        )
         with self._open_library_bundle() as (
             core_connection,
             artifacts_connection,
@@ -1390,6 +1277,7 @@ class LibraryQueryRepository:
                 artifacts_connection,
                 context=context,
                 rows=rows,
+                classifier_specifications=specifications_by_key,
             )
 
     def get_track_summaries(
@@ -1397,6 +1285,7 @@ class LibraryQueryRepository:
         track_ids: Sequence[int],
         *,
         include_missing: bool = False,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> tuple[TrackSummary, ...]:
         """Hydrate a strict selection in caller order.
 
@@ -1411,6 +1300,9 @@ class LibraryQueryRepository:
             requested.append(value)
         if not requested:
             return ()
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
+        )
 
         with self._open_library_bundle() as (
             core_connection,
@@ -1436,6 +1328,7 @@ class LibraryQueryRepository:
                 artifacts_connection,
                 context=context,
                 rows=rows,
+                classifier_specifications=specifications_by_key,
             )
         by_id = {summary.track_id: summary for summary in summaries}
         unavailable = sorted(set(requested).difference(by_id))
@@ -1457,10 +1350,14 @@ class LibraryQueryRepository:
         include_missing: bool = False,
         limit: int = 100,
         offset: int = 0,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> TrackPage:
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         scores = dict(classifier_min_scores or {})
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
+        )
         with self._open_library_bundle() as (
             core_connection,
             artifacts_connection,
@@ -1477,12 +1374,14 @@ class LibraryQueryRepository:
                 include_missing=include_missing,
                 limit=bounded_limit,
                 offset=bounded_offset,
+                classifier_specifications=specifications_by_key,
             )
             items = _assemble_summaries(
                 core_connection,
                 artifacts_connection,
                 context=context,
                 rows=rows,
+                classifier_specifications=specifications_by_key,
             )
         return TrackPage(
             items=items,
@@ -1500,8 +1399,12 @@ class LibraryQueryRepository:
         syncopated_only: bool = False,
         classifier_min_scores: Mapping[str, float] | None = None,
         include_missing: bool = False,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> tuple[TrackSummary, ...]:
         scores = dict(classifier_min_scores or {})
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
+        )
         with self._open_library_bundle() as (
             core_connection,
             artifacts_connection,
@@ -1518,12 +1421,14 @@ class LibraryQueryRepository:
                 include_missing=include_missing,
                 limit=None,
                 offset=0,
+                classifier_specifications=specifications_by_key,
             )
             return _assemble_summaries(
                 core_connection,
                 artifacts_connection,
                 context=context,
                 rows=rows,
+                classifier_specifications=specifications_by_key,
             )
 
     def get_track_detail(
@@ -1531,7 +1436,11 @@ class LibraryQueryRepository:
         track_id: int,
         *,
         include_missing: bool = False,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> TrackDetail:
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
+        )
         with self._open_library_bundle() as (
             core_connection,
             artifacts_connection,
@@ -1555,6 +1464,7 @@ class LibraryQueryRepository:
                 artifacts_connection,
                 context=context,
                 rows=[row],
+                classifier_specifications=specifications_by_key,
             )
             numeric_id = int(row["track_id"])
             classifier_details = classifiers.get(numeric_id, ())
@@ -1568,25 +1478,23 @@ class LibraryQueryRepository:
                 core_connection,
                 track_id=numeric_id,
                 generation=int(row["content_generation"]),
-                contract=context.active_contracts.get(("sonara", "core")),
+                output=context.outputs.get(("sonara", "core")),
             )
             maest = _maest_analysis(
                 core_connection,
                 track_id=numeric_id,
                 generation=int(row["content_generation"]),
-                contract=context.active_contracts.get(("maest", "analysis")),
+                output=context.outputs.get(("maest", "analysis")),
             )
             embeddings = tuple(
                 EmbeddingSummary(
                     analysis_family=family,
-                    model_name=contract.model_name,
-                    model_version=contract.model_version,
                     dim=int(artifact_row["dim"]),
                     normalization=str(artifact_row["normalization"]),
                     analyzed_at=str(artifact_row["analyzed_at"]),
                 )
                 for family, output_kind, _table in _EMBEDDING_TABLES
-                if (contract := context.active_contracts.get((family, output_kind)))
+                if context.outputs.get((family, output_kind))
                 is not None
                 and (
                     artifact_row := artifact_rows[(family, output_kind)].get(numeric_id)
@@ -1662,11 +1570,15 @@ class LibraryQueryRepository:
         *,
         expected: TrackIdentity,
         liked: bool,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> TrackSummary:
         if not isinstance(liked, bool):
             raise TypeError("liked must be a bool")
         if expected.catalog_uuid != self.catalog_uuid:
             raise RuntimeError("Track like candidate belongs to a different catalog")
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
+        )
         with (
             self._write_lock,
             self._open_library_bundle() as (
@@ -1727,6 +1639,7 @@ class LibraryQueryRepository:
                     artifacts_connection,
                     context=context,
                     rows=[base_row],
+                    classifier_specifications=specifications_by_key,
                 )[0]
                 core_connection.commit()
                 return summary
@@ -1769,8 +1682,8 @@ class LibraryQueryRepository:
             _artifacts_connection,
             context,
         ):
-            contract = context.active_contracts.get(("maest", "analysis"))
-            if contract is None:
+            output = context.outputs.get(("maest", "analysis"))
+            if output is None:
                 return ()
             missing_sql = "" if include_missing else "AND t.missing_since IS NULL"
             rows = core_connection.execute(
@@ -1782,26 +1695,22 @@ class LibraryQueryRepository:
                     t.content_generation,
                     t.file_size_bytes,
                     t.file_modified_ns,
-                    ms.contract_hash,
                     ms.syncopated_rhythm,
                     ms.genres_json,
                     ms.analyzed_at
                 FROM tracks t
                 JOIN maest_scores ms
-                  ON ms.track_id = t.track_id
+                 ON ms.track_id = t.track_id
                  AND ms.content_generation = t.content_generation
-                 AND ms.contract_hash = ?
                 WHERE 1 = 1
                 {missing_sql}
                 ORDER BY t.file_path COLLATE NOCASE, t.track_id
-                """,
-                (contract.contract_hash,),
+                """
             ).fetchall()
             candidates: list[GenreTagCandidate] = []
             for row in rows:
                 valid, _reason = validate_maest_analysis_row(
                     row,
-                    expected_contract=contract,
                     expected_track_id=int(row["track_id"]),
                     expected_content_generation=int(row["content_generation"]),
                 )
@@ -1851,7 +1760,7 @@ class LibraryQueryRepository:
             rows = _valid_timeline_rows(
                 artifacts_connection,
                 catalog_uuid=context.catalog_uuid,
-                contract=context.active_contracts.get(("sonara", "timeline")),
+                output=context.outputs.get(("sonara", "timeline")),
                 identities={
                     int(track["track_id"]): (
                         str(track["track_uuid"]),
@@ -1921,7 +1830,7 @@ class LibraryQueryRepository:
                     core_connection,
                     track_id=track_id,
                     generation=int(row["content_generation"]),
-                    contract=context.active_contracts.get(("sonara", "core")),
+                    output=context.outputs.get(("sonara", "core")),
                 )
                 for track_id, row in by_id.items()
             }
@@ -1956,9 +1865,13 @@ class LibraryQueryRepository:
         classifier_keys: Iterable[str] | None = None,
         *,
         include_missing: bool = False,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> LibrarySummary:
         requested_classifiers = tuple(
             sorted({key.strip() for key in (classifier_keys or ()) if key.strip()})
+        )
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
         )
         with self._open_library_bundle() as (
             core_connection,
@@ -1983,13 +1896,13 @@ class LibraryQueryRepository:
             identities = _identity_map(rows)
             sonara = _valid_sonara_core_ids(
                 core_connection,
-                contract=context.active_contracts.get(("sonara", "core")),
+                output=context.outputs.get(("sonara", "core")),
                 identities=identities,
                 drive_from_requested=False,
             )
             maest_analysis = _valid_maest_analysis_ids(
                 core_connection,
-                contract=context.active_contracts.get(("maest", "analysis")),
+                output=context.outputs.get(("maest", "analysis")),
                 identities=identities,
                 drive_from_requested=False,
             )
@@ -1999,7 +1912,7 @@ class LibraryQueryRepository:
                     artifacts_connection,
                     catalog_uuid=context.catalog_uuid,
                     table=f"{family}_embeddings",
-                    contract=context.active_contracts.get((family, "embedding")),
+                    output=context.outputs.get((family, "embedding")),
                     identities=identities,
                     embedding=True,
                     drive_from_requested=False,
@@ -2008,11 +1921,8 @@ class LibraryQueryRepository:
             classifier_rows = _current_classifier_details(
                 core_connection,
                 identities=identities,
-                active_release_hash=context.active_release_hash,
-                active_required_outputs_hashes=(
-                    context.active_classifier_required_outputs_hashes
-                ),
                 drive_from_requested=False,
+                classifier_specifications=specifications_by_key,
             )
             if requested_classifiers:
                 expected = set(requested_classifiers)

@@ -19,12 +19,13 @@ Standalone duplicate-audio report and cleanup helper. Independent safety domain 
 - After a successful file delete, remove the corresponding SQLite row(s). Never delete DB rows for files you did not actually delete.
 - Do not run apply mode as part of routine verification, testing, or dry-run rerun.
 
-## Embedding Source Contract
+## Embedding Sources
 
 - `SUPPORTED_EMBEDDINGS = ("mert", "maest", "muq", "clap")`.
 - Raw defaults are MERT `0.43`, MAEST `0.32`, MuQ `0.12`, and CLAP `0.04`. These are evidence weights, not calibrated probabilities.
 - `sources` must be unique and non-empty. Custom `weights` must contain exactly the enabled sources, be finite/nonnegative, and include at least one positive value.
-- Load only exact-current-contract embeddings. Missing/stale evidence stays missing; never substitute another family or a CLAP text-search score.
+- Load valid available embeddings. Missing evidence stays missing; never
+  substitute another family or a CLAP text-search score.
 - Effective scoring normalizes over evidence available for the pair. Reports/status must preserve selected `sources`, effective `weights`, per-family similarities (including `muq_similarity`), and `blocked_reasons`.
 - The exact legacy delete-safety profile is MERT/MAEST/CLAP with raw defaults `0.43/0.32/0.04`. Every non-legacy source/weight profile additionally requires positive MERT and MAEST weights plus independent MERT+MAEST corroboration at the threshold. MuQ or CLAP alone can never authorize deletion.
 
@@ -43,5 +44,5 @@ Standalone duplicate-audio report and cleanup helper. Independent safety domain 
 ## Testing
 
 - `python -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=` (root pytest does not collect this).
-- For API/job-manager changes also run `python -m pytest tests\test_api_audio_dedup.py tests\test_audio_dedup_v7.py --override-ini addopts=`.
+- For API/job-manager changes also run `python -m pytest tests\test_api_audio_dedup.py tests\test_audio_dedup_runtime.py --override-ini addopts=`.
 - Tests build synthetic SQLite sidecars + tiny audio in the test file; no real library.

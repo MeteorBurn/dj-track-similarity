@@ -22,7 +22,7 @@ ann = [
   "hnswlib>=0.8",
 ]
 sonara = [
-  "sonara==0.3.1",
+  "sonara==0.3.5",
 ]
 ml = [
   "torch==2.11.0",
@@ -33,13 +33,14 @@ ml = [
   "transformers==5.13.0",
   "huggingface-hub==1.22.0",
   "laion-clap==1.1.7",
-  "maest-infer==0.1.0",
+  "maest-infer==0.2.0",
   "muq==0.1.0",
 ]
 rhythm-lab = [
   "scikit-learn>=1.4",
 ]
 dev = [
+  "httpx2>=2.0.0",
   "pytest>=7.4",
   "ruff>=0.8",
 ]

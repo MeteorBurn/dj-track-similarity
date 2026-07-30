@@ -54,7 +54,7 @@ test("reference compare client serializes model list and seed track", async () =
   assert.deepEqual(JSON.parse(calls[0].options.body), { seed_track_id: 7, models: ["clap", "muq", "sonara"], limit: 12 });
 });
 
-test("reference compare verdict client stores MuQ verdict with exact v7 identities and notes", async () => {
+test("reference compare verdict client stores MuQ verdict with exact identities and notes", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
@@ -100,7 +100,7 @@ test("reference compare verdict client stores MuQ verdict with exact v7 identiti
   });
 });
 
-test("reference panel uses v7 ids, exact verdict identities, notes, and stale guards", () => {
+test("reference panel uses current ids, exact verdict identities, notes, and stale guards", () => {
   const referencePanelSource = readFileSync(join(srcDir, "ReferenceComparePanel.tsx"), "utf8");
 
   assert.match(referencePanelSource, /const \[limit, setLimit\] = useState\(10\)/);

@@ -18,9 +18,13 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
     MaestGenreScore,
     MaestWrite,
+    current_embedding_spec,
 )
 from dj_track_similarity.api import create_app
-from dj_track_similarity.api_schemas import HybridSearchRequest
+from dj_track_similarity.api_schemas import (
+    HybridSearchRequest,
+    HybridSearchResponse,
+)
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -47,6 +51,22 @@ def test_hybrid_api_defaults_include_muq_with_equal_weight_inputs() -> None:
 
     assert request.sources == ["mert", "maest", "muq", "sonara", "clap"]
     assert request.weights is None
+
+
+def test_hybrid_response_schema_does_not_inject_source_contract_hashes() -> None:
+    response = HybridSearchResponse.model_validate(
+        {
+            "results": [],
+            "warnings": [],
+            "weights_used": {"mert": 1.0},
+            "sources": ["mert"],
+            "contributing_sources": ["mert"],
+            "limitations": [],
+        }
+    )
+
+    assert "source_contract_hashes" not in response.model_dump()
+    assert response.contributing_sources == ["mert"]
 
 
 def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_path: Path) -> None:
@@ -349,7 +369,7 @@ def _track(
 
 def _embedding_outputs() -> dict[str, AnalysisOutput]:
     maest_outputs = {
-        output.contract.output_kind: output
+        output.output_kind: output
         for output in MaestModelRunner(
             device="cpu",
             top_k=3,
@@ -382,11 +402,14 @@ def _save_embeddings(
     writes: list[EmbeddingWrite] = []
     for family, values in (("mert", mert), ("maest", maest)):
         output = outputs[family]
-        vector = np.zeros(output.contract.dim, dtype=np.float32)
+        vector = np.zeros(
+            current_embedding_spec(output.analysis_family).dimension,
+            dtype=np.float32,
+        )
         vector[: len(values)] = values
         vector /= np.linalg.norm(vector)
         embedding = EmbeddingOutput(
-            contract=output.contract,
+            family=output.analysis_family,
             vector=vector,
             analyzed_at=_NOW,
         )
@@ -395,7 +418,6 @@ def _save_embeddings(
                 (
                     MaestWrite(
                         target=target,
-                        analysis_contract=outputs["maest_analysis"].contract,
                         genres=(
                             MaestGenreScore(
                                 label="Electronic---Test",

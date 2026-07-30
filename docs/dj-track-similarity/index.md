@@ -25,9 +25,9 @@
 
 It does not upload your collection. It does not decide what is a good mix. It helps you narrow a large folder into candidates worth hearing together.
 
-The Python backend, CLI, and React client use a greenfield schema-v7 bundle with Core plus mandatory
-Artifacts and optional Evaluation. They do not migrate older schemas. Browser, CLI, and direct API
-workflows share the same current v7 contract.
+The Python backend, CLI, and React client use a structurally validated bundle with Core plus
+mandatory Artifacts and optional Evaluation. Normal startup refuses incompatible layouts and never
+migrates them automatically.
 
 ## The Project Idea
 
@@ -93,7 +93,7 @@ Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and
 - [Install](./getting-started/install.md): prerequisites, optional ML dependencies, frontend and docs builds.
 - [First library](./getting-started/first-library.md): build the SQLite library and understand scan behavior.
 - [First analysis](./getting-started/first-analysis.md): choose analysis by the result you want.
-- [Prepare and rebuild a SONARA release](./workflows/reanalyze-sonara-split-storage.md): back up and activate the four current outputs before reanalysis.
+- [Migrate and reanalyze SONARA storage](./workflows/reanalyze-sonara-split-storage.md): preview and back up structural changes, then reanalyze only when needed.
 - [User guide](./user-guide/index.md): daily UI work.
 - [Workflows](./workflows/index.md): DJ task recipes.
 - [Concepts](./concepts/index.md): scores, models, safety, and routing.

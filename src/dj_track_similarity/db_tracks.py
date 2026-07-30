@@ -1,4 +1,4 @@
-"""Thread-safe v7 track repository.
+"""Thread-safe track repository.
 
 Track identity lives in Core. Large derived payloads live in the mandatory
 Artifacts database. A content change is therefore reconciled in two ordered,
@@ -124,7 +124,7 @@ def ordinal_path_key(
 
 
 def canonical_file_path(path: str | Path) -> str:
-    """Resolve and normalize a path for persistent v7 track identity."""
+    """Resolve and normalize a path for persistent track identity."""
 
     resolved = Path(path).expanduser().resolve(strict=False)
     return ordinal_path_key(resolved.as_posix())
@@ -386,7 +386,7 @@ def _temporary_relocation_path(
 
 
 class TrackRepository:
-    """V7-only repository mixed into :class:`LibraryDatabase`.
+    """Track repository mixed into :class:`LibraryDatabase`.
 
     The host must expose ``connect()``, ``connect_artifacts()``, and one
     path-scoped re-entrant ``_write_lock``.
@@ -1030,7 +1030,7 @@ class TrackRepository:
         return None if row is None else str(row[0])
 
     def set_library_root(self, root: str | Path) -> str:
-        """Persist one canonical library root in the v7 settings table."""
+        """Persist one canonical library root in the settings table."""
 
         canonical_root = canonical_file_path(root).rstrip("/")
         timestamp = utc_now_text()

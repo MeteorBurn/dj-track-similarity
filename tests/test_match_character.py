@@ -4,7 +4,6 @@ import math
 
 import pytest
 
-from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -34,18 +33,7 @@ RISK_BREAKDOWN_KEYS = {
     "source_disagreement",
     "confidence_missingness",
 }
-_CORE_OUTPUT = AnalysisOutput(
-    ContractIdentity(
-        analysis_family="sonara",
-        output_kind="core",
-        model_name="test-sonara",
-        model_version="1",
-        release_hash="sha256:" + "1" * 64,
-        checkpoint_id="test-checkpoint",
-        preprocessing="test-preprocessing",
-        parameters={"fixture": "match-character"},
-    )
-)
+_CORE_OUTPUT = AnalysisOutput("sonara", "core")
 
 
 def test_match_character_axes_are_finite_unit_values() -> None:

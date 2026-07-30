@@ -10,7 +10,7 @@
 
 The app can create or update local artifacts:
 
-- A schema-v7 SQLite bundle with a selected Core `.sqlite`, required `*.artifacts.sqlite`, and optional `*.evaluation.sqlite`.
+- A structurally validated SQLite bundle with a selected Core `.sqlite`, required `*.artifacts.sqlite`, and optional `*.evaluation.sqlite`.
 - Runtime logs under `logs/`.
 - Exported M3U and CSV files.
 - Audio Doctor and Audio Dedup JSON/XLSX/log reports.
@@ -57,7 +57,8 @@ and no conflicts are detected. It does not move, copy, delete, or retag files.
 
 Core and the mandatory Artifacts database are bound by one `catalog_uuid`. Keep them together for
 backup, copy, or maintenance. `*.evaluation.sqlite`, when present, is optional evaluation state.
-The v7 runtime does not migrate v5/v6 databases or reconstruct older sidecar layouts.
+Normal runtime does not rewrite incompatible databases or reconstruct older sidecar layouts. Use
+`dj-sim migrate-database --db <path> --dry-run` to inspect the explicit backup-first migration.
 
 ## Server binding
 

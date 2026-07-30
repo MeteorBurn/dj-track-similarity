@@ -5,6 +5,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, HTTPException
 
 from .analysis_model_runners import current_embedding_analysis_output
+from .api_route_utils import current_classifier_specifications
 from .api_schemas import SetBuilderGenerateRequest
 from .api_state import AppDatabaseState
 from .set_builder import SetBuilderConfig, SmartSetBuilder
@@ -18,7 +19,11 @@ def register_set_builder_routes(
 ) -> None:
     @app.post("/api/set-builder/generate")
     def generate_set(request: SetBuilderGenerateRequest):
-        _validate_classifier_keys(request, promoted_classifiers)
+        classifier_infos = promoted_classifiers()
+        _validate_classifier_keys(request, classifier_infos)
+        classifier_specifications = current_classifier_specifications(
+            classifier_infos
+        )
         config = SetBuilderConfig(
             seed_mode=request.seed_mode,
             seed_track_ids=request.seed_track_ids,
@@ -44,6 +49,7 @@ def register_set_builder_routes(
                     family: current_embedding_analysis_output(family)
                     for family in request.sources
                 },
+                classifier_specifications=classifier_specifications,
             ).generate(config)
         except (RuntimeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -51,14 +57,14 @@ def register_set_builder_routes(
 
 def _validate_classifier_keys(
     request: SetBuilderGenerateRequest,
-    promoted_classifiers: Callable[[], list[dict[str, object]]],
+    classifier_infos: list[dict[str, object]],
 ) -> None:
     requested = set(request.classifier_preferences) | set(request.classifier_flows)
     if not requested:
         return
     available = {
         str(classifier["classifier_key"]): classifier
-        for classifier in promoted_classifiers()
+        for classifier in classifier_infos
         if str(classifier.get("classifier_key") or "").strip()
     }
     unknown = sorted(key for key in requested if key not in available)

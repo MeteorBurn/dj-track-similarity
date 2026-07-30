@@ -13,6 +13,8 @@ from .analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
     AnalysisVectorRow,
+    ClassifierSpecification,
+    current_embedding_spec,
     SonaraFeatureRow,
 )
 from .library_models import LibrarySummary, TrackSummary
@@ -50,9 +52,14 @@ class SetBuilderRepository(Protocol):
         self,
         *,
         include_missing: bool = False,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> tuple[TrackSummary, ...]: ...
 
-    def library_summary(self) -> LibrarySummary: ...
+    def library_summary(
+        self,
+        *,
+        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
+    ) -> LibrarySummary: ...
 
     def get_track_identities(
         self,
@@ -103,7 +110,7 @@ DEFAULT_SET_MODEL_WEIGHTS = {
     "clap": 0.22,
     "sonara_broad": 0.30,
 }
-# Public raw defaults retained for callers that inspect the SET scoring contract.
+# Public raw defaults retained for callers that inspect SET scoring behavior.
 DEFAULT_MODEL_WEIGHTS = DEFAULT_SET_MODEL_WEIGHTS
 SEQUENCE_POOL_FACTOR = 20
 SEQUENCE_POOL_MIN = 256
@@ -151,16 +158,12 @@ def _require_current_embedding_output(
     active = repository.active_analysis_output(family, "embedding")
     if active is None:
         raise RuntimeError(
-            f"No active {family!r} embedding contract; reanalysis is required"
+            f"No active {family!r} embedding output; reanalysis is required"
         )
-    if (
-        active.contract_hash != expected.contract_hash
-        or active.contract.canonical_payload_json
-        != expected.contract.canonical_payload_json
-    ):
+    if active.key != expected.key:
         raise RuntimeError(
-            "Current runtime embedding contract does not match the active "
-            f"{family!r} contract; reanalysis is required before SET building"
+            "Current embedding output does not match the requested "
+            f"{family!r} output; reanalysis is required before SET building"
         )
     return expected
 CLASSIFIER_BIAS_WEIGHT = 0.08
@@ -284,8 +287,10 @@ class SmartSetBuilder:
         db: SetBuilderRepository,
         *,
         analysis_outputs: Mapping[str, AnalysisOutput],
+        classifier_specifications: Sequence[ClassifierSpecification] = (),
     ) -> None:
         self.db = db
+        self._classifier_specifications = tuple(classifier_specifications)
         self._available_analysis_outputs = dict(analysis_outputs)
         self.analysis_outputs: dict[str, AnalysisOutput] = {}
         self._embedding_sources = DEFAULT_SET_EMBEDDING_SOURCES
@@ -422,8 +427,17 @@ class SmartSetBuilder:
         self,
         _config: SetBuilderConfig | None = None,
     ) -> tuple[list[_LightCandidate], dict[str, int]]:
-        summary = self.db.library_summary()
-        summaries = self.db.list_track_summaries(include_missing=False)
+        if self._classifier_specifications:
+            summary = self.db.library_summary(
+                classifier_specifications=self._classifier_specifications,
+            )
+            summaries = self.db.list_track_summaries(
+                include_missing=False,
+                classifier_specifications=self._classifier_specifications,
+            )
+        else:
+            summary = self.db.library_summary()
+            summaries = self.db.list_track_summaries(include_missing=False)
         self._summary_by_id = {track.track_id: track for track in summaries}
         identities = self.db.get_track_identities(
             tuple(self._summary_by_id),
@@ -1201,7 +1215,7 @@ def _ordered_unique(values: list[int]) -> list[int]:
     return list(dict.fromkeys(int(value) for value in values))
 
 
-_V7_BLOB_FIELDS = (
+_SONARA_BLOB_FIELDS = (
     ("mfcc_mean_blob", 13, "mfcc_mean"),
     ("chroma_mean_blob", 12, "chroma_mean"),
     ("spectral_contrast_mean_blob", 7, "spectral_contrast_mean"),
@@ -1212,7 +1226,7 @@ def _short_vector_statistics(
     values: Mapping[str, object],
 ) -> dict[str, float]:
     result: dict[str, float] = {}
-    for field_name, dimension, prefix in _V7_BLOB_FIELDS:
+    for field_name, dimension, prefix in _SONARA_BLOB_FIELDS:
         raw = values.get(field_name)
         if isinstance(raw, bytes):
             vector = np.frombuffer(raw, dtype="<f4")
@@ -1254,7 +1268,7 @@ def _validated_sonara_rows(
         )
         if expected_output is None or row.output != expected_output:
             raise RuntimeError(
-                "analysis repository returned SONARA data for the wrong contract"
+                "analysis repository returned SONARA data for the wrong output"
             )
         result[summary.track_id] = row
     return result
@@ -1282,7 +1296,7 @@ def _validated_vector_rows(
         )
         if expected_output is None or row.output != expected_output:
             raise RuntimeError(
-                "analysis repository returned a vector for the wrong contract"
+                "analysis repository returned a vector for the wrong output"
             )
         track_id = row.target.track_id
         if track_id in result:
@@ -1290,16 +1304,17 @@ def _validated_vector_rows(
                 "analysis repository returned duplicate embedding rows for one track"
             )
         vector = np.asarray(row.vector, dtype=np.float32)
-        if vector.shape != (expected_output.contract.dim,):
+        spec = current_embedding_spec(expected_output.analysis_family)
+        if vector.shape != (spec.dimension,):
             raise RuntimeError(
                 "analysis repository returned an embedding vector with a "
-                "dimension that does not match the active contract"
+                "dimension that does not match the current family specification"
             )
         if not bool(np.all(np.isfinite(vector))):
             raise RuntimeError(
                 "analysis repository returned an invalid embedding vector"
             )
-        if expected_output.contract.normalization == "l2":
+        if spec.normalization == "l2":
             norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
             if not math.isfinite(norm) or not np.isclose(
                 norm,

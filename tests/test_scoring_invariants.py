@@ -8,18 +8,13 @@ import numpy as np
 import pytest
 
 from dj_track_similarity import embedding, hybrid_search, set_builder
-from dj_track_similarity.analysis_model_runners import (
-    current_embedding_analysis_output,
-)
 from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
     AnalysisTarget,
     ClassifierSpecification,
     EmbeddingOutput,
     EmbeddingWrite,
-    classifier_required_outputs_hash,
-)
-from dj_track_similarity.classifier_manifest import (
-    classifier_feature_manifest_hash,
+    current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.evaluation.candidates import CandidateSourceContribution
@@ -30,7 +25,7 @@ from dj_track_similarity.evaluation.weighted_candidates import (
 from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
 from dj_track_similarity.tempo_resolution import (
     confidence_aware_tempo_score,
-    resolve_tempo_evidence_v7,
+    resolve_tempo_evidence_from_values,
     tempo_filter_compatible,
 )
 from dj_track_similarity.track_models import TrackIdentity
@@ -107,7 +102,7 @@ def _score_set_layers(
     result = set_builder.SmartSetBuilder(
         object(),
         analysis_outputs={
-            family: current_embedding_analysis_output(family)
+            family: AnalysisOutput(family, "embedding")
             for family in set_builder.DEFAULT_SET_EMBEDDING_SOURCES
         },
     )._score_candidate(
@@ -547,8 +542,8 @@ def test_hybrid_rrf_ties_have_seeded_deterministic_order() -> None:
     assert first[0].raw_rrf_score == pytest.approx(first[1].raw_rrf_score)
 
 
-def test_v7_null_bpm_confidence_is_neutral_and_does_not_promote_tag_bpm() -> None:
-    candidate = resolve_tempo_evidence_v7(
+def test_current_null_bpm_confidence_is_neutral_and_does_not_promote_tag_bpm() -> None:
+    candidate = resolve_tempo_evidence_from_values(
         {
             "detected_bpm": 155.0,
             "bpm_confidence": None,
@@ -557,7 +552,7 @@ def test_v7_null_bpm_confidence_is_neutral_and_does_not_promote_tag_bpm() -> Non
         },
         tag_bpm=128.0,
     )
-    reference = resolve_tempo_evidence_v7(
+    reference = resolve_tempo_evidence_from_values(
         {
             "detected_bpm": 128.0,
             "bpm_confidence": 1.0,
@@ -577,7 +572,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = current_embedding_analysis_output("mert")
+    output = AnalysisOutput("mert", "embedding")
     db.register_analysis_outputs((output,))
     track_uuid = str(uuid.uuid4())
     with db.connect() as connection:
@@ -603,7 +598,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
         track_uuid=track_uuid,
         content_generation=1,
     )
-    vector = np.zeros(int(output.contract.dim), dtype=np.float32)
+    vector = np.zeros(current_embedding_spec("mert").dimension, dtype=np.float32)
     vector[:3] = (1.0, 2.0, 3.0)
     vector /= np.linalg.norm(vector)
     assert db.save_embedding_results(
@@ -611,7 +606,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=output.contract,
+                    family="mert",
                     vector=vector,
                     analyzed_at="2026-07-24T13:00:00.000000Z",
                 ),
@@ -622,10 +617,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
     feature_names = ("mert:2", "mert:0", "mert:1")
     specification = ClassifierSpecification(
         classifier_key="ordered_classifier",
-        model_id="ordered-model",
-        feature_set="mert-contract",
-        feature_manifest_hash=classifier_feature_manifest_hash(feature_names),
-        required_outputs_hash=classifier_required_outputs_hash((output,)),
+        feature_set="mert-features",
         feature_names=feature_names,
         required_outputs=(output,),
         label_order=("negative", "positive"),
@@ -645,10 +637,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
     out_of_range_names = ("mert:768",)
     out_of_range = ClassifierSpecification(
         classifier_key="out_of_range_classifier",
-        model_id="out-of-range-model",
-        feature_set="mert-contract",
-        feature_manifest_hash=classifier_feature_manifest_hash(out_of_range_names),
-        required_outputs_hash=classifier_required_outputs_hash((output,)),
+        feature_set="mert-features",
         feature_names=out_of_range_names,
         required_outputs=(output,),
         label_order=("negative", "positive"),

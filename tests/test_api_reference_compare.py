@@ -16,6 +16,7 @@ from dj_track_similarity.analysis_models import (
     MaestGenreScore,
     MaestWrite,
     SonaraWrite,
+    current_embedding_spec,
 )
 from dj_track_similarity.analysis_model_runners import (
     MaestModelRunner,
@@ -23,28 +24,11 @@ from dj_track_similarity.analysis_model_runners import (
 )
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import SonaraRowV7
-from dj_track_similarity.prepare_sonara_release import (
-    CONFIRM_STRING,
-    prepare_sonara_release,
-)
-from dj_track_similarity.sonara_contract import (
-    SONARA_EXPECTED_VERSION,
-    SonaraContractSet,
-    sonara_runtime_contracts,
-)
+from dj_track_similarity.db_ddl import SonaraRow
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 _NOW = "2026-07-24T12:00:00.000000Z"
-
-
-class _FakeSonara:
-    __version__ = SONARA_EXPECTED_VERSION
-    SIMILARITY_VERSION = 2
-    __sonara_build_id__ = "sha256:" + "5" * 64
-    __sonara_vocalness_model_id__ = "sonara-vocalness"
-    __sonara_vocalness_model_build_id__ = "sha256:" + "6" * 64
 
 
 def test_reference_compare_returns_separate_model_groups(
@@ -106,7 +90,7 @@ def test_reference_compare_marks_missing_model_without_error(
     assert groups["clap"]["available"] is False
     assert groups["clap"]["results"] == []
     assert groups["sonara"]["available"] is False
-    assert "active SONARA Core contract" in groups["sonara"]["reason"]
+    assert groups["sonara"]["reason"] == "Seed track is missing SONARA features"
 
 
 def test_reference_compare_verdict_persists_pair_feedback(
@@ -289,15 +273,6 @@ def _reference_library(
     db = LibraryDatabase(db_path)
     outputs = _embedding_outputs()
     maest_analysis = _maest_analysis_output()
-    contracts = _sonara_contracts()
-    backup_dir = tmp_path / "sonara-backups"
-    backup_dir.mkdir()
-    prepare_sonara_release(
-        db,
-        backup_dir=backup_dir,
-        confirm=CONFIRM_STRING,
-        sonara_module=_FakeSonara,
-    )
     db.register_analysis_outputs(
         (
             *outputs.values(),
@@ -336,8 +311,8 @@ def _reference_library(
             [*vector[:-1], vector[-1] * 0.98, 0.02],
             maest_analysis=maest_analysis if model == "maest" else None,
         )
-    _save_sonara(db, tracks["seed"], contracts, energy=0.8, danceability=0.8)
-    _save_sonara(db, tracks["sonara_top"], contracts, energy=0.79, danceability=0.79)
+    _save_sonara(db, tracks["seed"], energy=0.8, danceability=0.8)
+    _save_sonara(db, tracks["sonara_top"], energy=0.79, danceability=0.79)
     return db, tracks
 
 
@@ -371,21 +346,23 @@ def _embedding(
     *,
     maest_analysis: AnalysisOutput | None = None,
 ) -> None:
-    vector = np.zeros(output.contract.dim, dtype=np.float32)
+    vector = np.zeros(
+        current_embedding_spec(output.analysis_family).dimension,
+        dtype=np.float32,
+    )
     vector[: len(values)] = values
     vector /= np.linalg.norm(vector)
     embedding = EmbeddingOutput(
-        contract=output.contract,
+        family=output.analysis_family,
         vector=vector,
         analyzed_at=_NOW,
     )
-    if output.contract.analysis_family == "maest":
+    if output.analysis_family == "maest":
         assert maest_analysis is not None
         result = db.save_maest_results(
             (
                 MaestWrite(
                     target=target,
-                    analysis_contract=maest_analysis.contract,
                     genres=(MaestGenreScore(label="Techno", score=0.9),),
                     syncopated_rhythm=None,
                     analyzed_at=_NOW,
@@ -415,24 +392,18 @@ def _maest_analysis_output() -> AnalysisOutput:
     ).active_outputs[0]
 
 
-def _sonara_contracts() -> SonaraContractSet:
-    return sonara_runtime_contracts(_FakeSonara)
-
-
 def _save_sonara(
     db: LibraryDatabase,
     target: AnalysisTarget,
-    contracts: SonaraContractSet,
     *,
     energy: float,
     danceability: float,
 ) -> None:
-    values = {field.name: None for field in fields(SonaraRowV7)}
+    values = {field.name: None for field in fields(SonaraRow)}
     values.update(
         {
             "track_id": target.track_id,
             "content_generation": target.content_generation,
-            "contract_hash": contracts.core.contract_hash,
             "energy_score": energy,
             "danceability_score": danceability,
             "valence_score": energy,
@@ -447,9 +418,7 @@ def _save_sonara(
     )
     result = db.save_sonara_results(
         (
-            SonaraWrite(
-                target=target, core_contract=contracts.core, core=SonaraRowV7(**values)
-            ),
+            SonaraWrite(target=target, core=SonaraRow(**values)),
         )
     )[0]
     assert result.ok, result.error

@@ -233,7 +233,7 @@ const setSourceOptions: Array<{ key: EmbeddingSource; label: string; title: stri
   {
     key: "muq",
     label: "MuQ",
-    title: "Stored current-contract MuQ acoustic embeddings used by SET candidate generation."
+    title: "Stored MuQ acoustic embeddings used by SET candidate generation."
   },
   {
     key: "clap",
@@ -256,7 +256,7 @@ const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title
   {
     key: "muq",
     label: "MuQ",
-    title: "MuQ source for Hybrid Preview. Uses current-contract stored MuQ acoustic embeddings."
+    title: "MuQ source for Hybrid Preview. Uses stored MuQ acoustic embeddings."
   },
   {
     key: "sonara",
@@ -487,7 +487,7 @@ export function SearchPlaylistPanel({
   const [hybridLimitations, setHybridLimitations] = useState<string[]>([]);
   const [hybridWeightsUsed, setHybridWeightsUsed] = useState<Record<string, number>>({});
   const [hybridSourcesUsed, setHybridSourcesUsed] = useState<HybridSearchSource[]>([]);
-  const [hybridSourceContractHashes, setHybridSourceContractHashes] = useState<Partial<Record<HybridSearchSource, string>>>({});
+  const [hybridContributingSources, setHybridContributingSources] = useState<HybridSearchSource[]>([]);
   const [hybridPreviewKey, setHybridPreviewKey] = useState("");
   const [hybridSessionId, setHybridSessionId] = useState<number | null>(null);
   const [hybridFeedbackDrafts, setHybridFeedbackDrafts] = useState<Record<number, HybridFeedbackDraft>>({});
@@ -636,7 +636,7 @@ export function SearchPlaylistPanel({
     setHybridLimitations([]);
     setHybridWeightsUsed({});
     setHybridSourcesUsed([]);
-    setHybridSourceContractHashes({});
+    setHybridContributingSources([]);
     setHybridPreviewKey("");
     setHybridSessionId(null);
     setHybridFeedbackDrafts({});
@@ -853,7 +853,7 @@ export function SearchPlaylistPanel({
     setHybridLimitations([]);
     setHybridWeightsUsed({});
     setHybridSourcesUsed([]);
-    setHybridSourceContractHashes({});
+    setHybridContributingSources([]);
     setHybridPreviewKey("");
     setHybridSessionId(null);
     setHybridFeedbackDrafts({});
@@ -872,7 +872,7 @@ export function SearchPlaylistPanel({
       setHybridLimitations(response.limitations);
       setHybridWeightsUsed(response.weights_used);
       setHybridSourcesUsed(response.sources);
-      setHybridSourceContractHashes(response.source_contract_hashes);
+      setHybridContributingSources(response.contributing_sources);
       setHybridPreviewKey(requestKey);
       void refreshEvaluationLabelCounts();
     } catch (error) {
@@ -883,7 +883,7 @@ export function SearchPlaylistPanel({
       setHybridLimitations([]);
       setHybridWeightsUsed({});
       setHybridSourcesUsed([]);
-      setHybridSourceContractHashes({});
+      setHybridContributingSources([]);
       setHybridPreviewKey("");
       setHybridSessionId(null);
       setHybridFeedbackDrafts({});
@@ -1394,10 +1394,7 @@ export function SearchPlaylistPanel({
               {showHybridResults ? (
                 <div className="hybrid-response-summary">
                   <span className="hybrid-status-message" title={formatHybridWeightsTitle(hybridWeightsUsed)}>
-                    {hybridResults.length} rows · sources {hybridSourcesUsed.join(", ")} · {formatHybridWeightsTitle(hybridWeightsUsed)}
-                  </span>
-                  <span className="hybrid-status-message" title="Current embedding contract hashes returned for this Hybrid response.">
-                    Contracts: {formatSourceContractHashes(hybridSourceContractHashes)}
+                    {hybridResults.length} rows · sources {hybridSourcesUsed.join(", ")} · contributing {hybridContributingSources.join(", ") || "none"} · {formatHybridWeightsTitle(hybridWeightsUsed)}
                   </span>
                 </div>
               ) : null}
@@ -2189,12 +2186,10 @@ function hybridClassifierSupportTitle(classifierKey: string, support: HybridSear
   const label = support.label || classifierKey;
   const role = support.role ? ` role ${String(support.role).replaceAll("_", " ")}` : "";
   const axis = support.axis ? ` axis ${String(support.axis).replaceAll("_", " ")}` : "";
-  const status = support.production_status || support.manifest_status ? ` status ${support.production_status || support.manifest_status}` : "";
-  const stale = support.stale ? " stale stored score" : support.fresh ? " fresh stored score" : "";
   const preference = typeof support.preference === "number" && support.preference !== 0 ? ` preference ${formatSigned(support.preference)}` : "";
   const contribution = typeof support.score_contribution === "number" && support.score_contribution !== 0 ? ` score contribution ${formatSigned(support.score_contribution)}` : "";
   const risk = typeof support.risk_contribution === "number" ? ` risk contribution ${support.risk_contribution.toFixed(2)}` : "";
-  return `Classifier ${label}: stored score ${formatOptionalUnitScore(support.score)}.${role}${axis}${status}${stale}${preference}${contribution}${risk}`;
+  return `Classifier ${label}: stored score ${formatOptionalUnitScore(support.score)}.${role}${axis}${preference}${contribution}${risk}`;
 }
 
 function formatHybridWeightsTitle(weights: Record<string, number>) {
@@ -2205,12 +2200,6 @@ function formatWeightsTitle(weights: Partial<Record<string, number>>) {
   const entries = Object.entries(weights).filter((entry): entry is [string, number] => typeof entry[1] === "number");
   if (!entries.length) return "Weights pending";
   return entries.map(([source, weight]) => `${source.toUpperCase()} ${weight.toFixed(2)}`).join(" · ");
-}
-
-function formatSourceContractHashes(hashes: Partial<Record<HybridSearchSource, string>>) {
-  const entries = Object.entries(hashes).filter((entry): entry is [HybridSearchSource, string] => typeof entry[1] === "string");
-  if (!entries.length) return "none returned";
-  return entries.map(([source, hash]) => `${source.toUpperCase()} ${hash.slice(0, 12)}`).join(" · ");
 }
 
 function isAbortError(error: unknown) {

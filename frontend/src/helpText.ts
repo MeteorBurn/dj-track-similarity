@@ -12,7 +12,7 @@ export const helpText = {
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   muqAnalyze: "MuQ строит fp32 аудио-эмбеддинги из 24 kHz сигнала для seed-поиска, SET, Hybrid, Audio Dedup и совместимых classifier feature sets. Декодирование и resampling выполняет backend.",
   clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги. Text-to-audio поиск использует текстовый запрос отдельно от сохранённого audio-to-audio CLAP evidence в SET, Hybrid и Audio Dedup.",
-  classifiersAnalyze: "CLASSIFIERS использует только заранее рассчитанные данные из feature set опубликованной модели: SONARA, MERT, MAEST, MuQ и/или CLAP. Доступность проверяется по точному активному contract; SONARA анализируется отдельной задачей.",
+  classifiersAnalyze: "CLASSIFIERS использует только заранее рассчитанные данные из feature set опубликованной модели: SONARA, MERT, MAEST, MuQ и/или CLAP. Доступность проверяется по наличию данных и точному порядку признаков; SONARA анализируется отдельной задачей.",
   analysisTrackBatchSize: "Сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Измеренный дефолт для этой машины: 8.",
   analysisInferenceBatchSize: "Сколько окон/семплов MAEST, MERT, MuQ и CLAP прогоняют за один model forward pass. Тип: целое число 1-128. Измеренный дефолт для RTX 3090: 16.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",

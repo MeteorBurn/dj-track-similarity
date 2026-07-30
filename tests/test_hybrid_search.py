@@ -6,15 +6,12 @@ import numpy as np
 import pytest
 
 import dj_track_similarity.hybrid_search as hybrid_search
-from dj_track_similarity.analysis_contracts import FLOAT32_LE_ENCODING
-from dj_track_similarity.analysis_model_runners import (
-    current_embedding_analysis_output,
-)
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
     AnalysisVectorRow,
     SonaraFeatureRow,
+    current_embedding_spec,
 )
 from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview
@@ -22,18 +19,6 @@ from dj_track_similarity.library_models import (
     AnalysisCoverage,
     TrackDetail,
     TrackSummary,
-)
-from dj_track_similarity.sonara_contract import (
-    SONARA_CORE_REQUESTED_FEATURES,
-    SONARA_EMBEDDING_REQUESTED_FEATURES,
-    SONARA_EXPECTED_SCHEMA_VERSION,
-    SONARA_EXPECTED_VERSION,
-    SONARA_FINGERPRINT_REQUESTED_FEATURES,
-    SONARA_PROJECT_FEATURE_REVISION,
-    SONARA_TIMELINE_REQUESTED_FEATURES,
-    SonaraContractSet,
-    SonaraRuntimeIdentity,
-    build_sonara_contracts,
 )
 from dj_track_similarity.track_models import TrackIdentity
 
@@ -52,37 +37,6 @@ _RISK_BREAKDOWN_KEYS = {
     "source_disagreement",
     "confidence_missingness",
 }
-
-
-def _sonara_contracts() -> SonaraContractSet:
-    return build_sonara_contracts(
-        SonaraRuntimeIdentity(
-            package_version=SONARA_EXPECTED_VERSION,
-            package_build_id="sha256:" + "5" * 64,
-            schema_version=SONARA_EXPECTED_SCHEMA_VERSION,
-            mode="playlist",
-            sample_rate_hz=22_050,
-            bpm_min=70,
-            bpm_max=180,
-            project_feature_revision=SONARA_PROJECT_FEATURE_REVISION,
-            decoder_backend="sonara-symphonia",
-            execution_path="analyze_batch",
-            analysis_hop_samples=512,
-            vocalness_model_id="sonara-vocalness",
-            vocalness_model_build_id="sha256:" + "6" * 64,
-            embedding_version=2,
-            embedding_dim=48,
-            embedding_normalization="none",
-            embedding_encoding=FLOAT32_LE_ENCODING,
-            fingerprint_version=1,
-            fingerprint_encoding="uint32-le",
-            fingerprint_byte_order="little",
-            core_requested_features=SONARA_CORE_REQUESTED_FEATURES,
-            timeline_requested_features=SONARA_TIMELINE_REQUESTED_FEATURES,
-            embedding_requested_features=SONARA_EMBEDDING_REQUESTED_FEATURES,
-            fingerprint_requested_features=SONARA_FINGERPRINT_REQUESTED_FEATURES,
-        )
-    )
 
 
 def _identity(track_id: int) -> TrackIdentity:
@@ -184,11 +138,10 @@ def _sonara_row(
 
 class _Repository:
     def __init__(self) -> None:
-        contracts = _sonara_contracts()
         self.outputs = {
-            ("sonara", "core"): AnalysisOutput(contracts.core),
+            ("sonara", "core"): AnalysisOutput("sonara", "core"),
             **{
-                (family, "embedding"): current_embedding_analysis_output(family)
+                (family, "embedding"): AnalysisOutput(family, "embedding")
                 for family in ("mert", "maest", "muq", "clap")
             },
         }
@@ -232,7 +185,7 @@ class _Repository:
         }
         for family, values in vectors.items():
             compact = np.asarray(values, dtype=np.float32)
-            dimension = int(self.outputs[(family, "embedding")].contract.dim)
+            dimension = current_embedding_spec(family).dimension
             vector = np.zeros(dimension, dtype=np.float32)
             vector[: compact.size] = compact
             vector /= np.linalg.norm(vector)
@@ -272,7 +225,7 @@ class _Repository:
         return tuple(
             AnalysisVectorRow(_target(track_id), output, vector)
             for track_id, vector in self.vectors[
-                output.contract.analysis_family
+                output.analysis_family
             ].items()
         )
 
@@ -358,7 +311,7 @@ def _build(
     )
 
 
-def test_hybrid_search_uses_equal_weights_and_typed_contracts() -> None:
+def test_hybrid_search_uses_equal_weights_and_structural_outputs() -> None:
     repository = _hybrid_library()
 
     result = _build(
@@ -371,10 +324,6 @@ def test_hybrid_search_uses_equal_weights_and_typed_contracts() -> None:
 
     assert result.weights_used == {"mert": 0.5, "maest": 0.5}
     assert result.sources == ("mert", "maest")
-    assert result.source_contract_hashes == {
-        family: repository.outputs[(family, "embedding")].contract_hash
-        for family in ("mert", "maest")
-    }
     assert len(result.results) == 3
     assert all(row.track.track_id != 1 for row in result.results)
     assert tuple(result.results[0].match_character) == MATCH_CHARACTER_AXES
@@ -401,13 +350,7 @@ def test_hybrid_default_sources_include_muq_with_equal_weights() -> None:
         "sonara": 0.2,
         "clap": 0.2,
     }
-    assert result.source_contract_hashes["muq"] == (
-        repository.outputs[("muq", "embedding")].contract_hash
-    )
     assert any("muq" in row.score_breakdown for row in result.results)
-    assert repository.session_requests[0]["source_contract_hashes"]["muq"] == (
-        repository.outputs[("muq", "embedding")].contract_hash
-    )
     assert any(
         "muq" in event["score_breakdown"]["sources"]
         for event in repository.events
@@ -766,6 +709,3 @@ def test_hybrid_search_records_only_when_requested() -> None:
     assert recorded.session_id == 41
     assert len(repository.session_requests) == 1
     assert repository.events
-    assert repository.session_requests[0]["source_contract_hashes"] == {
-        "mert": repository.outputs[("mert", "embedding")].contract_hash
-    }

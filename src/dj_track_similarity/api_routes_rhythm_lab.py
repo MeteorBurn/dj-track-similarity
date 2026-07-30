@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .api_schemas import TrackIdentityRequestV7
+from .api_schemas import TrackIdentityRequest
 from .api_state import AppDatabaseState
 from .rhythm_lab_collections import (
     RhythmLabCollections,
@@ -21,7 +21,7 @@ class RhythmLabCollectionSaveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    tracks: list[TrackIdentityRequestV7] = Field(min_length=1)
+    tracks: list[TrackIdentityRequest] = Field(min_length=1)
     source: str = "main_ui_playlist"
     note: str | None = None
     mode: Literal["append", "replace"] = "append"
@@ -37,7 +37,7 @@ class RhythmLabCollectionSaveRequest(BaseModel):
             for track in self.tracks
         }
         if len(identities) != len(self.tracks):
-            raise ValueError("tracks must contain unique v7 identities")
+            raise ValueError("tracks must contain unique current identities")
         return self
 
 

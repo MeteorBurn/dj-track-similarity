@@ -329,7 +329,7 @@ class HybridSearchRequest(BaseModel):
         return self
 
 
-class TrackIdentityRequestV7(BaseModel):
+class TrackIdentityRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     track_id: TrackId
@@ -359,8 +359,8 @@ class ReferenceCompareRequest(BaseModel):
 class ReferenceCompareVerdictRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    seed: TrackIdentityRequestV7
-    candidate: TrackIdentityRequestV7
+    seed: TrackIdentityRequest
+    candidate: TrackIdentityRequest
     model: ReferenceCompareModel
     verdict: ReferenceCompareVerdict
     notes: str | None = None
@@ -534,77 +534,23 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
         return self
 
 
-class PrepareSonaraReleaseRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    catalog_uuid: str = Field(min_length=1)
-    backup_dir: str
-    confirm: str
-
-
-class _V7ResponseModel(BaseModel):
+class _ResponseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
-class SonaraReleaseOutputStatusV7(_V7ResponseModel):
+class SonaraStatusOutputResponse(_ResponseModel):
     output_kind: Literal["core", "timeline", "embedding", "fingerprint"]
-    state: Literal["current", "missing", "stale", "unavailable"]
-    expected_contract_hash: str | None
-    active_contract_hash: str | None
+    present_count: int = Field(ge=0)
+    missing_count: int = Field(ge=0)
 
 
-class SonaraReleaseStatusV7(_V7ResponseModel):
+class SonaraStatusResponse(_ResponseModel):
     catalog_uuid: str
-    state: Literal["ready", "preparation_required", "unavailable"]
-    ready: bool
-    detail: str
-    expected_release_hash: str | None
-    active_release_hash: str | None
-    outputs: list[SonaraReleaseOutputStatusV7]
+    total_tracks: int = Field(ge=0)
+    outputs: list[SonaraStatusOutputResponse]
 
 
-class SonaraReleaseContractHashesV7(_V7ResponseModel):
-    core: str
-    timeline: str
-    embedding: str
-    fingerprint: str
-
-
-class SonaraReleaseBackupV7(_V7ResponseModel):
-    path: str
-    sha256: str
-    size_bytes: int = Field(ge=1)
-
-
-class SonaraReleaseBackupsV7(_V7ResponseModel):
-    core: SonaraReleaseBackupV7
-    artifacts: SonaraReleaseBackupV7
-
-
-class SonaraReleaseActivationResultV7(_V7ResponseModel):
-    core_rows_deleted: int = Field(ge=0)
-    artifact_rows_deleted: int = Field(ge=0)
-    classifier_rows_deleted: int = Field(ge=0)
-
-
-class PrepareSonaraReleaseResponseV7(_V7ResponseModel):
-    receipt_version: int = Field(ge=1)
-    operation_id: str
-    stage: Literal["completed"]
-    catalog_uuid: str
-    core_path: str
-    artifacts_path: str
-    backup_dir: str
-    release_hash: str
-    contract_hashes: SonaraReleaseContractHashesV7
-    backups: SonaraReleaseBackupsV7
-    activation_result: SonaraReleaseActivationResultV7
-    started_at: str
-    updated_at: str
-    completed_at: str
-
-
-class AnalysisCoverageV7(_V7ResponseModel):
+class AnalysisCoverageResponse(_ResponseModel):
     sonara_core: bool
     timeline: bool
     sonara_embedding: bool
@@ -616,7 +562,7 @@ class AnalysisCoverageV7(_V7ResponseModel):
     clap: bool
 
 
-class ClassifierScoreV7Summary(_V7ResponseModel):
+class ClassifierScoreSummaryResponse(_ResponseModel):
     classifier_key: str
     score: float
     predicted_class: str
@@ -624,7 +570,7 @@ class ClassifierScoreV7Summary(_V7ResponseModel):
     confidence: float
 
 
-class FileTechnicalV7(_V7ResponseModel):
+class FileTechnicalResponse(_ResponseModel):
     file_size_bytes: int
     file_modified_ns: int
     audio_format: str | None
@@ -637,7 +583,7 @@ class FileTechnicalV7(_V7ResponseModel):
     missing_since: str | None
 
 
-class FileTagsV7Model(_V7ResponseModel):
+class FileTagsResponse(_ResponseModel):
     title: str | None
     artist: str | None
     album: str | None
@@ -655,12 +601,12 @@ class FileTagsV7Model(_V7ResponseModel):
     tags_read_at: str
 
 
-class VectorSummaryV7(_V7ResponseModel):
+class VectorSummaryResponse(_ResponseModel):
     vector_type: str
     dim: int
 
 
-class SonaraCoreV7Model(_V7ResponseModel):
+class SonaraCoreResponse(_ResponseModel):
     detected_bpm: float | None
     raw_bpm: float | None
     bpm_confidence: float | None
@@ -711,44 +657,38 @@ class SonaraCoreV7Model(_V7ResponseModel):
     mood_aggressive_score: float | None
     mood_relaxed_score: float | None
     mood_sad_score: float | None
-    vector_summaries: list[VectorSummaryV7]
+    vector_summaries: list[VectorSummaryResponse]
     analyzed_at: str
 
 
-class MaestGenreV7(_V7ResponseModel):
+class MaestGenreResponse(_ResponseModel):
     rank: int
     genre_name: str
     score: float
 
 
-class MaestV7Model(_V7ResponseModel):
+class MaestResponse(_ResponseModel):
     syncopated_rhythm: bool | None
-    genres: list[MaestGenreV7]
+    genres: list[MaestGenreResponse]
     analyzed_at: str
 
 
-class EmbeddingV7Summary(_V7ResponseModel):
+class EmbeddingSummaryResponse(_ResponseModel):
     analysis_family: str
-    model_name: str
-    model_version: str | None
     dim: int
     normalization: str
     analyzed_at: str
 
 
-class ClassifierScoreV7Detail(ClassifierScoreV7Summary):
+class ClassifierScoreDetailResponse(ClassifierScoreSummaryResponse):
     probabilities: dict[str, float]
     feature_set: str
-    feature_manifest_hash: str
-    required_outputs_hash: str
-    model_id: str
-    uses_sonara: bool
-    sonara_release_hash: str | None
+    feature_names: list[str]
     positive_label: str
     analyzed_at: str
 
 
-class TrackSummaryV7(_V7ResponseModel):
+class TrackSummaryResponse(_ResponseModel):
     track_id: int
     catalog_uuid: str
     track_uuid: str
@@ -761,34 +701,34 @@ class TrackSummaryV7(_V7ResponseModel):
     tag_key: str | None
     audio_duration_seconds: float | None
     liked: bool
-    analysis_coverage: AnalysisCoverageV7
-    classifier_scores: list[ClassifierScoreV7Summary]
+    analysis_coverage: AnalysisCoverageResponse
+    classifier_scores: list[ClassifierScoreSummaryResponse]
 
 
-class OptionalOutputsV7(_V7ResponseModel):
+class OptionalOutputsResponse(_ResponseModel):
     timeline_fields: list[str]
     sonara_embedding_available: bool
     audio_fingerprint_available: bool
 
 
-class TrackDetailV7(TrackSummaryV7):
-    file: FileTechnicalV7
-    file_tags: FileTagsV7Model | None
-    sonara_core: SonaraCoreV7Model | None
-    maest: MaestV7Model | None
-    embeddings: list[EmbeddingV7Summary]
-    classifier_scores_detail: list[ClassifierScoreV7Detail]
-    optional_outputs: OptionalOutputsV7
+class TrackDetailResponse(TrackSummaryResponse):
+    file: FileTechnicalResponse
+    file_tags: FileTagsResponse | None
+    sonara_core: SonaraCoreResponse | None
+    maest: MaestResponse | None
+    embeddings: list[EmbeddingSummaryResponse]
+    classifier_scores_detail: list[ClassifierScoreDetailResponse]
+    optional_outputs: OptionalOutputsResponse
 
 
-class TrackPageV7(_V7ResponseModel):
-    items: list[TrackSummaryV7]
+class TrackPageResponse(_ResponseModel):
+    items: list[TrackSummaryResponse]
     total: int
     limit: int
     offset: int
 
 
-class LibrarySummaryV7(_V7ResponseModel):
+class LibrarySummaryResponse(_ResponseModel):
     tracks: int
     sonara: int
     maest_analysis: int
@@ -800,20 +740,20 @@ class LibrarySummaryV7(_V7ResponseModel):
     classifiers: int
 
 
-class AnalysisResetResponse(_V7ResponseModel):
+class AnalysisResetResponse(_ResponseModel):
     core_rows_deleted: int
     artifact_rows_deleted: int
     classifier_rows_deleted: int
 
 
-class ClearLibraryResponse(_V7ResponseModel):
+class ClearLibraryResponse(_ResponseModel):
     tracks_deleted: int
     embeddings_deleted: int
     artifacts_deleted: int
     evaluation_rows_deleted: int
 
 
-class GenreTagApplyResultV7(_V7ResponseModel):
+class GenreTagApplyResultResponse(_ResponseModel):
     catalog_uuid: str
     track_id: int
     track_uuid: str
@@ -825,14 +765,14 @@ class GenreTagApplyResultV7(_V7ResponseModel):
     error: str | None = None
 
 
-class SimilaritySearchResultV7(_V7ResponseModel):
-    track: TrackSummaryV7
+class SimilaritySearchResultResponse(_ResponseModel):
+    track: TrackSummaryResponse
     score: float
     score_breakdown: dict[str, float] | None = None
 
 
-class HybridSearchResult(_V7ResponseModel):
-    track: TrackSummaryV7
+class HybridSearchResult(_ResponseModel):
+    track: TrackSummaryResponse
     score: float
     total_score: float
     calibrated_score: None = None
@@ -854,12 +794,12 @@ class HybridSearchResult(_V7ResponseModel):
     feedback: dict[str, Any] | None = None
 
 
-class HybridSearchResponse(_V7ResponseModel):
+class HybridSearchResponse(_ResponseModel):
     results: list[HybridSearchResult]
     warnings: list[str] = Field(default_factory=list)
     weights_used: dict[str, float]
     sources: list[HybridSearchSource]
+    contributing_sources: list[HybridSearchSource]
     limitations: list[str]
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     session_id: int | None = None
-    source_contract_hashes: dict[str, str] = Field(default_factory=dict)

@@ -111,8 +111,14 @@ def test_maest_predict_batch_uses_model_logits_per_track(monkeypatch) -> None:
     assert batches[1][1]["label"] == "B"
     assert batches[1][1]["score"] == pytest.approx(torch.sigmoid(torch.tensor([1.0, 1.0, 1.0])).mean().item())
     assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
-    np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
-    np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))
+    np.testing.assert_allclose(
+        adapter.embedding_for_path("a.wav"),
+        np.asarray([2.0, 20.0], dtype=np.float32) / np.linalg.norm([2.0, 20.0]),
+    )
+    np.testing.assert_allclose(
+        adapter.embedding_for_path("b.wav"),
+        np.asarray([5.0, 50.0], dtype=np.float32) / np.linalg.norm([5.0, 50.0]),
+    )
 
 
 def test_maest_predict_batch_chunks_prepared_windows(monkeypatch) -> None:
@@ -126,8 +132,14 @@ def test_maest_predict_batch_chunks_prepared_windows(monkeypatch) -> None:
 
     assert adapter.fake_model.calls == [((2, 480000), False), ((2, 480000), False), ((2, 480000), False)]
     assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
-    np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
-    np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))
+    np.testing.assert_allclose(
+        adapter.embedding_for_path("a.wav"),
+        np.asarray([2.0, 20.0], dtype=np.float32) / np.linalg.norm([2.0, 20.0]),
+    )
+    np.testing.assert_allclose(
+        adapter.embedding_for_path("b.wav"),
+        np.asarray([5.0, 50.0], dtype=np.float32) / np.linalg.norm([5.0, 50.0]),
+    )
 
 
 def test_maest_predict_decoded_batch_uses_shared_audio_without_loading_paths(monkeypatch) -> None:
@@ -145,8 +157,29 @@ def test_maest_predict_decoded_batch_uses_shared_audio_without_loading_paths(mon
 
     assert adapter.fake_model.calls == [((6, 480000), False)]
     assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
-    np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
-    np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))
+    np.testing.assert_allclose(
+        adapter.embedding_for_path("a.wav"),
+        np.asarray([2.0, 20.0], dtype=np.float32) / np.linalg.norm([2.0, 20.0]),
+    )
+    np.testing.assert_allclose(
+        adapter.embedding_for_path("b.wav"),
+        np.asarray([5.0, 50.0], dtype=np.float32) / np.linalg.norm([5.0, 50.0]),
+    )
+
+
+def test_maest_embedding_matches_declared_l2_normalization() -> None:
+    adapter = BatchMaestAdapter()
+
+    embeddings = adapter._average_embeddings_by_path(
+        ["a.wav"],
+        [np.asarray([3.0, 4.0], dtype=np.float32)],
+        [0],
+    )
+
+    np.testing.assert_allclose(
+        embeddings["a.wav"],
+        np.asarray([0.6, 0.8], dtype=np.float32),
+    )
 
 
 def test_maest_prepares_three_30_second_windows(monkeypatch) -> None:

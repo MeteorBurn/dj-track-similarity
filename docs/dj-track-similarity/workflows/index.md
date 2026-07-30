@@ -26,7 +26,7 @@ decides what survives.
 - [Find compatible tracks](./find-compatible-tracks.md): one reference track to candidate list.
 - [Build crates](./build-crates.md): create listening pools and export them.
 - [Train a personal classifier](./train-personal-classifier.md): turn Rhythm Lab labels into a promoted score.
-- [Prepare and rebuild a SONARA release](./reanalyze-sonara-split-storage.md): back up and activate all four contracts before reanalysis.
+- [Migrate and reanalyze SONARA storage](./reanalyze-sonara-split-storage.md): preview and back up structural changes, then reanalyze only when chosen.
 - [Maintain library](./maintain-library.md): refresh metadata, reports, duplicate checks, and safe repair.
 
 ## Working habit

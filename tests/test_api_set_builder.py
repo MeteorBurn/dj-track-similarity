@@ -40,7 +40,7 @@ def _track(database: LibraryDatabase, path: Path):
     ).identity
 
 
-def test_set_builder_endpoint_forwards_validated_v7_config(
+def test_set_builder_endpoint_forwards_validated_current_config(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -207,4 +207,4 @@ def test_set_builder_endpoint_reports_missing_current_analysis(
     )
 
     assert response.status_code == 400
-    assert "reanalysis is required" in response.json()["detail"]
+    assert "missing required analysis" in response.json()["detail"]

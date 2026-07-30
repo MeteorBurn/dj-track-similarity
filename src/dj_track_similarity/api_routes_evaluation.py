@@ -15,7 +15,6 @@ from .api_schemas import (
 )
 from .api_state import AppDatabaseState
 from .database import LibraryDatabase
-from .db_schema_v7 import SCHEMA_VERSION
 from .evaluation.score_profiles import (
     DEFAULT_LIMITATIONS,
     PROFILE_KIND,
@@ -38,7 +37,6 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
         db = _require_current_evaluation_db(state)
         try:
             return {
-                "schema_version": SCHEMA_VERSION,
                 "counts": db.count_evaluation_rows(),
             }
         except (RuntimeError, sqlite3.OperationalError) as error:
@@ -283,7 +281,7 @@ def _latest_calibration_runs(db: LibraryDatabase) -> list[dict[str, Any]]:
 def _evaluation_schema_error(error: Exception) -> HTTPException:
     return HTTPException(
         status_code=409,
-        detail=f"Evaluation API requires SQLite schema v{SCHEMA_VERSION}. {error}",
+        detail=f"Evaluation API requires the current SQLite structure. {error}",
     )
 
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import Protocol
 
 from fastapi import HTTPException
 
-from .api_schemas import TrackIdentityRequestV7
+from .analysis_models import ClassifierSpecification
+from .api_schemas import TrackIdentityRequest
+from .classifier_manifest import classifier_manifest_from_info
+from .classifier_scoring import classifier_specification_from_manifest
 from .track_models import TrackIdentity
 
 
@@ -20,11 +24,28 @@ class _TrackIdentityRepository(Protocol):
     ) -> TrackIdentity | None: ...
 
 
+def current_classifier_specifications(
+    classifier_infos: Sequence[Mapping[str, object]],
+) -> tuple[ClassifierSpecification, ...]:
+    specifications: list[ClassifierSpecification] = []
+    for classifier_info in classifier_infos:
+        if not bool(classifier_info.get("is_scoring_compatible", True)):
+            continue
+        try:
+            manifest = classifier_manifest_from_info(classifier_info)
+            if manifest is None or not manifest.is_scoring_compatible:
+                continue
+            specifications.append(classifier_specification_from_manifest(manifest))
+        except (OSError, ValueError):
+            continue
+    return tuple(specifications)
+
+
 def require_current_track_identity(
     repository: _TrackIdentityRepository,
-    expected: TrackIdentityRequestV7,
+    expected: TrackIdentityRequest,
 ) -> TrackIdentity:
-    """Resolve and compare one exact current v7 identity.
+    """Resolve and compare one exact current identity.
 
     This guard is for delayed mutations whose numeric track id may have been
     rebound by a database switch or content replacement.

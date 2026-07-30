@@ -1,4 +1,4 @@
-"""Deterministic, lossless transfer of Rhythm Lab manual labels to v7.
+"""Deterministic, lossless transfer of Rhythm Lab manual labels.
 
 Export and Core matching are read-only. Restore is dry-run by default and can
 write a fresh canonical Lab database only when explicitly applied. Unresolved
@@ -199,7 +199,7 @@ def preview_rebind_bundle(
     export_bundle: Mapping[str, Any],
     core_db_path: str | Path,
 ) -> dict[str, Any]:
-    """Resolve exported labels against v7 Core by canonical path only.
+    """Resolve exported labels against the current Core by canonical path only.
 
     Rows with no match, multiple canonical matches, or file metadata changes
     remain unresolved.  No data is written and no fallback matching is used.
@@ -207,11 +207,6 @@ def preview_rebind_bundle(
 
     source = _verified_bundle(export_bundle, expected_kind=EXPORT_KIND)
     with _read_snapshot(core_db_path) as (connection, selected_core_db):
-        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if user_version != 7:
-            raise ValueError(
-                f"Expected a v7 Core database (user_version=7), got {user_version}"
-            )
         _require_columns(connection, "library_catalog", ("catalog_uuid",))
         _require_columns(connection, "tracks", _CORE_TRACK_COLUMNS)
         catalog_rows = connection.execute(
@@ -219,7 +214,7 @@ def preview_rebind_bundle(
         ).fetchall()
         if len(catalog_rows) != 1:
             raise ValueError(
-                "Expected exactly one library_catalog row in the v7 Core database"
+                "Expected exactly one library_catalog row in the Core database"
             )
         catalog_uuid = str(catalog_rows[0]["catalog_uuid"])
         track_rows = connection.execute(
@@ -390,7 +385,7 @@ def restore_label_bundle(
     accepted_record_ids: Iterable[str] = (),
     _failure_hook: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
-    """Preview or apply one rebound bundle to a canonical v7 Lab database.
+    """Preview or apply one rebound bundle to a canonical Lab database.
 
     Strong matches are eligible automatically. Weak matches require their
     stable ``record_id`` in ``accepted_record_ids``. Every other source row,
@@ -723,11 +718,6 @@ def _read_current_core_targets(
     core_db_path: str | Path,
 ) -> tuple[set[tuple[Any, ...]], dict[str, Any]]:
     with _read_snapshot(core_db_path) as (connection, selected_core_db):
-        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if user_version != 7:
-            raise ValueError(
-                f"Expected a v7 Core database (user_version=7), got {user_version}"
-            )
         _require_columns(connection, "library_catalog", ("catalog_uuid",))
         _require_columns(connection, "tracks", _CORE_TRACK_COLUMNS)
         catalog_rows = connection.execute(
@@ -735,7 +725,7 @@ def _read_current_core_targets(
         ).fetchall()
         if len(catalog_rows) != 1:
             raise ValueError(
-                "Expected exactly one library_catalog row in the v7 Core database"
+                "Expected exactly one library_catalog row in the Core database"
             )
         catalog_uuid = str(catalog_rows[0]["catalog_uuid"])
         track_payloads = _sort_records(
@@ -1022,9 +1012,6 @@ def _database_provenance(
         "schema_object_count": len(schema_payload),
         "schema_sha256": _sha256_payload(schema_payload),
         "snapshot_sha256": _sha256_payload(snapshot_payload),
-        "user_version": int(
-            connection.execute("PRAGMA user_version").fetchone()[0]
-        ),
         "wal_file_sha256": (
             _file_sha256(wal_path)
             if wal_path.is_file() and wal_path.stat().st_size > 0
@@ -1286,11 +1273,6 @@ def _read_promoted_models(root: Path) -> list[dict[str, Any]]:
                 "feature_set": feature_set,
                 "label_order": label_order,
                 "manifest_sha256": manifest_sha256,
-                "manifest_version": (
-                    int(raw["manifest_version"])
-                    if raw.get("manifest_version") is not None
-                    else None
-                ),
             }
         )
     return _sort_records(result)
@@ -1950,8 +1932,6 @@ def _validate_database_provenance(provenance: Mapping[str, Any]) -> None:
     )
     if provenance.get("read_mode") != "mode=ro fixed read transaction":
         raise ValueError("Database provenance has an unsupported read mode")
-    if not isinstance(provenance.get("user_version"), int):
-        raise ValueError("Database provenance user_version must be an integer")
     if not isinstance(provenance.get("schema_object_count"), int):
         raise ValueError("Database provenance schema_object_count must be an integer")
     _required_text(provenance, "journal_mode")

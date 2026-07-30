@@ -1,7 +1,7 @@
 # Quickstart: scan, analyze, search
 
 > Audience: New users who want one working pass before reading details.
-> Goal: Create a database, start the v7 backend, and make the first useful search.
+> Goal: Create a database, start the backend, and make the first useful search.
 > Type: tutorial
 
 The commands below create a local catalog and analyze 25 tracks so the active backend has real
@@ -47,15 +47,9 @@ files.
 Install analysis extras first if you have not done so. Then run a small batch:
 
 ```powershell
-mkdir .\backups
-dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backups --confirm "PREPARE SONARA RELEASE"
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
-
-Fresh v7 bundles must activate the loaded immutable SONARA release before the first SONARA job.
-Preparation derives all four `core`, `timeline`, `embedding`, and `fingerprint` contracts, verifies
-the Core and Artifacts backups, and records a resumable receipt.
 
 A small limit confirms the model stack before you analyze every track. It also lets you hear what
 each search approach returns before spending time on full-library analysis.
@@ -72,7 +66,7 @@ each search approach returns before spending time on full-library analysis.
 In the CLI, omit `--limit` for the whole library. In the browser, **Analyze limit** `0` has the same
 whole-eligible-library meaning.
 
-## 4. Build the frontend and start the v7 app
+## 4. Build the frontend and start the app
 
 Build the current typed client:
 
@@ -86,7 +80,7 @@ dj-sim serve --host 127.0.0.1 --port 8765
 ```
 
 Without `--db`, the server starts with no selected database and creates no SQLite files. Use the
-database picker to select an existing compatible v7 bundle or choose a new `.sqlite` path. Selecting
+database picker to select an existing compatible bundle or choose a new `.sqlite` path. Selecting
 a new path creates the Core database and its mandatory adjacent Artifacts database.
 
 To select the database before the server starts, pass `--db .\data\library.sqlite`. An existing
@@ -107,8 +101,8 @@ with `lan` only when you want the server reachable from other devices on the loc
 mode commands use only the arguments you provide. The server command keeps its terminal occupied.
 Run later CLI jobs in a second activated terminal.
 
-Open `http://127.0.0.1:8765/`. The served bundle uses the typed v7 database, track, analysis,
-search, set, classifier, Lab, and exact-identity mutation contracts.
+Open `http://127.0.0.1:8765/`. The served bundle uses the current typed database, track, analysis,
+search, set, classifier, Lab, and exact-identity mutation responses.
 
 ## 5. Check the backend and browser
 
@@ -132,7 +126,7 @@ endpoints documented in the [API reference](../reference/api.md).
 
 1. In **Database and analysis**, confirm the SQLite path and music root.
 2. In **Library**, search or use **Prev**, **Next**, and the page-number field to browse fixed
-   pages of up to `500` tracks.
+   pages of up to `200` tracks.
 3. Add one to five tracks as seeds.
 4. Open **MERT** or **MUQ** for an embedding neighborhood, or **SONARA** when you want to steer the
    search by rhythm, sound, dynamics, harmony, or tempo.

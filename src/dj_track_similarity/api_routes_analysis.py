@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import closing
-
 from fastapi import FastAPI, HTTPException, Query
 
 from .analysis_config import build_analysis_job_config
 from .analysis_models import (
-    ACTIVE_CONTRACT_SETTING_PREFIX,
-    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
     AnalysisOutput,
     AnalysisResetResult,
-    active_contract_setting_key,
 )
 from .api_schemas import (
     AnalysisJobRequest,
@@ -21,13 +16,10 @@ from .api_schemas import (
     ClassifierAnalyzeRequest,
     ClassifierResetRequest,
     ClassifiersAnalyzeRequest,
-    PrepareSonaraReleaseRequest,
-    PrepareSonaraReleaseResponseV7,
-    SonaraReleaseStatusV7,
+    SonaraStatusResponse,
 )
-from .api_state import AppDatabaseState, DatabaseBusy
+from .api_state import AppDatabaseState
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
-from .database import LibraryDatabase
 
 
 def register_analysis_routes(
@@ -43,10 +35,7 @@ def register_analysis_routes(
     def reset_analysis(request: AnalysisResetRequest):
         try:
             with state.exclusive_db("reset analysis") as database:
-                outputs = _active_outputs_for_family(
-                    database,
-                    request.analysis_family,
-                )
+                outputs = _outputs_for_family(request.analysis_family)
                 if not outputs:
                     return AnalysisResetResult()
                 return database.reset_analysis_outputs(outputs)
@@ -73,8 +62,6 @@ def register_analysis_routes(
         try:
             with state.job_start():
                 manager = state.require_analysis_jobs()
-                if "sonara" in config.models:
-                    manager.validate_sonara_preflight()
                 return manager.start(
                     models=list(config.models),
                     limit=config.limit,
@@ -183,8 +170,6 @@ def register_analysis_routes(
                 else []
             )
             with state.job_start():
-                if "sonara" in request.stages:
-                    state.require_analysis_jobs().validate_sonara_preflight()
                 return state.require_analysis_pipeline_jobs().start(
                     stages=list(request.stages),
                     limit=request.limit,
@@ -313,58 +298,14 @@ def register_analysis_routes(
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get(
-        "/api/analysis/sonara/releases/status",
-        response_model=SonaraReleaseStatusV7,
+        "/api/analysis/sonara/status",
+        response_model=SonaraStatusResponse,
     )
-    def sonara_release_status():
+    def sonara_status():
         try:
-            return state.require_analysis_jobs().sonara_release_status()
+            return state.require_analysis_jobs().sonara_status()
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post(
-        "/api/analysis/sonara/releases/prepare",
-        response_model=PrepareSonaraReleaseResponseV7,
-    )
-    def prepare_sonara_release(request: PrepareSonaraReleaseRequest):
-        from pathlib import Path
-
-        from .prepare_sonara_release import (
-            LockHeldError,
-            PrepareSonaraReleaseError,
-            prepare_sonara_release as _prepare,
-        )
-
-        try:
-            with state.exclusive_db(
-                "prepare a SONARA release"
-            ) as database:
-                if database.catalog_uuid != request.catalog_uuid:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            "SONARA_CATALOG_CHANGED: the selected catalog changed; "
-                            "refresh SONARA release status before preparing"
-                        ),
-                    )
-                receipt = _prepare(
-                    database,
-                    backup_dir=Path(request.backup_dir),
-                    confirm=request.confirm,
-                )
-        except LockHeldError as error:
-            raise HTTPException(
-                status_code=409,
-                detail=f"SONARA_RELEASE_PREPARATION_REQUIRED: {error}",
-            ) from error
-        except DatabaseBusy as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        except (PrepareSonaraReleaseError, RuntimeError) as error:
-            raise HTTPException(status_code=500, detail=str(error)) from error
-
-        return receipt
 
 
 def _validated_classifier_keys(
@@ -398,8 +339,7 @@ def _validated_classifier_keys(
     return cleaned
 
 
-def _active_outputs_for_family(
-    database: LibraryDatabase,
+def _outputs_for_family(
     analysis_family: str,
 ) -> tuple[AnalysisOutput, ...]:
     output_kinds = {
@@ -409,87 +349,10 @@ def _active_outputs_for_family(
         "muq": ("embedding",),
         "clap": ("embedding",),
     }[analysis_family]
-    outputs = tuple(
-        output
+    return tuple(
+        AnalysisOutput(analysis_family, output_kind)
         for output_kind in output_kinds
-        if (
-            output := database.active_analysis_output(
-                analysis_family,
-                output_kind,
-            )
-        )
-        is not None
     )
-    if analysis_family != "sonara":
-        return outputs
-
-    with closing(database.connect()) as connection:
-        active_setting_keys = {
-            str(row[0])
-            for row in connection.execute(
-                """
-                SELECT setting_key
-                FROM library_settings
-                WHERE setting_key = ?
-                   OR setting_key LIKE ?
-                """,
-                (
-                    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-                    f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.%",
-                ),
-            )
-        }
-    if not outputs and not active_setting_keys:
-        with (
-            closing(database.connect()) as core_connection,
-            closing(database.connect_artifacts()) as artifacts_connection,
-        ):
-            has_persisted_rows = any(
-                (
-                    core_connection.execute(
-                        "SELECT 1 FROM sonara LIMIT 1"
-                    ).fetchone()
-                    is not None,
-                    core_connection.execute(
-                        """
-                        SELECT 1
-                        FROM classifier_scores
-                        WHERE uses_sonara = 1
-                        LIMIT 1
-                        """
-                    ).fetchone()
-                    is not None,
-                    *(
-                        artifacts_connection.execute(
-                            f"SELECT 1 FROM {table} LIMIT 1"
-                        ).fetchone()
-                        is not None
-                        for table in (
-                            "sonara_timeline",
-                            "sonara_similarity_embeddings",
-                            "sonara_fingerprints",
-                        )
-                    ),
-                )
-            )
-        if has_persisted_rows:
-            raise RuntimeError(
-                "SONARA reset requires one complete active Core, Timeline, "
-                "Embedding, and Fingerprint contract set; persisted SONARA "
-                "data exists without active contracts"
-            )
-        return outputs
-
-    expected_setting_keys = {
-        SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-        *(active_contract_setting_key(output) for output in outputs),
-    }
-    if len(outputs) != len(output_kinds) or active_setting_keys != expected_setting_keys:
-        raise RuntimeError(
-            "SONARA reset requires one complete active Core, Timeline, "
-            "Embedding, and Fingerprint contract set"
-        )
-    return outputs
 
 
 def _analysis_conflict_detail(error: Exception) -> str:

@@ -12,27 +12,25 @@ from typing import Any
 
 import numpy as np
 
-from .analysis_contracts import utc_timestamp
-from .analysis_model_runners import current_embedding_analysis_output
 from .analysis_models import (
     AnalysisOutput,
     AnalysisWriteResult,
     ClassifierFeatureRow,
     ClassifierScoreWrite,
     ClassifierSpecification,
-    classifier_required_outputs_hash,
+    current_embedding_spec,
 )
 from .classifier_manifest import (
     ClassifierManifestSummary,
     CLASSIFIER_PUBLICATION_POINTER_NAME,
-    classifier_feature_manifest_hash,
     classifier_manifest_api_fields,
     load_classifier_manifest_summary,
     resolve_classifier_artifact_paths,
     require_scoring_compatible_manifest,
 )
 from .database import LibraryDatabase
-from .db_schema_v7 import ClassifierScoreV7, SonaraRowV7
+from .db_ddl import ClassifierScoreRecord, SonaraRow
+from .timestamps import utc_timestamp
 
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -45,7 +43,6 @@ _SONARA_VECTOR_DIMS = {
 _SONARA_NON_NUMERIC_FIELDS = {
     "track_id",
     "content_generation",
-    "contract_hash",
     "bpm_candidates_json",
     "detected_key_name",
     "detected_key_camelot",
@@ -55,7 +52,7 @@ _SONARA_NON_NUMERIC_FIELDS = {
     *_SONARA_VECTOR_DIMS,
 }
 _SONARA_SCALAR_FEATURES = {
-    field.name for field in fields(SonaraRowV7)
+    field.name for field in fields(SonaraRow)
 } - _SONARA_NON_NUMERIC_FIELDS
 
 
@@ -182,10 +179,6 @@ class ClassifierRequirements:
         return self.specification.classifier_key
 
     @property
-    def model_id(self) -> str:
-        return self.specification.model_id
-
-    @property
     def feature_set(self) -> str:
         return self.specification.feature_set
 
@@ -200,7 +193,7 @@ class ClassifierRequirements:
     @property
     def required_inputs(self) -> tuple[str, ...]:
         return tuple(
-            output.contract.analysis_family
+            output.analysis_family
             for output in self.specification.required_outputs
         )
 
@@ -208,18 +201,13 @@ class ClassifierRequirements:
     def positive_label(self) -> str:
         return self.specification.positive_label
 
-    @property
-    def uses_sonara(self) -> bool:
-        return self.specification.sonara_release_hash is not None
-
-
 def load_classifier_requirements(
     db: LibraryDatabase,
     classifier: str,
     *,
     model_path: str | Path | None = None,
 ) -> ClassifierRequirements:
-    """Validate a v2 manifest, exact active contracts, features, and artifact.
+    """Validate the classifier recipe, required inputs, and artifact.
 
     This function is deliberately read-only.  In particular, it performs the
     artifact SHA-256 check but never loads the joblib payload and never deletes
@@ -236,9 +224,9 @@ def load_classifier_requirements(
         expected_classifier_key=classifier,
     )
     path = manifest.model_path
-    specification = _specification_from_manifest(manifest)
-    _validate_feature_contracts(specification)
-    _require_exact_active_outputs(db, specification)
+    specification = classifier_specification_from_manifest(manifest)
+    _validate_feature_inputs(specification)
+    _require_available_outputs(db, specification)
     _verify_artifact_sha256(path, manifest.artifact_hash or "")
     return ClassifierRequirements(
         manifest=manifest,
@@ -257,7 +245,7 @@ def analyze_classifier(
     model_path: str | Path | None = None,
     limit: int | None = None,
 ) -> dict[str, object]:
-    """Score the current ready population through the v7 repository boundary."""
+    """Score the current ready population through the repository boundary."""
 
     requirements = load_classifier_requirements(
         db,
@@ -310,8 +298,6 @@ def analyze_classifier(
         "not_ready": readiness.missing_input_tracks + feature_not_ready,
         "already_scored": readiness.already_scored_tracks,
         "model": str(requirements.model_path),
-        "model_id": requirements.model_id,
-        "feature_manifest_hash": specification.feature_manifest_hash,
     }
     if errors:
         output["errors"] = errors
@@ -332,7 +318,6 @@ class ClassifierScorer:
         self.specification = requirements.specification
         self.path = requirements.model_path
         self.classifier_key = requirements.classifier_key
-        self.model_id = requirements.model_id
         self.feature_set = requirements.feature_set
         self.feature_names = requirements.feature_names
         self.label_order = requirements.label_order
@@ -386,16 +371,17 @@ class ClassifierScorer:
             probabilities,
             list(self.label_order),
         )
-        score_row = ClassifierScoreV7(
+        score_row = ClassifierScoreRecord(
             track_id=row.target.track_id,
+            track_uuid=row.target.track_uuid,
             classifier_key=self.classifier_key,
             content_generation=row.target.content_generation,
-            model_id=self.model_id,
             feature_set=self.feature_set,
-            feature_manifest_hash=self.specification.feature_manifest_hash,
-            required_outputs_hash=self.specification.required_outputs_hash,
-            uses_sonara=int(self.requirements.uses_sonara),
-            sonara_release_hash=self.specification.sonara_release_hash,
+            feature_names_json=json.dumps(
+                list(self.feature_names),
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ),
             positive_label=self.positive_label,
             predicted_class=predicted_class,
             score_bucket=_score_bucket_from_score(score),
@@ -423,11 +409,11 @@ class ClassifierScorer:
         return tuple(self.score_row(row) for row in rows)
 
 
-def save_classifier_score_v7(
+def save_classifier_score(
     repository: LibraryDatabase,
     write: ClassifierScoreWrite,
 ) -> AnalysisWriteResult:
-    """Persist one already-derived score through the v7 repository only."""
+    """Persist one already-derived score through the repository only."""
 
     results = repository.save_classifier_scores((write,))
     if len(results) != 1:
@@ -435,88 +421,48 @@ def save_classifier_score_v7(
     return results[0]
 
 
-def _specification_from_manifest(
+def classifier_specification_from_manifest(
     manifest: ClassifierManifestSummary,
 ) -> ClassifierSpecification:
-    if not manifest.model_id:
-        raise ValueError("classifier manifest model_id is required")
     if not manifest.feature_set:
         raise ValueError("classifier manifest feature_set is required")
     if not manifest.feature_names:
         raise ValueError("classifier manifest feature_names must not be empty")
-    expected_hash = classifier_feature_manifest_hash(manifest.feature_names)
-    if manifest.feature_manifest_hash != expected_hash:
-        raise ValueError(
-            "classifier manifest feature_manifest_hash does not match the "
-            "canonical ordered feature_names"
-        )
     if not manifest.positive_label:
         raise ValueError("classifier manifest positive_label is required")
-    if not manifest.required_outputs:
-        raise ValueError("classifier manifest required_outputs must not be empty")
+    outputs = tuple(
+        AnalysisOutput(
+            source,
+            "core" if source == "sonara" else "embedding",
+        )
+        for source in manifest.required_inputs
+    )
     return ClassifierSpecification(
         classifier_key=manifest.classifier_key,
-        model_id=manifest.model_id,
         feature_set=manifest.feature_set,
-        feature_manifest_hash=expected_hash,
-        required_outputs_hash=classifier_required_outputs_hash(
-            manifest.required_outputs
-        ),
         feature_names=manifest.feature_names,
-        required_outputs=manifest.required_outputs,
+        required_outputs=outputs,
         label_order=manifest.label_order,
         positive_label=manifest.positive_label,
     )
 
 
-def _require_exact_active_outputs(
+def _require_available_outputs(
     db: LibraryDatabase,
     specification: ClassifierSpecification,
 ) -> None:
     for expected in specification.required_outputs:
-        require_current_classifier_output(expected)
         active = db.active_analysis_output(*expected.key)
         family, kind = expected.key
         if active is None:
             raise ValueError(f"classifier input is not active: {family}/{kind}")
-        if (
-            active.contract_hash != expected.contract_hash
-            or active.contract.canonical_payload_json
-            != expected.contract.canonical_payload_json
-        ):
-            raise ValueError(
-                "classifier input contract is not the exact active identity: "
-                f"{family}/{kind}"
-            )
 
 
-def require_current_classifier_output(expected: AnalysisOutput) -> None:
-    """Reject classifier manifests pinned to a superseded ML adapter contract."""
-
-    family, kind = expected.key
-    if family == "sonara":
-        return
-    if kind != "embedding" or family not in {"maest", "mert", "muq", "clap"}:
-        raise ValueError(
-            f"classifier input is not a supported production output: {family}/{kind}"
-        )
-    current = current_embedding_analysis_output(family)
-    if (
-        expected.contract_hash != current.contract_hash
-        or expected.contract.canonical_payload_json
-        != current.contract.canonical_payload_json
-    ):
-        raise ValueError(
-            "classifier input contract does not match the current adapter identity: "
-            f"{family}/{kind}"
-        )
-
-
-def _validate_feature_contracts(
+def _validate_feature_inputs(
     specification: ClassifierSpecification,
 ) -> None:
     outputs_by_family = {
-        output.contract.analysis_family: output
+        output.analysis_family: output
         for output in specification.required_outputs
     }
     feature_families: list[str] = []
@@ -538,7 +484,7 @@ def _validate_feature_contracts(
                 )
             _validate_sonara_feature(feature_name, key)
             continue
-        if output.contract.output_kind != "embedding":
+        if output.output_kind != "embedding":
             raise ValueError(
                 f"{family} classifier features require an embedding output"
             )
@@ -547,14 +493,14 @@ def _validate_feature_contracts(
                 f"classifier embedding feature index is invalid: {feature_name}"
             )
         index = int(key)
-        dim = output.contract.dim
-        if dim is None or not 0 <= index < dim:
+        dimension = current_embedding_spec(family).dimension
+        if not 0 <= index < dimension:
             raise ValueError(
                 f"classifier embedding feature is out of range: {feature_name}"
             )
 
     required_families = [
-        output.contract.analysis_family for output in specification.required_outputs
+        output.analysis_family for output in specification.required_outputs
     ]
     if feature_families != required_families:
         raise ValueError(
@@ -631,10 +577,8 @@ def _validate_payload_identity(
 ) -> None:
     expected: dict[str, object] = {
         "classifier_key": requirements.classifier_key,
-        "model_id": requirements.model_id,
         "feature_set": requirements.feature_set,
         "feature_names": list(requirements.feature_names),
-        "feature_manifest_hash": (requirements.specification.feature_manifest_hash),
         "label_order": list(requirements.label_order),
         "positive_label": requirements.positive_label,
         "feature_count": len(requirements.feature_names),
@@ -849,7 +793,6 @@ def _promoted_classifier_payload(
         "feature_set": summary.feature_set,
         "feature_count": summary.feature_count,
         "feature_names": list(summary.feature_names),
-        "feature_manifest_hash": summary.feature_manifest_hash,
         "model_path": str(summary.model_path),
         "metadata_path": (
             str(summary.metadata_path)

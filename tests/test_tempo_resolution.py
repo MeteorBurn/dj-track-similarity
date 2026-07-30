@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -22,18 +21,7 @@ from dj_track_similarity.tempo_resolution import (
 from dj_track_similarity.track_models import TrackIdentity
 
 
-_CORE_OUTPUT = AnalysisOutput(
-    ContractIdentity(
-        analysis_family="sonara",
-        output_kind="core",
-        model_name="test-sonara",
-        model_version="1",
-        release_hash="sha256:" + "1" * 64,
-        checkpoint_id="test-checkpoint",
-        preprocessing="test-preprocessing",
-        parameters={"fixture": "tempo-resolution"},
-    )
-)
+_CORE_OUTPUT = AnalysisOutput("sonara", "core")
 
 
 def _evidence(bpm: float, confidence: float, *, grid: float | None = None) -> TempoEvidence:

@@ -26,7 +26,7 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
     assert.match(
       source,
       new RegExp(`feature\\("${field}",\\s*"${label}"`),
-      `${field} should use the current v7 label`,
+      `${field} should use the current label`,
     );
   }
 });
@@ -41,7 +41,7 @@ test("metadata descriptions keep model outputs as ranking signals", () => {
   assert.match(source, /Probability returned by the bundled SONARA vocal model/);
 });
 
-test("metadata header and file block are driven by the v7 detail", () => {
+test("metadata header and file block are driven by the current detail", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /metadata-track-title">\{displayTrack\(track\)\}/);
@@ -80,16 +80,16 @@ test("metadata exposes current analysis coverage including MuQ", () => {
   assert.match(source, /track\.classifier_scores_detail\.length > 0/);
 });
 
-test("metadata shows exact embedding and classifier detail records", () => {
+test("metadata shows structural embedding and classifier detail records", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /track\.embeddings\.map\(\(embedding\)/);
   assert.match(source, /embedding\.analysis_family\.toUpperCase\(\)/);
-  assert.match(source, /embedding\.model_name/);
   assert.match(source, /embedding\.dim/);
+  assert.match(source, /embedding\.normalization/);
   assert.match(source, /track\.classifier_scores_detail\.map\(\(score\)/);
   assert.match(source, /score\.feature_set/);
-  assert.match(source, /score\.model_id/);
+  assert.doesNotMatch(source, /embedding\.model_(?:name|version)|score\.model_id/);
 });
 
 test("metadata keeps MAEST syncopated rhythm on the detailed MAEST payload", () => {

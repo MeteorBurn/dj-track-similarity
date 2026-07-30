@@ -82,7 +82,6 @@ def _save_maest_genres(
         (
             MaestWrite(
                 target=target,
-                analysis_contract=output.contract,
                 genres=tuple(
                     MaestGenreScore(label=label, score=0.9) for label in labels
                 ),

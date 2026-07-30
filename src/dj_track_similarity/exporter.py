@@ -1,4 +1,4 @@
-"""Playlist export for typed v7 library rows."""
+"""Playlist export for typed library rows."""
 
 from __future__ import annotations
 

@@ -31,7 +31,7 @@ def resolve_tempo_evidence(
     track: TrackSummary,
     sonara: SonaraFeatureRow | None = None,
 ) -> TempoEvidence:
-    """Resolve tempo from one current v7 summary and optional SONARA row."""
+    """Resolve tempo from one current summary and optional SONARA row."""
 
     if not isinstance(identity, TrackIdentity):
         raise TypeError("identity must be a TrackIdentity")
@@ -55,7 +55,7 @@ def resolve_tempo_evidence(
             raise ValueError(
                 "SONARA row identity does not match the current track summary"
             )
-    return resolve_tempo_evidence_v7(
+    return resolve_tempo_evidence_from_values(
         sonara.values if sonara is not None else None,
         tag_bpm=track.tag_bpm,
     )
@@ -215,11 +215,11 @@ def _clamp01(value: float) -> float:
     return min(1.0, max(0.0, float(value)))
 
 
-def resolve_tempo_evidence_v7(
+def resolve_tempo_evidence_from_values(
     sonara_row: Mapping[str, object] | None,
     tag_bpm: float | None,
 ) -> TempoEvidence:
-    """Resolve tempo from canonical v7 columns.
+    """Resolve tempo from canonical columns.
 
     A NULL SONARA confidence deliberately has zero reliability. It keeps the
     detected BPM as evidence, does not promote the tag BPM, and therefore
@@ -241,7 +241,7 @@ def resolve_tempo_evidence_v7(
     confidence = _unit_interval_or_none(sonara_row.get("bpm_confidence"))
     grid_stability = _unit_interval_or_none(sonara_row.get("beat_grid_stability"))
 
-    # Parse bpm_candidates_json — stored as a JSON array string in v7
+    # Parse bpm_candidates_json stored as a JSON array string.
     raw_candidates = sonara_row.get("bpm_candidates_json")
     candidate_bpms: tuple[float, ...] = ()
     if isinstance(raw_candidates, str):

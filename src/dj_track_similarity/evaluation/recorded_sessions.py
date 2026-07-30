@@ -11,38 +11,45 @@ if TYPE_CHECKING:
     from ..database import LibraryDatabase
 
 
-_SOURCE_OUTPUT_KEYS = {
-    "maest": ("maest", "embedding"),
-    "mert": ("mert", "embedding"),
-    "muq": ("muq", "embedding"),
-    "clap": ("clap", "embedding"),
-    "sonara": ("sonara", "core"),
-}
+_LEGACY_VERSION_IDENTITY_KEYS = frozenset(
+    {
+        "active_contract_hash",
+        "active_release_hash",
+        "contract_hash",
+        "contract_hashes",
+        "expected_contract_hash",
+        "expected_release_hash",
+        "feature_manifest_hash",
+        "manifest_version",
+        "release_hash",
+        "schema_version",
+        "sonara_release_hash",
+        "source_contract_hashes",
+    }
+)
 
 
 def load_current_evaluation_sessions(
     db: LibraryDatabase,
 ) -> list[dict[str, Any]]:
-    """Return only sessions proven current by identity and active contracts.
+    """Return only sessions proven current by catalog and track identity.
 
     A session is discarded when any seed snapshot is missing or stale, or when
-    its source contracts are no longer active. Individual result events are
-    discarded when their track snapshot or per-event contract provenance is
-    stale. The repository's deterministic ordering is normalized explicitly.
+    its seed snapshot is missing or stale. Individual result events are
+    discarded when their track snapshot is stale. The repository's deterministic
+    ordering is normalized explicitly.
     """
 
     raw_sessions = db.list_search_sessions_with_events()
     track_ids = _recorded_track_ids(raw_sessions)
     identities = db.get_track_identities(track_ids)
     _validate_identity_catalog(db, identities)
-    active_contract_hashes: dict[str, str | None] = {}
     current_sessions: list[dict[str, Any]] = []
     for session in raw_sessions:
         current = _current_session(
             db,
             session,
             identities=identities,
-            active_contract_hashes=active_contract_hashes,
         )
         if current is not None:
             current_sessions.append(current)
@@ -60,23 +67,14 @@ def _current_session(
     session: Mapping[str, Any],
     *,
     identities: Mapping[int, TrackIdentity],
-    active_contract_hashes: dict[str, str | None],
 ) -> dict[str, Any] | None:
     request = session.get("request")
     if not isinstance(request, Mapping):
         return None
+    if _contains_legacy_version_identity(request):
+        return None
     if request.get("catalog_uuid") != db.catalog_uuid:
         return None
-    session_contracts = _source_contract_hashes(
-        request.get("source_contract_hashes")
-    )
-    if not session_contracts or not _contracts_are_current(
-        db,
-        session_contracts,
-        active_contract_hashes=active_contract_hashes,
-    ):
-        return None
-
     raw_seeds = _mapping_sequence(session.get("seeds"))
     if not raw_seeds:
         return None
@@ -106,11 +104,7 @@ def _current_session(
             dict(event)
             for event in _mapping_sequence(session.get("events"))
             if _snapshot_matches(event, identities)
-            and _event_provenance_matches(
-                event,
-                session_contracts,
-                catalog_uuid=db.catalog_uuid,
-            )
+            and _event_provenance_matches(event, catalog_uuid=db.catalog_uuid)
         ),
         key=lambda event: (
             _positive_int_or_none(event.get("rank")) or 0,
@@ -125,32 +119,13 @@ def _current_session(
     return result
 
 
-def _contracts_are_current(
-    db: LibraryDatabase,
-    source_contracts: Mapping[str, str],
-    *,
-    active_contract_hashes: dict[str, str | None],
-) -> bool:
-    for source, recorded_hash in source_contracts.items():
-        output_key = _SOURCE_OUTPUT_KEYS.get(source)
-        if output_key is None:
-            return False
-        if source not in active_contract_hashes:
-            output = db.active_analysis_output(*output_key)
-            active_contract_hashes[source] = (
-                None if output is None else output.contract_hash
-            )
-        if active_contract_hashes[source] != recorded_hash:
-            return False
-    return True
-
-
 def _event_provenance_matches(
     event: Mapping[str, Any],
-    session_contracts: Mapping[str, str],
     *,
     catalog_uuid: str,
 ) -> bool:
+    if _contains_legacy_version_identity(event):
+        return False
     score_breakdown = event.get("score_breakdown")
     if not isinstance(score_breakdown, Mapping):
         return False
@@ -164,19 +139,7 @@ def _event_provenance_matches(
         )
     ):
         return False
-    direct = _source_contract_hashes(
-        score_breakdown.get("source_contract_hashes")
-    )
-    if direct:
-        event_contracts = direct
-    else:
-        event_contracts = _source_contracts_from_contributions(
-            score_breakdown.get("sources")
-        )
-    return bool(event_contracts) and all(
-        session_contracts.get(source) == contract_hash
-        for source, contract_hash in event_contracts.items()
-    )
+    return True
 
 
 def _recorded_seed_snapshots_match(
@@ -224,38 +187,6 @@ def _persisted_snapshot_matches(
         and _positive_int_or_none(expected.get("content_generation"))
         == _positive_int_or_none(persisted.get("content_generation"))
     )
-
-
-def _source_contracts_from_contributions(
-    value: object,
-) -> dict[str, str]:
-    if not isinstance(value, Mapping) or not value:
-        return {}
-    result: dict[str, str] = {}
-    for source, contribution in value.items():
-        source_name = str(source).strip().lower()
-        if not source_name or not isinstance(contribution, Mapping):
-            return {}
-        contract_hash = _required_text_or_none(
-            contribution.get("contract_hash")
-        )
-        if contract_hash is None:
-            return {}
-        result[source_name] = contract_hash
-    return dict(sorted(result.items()))
-
-
-def _source_contract_hashes(value: object) -> dict[str, str]:
-    if not isinstance(value, Mapping) or not value:
-        return {}
-    result: dict[str, str] = {}
-    for source, contract_hash in value.items():
-        source_name = str(source).strip().lower()
-        clean_hash = _required_text_or_none(contract_hash)
-        if not source_name or clean_hash is None:
-            return {}
-        result[source_name] = clean_hash
-    return dict(sorted(result.items()))
 
 
 def _snapshot_matches(
@@ -330,3 +261,18 @@ def _required_text_or_none(value: object) -> str | None:
         return None
     text = value.strip()
     return text or None
+
+
+def _contains_legacy_version_identity(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return bool(
+            _LEGACY_VERSION_IDENTITY_KEYS.intersection(
+                str(key) for key in value
+            )
+        ) or any(
+            _contains_legacy_version_identity(item)
+            for item in value.values()
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return any(_contains_legacy_version_identity(item) for item in value)
+    return False

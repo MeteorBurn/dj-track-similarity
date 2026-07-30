@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 
 from .api_schemas import (
     ExportRequest,
-    GenreTagApplyResultV7,
+    GenreTagApplyResultResponse,
     GenreTagRequest,
 )
 from .api_state import AppDatabaseState
@@ -33,7 +33,7 @@ def register_tags_export_routes(
 
     @app.post(
         "/api/tags/genres/apply",
-        response_model=list[GenreTagApplyResultV7],
+        response_model=list[GenreTagApplyResultResponse],
     )
     def genre_tags_apply(_request: GenreTagRequest):
         with state.exclusive_db("write genre tags") as database:

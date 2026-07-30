@@ -48,7 +48,6 @@ EXPORT_CANDIDATE_COLUMNS = (
 class CandidateSourceContribution:
     rank: int
     score: float
-    contract_hash: str = ""
 
 
 @dataclass(frozen=True)
@@ -231,7 +230,6 @@ def record_candidate_pool_sessions(
         seed_rows = sorted(rows_by_seed.get(seed_track_id, ()), key=lambda row: row.blind_rank)
         if not seed_rows:
             continue
-        source_contract_hashes = _source_contract_hashes(seed_rows)
         session_id = db.create_search_session(
             "evaluation_candidate_pool",
             [seed_track_id],
@@ -245,7 +243,6 @@ def record_candidate_pool_sessions(
                 "random_seed": request.random_seed,
                 "feedback_source": DEFAULT_FEEDBACK_SOURCE,
                 "candidate_count": len(seed_rows),
-                "source_contract_hashes": source_contract_hashes,
             },
         )
         for row in seed_rows:
@@ -388,7 +385,6 @@ def _merge_source_results(
         accumulator.source_contributions[source] = CandidateSourceContribution(
             rank=rank,
             score=score,
-            contract_hash=output.contract_hash,
         )
 
 
@@ -421,36 +417,14 @@ def _source_contributions_json(contributions: Mapping[str, CandidateSourceContri
 
 def _source_contribution_payload(
     contributions: Mapping[str, CandidateSourceContribution],
-) -> dict[str, dict[str, float | int | str]]:
+) -> dict[str, dict[str, float | int]]:
     return {
         source: {
             "rank": contribution.rank,
             "score": contribution.score,
-            "contract_hash": contribution.contract_hash,
         }
         for source, contribution in sorted(contributions.items())
     }
-
-
-def _source_contract_hashes(
-    rows: Sequence[CandidatePoolRow],
-) -> dict[str, str]:
-    hashes: dict[str, str] = {}
-    for row in rows:
-        for source, contribution in row.source_contributions.items():
-            contract_hash = contribution.contract_hash.strip()
-            if not contract_hash:
-                raise ValueError(
-                    f"Candidate source={source} has no contract hash"
-                )
-            existing = hashes.get(source)
-            if existing is not None and existing != contract_hash:
-                raise ValueError(
-                    "Candidate rows contain multiple contract hashes for "
-                    f"source={source}"
-                )
-            hashes[source] = contract_hash
-    return dict(sorted(hashes.items()))
 
 
 def _analysis_target(identity: TrackIdentity) -> AnalysisTarget:

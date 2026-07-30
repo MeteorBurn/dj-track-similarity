@@ -11,11 +11,6 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     AnalysisWriteResult,
 )
-from dj_track_similarity.sonara_contract import (
-    SONARA_EXPECTED_SCHEMA_VERSION,
-    SONARA_EXPECTED_VERSION,
-    SonaraRuntimeIdentityError,
-)
 from dj_track_similarity.sonara_features import (
     analysis_outputs_for_sonara_runtime,
     analyze_and_store_sonara_batch,
@@ -33,7 +28,7 @@ class FakeTrackAnalysis(dict):
 
 
 class FakeSonara:
-    __version__ = SONARA_EXPECTED_VERSION
+    __version__ = "current-test-build"
     SIMILARITY_VERSION = 2
     __sonara_build_id__ = _BUILD_ID
     __sonara_vocalness_model_id__ = "sonara-vocalness-v2"
@@ -67,10 +62,6 @@ class ResultCountMismatchSonara(FakeSonara):
         return []
 
 
-class WrongVersionSonara(FakeSonara):
-    __version__ = "0.3.0"
-
-
 class RecordingRepository:
     def __init__(
         self,
@@ -88,7 +79,9 @@ class RecordingRepository:
     def register_analysis_outputs(self, outputs):
         selected = tuple(outputs)
         self.register_calls.append(selected)
-        return tuple(output.contract_hash for output in selected)
+        return tuple(
+            f"{output.analysis_family}/{output.output_kind}" for output in selected
+        )
 
     def save_sonara_results(self, writes):
         selected = tuple(writes)
@@ -149,7 +142,7 @@ def _core_result(path: str, features: tuple[str, ...]) -> FakeTrackAnalysis:
         chroma_mean=np.arange(12, dtype=np.float32) / 12.0,
         spectral_contrast_mean=np.arange(7, dtype=np.float32) / 7.0,
         provenance={
-            "schema_version": SONARA_EXPECTED_SCHEMA_VERSION,
+            "future_analyzer_parameter": "accepted",
             "sample_rate": 22_050,
             "hop_length": 512,
             "mode": "playlist",
@@ -254,20 +247,24 @@ def test_repository_result_for_wrong_target_is_a_fatal_error() -> None:
         )
 
 
-def test_wrong_runtime_version_fails_before_registration_or_analysis() -> None:
+@pytest.mark.parametrize("future_runtime_parameter", ["alpha", "beta", "gamma"])
+def test_future_runtime_metadata_does_not_gate_registration_or_analysis(
+    future_runtime_parameter: str,
+) -> None:
+    runtime = type(
+        "FutureMetadataSonara",
+        (FakeSonara,),
+        {"__sonara_future_parameter__": future_runtime_parameter, "calls": []},
+    )
     repository = RecordingRepository()
-    WrongVersionSonara.calls.clear()
 
-    with pytest.raises(
-        SonaraRuntimeIdentityError,
-        match=rf"{SONARA_EXPECTED_VERSION} is required",
-    ):
-        analyze_and_store_sonara_batch(
-            repository,
-            [_candidate(1, "first")],
-            sonara_module=WrongVersionSonara,
-        )
+    results = analyze_and_store_sonara_batch(
+        repository,
+        [_candidate(1, "first")],
+        sonara_module=runtime,
+    )
 
-    assert repository.register_calls == []
-    assert repository.save_calls == []
-    assert WrongVersionSonara.calls == []
+    assert results[0].error is None
+    assert len(repository.register_calls) == 1
+    assert len(repository.save_calls) == 1
+    assert len(runtime.calls) == 1

@@ -1,4 +1,4 @@
-"""Optional v7 Evaluation sidecar schema, validation, and connection helpers.
+"""Optional Evaluation sidecar structure, validation, and connection helpers.
 
 The sidecar is deliberately absent for users who never record evaluation
 sessions, calibration runs, or evaluation-specific settings.  Merely importing
@@ -18,7 +18,6 @@ from pathlib import Path
 from .db_connection import _exclusive_file_lock
 
 
-SIDECAR_SCHEMA_VERSION = 1
 _SQLITE_BUSY_TIMEOUT_MILLISECONDS = 30_000
 
 
@@ -26,7 +25,6 @@ _DDL_STORAGE_METADATA = """
 CREATE TABLE storage_metadata (
     singleton_id   INTEGER PRIMARY KEY CHECK(singleton_id = 1),
     catalog_uuid   TEXT    NOT NULL,
-    schema_version INTEGER NOT NULL,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
 );
@@ -118,11 +116,10 @@ _ALL_DDL: tuple[str, ...] = (
     _DDL_EVALUATION_SETTINGS,
 )
 
-_EVALUATION_COLUMNS: dict[str, tuple[str, ...]] = {
+_SIDECAR_COLUMNS: dict[str, tuple[str, ...]] = {
     "storage_metadata": (
         "singleton_id",
         "catalog_uuid",
-        "schema_version",
         "created_at",
         "updated_at",
     ),
@@ -156,14 +153,14 @@ _EVALUATION_COLUMNS: dict[str, tuple[str, ...]] = {
     "evaluation_settings": ("setting_key", "value_json", "updated_at"),
 }
 
-_EVALUATION_INDEXES = {
+_SIDECAR_INDEXES = {
     "idx_search_sessions_created",
     "idx_search_seeds_identity",
     "idx_search_events_identity",
     "idx_calibration_profile_created",
 }
 
-_EVALUATION_TRIGGERS = {
+_SIDECAR_TRIGGERS = {
     "storage_metadata_singleton_insert",
     "storage_metadata_immutable_update",
     "storage_metadata_immutable_delete",
@@ -246,13 +243,6 @@ def validate_evaluation_sidecar_schema(
 ) -> str:
     """Validate the complete schema definition and Core catalog binding."""
 
-    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if version != SIDECAR_SCHEMA_VERSION:
-        raise RuntimeError(
-            f"SQLite Evaluation schema version {version} is not supported; "
-            f"expected {SIDECAR_SCHEMA_VERSION}"
-        )
-
     actual_views = {
         str(row[0])
         for row in connection.execute(
@@ -265,7 +255,7 @@ def validate_evaluation_sidecar_schema(
         )
 
     actual_tables = _user_tables(connection)
-    expected_tables = set(_EVALUATION_COLUMNS)
+    expected_tables = set(_SIDECAR_COLUMNS)
     if actual_tables != expected_tables:
         raise RuntimeError(
             "SQLite Evaluation table set mismatch; "
@@ -273,7 +263,7 @@ def validate_evaluation_sidecar_schema(
             f"extra={sorted(actual_tables - expected_tables)}"
         )
 
-    for table, expected_columns in _EVALUATION_COLUMNS.items():
+    for table, expected_columns in _SIDECAR_COLUMNS.items():
         actual_columns = tuple(
             str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')
         )
@@ -290,11 +280,11 @@ def validate_evaluation_sidecar_schema(
             "WHERE type='index' AND name NOT LIKE 'sqlite_%'"
         )
     }
-    if actual_indexes != _EVALUATION_INDEXES:
+    if actual_indexes != _SIDECAR_INDEXES:
         raise RuntimeError(
             "SQLite Evaluation index set mismatch; "
-            f"missing={sorted(_EVALUATION_INDEXES - actual_indexes)}, "
-            f"extra={sorted(actual_indexes - _EVALUATION_INDEXES)}"
+            f"missing={sorted(_SIDECAR_INDEXES - actual_indexes)}, "
+            f"extra={sorted(actual_indexes - _SIDECAR_INDEXES)}"
         )
 
     actual_triggers = {
@@ -303,11 +293,11 @@ def validate_evaluation_sidecar_schema(
             "SELECT name FROM sqlite_master WHERE type='trigger'"
         )
     }
-    if actual_triggers != _EVALUATION_TRIGGERS:
+    if actual_triggers != _SIDECAR_TRIGGERS:
         raise RuntimeError(
             "SQLite Evaluation trigger set mismatch; "
-            f"missing={sorted(_EVALUATION_TRIGGERS - actual_triggers)}, "
-            f"extra={sorted(actual_triggers - _EVALUATION_TRIGGERS)}"
+            f"missing={sorted(_SIDECAR_TRIGGERS - actual_triggers)}, "
+            f"extra={sorted(actual_triggers - _SIDECAR_TRIGGERS)}"
         )
 
     actual_definitions = _normalized_schema_definitions(connection)
@@ -320,17 +310,13 @@ def validate_evaluation_sidecar_schema(
         )
 
     metadata_rows = connection.execute(
-        "SELECT singleton_id, catalog_uuid, schema_version FROM storage_metadata"
+        "SELECT singleton_id, catalog_uuid FROM storage_metadata"
     ).fetchall()
     if len(metadata_rows) != 1 or int(metadata_rows[0][0]) != 1:
         raise RuntimeError("storage_metadata must contain exactly singleton_id=1")
     catalog_uuid = str(metadata_rows[0][1]).strip()
     if not catalog_uuid:
         raise RuntimeError("storage_metadata.catalog_uuid must be non-empty")
-    if int(metadata_rows[0][2]) != SIDECAR_SCHEMA_VERSION:
-        raise RuntimeError(
-            "storage_metadata.schema_version does not match PRAGMA user_version"
-        )
     if expected_catalog_uuid is not None and catalog_uuid != _required_catalog_uuid(
         expected_catalog_uuid
     ):
@@ -356,7 +342,6 @@ def _apply_sidecar_schema(
         (
             "BEGIN IMMEDIATE;",
             *_ALL_DDL,
-            f"PRAGMA user_version = {SIDECAR_SCHEMA_VERSION};",
         )
     )
     try:
@@ -365,13 +350,12 @@ def _apply_sidecar_schema(
         connection.execute(
             """
             INSERT INTO storage_metadata(
-                singleton_id, catalog_uuid, schema_version, created_at, updated_at
+                singleton_id, catalog_uuid, created_at, updated_at
             )
-            VALUES (1, ?, ?, ?, ?)
+            VALUES (1, ?, ?, ?)
             """,
             (
                 catalog_uuid,
-                SIDECAR_SCHEMA_VERSION,
                 timestamp,
                 timestamp,
             ),

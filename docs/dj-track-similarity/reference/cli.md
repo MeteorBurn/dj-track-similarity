@@ -17,8 +17,6 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Analyze selected families:
 
 ```powershell
-mkdir .\backup
-dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
@@ -32,10 +30,10 @@ dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
 
 Without `--db`, `serve` starts with no selected database and creates no SQLite files. Select or
 create a database later through the database picker or `/api/database/switch`. With `--db`, the
-server opens an existing compatible v7 bundle or creates a new Core plus Artifacts pair at the
+server opens an existing compatible bundle or creates a new Core plus Artifacts pair at the
 specified path before starting Uvicorn.
 
-The React source uses the v7 API. Rebuild `frontend/dist` after frontend or API changes so the
+The React source uses the current API. Rebuild `frontend/dist` after frontend or API changes so the
 backend serves a bundle produced from the current typed client.
 
 Run CLAP text search:
@@ -83,22 +81,27 @@ Runtime diagnostic:
 dj-sim doctor
 ```
 
-## Bundle and release maintenance
+## Bundle maintenance
 
-The Python runtime accepts only clean schema-v7 bundles. A fresh database path creates Core plus the
-mandatory adjacent Artifacts database. It does not upgrade an existing v6 database. The former
-`migrate-v7` and `migrate-schema-v7` commands are gone.
+Normal runtime validates the required Core and adjacent Artifacts structures. It refuses an
+incompatible pair and points to the dedicated migration command.
 
-Prepare the selected bundle for the loaded SONARA release:
+Preview without writing:
 
 ```powershell
-dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
+dj-sim migrate-database --db .\data\library.sqlite --dry-run
 ```
 
-This command requires an existing writable backup directory and the exact confirmation phrase. It
-derives the loaded runtime's four contracts and release hash. It also verifies a Core plus Artifacts
-backup pair and records a crash-recoverable receipt. There are no raw identity or output-selection
-options.
+Apply only after review:
+
+```powershell
+dj-sim migrate-database --db .\data\library.sqlite
+```
+
+Apply requires the exact `MIGRATE DATABASE` confirmation. `--backup-dir` can override the default
+backup location. Before replacing either database, the command verifies self-contained Core and
+Artifacts backups. It then checks database integrity together with foreign keys and cross-database
+orphans. It never starts reanalysis.
 
 ## Analysis options
 
@@ -116,24 +119,18 @@ options.
 | `--sonara-outputs` | comma-separated `core`, `timeline`, `embedding`, `fingerprint`; default `core` |
 | `--sonara-batch-size` | `1..16` concurrent native paths; default `8` |
 
-Plain SONARA analysis materializes `core` only, but the active release always contains four
-immutable contracts. Use `--sonara-outputs core,timeline,embedding,fingerprint` to materialize all
-four outputs. A later job can select another missing output from the same active release without
-changing its identity. `core` is stored in Core. The other three outputs are stored in dedicated
+Plain SONARA analysis materializes `core` only. Use
+`--sonara-outputs core,timeline,embedding,fingerprint` to materialize all four outputs. A later job
+can select another missing output. `core` is stored in Core. The other three outputs are stored in dedicated
 tables in the mandatory Artifacts database. MAEST/MERT/MuQ/CLAP embeddings also live in dedicated
 Artifacts tables.
-
-Each output's exact request profile and native decoder/execution path are part of its SONARA analysis
-signature. An inactive or unprepared release blocks the native job with a preparation-required
-conflict. Run `prepare-sonara-release` before analysis; current partial coverage can then resume by
-output signature.
 
 `analyze-classifiers` forms a separate database-only job. An omitted `--classifiers` list means all
 scoring-compatible promoted artifacts. `analyze-pipeline` accepts the same stage-specific settings
 and always executes selected stages as SONARA, ML, CLASSIFIERS; `--ml-models` cannot contain SONARA.
 
-For the complete release sequence, follow
-[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md).
+For structural updates and optional reanalysis, follow
+[Migrate and reanalyze SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Text search options
 

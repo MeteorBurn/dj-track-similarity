@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 import hashlib
 import io
@@ -18,10 +18,8 @@ from dj_track_similarity.analysis_models import (
     ClassifierFeatureRow,
 )
 from dj_track_similarity.classifier_manifest import (
-    CLASSIFIER_MANIFEST_VERSION,
     CLASSIFIER_PUBLICATION_GENERATIONS_DIR,
     CLASSIFIER_PUBLICATION_POINTER_NAME,
-    CLASSIFIER_PUBLICATION_POINTER_VERSION,
     require_scoring_compatible_manifest,
 )
 from dj_track_similarity.classifier_scoring import (
@@ -31,7 +29,6 @@ from dj_track_similarity.classifier_scoring import (
 
 
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-TRAINING_METADATA_VERSION = 1
 
 
 class ArtifactIntegrityError(ValueError):
@@ -57,18 +54,15 @@ class PublishedArtifact:
     manifest_hash: str
 
 
-class _ManifestOutputRepository:
-    """Expose staged manifest outputs as active for read-only scorer validation."""
-
-    def __init__(self, outputs: Sequence[AnalysisOutput]) -> None:
-        self._outputs = {output.key: output for output in outputs}
+class _AvailableOutputRepository:
+    """Expose structurally supported outputs during staged scorer validation."""
 
     def active_analysis_output(
         self,
         analysis_family: str,
         output_kind: str,
     ) -> AnalysisOutput | None:
-        return self._outputs.get((analysis_family, output_kind))
+        return AnalysisOutput(analysis_family, output_kind)
 
 
 def artifact_sha256(artifact_bytes: bytes) -> str:
@@ -136,7 +130,6 @@ def publish_promoted_artifact(
                     "artifact_hash": artifact_hash,
                     "generation_id": generation_id,
                     "manifest_hash": manifest_hash,
-                    "publication_version": CLASSIFIER_PUBLICATION_POINTER_VERSION,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -181,7 +174,7 @@ def _validate_staged_classifier(
             model_path,
             expected_classifier_key=expected_classifier_key,
         )
-        repository = _ManifestOutputRepository(manifest.required_outputs)
+        repository = _AvailableOutputRepository()
         requirements = load_classifier_requirements(
             repository,  # type: ignore[arg-type]
             expected_classifier_key,
@@ -289,15 +282,7 @@ def _trusted_expected_hash(
             raise ArtifactIntegrityError(
                 "Promoted model metadata may bind only model.joblib"
             )
-        if raw.get("manifest_version") != CLASSIFIER_MANIFEST_VERSION:
-            raise ArtifactIntegrityError(
-                "Promoted model metadata has an unsupported manifest_version"
-            )
     else:
-        if raw.get("training_metadata_version") != TRAINING_METADATA_VERSION:
-            raise ArtifactIntegrityError(
-                "Training metadata has an unsupported training_metadata_version"
-            )
         declared_name = raw.get("artifact_filename")
         if declared_name != artifact.name:
             raise ArtifactIntegrityError(

@@ -29,7 +29,7 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | signed `core`, `timeline`, `embedding`, and `fingerprint` outputs | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
+| SONARA | `core`, `timeline`, `embedding`, and `fingerprint` outputs | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
 | MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, SET, Hybrid, Audio Dedup, classifier input |
 | MERT | Artifacts embedding | seed search, SET, Hybrid, Audio Dedup, classifier input |
 | MuQ | Artifacts embedding | seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, classifier input |
@@ -41,8 +41,7 @@ MAEST/MERT/MuQ/CLAP requirements. Incomplete tracks are counted as not ready rat
 
 ## CLI analysis
 
-Install optional analysis dependencies first. On a fresh v7 bundle, the first SONARA job derives
-and registers the exact runtime contracts for all four outputs automatically. Then run:
+Install optional analysis dependencies first. Then run:
 
 ```powershell
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
@@ -50,9 +49,6 @@ dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlit
 dj-sim analyze-classifiers --db .\data\library.sqlite
 dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 ```
-
-The automatic registration covers the exact `core`, `timeline`, `embedding`, and `fingerprint`
-contracts even when this first job requests only some outputs.
 
 Useful options:
 
@@ -69,23 +65,21 @@ dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batc
 - `--sonara-batch-size` is `1..16` paths per native SONARA batch. The default is `8`.
 - `--diagnostics` writes decoder fallback and batch timing details to the file log.
 
-MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. Its current-contract embedding can feed seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and compatible classifier manifests. SET, Hybrid, and Audio Dedup can disable MuQ by omitting `muq` from an explicit source list.
+MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. Its embedding can feed seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and compatible classifier manifests. SET, Hybrid, and Audio Dedup can disable MuQ by omitting `muq` from an explicit source list.
 
 In the CLI, omit `--limit` for the whole library.
 
 ## Analyze in the browser
 
-Use the browser model checkboxes to start the same v7 jobs. **Analyze limit** starts at `0` for the
+Use the browser model checkboxes to start the same jobs. **Analyze limit** starts at `0` for the
 whole eligible library. SONARA outputs, Track/Inference/
 SONARA batch values, Device, progress, blockers, cancellation, and SQLite-only resets are carried
-through the typed v7 requests and responses. **CLASSIFIERS** stays a separate stage; **FULL** runs
+through the typed requests and responses. **CLASSIFIERS** stays a separate stage; **FULL** runs
 SONARA, ML, and CLASSIFIERS in order.
 
-SONARA is selected at startup. Its mandatory `core` output is selected and locked; `timeline`,
-`embedding`, and `fingerprint` are optional. The ML selection contains MAEST, MERT, MuQ, and CLAP,
-not SONARA or CLASSIFIERS. On a catalog with no SONARA results, **Analyze** registers the exact
-runtime contracts automatically and starts the requested work without a separate release card or
-backup dialog.
+SONARA is selected at startup. All four outputs are selected by default. Its mandatory `core`
+output is locked; `timeline`, `embedding`, and `fingerprint` can be cleared before starting the
+job. The ML selection contains MAEST, MERT, MuQ, and CLAP, not SONARA or CLASSIFIERS.
 
 SONARA receives paths in native batches and decodes them through its Symphonia path inside
 `sonara.analyze_batch()`. It does not call the project's FFmpeg loader and has no `analyze_signal`
@@ -97,15 +91,12 @@ default for a library on one HDD unless a measured pilot supports a larger value
 ## Already analyzed tracks
 
 Analysis jobs target missing results for the selected families. SONARA materializes `core`,
-`timeline`, `embedding`, and `fingerprint` independently from the same immutable four-contract
-release, so adding another active output later does not replace `core`. Other complete families are
-skipped. Use reset only when you intentionally want to delete stored results.
+`timeline`, `embedding`, and `fingerprint` independently, so adding another output later does not
+replace `core`. Other complete families are skipped. Use reset only when you intentionally want to
+delete stored results.
 
-After a SONARA version or contract change, use **Reset SONARA**, then **Analyze**, for the explicit
-full reanalysis workflow. The advanced `prepare-sonara-release` CLI/API remains available for
-conflicting or inconsistent release state. Follow
-[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md) when that
-recovery path is required.
+After adopting a SONARA change, adapt storage explicitly if needed and decide which outputs to
+reset or reanalyze. Follow [Migrate and reanalyze SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Reset boundaries
 

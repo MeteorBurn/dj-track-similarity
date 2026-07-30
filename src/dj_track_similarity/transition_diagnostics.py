@@ -10,7 +10,7 @@ from .library_models import TrackSummary
 from .tempo_resolution import (
     LOW_BPM_CONFIDENCE,
     confidence_aware_tempo_risk,
-    resolve_tempo_evidence_v7,
+    resolve_tempo_evidence_from_values,
     tempo_pair_reliability,
 )
 from .track_models import TrackIdentity
@@ -106,7 +106,7 @@ _FEATURE_COLUMNS: Mapping[str, str] = {
 
 @dataclass(frozen=True)
 class TransitionTrack:
-    """One current v7 library row and its identity-bound SONARA output."""
+    """One current library row and its identity-bound SONARA output."""
 
     identity: TrackIdentity
     summary: TrackSummary
@@ -153,7 +153,7 @@ def structure_transition_score(
     seed_track: TransitionTrack,
     candidate_track: TransitionTrack,
 ) -> float | None:
-    """Return compatibility from current, typed v7 structure fields."""
+    """Return compatibility from current typed structure fields."""
 
     risk, _warning = _structure_transition_risk(
         seed_track,
@@ -171,7 +171,7 @@ def compute_transition_diagnostics(
     risk_version: str = TRANSITION_RISK_V2,
     classifier_risk_weights: Mapping[str, float] | None = None,
 ) -> TransitionDiagnostics:
-    """Compute transition risk from identity-validated v7 repository rows."""
+    """Compute transition risk from identity-validated repository rows."""
 
     if not isinstance(seed_track, TransitionTrack) or not isinstance(
         candidate_track,
@@ -669,7 +669,7 @@ def _tempo_evidence(track: TransitionTrack):
         values = {}
     else:
         values = track.sonara.values
-    return resolve_tempo_evidence_v7(values, tag_bpm=track.summary.tag_bpm)
+    return resolve_tempo_evidence_from_values(values, tag_bpm=track.summary.tag_bpm)
 
 
 def _classifier_scores(

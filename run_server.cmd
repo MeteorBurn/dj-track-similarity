@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 
 set "PROJECT_ROOT=%~dp0."
 set "PORT=8765"
-set "DEFAULT_DB_PATH=C:\db\volumes.sqlite"
+set "DEFAULT_DB_PATH=%~dp0database\volumes.sqlite"
 set "DB_PATH="
 set "MODE="
 set "INTERACTIVE_START=0"
@@ -144,12 +144,12 @@ echo   run_server.cmd lan [dj-sim serve options]
 echo.
 echo Examples:
 echo   run_server.cmd
-echo   run_server.cmd local --db C:\db\volumes.sqlite
-echo   run_server.cmd lan --db C:\db\volumes.sqlite
+echo   run_server.cmd local --db "%DEFAULT_DB_PATH%"
+echo   run_server.cmd lan --db "%DEFAULT_DB_PATH%"
 echo   run_server.cmd local --help
 echo.
 echo With no arguments, the launcher asks for a database path first.
-echo Press Enter to accept C:\db\volumes.sqlite, or type another path.
+echo Press Enter to accept %DEFAULT_DB_PATH%, or type another path.
 echo It then asks whether to start in local or LAN mode.
 echo Explicit local or lan commands use only the arguments you provide.
 exit /b 0

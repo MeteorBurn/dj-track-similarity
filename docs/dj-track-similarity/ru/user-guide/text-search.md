@@ -23,7 +23,7 @@
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
 ```
 
-Клиенты API могут вызывать `POST /api/search/text`; актуальный контракт запроса приведён в
+Клиенты API могут вызывать `POST /api/search/text`; текущий формат запроса приведён в
 [справочнике API](../reference/api.md).
 
 ## Когда выбрать другой поиск

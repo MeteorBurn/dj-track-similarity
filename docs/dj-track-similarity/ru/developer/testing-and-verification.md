@@ -28,7 +28,9 @@ git diff --check
 - Audio Doctor: `scripts\tests\test_repair_audio_metadata.py` и `tests\test_api_audio_doctor.py`.
 - Audio Dedup: `scripts\tests\test_audio_dedup.py`.
 - Rhythm Lab: `tools\rhythm-lab\tests\test_rhythm_lab.py`.
-- Контракт и хранилище SONARA: `tests\test_sonara_contract.py` и `tests\test_sonara_features.py`.
+- Мост KGLite: `tools\kglite-bridge\tests\test_kglite_bridge.py`.
+- Выполнение и хранилище SONARA: `tests\test_sonara_features.py`,
+  `tests\test_sonara_native_batch.py` и `tests\test_sonara_storage.py`.
 - Темп, Camelot, SET и переходы: `tests\test_tempo_resolution.py`, `tests\test_track_resolution.py`, `tests\test_set_builder.py` и `tests\test_transition_diagnostics.py`.
 - Совместимость классификаторов: `tests\test_classifier_productionization.py`, `tests\test_break_energy.py` и `tools\rhythm-lab\tests\test_rhythm_lab.py`.
 

@@ -12,7 +12,6 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.dependencies import require_ffmpeg
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
 from dj_track_similarity.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
@@ -479,7 +478,6 @@ def create_app(
                 source_name: {
                     "status": "missing",
                     "reason": "Source database is not selected.",
-                    "contract_hash": None,
                 }
                 for source_name in ("sonara", "mert", "maest", "clap", "muq")
             },
@@ -833,14 +831,14 @@ def create_app(
                 status_code=400,
                 detail=f"Train a {selected_feature_set} model before calibrating {profile.name}.",
             )
-        if selected_option.get("source_contract_ready") is not True:
+        if selected_option.get("source_data_ready") is not True:
             raise HTTPException(
                 status_code=409,
                 detail=str(
-                    selected_option.get("source_contract_reason")
+                    selected_option.get("source_data_reason")
                     or (
-                        f"{selected_feature_set} artifact does not match the "
-                        "current source contracts."
+                        f"{selected_feature_set} artifact is not ready for "
+                        "the current source data."
                     )
                 ),
             )
@@ -887,14 +885,14 @@ def create_app(
                 status_code=400,
                 detail=f"Train a {selected_feature_set} model before promoting {profile.name}.",
             )
-        if selected_option.get("source_contract_ready") is not True:
+        if selected_option.get("source_data_ready") is not True:
             raise HTTPException(
                 status_code=409,
                 detail=str(
-                    selected_option.get("source_contract_reason")
+                    selected_option.get("source_data_reason")
                     or (
-                        f"{selected_feature_set} artifact does not match the "
-                        "current source contracts."
+                        f"{selected_feature_set} artifact is not ready for "
+                        "the current source data."
                     )
                 ),
             )
@@ -1150,14 +1148,12 @@ def _training_readiness(
                         f"No current {source_name.upper()} track outputs are "
                         "available."
                     ),
-                    "contract_hash": state.contract_hash,
                 }
     else:
         source_states = {
             source_name: {
                 "status": "missing",
                 "reason": "Source database is not selected.",
-                "contract_hash": None,
             }
             for source_name in ("sonara", "mert", "maest", "clap", "muq")
         }
@@ -1226,18 +1222,18 @@ def _bind_artifact_source_readiness(
             if not isinstance(value, dict):
                 continue
             row = dict(value)
-            ready, reason = _artifact_source_contract_readiness(
+            ready, reason = _artifact_source_data_readiness(
                 row,
                 source_states,
             )
-            row["source_contract_ready"] = ready
-            row["source_contract_reason"] = reason
+            row["source_data_ready"] = ready
+            row["source_data_reason"] = reason
             annotated.append(row)
     promotion_options = _promotion_options(annotated)
     promotable = [
         row
         for row in promotion_options
-        if row.get("source_contract_ready") is True
+        if row.get("source_data_ready") is True
     ]
     return {
         **summary,
@@ -1250,7 +1246,7 @@ def _bind_artifact_source_readiness(
     }
 
 
-def _artifact_source_contract_readiness(
+def _artifact_source_data_readiness(
     row: Mapping[str, object],
     source_states: Mapping[str, object],
 ) -> tuple[bool, str | None]:
@@ -1259,87 +1255,32 @@ def _artifact_source_contract_readiness(
         required_sources = feature_sources(feature_set)
     except ValueError as error:
         return False, str(error)
-    required_outputs = row.get("required_outputs")
-    if not isinstance(required_outputs, list) or not required_outputs:
-        return False, "Artifact does not declare required_outputs."
-    if len(required_outputs) != len(required_sources):
-        return (
-            False,
-            "Artifact required_outputs do not match the selected feature recipe.",
-        )
-    for index, source_name in enumerate(required_sources):
-        item = required_outputs[index]
-        if not isinstance(item, Mapping) or set(item) != {
-            "contract_hash",
-            "canonical_payload",
-        }:
-            return (
-                False,
-                f"Artifact required_outputs[{index}] is malformed.",
-            )
-        canonical_payload = item.get("canonical_payload")
-        if not isinstance(canonical_payload, Mapping):
-            return (
-                False,
-                f"Artifact required_outputs[{index}] has no canonical payload.",
-            )
-        try:
-            canonical_json = json.dumps(
-                dict(canonical_payload),
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            )
-            contract = ContractIdentity.from_canonical_payload_json(
-                canonical_json
-            )
-        except (TypeError, ValueError):
-            return (
-                False,
-                f"Artifact required_outputs[{index}] is not canonical.",
-            )
-        expected_kind = "core" if source_name == "sonara" else "embedding"
-        if (
-            contract.analysis_family != source_name
-            or contract.output_kind != expected_kind
-        ):
-            return (
-                False,
-                "Artifact required_outputs do not follow feature source order.",
-            )
-        artifact_hash = item.get("contract_hash")
-        if artifact_hash != contract.contract_hash:
-            return (
-                False,
-                (
-                    f"Artifact required_outputs[{index}] contract hash "
-                    "does not match its canonical payload."
-                ),
-            )
+    feature_names = row.get("feature_names")
+    if (
+        not isinstance(feature_names, list)
+        or not feature_names
+        or any(not isinstance(name, str) or ":" not in name for name in feature_names)
+    ):
+        return False, "Artifact does not declare valid ordered feature_names."
+    actual_sources = tuple(
+        dict.fromkeys(str(name).partition(":")[0] for name in feature_names)
+    )
+    if actual_sources != required_sources:
+        return False, "Artifact feature_names do not match the selected feature recipe."
+    for source_name in required_sources:
         state = source_states.get(source_name)
         if isinstance(state, Mapping):
             status = str(state.get("status") or "missing")
-            active_hash = state.get("contract_hash")
             state_reason = state.get("reason")
         else:
             status = str(getattr(state, "status", "missing"))
-            active_hash = getattr(state, "contract_hash", None)
             state_reason = getattr(state, "reason", None)
         if status != "current":
             return (
                 False,
                 str(
                     state_reason
-                    or f"{source_name.upper()} source contract is {status}."
-                ),
-            )
-        if not isinstance(artifact_hash, str) or artifact_hash != active_hash:
-            return (
-                False,
-                (
-                    f"Artifact {source_name.upper()} contract "
-                    "does not match the active source contract."
+                    or f"{source_name.upper()} source data is {status}."
                 ),
             )
     return True, None
@@ -1470,9 +1411,9 @@ def _metric_summary(metrics: dict[str, object]) -> dict[str, object]:
         "feature_count": _optional_int(metrics.get("feature_count")),
         "positive_label": metrics.get("positive_label"),
         "label_order": metrics.get("label_order") if isinstance(metrics.get("label_order"), list) else None,
-        "required_outputs": (
-            metrics.get("required_outputs")
-            if isinstance(metrics.get("required_outputs"), list)
+        "feature_names": (
+            metrics.get("feature_names")
+            if isinstance(metrics.get("feature_names"), list)
             else None
         ),
         "accuracy_mean": _optional_float(cross_validation.get("accuracy_mean")),

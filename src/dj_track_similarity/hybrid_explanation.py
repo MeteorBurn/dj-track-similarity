@@ -183,24 +183,16 @@ def _clean_classifier_support(
             "risk_contribution": _optional_unit_interval(
                 details.get("risk_contribution")
             ),
-            "fresh": _optional_bool(details.get("fresh")),
-            "stale": _optional_bool(details.get("stale")),
-            "stored_model_id": _optional_text(details.get("stored_model_id")),
-            "current_model_id": _optional_text(details.get("current_model_id")),
-            "manifest_status": _optional_text(details.get("manifest_status")),
-            "production_status": _optional_text(details.get("production_status")),
             "role": _optional_text(details.get("role")),
             "axis": _optional_text(details.get("axis")),
             "label": _optional_text(details.get("label")),
             "description": _optional_text(details.get("description")),
             "missing_score_policy": _optional_text(details.get("missing_score_policy")),
-            "hybrid_signal_source": _optional_text(details.get("hybrid_signal_source")),
             "feature_set": _optional_text(details.get("feature_set")),
-            "feature_manifest_hash": _optional_text(
-                details.get("feature_manifest_hash")
-            ),
-            "uses_sonara": _optional_bool(details.get("uses_sonara")),
-            "sonara_release_hash": _optional_text(details.get("sonara_release_hash")),
+            "feature_names": _text_list(details.get("feature_names")),
+            "score_bucket": _optional_text(details.get("score_bucket")),
+            "confidence": _optional_unit_interval(details.get("confidence")),
+            "probability": _optional_unit_interval(details.get("probability")),
             "positive_label": _optional_text(details.get("positive_label")),
         }
     return support
@@ -601,13 +593,6 @@ def _classifier_warning_items(
         label = _classifier_label(classifier_key, support)
         axis = _optional_text(support.get("axis"))
         role = _optional_text(support.get("role"))
-        if support.get("stale") is True:
-            warning_items.append(
-                (
-                    1,
-                    f"Classifier signal: {label} has stale stored scores; treat it as a local listening cue.",
-                )
-            )
         score_contribution = (
             _optional_finite_float(support.get("score_contribution")) or 0.0
         )
@@ -867,6 +852,16 @@ def _int_list(value: object) -> list[int]:
     return sorted(
         {number for item in value if (number := _optional_int(item)) is not None}
     )
+
+
+def _text_list(value: object) -> list[str]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
+        return []
+    return [
+        text
+        for item in value
+        if (text := _optional_text(item)) is not None
+    ]
 
 
 def _clamp01(value: float) -> float:

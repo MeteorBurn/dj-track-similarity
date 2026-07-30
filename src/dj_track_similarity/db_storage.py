@@ -1,4 +1,4 @@
-"""Filesystem topology for the v7 SQLite storage set."""
+"""Filesystem topology for the current SQLite storage set."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class StorageDatabasePaths:
 
 
 def storage_database_paths(core_path: str | Path) -> StorageDatabasePaths:
-    """Return canonical v7 sidecar paths for *core_path*.
+    """Return canonical sidecar paths for *core_path*.
 
     ``library.sqlite`` maps to ``library.artifacts.sqlite`` and
     ``library.evaluation.sqlite``.  Evaluation is path metadata only; resolving
@@ -28,3 +28,10 @@ def storage_database_paths(core_path: str | Path) -> StorageDatabasePaths:
         artifacts=resolved.with_name(f"{stem}.artifacts.sqlite"),
         evaluation=resolved.with_name(f"{stem}.evaluation.sqlite"),
     )
+
+
+def migration_recovery_path(core_path: str | Path) -> Path:
+    """Return the durable marker used by explicit pair migration recovery."""
+
+    resolved = Path(core_path).expanduser().resolve(strict=False)
+    return resolved.with_name(f".{resolved.name}.migration-recovery.json")

@@ -24,7 +24,7 @@ _LOG_MIRROR_THREADS: dict[Path, threading.Thread] = {}
 
 @dataclass(frozen=True, slots=True)
 class RhythmLabSourceBinding:
-    """Exact v7 Core source selected for a Rhythm Lab process."""
+    """Exact Core source selected for a Rhythm Lab process."""
 
     source_db: Path
     catalog_uuid: str
@@ -84,7 +84,7 @@ def launch_rhythm_lab(
         if selected_source is not None:
             if managed_pid is None or active_source is None:
                 raise RuntimeError(
-                    "Rhythm Lab is already running, but its v7 source "
+                    "Rhythm Lab is already running, but its source "
                     "binding cannot be verified"
                 )
             if active_source != selected_source:

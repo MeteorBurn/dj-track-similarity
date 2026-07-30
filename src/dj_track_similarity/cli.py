@@ -51,6 +51,13 @@ from .classifier_production import build_classifier_calibration_report, normaliz
 from .classifier_scoring import analyze_classifier as run_classifier_analysis, promoted_classifiers
 from .database import LibraryDatabase
 from .db_evaluation import PROMOTED_SCORE_PROFILE_SETTING_KEY
+from .db_migration import (
+    apply_database_migration,
+    default_backup_dir,
+    plan_database_migration,
+    render_migration_plan,
+    render_migration_receipt,
+)
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .evaluation.ablation import build_source_ablation_report
@@ -82,7 +89,7 @@ from .vector_index import VectorIndexUnavailable
 
 
 app = typer.Typer(
-    help="Local dj-track-similarity utility for greenfield v7 library bundles."
+    help="Local dj-track-similarity utility for current library bundles."
 )
 eval_app = typer.Typer(help="Build local evaluation diagnostics and optional manual-feedback reports.")
 classifier_app = typer.Typer(help="Inspect promoted classifier production reports and label suggestions.")
@@ -105,7 +112,7 @@ def _db(
         return LibraryDatabase(db_path)
     except (OSError, RuntimeError, ValueError) as error:
         typer.secho(
-            f"Cannot open v7 library database bundle at {db_path}: {error}",
+            f"Cannot open library database bundle at {db_path}: {error}",
             err=True,
             fg=typer.colors.RED,
         )
@@ -933,6 +940,32 @@ def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db"))
     typer.echo(f"added={stats.added} updated={stats.updated} unchanged={stats.unchanged} skipped={stats.skipped}")
 
 
+@app.command("migrate-database")
+def migrate_database_command(
+    db: Path = typer.Option(..., "--db"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    backup_dir: Optional[Path] = typer.Option(None, "--backup-dir"),
+    confirm: Optional[str] = typer.Option(None, "--confirm"),
+) -> None:
+    """Explicitly rebuild one legacy Core/Artifacts pair after verified backups."""
+
+    try:
+        plan = plan_database_migration(db)
+        typer.echo(render_migration_plan(plan))
+        if dry_run:
+            return
+        phrase = confirm or typer.prompt("Type MIGRATE DATABASE to continue")
+        receipt = apply_database_migration(
+            plan,
+            backup_dir or default_backup_dir(db),
+            phrase,
+        )
+    except (OSError, sqlite3.Error, RuntimeError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    typer.echo(render_migration_receipt(receipt))
+
+
 @app.command("relocate-library")
 def relocate_library(
     old_root: Path,
@@ -1018,8 +1051,6 @@ def analyze(
         raise typer.BadParameter(str(error)) from error
     manager = AnalysisJobManager(_db(db_path))
     try:
-        if "sonara" in config.models:
-            manager.validate_sonara_preflight()
         job_id = manager.create_job(
             models=list(config.models),
             limit=config.limit,
@@ -1114,8 +1145,6 @@ def analyze_pipeline(
     classifier_manager = ClassifierJobManager(db, stage_queue=stage_queue)
     manager = AnalysisPipelineManager(audio_manager, classifier_manager, stage_queue)
     try:
-        if "sonara" in selected_stages:
-            audio_manager.validate_sonara_preflight()
         job_id = manager.create_job(
             stages=selected_stages,
             limit=limit,
@@ -1257,57 +1286,6 @@ def text_search(
         raise typer.Exit(1) from error
 
 
-@app.command("prepare-sonara-release")
-def prepare_sonara_release(
-    db_path: Path = typer.Option(
-        ...,
-        "--db",
-        help="Path to the selected v7 Core SQLite database.",
-    ),
-    backup_dir: Path = typer.Option(..., "--backup-dir", help="Directory to write backups into (must exist and be writable)."),
-    confirm: str = typer.Option(
-        ...,
-        "--confirm",
-        help='Must be exactly "PREPARE SONARA RELEASE".',
-    ),
-) -> None:
-    """Safely clear all SONARA-derived data before activating a new SONARA release.
-
-    Executes the ordered 7-step prepare protocol with crash-resume support.
-    """
-    from .prepare_sonara_release import (
-        LockHeldError,
-        PrepareSonaraReleaseError,
-        prepare_sonara_release as _prepare,
-    )
-
-    database = _db(db_path)
-    try:
-        receipt = _prepare(
-            database,
-            backup_dir=backup_dir,
-            confirm=confirm,
-        )
-    except LockHeldError as error:
-        typer.secho(f"SONARA_RELEASE_PREPARATION_REQUIRED: {error}", err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-    except (
-        FileNotFoundError,
-        OSError,
-        PrepareSonaraReleaseError,
-        RuntimeError,
-        ValueError,
-    ) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    typer.echo(
-        f"status=ok stage={receipt['stage']} "
-        f"release_hash={receipt['release_hash']} "
-        f"completed_at={receipt['completed_at']}"
-    )
-
-
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
@@ -1316,7 +1294,7 @@ def serve(
         None,
         "--db",
         help=(
-            "Open an existing v7 Core database or create a new bundle at this "
+            "Open an existing Core database or create a new bundle at this "
             "path. Omit to start with no database selected."
         ),
     ),

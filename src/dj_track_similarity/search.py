@@ -13,6 +13,7 @@ from .analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
     AnalysisVectorRow,
+    current_embedding_spec,
 )
 from .vector_index import (
     ExactVectorSearchBackend,
@@ -80,7 +81,7 @@ class SearchFilters:
 
 @dataclass(frozen=True, slots=True)
 class SimilaritySearchResult:
-    """A ranked result with the full validated v7 track identity."""
+    """A ranked result with the full validated track identity."""
 
     target: AnalysisTarget
     score: float
@@ -88,7 +89,7 @@ class SimilaritySearchResult:
 
 
 class SimilaritySearch:
-    """Cosine search over one active, immutable ML embedding contract."""
+    """Cosine search over one current ML embedding family."""
 
     def __init__(
         self,
@@ -107,16 +108,12 @@ class SimilaritySearch:
             )
         self.repository = repository
         self.analysis_family: EmbeddingFamily = family  # type: ignore[assignment]
-        contract = analysis_output.contract
-        if (
-            contract.analysis_family != family
-            or contract.output_kind != "embedding"
-        ):
+        if analysis_output.key != (family, "embedding"):
             raise ValueError(
                 "analysis_output does not match the requested "
                 "embedding family"
             )
-        if contract.normalization != "l2":
+        if current_embedding_spec(family).normalization != "l2":
             raise ValueError(
                 "ML search analysis_output must use "
                 "normalization='l2'"
@@ -130,7 +127,7 @@ class SimilaritySearch:
         self.active_output()
 
     def active_output(self) -> AnalysisOutput:
-        """Resolve and validate the exact active embedding contract."""
+        """Resolve and validate the current embedding output."""
 
         output = self.repository.active_analysis_output(
             self.analysis_family,
@@ -138,43 +135,30 @@ class SimilaritySearch:
         )
         if output is None:
             raise VectorIndexUnavailable(
-                "No active embedding contract is registered for "
+                "No active embedding output is registered for "
                 f"{self.analysis_family!r}"
             )
-        contract = output.contract
-        if (
-            contract.analysis_family != self.analysis_family
-            or contract.output_kind != "embedding"
-        ):
+        if output.key != (self.analysis_family, "embedding"):
             raise RuntimeError(
                 "Active embedding resolver returned the wrong output identity"
             )
-        if contract.normalization != "l2":
+        spec = current_embedding_spec(self.analysis_family)
+        if spec.normalization != "l2":
             raise VectorIndexUnavailable(
-                "ML cosine search requires an active normalization='l2' "
-                f"contract, got {contract.normalization!r}"
+                "ML cosine search requires normalization='l2', "
+                f"got {spec.normalization!r}"
             )
-        if contract.dim is None or contract.dim <= 0:
+        if spec.dimension <= 0:
             raise VectorIndexUnavailable(
-                "Active embedding contract has no positive dimension"
+                "Current embedding specification has no positive dimension"
             )
-        if (
-            self.analysis_output.contract_hash != output.contract_hash
-            or self.analysis_output.contract.canonical_payload_json
-            != output.contract.canonical_payload_json
-        ):
-            raise VectorIndexUnavailable(
-                "Current runtime embedding contract does not match the "
-                f"active {self.analysis_family!r} contract; reanalysis "
-                "is required before search"
-            )
-        return self.analysis_output
+        return output
 
     def resolve_targets(
         self,
         track_ids: Sequence[int],
     ) -> tuple[AnalysisTarget, ...]:
-        """Resolve request IDs to current, search-ready v7 identities.
+        """Resolve request IDs to current, search-ready identities.
 
         The result preserves caller order. A missing ID is deliberately not
         guessed: it can mean an unknown track, a missing file, or a current
@@ -494,13 +478,9 @@ def _validate_rows(
             raise TypeError(
                 "Analysis repository returned a non-AnalysisVectorRow value"
             )
-        if (
-            row.output.contract_hash != output.contract_hash
-            or row.output.contract.canonical_payload_json
-            != output.contract.canonical_payload_json
-        ):
+        if row.output.key != output.key:
             raise RuntimeError(
-                "Analysis repository returned a vector from another contract"
+                "Analysis repository returned a vector from another output"
             )
         if row.target.catalog_uuid != catalog_uuid:
             raise RuntimeError(
@@ -523,9 +503,7 @@ def _matrix(
     rows: Sequence[AnalysisVectorRow],
     output: AnalysisOutput,
 ) -> FloatArray:
-    dim = output.contract.dim
-    if dim is None:
-        raise ValueError("Embedding contract has no dimension")
+    dim = current_embedding_spec(output.analysis_family).dimension
     if not rows:
         return np.empty((0, dim), dtype=np.float32)
     matrix = np.vstack(
@@ -571,10 +549,11 @@ def _query_for_output(
     output: AnalysisOutput,
 ) -> FloatArray:
     query = np.asarray(vector, dtype=np.float32).reshape(-1)
-    if query.shape != (output.contract.dim,):
+    dim = current_embedding_spec(output.analysis_family).dimension
+    if query.shape != (dim,):
         raise ValueError(
-            "Query vector dimension does not match the active contract: "
-            f"{query.shape[0]} != {output.contract.dim}"
+            "Query vector dimension does not match the current family spec: "
+            f"{query.shape[0]} != {dim}"
         )
     return _normalize(query)
 
@@ -589,8 +568,7 @@ def _normalize_matrix(
         for vector in vectors
     ]
     if not normalized:
-        dim = output.contract.dim
-        assert dim is not None
+        dim = current_embedding_spec(output.analysis_family).dimension
         return np.empty((0, dim), dtype=np.float32)
     return np.vstack(normalized).astype(np.float32, copy=False)
 

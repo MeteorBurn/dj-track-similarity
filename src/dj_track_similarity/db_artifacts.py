@@ -1,7 +1,7 @@
-"""Required v7 Artifacts schema and identity-aware storage gateway.
+"""Required Artifacts schema and identity-aware storage gateway.
 
 Tables (emission order):
-  1.  storage_metadata              — singleton binding (catalog_uuid + schema_version)
+  1.  storage_metadata              — singleton catalog binding
   2.  maest_embeddings              — MAEST float32-le embedding BLOBs
   3.  mert_embeddings               — MERT float32-le embedding BLOBs
   4.  muq_embeddings                — MuQ float32-le embedding BLOBs
@@ -10,11 +10,9 @@ Tables (emission order):
   7.  sonara_timeline               — SONARA Timeline payload (JSON)
   8.  sonara_fingerprints           — SONARA fingerprint packed uint32-le BLOBs
 
-PRAGMA user_version = 1 is set at the end of create_artifacts_sidecar_schema().
-
 Every public embedding read/write validates the Core/Artifacts catalog binding,
-track UUID, content generation, canonical contract identity, shape,
-normalization, and finite float32 payload.
+track UUID, content generation, current family dimension, normalization, and
+finite float32 payload.
 """
 
 from __future__ import annotations
@@ -30,14 +28,8 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-from .analysis_contracts import (
-    FLOAT32_LE_ENCODING,
-    ContractIdentity,
-    ContractRegistryError,
-    require_registered_contract,
-)
-
-ARTIFACTS_SCHEMA_VERSION = 1
+from .analysis_models import current_embedding_spec
+from .db_structure import require_current_structure
 
 # ---------------------------------------------------------------------------
 # DDL strings — one per table/index block, in emission order
@@ -47,7 +39,6 @@ _DDL_STORAGE_METADATA = """
 CREATE TABLE storage_metadata (
     singleton_id   INTEGER PRIMARY KEY CHECK(singleton_id = 1),
     catalog_uuid   TEXT    NOT NULL,
-    schema_version INTEGER NOT NULL,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
 );
@@ -61,7 +52,6 @@ BEGIN
         FROM storage_metadata
         WHERE singleton_id IS NEW.singleton_id
           AND catalog_uuid IS NEW.catalog_uuid
-          AND schema_version IS NEW.schema_version
           AND created_at IS NEW.created_at
           AND updated_at IS NEW.updated_at
     );
@@ -88,13 +78,12 @@ CREATE TABLE maest_embeddings (
     track_id           INTEGER PRIMARY KEY,
     track_uuid         TEXT    NOT NULL,
     content_generation INTEGER NOT NULL,
-    contract_hash      TEXT    NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_maest_embeddings_contract_generation ON maest_embeddings(contract_hash, content_generation, track_id);
+CREATE INDEX idx_maest_embeddings_generation ON maest_embeddings(content_generation, track_id);
 CREATE INDEX idx_maest_embeddings_track_uuid ON maest_embeddings(track_uuid);
 """
 
@@ -103,13 +92,12 @@ CREATE TABLE mert_embeddings (
     track_id           INTEGER PRIMARY KEY,
     track_uuid         TEXT    NOT NULL,
     content_generation INTEGER NOT NULL,
-    contract_hash      TEXT    NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_mert_embeddings_contract_generation ON mert_embeddings(contract_hash, content_generation, track_id);
+CREATE INDEX idx_mert_embeddings_generation ON mert_embeddings(content_generation, track_id);
 CREATE INDEX idx_mert_embeddings_track_uuid ON mert_embeddings(track_uuid);
 """
 
@@ -118,13 +106,12 @@ CREATE TABLE muq_embeddings (
     track_id           INTEGER PRIMARY KEY,
     track_uuid         TEXT    NOT NULL,
     content_generation INTEGER NOT NULL,
-    contract_hash      TEXT    NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_muq_embeddings_contract_generation ON muq_embeddings(contract_hash, content_generation, track_id);
+CREATE INDEX idx_muq_embeddings_generation ON muq_embeddings(content_generation, track_id);
 CREATE INDEX idx_muq_embeddings_track_uuid ON muq_embeddings(track_uuid);
 """
 
@@ -133,13 +120,12 @@ CREATE TABLE clap_embeddings (
     track_id           INTEGER PRIMARY KEY,
     track_uuid         TEXT    NOT NULL,
     content_generation INTEGER NOT NULL,
-    contract_hash      TEXT    NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_clap_embeddings_contract_generation ON clap_embeddings(contract_hash, content_generation, track_id);
+CREATE INDEX idx_clap_embeddings_generation ON clap_embeddings(content_generation, track_id);
 CREATE INDEX idx_clap_embeddings_track_uuid ON clap_embeddings(track_uuid);
 """
 
@@ -152,13 +138,12 @@ CREATE TABLE sonara_similarity_embeddings (
     track_id           INTEGER PRIMARY KEY,
     track_uuid         TEXT    NOT NULL,
     content_generation INTEGER NOT NULL,
-    contract_hash      TEXT    NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_sonara_similarity_embeddings_contract_generation ON sonara_similarity_embeddings(contract_hash, content_generation, track_id);
+CREATE INDEX idx_sonara_similarity_embeddings_generation ON sonara_similarity_embeddings(content_generation, track_id);
 CREATE INDEX idx_sonara_similarity_embeddings_track_uuid ON sonara_similarity_embeddings(track_uuid);
 """
 
@@ -167,11 +152,10 @@ CREATE TABLE sonara_timeline (
     track_id           INTEGER PRIMARY KEY,
     track_uuid         TEXT    NOT NULL,
     content_generation INTEGER NOT NULL,
-    contract_hash      TEXT    NOT NULL,
     payload_json       TEXT    NOT NULL CHECK(json_valid(payload_json) AND json_type(payload_json)='object'),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_sonara_timeline_contract_generation ON sonara_timeline(contract_hash, content_generation, track_id);
+CREATE INDEX idx_sonara_timeline_generation ON sonara_timeline(content_generation, track_id);
 CREATE INDEX idx_sonara_timeline_track_uuid ON sonara_timeline(track_uuid);
 """
 
@@ -180,14 +164,13 @@ CREATE TABLE sonara_fingerprints (
     track_id            INTEGER PRIMARY KEY,
     track_uuid          TEXT    NOT NULL,
     content_generation  INTEGER NOT NULL,
-    contract_hash       TEXT    NOT NULL,
     fingerprint_version TEXT    NOT NULL,
     word_count          INTEGER NOT NULL CHECK(word_count >= 0),
     byte_order          TEXT    NOT NULL CHECK(byte_order = 'little'),
     fingerprint_blob    BLOB    NOT NULL CHECK(length(fingerprint_blob) = word_count * 4),
     analyzed_at         TEXT    NOT NULL
 );
-CREATE INDEX idx_sonara_fingerprints_contract_generation ON sonara_fingerprints(contract_hash, content_generation, track_id);
+CREATE INDEX idx_sonara_fingerprints_generation ON sonara_fingerprints(content_generation, track_id);
 CREATE INDEX idx_sonara_fingerprints_track_uuid ON sonara_fingerprints(track_uuid);
 """
 
@@ -254,7 +237,6 @@ def _apply_artifacts_schema(
         (
             "BEGIN IMMEDIATE;",
             *_ALL_DDL,
-            f"PRAGMA user_version = {ARTIFACTS_SCHEMA_VERSION};",
         )
     )
     try:
@@ -262,10 +244,10 @@ def _apply_artifacts_schema(
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         conn.execute(
             """
-            INSERT INTO storage_metadata(singleton_id, catalog_uuid, schema_version, created_at, updated_at)
-            VALUES (1, ?, ?, ?, ?)
+            INSERT INTO storage_metadata(singleton_id, catalog_uuid, created_at, updated_at)
+            VALUES (1, ?, ?, ?)
             """,
-            (clean_catalog_uuid, ARTIFACTS_SCHEMA_VERSION, now, now),
+            (clean_catalog_uuid, now, now),
         )
         conn.commit()
     except BaseException:
@@ -283,7 +265,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
     "storage_metadata": (
         "singleton_id",
         "catalog_uuid",
-        "schema_version",
         "created_at",
         "updated_at",
     ),
@@ -291,7 +272,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "track_id",
         "track_uuid",
         "content_generation",
-        "contract_hash",
         "dim",
         "normalization",
         "embedding_blob",
@@ -301,7 +281,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "track_id",
         "track_uuid",
         "content_generation",
-        "contract_hash",
         "dim",
         "normalization",
         "embedding_blob",
@@ -311,7 +290,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "track_id",
         "track_uuid",
         "content_generation",
-        "contract_hash",
         "dim",
         "normalization",
         "embedding_blob",
@@ -321,7 +299,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "track_id",
         "track_uuid",
         "content_generation",
-        "contract_hash",
         "dim",
         "normalization",
         "embedding_blob",
@@ -331,7 +308,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "track_id",
         "track_uuid",
         "content_generation",
-        "contract_hash",
         "dim",
         "normalization",
         "embedding_blob",
@@ -341,7 +317,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "track_id",
         "track_uuid",
         "content_generation",
-        "contract_hash",
         "payload_json",
         "analyzed_at",
     ),
@@ -349,7 +324,6 @@ _ARTIFACT_COLUMNS: dict[str, tuple[str, ...]] = {
         "track_id",
         "track_uuid",
         "content_generation",
-        "contract_hash",
         "fingerprint_version",
         "word_count",
         "byte_order",
@@ -361,7 +335,7 @@ _ARTIFACT_INDEXES = {
     f"idx_{table}_{suffix}"
     for table in _ARTIFACT_COLUMNS
     if table != "storage_metadata"
-    for suffix in ("contract_generation", "track_uuid")
+    for suffix in ("generation", "track_uuid")
 }
 _ARTIFACT_TRIGGERS = {
     "storage_metadata_immutable_insert",
@@ -375,8 +349,6 @@ _EMBEDDING_TABLES = {
     "clap": "clap_embeddings",
     "sonara": "sonara_similarity_embeddings",
 }
-
-
 def _normalized_schema_definitions(
     connection: sqlite3.Connection,
 ) -> tuple[tuple[str, str, str, str], ...]:
@@ -673,7 +645,6 @@ def validate_sonara_timeline_payload(
 def _validate_artifact_row_identity(
     row: Mapping[str, object] | sqlite3.Row,
     *,
-    expected_contract: ContractIdentity,
     expected_track: ArtifactTrackIdentity,
     required_fields: set[str],
 ) -> tuple[dict[str, object] | None, str | None]:
@@ -696,10 +667,6 @@ def _validate_artifact_row_identity(
         return None, "invalid content_generation"
     if row_generation != expected_track.content_generation:
         return None, "content_generation mismatch"
-    if not isinstance(values["contract_hash"], str):
-        return None, "invalid contract_hash"
-    if values["contract_hash"] != expected_contract.contract_hash:
-        return None, "contract_hash mismatch"
     return values, None
 
 
@@ -707,28 +674,23 @@ def validate_embedding_row_payload(
     *,
     family: str,
     row: Mapping[str, object] | sqlite3.Row,
-    expected_contract: ContractIdentity,
     expected_track: ArtifactTrackIdentity,
 ) -> tuple[bool, str | None]:
     """Validate one embedding row without performing connection lookups."""
 
-    if family not in _EMBEDDING_TABLES:
+    try:
+        expected_spec = current_embedding_spec(family)
+    except ValueError:
         return False, "unsupported embedding family"
-    if expected_contract.analysis_family != family:
-        return False, "analysis_family mismatch"
-    if expected_contract.output_kind != "embedding":
-        return False, "output_kind mismatch"
-    if expected_contract.encoding != FLOAT32_LE_ENCODING:
-        return False, "encoding mismatch"
+    expected_dim = expected_spec.dimension
+    expected_normalization = expected_spec.normalization
     values, reason = _validate_artifact_row_identity(
         row,
-        expected_contract=expected_contract,
         expected_track=expected_track,
         required_fields={
             "track_id",
             "track_uuid",
             "content_generation",
-            "contract_hash",
             "dim",
             "normalization",
             "embedding_blob",
@@ -740,12 +702,12 @@ def validate_embedding_row_payload(
     dim = _positive_int(values["dim"])
     if dim is None:
         return False, "invalid dim"
-    if dim != expected_contract.dim:
+    if dim != expected_dim:
         return False, "dim mismatch"
     if not isinstance(values["normalization"], str):
         return False, "invalid normalization"
     normalization = values["normalization"]
-    if normalization != expected_contract.normalization:
+    if normalization != expected_normalization:
         return False, "normalization mismatch"
     blob = values["embedding_blob"]
     if not isinstance(blob, (bytes, bytearray, memoryview)):
@@ -765,25 +727,17 @@ def validate_embedding_row_payload(
 def validate_timeline_row_payload(
     *,
     row: Mapping[str, object] | sqlite3.Row,
-    expected_contract: ContractIdentity,
     expected_track: ArtifactTrackIdentity,
 ) -> tuple[bool, str | None]:
     """Validate one SONARA Timeline row without performing connection lookups."""
 
-    if (
-        expected_contract.analysis_family,
-        expected_contract.output_kind,
-    ) != ("sonara", "timeline"):
-        return False, "contract is not SONARA Timeline"
     values, reason = _validate_artifact_row_identity(
         row,
-        expected_contract=expected_contract,
         expected_track=expected_track,
         required_fields={
             "track_id",
             "track_uuid",
             "content_generation",
-            "contract_hash",
             "payload_json",
         },
     )
@@ -805,25 +759,17 @@ def validate_timeline_row_payload(
 def validate_fingerprint_row_payload(
     *,
     row: Mapping[str, object] | sqlite3.Row,
-    expected_contract: ContractIdentity,
     expected_track: ArtifactTrackIdentity,
 ) -> tuple[bool, str | None]:
     """Validate one SONARA fingerprint row without connection lookups."""
 
-    if (
-        expected_contract.analysis_family,
-        expected_contract.output_kind,
-    ) != ("sonara", "fingerprint"):
-        return False, "contract is not a SONARA fingerprint"
     values, reason = _validate_artifact_row_identity(
         row,
-        expected_contract=expected_contract,
         expected_track=expected_track,
         required_fields={
             "track_id",
             "track_uuid",
             "content_generation",
-            "contract_hash",
             "fingerprint_version",
             "word_count",
             "byte_order",
@@ -832,11 +778,11 @@ def validate_fingerprint_row_payload(
     )
     if values is None:
         return False, reason
-    expected_version = expected_contract.parameters.get("fingerprint_version")
-    if str(values["fingerprint_version"]) != str(expected_version):
-        return False, "fingerprint_version mismatch"
-    expected_byte_order = expected_contract.parameters.get("fingerprint_byte_order")
-    if values["byte_order"] != expected_byte_order:
+    if not isinstance(values["fingerprint_version"], str) or not str(
+        values["fingerprint_version"]
+    ).strip():
+        return False, "invalid fingerprint_version"
+    if values["byte_order"] != "little":
         return False, "fingerprint byte_order mismatch"
     word_count = values["word_count"]
     if (
@@ -860,75 +806,13 @@ def validate_artifacts_sidecar_schema(
     connection: sqlite3.Connection,
     *,
     expected_catalog_uuid: str | None = None,
+    database_path: str = "<connected Artifacts database>",
 ) -> str:
-    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if version != ARTIFACTS_SCHEMA_VERSION:
-        raise RuntimeError(
-            f"SQLite Artifacts schema version {version} is not supported; "
-            f"expected {ARTIFACTS_SCHEMA_VERSION}"
-        )
-
-    actual_views = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='view'"
-        )
-    }
-    if actual_views:
-        raise RuntimeError(
-            f"SQLite Artifacts contains unexpected views: {sorted(actual_views)}"
-        )
-
-    actual_tables = {
-        str(row[0])
-        for row in connection.execute(
-            """
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name NOT LIKE 'sqlite_%'
-            """
-        )
-    }
-    expected_tables = set(_ARTIFACT_COLUMNS)
-    if actual_tables != expected_tables:
-        raise RuntimeError(
-            "SQLite Artifacts table set mismatch; "
-            f"missing={sorted(expected_tables - actual_tables)}, "
-            f"extra={sorted(actual_tables - expected_tables)}"
-        )
-    for table, expected_columns in _ARTIFACT_COLUMNS.items():
-        actual_columns = tuple(
-            str(row[1]) for row in connection.execute(f'PRAGMA table_info("{table}")')
-        )
-        if actual_columns != expected_columns:
-            raise RuntimeError(
-                f"SQLite Artifacts columns mismatch for {table}; "
-                f"expected={list(expected_columns)}, actual={list(actual_columns)}"
-            )
-
-    actual_indexes = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
-        )
-    }
-    if actual_indexes != _ARTIFACT_INDEXES:
-        raise RuntimeError(
-            "SQLite Artifacts index set mismatch; "
-            f"missing={sorted(_ARTIFACT_INDEXES - actual_indexes)}, "
-            f"extra={sorted(actual_indexes - _ARTIFACT_INDEXES)}"
-        )
-    actual_triggers = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='trigger'"
-        )
-    }
-    if actual_triggers != _ARTIFACT_TRIGGERS:
-        raise RuntimeError(
-            "SQLite Artifacts trigger set mismatch; "
-            f"missing={sorted(_ARTIFACT_TRIGGERS - actual_triggers)}, "
-            f"extra={sorted(actual_triggers - _ARTIFACT_TRIGGERS)}"
-        )
+    catalog_uuid = require_current_structure(
+        connection,
+        "artifacts",
+        database_path,
+    )
 
     actual_definitions = _normalized_schema_definitions(connection)
     expected_definitions = _expected_artifacts_schema_definitions()
@@ -939,18 +823,6 @@ def validate_artifacts_sidecar_schema(
             f"actual={_schema_definition_fingerprint(actual_definitions)}"
         )
 
-    rows = connection.execute(
-        "SELECT singleton_id, catalog_uuid, schema_version FROM storage_metadata"
-    ).fetchall()
-    if len(rows) != 1 or int(rows[0][0]) != 1:
-        raise RuntimeError("storage_metadata must contain exactly singleton_id=1")
-    catalog_uuid = str(rows[0][1]).strip()
-    if not catalog_uuid:
-        raise RuntimeError("storage_metadata.catalog_uuid must be non-empty")
-    if int(rows[0][2]) != ARTIFACTS_SCHEMA_VERSION:
-        raise RuntimeError(
-            "storage_metadata.schema_version does not match PRAGMA user_version"
-        )
     if expected_catalog_uuid is not None and catalog_uuid != expected_catalog_uuid:
         raise RuntimeError("Artifacts database belongs to another library catalog")
     return catalog_uuid
@@ -964,8 +836,6 @@ def _connection_validation_marker(
             connection._dj_validation_role,
             connection._dj_validated_catalog_uuid,
             connection._dj_validated_schema_cookie,
-            connection._dj_validated_user_version,
-            connection._dj_validated_storage_schema_version,
         )
     except AttributeError:
         return None
@@ -1081,8 +951,6 @@ def _validated_connection_catalog(
         role = connection._dj_validation_role
         catalog_uuid = connection._dj_validated_catalog_uuid
         schema_cookie = connection._dj_validated_schema_cookie
-        user_version = connection._dj_validated_user_version
-        storage_schema_version = connection._dj_validated_storage_schema_version
     except AttributeError:
         return None
     if role != expected_role or not isinstance(catalog_uuid, str):
@@ -1090,29 +958,9 @@ def _validated_connection_catalog(
     catalog_uuid = catalog_uuid.strip()
     if not catalog_uuid:
         return None
-    expected_user_version = (
-        ARTIFACTS_SCHEMA_VERSION
-        if expected_role == "artifacts"
-        else _core_schema_version()
-    )
-    if (
-        user_version != expected_user_version
-        or _pragma_int(connection, "user_version") != user_version
-        or _pragma_int(connection, "schema_version") != schema_cookie
-    ):
-        return None
-    if (
-        expected_role == "artifacts"
-        and storage_schema_version != ARTIFACTS_SCHEMA_VERSION
-    ):
+    if _pragma_int(connection, "schema_version") != schema_cookie:
         return None
     return catalog_uuid
-
-
-def _core_schema_version() -> int:
-    from .db_schema import CURRENT_SCHEMA_VERSION
-
-    return CURRENT_SCHEMA_VERSION
 
 
 def _store_connection_validation_marker(
@@ -1121,14 +969,6 @@ def _store_connection_validation_marker(
     role: str,
     catalog_uuid: str,
 ) -> None:
-    storage_schema_version: int | None = None
-    if role == "artifacts":
-        row = connection.execute(
-            "SELECT schema_version FROM storage_metadata WHERE singleton_id = 1"
-        ).fetchone()
-        if row is None:
-            raise RuntimeError("storage_metadata must contain singleton_id=1")
-        storage_schema_version = int(row[0])
     try:
         connection._dj_validation_role = role
         connection._dj_validated_catalog_uuid = catalog_uuid
@@ -1136,11 +976,6 @@ def _store_connection_validation_marker(
             connection,
             "schema_version",
         )
-        connection._dj_validated_user_version = _pragma_int(
-            connection,
-            "user_version",
-        )
-        connection._dj_validated_storage_schema_version = storage_schema_version
     except AttributeError:
         pass
 
@@ -1210,21 +1045,11 @@ def validate_sidecar_row(
     *,
     family: str,
     row: Mapping[str, object] | sqlite3.Row,
-    expected_contract: ContractIdentity,
     expected_track: ArtifactTrackIdentity,
     core_connection: sqlite3.Connection,
     artifacts_connection: sqlite3.Connection,
     storage_binding: StorageBindingProof | None = None,
 ) -> tuple[bool, str | None]:
-    if family not in _EMBEDDING_TABLES:
-        return False, "unsupported embedding family"
-    if expected_contract.analysis_family != family:
-        return False, "analysis_family mismatch"
-    if expected_contract.output_kind != "embedding":
-        return False, "output_kind mismatch"
-    if expected_contract.encoding != FLOAT32_LE_ENCODING:
-        return False, "encoding mismatch"
-
     identity_valid, identity_reason = _validate_current_track_identity(
         core_connection,
         artifacts_connection,
@@ -1234,14 +1059,9 @@ def validate_sidecar_row(
     if not identity_valid:
         return False, identity_reason
 
-    try:
-        require_registered_contract(core_connection, expected_contract)
-    except ContractRegistryError as error:
-        return False, str(error)
     return validate_embedding_row_payload(
         family=family,
         row=row,
-        expected_contract=expected_contract,
         expected_track=expected_track,
     )
 
@@ -1252,7 +1072,6 @@ def read_valid_embedding(
     track_id: int,
     core_connection: sqlite3.Connection,
     artifacts_connection: sqlite3.Connection,
-    expected_contract: ContractIdentity,
     storage_binding: StorageBindingProof | None = None,
 ) -> np.ndarray | None:
     table = _EMBEDDING_TABLES.get(family)
@@ -1277,7 +1096,7 @@ def read_valid_embedding(
         return None
     row = artifacts_connection.execute(
         f"""
-        SELECT track_id, track_uuid, content_generation, contract_hash,
+        SELECT track_id, track_uuid, content_generation,
                dim, normalization, embedding_blob
         FROM {table}
         WHERE track_id = ?
@@ -1290,15 +1109,13 @@ def read_valid_embedding(
         "track_id": row[0],
         "track_uuid": row[1],
         "content_generation": row[2],
-        "contract_hash": row[3],
-        "dim": row[4],
-        "normalization": row[5],
-        "embedding_blob": row[6],
+        "dim": row[3],
+        "normalization": row[4],
+        "embedding_blob": row[5],
     }
     valid, _reason = validate_sidecar_row(
         family=family,
         row=row_mapping,
-        expected_contract=expected_contract,
         expected_track=expected_track,
         core_connection=core_connection,
         artifacts_connection=artifacts_connection,
@@ -1306,7 +1123,7 @@ def read_valid_embedding(
     )
     if not valid:
         return None
-    return np.frombuffer(row[6], dtype="<f4").copy()
+    return np.frombuffer(row[5], dtype="<f4").copy()
 
 
 def write_valid_embedding_in_transaction(
@@ -1314,7 +1131,7 @@ def write_valid_embedding_in_transaction(
     core_connection: sqlite3.Connection,
     artifacts_connection: sqlite3.Connection,
     track: ArtifactTrackIdentity,
-    contract: ContractIdentity,
+    family: str,
     embedding: Sequence[float] | np.ndarray,
     analyzed_at: str,
     storage_binding: StorageBindingProof | None = None,
@@ -1334,11 +1151,15 @@ def write_valid_embedding_in_transaction(
             "in-transaction artifact writes require an active Artifacts transaction"
         )
 
-    table = _EMBEDDING_TABLES.get(contract.analysis_family)
-    if table is None:
-        raise ValueError(f"unsupported embedding family: {contract.analysis_family!r}")
-    if contract.output_kind != "embedding":
-        raise ValueError("artifact embedding writes require output_kind='embedding'")
+    table = _EMBEDDING_TABLES.get(family)
+    try:
+        spec = current_embedding_spec(family)
+    except ValueError:
+        spec = None
+    if table is None or spec is None:
+        raise ValueError(f"unsupported embedding family: {family!r}")
+    expected_dim = spec.dimension
+    normalization = spec.normalization
 
     binding = (
         validate_storage_binding(core_connection, artifacts_connection)
@@ -1357,16 +1178,15 @@ def write_valid_embedding_in_transaction(
     )
     if not identity_valid:
         raise RuntimeError(f"stale artifact write rejected: {identity_reason}")
-    require_registered_contract(core_connection, contract)
-
     vector = np.asarray(embedding, dtype="<f4")
-    if vector.ndim != 1 or vector.shape != (contract.dim,):
+    if vector.ndim != 1 or vector.shape != (expected_dim,):
         raise ValueError(
-            f"embedding shape {vector.shape} does not match contract dim {contract.dim}"
+            f"embedding shape {vector.shape} does not match "
+            f"{family} dimension {expected_dim}"
         )
     if not bool(np.all(np.isfinite(vector))):
         raise ValueError("embedding contains non-finite values")
-    if contract.normalization == "l2" and not _is_l2_unit_vector(vector):
+    if normalization == "l2" and not _is_l2_unit_vector(vector):
         raise ValueError("l2 embedding must be unit-normalized")
     if not isinstance(analyzed_at, str) or not analyzed_at.strip():
         raise ValueError("analyzed_at must be a non-empty string")
@@ -1375,13 +1195,12 @@ def write_valid_embedding_in_transaction(
     artifacts_connection.execute(
         f"""
         INSERT INTO {table} (
-            track_id, track_uuid, content_generation, contract_hash,
+            track_id, track_uuid, content_generation,
             dim, normalization, embedding_blob, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(track_id) DO UPDATE SET
             track_uuid = excluded.track_uuid,
             content_generation = excluded.content_generation,
-            contract_hash = excluded.contract_hash,
             dim = excluded.dim,
             normalization = excluded.normalization,
             embedding_blob = excluded.embedding_blob,
@@ -1391,9 +1210,8 @@ def write_valid_embedding_in_transaction(
             track.track_id,
             track.track_uuid,
             track.content_generation,
-            contract.contract_hash,
-            contract.dim,
-            contract.normalization,
+            expected_dim,
+            normalization,
             blob,
             str(analyzed_at),
         ),
@@ -1405,15 +1223,15 @@ def write_valid_embedding(
     core_connection: sqlite3.Connection,
     artifacts_connection: sqlite3.Connection,
     track: ArtifactTrackIdentity,
-    contract: ContractIdentity,
+    family: str,
     embedding: Sequence[float] | np.ndarray,
     analyzed_at: str,
 ) -> None:
     """Validate and atomically publish one embedding against current Core identity.
 
     Both connections must be idle.  The function acquires a Core
-    ``BEGIN IMMEDIATE`` transaction before validating track generation or
-    contract identity, then acquires the Artifacts write transaction.  The
+    ``BEGIN IMMEDIATE`` transaction before validating track generation, then
+    acquires the Artifacts write transaction.  The
     Core transaction remains held until the Artifacts commit finishes.  This
     Core-to-Artifacts lock order prevents a stale writer from validating an old
     generation, waiting behind a newer artifact write, and subsequently
@@ -1427,11 +1245,9 @@ def write_valid_embedding(
             "canonical artifact writes require an idle Artifacts connection"
         )
 
-    table = _EMBEDDING_TABLES.get(contract.analysis_family)
+    table = _EMBEDDING_TABLES.get(family)
     if table is None:
-        raise ValueError(f"unsupported embedding family: {contract.analysis_family!r}")
-    if contract.output_kind != "embedding":
-        raise ValueError("artifact embedding writes require output_kind='embedding'")
+        raise ValueError(f"unsupported embedding family: {family!r}")
 
     core_transaction_started = False
     artifacts_transaction_started = False
@@ -1448,7 +1264,7 @@ def write_valid_embedding(
             core_connection=core_connection,
             artifacts_connection=artifacts_connection,
             track=track,
-            contract=contract,
+            family=family,
             embedding=embedding,
             analyzed_at=analyzed_at,
             storage_binding=storage_binding,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .sonara_contract import (
+from .sonara_runtime import (
     DEFAULT_SONARA_OUTPUTS as SONARA_DEFAULT_OUTPUTS,
     SONARA_OUTPUT_KINDS,
     normalize_sonara_outputs as normalize_sonara_output_kinds,

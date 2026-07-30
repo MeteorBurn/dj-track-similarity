@@ -6,7 +6,7 @@ from dj_track_similarity.evaluation.source_profile import SourceProfileRequest, 
 from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
 from dj_track_similarity.track_models import TrackIdentity
 from dj_track_similarity.transition_diagnostics import TransitionTrack
-from evaluation_v7_fixtures import EvaluationRepository
+from evaluation_fixtures import EvaluationRepository
 
 
 def test_source_profile_is_deterministic_for_same_seed() -> None:
@@ -221,7 +221,6 @@ def _row(
             source: CandidateSourceContribution(
                 rank=rank,
                 score=1.0 / rank,
-                contract_hash=f"contract-{source}",
             )
             for source, rank in source_ranks.items()
         },

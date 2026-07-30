@@ -38,7 +38,7 @@ test("MERT and MUQ use one typed generic embedding search component and handler"
   assert.doesNotMatch(panelSource, /handleMertSearch/);
 });
 
-test("MUQ remains visible at zero coverage and shows a non-blocking current-contract reason", () => {
+test("MUQ remains visible at zero coverage and shows a non-blocking current-data reason", () => {
   assert.match(panelSource, /muq: \{ label: "MUQ"/);
   assert.match(panelSource, /currentEmbeddingCount=\{embeddingCounts\[activeSearchTab\]\}/);
   assert.match(embeddingTabSource, /No current \$\{label\} embeddings are available in the selected catalog/);

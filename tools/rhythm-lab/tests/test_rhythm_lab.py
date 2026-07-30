@@ -16,10 +16,7 @@ LAB_ROOT = Path(__file__).resolve().parents[1]
 if str(LAB_ROOT) not in sys.path:
     sys.path.insert(0, str(LAB_ROOT))
 
-from dj_track_similarity.analysis_contracts import ContractIdentity  # noqa: E402
-from dj_track_similarity.analysis_model_runners import (  # noqa: E402
-    current_embedding_analysis_output,
-)
+from dj_track_similarity.analysis_models import current_embedding_spec  # noqa: E402
 from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
 from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402
     default_rhythm_lab_labels_path,
@@ -44,7 +41,6 @@ from rhythm_lab.features import (  # noqa: E402
 from rhythm_lab.lab_db import RhythmLabDatabase, TrackIdentity  # noqa: E402
 from rhythm_lab.predictions import _predict_probabilities  # noqa: E402
 from rhythm_lab.source_db import (  # noqa: E402
-    SONARA_CORE_OUTPUT,
     SourceEmbeddingMatrix,
     SourceFeatureState,
     SourceSonaraFeatures,
@@ -60,7 +56,7 @@ from rhythm_lab.web_app import (  # noqa: E402
 
 def _track(index: int, *, generation: int = 1) -> SourceTrack:
     return SourceTrack(
-        catalog_uuid="catalog-v7",
+        catalog_uuid="catalog-current",
         track_id=index,
         track_uuid=f"track-{index}",
         content_generation=generation,
@@ -71,9 +67,7 @@ def _track(index: int, *, generation: int = 1) -> SourceTrack:
         file_tags=None,
         liked=False,
         sonara_features=None,
-        sonara_contract=None,
         maest=None,
-        maest_contract=None,
         analysis_coverage=AnalysisCoverage(),
     )
 
@@ -119,16 +113,11 @@ def _create_profile(
     return RhythmLabDatabase(path, classifier_key=classifier_key)
 
 
-def _required_output() -> ContractIdentity:
-    return current_embedding_analysis_output("mert").contract
-
-
 def _train_artifact(
     artifact_dir: Path,
     *,
     classifier_key: str = "focused",
 ):
-    output = _required_output()
     matrix = np.asarray(
         [[float(index % 2), float((index + 1) % 2)] for index in range(20)],
         dtype=np.float32,
@@ -144,12 +133,6 @@ def _train_artifact(
         positive_label="yes",
         artifact_prefix=classifier_key.replace("_", "-"),
         classifier_key=classifier_key,
-        required_outputs=[
-            {
-                "contract_hash": output.contract_hash,
-                "canonical_payload": output.canonical_payload,
-            }
-        ],
     )
 
 
@@ -160,17 +143,6 @@ class _ConstantClassifier:
 
     def predict(self, matrix: np.ndarray) -> np.ndarray:
         return np.asarray([self.label] * len(matrix))
-
-
-def _sonara_contract() -> ContractIdentity:
-    return ContractIdentity(
-        analysis_family="sonara",
-        output_kind="core",
-        model_name="sonara",
-        model_version="0.3.1",
-        release_hash="sha256:" + "1" * 64,
-        parameters={"fixture": "rhythm-lab-features"},
-    )
 
 
 def _sonara_features() -> SourceSonaraFeatures:
@@ -201,32 +173,27 @@ def _sonara_features() -> SourceSonaraFeatures:
 
 class _FeatureSource:
     def __init__(self) -> None:
-        self.sonara_contract = _sonara_contract()
         self.track = replace(
             _track(1),
             sonara_features=_sonara_features(),
-            sonara_contract=self.sonara_contract,
         )
-        self.contracts = {
-            family: current_embedding_analysis_output(family, device="cpu").contract
+        self.specifications = {
+            family: current_embedding_spec(family)
             for family in ("mert", "maest", "clap", "muq")
         }
 
     def list_tracks(self) -> list[SourceTrack]:
         return [self.track]
 
-    def active_contract(self, output: object) -> ContractIdentity | None:
-        return self.sonara_contract if output == SONARA_CORE_OUTPUT else None
-
     def load_embedding_matrix(self, family: str) -> SourceEmbeddingMatrix:
-        contract = self.contracts[family]
-        assert contract.dim is not None
+        specification = self.specifications[family]
         family_value = float(("mert", "maest", "clap", "muq").index(family) + 2)
-        matrix = np.full((1, contract.dim), family_value, dtype=np.float32)
+        matrix = np.full((1, specification.dimension), family_value, dtype=np.float32)
         matrix.setflags(write=False)
         return SourceEmbeddingMatrix(
             family=family,  # type: ignore[arg-type]
-            contract=contract,
+            dimension=specification.dimension,
+            normalization=specification.normalization,
             tracks=(self.track,),
             matrix=matrix,
             not_ready_track_ids=(),
@@ -245,7 +212,7 @@ class _FeatureSource:
         ),
     ),
 )
-def test_muq_feature_sets_extract_exact_current_contract_dimensions(
+def test_muq_feature_sets_extract_current_structural_dimensions(
     feature_set: str,
     expected_sources: tuple[str, ...],
 ) -> None:
@@ -257,9 +224,7 @@ def test_muq_feature_sets_extract_exact_current_contract_dimensions(
         labels_by_identity={_identity(source.track): "yes"},
     )
 
-    assert tuple(
-        contract.analysis_family for contract in result.required_outputs
-    ) == expected_sources
+    assert tuple(result.source_dimensions) == expected_sources
     assert result.matrix.shape == (1, len(result.feature_names))
     if "sonara" in expected_sources:
         sonara_count = len(SONARA_SCALAR_FIELDS) + sum(SONARA_VECTOR_FIELDS.values())
@@ -271,7 +236,9 @@ def test_muq_feature_sets_extract_exact_current_contract_dimensions(
         )
     for family in ("mert", "maest", "clap", "muq"):
         expected_count = (
-            int(source.contracts[family].dim) if family in expected_sources else 0
+            source.specifications[family].dimension
+            if family in expected_sources
+            else 0
         )
         names = [
             name for name in result.feature_names if name.startswith(f"{family}:")
@@ -311,14 +278,12 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
         source: SourceFeatureState(
             status="current",
             reason=None,
-            contract_hash=f"{source}-current",
         )
         for source in ("sonara", "mert", "maest", "clap")
     }
     states["muq"] = SourceFeatureState(
-        status="stale",
-        reason="MuQ contract is stale.",
-        contract_hash="muq-old",
+        status="missing",
+        reason="MuQ vectors are missing.",
     )
 
     combined = feature_recipe_readiness("combined", states)
@@ -331,9 +296,8 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     assert muq["blocking"] == [
         {
             "source": "muq",
-            "status": "stale",
-            "reason": "MuQ contract is stale.",
-            "contract_hash": "muq-old",
+            "status": "missing",
+            "reason": "MuQ vectors are missing.",
         }
     ]
     assert sonara_muq["ready"] is False
@@ -343,19 +307,13 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     assert "sonara+mert+maest+clap+muq" in FEATURE_RECIPE_OPTIONS
 
 
-def test_stale_muq_artifact_is_not_promotable() -> None:
-    output = current_embedding_analysis_output("muq").contract
+def test_artifact_with_missing_muq_data_is_not_promotable() -> None:
     summary = {
         "by_feature": [
             {
                 "feature_set": "muq",
                 "latest_model": "muq.joblib",
-                "required_outputs": [
-                    {
-                        "contract_hash": output.contract_hash,
-                        "canonical_payload": output.canonical_payload,
-                    }
-                ],
+                "feature_names": ["muq:0", "muq:1"],
                 "macro_f1_mean": 0.9,
             }
         ],
@@ -367,16 +325,15 @@ def test_stale_muq_artifact_is_not_promotable() -> None:
         summary,
         {
             "muq": SourceFeatureState(
-                status="stale",
-                reason="MuQ source contract is stale.",
-                contract_hash=output.contract_hash,
+                status="missing",
+                reason="MuQ vectors are missing.",
             )
         },
     )
 
-    assert stale["promotion_options"][0]["source_contract_ready"] is False
-    assert stale["promotion_options"][0]["source_contract_reason"] == (
-        "MuQ source contract is stale."
+    assert stale["promotion_options"][0]["source_data_ready"] is False
+    assert stale["promotion_options"][0]["source_data_reason"] == (
+        "MuQ vectors are missing."
     )
     assert stale["latest_promotable"] is None
 
@@ -386,13 +343,12 @@ def test_stale_muq_artifact_is_not_promotable() -> None:
             "muq": SourceFeatureState(
                 status="current",
                 reason=None,
-                contract_hash=output.contract_hash,
             )
         },
     )
 
-    assert current["promotion_options"][0]["source_contract_ready"] is True
-    assert current["promotion_options"][0]["source_contract_reason"] is None
+    assert current["promotion_options"][0]["source_data_ready"] is True
+    assert current["promotion_options"][0]["source_data_reason"] is None
     assert current["latest_promotable"]["feature_set"] == "muq"
 
 
@@ -402,7 +358,7 @@ def test_serve_parser_forwards_expected_source_catalog_uuid(
 ) -> None:
     source = tmp_path / "source.sqlite"
     labels = tmp_path / "labels.sqlite"
-    expected_catalog_uuid = "catalog-v7"
+    expected_catalog_uuid = "catalog-current"
     args = build_parser().parse_args(
         [
             "serve",
@@ -450,7 +406,7 @@ def test_serve_parser_forwards_expected_source_catalog_uuid(
     assert run_kwargs["port"] == 8777
 
 
-def test_default_labels_path_is_shared_greenfield_v7_path() -> None:
+def test_default_labels_path_is_shared_greenfield_current_path() -> None:
     args = build_parser().parse_args(["serve"])
 
     assert DEFAULT_LABELS_DB == default_rhythm_lab_labels_path()
@@ -635,7 +591,7 @@ def test_wal_visible_legacy_schema_is_rejected_before_any_ddl(
         reader.close()
 
 
-def test_web_app_uses_separate_v7_labels_without_touching_legacy(
+def test_web_app_uses_separate_current_labels_without_touching_legacy(
     tmp_path: Path,
 ) -> None:
     legacy_path = tmp_path / "rhythm_lab.sqlite"
@@ -728,7 +684,7 @@ def test_multiclass_profile_uses_all_class_labels_for_training(
     assert profile.training_label_keys == ("bright", "dark", "neutral")
 
 
-def test_labels_use_exact_v7_identity_and_remain_profile_scoped(
+def test_labels_use_current_track_identity_and_remain_profile_scoped(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "lab.sqlite"
@@ -904,7 +860,9 @@ def test_training_checkpoint_tracks_only_current_profile_labels(
     assert checkpoint["updated_at"] is not None
 
 
-def test_train_feature_set_binds_exact_bytes_to_metrics(tmp_path: Path) -> None:
+def test_train_feature_set_binds_exact_bytes_and_features_to_metrics(
+    tmp_path: Path,
+) -> None:
     result = _train_artifact(tmp_path / "artifacts")
     metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
 
@@ -913,9 +871,7 @@ def test_train_feature_set_binds_exact_bytes_to_metrics(tmp_path: Path) -> None:
         result.artifact_path.read_bytes()
     )
     assert metrics["feature_count"] == 2
-    assert metrics["required_outputs"][0]["contract_hash"] == (
-        _required_output().contract_hash
-    )
+    assert metrics["feature_names"] == ["mert:0", "mert:1"]
     payload = joblib.load(result.artifact_path)
     assert payload["classifier_key"] == "focused"
     assert payload["feature_names"] == ["mert:0", "mert:1"]

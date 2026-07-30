@@ -7,23 +7,23 @@ import type {
   ReferenceCompareResponse,
   ReferenceCompareVerdict,
   SearchResult,
-  TrackIdentityV7,
-  TrackSummaryV7,
+  TrackIdentity,
+  TrackSummary,
 } from "./api";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
 type ReferenceComparePanelProps = {
-  seedTracks: TrackSummaryV7[];
+  seedTracks: TrackSummary[];
   busy: boolean;
   seedSet: Set<number>;
   playlistSet: Set<number>;
   playingTrackId: number | null;
-  onSeed: (track: TrackSummaryV7) => void;
-  onToggleLiked: (track: TrackSummaryV7) => void;
-  onTogglePlaylist: (track: TrackSummaryV7) => void;
-  onPreview: (track: TrackSummaryV7) => void;
-  onDetails: (track: TrackSummaryV7) => void;
+  onSeed: (track: TrackSummary) => void;
+  onToggleLiked: (track: TrackSummary) => void;
+  onTogglePlaylist: (track: TrackSummary) => void;
+  onPreview: (track: TrackSummary) => void;
+  onDetails: (track: TrackSummary) => void;
 };
 
 const referenceCompareModels: ReferenceCompareModel[] = ["clap", "mert", "muq", "maest", "sonara"];
@@ -256,11 +256,11 @@ function ReferenceCompareGroupCard({
   seedSet: Set<number>;
   playlistSet: Set<number>;
   playingTrackId: number | null;
-  onSeed: (track: TrackSummaryV7) => void;
-  onToggleLiked: (track: TrackSummaryV7) => void;
-  onTogglePlaylist: (track: TrackSummaryV7) => void;
-  onPreview: (track: TrackSummaryV7) => void;
-  onDetails: (track: TrackSummaryV7) => void;
+  onSeed: (track: TrackSummary) => void;
+  onToggleLiked: (track: TrackSummary) => void;
+  onTogglePlaylist: (track: TrackSummary) => void;
+  onPreview: (track: TrackSummary) => void;
+  onDetails: (track: TrackSummary) => void;
   onNotesChange: (result: SearchResult, notes: string) => void;
   onVerdict: (result: SearchResult, verdict: ReferenceCompareVerdict) => void;
 }) {
@@ -342,7 +342,7 @@ export function orderedReferenceCompareGroups(response: ReferenceCompareResponse
   });
 }
 
-export function referenceTrackIdentityKey(track: TrackSummaryV7 | null) {
+export function referenceTrackIdentityKey(track: TrackSummary | null) {
   return track ? trackIdentityKey(track) : "none";
 }
 
@@ -367,7 +367,7 @@ export function referenceCompareResponseIsCurrent(
     && requestedTrackId === responseTrackId;
 }
 
-function trackIdentityPayload(track: TrackSummaryV7): TrackIdentityV7 {
+function trackIdentityPayload(track: TrackSummary): TrackIdentity {
   return {
     track_id: track.track_id,
     catalog_uuid: track.catalog_uuid,
@@ -376,11 +376,11 @@ function trackIdentityPayload(track: TrackSummaryV7): TrackIdentityV7 {
   };
 }
 
-function trackIdentityKey(track: TrackSummaryV7) {
+function trackIdentityKey(track: TrackSummary) {
   return `${track.catalog_uuid}:${track.track_uuid}:${track.content_generation}:${track.track_id}`;
 }
 
-function verdictKey(model: ReferenceCompareModel, track: TrackSummaryV7) {
+function verdictKey(model: ReferenceCompareModel, track: TrackSummary) {
   return `${model}:${trackIdentityKey(track)}`;
 }
 

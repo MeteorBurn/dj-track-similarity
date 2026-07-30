@@ -1,98 +1,105 @@
-# Prepare and rebuild a SONARA release
+# Migrate and reanalyze SONARA storage
 
-> Audience: Users activating the current SONARA contract in a schema-v7 library.
-> Goal: Back up the bundle, activate one strict release, and rebuild SONARA-dependent results.
+> Audience: Users adopting SONARA or database-structure changes.
+> Goal: Preview and back up structural changes, then rebuild only the analysis you choose.
 > Type: workflow
 
-This workflow starts from a fresh schema-v7 bundle. It is not a path for upgrading a v6 database:
-the runtime rejects non-v7 schemas, and the former `migrate-v7` and `migrate-schema-v7` commands are
-gone.
+Normal application startup never migrates or adapts an incompatible database. It refuses the
+Core/Artifacts pair with a clear message. Migration and reanalysis are separate, explicit
+decisions.
 
 ## 1. Confirm the bundle
 
-Selecting a new Core path creates:
+A selected library consists of:
 
 ```text
 library.sqlite
 library.artifacts.sqlite
 ```
 
-The optional `library.evaluation.sqlite` file appears only when an evaluation workflow needs it.
-Core and Artifacts are mandatory and share one `catalog_uuid`.
+The optional `library.evaluation.sqlite` appears only when an evaluation workflow needs it. Core and
+Artifacts are mandatory and share one `catalog_uuid`.
 
-## 2. Fix runtime preflight first
+Stop jobs and other writers before maintenance. Keep the current files together.
 
-SONARA and model adapters fail closed when their loaded identity differs from the locked contract.
-The ML extra pins `transformers==5.13.0` and `huggingface-hub==1.22.0`. Synchronize the environment
-before ML analysis. Do not bypass the preflight.
+## 2. Preview the migration
 
-Verify SONARA separately:
-
-```powershell
-python -c "import sonara; print(sonara.__version__)"
-```
-
-The expected package version is `0.3.1`.
-
-## 3. Prepare the release
-
-Create an existing writable backup directory, stop competing work on the selected database, and run:
+The dry run opens Core, Artifacts, and any existing Evaluation database read-only. It reports the
+tables that would be rebuilt or excluded and the analysis families that may need reanalysis:
 
 ```powershell
-dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
+dj-sim migrate-database --db .\data\library.sqlite --dry-run
 ```
 
-The command derives the loaded runtime identity and all four outputs: `core`, `timeline`,
-`embedding`, and `fingerprint`. It does not accept a caller-provided release hash or output subset.
-It verifies a Core plus Artifacts backup pair and advances an ordered, receipt-backed activation.
-Interrupted work can resume; mismatched catalog, backup, receipt, or runtime identity fails closed.
+Review the exact paths, structural changes, warnings, and suggested backup location. A dry run does
+not create backups, write SQLite, or start analysis.
 
-Preparation removes previous SONARA rows and SONARA-dependent classifier scores before activating
-the new contracts. It preserves non-SONARA embeddings, labels, feedback, likes, and audio files.
+## 3. Apply only after review
 
-## 4. Run a bounded pilot
+Rerun without `--dry-run` when you accept the plan:
 
-Start with familiar files:
+```powershell
+dj-sim migrate-database --db .\data\library.sqlite
+```
+
+Type the exact confirmation:
+
+```text
+MIGRATE DATABASE
+```
+
+You can use `--backup-dir` to select a different backup directory. Before replacing either database,
+the command creates self-contained Core and Artifacts backups and validates their integrity together
+with the shared catalog identity. A final source check confirms that the files still match the
+reviewed plan.
+
+The command rebuilds the pair under exclusive SQLite locks and finishes with integrity,
+foreign-key, and orphan checks. A controlled failure restores the verified backup pair. If a process
+crashes between the two database publications, normal startup refuses the pair and points back to
+the recorded recovery and backup paths.
+
+Evaluation is inspected for warnings but is not rewritten by this migration.
+
+## 4. Review the receipt
+
+Keep the reported Core and Artifacts backup paths until the migrated library has been checked. The
+receipt also reports excluded legacy rows and analysis families that may need new results.
+
+Migration does not decide whether reanalysis is desirable. It does not start SONARA, ML, or
+classifier jobs.
+
+## 5. Run a bounded SONARA pilot when chosen
+
+After the migrated database opens normally, start with familiar files:
 
 ```powershell
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 100 --db .\data\library.sqlite
 ```
 
-The current contract is SONARA `0.3.1`, upstream schema `5`, playlist mode, sample rate `22050`, BPM
-range `70..180`, and project feature revision `6`. The default native batch size is `8`;
-`--sonara-batch-size` accepts `1..16`.
+The current tested SONARA release is `0.3.5`; this is descriptive rather than a permanent project
+restriction. Update SONARA and adapt the project when you choose, then use focused checks for the
+new fields and capabilities.
 
-A successful pilot is a stop point for review, not permission to start a full-library run. Review
-job failures and representative search results. Then verify database integrity before deciding
-whether to continue.
+Review failures and representative search results before deciding whether to continue.
 
-## 5. Complete the selected outputs
+## 6. Complete only the selected outputs
 
-After explicit approval for the larger run, omit `--limit`:
+Omit `--limit` only after approving a full-library run:
 
 ```powershell
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 ```
 
-`core` is always included. Optional outputs can be requested later, and scheduling checks each exact
-contract independently.
+`core` is always included. Request optional outputs according to the workflows that need them.
 
-## 6. Retrain and promote classifiers
+## 7. Retrain affected classifiers
 
-The runtime accepts classifier manifest version `2`. The promoted artifacts currently checked into
-`models/classifiers/` use version `1`, so scoring is blocked. After required analysis coverage is
-complete, retrain and promote each affected profile, then run:
+When a SONARA update changes a classifier's ordered feature recipe, reuse the preserved Rhythm Lab
+profiles and labels to retrain and promote only that affected classifier. Then run:
 
 ```powershell
 dj-sim analyze-classifiers --db .\data\library.sqlite
 ```
 
-The scoring job reads stored inputs only and writes compatible classifier-track pairs. It does not
-decode or modify audio.
-
-## 7. Use the current surface
-
-The backend, CLI, and React client use the v7 contract. The browser exposes SONARA outputs, batch
-size, progress, blockers, cancellation, and reset. For a release rebuild, still validate with CLI
-receipts, API responses, focused tests, and direct SQLite integrity checks; a browser status alone
-is not proof that the full-library rebuild is complete.
+Classifier scoring reads stored inputs and writes database scores. It does not decode or modify
+source audio.

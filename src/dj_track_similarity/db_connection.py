@@ -1,4 +1,4 @@
-"""V7-only SQLite connection and two-file bootstrap."""
+"""SQLite connection management and two-file bootstrap."""
 
 from __future__ import annotations
 
@@ -16,23 +16,25 @@ from pathlib import Path
 from typing import Iterator
 
 from .db_artifacts import (
-    ARTIFACTS_SCHEMA_VERSION,
     create_artifacts_sidecar_schema,
     validate_artifacts_sidecar_schema,
 )
 from .db_schema import (
-    CURRENT_SCHEMA_VERSION,
     SQLITE_BUSY_TIMEOUT_SECONDS,
     insert_library_catalog,
     validate_core_schema,
 )
-from .db_schema_v7 import create_v7_schema
-from .db_storage import StorageDatabasePaths, storage_database_paths
+from .db_ddl import create_core_schema
+from .db_storage import (
+    StorageDatabasePaths,
+    migration_recovery_path,
+    storage_database_paths,
+)
+from .db_structure import require_current_structure
 
 
 _write_locks: dict[Path, threading.RLock] = {}
 _write_locks_guard = threading.Lock()
-_BOOTSTRAP_RECEIPT_VERSION = 1
 _BOOTSTRAP_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
@@ -55,10 +57,8 @@ class _ValidationSnapshot:
     role: str
     path: Path
     file_marker: _FileMarker
-    user_version: int
     schema_cookie: int
     catalog_uuid: str
-    storage_schema_version: int | None
 
     @property
     def file_identity(self) -> _FileIdentity:
@@ -107,8 +107,6 @@ class _ProjectSQLiteConnection(sqlite3.Connection):
     _dj_validation_role: str
     _dj_validated_catalog_uuid: str
     _dj_validated_schema_cookie: int
-    _dj_validated_user_version: int
-    _dj_validated_storage_schema_version: int | None
 
 
 def _file_marker(path: Path) -> _FileMarker:
@@ -143,7 +141,7 @@ def resolve_database_path(path: str | Path) -> Path:
         raise ValueError("Database path is required")
     if raw == ":memory:" or raw.lower().startswith("file::memory:"):
         raise ValueError(
-            "LibraryDatabase requires a filesystem path because the v7 "
+            "LibraryDatabase requires a filesystem path because the "
             "Artifacts database is mandatory"
         )
     return Path(path).expanduser().resolve(strict=False)
@@ -219,23 +217,8 @@ def _pragma_int(connection: sqlite3.Connection, pragma: str) -> int:
     return int(row[0])
 
 
-def _require_user_version(
-    connection: sqlite3.Connection,
-    *,
-    role: str,
-    expected_version: int,
-) -> int:
-    version = _pragma_int(connection, "user_version")
-    if version != expected_version:
-        raise RuntimeError(
-            f"SQLite {role} schema version {version} is not supported; "
-            f"expected {expected_version}"
-        )
-    return version
-
-
-def _preflight_existing_core_version_read_only(path: Path) -> None:
-    """Reject a non-v7 Core without changing it or creating lock files."""
+def _preflight_existing_core_structure_read_only(path: Path) -> None:
+    """Reject an old Core without changing it or creating lock files."""
 
     connection = sqlite3.connect(
         f"{path.as_uri()}?mode=ro&immutable=1",
@@ -244,11 +227,7 @@ def _preflight_existing_core_version_read_only(path: Path) -> None:
     )
     try:
         connection.execute("PRAGMA query_only = ON")
-        _require_user_version(
-            connection,
-            role="Core",
-            expected_version=CURRENT_SCHEMA_VERSION,
-        )
+        require_current_structure(connection, "core", path)
     finally:
         connection.close()
 
@@ -267,43 +246,27 @@ def _capture_validation_snapshot(
             f"SQLite {role} database was replaced during validation: {resolved}"
         )
 
-    user_version = _pragma_int(connection, "user_version")
     schema_cookie = _pragma_int(connection, "schema_version")
-    storage_schema_version: int | None = None
     if role == "core":
         rows = connection.execute(
             "SELECT singleton_id, catalog_uuid FROM library_catalog"
         ).fetchall()
-        expected_version = CURRENT_SCHEMA_VERSION
         singleton_name = "library_catalog"
     elif role == "artifacts":
         rows = connection.execute(
-            "SELECT singleton_id, catalog_uuid, schema_version FROM storage_metadata"
+            "SELECT singleton_id, catalog_uuid FROM storage_metadata"
         ).fetchall()
-        expected_version = ARTIFACTS_SCHEMA_VERSION
         singleton_name = "storage_metadata"
-        if len(rows) == 1:
-            storage_schema_version = int(rows[0][2])
     else:
         raise ValueError(f"unsupported validation role: {role!r}")
 
-    if user_version != expected_version:
-        raise RuntimeError(
-            f"SQLite {role} schema version {user_version} is not supported; "
-            f"expected {expected_version}"
-        )
     if len(rows) != 1 or int(rows[0][0]) != 1:
         raise RuntimeError(f"{singleton_name} must contain exactly singleton_id=1")
     catalog_uuid = str(rows[0][1]).strip()
     if not catalog_uuid:
         raise RuntimeError(f"{singleton_name}.catalog_uuid must be non-empty")
-    if role == "artifacts" and storage_schema_version != ARTIFACTS_SCHEMA_VERSION:
-        raise RuntimeError(
-            "storage_metadata.schema_version does not match PRAGMA user_version"
-        )
-    user_version_after = _pragma_int(connection, "user_version")
     schema_cookie_after = _pragma_int(connection, "schema_version")
-    if user_version_after != user_version or schema_cookie_after != schema_cookie:
+    if schema_cookie_after != schema_cookie:
         raise RuntimeError(
             f"SQLite {role} schema changed during validation: {resolved}"
         )
@@ -316,10 +279,8 @@ def _capture_validation_snapshot(
         role=role,
         path=resolved,
         file_marker=marker_after,
-        user_version=user_version_after,
         schema_cookie=schema_cookie_after,
         catalog_uuid=catalog_uuid,
-        storage_schema_version=storage_schema_version,
     )
 
 
@@ -330,8 +291,6 @@ def _mark_validated_connection(
     connection._dj_validation_role = snapshot.role
     connection._dj_validated_catalog_uuid = snapshot.catalog_uuid
     connection._dj_validated_schema_cookie = snapshot.schema_cookie
-    connection._dj_validated_user_version = snapshot.user_version
-    connection._dj_validated_storage_schema_version = snapshot.storage_schema_version
 
 
 def _snapshot_matches(
@@ -357,11 +316,6 @@ def _validate_core_connection(
     expected_catalog_uuid: str | None,
     validation_state: BundleValidationState | None,
 ) -> _ValidationSnapshot:
-    _require_user_version(
-        connection,
-        role="Core",
-        expected_version=CURRENT_SCHEMA_VERSION,
-    )
     cached = (
         None if validation_state is None else validation_state.snapshot("core", path)
     )
@@ -389,6 +343,7 @@ def _validate_core_connection(
     catalog_uuid = validate_core_schema(
         connection,
         expected_catalog_uuid=expected_catalog_uuid,
+        database_path=str(path),
     )
     _enforce_wal(connection)
     current = _capture_validation_snapshot(
@@ -416,11 +371,6 @@ def _validate_artifacts_connection(
     expected_catalog_uuid: str,
     validation_state: BundleValidationState | None,
 ) -> _ValidationSnapshot:
-    _require_user_version(
-        connection,
-        role="Artifacts",
-        expected_version=ARTIFACTS_SCHEMA_VERSION,
-    )
     cached = (
         None
         if validation_state is None
@@ -450,6 +400,7 @@ def _validate_artifacts_connection(
     catalog_uuid = validate_artifacts_sidecar_schema(
         connection,
         expected_catalog_uuid=expected_catalog_uuid,
+        database_path=str(path),
     )
     _enforce_wal(connection)
     current = _capture_validation_snapshot(
@@ -709,7 +660,6 @@ def _write_bootstrap_receipt(
     payload = (
         json.dumps(
             {
-                "manifest_version": _BOOTSTRAP_RECEIPT_VERSION,
                 "stage": "ready",
                 "token": receipt.token,
                 "catalog_uuid": receipt.catalog_uuid,
@@ -751,7 +701,6 @@ def _read_bootstrap_receipt(core_path: Path) -> _BootstrapReceipt | None:
     if not isinstance(payload, dict):
         raise RuntimeError(f"Bootstrap receipt is not a JSON object: {receipt_path}")
     expected_keys = {
-        "manifest_version",
         "stage",
         "token",
         "catalog_uuid",
@@ -760,16 +709,8 @@ def _read_bootstrap_receipt(core_path: Path) -> _BootstrapReceipt | None:
     }
     if set(payload) != expected_keys:
         raise RuntimeError(f"Bootstrap receipt fields are invalid: {receipt_path}")
-    manifest_version = payload["manifest_version"]
-    if (
-        isinstance(manifest_version, bool)
-        or not isinstance(manifest_version, int)
-        or manifest_version != _BOOTSTRAP_RECEIPT_VERSION
-        or payload["stage"] != "ready"
-    ):
-        raise RuntimeError(
-            f"Bootstrap receipt version/stage is invalid: {receipt_path}"
-        )
+    if payload["stage"] != "ready":
+        raise RuntimeError(f"Bootstrap receipt stage is invalid: {receipt_path}")
 
     token = payload["token"]
     catalog_uuid = payload["catalog_uuid"]
@@ -1065,7 +1006,7 @@ def _create_fresh_storage_set(
     try:
         if os.path.lexists(core_path) or os.path.lexists(paths.artifacts):
             raise RuntimeError("Database storage set appeared during bootstrap")
-        create_v7_schema(str(staged_core))
+        create_core_schema(str(staged_core))
         with closing(_open_existing(staged_core)) as core_connection:
             insert_library_catalog(core_connection, catalog_uuid)
             core_connection.commit()
@@ -1106,11 +1047,20 @@ def ensure_database_schema(
     *,
     validation_state: BundleValidationState | None = None,
 ) -> str:
-    """Create or exactly validate one v7 Core + required Artifacts pair."""
+    """Create or exactly validate one current Core + required Artifacts pair."""
 
     resolved = resolve_database_path(path)
+    recovery_marker = migration_recovery_path(resolved)
+    if os.path.lexists(recovery_marker):
+        raise RuntimeError(
+            "Pending database migration recovery at "
+            f"{recovery_marker}. Refusing to open the Core/Artifacts pair. "
+            "Keep both databases and backups unchanged, then inspect the "
+            "recorded backup paths with: "
+            f'dj-sim migrate-database --db "{resolved}" --dry-run'
+        )
     if os.path.lexists(resolved):
-        _preflight_existing_core_version_read_only(resolved)
+        _preflight_existing_core_structure_read_only(resolved)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     paths = storage_database_paths(resolved)
     lock = write_lock or write_lock_for_path(resolved)

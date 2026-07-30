@@ -61,6 +61,25 @@ test("API module keeps public types separate from domain client implementation",
   assert.doesNotMatch(apiSource, /async function request/);
 });
 
+test("public API types omit versioned contract identity fields", () => {
+  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const forbiddenFields = [
+    "schema_version",
+    "contract_hash",
+    "source_contract_hashes",
+    "release_hash",
+    "manifest_version",
+    "model_version",
+    "feature_manifest_hash",
+    "required_outputs_hash",
+    "sonara_release_hash",
+  ];
+
+  for (const field of forbiddenFields) {
+    assert.equal(apiSource.includes(field), false, `${field} must not be part of the public frontend API`);
+  }
+});
+
 function jsonResponse(value = {}) {
   return {
     ok: true,
@@ -172,49 +191,30 @@ test("analysis job client defaults a SONARA-only request to Core storage", async
   });
 });
 
-test("SONARA release client reads exact readiness and prepares only with explicit backup confirmation", async () => {
+test("SONARA status client reads neutral current-output counts", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
-    if (path.endsWith("/status")) {
-      return jsonResponse({
-        catalog_uuid: "catalog-v7",
-        state: "preparation_required",
-        ready: false,
-        detail: "SONARA_RELEASE_PREPARATION_REQUIRED",
-        expected_release_hash: "sha256:expected",
-        active_release_hash: null,
-        outputs: []
-      });
-    }
     return jsonResponse({
-      stage: "completed",
-      catalog_uuid: "catalog-v7",
-      activation_result: {
-        core_rows_deleted: 0,
-        artifact_rows_deleted: 0,
-        classifier_rows_deleted: 0
-      }
+      catalog_uuid: "catalog-current",
+      total_tracks: 12,
+      outputs: [
+        { output_kind: "core", present_count: 10, missing_count: 2 },
+        { output_kind: "embedding", present_count: 7, missing_count: 5 }
+      ]
     });
   });
 
-  const status = await api.sonaraReleaseStatus();
-  await api.prepareSonaraRelease(
-    "catalog-v7",
-    "C:\\Backups\\sonara",
-    "PREPARE SONARA RELEASE"
-  );
+  const status = await api.sonaraStatus();
 
-  assert.equal(calls[0].path, "/api/analysis/sonara/releases/status");
+  assert.equal(calls[0].path, "/api/analysis/sonara/status");
   assert.equal(calls[0].options.method, undefined);
-  assert.equal(status.state, "preparation_required");
-  assert.equal(calls[1].path, "/api/analysis/sonara/releases/prepare");
-  assert.equal(calls[1].options.method, "POST");
-  assert.deepEqual(JSON.parse(calls[1].options.body), {
-    catalog_uuid: "catalog-v7",
-    backup_dir: "C:\\Backups\\sonara",
-    confirm: "PREPARE SONARA RELEASE"
-  });
+  assert.equal(status.catalog_uuid, "catalog-current");
+  assert.equal(status.total_tracks, 12);
+  assert.deepEqual(status.outputs, [
+    { output_kind: "core", present_count: 10, missing_count: 2 },
+    { output_kind: "embedding", present_count: 7, missing_count: 5 }
+  ]);
 });
 
 test("CLAP text search client keeps positive and negative prompt arrays separate", async () => {
@@ -293,7 +293,7 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
   }
 });
 
-test("v7 liked mutation serializes the exact optimistic track identity", async () => {
+test("liked mutation serializes the exact optimistic track identity", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
@@ -302,8 +302,8 @@ test("v7 liked mutation serializes the exact optimistic track identity", async (
 
   await api.setTrackLiked({
     track_id: 41,
-    catalog_uuid: "catalog-v7",
-    track_uuid: "track-v7",
+    catalog_uuid: "catalog-current",
+    track_uuid: "track-current",
     content_generation: 7,
     file_path: "D:/Music/example.wav",
     title: "Example",
@@ -330,14 +330,14 @@ test("v7 liked mutation serializes the exact optimistic track identity", async (
   assert.equal(calls[0].path, "/api/tracks/41/liked");
   assert.equal(calls[0].options.method, "POST");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
-    catalog_uuid: "catalog-v7",
-    track_uuid: "track-v7",
+    catalog_uuid: "catalog-current",
+    track_uuid: "track-current",
     expected_content_generation: 7,
     liked: true
   });
 });
 
-test("MuQ search and resets serialize only current v7 field names", async () => {
+test("MuQ search and resets serialize only current field names", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });

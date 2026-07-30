@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -22,9 +23,11 @@ def _load_script():
     return module
 
 
-def test_optimize_database_script_optimizes_current_schema_without_project_imports(tmp_path: Path) -> None:
+def test_optimize_database_script_optimizes_current_structural_bundle(
+    tmp_path: Path,
+) -> None:
     source = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "dj_track_similarity" not in source
+    assert "require_current_structure" in source
     module = _load_script()
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -40,6 +43,7 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
     evaluation = db.connect_evaluation(create=True)
     assert evaluation is not None
     evaluation.close()
+    sidecars = storage_database_paths(db_path)
 
     summary = module.optimize_database(db_path)
 
@@ -49,7 +53,6 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
     assert summary.integrity_before == "ok"
     assert summary.integrity_after == "ok"
     with sqlite3.connect(db_path) as connection:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         stored_track = connection.execute(
             "SELECT track_uuid, content_generation FROM tracks WHERE track_id = ?",
@@ -60,7 +63,6 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
         ).fetchone()[0]
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    sidecars = storage_database_paths(db_path)
     with sqlite3.connect(sidecars.artifacts) as connection:
         artifacts_tables = {
             row[0]
@@ -78,7 +80,6 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
         ).fetchone()[0]
         evaluation_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    assert version == 7
     assert stored_track == (
         mutation.identity.track_uuid,
         mutation.identity.content_generation,
@@ -91,6 +92,32 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
     assert integrity == "ok"
     assert artifacts_integrity == "ok"
     assert evaluation_integrity == "ok"
+
+
+def test_optimize_database_script_rejects_near_current_legacy_bundle_without_mutation(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    sidecars = storage_database_paths(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("ALTER TABLE tracks ADD COLUMN schema_version INTEGER")
+
+    before = {
+        path: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in (db_path, sidecars.artifacts)
+    }
+
+    with pytest.raises(RuntimeError, match="structure is not current"):
+        module.optimize_database(db_path)
+
+    after = {
+        path: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in (db_path, sidecars.artifacts)
+    }
+    assert after == before
+    assert not list(tmp_path.glob("*.bak-*"))
 
 
 def test_optimize_database_script_optimizes_rhythm_lab_database(tmp_path: Path) -> None:

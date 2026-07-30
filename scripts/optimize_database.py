@@ -5,12 +5,11 @@ from datetime import datetime
 from pathlib import Path
 import sqlite3
 
+from dj_track_similarity.db_structure import DatabaseRole, require_current_structure
 
-CORE_SCHEMA_VERSION = 7
-SIDECAR_SCHEMA_VERSION = 1
-LIBRARY_DATABASE_MARKERS = {
+
+CORE_DATABASE_MARKERS = {
     "library_catalog",
-    "contracts",
     "tracks",
     "file_tags",
     "sonara",
@@ -18,23 +17,9 @@ LIBRARY_DATABASE_MARKERS = {
     "classifier_scores",
     "likes",
 }
-ARTIFACTS_DATABASE_MARKERS = {
-    "storage_metadata",
-    "mert_embeddings",
-    "maest_embeddings",
-    "muq_embeddings",
-    "clap_embeddings",
-    "sonara_similarity_embeddings",
-    "sonara_timeline",
-    "sonara_fingerprints",
-}
-EVALUATION_DATABASE_MARKERS = {
-    "storage_metadata",
-    "search_sessions",
-    "search_session_seeds",
-    "search_result_events",
-    "calibration_runs",
-    "evaluation_settings",
+CORE_IDENTITY_COLUMNS = {
+    "library_catalog": {"singleton_id", "catalog_uuid"},
+    "tracks": {"track_id", "track_uuid", "content_generation"},
 }
 RHYTHM_LAB_DATABASE_MARKERS = {
     "classifier_profiles",
@@ -148,26 +133,11 @@ def _database_files(path: Path, database_kind: str) -> tuple[tuple[str, Path], .
     if not artifacts_path.is_file():
         raise FileNotFoundError(f"Artifacts database does not exist: {artifacts_path}")
 
-    _require_schema(
-        path,
-        LIBRARY_DATABASE_MARKERS,
-        "Core",
-        expected_version=CORE_SCHEMA_VERSION,
-    )
-    _require_schema(
-        artifacts_path,
-        ARTIFACTS_DATABASE_MARKERS,
-        "Artifacts",
-        expected_version=SIDECAR_SCHEMA_VERSION,
-    )
+    _require_current_project_structure(path, "core")
+    _require_current_project_structure(artifacts_path, "artifacts")
     selected = [("core", path), ("artifacts", artifacts_path)]
     if evaluation_path.is_file():
-        _require_schema(
-            evaluation_path,
-            EVALUATION_DATABASE_MARKERS,
-            "Evaluation",
-            expected_version=SIDECAR_SCHEMA_VERSION,
-        )
+        _require_current_project_structure(evaluation_path, "evaluation")
         selected.append(("evaluation", evaluation_path))
     _validate_catalog_uuids(path, *(selected_path for _role, selected_path in selected[1:]))
     return tuple(selected)
@@ -181,30 +151,11 @@ def _sidecar_database_paths(path: Path) -> tuple[Path, Path]:
     )
 
 
-def _require_schema(
-    path: Path,
-    required: set[str],
-    label: str,
-    *,
-    expected_version: int,
-) -> None:
-    with closing(sqlite3.connect(path)) as connection:
-        tables = _user_tables(connection)
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        foreign_key_errors = connection.execute("PRAGMA foreign_key_check").fetchall()
-    if not required.issubset(tables):
-        actual = ", ".join(sorted(tables)) or "none"
-        expected = ", ".join(sorted(required))
-        raise RuntimeError(f"{label} database has tables [{actual}], expected [{expected}]")
-    if version != expected_version:
-        raise RuntimeError(
-            f"{label} database schema version {version} is not supported; "
-            f"expected {expected_version}"
-        )
-    if foreign_key_errors:
-        raise RuntimeError(
-            f"{label} database has foreign-key violations: {foreign_key_errors[:5]}"
-        )
+def _require_current_project_structure(path: Path, role: DatabaseRole) -> None:
+    with closing(
+        sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    ) as connection:
+        require_current_structure(connection, role, path)
 
 
 def _validate_catalog_uuids(core: Path, *sidecars: Path) -> None:
@@ -267,8 +218,10 @@ def _integrity_check(path: Path) -> str:
 
 def _detect_supported_database(connection: sqlite3.Connection) -> str:
     tables = _user_tables(connection)
-    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    if LIBRARY_DATABASE_MARKERS.issubset(tables) and version == CORE_SCHEMA_VERSION:
+    if CORE_DATABASE_MARKERS.issubset(tables) and not _missing_required_columns(
+        connection,
+        CORE_IDENTITY_COLUMNS,
+    ):
         return "library"
     if RHYTHM_LAB_DATABASE_MARKERS.issubset(tables):
         label_columns = {
@@ -278,9 +231,9 @@ def _detect_supported_database(connection: sqlite3.Connection) -> str:
         if RHYTHM_LAB_IDENTITY_COLUMNS.issubset(label_columns):
             return "rhythm_lab"
     markers = (
-        f"library v{CORE_SCHEMA_VERSION}: "
-        f"{', '.join(sorted(LIBRARY_DATABASE_MARKERS))}; "
-        "rhythm_lab v7 identity tables: "
+        "Core table role: "
+        f"{', '.join(sorted(CORE_DATABASE_MARKERS))}; "
+        "Rhythm Lab identity tables: "
         f"{', '.join(sorted(RHYTHM_LAB_DATABASE_MARKERS))}"
     )
     actual = ", ".join(sorted(tables)) or "none"
@@ -297,6 +250,27 @@ def _user_tables(connection: sqlite3.Connection) -> set[str]:
         """
     ).fetchall()
     return {str(row[0]) for row in rows}
+
+
+def _missing_required_columns(
+    connection: sqlite3.Connection,
+    required_columns: dict[str, set[str]],
+) -> list[str]:
+    tables = _user_tables(connection)
+    errors = []
+    for table, required in required_columns.items():
+        if table not in tables:
+            continue
+        actual = {
+            str(row[1])
+            for row in connection.execute(f'PRAGMA table_info("{table}")')
+        }
+        missing = required - actual
+        if missing:
+            errors.append(
+                f"{table} is missing columns [{', '.join(sorted(missing))}]"
+            )
+    return errors
 
 
 def main() -> None:

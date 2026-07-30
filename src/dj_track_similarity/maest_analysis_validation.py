@@ -8,15 +8,11 @@ import sqlite3
 from collections.abc import Mapping
 from typing import TypeAlias
 
-from .analysis_contracts import ContractIdentity
-
-
 MaestAnalysisRow: TypeAlias = Mapping[str, object] | sqlite3.Row
 
 MAEST_ANALYSIS_COLUMNS = (
     "track_id",
     "content_generation",
-    "contract_hash",
     "syncopated_rhythm",
     "genres_json",
     "analyzed_at",
@@ -26,7 +22,6 @@ MAEST_ANALYSIS_COLUMNS = (
 def validate_maest_analysis_row(
     row: MaestAnalysisRow,
     *,
-    expected_contract: ContractIdentity,
     expected_track_id: int,
     expected_content_generation: int,
 ) -> tuple[bool, str | None]:
@@ -34,11 +29,6 @@ def validate_maest_analysis_row(
 
     try:
         values = _row_values(row)
-        if (
-            expected_contract.analysis_family,
-            expected_contract.output_kind,
-        ) != ("maest", "analysis"):
-            raise ValueError("expected contract must be a MAEST analysis contract")
         track_id = _required_int(values["track_id"], "track_id", minimum=1)
         if track_id != expected_track_id:
             raise ValueError("track_id does not match the expected track")
@@ -49,9 +39,6 @@ def validate_maest_analysis_row(
         )
         if generation != expected_content_generation:
             raise ValueError("content_generation does not match the expected track")
-        contract_hash = _required_text(values["contract_hash"], "contract_hash")
-        if contract_hash != expected_contract.contract_hash:
-            raise ValueError("contract_hash does not match the expected contract")
         syncopated = values["syncopated_rhythm"]
         if syncopated is not None:
             _required_int(
@@ -60,15 +47,7 @@ def validate_maest_analysis_row(
                 minimum=0,
                 maximum=1,
             )
-        top_k = _required_int(
-            expected_contract.parameters.get("top_k"),
-            "contract.parameters.top_k",
-            minimum=1,
-        )
-        parse_maest_genres_json(
-            values["genres_json"],
-            expected_top_k=top_k,
-        )
+        parse_maest_genres_json(values["genres_json"])
         _required_text(values["analyzed_at"], "analyzed_at")
     except (TypeError, ValueError, OverflowError) as error:
         return False, str(error)
@@ -94,7 +73,7 @@ def parse_maest_genres_json(
         raise ValueError("genres_json must contain at least one genre")
     if expected_top_k is not None and len(values) > expected_top_k:
         raise ValueError(
-            f"genres_json must contain at most contract top_k={expected_top_k} entries"
+            f"genres_json must contain at most {expected_top_k} entries"
         )
     normalized: list[dict[str, object]] = []
     parsed: list[tuple[str, float]] = []

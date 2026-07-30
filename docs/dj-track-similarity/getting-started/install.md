@@ -33,8 +33,8 @@ python -m pip install -e ".[dev]"
 ```
 
 The base package installs the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI,
-Uvicorn, Joblib, and dev test tools. This is enough for the v7 scan, CLI, backend API, export, and
-database-selection paths. The typed React client is built separately with its pinned Node
+Uvicorn, Joblib, and dev test tools. This is enough for scan, CLI, backend API, export, and
+database-selection paths. The typed React client is built separately with its recorded Node
 dependencies.
 
 ## Optional extras
@@ -45,22 +45,22 @@ Install only the extras you need:
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
-The `sonara` extra installs pinned SONARA `v0.3.1`. PyPI publishes `cp310-abi3` wheels, including
+The current `sonara` extra installs SONARA `0.3.5`. PyPI publishes `cp310-abi3` wheels, including
 Windows x64, so supported Python 3.10+ environments do not need to build SONARA locally.
 
-Verify the runtime before analyzing a fresh library or preparing a new SONARA release:
+Verify the current installed runtime before analyzing a library:
 
 ```powershell
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-The command must print `0.3.1`. The runtime creates fresh schema-v7 Core plus mandatory Artifacts
-bundles and rejects older schemas. There is no migration command. Follow
-[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md).
+The current tested environment prints `0.3.5`. This records the dependency used for the current
+build. You can adopt a newer SONARA release by updating the project sources, manifests, and lockfile
+together, followed by focused compatibility checks.
 
-The `ml` extra pins the loader stack, including `transformers==5.13.0` and
-`huggingface-hub==1.22.0`. Model-adapter preflight fails closed when installed package identity does
-not match the locked analysis contract.
+The `ml` extra records one mutually compatible loader stack. Installed packages must expose the
+capabilities, checkpoints, and output shapes the adapters use, but the runtime does not reject a
+package solely because its distribution version changed.
 
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
@@ -81,7 +81,7 @@ python -m pip install -e ".[rhythm-lab,dev]"
 
 ## Build the frontend bundle
 
-The React client uses the v7 API contract. The backend serves `frontend/dist` when it exists. Create
+The React client uses the current backend API. The backend serves `frontend/dist` when it exists. Create
 that bundle with:
 
 ```powershell
@@ -89,7 +89,7 @@ npm --prefix .\frontend install
 npm --prefix .\frontend run build
 ```
 
-Run its contract tests when changing the client:
+Run its API-shape tests when changing the client:
 
 ```powershell
 npm --prefix .\frontend test

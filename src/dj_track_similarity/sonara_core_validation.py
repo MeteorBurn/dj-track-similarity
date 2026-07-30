@@ -11,13 +11,12 @@ from typing import TypeAlias
 
 import numpy as np
 
-from .analysis_contracts import ContractIdentity
-from .db_schema_v7 import SonaraRowV7
+from .db_ddl import SonaraRow
 
 
-SonaraCoreRow: TypeAlias = SonaraRowV7 | Mapping[str, object] | sqlite3.Row
+SonaraCoreRow: TypeAlias = SonaraRow | Mapping[str, object] | sqlite3.Row
 
-SONARA_CORE_COLUMNS = tuple(field.name for field in fields(SonaraRowV7))
+SONARA_CORE_COLUMNS = tuple(field.name for field in fields(SonaraRow))
 SONARA_CORE_VECTOR_DIMS: Mapping[str, int] = {
     "mfcc_mean_blob": 13,
     "chroma_mean_blob": 12,
@@ -83,7 +82,6 @@ _ENERGY_CURVE_FIELDS = (
 def validate_sonara_core_row(
     row: SonaraCoreRow,
     *,
-    expected_contract: ContractIdentity,
     expected_track_id: int,
     expected_content_generation: int,
 ) -> tuple[bool, str | None]:
@@ -93,11 +91,10 @@ def validate_sonara_core_row(
         values = _row_values(row)
         _validate_identity(
             values,
-            expected_contract=expected_contract,
             expected_track_id=expected_track_id,
             expected_content_generation=expected_content_generation,
         )
-        _validate_scalars(values, expected_contract=expected_contract)
+        _validate_scalars(values)
         _validate_candidate_json(values)
         _validate_vectors(values)
     except (TypeError, ValueError, OverflowError) as error:
@@ -106,7 +103,7 @@ def validate_sonara_core_row(
 
 
 def _row_values(row: SonaraCoreRow) -> dict[str, object]:
-    if isinstance(row, SonaraRowV7):
+    if isinstance(row, SonaraRow):
         return {column: getattr(row, column) for column in SONARA_CORE_COLUMNS}
     if isinstance(row, sqlite3.Row):
         available = set(row.keys())
@@ -119,21 +116,15 @@ def _row_values(row: SonaraCoreRow) -> dict[str, object]:
         if missing:
             raise ValueError("SONARA Core row is missing fields: " + ", ".join(missing))
         return {column: row[column] for column in SONARA_CORE_COLUMNS}
-    raise TypeError("SONARA Core row must be a SonaraRowV7 or row mapping")
+    raise TypeError("SONARA Core row must be a SonaraRow or row mapping")
 
 
 def _validate_identity(
     values: Mapping[str, object],
     *,
-    expected_contract: ContractIdentity,
     expected_track_id: int,
     expected_content_generation: int,
 ) -> None:
-    if (
-        expected_contract.analysis_family,
-        expected_contract.output_kind,
-    ) != ("sonara", "core"):
-        raise ValueError("expected contract must be a SONARA Core contract")
     track_id = _required_int(values["track_id"], "track_id", minimum=1)
     if track_id != expected_track_id:
         raise ValueError("track_id does not match the expected track")
@@ -144,26 +135,17 @@ def _validate_identity(
     )
     if generation != expected_content_generation:
         raise ValueError("content_generation does not match the expected track")
-    contract_hash = _required_text(values["contract_hash"], "contract_hash")
-    if contract_hash != expected_contract.contract_hash:
-        raise ValueError("contract_hash does not match the expected contract")
     _required_text(values["analyzed_at"], "analyzed_at")
 
 
 def _validate_scalars(
     values: Mapping[str, object],
-    *,
-    expected_contract: ContractIdentity,
 ) -> None:
-    bpm_min = _contract_number(expected_contract, "bpm_min")
-    bpm_max = _contract_number(expected_contract, "bpm_max")
-    if bpm_min >= bpm_max:
-        raise ValueError("contract bpm_min must be lower than bpm_max")
     _optional_number(
         values["detected_bpm"],
         "detected_bpm",
-        minimum=bpm_min,
-        maximum=bpm_max,
+        minimum=0.0,
+        strict_minimum=True,
     )
     _optional_number(
         values["raw_bpm"],
@@ -380,15 +362,6 @@ def _validate_vectors(values: Mapping[str, object]) -> None:
             )
         if not bool(np.all(np.isfinite(vector))):
             raise ValueError(f"{field_name} contains non-finite values")
-
-
-def _contract_number(contract: ContractIdentity, field_name: str) -> float:
-    if field_name not in contract.parameters:
-        raise ValueError(f"SONARA Core contract is missing {field_name}")
-    return _required_number(
-        contract.parameters[field_name],
-        f"contract.parameters.{field_name}",
-    )
 
 
 def _optional_number(

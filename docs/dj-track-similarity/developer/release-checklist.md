@@ -1,7 +1,7 @@
 # Release checklist
 
 > Audience: Maintainers doing a final audit.
-> Goal: Check safety, contracts, builds, and public wording before publishing.
+> Goal: Check safety, interfaces, builds, and public wording before publishing.
 > Type: how-to
 
 ## Checklist
@@ -12,8 +12,8 @@
 - Frontend and docs builds ran when touched.
 - Focused tests cover touched behavior.
 - Generated reports, SQLite files, logs, node_modules, and local model artifacts are not staged.
-- SONARA upstream version/schema, project feature revision, default profile, and signature example agree with `sonara_contract.py` and `sonara_features.py`.
-- A SONARA semantic change also reviews classifier invalidation, manifest compatibility, the prepare/reset/reanalysis workflow, and focused SONARA tests.
+- SONARA decode, requested fields, output storage, and current tested dependency agree with `sonara_runtime.py` and `sonara_features.py`.
+- A SONARA semantic change also reviews database structure, classifier feature recipes, optional reanalysis, and focused SONARA tests.
 - Sidebar entries and local links include every new documentation page.
 
 ## Safety audit

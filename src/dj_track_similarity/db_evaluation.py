@@ -16,11 +16,11 @@ PROMOTED_SCORE_PROFILE_SETTING_KEY = "evaluation.promoted_score_profile"
 
 
 class EvaluationRepository:
-    """V7-only evaluation persistence mixin.
+    """Evaluation persistence mixin.
 
     The concrete database gateway must provide:
 
-    * ``connect()`` for the v7 Core database;
+    * ``connect()`` for the Core database;
     * ``connect_evaluation(create=False)`` for the optional Evaluation sidecar,
       returning ``None`` when it is absent and creation was not requested;
     * ``_write_lock`` shared with the other repository mixins.

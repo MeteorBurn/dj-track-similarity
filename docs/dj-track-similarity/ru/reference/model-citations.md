@@ -17,14 +17,15 @@
 
 | Семейство | Текущий путь в коде | Исходный проект | Лицензия |
 | --- | --- | --- | --- |
-| SONARA | `sonara==0.3.1`, схема 5, режим playlist с BPM `70.0..180.0`; Core использует встроенный vocalness v2, у каждого результата своя сигнатура | [kkollsga/sonara](https://github.com/kkollsga/sonara), [выпуск v0.3.1](https://github.com/kkollsga/sonara/releases/tag/v0.3.1) | Исходный проект — MIT. Сохраняйте лицензию и проверяйте условия до распространения. |
+| SONARA | текущий проверенный пакет `0.3.5`, режим playlist с BPM `70.0..180.0`; Core использует встроенную модель vocalness | [kkollsga/sonara](https://github.com/kkollsga/sonara), [версия v0.3.5](https://github.com/kkollsga/sonara/releases/tag/v0.3.5) | Исходный проект — MIT. Сохраняйте лицензию и проверяйте условия до распространения. |
 | MAEST | `discogs-maest-30s-pw-129e-519l` через `maest-infer` | [openmirlab/maest-infer](https://github.com/openmirlab/maest-infer), исходный [palonso/MAEST](https://github.com/palonso/MAEST) | `maest-infer` — только AGPL-3.0; исследователей просят цитировать исходную статью MAEST. |
 | MERT | `m-a-p/MERT-v1-95M` через Hugging Face Transformers | [yizhilll/MERT](https://github.com/yizhilll/MERT), [MERT-v1-95M](https://huggingface.co/m-a-p/MERT-v1-95M) | Код GitHub — Apache-2.0. Для контрольной точки указана CC-BY-NC-4.0. |
 | MuQ | `OpenMuQ/MuQ-large-msd-iter` через пакет `muq` | [tencent-ailab/muq](https://github.com/tencent-ailab/muq), [MuQ-large-msd-iter](https://huggingface.co/OpenMuQ/MuQ-large-msd-iter) | Код — MIT. Опубликованные веса MuQ — CC-BY-NC-4.0. |
 | CLAP | LAION CLAP с `lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt` | [LAION-AI/CLAP](https://github.com/LAION-AI/CLAP), [файл контрольной точки](https://huggingface.co/lukewys/laion_clap/blob/main/music_audioset_epoch_15_esc_90.14.pt) | Код LAION CLAP — Apache-2.0. Для файла контрольной точки указана CC0-1.0. |
 
-`pyproject.toml` и `uv.lock` закрепляют `sonara==0.3.1`. На PyPI есть `cp310-abi3` wheel-пакеты для
-поддерживаемых платформ. Контракт среды требует точного совпадения версий пакета и схемы.
+`pyproject.toml` и `uv.lock` фиксируют `sonara==0.3.5` для текущего проверенного окружения. PyPI
+предоставляет колёса `cp310-abi3` для поддерживаемых платформ. Будущая проверенная версия может
+измениться после адаптации и проверки затронутых частей проекта и зависимостей.
 
 ## Практические правила
 

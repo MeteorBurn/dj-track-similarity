@@ -9,49 +9,16 @@ from dj_track_similarity.analysis_models import (
     SonaraWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import SonaraRowV7
-from dj_track_similarity.prepare_sonara_release import (
-    CONFIRM_STRING,
-    prepare_sonara_release,
-)
-from dj_track_similarity.sonara_contract import (
-    SONARA_EXPECTED_VERSION,
-    SonaraContractSet,
-    sonara_runtime_contracts,
-)
+from dj_track_similarity.db_ddl import SonaraRow
 from dj_track_similarity.sonara_similarity import SonaraSimilaritySearch
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 _NOW = "2026-07-24T12:00:00.000000Z"
-_CONTRACTS_BY_DATABASE: dict[Path, SonaraContractSet] = {}
-
-
-class _FakeSonara:
-    __version__ = SONARA_EXPECTED_VERSION
-    SIMILARITY_VERSION = 2
-    __sonara_build_id__ = "sha256:" + "5" * 64
-    __sonara_vocalness_model_id__ = "sonara-vocalness"
-    __sonara_vocalness_model_build_id__ = "sha256:" + "6" * 64
-
-
-def _contracts() -> SonaraContractSet:
-    return sonara_runtime_contracts(_FakeSonara)
 
 
 def _library(tmp_path: Path) -> LibraryDatabase:
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    backup_dir = tmp_path / "sonara-backups"
-    backup_dir.mkdir()
-    prepare_sonara_release(
-        database,
-        backup_dir=backup_dir,
-        confirm=CONFIRM_STRING,
-        sonara_module=_FakeSonara,
-    )
-    contracts = _contracts()
-    _CONTRACTS_BY_DATABASE[database.path] = contracts
-    return database
+    return LibraryDatabase(tmp_path / "library.sqlite")
 
 
 def _feature_value(features: dict[str, object], name: str) -> object:
@@ -71,16 +38,14 @@ def _vector_blob(value: object, *, dim: int) -> bytes:
 
 def _core_row(
     target: AnalysisTarget,
-    contracts: SonaraContractSet,
     features: dict[str, object],
-) -> SonaraRowV7:
-    values = {field.name: None for field in fields(SonaraRowV7)}
+) -> SonaraRow:
+    values = {field.name: None for field in fields(SonaraRow)}
     energy = _float_or_none(_feature_value(features, "energy"))
     values.update(
         {
             "track_id": target.track_id,
             "content_generation": target.content_generation,
-            "contract_hash": contracts.core.contract_hash,
             "detected_bpm": _float_or_none(_feature_value(features, "bpm")),
             "bpm_confidence": _float_or_none(
                 _feature_value(features, "bpm_confidence")
@@ -164,7 +129,7 @@ def _core_row(
             "analyzed_at": _NOW,
         }
     )
-    return SonaraRowV7(**values)
+    return SonaraRow(**values)
 
 
 def _add_sonara_track(
@@ -172,7 +137,6 @@ def _add_sonara_track(
     name: str,
     features: dict[str, object],
 ) -> AnalysisTarget:
-    contracts = _CONTRACTS_BY_DATABASE[database.path]
     path = database.path.parent / name
     path.write_bytes(name.encode("utf-8"))
     stat = path.stat()
@@ -195,8 +159,7 @@ def _add_sonara_track(
         (
             SonaraWrite(
                 target=target,
-                core_contract=contracts.core,
-                core=_core_row(target, contracts, features),
+                core=_core_row(target, features),
             ),
         )
     )[0]
@@ -1161,15 +1124,12 @@ def test_sonara_feature_rows_refresh_after_typed_core_write(tmp_path: Path) -> N
     output = db.active_analysis_output("sonara", "core")
     assert output is not None
     first_rows = db.load_sonara_feature_rows(output, targets=(target,))
-    contracts = _CONTRACTS_BY_DATABASE[db.path]
     result = db.save_sonara_results(
         (
             SonaraWrite(
                 target=target,
-                core_contract=contracts.core,
                 core=_core_row(
                     target,
-                    contracts,
                     {
                         "energy": 0.9,
                         "danceability": 0.8,

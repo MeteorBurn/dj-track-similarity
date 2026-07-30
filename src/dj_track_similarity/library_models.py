@@ -1,4 +1,4 @@
-"""Typed domain models for the v7 library read path."""
+"""Typed domain models for the library read path."""
 
 from __future__ import annotations
 
@@ -50,11 +50,7 @@ class ClassifierScoreSummary:
 class ClassifierScoreDetail(ClassifierScoreSummary):
     probabilities: Mapping[str, float]
     feature_set: str
-    feature_manifest_hash: str
-    required_outputs_hash: str
-    model_id: str
-    uses_sonara: bool
-    sonara_release_hash: str | None
+    feature_names: tuple[str, ...]
     positive_label: str
     analyzed_at: str
 
@@ -171,8 +167,6 @@ class MaestAnalysis:
 @dataclass(frozen=True)
 class EmbeddingSummary:
     analysis_family: str
-    model_name: str
-    model_version: str | None
     dim: int
     normalization: str
     analyzed_at: str

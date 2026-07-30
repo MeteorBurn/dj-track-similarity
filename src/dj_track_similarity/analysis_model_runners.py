@@ -8,7 +8,6 @@ from typing import Any, Protocol, TypeVar, cast
 import numpy as np
 import numpy.typing as npt
 
-from .analysis_contracts import utc_timestamp
 from .analysis_job_batch import AnalysisBatchItem
 from .analysis_models import (
     AnalysisCandidate,
@@ -32,7 +31,8 @@ from .embedding import (
     MuqEmbeddingAdapter,
 )
 from .genres import MaestGenreAdapter
-from .sonara_contract import normalize_sonara_outputs
+from .sonara_runtime import normalize_sonara_outputs
+from .timestamps import utc_timestamp
 from .sonara_features import (
     SonaraBatchMetrics,
     analysis_outputs_for_sonara_runtime,
@@ -133,12 +133,12 @@ class SonaraModelRunner:
     ) -> None:
         self.outputs = normalize_sonara_outputs(outputs)
         self._sonara_module = sonara_module
-        self._active_outputs = analysis_outputs_for_sonara_runtime(sonara_module)
+        self._active_outputs = analysis_outputs_for_sonara_runtime()
         selected = set(self.outputs)
         self._candidate_outputs = tuple(
             output
             for output in self._active_outputs
-            if output.contract.output_kind in selected
+            if output.output_kind in selected
         )
         if not self._candidate_outputs:
             raise RuntimeError("SONARA runner has no requested outputs")
@@ -147,7 +147,7 @@ class SonaraModelRunner:
 
     @property
     def model_name(self) -> str:
-        return self._active_outputs[0].contract.model_name
+        return "sonara"
 
     @property
     def active_outputs(self) -> tuple[AnalysisOutput, ...]:
@@ -158,7 +158,7 @@ class SonaraModelRunner:
         return self._candidate_outputs
 
     def preflight(self) -> None:
-        """SONARA runtime identity is preflighted by release preparation."""
+        """SONARA requires no model preflight beyond normal batch execution."""
 
     def analyze_batch(
         self,
@@ -196,7 +196,7 @@ class MaestModelRunner:
             top_k=top_k,
             inference_batch_size=inference_batch_size,
         )
-        facts, extras = _contract_parameters(
+        facts, extras = _runtime_parameters(
             self.adapter,
             reserved=(
                 "sample_rate_hz",
@@ -270,8 +270,6 @@ class MaestModelRunner:
             raise ValueError("MAEST batch result count does not match track count")
 
         prepared: list[MaestWrite | Exception] = []
-        analysis_contract = self._active_outputs[0].contract
-        embedding_contract = self._active_outputs[1].contract
         for item, decoded, genres in zip(items, decoded_items, genres_by_track):
             try:
                 analyzed_at = utc_timestamp()
@@ -282,12 +280,11 @@ class MaestModelRunner:
                 prepared.append(
                     MaestWrite(
                         target=item.candidate.target,
-                        analysis_contract=analysis_contract,
                         genres=genre_scores,
                         syncopated_rhythm=_has_syncopated_rhythm(genre_scores),
                         analyzed_at=analyzed_at,
                         embedding=EmbeddingOutput(
-                            contract=embedding_contract,
+                            family="maest",
                             vector=_l2_normalize(vector, model="MAEST"),
                             analyzed_at=analyzed_at,
                         ),
@@ -359,14 +356,13 @@ class EmbeddingModelRunner:
             )
 
         prepared: list[EmbeddingWrite | Exception] = []
-        contract = self._active_outputs[0].contract
         for item, vector in zip(items, vectors):
             try:
                 prepared.append(
                     EmbeddingWrite(
                         target=item.candidate.target,
                         output=EmbeddingOutput(
-                            contract=contract,
+                            family=self.model,
                             vector=vector,
                             analyzed_at=utc_timestamp(),
                         ),
@@ -428,24 +424,24 @@ def _required_adapter_text(adapter: object, name: str) -> str:
     return value.strip()
 
 
-def _contract_parameters(
+def _runtime_parameters(
     adapter: object,
     *,
     reserved: Sequence[str],
 ) -> tuple[dict[str, object], dict[str, object]]:
-    factory = getattr(adapter, "contract_parameters", None)
+    factory = getattr(adapter, "runtime_parameters", None)
     if not callable(factory):
         raise RuntimeError(
-            f"{type(adapter).__name__} does not expose contract_parameters()"
+            f"{type(adapter).__name__} does not expose runtime_parameters()"
         )
     raw = factory()
     if not isinstance(raw, Mapping):
-        raise TypeError("adapter contract_parameters() must return a mapping")
+        raise TypeError("adapter runtime_parameters() must return a mapping")
     extras = dict(raw)
     missing = sorted(name for name in reserved if name not in extras)
     if missing:
         raise ValueError(
-            f"adapter contract parameters are incomplete; missing={missing}"
+            f"adapter runtime parameters are incomplete; missing={missing}"
         )
     facts = {name: extras.pop(name) for name in reserved}
     return facts, extras
@@ -455,11 +451,11 @@ def embedding_analysis_output(
     model: str,
     adapter: object,
 ) -> AnalysisOutput:
-    """Build the strict active embedding output for one production adapter."""
+    """Build the current embedding output for one production adapter."""
 
     identity = _adapter_identity(adapter)
     if model == "maest":
-        facts, extras = _contract_parameters(
+        facts, extras = _runtime_parameters(
             adapter,
             reserved=(
                 "sample_rate_hz",
@@ -486,7 +482,7 @@ def embedding_analysis_output(
             parameters=extras,
         )
     if model == "mert":
-        facts, extras = _contract_parameters(
+        facts, extras = _runtime_parameters(
             adapter,
             reserved=(
                 "sample_rate_hz",
@@ -506,7 +502,7 @@ def embedding_analysis_output(
             parameters=extras,
         )
     if model == "muq":
-        facts, extras = _contract_parameters(
+        facts, extras = _runtime_parameters(
             adapter,
             reserved=(
                 "sample_rate_hz",
@@ -526,7 +522,7 @@ def embedding_analysis_output(
             parameters=extras,
         )
     if model == "clap":
-        facts, extras = _contract_parameters(
+        facts, extras = _runtime_parameters(
             adapter,
             reserved=(
                 "sample_rate_hz",
@@ -649,9 +645,9 @@ def _merge_write_results(
                 "analysis repository returned a result for the wrong target"
             )
         if result.error is None:
-            expected_hashes = {output.contract_hash for output in _write_outputs(write)}
-            written_hashes = {output.contract_hash for output in result.written_outputs}
-            if written_hashes != expected_hashes:
+            expected_outputs = {output.key for output in _write_outputs(write)}
+            written_outputs = {output.key for output in result.written_outputs}
+            if written_outputs != expected_outputs:
                 raise RuntimeError(
                     "analysis repository did not confirm every requested output"
                 )
@@ -673,5 +669,5 @@ def _write_outputs(
     write: SonaraWrite | MaestWrite | EmbeddingWrite,
 ) -> tuple[AnalysisOutput, ...]:
     if isinstance(write, EmbeddingWrite):
-        return (AnalysisOutput(write.output.contract),)
+        return (AnalysisOutput(write.output.family, "embedding"),)
     return write.outputs

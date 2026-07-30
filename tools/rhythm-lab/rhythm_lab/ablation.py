@@ -8,13 +8,10 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from dj_track_similarity.analysis_contracts import ContractIdentity
-
 from .features import (
     ABLATION_FEATURE_SETS,
     build_feature_matrix,
     feature_sources,
-    required_outputs_payload,
 )
 from .lab_db import ClassifierProfile, RhythmLabDatabase, TrackIdentity
 from .source_db import SourceDatabase, SourceTrack
@@ -88,7 +85,7 @@ def benchmark_profile_ablation(
     labels_by_identity = labels_db.training_labels()
     source = SourceDatabase(source_db_path)
     tracks = tuple(source.list_tracks())
-    embedding_cache: dict[str, tuple[ContractIdentity, dict[int, np.ndarray]]] = {}
+    embedding_cache: dict[str, tuple[int, dict[int, np.ndarray]]] = {}
     result_rows: list[dict[str, object]] = []
     artifact_root = Path(artifact_dir)
     for feature_set in feature_sets:
@@ -163,7 +160,7 @@ def _train_feature_set_row(
     source: SourceDatabase,
     labels_by_identity: dict[TrackIdentity, str],
     tracks: tuple[SourceTrack, ...],
-    embedding_cache: dict[str, tuple[ContractIdentity, dict[int, np.ndarray]]],
+    embedding_cache: dict[str, tuple[int, dict[int, np.ndarray]]],
     profile: ClassifierProfile,
     artifact_dir: Path,
     feature_set: str,
@@ -193,7 +190,6 @@ def _train_feature_set_row(
             classifier_key=profile.classifier_key,
             random_state=random_state,
             calibrate=calibrate,
-            required_outputs=required_outputs_payload(features.required_outputs),
         )
     except ValueError as error:
         return {

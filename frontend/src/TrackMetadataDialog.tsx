@@ -1,12 +1,12 @@
 import { Check, Copy, X } from "lucide-react";
 import { Fragment, useState } from "react";
-import type { SonaraCoreV7, TrackDetailV7 } from "./api";
+import type { SonaraCore, TrackDetail } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
 
 type MetadataEntry = readonly [label: string, value: string];
 type CoreFeature = {
-  key: keyof SonaraCoreV7;
+  key: keyof SonaraCore;
   label: string;
   description: string;
 };
@@ -138,11 +138,11 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   },
 ];
 
-function feature(key: keyof SonaraCoreV7, label: string, description: string): CoreFeature {
+function feature(key: keyof SonaraCore, label: string, description: string): CoreFeature {
   return { key, label, description };
 }
 
-export function metadataDialogModel(track: TrackDetailV7) {
+export function metadataDialogModel(track: TrackDetail) {
   const genres = track.maest?.genres ?? [];
   return {
     primaryEntries: readablePrimaryTrackInfo(track),
@@ -163,7 +163,7 @@ export function TrackMetadataDialog({
   track,
   onClose,
 }: {
-  track: TrackDetailV7;
+  track: TrackDetail;
   onClose: () => void;
 }) {
   const [filePathCopied, setFilePathCopied] = useState(false);
@@ -369,7 +369,7 @@ function OutputPresenceBlock({
   );
 }
 
-function readablePrimaryTrackInfo(track: TrackDetailV7): MetadataEntry[] {
+function readablePrimaryTrackInfo(track: TrackDetail): MetadataEntry[] {
   const format = displayAudioFormat(track.file.audio_format, track.file_path);
   const codec = formatOptionalText(track.file.audio_codec);
   return [
@@ -388,7 +388,7 @@ function readablePrimaryTrackInfo(track: TrackDetailV7): MetadataEntry[] {
   ];
 }
 
-function readableTrackTags(track: TrackDetailV7): MetadataEntry[] {
+function readableTrackTags(track: TrackDetail): MetadataEntry[] {
   if (!track.file_tags) return [];
   const tags = track.file_tags;
   const entries: MetadataEntry[] = [];
@@ -404,7 +404,7 @@ function readableTrackTags(track: TrackDetailV7): MetadataEntry[] {
   return entries;
 }
 
-function readableSonaraCoreGroups(core: SonaraCoreV7 | null) {
+function readableSonaraCoreGroups(core: SonaraCore | null) {
   if (!core) return [];
   return sonaraCoreFeatureGroups
     .map((group) => ({
@@ -423,27 +423,25 @@ function readableSonaraCoreGroups(core: SonaraCoreV7 | null) {
     .filter((group) => group.features.length > 0);
 }
 
-function readableClassifierScores(track: TrackDetailV7) {
+function readableClassifierScores(track: TrackDetail) {
   return track.classifier_scores_detail.map((score) => ({
     key: score.classifier_key,
     label: readableClassifierName(score.classifier_key),
+    featureNames: score.feature_names,
     value: [
       `${score.predicted_class} (${score.score_bucket})`,
       `score ${formatScore(score.score)}`,
       `confidence ${formatScore(score.confidence)}`,
       score.feature_set,
-      score.model_id,
     ].join(" · "),
   }));
 }
 
-function readableEmbeddings(track: TrackDetailV7) {
+function readableEmbeddings(track: TrackDetail) {
   return track.embeddings.map((embedding) => ({
     key: embedding.analysis_family,
     label: embedding.analysis_family.toUpperCase(),
     value: [
-      embedding.model_name,
-      embedding.model_version,
       `${embedding.dim}D`,
       embedding.normalization,
       embedding.analyzed_at,
@@ -451,7 +449,7 @@ function readableEmbeddings(track: TrackDetailV7) {
   }));
 }
 
-function readableAnalysisBadges(track: TrackDetailV7) {
+function readableAnalysisBadges(track: TrackDetail) {
   const badges: Array<{ key: string; label: string }> = (["sonara", "maest", "mert", "muq", "clap"] as const)
     .filter((model) => trackHasAnalysis(track, model))
     .map((model) => ({ key: model, label: model.toUpperCase() }));
@@ -469,7 +467,7 @@ function readableClassifierName(key: string) {
     .join(" ");
 }
 
-function formatSonaraCoreValue(key: keyof SonaraCoreV7, value: SonaraCoreV7[keyof SonaraCoreV7]) {
+function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
   if (Array.isArray(value)) return formatRecordList(value);
   if (typeof value === "number") {
     if (key === "detected_bpm" || key === "raw_bpm") return value.toFixed(2);

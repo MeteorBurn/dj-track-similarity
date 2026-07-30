@@ -23,7 +23,7 @@ The browser CLAP tab is the main interactive flow. The same search is available 
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
 ```
 
-API clients can use `POST /api/search/text`; see the current request contract in the
+API clients can use `POST /api/search/text`; see the current request payload in the
 [API reference](../reference/api.md).
 
 ## When to choose another search

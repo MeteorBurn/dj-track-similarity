@@ -44,8 +44,6 @@ def test_clap_adapter_uses_immutable_music_checkpoint_identity() -> None:
         ClapEmbeddingAdapter.checkpoint_sha256
         == "fae3e9c087f2909c28a09dc31c8dfcdacbc42ba44c70e972b58c1bd1caf6dedd"
     )
-    assert ClapEmbeddingAdapter.loader_version == "1.1.7"
-    assert ClapEmbeddingAdapter.hub_version == "1.22.0"
 
 
 def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
@@ -198,14 +196,6 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
     monkeypatch.setitem(sys.modules, "laion_clap.hook", hook_module)
     monkeypatch.setitem(sys.modules, "clap_module.model", clap_model_module)
-    monkeypatch.setattr(
-        embedding,
-        "_require_distribution_version",
-        lambda distribution, version: calls.setdefault("versions", []).append(
-            (distribution, version)
-        ),
-    )
-
     def verify(path, *, expected_sha256, description):
         calls["verify"] = (path, expected_sha256, description)
 
@@ -227,11 +217,6 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     adapter.preflight()
     vector = adapter.embed_text("warm minimal house")
 
-    assert calls["versions"] == [
-        ("laion-clap", "1.1.7"),
-        ("transformers", "5.13.0"),
-        ("huggingface-hub", "1.22.0"),
-    ]
     assert calls["downloads"] == [
         (
             "lukewys/laion_clap",
@@ -334,11 +319,6 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
-    monkeypatch.setattr(
-        embedding,
-        "_require_distribution_version",
-        lambda *_args: None,
-    )
     monkeypatch.setattr(
         embedding,
         "_verify_checkpoint_sha256",

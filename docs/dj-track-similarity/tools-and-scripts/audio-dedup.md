@@ -8,7 +8,9 @@ Audio Dedup reads an existing SQLite library and writes JSON/XLSX/log reports by
 
 ## Requirements
 
-Audio Dedup needs stored current-contract audio-to-audio evidence. The available embedding sources are `mert`, `maest`, `muq`, and `clap`. The reader ignores stale or mismatched artifacts and accepts only vectors that match the active current analysis contract and the current track identity.
+Audio Dedup needs stored audio-to-audio evidence. The available embedding sources are `mert`,
+`maest`, `muq`, and `clap`. The reader accepts vectors whose dimensions, encoding, and track
+identity match the current structural requirements.
 
 The `min_similarity` value is an audio-to-audio content gate. It is not the CLAP text-search score scale, and none of these values are probabilities.
 
@@ -46,7 +48,7 @@ This exact profile uses MERT 0.43, MAEST 0.32, and CLAP 0.04. Any other source o
 
 Open Audio Dedup from the copy icon in the top bar.
 
-The browser dialog exposes the same `sources` and `weights` contract as the CLI and API:
+The browser dialog exposes the same `sources` and `weights` payload as the CLI and API:
 
 - checkboxes enable or remove MERT, MAEST, MuQ, and audio-to-audio CLAP;
 - **Custom raw weights** reveals one raw-weight field for every enabled source;

@@ -1,4 +1,4 @@
-"""V7 track-search FTS maintenance.
+"""Track-search FTS maintenance.
 
 The FTS index contains only text a person can reasonably search for. Analysis
 hashes, model identifiers, numeric features, and binary payloads are excluded.
@@ -174,7 +174,7 @@ def _track_id_batches(
 
 
 def rebuild_track_search_fts(connection: sqlite3.Connection) -> int:
-    """Rebuild the v7 human-text FTS index atomically.
+    """Rebuild the human-text FTS index atomically.
 
     If the caller already owns a transaction, the rebuild participates in that
     transaction. Otherwise it obtains a Core write reservation itself.

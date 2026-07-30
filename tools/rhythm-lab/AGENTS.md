@@ -12,23 +12,21 @@ Standalone classifier labeling / training / promotion UI + CLI. Independent safe
 ## Source Database Boundary
 
 - The main library SQLite is opened via `source_db.py` MOSTLY READ-ONLY. The one exception is the explicit liked-track toggle, which updates `likes` on the source DB. No other write path to the main DB.
-- All current v7 labels, predictions, training queue rows, checkpoints, metrics, and calibration data live in the lab DB at `tools/rhythm-lab/data/rhythm_lab_v7.sqlite`. A preserved legacy `tools/rhythm-lab/data/rhythm_lab.sqlite` is recovery input only.
+- Labels, predictions, training queue rows, checkpoints, metrics, and
+  calibration data live in the configured lab database under
+  `tools/rhythm-lab/data/`. Storage layout and migrations may evolve when
+  requested; test changes with temporary databases.
 - Do not add other main-DB write paths from any Rhythm Lab code.
 
-## SONARA Contract Guard
+## Feature Sources
 
-- `lab_db.py` deletes stale SONARA-dependent predictions when the SONARA feature revision changes; labels and feedback are preserved.
-- `training.py` refuses to train SONARA-dependent classifiers when the current SONARA signature does not match the labeled data.
-- `cli.py` blocks `promote` on stale artifacts until they are retrained (and optionally recalibrated) against the current SONARA signature.
-- MERT-, MAEST-, MuQ-, or CLAP-only profiles are independent of SONARA and are not invalidated by a SONARA revision.
-
-## Feature Source Contract
-
-- Canonical embedding feature sources are MERT, MAEST, CLAP, and MuQ. Feature names use `<family>:<index>` and dimensions come from the exact active contract; do not hardcode a second MuQ feature layout.
+- Canonical embedding feature sources are MERT, MAEST, CLAP, and MuQ. Feature
+  names use `<family>:<index>` and dimensions come from the active runtime data.
 - `combined` remains the compatibility alias for `sonara+mert+maest`. Do not silently redefine it to mean every available source.
 - Generic `source+source` combinations are supported. The default ablation list preserves its legacy matrix and adds representative MuQ sets (`muq`, `sonara+muq`, `mert+muq`, and the full MuQ combination); use explicit `--feature-set` values for other expensive combinations.
-- Readiness follows the selected feature set's required sources. MuQ is mandatory only for a MuQ-containing recipe, and stale/missing exact-contract inputs fail that recipe closed.
-- A MuQ-containing artifact remains manifest version 2 and lists ordered `required_outputs` for the features it actually uses.
+- Readiness follows the selected feature set's available sources. MuQ is needed
+  only for a MuQ-containing recipe; missing inputs should not block unrelated
+  recipes.
 
 ## Artifacts and Promotion
 
@@ -50,5 +48,5 @@ Standalone classifier labeling / training / promotion UI + CLI. Independent safe
 ## Testing
 
 - `python -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=` (root pytest does not collect this).
-- Include `tools\rhythm-lab\tests\test_v7_consumers.py` for source-identity/feature-contract changes.
+- Include `tools\rhythm-lab\tests\test_consumers.py` when changing feature-source handling.
 - Include `tests\test_break_energy.py` from the main suite when touching promoted-classifier scoring boundaries (per root `AGENTS.md`).

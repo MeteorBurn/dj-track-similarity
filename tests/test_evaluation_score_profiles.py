@@ -14,7 +14,7 @@ from dj_track_similarity.evaluation.score_profiles import (
     save_score_profile,
     validate_score_profile,
 )
-from evaluation_v7_fixtures import EvaluationRepository
+from evaluation_fixtures import EvaluationRepository
 
 
 def test_score_profile_builds_from_ok_source_profile_report() -> None:

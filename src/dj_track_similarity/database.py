@@ -3,11 +3,9 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Sequence
-
 import numpy as np
 
-from .analysis_contracts import ContractIdentity
+from .analysis_models import EmbeddingOutput
 from .db_analysis import AnalysisRepository
 from .db_artifacts import (
     ArtifactTrackIdentity,
@@ -91,7 +89,6 @@ class LibraryDatabase(
         *,
         family: str,
         track_id: int,
-        expected_contract: ContractIdentity,
     ) -> np.ndarray | None:
         with self._write_lock:
             with (
@@ -103,16 +100,13 @@ class LibraryDatabase(
                     track_id=track_id,
                     core_connection=core_connection,
                     artifacts_connection=artifacts_connection,
-                    expected_contract=expected_contract,
                 )
 
     def write_artifact_embedding(
         self,
         *,
         track: ArtifactTrackIdentity,
-        contract: ContractIdentity,
-        embedding: Sequence[float] | np.ndarray,
-        analyzed_at: str,
+        output: EmbeddingOutput,
     ) -> None:
         with self._write_lock:
             with (
@@ -123,7 +117,7 @@ class LibraryDatabase(
                     core_connection=core_connection,
                     artifacts_connection=artifacts_connection,
                     track=track,
-                    contract=contract,
-                    embedding=embedding,
-                    analyzed_at=analyzed_at,
+                    family=output.family,
+                    embedding=output.vector,
+                    analyzed_at=output.analyzed_at,
                 )

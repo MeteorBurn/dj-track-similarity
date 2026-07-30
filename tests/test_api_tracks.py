@@ -8,6 +8,14 @@ from fastapi.testclient import TestClient
 from dj_track_similarity import api as api_module
 from dj_track_similarity import media_preview as media_preview_module
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.library_models import (
+    AnalysisCoverage,
+    ClassifierScoreDetail,
+    EmbeddingSummary,
+    FileTechnical,
+    OptionalOutputs,
+    TrackDetail,
+)
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
@@ -59,7 +67,7 @@ def _liked_payload(identity: TrackIdentity, liked: bool) -> dict[str, object]:
     }
 
 
-def test_tracks_endpoint_returns_paginated_typed_v7_summaries(
+def test_tracks_endpoint_returns_paginated_typed_current_summaries(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -104,7 +112,7 @@ def test_tracks_endpoint_returns_paginated_typed_v7_summaries(
     assert all("metadata" not in item and "id" not in item for item in payload["items"])
 
 
-def test_tracks_endpoints_return_empty_v7_contract(
+def test_tracks_endpoints_return_empty_current_contract(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -227,7 +235,119 @@ def test_track_detail_endpoint_returns_full_typed_tags(
     assert payload["file"]["file_size_bytes"] == 5
 
 
-def test_library_summary_uses_split_v7_analysis_families(
+def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    identity = _add_track(
+        LibraryDatabase(db_path),
+        tmp_path / "alpha.wav",
+        artist="Artist",
+        title="Alpha",
+    )
+
+    def enriched_detail(
+        database: LibraryDatabase,
+        track_id: int,
+        *,
+        classifier_specifications=(),
+    ):
+        del database, classifier_specifications
+        assert track_id == identity.track_id
+        return TrackDetail(
+            track_id=identity.track_id,
+            catalog_uuid=identity.catalog_uuid,
+            track_uuid=identity.track_uuid,
+            content_generation=identity.content_generation,
+            file_path=str(tmp_path / "alpha.wav"),
+            title="Alpha",
+            artist="Artist",
+            album=None,
+            tag_bpm=None,
+            tag_key=None,
+            audio_duration_seconds=1.0,
+            liked=False,
+            analysis_coverage=AnalysisCoverage(),
+            classifier_scores=(),
+            file=FileTechnical(
+                file_size_bytes=5,
+                file_modified_ns=1,
+                audio_format="wav",
+                audio_codec="pcm_s16le",
+                sample_rate_hz=44_100,
+                channel_count=2,
+                bit_rate_bps=1_411_200,
+                audio_duration_seconds=1.0,
+                last_scanned_at="2026-07-30T00:00:00Z",
+                missing_since=None,
+            ),
+            file_tags=None,
+            sonara_core=None,
+            maest=None,
+            embeddings=(
+                EmbeddingSummary(
+                    analysis_family="mert",
+                    dim=768,
+                    normalization="l2",
+                    analyzed_at="2026-07-30T00:00:00Z",
+                ),
+            ),
+            classifier_scores_detail=(
+                ClassifierScoreDetail(
+                    classifier_key="voice_presence",
+                    score=0.75,
+                    predicted_class="present",
+                    score_bucket="high",
+                    confidence=0.8,
+                    probabilities={"absent": 0.25, "present": 0.75},
+                    feature_set="mert",
+                    feature_names=("mert:0",),
+                    positive_label="present",
+                    analyzed_at="2026-07-30T00:00:00Z",
+                ),
+            ),
+            optional_outputs=OptionalOutputs(
+                timeline_fields=(),
+                sonara_embedding_available=False,
+                audio_fingerprint_available=False,
+            ),
+        )
+
+    monkeypatch.setattr(LibraryDatabase, "get_track_detail", enriched_detail)
+    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    response = TestClient(
+        api_module.create_app(db_path),
+        raise_server_exceptions=False,
+    ).get(f"/api/tracks/{identity.track_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["embeddings"] == [
+        {
+            "analysis_family": "mert",
+            "dim": 768,
+            "normalization": "l2",
+            "analyzed_at": "2026-07-30T00:00:00Z",
+        }
+    ]
+    assert payload["classifier_scores_detail"] == [
+        {
+            "classifier_key": "voice_presence",
+            "score": 0.75,
+            "predicted_class": "present",
+            "score_bucket": "high",
+            "confidence": 0.8,
+            "probabilities": {"absent": 0.25, "present": 0.75},
+            "feature_set": "mert",
+            "feature_names": ["mert:0"],
+            "positive_label": "present",
+            "analyzed_at": "2026-07-30T00:00:00Z",
+        }
+    ]
+
+
+def test_library_summary_uses_split_current_analysis_families(
     monkeypatch,
     tmp_path: Path,
 ) -> None:

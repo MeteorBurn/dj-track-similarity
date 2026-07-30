@@ -55,10 +55,10 @@ function track(trackId, generation = 1, catalogUuid = "catalog-a") {
   };
 }
 
-test("library uses one fixed 500-track page per API request", async () => {
+test("library uses one fixed 200-track page per API request", async () => {
   const { libraryPageSize } = await loadLibraryLoadingModule();
 
-  assert.equal(libraryPageSize, 500);
+  assert.equal(libraryPageSize, 200);
   assert.match(libraryStateSource, /limit:\s*libraryPageSize/);
   assert.match(libraryStateSource, /offset:\s*effectiveOffset/);
   assert.doesNotMatch(libraryStateSource, /LibraryLoadSize|libraryChunkPlan|loadSize/);
@@ -123,7 +123,7 @@ test("request keys include catalog, filters, scores, and page offset", async () 
   };
 
   const firstPage = libraryRequestKey({ ...common, offset: 0 });
-  const secondPage = libraryRequestKey({ ...common, offset: 500 });
+  const secondPage = libraryRequestKey({ ...common, offset: 200 });
   const reorderedScores = libraryRequestKey({
     ...common,
     classifierMinScores: { energy: 0.4, voice: 0.8 },

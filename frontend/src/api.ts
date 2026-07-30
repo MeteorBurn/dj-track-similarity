@@ -3,52 +3,20 @@ export type EvaluationSource = EmbeddingSource | "sonara";
 export type HybridSearchSource = EvaluationSource;
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type SonaraOutput = "core" | "timeline" | "embedding" | "fingerprint";
-export type SonaraReleaseOutputState = "current" | "missing" | "stale" | "unavailable";
-export type SonaraReleaseState = "ready" | "preparation_required" | "unavailable";
 
-export type SonaraReleaseOutputStatus = {
+export type SonaraStatusOutput = {
   output_kind: SonaraOutput;
-  state: SonaraReleaseOutputState;
-  expected_contract_hash: string | null;
-  active_contract_hash: string | null;
+  present_count: number;
+  missing_count: number;
 };
 
-export type SonaraReleaseStatus = {
+export type SonaraStatus = {
   catalog_uuid: string;
-  state: SonaraReleaseState;
-  ready: boolean;
-  detail: string;
-  expected_release_hash: string | null;
-  active_release_hash: string | null;
-  outputs: SonaraReleaseOutputStatus[];
+  total_tracks: number;
+  outputs: SonaraStatusOutput[];
 };
 
-export type PrepareSonaraReleaseResult = {
-  receipt_version: number;
-  operation_id: string;
-  stage: "completed";
-  catalog_uuid: string;
-  core_path: string;
-  artifacts_path: string;
-  backup_dir: string;
-  release_hash: string;
-  contract_hashes: Record<SonaraOutput, string>;
-  backups: Record<"core" | "artifacts", {
-    path: string;
-    sha256: string;
-    size_bytes: number;
-  }>;
-  activation_result: {
-    core_rows_deleted: number;
-    artifact_rows_deleted: number;
-    classifier_rows_deleted: number;
-  };
-  started_at: string;
-  updated_at: string;
-  completed_at: string;
-};
-
-export type AnalysisCoverageV7 = {
+export type AnalysisCoverage = {
   sonara_core: boolean;
   timeline: boolean;
   sonara_embedding: boolean;
@@ -60,7 +28,7 @@ export type AnalysisCoverageV7 = {
   clap: boolean;
 };
 
-export type ClassifierScoreV7Summary = {
+export type ClassifierScoreSummary = {
   classifier_key: string;
   score: number;
   predicted_class: string;
@@ -81,8 +49,8 @@ export type Track = {
   tag_key: string | null;
   audio_duration_seconds: number | null;
   liked: boolean;
-  analysis_coverage: AnalysisCoverageV7;
-  classifier_scores: ClassifierScoreV7Summary[];
+  analysis_coverage: AnalysisCoverage;
+  classifier_scores: ClassifierScoreSummary[];
 };
 
 export type TrackMutationIdentity = {
@@ -91,12 +59,12 @@ export type TrackMutationIdentity = {
   expected_content_generation: number;
 };
 
-export type TrackIdentityV7 = Pick<
+export type TrackIdentity = Pick<
   Track,
   "track_id" | "catalog_uuid" | "track_uuid" | "content_generation"
 >;
 
-export interface FileTechnicalV7 {
+export interface FileTechnical {
     file_size_bytes: number;
     file_modified_ns: number;
     audio_format: string | null;
@@ -109,7 +77,7 @@ export interface FileTechnicalV7 {
     missing_since: string | null;
 }
 
-export interface FileTagsV7 {
+export interface FileTags {
     title: string | null;
     artist: string | null;
     album: string | null;
@@ -127,7 +95,7 @@ export interface FileTagsV7 {
     tags_read_at: string;
 }
 
-export interface SonaraCoreV7 {
+export interface SonaraCore {
     detected_bpm: number | null;
     raw_bpm: number | null;
     bpm_confidence: number | null;
@@ -182,22 +150,20 @@ export interface SonaraCoreV7 {
     analyzed_at: string;
 }
 
-export interface MaestV7 {
+export interface Maest {
     syncopated_rhythm: boolean | null;
     genres: Array<{ rank: number; genre_name: string; score: number }>;
     analyzed_at: string;
 }
 
-export interface EmbeddingV7Summary {
+export interface EmbeddingSummary {
     analysis_family: EmbeddingSource;
-    model_name: string;
-    model_version: string | null;
     dim: number;
     normalization: string;
     analyzed_at: string;
 }
 
-export interface ClassifierScoreV7Detail {
+export interface ClassifierScoreDetail {
     classifier_key: string;
     score: number;
     predicted_class: string;
@@ -205,24 +171,20 @@ export interface ClassifierScoreV7Detail {
     confidence: number;
     probabilities: Record<string, number>;
     feature_set: string;
-    feature_manifest_hash: string;
-    required_outputs_hash: string;
-    model_id: string;
-    uses_sonara: boolean;
-    sonara_release_hash: string | null;
+    feature_names: string[];
     positive_label: string;
     analyzed_at: string;
 }
 
-export type TrackSummaryV7 = Track;
+export type TrackSummary = Track;
 
-export interface TrackDetailV7 extends TrackSummaryV7 {
-    file: FileTechnicalV7;
-    file_tags: FileTagsV7 | null;
-    sonara_core: SonaraCoreV7 | null;
-    maest: MaestV7 | null;
-    embeddings: EmbeddingV7Summary[];
-    classifier_scores_detail: ClassifierScoreV7Detail[];
+export interface TrackDetail extends TrackSummary {
+    file: FileTechnical;
+    file_tags: FileTags | null;
+    sonara_core: SonaraCore | null;
+    maest: Maest | null;
+    embeddings: EmbeddingSummary[];
+    classifier_scores_detail: ClassifierScoreDetail[];
     optional_outputs: {
         timeline_fields: string[];
         sonara_embedding_available: boolean;
@@ -287,8 +249,8 @@ export type ReferenceCompareResponse = {
   groups: ReferenceCompareGroup[];
 };
 export type ReferenceCompareVerdictPayload = {
-  seed: TrackIdentityV7;
-  candidate: TrackIdentityV7;
+  seed: TrackIdentity;
+  candidate: TrackIdentity;
   model: ReferenceCompareModel;
   verdict: ReferenceCompareVerdict;
   notes?: string | null;
@@ -399,12 +361,6 @@ export type HybridSearchResult = {
     risk_weight?: number | null;
     score_contribution?: number | null;
     risk_contribution?: number | null;
-    fresh?: boolean | null;
-    stale?: boolean | null;
-    stored_model_id?: string | null;
-    current_model_id?: string | null;
-    manifest_status?: string | null;
-    production_status?: string | null;
     role?: HybridClassifierSignalRole | string | null;
     axis?: HybridMatchAxis | string | null;
     label?: string | null;
@@ -425,10 +381,10 @@ export type HybridSearchResponse = {
   warnings: string[];
   weights_used: Partial<Record<HybridSearchSource, number>>;
   sources: HybridSearchSource[];
+  contributing_sources: HybridSearchSource[];
   limitations: string[];
   diagnostics: Record<string, unknown>;
   session_id?: number | null;
-  source_contract_hashes: Partial<Record<HybridSearchSource, string>>;
 };
 
 export type TrackPage = {
@@ -574,11 +530,14 @@ export type PromotedClassifier = {
   manifest_errors?: string[];
   manifest_warnings?: string[];
   is_scoring_compatible?: boolean;
-  manifest_version?: number | null;
+  profile_name?: string | null;
+  profile_type?: string | null;
+  feature_set?: string | null;
+  feature_names?: string[];
+  feature_count?: number | null;
   score_semantics?: string;
   calibration_status?: string;
   production_status?: string;
-  model_id?: string | null;
   artifact_hash?: string | null;
   promoted_at?: string | null;
   calibration?: Record<string, unknown>;
@@ -806,7 +765,6 @@ export type SetBuilderGenerateResult = {
 };
 
 export type EvaluationSummary = {
-  schema_version: number;
   counts: {
     search_sessions: number;
     search_result_events: number;

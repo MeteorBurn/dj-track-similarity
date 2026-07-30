@@ -1,7 +1,7 @@
 # FAQ
 
-> Audience: Users who want short answers about the current v7 runtime.
-> Goal: Separate safe local workflows from legacy assumptions.
+> Audience: Users who want short answers about the current runtime.
+> Goal: Separate safe local workflows from migration assumptions.
 > Type: help
 
 ## Does analysis change audio files?
@@ -13,29 +13,29 @@ No. SONARA, MAEST, MERT, MuQ, CLAP, and classifier scoring write SQLite data onl
 Only MAEST genre-tag apply, Audio Doctor apply, and Audio Dedup apply. Audio Dedup apply can delete
 files; each is confirmation-gated and separate from normal scan, search, and analysis.
 
-## Can v7 migrate my old database?
+## Can the app migrate an incompatible database?
 
-No. The Python runtime is greenfield schema v7. It does not migrate v5/v6 files, adapt old SONARA
-results, or recreate Timeline/Representations sidecars. A library is Core plus mandatory
-`*.artifacts.sqlite`, bound by `catalog_uuid`; `*.evaluation.sqlite` is optional evaluation state.
+Yes, but never during normal startup. The runtime refuses an incompatible Core/Artifacts pair.
+Inspect `dj-sim migrate-database --db <path> --dry-run`, then apply only after reviewing the plan.
+Apply requires `MIGRATE DATABASE`, creates and verifies both backups, and checks the rebuilt pair.
 
 ## What follows a SONARA change?
 
-Run `prepare-sonara-release` with a verified backup location, then reanalyze SONARA. The operation
-uses the exact `core`, `timeline`, `embedding`, and `fingerprint` contracts, writes a durable receipt
-for crash resume, and is ordered rather than distributed-atomic. Retrain, promote, and rescore every
-SONARA-dependent classifier afterward. The project feature revision is `6`.
+Adapt the project to the SONARA fields you want. If stored structure changes, use the explicit
+backup-first database migration. Reanalyze only the affected outputs when you choose. Retrain,
+promote, and rescore a SONARA-dependent classifier only when its feature recipe changed.
 
 ## Why are classifier artifacts blocked?
 
-Runtime scoring requires classifier manifest version `2`. Checked-in version `1` or unversioned
-artifacts must be retrained and promoted. Their scores are not silently reused.
+Runtime scoring requires an artifact whose ordered feature recipe and inputs match the current
+stored data. Affected artifacts must be retrained and promoted; incompatible scores are not silently
+reused.
 
-## Can I use the browser UI with v7?
+## Can I use the browser UI with a compatible database?
 
-Yes. Build the current frontend bundle and serve it with the v7 backend. Database selection,
+Yes. Build the current frontend bundle and serve it with the current backend. Database selection,
 library paging and chunked loads, analysis, search, SET/Hybrid, CLASS, LAB, Rhythm Lab launch,
-metadata, preview, and exact-identity writes use the typed v7 contracts.
+metadata, preview, and exact-identity writes use the current typed responses.
 
 ## Can I share reports or databases?
 

@@ -11,6 +11,7 @@ The repository includes helper tools for classifier labeling, reports, maintenan
 - [Rhythm Lab](./rhythm-lab.md): label, train, promote, and queue classifier review work.
 - [Audio Dedup](./audio-dedup.md): find likely duplicate audio candidates and optionally delete safe candidates after confirmation.
 - [Audio Doctor](./audio-doctor.md): inspect and repair known safe audio container/tag issues after dry-run state exists.
+- [KGLite bridge](./kglite-bridge.md): project selected metadata and current embeddings into a disposable read-only graph.
 - [Persistent ANN indexes](./persistent-ann-indexes.md): build optional vector sidecars for faster repeated lookup.
 - [Optimize database](./optimize-database.md): backup, integrity-check, vacuum, analyze, and checkpoint SQLite.
 
@@ -22,6 +23,7 @@ Tool output directories are local state and are ignored by Git by default:
 - `tools/audio-dedup/data/reports/`
 - `tools/rhythm-lab/data/`
 - `tools/rhythm-lab/artifacts/`
+- `tools/kglite-bridge/data/`
 - `models/classifiers/`
 - `.dj-track-similarity-indexes/`
 

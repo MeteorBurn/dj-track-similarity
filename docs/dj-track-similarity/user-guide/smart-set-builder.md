@@ -159,7 +159,7 @@ exists, transition confidence combines `50%` tempo, `30%` harmonic compatibility
 structure. Without structure, it uses `60%` tempo and `40%` harmonic compatibility. Beat-grid
 stability reaches SET through tempo reliability.
 
-See the [SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md) for the exact tempo,
+See the [SONARA integration reference](../reference/sonara-integration.md) for the current tempo,
 Camelot, and structure rules.
 
 The UI records evaluation session and event rows for feedback. The preview itself leaves tracks and the current set unchanged.

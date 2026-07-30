@@ -4,11 +4,11 @@
 > Goal: Explain the database as local state, not a full schema dump.
 > Type: reference
 
-Selecting `library.sqlite` opens one schema-v7 catalog bundle:
+Selecting `library.sqlite` opens one catalog bundle:
 
 | Store | File | Creation | Contents |
 | --- | --- | --- | --- |
-| Core | `library.sqlite` | required | catalog identity, tracks, file tags, contracts, SONARA scalars, MAEST scores, classifier scores, likes, feedback, FTS, and settings |
+| Core | `library.sqlite` | required | catalog identity, tracks, file tags, SONARA scalars, MAEST scores, classifier scores, likes, feedback, FTS, and settings |
 | Artifacts | `library.artifacts.sqlite` | required | dedicated MAEST/MERT/MuQ/CLAP and SONARA embedding tables, SONARA timeline rows, and fingerprints |
 | Evaluation | `library.evaluation.sqlite` | optional | search sessions, result events, calibration runs, and evaluation settings |
 
@@ -17,15 +17,15 @@ Core and Artifacts are created together for a fresh path and are bound by one ge
 Evaluation path can be resolved without creating its database. An evaluation workflow creates that
 database when needed and validates the same catalog identity.
 
-The v7 runtime supports greenfield bundles only. Existing non-v7 databases are rejected with an
-expected-clean-v7 error. The removed `migrate-v7` and `migrate-schema-v7` commands are not available
-in the current CLI.
+Normal runtime validates required tables, columns, indexes, foreign keys, and the shared catalog
+identity. It refuses an incompatible layout rather than adapting it during startup. Preview the
+dedicated migration with `dj-sim migrate-database --db <path> --dry-run`.
 
 ## Core state
 
 Core contains:
 
-- `library_catalog` and `contracts` for catalog and immutable analysis identity;
+- `library_catalog` for catalog identity;
 - `tracks` and `file_tags` for file identity, paths, technical facts, and Mutagen metadata;
 - current SONARA scalar and fixed-vector values in `sonara`;
 - MAEST labels and syncopation data in `maest_scores`;
@@ -49,32 +49,26 @@ The mandatory Artifacts database contains dedicated tables:
 - `sonara_fingerprints`.
 
 Normal track responses return small summaries and availability flags. The explicit
-`GET /api/tracks/{track_id}/sonara-timeline` route loads the current signed timeline payload.
+`GET /api/tracks/{track_id}/sonara-timeline` route loads the stored timeline payload.
 
-## SONARA release state
+## Structural migration
 
-The current SONARA contract is package `0.3.1`, upstream schema `5`, playlist mode, sample rate
-`22050`, BPM range `70..180`, and project feature revision `6`. It defines four independent output
-kinds: `core`, `timeline`, `embedding`, and `fingerprint`.
-
-Before writing a new SONARA release, run:
+Inspect an incompatible Core/Artifacts pair before changing it:
 
 ```powershell
-dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
+dj-sim migrate-database --db .\data\library.sqlite --dry-run
 ```
 
-The command derives the loaded runtime identity; callers cannot provide a release hash or choose a
-subset. It verifies a Core plus Artifacts backup pair and uses an ordered, receipt-backed activation
-that can resume after interruption and fails closed on mismatched state. It removes prior SONARA and
-SONARA-dependent classifier rows so releases cannot mix. It does not migrate an older database
-schema.
+Apply only after reviewing that plan. Rerun without `--dry-run` and type the exact confirmation
+`MIGRATE DATABASE`. The command creates and validates self-contained backups of both databases,
+rebuilds the required tables, and checks integrity, foreign keys, and cross-database orphans before
+success. It does not rewrite Evaluation or start reanalysis.
 
 ## Classifier state
 
-The runtime accepts promoted manifest version `2`. Version `1` and unversioned manifests are blocked
-with a retrain-and-promote message. The promoted artifacts currently under `models/classifiers/`
-still use version `1`, so they cannot score until their profiles are retrained and promoted again.
-Reset and scoring remain scoped by classifier key. Unrelated classifier scores are preserved.
+Promoted classifiers record their ordered feature names and required inputs. A changed or incomplete
+recipe is blocked with a retrain-and-promote message instead of reusing incompatible scores. Reset
+and scoring remain scoped by classifier key. Unrelated classifier scores are preserved.
 
 ## Write boundaries
 

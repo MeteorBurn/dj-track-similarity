@@ -22,10 +22,6 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from dj_track_similarity.analysis_model_runners import (  # noqa: E402
-    MaestModelRunner,
-    current_embedding_analysis_output,
-)
 from dj_track_similarity.analysis_models import (  # noqa: E402
     AnalysisOutput,
     AnalysisTarget,
@@ -33,6 +29,7 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
     EmbeddingWrite,
     MaestGenreScore,
     MaestWrite,
+    current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase  # noqa: E402
 from dj_track_similarity.db_storage import storage_database_paths  # noqa: E402
@@ -69,8 +66,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
     vector_backend_name = create_vector_backend(config.vector_backend).backend_name
     runs = [_benchmark_track_count(config, track_count) for track_count in config.track_counts]
     return {
-        "benchmark": "v7_embedding_search_benchmark",
-        "schema_version": 2,
+        "benchmark": "embedding_search_benchmark",
         "generated_at": _utc_timestamp(),
         "environment": _environment_summary(),
         "config": {
@@ -97,7 +93,7 @@ def write_report(report: dict[str, Any], output: Path) -> None:
 
 def _benchmark_track_count(config: BenchmarkConfig, track_count: int) -> dict[str, Any]:
     if config.keep_db is None:
-        with TemporaryDirectory(prefix="dj-sim-v7-search-benchmark-") as temp_dir:
+        with TemporaryDirectory(prefix="dj-sim-search-benchmark-") as temp_dir:
             db_path = Path(temp_dir) / f"synthetic-{track_count}.sqlite"
             return _benchmark_database_path(config, track_count, db_path, kept_db=False)
 
@@ -138,7 +134,7 @@ def _benchmark_database_path(
         "data": {
             "embedding_sources": list(EMBEDDING_SOURCES),
             "embedding_dim": EMBEDDING_DIM,
-            "storage": "v7-core-artifacts",
+            "storage": "core-artifacts",
             "synthetic_audio_files_created": False,
         },
         "load_embedding_matrix": load_metrics,
@@ -172,19 +168,10 @@ def _setup_synthetic_database(
 
 
 def _synthetic_outputs() -> dict[str, AnalysisOutput]:
-    maest = MaestModelRunner(
-        device="cpu",
-        top_k=3,
-        inference_batch_size=1,
-    )
-    maest_outputs = {
-        output.contract.output_kind: output
-        for output in maest.active_outputs
-    }
     return {
-        "mert": current_embedding_analysis_output("mert"),
-        "maest_analysis": maest_outputs["analysis"],
-        "maest": maest_outputs["embedding"],
+        "mert": AnalysisOutput("mert", "embedding"),
+        "maest_analysis": AnalysisOutput("maest", "analysis"),
+        "maest": AnalysisOutput("maest", "embedding"),
     }
 
 
@@ -239,13 +226,12 @@ def _store_synthetic_embeddings(
     maest_vectors: np.ndarray,
 ) -> None:
     mert_output = outputs["mert"]
-    maest_analysis_output_value = outputs["maest_analysis"]
     maest_embedding_output_value = outputs["maest"]
     mert_writes = tuple(
         EmbeddingWrite(
             target=target,
             output=EmbeddingOutput(
-                contract=mert_output.contract,
+                family=mert_output.analysis_family,
                 vector=mert_vectors[index],
                 analyzed_at=SYNTHETIC_ANALYZED_AT,
             ),
@@ -255,12 +241,11 @@ def _store_synthetic_embeddings(
     maest_writes = tuple(
         MaestWrite(
             target=target,
-            analysis_contract=maest_analysis_output_value.contract,
             genres=(MaestGenreScore(label="Synthetic", score=1.0),),
             syncopated_rhythm=False,
             analyzed_at=SYNTHETIC_ANALYZED_AT,
             embedding=EmbeddingOutput(
-                contract=maest_embedding_output_value.contract,
+                family=maest_embedding_output_value.analysis_family,
                 vector=maest_vectors[index],
                 analyzed_at=SYNTHETIC_ANALYZED_AT,
             ),
@@ -271,7 +256,7 @@ def _store_synthetic_embeddings(
     maest_results = db.save_maest_results(maest_writes)
     failed = [result.error for result in (*mert_results, *maest_results) if not result.ok]
     if failed:
-        raise RuntimeError(f"Synthetic v7 analysis writes failed: {failed[0]}")
+        raise RuntimeError(f"Synthetic analysis writes failed: {failed[0]}")
 
 
 def _measure_embedding_loads(db: LibraryDatabase) -> dict[str, dict[str, Any]]:
@@ -286,8 +271,7 @@ def _measure_embedding_loads(db: LibraryDatabase) -> dict[str, dict[str, Any]]:
         metrics[source] = {
             "seconds": seconds,
             "tracks": len(rows),
-            "dim": int(output.contract.dim or 0),
-            "contract_hash": output.contract_hash,
+            "dim": current_embedding_spec(source).dimension,
         }
     return metrics
 
@@ -524,7 +508,7 @@ def _prepare_kept_database_path(path: Path) -> None:
 def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(
         description=(
-            "Create a synthetic greenfield v7 Core+Artifacts bundle and benchmark "
+            "Create a synthetic greenfield Core+Artifacts bundle and benchmark "
             "MERT/MAEST vector and Hybrid search operations."
         ),
     )

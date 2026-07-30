@@ -25,11 +25,10 @@ def apply_model_to_lab(
     model = payload["model"]
     feature_set = str(payload["feature_set"])
     label_order = [str(label) for label in payload.get("label_order", getattr(model, "classes_", []))]
-    required_outputs = payload.get("required_outputs")
     features = build_unlabeled_feature_matrix(
         source_db_path,
         feature_set,
-        expected_required_outputs=required_outputs,
+        expected_feature_names=payload.get("feature_names"),
     )
     if features.matrix.shape[0] == 0:
         return {

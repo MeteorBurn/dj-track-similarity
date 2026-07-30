@@ -51,24 +51,20 @@ embedding and fingerprint use separate Artifacts tables. MAEST, MERT, MuQ, and C
 dedicated tables in the mandatory Artifacts database. Compact SONARA scalars and fixed vectors stay
 in Core.
 
-SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current signed
+SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current
 SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked tempo candidates and
 the Mutagen BPM tag. Beat-grid stability can weaken reliability, and unreliable evidence moves
 toward a neutral score rather than creating similarity.
 
-SONARA v0.3.1 `core` also stores `bpm_confidence` beside raw BPM, tempo candidates, and Camelot key.
-The confidence value records how strongly SONARA supports its working BPM estimate. The canonical
-contract registry records schema `5`, package/build identity, requested features, and other runtime
-parameters as canonical JSON plus hashes. Raw analyzer provenance is validated but is not promised
-as a round-trip stored payload.
+The current SONARA `core` output stores `bpm_confidence` beside raw BPM, tempo candidates, and
+Camelot key. The confidence value records how strongly SONARA supports its working BPM estimate.
 
 CLI and API default to `core`. `timeline`, `embedding`, and `fingerprint` are independent output
-kinds. A deterministic contract identifies each output, so a missing current optional output is
-queued without invalidating current `core` data. The browser exposes the same output selection and
-shows current optional-output presence in the v7 metadata detail.
+kinds. A missing optional output is queued without invalidating current `core` data. The browser
+exposes the same output selection and shows optional-output presence in the metadata detail.
 
 The exact field and scoring boundaries are in the
-[SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).
+[SONARA integration reference](../reference/sonara-integration.md).
 
 ## MAEST labels and embedding
 
@@ -82,7 +78,7 @@ MERT stores an audio embedding. The MERT tab searches from selected seed tracks 
 
 ## MuQ embedding
 
-MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The current-contract vector supports direct seed search and a separate LAB Reference Compare group. SET, Hybrid, Audio Dedup, and compatible Rhythm Lab classifier feature sets can also consume it. Those configurable multi-source workflows disable MuQ by omitting `muq` from their explicit source list.
+MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The vector supports direct seed search and a separate LAB Reference Compare group. SET, Hybrid, Audio Dedup, and compatible Rhythm Lab classifier feature sets can also consume it. Those configurable multi-source workflows disable MuQ by omitting `muq` from their explicit source list.
 
 ## CLAP audio embedding
 

@@ -6,8 +6,8 @@
 
 The API is local and unauthenticated by design. Bind the server carefully. Use `127.0.0.1` unless you intentionally expose it on a LAN.
 
-The backend schemas below are the active v7 contract. The React client imports matching v7
-identities, track shapes, request fields, and response types; this page remains the reference for
+The backend schemas below describe the current API. The React client imports matching identities,
+track shapes, request fields, and response types; this page remains the reference for
 endpoint ranges and validation rules.
 
 ## Database
@@ -22,8 +22,8 @@ endpoint ranges and validation rules.
 `/api/database/clear` does not delete audio files.
 
 Database state returns `path`, `artifacts_path`, `evaluation_path`, `catalog_uuid`, and `selected`.
-A fresh path creates schema-v7 Core plus mandatory Artifacts. Evaluation remains optional. Existing
-non-v7 or incomplete bundles are rejected rather than migrated.
+A fresh path creates Core plus mandatory Artifacts. Evaluation remains optional. Structurally
+incompatible or incomplete bundles are rejected rather than migrated during normal startup.
 
 ## Library and media
 
@@ -45,7 +45,7 @@ Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|f
 The timeline endpoint returns complete stored `beats`, `onset_frames`, `chord_sequence`,
 `chord_events`, `tempo_curve`, `energy_curve`, `segments`, `loudness_curve`, and `downbeats` payloads
 when available. It returns `{}` when no current timeline row exists and `404` for an unknown track.
-Regular track rows use the v7 `TrackSummaryV7` shape: composite identity (`catalog_uuid`,
+Regular track rows use `TrackSummaryResponse`: composite identity (`catalog_uuid`,
 `track_id`, `track_uuid`, `content_generation`), `file_path`, compact tags, `analysis_coverage`, and
 classifier-score summaries. Detailed rows expose `optional_outputs.timeline_fields`,
 `sonara_embedding_available`, and `audio_fingerprint_available`.
@@ -71,8 +71,6 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 | `GET` | `/api/analysis/jobs/{job_id}` | job status |
 | `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
 | `POST` | `/api/analysis/reset` | reset one family |
-| `GET` | `/api/analysis/sonara/releases/status` | exact loaded-runtime release readiness for the selected catalog |
-| `POST` | `/api/analysis/sonara/releases/prepare` | back up and activate the loaded four-output SONARA release |
 | `GET` | `/api/classifiers` | promoted classifier profiles |
 | `POST` | `/api/classifiers/analyze` | score selected classifiers; empty list means all compatible |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
@@ -87,33 +85,9 @@ Audio analysis payload fields include `models` and `limit`. ML requests add `dev
 `sonara_batch_size`. `classifier_keys` is not accepted.
 Allowed SONARA outputs are `core`, `timeline`, `embedding`, and `fingerprint`. Omission defaults to
 `["core"]`. At least one is required for a SONARA job, and normalization always includes `core`.
-SONARA runs alone, and its scheduler compares the independent contract for every selected output. It
-passes paths to native `analyze_batch`. ML models continue to use shared FFmpeg decode. An
-unprepared release returns `409` with `SONARA_RELEASE_PREPARATION_REQUIRED`.
-
-The read-only status response is keyed by `catalog_uuid`. It returns `ready`,
-`preparation_required`, or `unavailable`, the expected and active release hashes, and one
-`current`, `missing`, `stale`, or `unavailable` state for each exact output. Coverage counts are
-not a readiness substitute: an active release can have no analyzed rows yet.
-
-The prepare payload is:
-
-```json
-{
-  "catalog_uuid": "00000000-0000-4000-8000-000000000001",
-  "backup_dir": "C:\\backups\\dj-track-similarity",
-  "confirm": "PREPARE SONARA RELEASE"
-}
-```
-
-Clients cannot supply output kinds or a release hash. Preparation verifies Core and Artifacts
-backups and uses an ordered, receipt-backed flow that can resume after interruption. The server
-checks `catalog_uuid` again while reserving the selected database, before it creates a backup or
-changes release state. After a database switch, an older confirmation fails with `409` instead of
-preparing another catalog. The typed completed receipt includes `catalog_uuid`,
-`release_hash`, four `contract_hashes`, the Core and Artifacts backup paths, hashes and sizes, plus
-`core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`. Preparation never
-starts an analysis job.
+SONARA runs alone and passes paths to native `analyze_batch`. ML models continue to use shared
+FFmpeg decode. Database migration is intentionally not an API operation: use the local
+`dj-sim migrate-database` CLI after reviewing its dry-run plan.
 
 The aggregate classifier payload is `{ "classifier_keys": [], "limit": null }`. Readiness is
 manifest-specific, totals count ready classifier-track pairs, and not-ready tracks are excluded

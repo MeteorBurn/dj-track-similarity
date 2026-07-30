@@ -13,7 +13,7 @@ from dj_track_similarity.evaluation.recorded_sessions import (
 import dj_track_similarity.evaluation.weighted_candidates as weighted_candidates
 from dj_track_similarity.evaluation.weighted_candidates import build_weighted_candidate_pool
 from dj_track_similarity.transition_diagnostics import TransitionTrack
-from evaluation_v7_fixtures import EvaluationRepository
+from evaluation_fixtures import EvaluationRepository
 
 
 def test_weighted_profile_ranks_high_weight_source_candidate_first(
@@ -324,7 +324,6 @@ def test_weighted_candidate_csv_row_contains_expected_manual_columns(
     assert csv_row["transition_risk_penalty"] == 0.0
     assert json.loads(str(csv_row["sources_json"])) == {
         "mert": {
-            "contract_hash": db.outputs[("mert", "embedding")].contract_hash,
             "rank": 1,
             "score": 0.9,
         }
@@ -355,9 +354,6 @@ def _candidate_row(
             source: CandidateSourceContribution(
                 rank=rank,
                 score=score,
-                contract_hash=db.outputs[
-                    (source, "core" if source == "sonara" else "embedding")
-                ].contract_hash,
             )
             for source, (rank, score) in contributions.items()
         },

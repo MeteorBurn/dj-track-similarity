@@ -170,7 +170,12 @@ export function App() {
   const [sonaraBatchSize, setSonaraBatchSize] = useState(8);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
-  const [sonaraOutputs, setSonaraOutputs] = useState<SonaraOutput[]>(["core"]);
+  const [sonaraOutputs, setSonaraOutputs] = useState<SonaraOutput[]>([
+    "core",
+    "timeline",
+    "embedding",
+    "fingerprint"
+  ]);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);

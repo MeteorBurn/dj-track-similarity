@@ -1,7 +1,7 @@
 # Troubleshooting by symptom
 
-> Audience: Users fixing local v7 setup or analysis issues.
-> Goal: Give checks tied to current storage and release behavior.
+> Audience: Users fixing local setup or analysis issues.
+> Goal: Give checks tied to current storage and analysis behavior.
 > Type: help
 
 ## Server says FFmpeg is missing
@@ -11,19 +11,21 @@ Set `DJ_TRACK_SIMILARITY_FFMPEG` to an FFmpeg executable or put FFmpeg on `PATH`
 
 ## The selected library will not open
 
-A v7 library needs its Core `.sqlite` and mandatory `*.artifacts.sqlite` companion with the same
-`catalog_uuid`. Do not substitute old `*.timeline.sqlite` or `*.representations.sqlite` files. v5/v6
-databases are not migrated by this runtime.
+A library needs its Core `.sqlite` and mandatory `*.artifacts.sqlite` companion with the same
+`catalog_uuid`. If the message reports an incompatible structure, do not edit either file by hand.
+Run `dj-sim migrate-database --db <path> --dry-run` and review the plan.
 
-## SONARA reports conflicting or inconsistent release state
+## A model adapter cannot load its dependencies
 
-A fresh catalog does not need a separate preparation step: its first SONARA **Analyze** registers
-the exact `core`, `timeline`, `embedding`, and `fingerprint` runtime contracts automatically.
+Run `python -m pip check` in the same activated environment that runs `dj-sim`, then compare the
+installed stack with `pyproject.toml` and `uv.lock`. Update the related packages together so the
+adapter still has its required APIs, checkpoints, and output shapes.
 
-If a catalog already contains conflicting or inconsistent release state, stop normal analysis and
-use the advanced `prepare-sonara-release` CLI/API recovery workflow with verified Core and Artifacts
-backups. After a SONARA version or contract change, the normal full-reanalysis workflow is **Reset
-SONARA**, then **Analyze**. Retrain, promote, and rescore affected v2 classifier artifacts afterward.
+```powershell
+python -m pip check
+```
+
+Restart `dj-sim serve` and any running Rhythm Lab process after changing the environment.
 
 ## Timeline, embedding, or fingerprint data is unavailable
 
@@ -34,8 +36,8 @@ present. Use the explicit timeline API when you need its payload rather than onl
 
 ## A classifier is incompatible
 
-Manifest v1 and unversioned artifacts are blocked. Rebuild and promote a manifest v2 artifact that
-matches the current inputs. Classifier scoring is database-only and remains scoped by `classifier_key`.
+Rebuild and promote an artifact whose ordered feature names and required inputs match the current
+data. Classifier scoring is database-only and remains scoped by `classifier_key`.
 
 ## CUDA was requested but analysis fails
 

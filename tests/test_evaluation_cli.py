@@ -10,7 +10,6 @@ from typer.testing import CliRunner
 
 import dj_track_similarity.cli as cli
 from dj_track_similarity.analysis_model_runners import (
-    MaestModelRunner,
     current_embedding_analysis_output,
 )
 from dj_track_similarity.analysis_models import (
@@ -21,18 +20,10 @@ from dj_track_similarity.analysis_models import (
     MaestGenreScore,
     MaestWrite,
     SonaraWrite,
+    current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import SonaraRowV7
-from dj_track_similarity.prepare_sonara_release import (
-    CONFIRM_STRING,
-    prepare_sonara_release,
-)
-from dj_track_similarity.sonara_contract import (
-    SONARA_EXPECTED_VERSION,
-    SonaraContractSet,
-    sonara_runtime_contracts,
-)
+from dj_track_similarity.db_ddl import SonaraRow
 from dj_track_similarity.track_models import (
     FileTags,
     ScannedFile,
@@ -41,14 +32,6 @@ from dj_track_similarity.track_models import (
 
 
 _NOW = "2026-07-24T10:00:00.000000Z"
-
-
-class _FakeSonara:
-    __version__ = SONARA_EXPECTED_VERSION
-    SIMILARITY_VERSION = 2
-    __sonara_build_id__ = "sha256:" + "4" * 64
-    __sonara_vocalness_model_id__ = "sonara-vocalness-v2"
-    __sonara_vocalness_model_build_id__ = "sha256:" + "5" * 64
 
 
 def test_eval_import_pair_feedback_cli_upserts_labels(tmp_path: Path) -> None:
@@ -1009,16 +992,21 @@ def _save_cli_candidate_analysis(
     identity = _required_identity(db, track_id)
     target = _target(identity)
     mert = current_embedding_analysis_output("mert")
-    sonara = _prepare_sonara_release(db)
-    db.register_analysis_outputs((mert,))
+    db.register_analysis_outputs(
+        (
+            mert,
+            AnalysisOutput("sonara", "core"),
+            AnalysisOutput("sonara", "embedding"),
+        )
+    )
     embedding_result = db.save_embedding_results(
         (
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=mert.contract,
+                    family="mert",
                     vector=_expanded_unit_vector(
-                        int(mert.contract.dim),
+                        current_embedding_spec("mert").dimension,
                         embedding,
                     ),
                     analyzed_at=_NOW,
@@ -1031,17 +1019,18 @@ def _save_cli_candidate_analysis(
         (
             SonaraWrite(
                 target=target,
-                core_contract=sonara.core,
                 core=_sonara_row(
                     target,
-                    sonara,
                     bpm=bpm,
                     energy=energy,
                     danceability=danceability,
                 ),
                 similarity_embedding=EmbeddingOutput(
-                    contract=sonara.embedding,
-                    vector=_expanded_unit_vector(48, embedding),
+                    family="sonara",
+                    vector=_expanded_unit_vector(
+                        current_embedding_spec("sonara").dimension,
+                        embedding,
+                    ),
                     analyzed_at=_NOW,
                 ),
             ),
@@ -1071,9 +1060,9 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=muq.contract,
+                    family="muq",
                     vector=_expanded_unit_vector(
-                        int(muq.contract.dim),
+                        current_embedding_spec("muq").dimension,
                         vector,
                     ),
                     analyzed_at=_NOW,
@@ -1082,9 +1071,9 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=clap.contract,
+                    family="clap",
                     vector=_expanded_unit_vector(
-                        int(clap.contract.dim),
+                        current_embedding_spec("clap").dimension,
                         vector,
                     ),
                     analyzed_at=_NOW,
@@ -1097,14 +1086,13 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
         (
             MaestWrite(
                 target=target,
-                analysis_contract=maest_analysis.contract,
                 genres=(MaestGenreScore(label="Techno", score=0.9),),
                 syncopated_rhythm=None,
                 analyzed_at=_NOW,
                 embedding=EmbeddingOutput(
-                    contract=maest_embedding.contract,
+                    family="maest",
                     vector=_expanded_unit_vector(
-                        int(maest_embedding.contract.dim),
+                        current_embedding_spec("maest").dimension,
                         vector,
                     ),
                     analyzed_at=_NOW,
@@ -1172,18 +1160,16 @@ def _record_current_session(
             str(source) for event in events for source in dict(event[2]).keys()
         )
     )
-    outputs = (
+    if source_outputs is None:
         _register_evaluation_source_outputs(db, sources)
-        if source_outputs is None
-        else source_outputs
-    )
+    else:
+        db.register_analysis_outputs(tuple(source_outputs.values()))
     seed_identity = _required_identity(db, seed_id)
-    contract_hashes = {source: outputs[source].contract_hash for source in sources}
     session_request = {
         **request,
         "catalog_uuid": db.catalog_uuid,
         "seed_identities": [_identity_payload(seed_identity)],
-        "source_contract_hashes": contract_hashes,
+        "sources": list(sources),
     }
     session_id = db.create_search_session(
         mode,
@@ -1197,10 +1183,7 @@ def _record_current_session(
         extra = dict(event[3]) if len(event) == 4 else {}
         candidate_identity = _required_identity(db, candidate_id)
         source_contributions = {
-            source: {
-                **dict(contribution),
-                "contract_hash": contract_hashes[source],
-            }
+            source: dict(contribution)
             for source, contribution in raw_sources.items()
         }
         db.record_search_result_event(
@@ -1238,43 +1221,23 @@ def _register_evaluation_source_outputs(
 
 
 def _maest_outputs() -> tuple[AnalysisOutput, AnalysisOutput]:
-    return MaestModelRunner(
-        device="cpu",
-        top_k=3,
-        inference_batch_size=1,
-    ).active_outputs
-
-
-def _sonara_contracts() -> SonaraContractSet:
-    return sonara_runtime_contracts(_FakeSonara)
-
-
-def _prepare_sonara_release(db: LibraryDatabase) -> SonaraContractSet:
-    backup_dir = db.path.parent / "sonara-backups"
-    backup_dir.mkdir(exist_ok=True)
-    prepare_sonara_release(
-        db,
-        backup_dir=backup_dir,
-        confirm=CONFIRM_STRING,
-        sonara_module=_FakeSonara,
+    return AnalysisOutput("maest", "analysis"), current_embedding_analysis_output(
+        "maest"
     )
-    return _sonara_contracts()
 
 
 def _sonara_row(
     target: AnalysisTarget,
-    contracts: SonaraContractSet,
     *,
     bpm: float,
     energy: float,
     danceability: float,
-) -> SonaraRowV7:
-    values = {field.name: None for field in fields(SonaraRowV7)}
+) -> SonaraRow:
+    values = {field.name: None for field in fields(SonaraRow)}
     values.update(
         {
             "track_id": target.track_id,
             "content_generation": target.content_generation,
-            "contract_hash": contracts.core.contract_hash,
             "detected_bpm": bpm,
             "detected_key_camelot": "1A",
             "key_confidence": 0.9,
@@ -1290,7 +1253,7 @@ def _sonara_row(
             "analyzed_at": _NOW,
         }
     )
-    return SonaraRowV7(**values)
+    return SonaraRow(**values)
 
 
 def _expanded_unit_vector(

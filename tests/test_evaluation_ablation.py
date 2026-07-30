@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dj_track_similarity.evaluation.ablation import build_source_ablation_report
 
-from evaluation_v7_fixtures import EvaluationRepository, profile
+from evaluation_fixtures import EvaluationRepository, profile
 
 
 def test_ablation_uses_current_typed_records_and_manual_labels() -> None:

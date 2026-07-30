@@ -93,7 +93,8 @@ def test_root_server_script_prompts_supports_modes_and_forwards_args() -> None:
     assert "python -m uvicorn" not in text
     assert "Local virtual environment was not found" in text
     assert "dj-sim is not available" in text
-    assert 'set "DEFAULT_DB_PATH=C:\\db\\volumes.sqlite"' in text
+    assert 'set "DEFAULT_DB_PATH=%~dp0database\\volumes.sqlite"' in text
+    assert r"C:\db\volumes.sqlite" not in text
     assert "Database path [%DEFAULT_DB_PATH%]" in text
     assert "Choose server mode" in text
     assert text.index("Database path [%DEFAULT_DB_PATH%]") < text.index(
@@ -115,16 +116,17 @@ def test_no_argument_launcher_prompts_for_database_before_mode_and_accepts_defau
     tmp_path: Path,
 ) -> None:
     completed, captured_launch = _run_isolated_launcher(tmp_path, stdin="\n\n")
+    default_database_path = str(tmp_path / "database" / "volumes.sqlite")
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert completed.stdout.index("Database path [C:\\db\\volumes.sqlite]") < (
+    assert completed.stdout.index(f"Database path [{default_database_path}]") < (
         completed.stdout.index("Choose server mode")
     )
     assert captured_launch == {
         "arguments": [],
         "host": "127.0.0.1",
         "port": "8765",
-        "database_path": r"C:\db\volumes.sqlite",
+        "database_path": default_database_path,
     }
 
 

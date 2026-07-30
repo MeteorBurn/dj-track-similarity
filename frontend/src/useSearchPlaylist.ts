@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { SearchResult, Track, TrackDetailV7 } from "./api";
+import type { SearchResult, Track, TrackDetail } from "./api";
 import type { ActivityEvent } from "./jobUi";
 import { displayTrack } from "./trackDisplay";
 
@@ -14,7 +14,7 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   const [playlistName, setPlaylistName] = useState("seamless-set");
   const [preview, setPreview] = useState<Track | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
-  const [metadataTrack, setMetadataTrack] = useState<TrackDetailV7 | null>(null);
+  const [metadataTrack, setMetadataTrack] = useState<TrackDetail | null>(null);
   const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
 
   const seedSet = useMemo(() => new Set(seeds), [seeds]);

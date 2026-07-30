@@ -18,7 +18,6 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.api import create_app
 from dj_track_similarity.api_schemas import EvaluationSourceProfileRunRequest
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import SCHEMA_VERSION
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -65,7 +64,6 @@ def test_evaluation_summary_keeps_feedback_in_core_and_sessions_in_sidecar(
 
     assert response.status_code == 200
     assert response.json() == {
-        "schema_version": SCHEMA_VERSION,
         "counts": {
             "pair_feedback": 1,
             "transition_feedback": 1,
@@ -155,7 +153,7 @@ def test_weighted_candidate_preview_uses_typed_targets_without_sidecar_write(
                         content_generation=identity.content_generation,
                     ),
                     output=EmbeddingOutput(
-                        contract=output.contract,
+                        family=output.analysis_family,
                         vector=vector,
                         analyzed_at="2026-07-24T12:00:00Z",
                     ),
@@ -215,7 +213,7 @@ def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
                         content_generation=identity.content_generation,
                     ),
                     output=EmbeddingOutput(
-                        contract=output.contract,
+                        family=output.analysis_family,
                         vector=vector,
                         analyzed_at="2026-07-24T12:00:00Z",
                     ),
@@ -262,8 +260,9 @@ def test_evaluation_api_rejects_unselected_and_legacy_core(
     assert unselected.status_code == 400
     assert unselected.json()["detail"] == "Database is not selected"
     assert legacy.status_code == 409
-    assert "schema version 3 is not supported" in legacy.json()["detail"]
-    assert "expected 7" in legacy.json()["detail"]
+    detail = legacy.json()["detail"]
+    assert "SQLite Core structure is not current" in detail
+    assert "dj-sim migrate-database --db" in detail
 
 
 def test_evaluation_feedback_does_not_touch_audio_path(

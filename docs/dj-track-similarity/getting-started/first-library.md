@@ -21,21 +21,21 @@ and SET previews.
 
 ## How the catalog is stored
 
-The current Python runtime is a greenfield schema-v7 bundle. The selected Core file stores track
+The selected Core file stores track
 identity, paths, tags, small analysis rows, likes, and classifier scores. Its required companion is
 `*.artifacts.sqlite`, which holds large embeddings, SONARA Timeline payloads, and fingerprints. The
 two files must carry the same `catalog_uuid`. The runtime validates that binding before use.
 
 `*.evaluation.sqlite` is an optional adjacent database for evaluation data. It is not created just
-by resolving its path. Earlier v5/v6 layouts, including `*.timeline.sqlite` and
-`*.representations.sqlite`, are not migrated by the v7 runtime.
+by resolving its path. Normal startup refuses structurally incompatible layouts instead of adapting
+them automatically.
 
 ## Choose or create a database
 
 In the browser, click the database button beside the read-only path field and select the Core
 SQLite file. Selecting a new path creates the Core + Artifacts bundle; selecting an existing path
-loads it only after the runtime validates schema version `7`, the mandatory Artifacts companion,
-and the shared `catalog_uuid`. Switching the database also clears old library/search state so a
+loads it only after the runtime validates required tables, columns, indexes, the mandatory Artifacts
+companion, and the shared `catalog_uuid`. Switching the database also clears old library/search state so a
 late response cannot leak rows from the previous catalog.
 
 From the CLI, pass `--db`:
@@ -54,7 +54,7 @@ In the browser:
 4. Click **Load tracks into the database**.
 
 The scan job shows queued/running progress, counts, errors, cancellation, and completion in the
-activity panel. The browser refreshes the typed v7 library summary when the job finishes.
+activity panel. The browser refreshes the typed library summary when the job finishes.
 
 The equivalent CLI command is:
 
@@ -62,8 +62,8 @@ The equivalent CLI command is:
 dj-sim scan D:\Music --db .\data\library.sqlite
 ```
 
-Both surfaces create a fresh, bound Core + Artifacts pair when neither file exists. Neither
-converts an older database.
+Both surfaces create a fresh, bound Core + Artifacts pair when neither file exists. An incompatible
+existing pair must use the explicit `migrate-database` command after a dry-run review.
 
 Scan supports these extensions:
 
@@ -88,17 +88,17 @@ The CLI prints added, updated, unchanged, and skipped counts.
 
 ## Refresh Tags
 
-The v7 backend can reread file tags for existing tracks without rerunning SONARA, MAEST, MERT,
+The backend can reread file tags for existing tracks without rerunning SONARA, MAEST, MERT,
 MuQ, or CLAP. Click **Refresh Tags** in the database panel to start the typed refresh job. It uses
 the current scan-worker value and reports progress through the same activity surface as scan.
 
 ## Browse after scan
 
-The library panel reads one server-backed page of up to `500` tracks at a time. Use **Prev**,
+The library panel reads one server-backed page of up to `200` tracks at a time. Use **Prev**,
 **Next**, or the page-number field to move between pages. Each page maps to one `/api/tracks`
-request with `limit=500`. The final page can contain fewer rows. All rows from the current page
+request with `limit=200`. The final page can contain fewer rows. All rows from the current page
 render in one scrollable list.
 
 The browser deduplicates each loaded result by `catalog_uuid` and `track_uuid`, keeping the highest
-`content_generation`. Metadata opens from the v7 detail endpoint only when requested; preview and
+`content_generation`. Metadata opens from the detail endpoint only when requested; preview and
 liked-track changes use the same exact track identity.

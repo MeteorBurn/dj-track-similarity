@@ -71,8 +71,7 @@ CREATE TABLE classifier_labels (
 );
 """
 
-V7_SCHEMA = """
-PRAGMA user_version = 7;
+CORE_SCHEMA = """
 CREATE TABLE library_catalog (
     singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
     catalog_uuid TEXT NOT NULL UNIQUE,
@@ -182,7 +181,6 @@ def _write_promoted_manifest(
             feature_count if feature_count is not None else len(feature_names or [])
         ),
         "feature_set": feature_set,
-        "manifest_version": 2,
     }
     if feature_names is not None:
         payload["feature_names"] = feature_names
@@ -229,14 +227,14 @@ def _reseal(bundle: dict[str, object]) -> dict[str, object]:
     return payload
 
 
-def _create_v7_core(
+def _create_core(
     path: Path,
     tracks: list[tuple[int, str, str, int, int, int]],
     *,
     catalog_uuid: str = "catalog-test",
 ) -> None:
     connection = sqlite3.connect(path)
-    connection.executescript(V7_SCHEMA)
+    connection.executescript(CORE_SCHEMA)
     connection.execute(
         """
         INSERT INTO library_catalog(singleton_id, catalog_uuid, created_at, updated_at)
@@ -369,7 +367,7 @@ def test_preview_rebind_uses_canonical_path_not_shuffled_numeric_ids(
     _create_lab_db(lab_db, labels=_base_labels())
     bundle = export_label_bundle(lab_db, promoted_models_root=tmp_path / "none")
     core_db = tmp_path / "library.sqlite"
-    _create_v7_core(
+    _create_core(
         core_db,
         [
             (71, "uuid-b", "c:\\music\\b.wav", 200, 20_000_000_000, 4),
@@ -459,7 +457,7 @@ def test_preview_reports_missing_ambiguity_and_metadata_mismatch_without_loss(
     _create_lab_db(lab_db, labels=labels)
     bundle = export_label_bundle(lab_db, promoted_models_root=tmp_path / "none")
     core_db = tmp_path / "library.sqlite"
-    _create_v7_core(
+    _create_core(
         core_db,
         [
             (4, "uuid-ok", "C:/Music/ok.wav", 10, 1_000_000_000, 1),
@@ -517,7 +515,7 @@ def test_rebound_bundle_bytes_and_hash_are_deterministic(tmp_path: Path) -> None
     _create_lab_db(lab_db, labels=_base_labels())
     bundle = export_label_bundle(lab_db, promoted_models_root=tmp_path / "none")
     core_db = tmp_path / "library.sqlite"
-    _create_v7_core(
+    _create_core(
         core_db,
         [
             (20, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 9),
@@ -548,7 +546,7 @@ def test_tampered_export_bundle_is_rejected(tmp_path: Path) -> None:
     bundle = export_label_bundle(lab_db, promoted_models_root=tmp_path / "none")
     bundle["manual_labels"][0]["label"] = "tampered"
     core_db = tmp_path / "library.sqlite"
-    _create_v7_core(core_db, [])
+    _create_core(core_db, [])
 
     with pytest.raises(ValueError, match="SHA-256"):
         preview_rebind_bundle(bundle, core_db)
@@ -609,7 +607,7 @@ def test_core_preview_reads_committed_wal_frames_and_closes_snapshot(
     _create_lab_db(lab_db, labels=labels)
     bundle = export_label_bundle(lab_db, promoted_models_root=tmp_path / "none")
     core_db = tmp_path / "library.sqlite"
-    _create_v7_core(core_db, [])
+    _create_core(core_db, [])
     writer = sqlite3.connect(core_db)
     assert writer.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
     writer.execute("PRAGMA wal_autocheckpoint = 0")
@@ -717,7 +715,7 @@ def test_resealed_semantically_invalid_bundles_are_rejected(
     )
     bundle = export_label_bundle(lab_db, promoted_models_root=promoted)
     core_db = tmp_path / "library.sqlite"
-    _create_v7_core(
+    _create_core(
         core_db,
         [
             (1, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 1),
@@ -834,7 +832,7 @@ def test_lossless_recovery_restore_smoke(tmp_path: Path) -> None:
     assert exported["summary"]["manual_labels_without_path"] == 1
 
     core_db = tmp_path / "core.sqlite"
-    _create_v7_core(
+    _create_core(
         core_db,
         [(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4)],
     )
@@ -1279,7 +1277,7 @@ def _restore_fixture(
     source = tmp_path / "source.sqlite"
     _create_lab_db(source, labels=labels)
     core_db = tmp_path / "core.sqlite"
-    _create_v7_core(
+    _create_core(
         core_db,
         tracks
         or [

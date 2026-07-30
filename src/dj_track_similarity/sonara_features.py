@@ -1,4 +1,4 @@
-"""Native SONARA batch orchestration for the typed v7 repository."""
+"""Native SONARA batch orchestration for the analysis repository."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from .analysis_contracts import utc_timestamp
 from .analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -15,7 +14,8 @@ from .analysis_models import (
     AnalysisWriteResult,
     SonaraWrite,
 )
-from .sonara_contract import (
+from .timestamps import utc_timestamp
+from .sonara_runtime import (
     SONARA_ANALYSIS_MODE,
     SONARA_BPM_MAX,
     SONARA_BPM_MIN,
@@ -23,7 +23,6 @@ from .sonara_contract import (
     SONARA_VOCALNESS_MODEL_SELECTOR,
     normalize_sonara_outputs,
     sonara_requested_features,
-    sonara_runtime_contracts,
 )
 from .sonara_storage import prepare_sonara_write
 
@@ -64,10 +63,13 @@ class SonaraBatchMetrics:
 def analysis_outputs_for_sonara_runtime(
     sonara_module: Any | None = None,
 ) -> tuple[AnalysisOutput, ...]:
-    """Return all four active outputs for the actual loaded SONARA runtime."""
+    """Return the four current SONARA data outputs."""
 
-    contracts = sonara_runtime_contracts(sonara_module)
-    return tuple(AnalysisOutput(identity) for identity in contracts.identities)
+    del sonara_module
+    return tuple(
+        AnalysisOutput("sonara", output_kind)
+        for output_kind in ("core", "timeline", "embedding", "fingerprint")
+    )
 
 
 def analyze_and_store_sonara_batch(
@@ -82,8 +84,8 @@ def analyze_and_store_sonara_batch(
     """Analyze one native batch and persist successful results in input order.
 
     Analyzer failures, conversion failures, and repository write failures are
-    retained per candidate.  Fatal runtime identity, initialization, or batch
-    cardinality failures raise immediately.
+    retained per candidate. Fatal initialization or batch cardinality failures
+    raise immediately.
     """
 
     selected_candidates = tuple(candidates)
@@ -96,11 +98,8 @@ def analyze_and_store_sonara_batch(
         raise TypeError("candidates must contain only AnalysisCandidate values")
 
     sonara = sonara_module or _import_sonara()
-    contracts = sonara_runtime_contracts(sonara)
     selected_outputs = normalize_sonara_outputs(outputs)
-    active_outputs = tuple(
-        AnalysisOutput(identity) for identity in contracts.identities
-    )
+    active_outputs = analysis_outputs_for_sonara_runtime()
     repository.register_analysis_outputs(active_outputs)
 
     analyze_started = time.perf_counter()
@@ -110,11 +109,7 @@ def analyze_and_store_sonara_batch(
         mode=SONARA_ANALYSIS_MODE,
         bpm_min=SONARA_BPM_MIN,
         bpm_max=SONARA_BPM_MAX,
-        features=list(
-            sonara_requested_features(
-                runtime=contracts.runtime,
-            )
-        ),
+        features=list(sonara_requested_features()),
         vocalness_model=SONARA_VOCALNESS_MODEL_SELECTOR,
         progress=progress,
     )
@@ -131,7 +126,6 @@ def analyze_and_store_sonara_batch(
                 prepare_sonara_write(
                     candidate,
                     analysis,
-                    contracts=contracts,
                     outputs=selected_outputs,
                     analyzed_at=utc_timestamp(),
                 )

@@ -11,7 +11,7 @@ from .analysis_models import AnalysisTarget
 from .tempo_resolution import (
     confidence_aware_tempo_score,
     measured_tempo_score,
-    resolve_tempo_evidence_v7,
+    resolve_tempo_evidence_from_values,
 )
 from .track_resolution import attenuate_harmonic_score, camelot_compatibility
 
@@ -142,7 +142,7 @@ def _scaled_weighted_euclidean_distance(
 ) -> float:
     """Distance for the data-only SONARA 48-d representation.
 
-    The representation contract explicitly uses ``normalization='none'``.
+    The representation explicitly uses ``normalization='none'``.
     Consequently, it must never be compared with cosine similarity. A caller
     that eventually promotes this data-only output to a search surface must
     supply versioned positive per-dimension scales and non-negative weights.
@@ -594,7 +594,7 @@ def normalize_text(value: object) -> str | None:
 
 
 def unwrap_feature_value(value: object) -> object:
-    """Return a typed v7 column value without legacy wrapper fallback."""
+    """Return a typed column value without legacy wrapper fallback."""
 
     return value
 
@@ -606,10 +606,10 @@ def tempo_score(candidate_bpm: float, centroid_bpm: float) -> float:
 def _tempo_similarity(item: ComparableTrack, context: list[ComparableTrack] | None) -> float | None:
     if not context:
         return None
-    candidate = resolve_tempo_evidence_v7(dict(item.features), None)
+    candidate = resolve_tempo_evidence_from_values(dict(item.features), None)
     scores: list[float] = []
     for reference_item in context:
-        reference = resolve_tempo_evidence_v7(
+        reference = resolve_tempo_evidence_from_values(
             dict(reference_item.features),
             None,
         )

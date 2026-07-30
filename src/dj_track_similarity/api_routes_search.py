@@ -12,11 +12,12 @@ from .analysis_model_runners import (
     current_embedding_analysis_output,
     embedding_analysis_output,
 )
+from .api_route_utils import current_classifier_specifications
 from .api_schemas import (
     HybridSearchRequest,
     HybridSearchResponse,
     SearchRequest,
-    SimilaritySearchResultV7,
+    SimilaritySearchResultResponse,
     SonaraSearchRequest,
     TextSearchRequest,
 )
@@ -66,10 +67,11 @@ def register_search_routes(
     state: AppDatabaseState,
     *,
     clap_embedding_adapter: Callable[..., _TextEmbeddingAdapter],
+    promoted_classifiers: Callable[[], list[dict[str, object]]],
 ) -> None:
     @app.post(
         "/api/search",
-        response_model=list[SimilaritySearchResultV7],
+        response_model=list[SimilaritySearchResultResponse],
     )
     def search(request: SearchRequest):
         filters = SearchFilters(
@@ -103,7 +105,7 @@ def register_search_routes(
 
     @app.post(
         "/api/search/sonara",
-        response_model=list[SimilaritySearchResultV7],
+        response_model=list[SimilaritySearchResultResponse],
     )
     def sonara_search(request: SonaraSearchRequest):
         database = state.require_db()
@@ -127,7 +129,7 @@ def register_search_routes(
 
     @app.post(
         "/api/search/text",
-        response_model=list[SimilaritySearchResultV7],
+        response_model=list[SimilaritySearchResultResponse],
     )
     def text_search(request: TextSearchRequest):
         database = state.require_db()
@@ -173,6 +175,9 @@ def register_search_routes(
                 transition_risk_version=request.transition_risk_version,
                 classifier_preferences=request.classifier_preferences,
                 classifier_risk_weights=request.classifier_risk_weights,
+                classifier_specifications=current_classifier_specifications(
+                    promoted_classifiers()
+                ),
                 record_session=request.record_session,
             )
         except ValueError as error:

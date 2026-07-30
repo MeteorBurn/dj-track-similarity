@@ -3,7 +3,7 @@ from __future__ import annotations
 from dj_track_similarity.evaluation.judged import judged_label_status
 from dj_track_similarity.evaluation.reports import build_search_evaluation_report
 
-from evaluation_v7_fixtures import EvaluationRepository
+from evaluation_fixtures import EvaluationRepository
 
 
 def test_search_report_matches_typed_current_events_to_manual_feedback() -> None:
@@ -26,7 +26,7 @@ def test_search_report_matches_typed_current_events_to_manual_feedback() -> None
     assert report["overall"]["mean_bad_suggestion_rate_at_2"] == 0.5
 
 
-def test_search_report_discards_stale_event_provenance_before_metrics() -> None:
+def test_search_report_rejects_legacy_event_provenance_before_metrics() -> None:
     repository = EvaluationRepository()
     repository.add_session(
         events=({"candidate_track_id": 2, "sources": {"mert": {"rank": 1}}},)

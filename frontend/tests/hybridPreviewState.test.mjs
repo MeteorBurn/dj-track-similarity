@@ -137,14 +137,16 @@ test("Hybrid signature includes database path catalog identity and only Hybrid c
   assert.notEqual(base, hybridSignature(hybridDraft({ sources: { mert: true, maest: true, muq: false, sonara: true, clap: true } })));
 });
 
-test("Hybrid UI consumes backend sources weights contract hashes and MuQ support", () => {
+test("Hybrid UI consumes backend sources and weights without contract identity", () => {
   const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
 
   assert.match(source, /setHybridSourcesUsed\(response\.sources\)/);
+  assert.match(source, /setHybridContributingSources\(response\.contributing_sources\)/);
   assert.match(source, /setHybridWeightsUsed\(response\.weights_used\)/);
-  assert.match(source, /setHybridSourceContractHashes\(response\.source_contract_hashes\)/);
+  assert.match(source, /contributing \{hybridContributingSources\.join\(", "\) \|\| "none"\}/);
+  assert.doesNotMatch(source, /source_contract_hashes|SourceContractHashes|Contracts:/);
   assert.match(source, /key: "muq"/);
-  assert.match(source, /current-contract stored MuQ acoustic embeddings/);
+  assert.match(source, /stored MuQ acoustic embeddings/);
   assert.match(source, /CLAP text prompts are not used here/);
 });
 

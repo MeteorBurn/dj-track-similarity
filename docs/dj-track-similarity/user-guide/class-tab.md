@@ -26,7 +26,7 @@ question will return across many sessions.
 
 The backend reads promoted local profiles only when their manifest is valid and compatible with
 current scoring inputs. The browser lists those profiles in **CLASS**, shows each profile's blocker
-when scoring is unavailable, serializes the minimum-score filters into the v7 library query, and
+when scoring is unavailable, serializes the minimum-score filters into the library query, and
 keeps per-profile rescore actions scoped to the selected `classifier_key`. Standalone Rhythm Lab
 also exposes MuQ-aware training recipes and source-readiness explanations.
 
@@ -45,14 +45,11 @@ Promotion verifies and syncs both generation files before atomically switching
 `current.json`. Discovery rejects an incomplete generation or any pointer,
 manifest, or model hash mismatch.
 
-The manifest describes the classifier key, labels, model id, calibration status, required inputs,
-and optional Hybrid signal metadata. Version `2` records exact ordered `required_outputs`. This
-includes the exact SONARA contract for a SONARA-dependent feature set and the current MuQ embedding
-contract and dimension for `muq:<index>` features.
-
-The promoted artifacts currently checked into `models/classifiers/` use manifest version `1`.
-Runtime discovery keeps them visible with a blocker, but scoring requires retraining and promotion
-to version `2`.
+The manifest describes the classifier key, labels, model id, calibration status, ordered feature
+names, required inputs, and optional Hybrid signal metadata. A SONARA-dependent feature set names
+the SONARA values it uses, while `muq:<index>` features require the expected vector dimension.
+Artifacts with an incomplete or changed feature recipe remain visible with a blocker until that
+profile is retrained and promoted.
 
 ## Filtering
 
@@ -68,7 +65,9 @@ Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/
 by the promoted manifest and writes Core `classifier_scores`. It never decodes audio and never runs
 inside a SONARA or ML job.
 
-Scoring is blocked when the promoted artifact, manifest, and track do not share the same current SONARA signature. Retrain and promote legacy SONARA profiles after reanalysis. Labels and feedback remain available.
+Scoring is blocked when the promoted artifact's ordered feature recipe does not match the stored
+inputs for a track. Retrain and promote affected SONARA profiles after a chosen reanalysis. Labels
+and feedback remain available.
 
 ## CLASSIFIERS analysis stage
 

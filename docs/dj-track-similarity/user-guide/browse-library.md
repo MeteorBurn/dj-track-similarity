@@ -6,7 +6,7 @@
 
 ## Direct API equivalent
 
-The browser uses the same v7 endpoints shown here. For scripting, start the backend on `127.0.0.1`
+The browser uses the same current endpoints shown here. For scripting, start the backend on `127.0.0.1`
 and call them directly:
 
 ```powershell
@@ -20,7 +20,7 @@ The current response shapes and filter query parameters are in the
 
 ## Loading behavior
 
-The library panel uses fixed server-side pages of up to `500` tracks. **Prev**, **Next**, and the
+The library panel uses fixed server-side pages of up to `200` tracks. **Prev**, **Next**, and the
 page-number field request one `/api/tracks` page at a time. All returned rows render in one
 scrollable list. There is no second row-window paginator.
 
@@ -37,7 +37,7 @@ The library browser supports:
 - Liked-only filtering.
 - Classifier minimum-score filters when promoted classifier scores exist.
 - Sort direction toggle.
-- **Prev**, **Next**, and page-number navigation for fixed pages of up to `500` tracks.
+- **Prev**, **Next**, and page-number navigation for fixed pages of up to `200` tracks.
 
 The API caps each request at `1..500`. The UI keeps rows light and opens full metadata only on
 demand.

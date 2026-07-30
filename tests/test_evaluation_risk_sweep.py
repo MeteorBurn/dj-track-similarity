@@ -4,7 +4,7 @@ import pytest
 
 from dj_track_similarity.evaluation.risk_sweep import build_risk_penalty_sweep_report
 
-from evaluation_v7_fixtures import EvaluationRepository, profile
+from evaluation_fixtures import EvaluationRepository, profile
 
 
 def test_risk_sweep_reorders_candidates_by_stored_current_risk() -> None:

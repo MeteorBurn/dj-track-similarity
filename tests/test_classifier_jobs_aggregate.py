@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 import uuid
 from pathlib import Path
@@ -9,9 +8,6 @@ import numpy as np
 import pytest
 
 import dj_track_similarity.classifier_jobs as classifier_jobs_module
-from dj_track_similarity.analysis_model_runners import (
-    current_embedding_analysis_output,
-)
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -20,39 +16,21 @@ from dj_track_similarity.analysis_models import (
     ClassifierSpecification,
     EmbeddingOutput,
     EmbeddingWrite,
-    classifier_required_outputs_hash,
+    current_embedding_spec,
 )
 from dj_track_similarity.classifier_jobs import ClassifierJobManager
-from dj_track_similarity.classifier_manifest import (
-    ClassifierManifestSummary,
-    classifier_feature_manifest_hash,
-)
+from dj_track_similarity.classifier_manifest import ClassifierManifestSummary
 from dj_track_similarity.classifier_scoring import ClassifierRequirements
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import ClassifierScoreV7
+from dj_track_similarity.db_ddl import ClassifierScoreRecord
 
 
 _NOW = "2026-07-24T11:00:00.000000Z"
 _ARTIFACT_HASH = "sha256:" + "a" * 64
 
 
-def _mert_output(*, model_version: str = "active") -> AnalysisOutput:
-    current = current_embedding_analysis_output("mert")
-    if model_version in {"active", "revision-1"}:
-        return current
-    if model_version != "inactive":
-        raise ValueError(f"Unsupported test MERT identity: {model_version}")
-    stale_version = (
-        "0" * 40
-        if current.contract.model_version != "0" * 40
-        else "f" * 40
-    )
-    return AnalysisOutput(
-        replace(
-            current.contract,
-            model_version=stale_version,
-        )
-    )
+def _mert_output() -> AnalysisOutput:
+    return AnalysisOutput("mert", "embedding")
 
 
 def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
@@ -87,14 +65,14 @@ def _write_embedding(
     target: AnalysisTarget,
     output: AnalysisOutput,
 ) -> None:
-    vector = np.zeros(int(output.contract.dim), dtype=np.float32)
+    vector = np.zeros(current_embedding_spec(output.analysis_family).dimension, dtype=np.float32)
     vector[0] = 1.0
     result = db.save_embedding_results(
         (
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=output.contract,
+                    family=output.analysis_family,
                     vector=vector,
                     analyzed_at=_NOW,
                 ),
@@ -107,17 +85,11 @@ def _write_embedding(
 def _requirements(
     classifier_key: str,
     output: AnalysisOutput,
-    *,
-    model_id: str | None = None,
 ) -> ClassifierRequirements:
     feature_names = ("mert:0",)
-    feature_hash = classifier_feature_manifest_hash(feature_names)
     specification = ClassifierSpecification(
         classifier_key=classifier_key,
-        model_id=model_id or f"{classifier_key}-model",
-        feature_set="mert-contract",
-        feature_manifest_hash=feature_hash,
-        required_outputs_hash=classifier_required_outputs_hash((output,)),
+        feature_set="mert-features",
         feature_names=feature_names,
         required_outputs=(output,),
         label_order=("negative", "positive"),
@@ -131,13 +103,9 @@ def _requirements(
         feature_set=specification.feature_set,
         feature_names=feature_names,
         feature_count=1,
-        feature_manifest_hash=feature_hash,
-        required_outputs=(output,),
         label_order=("negative", "positive"),
         positive_label="positive",
         negative_label="negative",
-        manifest_version=2,
-        model_id=specification.model_id,
         artifact_hash=_ARTIFACT_HASH,
     )
     return ClassifierRequirements(
@@ -164,16 +132,13 @@ class _FakeScorer:
         return ClassifierScoreWrite(
             target=row.target,
             specification=self.specification,
-            score=ClassifierScoreV7(
+            score=ClassifierScoreRecord(
                 track_id=row.target.track_id,
+                track_uuid=row.target.track_uuid,
                 classifier_key=self.specification.classifier_key,
                 content_generation=row.target.content_generation,
-                model_id=self.specification.model_id,
                 feature_set=self.specification.feature_set,
-                feature_manifest_hash=self.specification.feature_manifest_hash,
-                required_outputs_hash=(self.specification.required_outputs_hash),
-                uses_sonara=0,
-                sonara_release_hash=None,
+                feature_names_json=json.dumps(list(self.specification.feature_names)),
                 positive_label="positive",
                 predicted_class="positive",
                 score_bucket="high",
@@ -203,7 +168,7 @@ def _score_count(db: LibraryDatabase, classifier_key: str) -> int:
         )
 
 
-def test_aggregate_limit_caps_track_classifier_pairs_on_v7_rows(
+def test_aggregate_limit_caps_track_classifier_pairs_on_current_rows(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
@@ -279,44 +244,6 @@ def test_not_ready_outputs_are_excluded_before_job_total(
     assert completed.failed == 0
 
 
-def test_all_contracts_are_preflighted_before_any_stale_cleanup(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    active = _mert_output(model_version="active")
-    inactive = _mert_output(model_version="inactive")
-    db.register_analysis_outputs((active,))
-    target = _insert_track(db)
-    stale = _requirements("classifier_one", active, model_id="old-model")
-    stale_write = _FakeScorer(stale).score_row(
-        ClassifierFeatureRow(
-            target=target,
-            specification=stale.specification,
-            vector=np.asarray([1.0], dtype=np.float32),
-        )
-    )
-    assert db.save_classifier_scores((stale_write,))[0].ok
-    requirements = {
-        "classifier_one": _requirements("classifier_one", active),
-        "classifier_two": _requirements("classifier_two", inactive),
-    }
-    manager = ClassifierJobManager(
-        db,
-        requirements_loader=requirements.__getitem__,
-        scorer_factory=_FakeScorer,
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="does not match the current adapter identity",
-    ):
-        manager.create_job(
-            classifiers=("classifier_one", "classifier_two"),
-        )
-
-    assert _score_count(db, "classifier_one") == 1
-
-
 def test_job_write_rejects_track_uuid_changed_after_queueing(
     tmp_path: Path,
 ) -> None:
@@ -351,7 +278,7 @@ def test_job_write_rejects_track_uuid_changed_after_queueing(
     assert _score_count(db, "test_classifier") == 0
 
 
-def test_custom_model_path_calls_v7_requirements_loader_with_database(
+def test_custom_model_path_calls_current_requirements_loader_with_database(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:

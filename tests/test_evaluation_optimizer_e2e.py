@@ -6,7 +6,7 @@ from dj_track_similarity.evaluation.score_profile_optimizer import (
     build_promoted_score_profile_payload,
     build_score_profile_optimizer_report,
 )
-from evaluation_v7_fixtures import EvaluationRepository
+from evaluation_fixtures import EvaluationRepository
 
 
 def test_hybrid_feedback_optimizer_promotion_e2e_fixture() -> None:

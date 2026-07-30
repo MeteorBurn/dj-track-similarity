@@ -58,12 +58,12 @@ variants still read stored SONARA features. The `sonara2vocal` variant adds `voc
 candidate feature set.
 
 The command above uses the current SONARA `core` output, matching the CLI and direct API defaults.
-The `timeline`, `embedding`, and `fingerprint` outputs are not classifier inputs. The exact `core`
-contract becomes part of a SONARA-dependent artifact identity.
+The `timeline`, `embedding`, and `fingerprint` outputs are not classifier inputs. A
+SONARA-dependent artifact records the ordered Core feature names it uses.
 
 ## 2. Start Rhythm Lab
 
-Choose the v7 database in the main app and click the Rhythm Lab flask in the top bar. The app starts
+Choose the database in the main app and click the Rhythm Lab flask in the top bar. The app starts
 or reuses the local Lab process and opens its URL. You can also start it directly:
 
 ```powershell
@@ -203,17 +203,14 @@ dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 
 After a SONARA feature revision, dependent main-library scores and Rhythm Lab predictions are
 invalidated while labels and feedback remain. Reanalyze SONARA, then retrain and promote the affected
-profiles. A stale promoted artifact stays blocked because its manifest signature cannot score current
-tracks.
+profiles. A promoted artifact with a mismatched ordered feature recipe cannot score current tracks.
 
-Use [Prepare and rebuild a SONARA release](./reanalyze-sonara-split-storage.md) when the source
-analysis contract changes.
+Use [Migrate and reanalyze SONARA storage](./reanalyze-sonara-split-storage.md) when the source
+analysis update changes stored structure or the classifier's feature recipe.
 
-The runtime accepts manifest version `2`. The promoted `model.json` files currently in
-`models/classifiers/` still declare version `1`, so they are blocked until their profiles are
-retrained and promoted. A new v2 manifest may declare ordered `muq:<index>` features and the exact
-current MuQ embedding contract; backend scoring loads those values from SQLite without decoding
-audio.
+A promoted artifact may declare ordered `muq:<index>` features and the expected MuQ vector
+dimension. Backend scoring loads those values from SQLite without decoding audio. A profile whose
+ordered feature recipe no longer matches must be retrained and promoted.
 
 ## Safety
 

@@ -14,7 +14,7 @@
 `POST /api/search` или `POST /api/search/sonara`, передать выбранные ID треков в
 `POST /api/set-builder/generate`, прослушать кандидатов через `GET /media/{track_id}` и отправить
 итоговые ID в `POST /api/export`. Текстовый поиск CLAP также доступен через
-`dj-sim text-search`. Актуальные контракты приведены в
+`dj-sim text-search`. Актуальные маршруты и поля приведены в
 [справочнике API](../reference/api.md).
 
 Вкладка SET в браузере предоставляет те же поля источников и весов в независимых вкладках

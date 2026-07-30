@@ -79,11 +79,6 @@ def test_api_normalizes_exact_sonara_outputs_and_native_batch_size(
     tmp_path: Path,
 ) -> None:
     calls: list[dict[str, object]] = []
-    monkeypatch.setattr(
-        AnalysisJobManager,
-        "validate_sonara_preflight",
-        lambda _manager: None,
-    )
     monkeypatch.setattr(AnalysisJobManager, "start", _analysis_start(calls))
     client = _client(monkeypatch, tmp_path)
 
@@ -202,7 +197,7 @@ def test_api_pipeline_preserves_fixed_stage_order(
     }
 
 
-def test_api_sonara_preflight_returns_409_before_starting_job(
+def test_api_sonara_job_starts_without_release_preflight(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -210,26 +205,63 @@ def test_api_sonara_preflight_returns_409_before_starting_job(
 
     def reject(_manager: AnalysisJobManager) -> None:
         events.append("preflight")
-        raise RuntimeError(
-            "SONARA_RELEASE_PREPARATION_REQUIRED: exact release is inactive"
-        )
+        raise AssertionError("release preflight must not run")
 
     def start(_manager: AnalysisJobManager, **_kwargs: object) -> dict[str, object]:
         events.append("start")
         return {"job_id": "should-not-start"}
 
-    monkeypatch.setattr(AnalysisJobManager, "validate_sonara_preflight", reject)
+    monkeypatch.setattr(
+        AnalysisJobManager,
+        "validate_sonara_preflight",
+        reject,
+        raising=False,
+    )
     monkeypatch.setattr(AnalysisJobManager, "start", start)
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
         json={"models": ["sonara"], "limit": 0},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"].startswith(
-        "SONARA_RELEASE_PREPARATION_REQUIRED:"
-    )
-    assert events == ["preflight"]
+    assert response.status_code == 200
+    assert response.json()["job_id"] == "should-not-start"
+    assert events == ["start"]
+
+
+def test_api_sonara_status_returns_neutral_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+
+    def sonara_status(_manager: AnalysisJobManager) -> dict[str, object]:
+        calls.append("status")
+        return {
+            "catalog_uuid": "catalog-current",
+            "total_tracks": 3,
+            "outputs": [
+                {"output_kind": "core", "present_count": 2, "missing_count": 1},
+                {"output_kind": "timeline", "present_count": 1, "missing_count": 2},
+                {"output_kind": "embedding", "present_count": 0, "missing_count": 3},
+                {"output_kind": "fingerprint", "present_count": 3, "missing_count": 0},
+            ],
+        }
+
+    monkeypatch.setattr(AnalysisJobManager, "sonara_status", sonara_status, raising=False)
+
+    response = _client(monkeypatch, tmp_path).get("/api/analysis/sonara/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "catalog_uuid": "catalog-current",
+        "total_tracks": 3,
+        "outputs": [
+            {"output_kind": "core", "present_count": 2, "missing_count": 1},
+            {"output_kind": "timeline", "present_count": 1, "missing_count": 2},
+            {"output_kind": "embedding", "present_count": 0, "missing_count": 3},
+            {"output_kind": "fingerprint", "present_count": 3, "missing_count": 0},
+        ],
+    }
 
 
 def test_api_classifier_preflight_errors_preserve_manifest_reason(
@@ -243,7 +275,7 @@ def test_api_classifier_preflight_errors_preserve_manifest_reason(
             {
                 "classifier_key": "voice_presence",
                 "is_scoring_compatible": False,
-                "manifest_errors": ["MERT contract is inactive"],
+                "manifest_errors": ["MERT features are unavailable"],
             }
         ],
     )
@@ -253,10 +285,10 @@ def test_api_classifier_preflight_errors_preserve_manifest_reason(
     )
 
     assert response.status_code == 400
-    assert "MERT contract is inactive" in response.json()["detail"]
+    assert "MERT features are unavailable" in response.json()["detail"]
 
 
-def test_api_reset_uses_v7_analysis_family_and_rejects_legacy_payload(
+def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:

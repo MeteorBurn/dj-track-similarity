@@ -15,12 +15,9 @@ from dj_track_similarity.analysis_models import (
     AnalysisWriteResult,
     SonaraWrite,
 )
-from dj_track_similarity.sonara_contract import (
-    SONARA_EXPECTED_SCHEMA_VERSION,
-    SONARA_EXPECTED_VERSION,
+from dj_track_similarity.sonara_runtime import (
     SONARA_OUTPUT_KINDS,
     sonara_requested_features,
-    sonara_runtime_contracts,
 )
 from dj_track_similarity.sonara_features import (
     SonaraBatchMetrics,
@@ -40,7 +37,7 @@ class TrackAnalysis(dict):
 
 
 class FakeSonara:
-    __version__ = SONARA_EXPECTED_VERSION
+    __version__ = "arbitrary-future-release"
     SIMILARITY_VERSION = 2
     __sonara_build_id__ = _BUILD_ID
     __sonara_vocalness_model_id__ = "sonara-vocalness-v2"
@@ -78,7 +75,9 @@ class RecordingRepository:
     def register_analysis_outputs(self, outputs):
         selected = tuple(outputs)
         self.register_calls.append(selected)
-        return tuple(output.contract_hash for output in selected)
+        return tuple(
+            f"{output.analysis_family}/{output.output_kind}" for output in selected
+        )
 
     def save_sonara_results(self, writes):
         selected = tuple(writes)
@@ -126,7 +125,7 @@ def _raw_analysis(path: str, *, features: tuple[str, ...]) -> TrackAnalysis:
         beats=np.asarray([0, 22, 43], dtype=np.int64),
         n_beats=3,
         provenance={
-            "schema_version": SONARA_EXPECTED_SCHEMA_VERSION,
+            "future_analyzer_parameter": "accepted",
             "sample_rate": 22_050,
             "hop_length": 512,
             "mode": "playlist",
@@ -165,7 +164,7 @@ def _raw_analysis(path: str, *, features: tuple[str, ...]) -> TrackAnalysis:
     return result
 
 
-def test_default_batch_registers_complete_release_and_writes_core_once() -> None:
+def test_default_batch_registers_all_outputs_and_writes_core_once() -> None:
     FakeSonara.calls.clear()
     repository = RecordingRepository()
     candidates = (_candidate(1), _candidate(2))
@@ -181,7 +180,7 @@ def test_default_batch_registers_complete_release_and_writes_core_once() -> None
     assert [result.target.track_id for result in results] == [1, 2]
     assert all(result.error is None for result in results)
     assert len(repository.register_calls) == 1
-    assert [output.contract.output_kind for output in repository.register_calls[0]] == [
+    assert [output.output_kind for output in repository.register_calls[0]] == [
         "core",
         "timeline",
         "embedding",
@@ -199,10 +198,7 @@ def test_default_batch_registers_complete_release_and_writes_core_once() -> None
     assert call["mode"] == "playlist"
     assert (call["bpm_min"], call["bpm_max"]) == (70, 180)
     assert call["vocalness_model"] == "bundled"
-    contracts = sonara_runtime_contracts(FakeSonara)
-    assert tuple(call["features"]) == sonara_requested_features(
-        runtime=contracts.runtime
-    )
+    assert tuple(call["features"]) == sonara_requested_features()
     assert "vocalness" in call["features"]
     assert "embedding" in call["features"]
     assert "fingerprint" in call["features"]
@@ -252,7 +248,7 @@ def test_all_four_outputs_are_converted_in_one_repository_call() -> None:
     write = repository.save_calls[0][0]
     assert write.timeline is not None
     assert write.similarity_embedding is not None
-    assert write.similarity_embedding.contract.normalization == "none"
+    assert write.similarity_embedding.family == "sonara"
     assert write.fingerprint is not None
     assert write.fingerprint.words.tolist() == [1, 2]
 
@@ -276,8 +272,7 @@ def test_output_selection_changes_persistence_not_native_request_or_core() -> No
         outputs=SONARA_OUTPUT_KINDS,
     )
 
-    contracts = sonara_runtime_contracts(FakeSonara)
-    expected_features = sonara_requested_features(runtime=contracts.runtime)
+    expected_features = sonara_requested_features()
     assert len(FakeSonara.calls) == 2
     assert tuple(FakeSonara.calls[0]["features"]) == expected_features
     assert tuple(FakeSonara.calls[1]["features"]) == expected_features
@@ -287,24 +282,24 @@ def test_output_selection_changes_persistence_not_native_request_or_core() -> No
     assert all_result[0].error is None
     core_write = core_repository.save_calls[0][0]
     all_write = all_repository.save_calls[0][0]
-    assert core_write.core_contract == all_write.core_contract == contracts.core
     assert replace(core_write.core, analyzed_at="") == replace(
         all_write.core,
         analyzed_at="",
     )
-    assert tuple(output.contract.output_kind for output in core_write.outputs) == (
+    assert tuple(output.output_kind for output in core_write.outputs) == (
         "core",
     )
-    assert tuple(output.contract.output_kind for output in all_write.outputs) == (
+    assert tuple(output.output_kind for output in all_write.outputs) == (
         SONARA_OUTPUT_KINDS
     )
 
 
-def test_analysis_output_helper_uses_same_runtime_contract_factory() -> None:
+def test_analysis_output_helper_is_unversioned_and_ignores_runtime_metadata() -> None:
     outputs = analysis_outputs_for_sonara_runtime(FakeSonara)
-    contracts = sonara_runtime_contracts(FakeSonara)
 
-    assert tuple(output.contract for output in outputs) == contracts.identities
+    assert tuple(output.key for output in outputs) == tuple(
+        ("sonara", output_kind) for output_kind in SONARA_OUTPUT_KINDS
+    )
 
 
 def test_empty_batch_performs_no_runtime_or_repository_work() -> None:

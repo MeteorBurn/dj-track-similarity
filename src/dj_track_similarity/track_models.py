@@ -1,4 +1,4 @@
-"""Typed track, tag, and scan models for the v7 runtime."""
+"""Typed track, tag, and scan models for the current runtime."""
 
 from __future__ import annotations
 

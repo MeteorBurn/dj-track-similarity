@@ -1,7 +1,7 @@
 """Review-collection persistence for the separately owned Rhythm Lab database.
 
 Core track ids are accepted only at the main-app boundary and are resolved
-through :class:`TrackRepository` into stable v7 identities.  Persisted
+through :class:`TrackRepository` into stable current identities. Persisted
 collection membership is keyed by catalog UUID and track UUID, with the
 content generation and selected path retained as an immutable audit snapshot.
 """
@@ -139,7 +139,7 @@ class _TrackFileState(Protocol):
 
 
 class RhythmLabTrackRepository(Protocol):
-    """Canonical Core read contract used by the main-app bridge."""
+    """Canonical Core row shape used by the main-app bridge."""
 
     catalog_uuid: str
 
@@ -153,7 +153,7 @@ class RhythmLabTrackRepository(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class RhythmLabTrackSelection:
-    """One exact v7 track snapshot selected for a review collection."""
+    """One exact current track snapshot selected for a review collection."""
 
     catalog_uuid: str
     track_uuid: str
@@ -232,7 +232,7 @@ class ReviewCollection:
 
 
 def default_rhythm_lab_labels_path() -> Path:
-    # Keep the preserved pre-v7 rhythm_lab.sqlite outside the normal writable
+    # Keep the preserved legacy rhythm_lab.sqlite outside the normal writable
     # path. Legacy labels move only through the explicit label-transfer flow.
     return (
         Path(__file__).resolve().parents[2]
@@ -247,7 +247,7 @@ def build_rhythm_lab_collection_selection(
     repository: RhythmLabTrackRepository,
     track_ids: Iterable[int],
 ) -> RhythmLabCollectionSelection:
-    """Resolve transient Core ids into one ordered, stable v7 selection.
+    """Resolve transient Core ids into one ordered, stable selection.
 
     Resolution is delegated to the canonical TrackRepository batch method. No
     Core SQL is issued here, and no missing or changed track is guessed from a
@@ -301,7 +301,7 @@ def build_rhythm_lab_collection_selection_exact(
     repository: RhythmLabTrackRepository,
     expected_identities: Sequence[TrackIdentity],
 ) -> RhythmLabCollectionSelection:
-    """Resolve paths without rebinding any client-confirmed v7 identity."""
+    """Resolve paths without rebinding any client-confirmed identity."""
 
     catalog_uuid = _required_text(
         repository.catalog_uuid,
@@ -364,7 +364,7 @@ def build_rhythm_lab_collection_selection_exact(
 
 
 def ensure_review_collection_schema(connection: sqlite3.Connection) -> None:
-    """Create the v7-only review collection tables in a Lab database.
+    """Create the review collection tables in a Lab database.
 
     A legacy ``source_track_id`` schema is rejected instead of being
     interpreted as current identity. Recovery/import is a separate explicit
@@ -427,7 +427,7 @@ def ensure_review_collection_schema(connection: sqlite3.Connection) -> None:
 def validate_review_collection_schema(
     connection: sqlite3.Connection,
 ) -> None:
-    """Validate any existing v7 review tables without creating or changing them."""
+    """Validate existing review tables without creating or changing them."""
 
     _reject_noncanonical_table(
         connection,
@@ -935,7 +935,7 @@ def _reject_noncanonical_table(
 ) -> None:
     columns = _table_columns(connection, table)
     if columns is not None and columns != expected_columns:
-        required_v7_identity = {
+        required_identity = {
             "catalog_uuid",
             "track_uuid",
             "content_generation",
@@ -943,7 +943,7 @@ def _reject_noncanonical_table(
         }
         if (
             table == "classifier_labels"
-            and not required_v7_identity.issubset(columns)
+            and not required_identity.issubset(columns)
         ):
             raise RuntimeError(
                 "Rhythm Lab table 'classifier_labels' uses legacy track identity; "
@@ -952,7 +952,7 @@ def _reject_noncanonical_table(
                 "'python -m rhythm_lab.label_transfer'"
             )
         raise RuntimeError(
-            f"Rhythm Lab table {table!r} is not the canonical v7 schema; "
+            f"Rhythm Lab table {table!r} is not the canonical structure; "
             f"choose {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r} as the writable "
             "database and use the explicit label recovery command "
             "'python -m rhythm_lab.label_transfer'"
@@ -968,5 +968,5 @@ def _require_exact_columns(
     columns = _table_columns(connection, table)
     if columns != expected_columns:
         raise RuntimeError(
-            f"Rhythm Lab table {table!r} does not match the canonical v7 schema"
+            f"Rhythm Lab table {table!r} does not match the canonical structure"
         )

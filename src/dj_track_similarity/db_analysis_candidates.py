@@ -1,18 +1,14 @@
-"""Current-generation candidate readiness for the v7 analysis repository."""
+"""Current-generation candidate readiness for the analysis repository."""
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
 
-from .analysis_contracts import require_registered_contract
 from .analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
-    InactiveAnalysisOutputError,
-    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-    active_contract_setting_key,
 )
 from .db_artifacts import (
     ArtifactTrackIdentity,
@@ -56,7 +52,7 @@ def normalize_analysis_outputs(
     keys = [output.key for output in normalized]
     if len(set(keys)) != len(keys):
         raise ValueError(
-            "outputs must contain at most one active contract per family/output"
+            "outputs must contain at most one value per family/output"
         )
     return normalized
 
@@ -73,32 +69,8 @@ def require_active_analysis_outputs(
     core_connection: sqlite3.Connection,
     outputs: Sequence[AnalysisOutput],
 ) -> tuple[AnalysisOutput, ...]:
-    normalized = normalize_analysis_outputs(outputs)
-    settings = {
-        str(row[0]): str(row[1])
-        for row in core_connection.execute(
-            "SELECT setting_key, setting_value FROM library_settings"
-        )
-    }
-    active_release = settings.get(SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY)
-    for output in normalized:
-        require_registered_contract(core_connection, output.contract)
-        setting_key = active_contract_setting_key(output)
-        active_hash = settings.get(setting_key)
-        if active_hash != output.contract_hash:
-            raise InactiveAnalysisOutputError(
-                "analysis output is not active: "
-                f"{output.contract.analysis_family}/{output.contract.output_kind} "
-                f"{output.contract_hash}"
-            )
-        if (
-            output.contract.analysis_family == "sonara"
-            and active_release != output.contract.release_hash
-        ):
-            raise InactiveAnalysisOutputError(
-                f"SONARA output release is not active: {output.contract.release_hash}"
-            )
-    return normalized
+    del core_connection
+    return normalize_analysis_outputs(outputs)
 
 
 def read_current_track_rows(
@@ -167,19 +139,16 @@ def ready_target_keys_by_output(
                        stored.content_generation
                 FROM {core_table} AS stored
                 JOIN tracks ON tracks.track_id = stored.track_id
-                WHERE stored.contract_hash = ?
-                  AND stored.content_generation = tracks.content_generation
+                WHERE stored.content_generation = tracks.content_generation
                   AND tracks.missing_since IS NULL
-                """,
-                (output.contract_hash,),
+                """
             )
         else:
             artifact_table = artifact_table_for_output(output)
             if artifact_table is None:
                 raise ValueError(
                     "unsupported analysis output "
-                    f"{output.contract.analysis_family}/"
-                    f"{output.contract.output_kind}"
+                    f"{output.analysis_family}/{output.output_kind}"
                 )
             rows = _valid_artifact_rows(
                 artifacts_connection,
@@ -201,9 +170,7 @@ def _valid_sonara_core_rows(
         f"""
         SELECT {", ".join(SONARA_CORE_COLUMNS)}
         FROM sonara
-        WHERE contract_hash = ?
-        """,
-        (output.contract_hash,),
+        """
     ).fetchall()
     valid_rows: list[tuple[int, str, int]] = []
     for row in rows:
@@ -212,7 +179,6 @@ def _valid_sonara_core_rows(
             continue
         valid, _reason = validate_sonara_core_row(
             row,
-            expected_contract=output.contract,
             expected_track_id=expected_track.track_id,
             expected_content_generation=expected_track.content_generation,
         )
@@ -237,9 +203,7 @@ def _valid_maest_analysis_rows(
         f"""
         SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
         FROM maest_scores
-        WHERE contract_hash = ?
-        """,
-        (output.contract_hash,),
+        """
     ).fetchall()
     valid_rows: list[tuple[int, str, int]] = []
     for row in rows:
@@ -248,7 +212,6 @@ def _valid_maest_analysis_rows(
             continue
         valid, _reason = validate_maest_analysis_row(
             row,
-            expected_contract=output.contract,
             expected_track_id=expected_track.track_id,
             expected_content_generation=expected_track.content_generation,
         )
@@ -270,7 +233,7 @@ def _valid_artifact_rows(
     output: AnalysisOutput,
     current_tracks: dict[int, ArtifactTrackIdentity],
 ) -> tuple[sqlite3.Row, ...]:
-    if output.contract.output_kind == "embedding":
+    if output.output_kind == "embedding":
         payload_fields = "dim, normalization, embedding_blob"
     elif output.key == ("sonara", "timeline"):
         payload_fields = "payload_json"
@@ -279,39 +242,34 @@ def _valid_artifact_rows(
     else:
         raise ValueError(
             "unsupported artifact output "
-            f"{output.contract.analysis_family}/{output.contract.output_kind}"
+            f"{output.analysis_family}/{output.output_kind}"
         )
     rows = connection.execute(
         f"""
-        SELECT track_id, track_uuid, content_generation, contract_hash,
+        SELECT track_id, track_uuid, content_generation,
                {payload_fields}
         FROM {table}
-        WHERE contract_hash = ?
-        """,
-        (output.contract_hash,),
+        """
     ).fetchall()
     valid: list[sqlite3.Row] = []
     for row in rows:
         expected_track = current_tracks.get(int(row["track_id"]))
         if expected_track is None:
             continue
-        if output.contract.output_kind == "embedding":
+        if output.output_kind == "embedding":
             is_valid, _reason = validate_embedding_row_payload(
-                family=output.contract.analysis_family,
+                family=output.analysis_family,
                 row=row,
-                expected_contract=output.contract,
                 expected_track=expected_track,
             )
         elif output.key == ("sonara", "timeline"):
             is_valid, _reason = validate_timeline_row_payload(
                 row=row,
-                expected_contract=output.contract,
                 expected_track=expected_track,
             )
         else:
             is_valid, _reason = validate_fingerprint_row_payload(
                 row=row,
-                expected_contract=output.contract,
                 expected_track=expected_track,
             )
         if is_valid:

@@ -1,13 +1,13 @@
-import type { AnalysisModel, TrackSummaryV7 } from "./api";
+import type { AnalysisModel, TrackSummary } from "./api";
 
-export function displayTrack(track: TrackSummaryV7) {
+export function displayTrack(track: TrackSummary) {
   if (track.artist && track.title) return `${track.artist} - ${track.title}`;
   return track.title || basename(track.file_path) || track.file_path;
 }
 
 export function sameTrackIdentity(
-  left: TrackSummaryV7,
-  right: TrackSummaryV7
+  left: TrackSummary,
+  right: TrackSummary
 ) {
   return (
     left.track_id === right.track_id
@@ -26,7 +26,7 @@ export function trackCountLabel(count: number) {
   return "треков";
 }
 
-export function trackHasAnalysis(track: TrackSummaryV7, adapter: AnalysisModel) {
+export function trackHasAnalysis(track: TrackSummary, adapter: AnalysisModel) {
   if (adapter === "sonara") return track.analysis_coverage.sonara_core;
   if (adapter === "maest") return track.analysis_coverage.maest_analysis;
   return track.analysis_coverage[adapter];

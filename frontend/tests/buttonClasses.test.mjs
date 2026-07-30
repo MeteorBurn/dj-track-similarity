@@ -180,7 +180,10 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(appSource, /if \(model === "sonara" \|\| model === "classifiers"\) \{[\s\S]*?return \[model\]/);
   assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara" && item !== "classifiers"\)/);
   assert.match(appSource, /function toggleAllAnalysisModels\(\)[\s\S]*?analysisSelectionOrder\.length[\s\S]*?setSelectedAnalysisModels\(\["sonara"\]\)[\s\S]*?\[\.\.\.analysisSelectionOrder\]/);
-  assert.match(appSource, /useState<SonaraOutput\[]>\(\["core"\]\)/);
+  assert.match(
+    appSource,
+    /useState<SonaraOutput\[]>\(\[\s*"core",\s*"timeline",\s*"embedding",\s*"fingerprint"\s*\]\)/
+  );
   assert.match(appSource, /if \(output === "core"\) return/);
   assert.match(source, /className="sonara-output-row"[\s\S]*?className="sonara-core-option"[\s\S]*?<input type="checkbox" checked disabled[\s\S]*?Timeline[\s\S]*?Embedding[\s\S]*?Fingerprint/);
   assert.match(styles, /\.sonara-output-row\s*{[\s\S]*?display:\s*flex[\s\S]*?flex-wrap:\s*nowrap[\s\S]*?overflow-x:\s*auto/);

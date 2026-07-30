@@ -28,7 +28,7 @@ labels database also starts without a built-in classifier profile. The UI has a
 source database path field, file picker, Load database button, and profile
 creation dialog. Choose or create a classifier profile before loading tracks.
 
-The greenfield v7 writable default is
+The current writable default is
 `tools/rhythm-lab/data/rhythm_lab_v7.sqlite`. An existing
 `tools/rhythm-lab/data/rhythm_lab.sqlite` belongs to the legacy runtime and is
 left untouched by normal startup and collection saves. Use it only as input to
@@ -82,14 +82,14 @@ and keeps labels with duplicate paths as separate records:
 
 ```powershell
 python -m rhythm_lab.label_transfer export --lab-db <legacy-lab.sqlite> --output <export.json>
-python -m rhythm_lab.label_transfer preview --bundle <export.json> --core-db <current-v7-core.sqlite> --output <preview.json>
+python -m rhythm_lab.label_transfer preview --bundle <export.json> --core-db <current-core.sqlite> --output <preview.json>
 python -m rhythm_lab.label_transfer rebound --bundle <export.json> --preview <preview.json> --output <rebound.json>
 ```
 
 Restore is a preview by default:
 
 ```powershell
-python -m rhythm_lab.label_transfer restore --bundle <rebound.json> --core-db <current-v7-core.sqlite> --lab-db <target-lab.sqlite> --report <report.json> [--accept-record-id sha256:...] [--apply] [--force]
+python -m rhythm_lab.label_transfer restore --bundle <rebound.json> --core-db <current-core.sqlite> --lab-db <target-lab.sqlite> --report <report.json> [--accept-record-id sha256:...] [--apply] [--force]
 ```
 
 Do not type the square brackets; they mark optional flags. Without `--apply`,
@@ -98,7 +98,7 @@ database. Strong matches are eligible automatically. A reviewed weak match is
 eligible only when its stable record ID is passed with `--accept-record-id`;
 repeat the option for multiple records.
 
-On every run, restore reopens the current v7 Core database read-only and checks
+On every run, restore reopens the current Core database read-only and checks
 the exact catalog, track UUID, content generation, selected path, file size, and
 mtime before binding. Changed bindings, unaccepted weak matches, unmatched or
 ambiguous rows, and deterministic conflict losers remain losslessly available
@@ -111,5 +111,5 @@ any existing `-wal` and `-shm` companions into a timestamped backup directory.
 Applying the same rebound bundle again is data-idempotent: label and recovery
 rows are upserted rather than duplicated. `--force` only permits replacing an
 existing JSON report; it does not bypass matching, conflict, or Core
-revalidation rules. The workflow never writes the v7 Core database, audio
+revalidation rules. The workflow never writes the Core database, audio
 files, or promoted model files.

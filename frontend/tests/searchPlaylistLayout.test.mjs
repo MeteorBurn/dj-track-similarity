@@ -103,7 +103,7 @@ test("candidate result rows reserve stable columns for all icon actions", () => 
   assert.match(resultMeterRule, /width:\s*100%/);
 });
 
-test("primary search tabs expose all seven v7 workflows with roving ARIA relationships", () => {
+test("primary search tabs expose all seven workflows with roving ARIA relationships", () => {
   assert.match(panelSource, /primarySearchTabs\.map/);
   assert.match(panelSource, /id=\{`search-tab-\$\{tab\}`\}/);
   assert.match(panelSource, /aria-controls=\{`search-panel-\$\{tab\}`\}/);

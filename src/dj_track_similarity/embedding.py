@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import ExitStack
 import hashlib
 import importlib
-from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 import threading
 import time
@@ -50,7 +49,7 @@ class EmbeddingAdapter(Protocol):
     preprocessing: str
     dim: int
 
-    def contract_parameters(self) -> dict[str, object]:
+    def runtime_parameters(self) -> dict[str, object]:
         ...
 
     def embed(self, path: str | Path) -> np.ndarray:
@@ -79,10 +78,6 @@ class MertEmbeddingAdapter:
     pooling = "last-4-layer-mean+masked-time-mean+window-mean+l2"
     encoding = "float32-le"
     normalization = "l2"
-    loader_distribution = "transformers"
-    loader_version = "5.13.0"
-    hub_distribution = "huggingface-hub"
-    hub_version = "1.22.0"
     snapshot_files = (
         "config.json",
         "configuration_MERT.py",
@@ -111,7 +106,7 @@ class MertEmbeddingAdapter:
         self.device: str | None = None
         self.last_batch_timing: dict[str, float | int] = {}
 
-    def contract_parameters(self) -> dict[str, object]:
+    def runtime_parameters(self) -> dict[str, object]:
         return {
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
@@ -132,17 +127,13 @@ class MertEmbeddingAdapter:
             "checkpoint_filename": self.checkpoint_filename,
             "snapshot_files": self.snapshot_files,
             "snapshot_sha256": self.snapshot_sha256,
-            "loader_package": (
-                f"{self.loader_distribution}=={self.loader_version}"
-            ),
-            "hub_package": f"{self.hub_distribution}=={self.hub_version}",
         }
 
     def embed(self, path: str | Path) -> np.ndarray:
         return self.embed_batch([path])[0]
 
     def preflight(self) -> None:
-        """Verify and construct the pinned loader before contract activation."""
+        """Verify model assets and construct the configured loader."""
 
         self._load_model()
 
@@ -233,14 +224,6 @@ class MertEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        _require_distribution_version(
-            self.loader_distribution,
-            self.loader_version,
-        )
-        _require_distribution_version(
-            self.hub_distribution,
-            self.hub_version,
-        )
         import torch
         import torchaudio
         from huggingface_hub import snapshot_download
@@ -265,8 +248,8 @@ class MertEmbeddingAdapter:
             )
             if int(processor.sampling_rate) != self.target_rate:
                 raise RuntimeError(
-                    "Pinned MERT processor sample rate does not match the "
-                    "production contract: "
+                    "Local MERT processor sample rate does not match the "
+                    "configured adapter input: "
                     f"expected {self.target_rate}, got {processor.sampling_rate}"
                 )
             self.device = self._device()
@@ -305,10 +288,6 @@ class MuqEmbeddingAdapter:
     dtype = "float32"
     encoding = "float32-le"
     normalization = "l2"
-    loader_distribution = "muq"
-    loader_version = "0.1.0"
-    hub_distribution = "huggingface-hub"
-    hub_version = "1.22.0"
     snapshot_files = ("config.json", checkpoint_filename)
     snapshot_sha256 = MUQ_SNAPSHOT_SHA256
 
@@ -330,7 +309,7 @@ class MuqEmbeddingAdapter:
         self.device: str | None = None
         self.last_batch_timing: dict[str, float | int] = {}
 
-    def contract_parameters(self) -> dict[str, object]:
+    def runtime_parameters(self) -> dict[str, object]:
         return {
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
@@ -348,17 +327,13 @@ class MuqEmbeddingAdapter:
             "checkpoint_filename": self.checkpoint_filename,
             "snapshot_files": self.snapshot_files,
             "snapshot_sha256": self.snapshot_sha256,
-            "loader_package": (
-                f"{self.loader_distribution}=={self.loader_version}"
-            ),
-            "hub_package": f"{self.hub_distribution}=={self.hub_version}",
         }
 
     def embed(self, path: str | Path) -> np.ndarray:
         return self.embed_batch([path])[0]
 
     def preflight(self) -> None:
-        """Verify and construct the pinned loader before contract activation."""
+        """Verify model assets and construct the configured loader."""
 
         self._load_model()
 
@@ -442,14 +417,6 @@ class MuqEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        _require_distribution_version(
-            self.loader_distribution,
-            self.loader_version,
-        )
-        _require_distribution_version(
-            self.hub_distribution,
-            self.hub_version,
-        )
         import torch
         import torchaudio
         from huggingface_hub import snapshot_download
@@ -503,12 +470,6 @@ class ClapEmbeddingAdapter:
     pooling = "clap-audio+per-window-l2+window-mean+l2"
     encoding = "float32-le"
     normalization = "l2"
-    loader_distribution = "laion-clap"
-    loader_version = "1.1.7"
-    text_loader_distribution = "transformers"
-    text_loader_version = "5.13.0"
-    hub_distribution = "huggingface-hub"
-    hub_version = "1.22.0"
     text_model_name = CLAP_TEXT_MODEL_NAME
     text_model_revision = CLAP_TEXT_MODEL_REVISION
     text_snapshot_files = tuple(
@@ -536,7 +497,7 @@ class ClapEmbeddingAdapter:
         self.device: str | None = None
         self.last_batch_timing: dict[str, float | int] = {}
 
-    def contract_parameters(self) -> dict[str, object]:
+    def runtime_parameters(self) -> dict[str, object]:
         return {
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
@@ -561,13 +522,6 @@ class ClapEmbeddingAdapter:
             "device_precision": "fp32-eval",
             "model_revision": self.model_revision,
             "checkpoint_filename": self.checkpoint_filename,
-            "loader_package": (
-                f"{self.loader_distribution}=={self.loader_version}"
-            ),
-            "text_loader_package": (
-                f"{self.text_loader_distribution}=={self.text_loader_version}"
-            ),
-            "hub_package": f"{self.hub_distribution}=={self.hub_version}",
             "text_model_name": self.text_model_name,
             "text_model_revision": self.text_model_revision,
             "text_snapshot_files": self.text_snapshot_files,
@@ -578,7 +532,7 @@ class ClapEmbeddingAdapter:
         return self.embed_batch([path])[0]
 
     def preflight(self) -> None:
-        """Verify and construct the pinned loader before contract activation."""
+        """Verify model assets and construct the configured loader."""
 
         self._load_model()
 
@@ -670,18 +624,6 @@ class ClapEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        _require_distribution_version(
-            self.loader_distribution,
-            self.loader_version,
-        )
-        _require_distribution_version(
-            self.text_loader_distribution,
-            self.text_loader_version,
-        )
-        _require_distribution_version(
-            self.hub_distribution,
-            self.hub_version,
-        )
         import torch
         import torchaudio
         import laion_clap
@@ -942,20 +884,6 @@ def _download_verified_hf_snapshot(
         expected_sha256=expected_by_name,
         description=f"{repo_id}@{revision}",
     )
-
-
-def _require_distribution_version(distribution: str, expected: str) -> None:
-    try:
-        actual = distribution_version(distribution)
-    except PackageNotFoundError as error:
-        raise RuntimeError(
-            f"Pinned model loader is not installed: {distribution}=={expected}"
-        ) from error
-    if actual != expected:
-        raise RuntimeError(
-            f"Pinned model loader version mismatch for {distribution}: "
-            f"expected {expected}, got {actual}"
-        )
 
 
 def _verify_checkpoint_sha256(

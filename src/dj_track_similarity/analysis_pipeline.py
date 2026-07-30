@@ -89,8 +89,6 @@ class AnalysisPipelineManager:
             raise ValueError(f"Unknown pipeline stages: {', '.join(unknown)}")
         if not selected:
             raise ValueError("At least one pipeline stage must be selected")
-        if "sonara" in selected:
-            self.analysis_jobs.validate_sonara_preflight()
         job_id = str(uuid.uuid4())
         status = AnalysisPipelineStatus(
             job_id=job_id,

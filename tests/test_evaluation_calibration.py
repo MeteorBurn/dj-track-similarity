@@ -10,7 +10,7 @@ from dj_track_similarity.evaluation.calibration import (
     threshold_table,
 )
 
-from evaluation_v7_fixtures import EvaluationRepository
+from evaluation_fixtures import EvaluationRepository
 
 
 def test_calibration_probability_metrics_match_known_values() -> None:

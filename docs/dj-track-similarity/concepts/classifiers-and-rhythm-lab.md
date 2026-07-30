@@ -53,11 +53,12 @@ CLAP also requires stored CLAP audio embeddings. The legacy `combined` alias rem
 `sonara+mert+maest`.
 
 MuQ is a normal embedding feature source. The `muq` set emits ordered `muq:<index>` features from
-the dimension declared by the current MuQ contract. It can be combined with other sources, for
+the dimension expected by the current feature recipe. It can be combined with other sources, for
 example as `sonara+muq`, `mert+muq`, or `sonara+mert+maest+clap+muq`. Missing required values make
 a track ineligible. Required values are not zero-imputed.
 
-SONARA inputs must share one current analysis signature. Training skips stale or mixed profiles. A row missing a requested opt-in field is also skipped rather than zero-imputed.
+SONARA inputs must provide the ordered feature recipe selected for training. A row missing a
+requested opt-in field is skipped rather than zero-imputed.
 
 Classifier calibration is optional and data-gated. If there are not enough labels for calibration, training can still produce an uncalibrated artifact with diagnostics.
 
@@ -77,10 +78,10 @@ models/classifiers/<artifact-prefix>/model.joblib
 models/classifiers/<artifact-prefix>/model.json
 ```
 
-The main app discovers promoted profiles from those manifests. Manifest version `2` records the
-exact ordered `required_outputs`, including the SONARA contract when needed and the canonical MuQ
-embedding contract for `muq:<index>` features. Checked-in version `1` or unversioned artifacts are
-blocked from scoring: retrain and promote a v2 artifact instead.
+The main app discovers promoted profiles from those manifests. Each promoted artifact records its
+exact ordered feature names and required inputs, including MuQ vector dimensions for
+`muq:<index>` features. An incomplete or changed recipe is blocked from scoring until that profile
+is retrained and promoted.
 
 ## Scoring
 
@@ -95,12 +96,9 @@ are never executed.
 
 Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring. Reanalyzing a track with SONARA invalidates that track's SONARA-dependent scores. A full SONARA reset invalidates all such scores but preserves labels and feedback.
 
-The current project SONARA feature revision is `6`. A changed SONARA contract or revision requires
-the ordered `prepare-sonara-release` workflow, then reanalysis, retraining, promotion, and
-rescoring for affected profiles. Preparation makes verified Core + Artifacts backups and records a
-durable receipt so an interrupted operation can resume. It is ordered and crash-resumable, not a
-distributed atomic transaction. Labels, feedback, and embedding-only artifacts remain available;
-stale promoted artifacts are visible but cannot score until replaced.
+When a SONARA update changes stored structure, use the explicit backup-first database migration.
+Reanalysis, retraining, promotion, and rescoring remain separate choices for affected profiles.
+Labels, feedback, and unrelated artifacts remain available.
 
 ## Current UI status
 
@@ -108,6 +106,6 @@ The static Rhythm Lab UI shows current/missing/stale state for every source and 
 **Training recipe** selector for MuQ and arbitrary supported source combinations. Use
 `benchmark-ablation` with explicit `--feature-set` values when you need a repeatable CLI matrix.
 
-The main v7 frontend lists promoted profiles in CLASS, serializes minimum-score filters, and exposes
+The main frontend lists promoted profiles in CLASS, serializes minimum-score filters, and exposes
 per-profile reset plus rescore. Missing scores remain neutral where SET or Hybrid consumes them.
 Malformed manifests stay visible but block scoring with a clear status.

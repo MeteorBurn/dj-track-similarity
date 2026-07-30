@@ -414,7 +414,6 @@ def _record_weighted_candidate_sessions(
         seed_rows = sorted(rows_by_seed.get(seed_track_id, ()), key=lambda row: row.profile_rank)
         if not seed_rows:
             continue
-        source_contract_hashes = _source_contract_hashes(seed_rows)
         session_id = db.create_search_session(
             WEIGHTED_CANDIDATE_SESSION_MODE,
             [seed_track_id],
@@ -434,7 +433,6 @@ def _record_weighted_candidate_sessions(
                 "score_profile_name": profile.name,
                 "score_profile_weights": dict(sorted(profile.weights.items())),
                 "candidate_count": len(seed_rows),
-                "source_contract_hashes": source_contract_hashes,
             },
         )
         for row in seed_rows:
@@ -465,7 +463,6 @@ def _score_breakdown(row: WeightedCandidateRow, profile: ScoreProfile, rrf_k: in
         "score_profile_name": profile.name,
         "profile_weights": dict(sorted(profile.weights.items())),
         "candidate_identity": _identity_payload(row.candidate_track),
-        "source_contract_hashes": _source_contract_hashes((row,)),
         "source_ranks": {source: component["rank"] for source, component in components.items()},
         "weighted_rrf": {
             "score": row.profile_score,
@@ -541,31 +538,14 @@ def _profile_sources(profile: ScoreProfile) -> tuple[str, ...]:
 
 def _source_contribution_payload(
     contributions: Mapping[str, CandidateSourceContribution],
-) -> dict[str, dict[str, float | int | str]]:
+) -> dict[str, dict[str, float | int]]:
     return {
         source: {
             "rank": contribution.rank,
             "score": contribution.score,
-            "contract_hash": contribution.contract_hash,
         }
         for source, contribution in sorted(contributions.items())
     }
-
-
-def _source_contract_hashes(
-    rows: Sequence[WeightedCandidateRow],
-) -> dict[str, str]:
-    hashes: dict[str, str] = {}
-    for row in rows:
-        for source, contribution in row.source_contributions.items():
-            existing = hashes.get(source)
-            if existing is not None and existing != contribution.contract_hash:
-                raise ValueError(
-                    "Weighted candidate rows contain multiple contract hashes "
-                    f"for source={source}"
-                )
-            hashes[source] = contribution.contract_hash
-    return dict(sorted(hashes.items()))
 
 
 def _identity_payload(track: TransitionTrack) -> dict[str, object]:

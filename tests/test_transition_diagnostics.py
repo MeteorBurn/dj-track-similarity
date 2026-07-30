@@ -4,7 +4,6 @@ import math
 
 import pytest
 
-from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -23,15 +22,7 @@ from dj_track_similarity.transition_diagnostics import (
 
 
 CATALOG_UUID = "transition-diagnostics-catalog"
-SONARA_OUTPUT = AnalysisOutput(
-    ContractIdentity(
-        analysis_family="sonara",
-        output_kind="core",
-        model_name="sonara",
-        model_version="test",
-        release_hash="sha256:" + "1" * 64,
-    )
-)
+SONARA_OUTPUT = AnalysisOutput("sonara", "core")
 
 
 def _track(

@@ -16,7 +16,7 @@ The exact pre-MuQ request selects `mert`, `maest`, and `clap` with raw weights `
 `0.22`, plus SONARA broad at `0.30`. It does not require MuQ. The backend normalizes those values,
 and the response reports enabled sources, effective weights, and total and missing coverage.
 
-The schema-v7 browser exposes source toggles, custom raw weights, and a reset to the current default
+The current browser exposes source toggles, custom raw weights, and a reset to the current default
 profile. Disabled sources are omitted from the request and eligibility.
 
 ## Manual and auto anchors
@@ -46,7 +46,7 @@ five-signal default divides each raw value by `1.15`.
 
 Hybrid search defaults to `mert`, `maest`, `muq`, `sonara`, and `clap`, each with an effective weight
 of `0.20`. MuQ contributes through the same rank-fusion breakdown, diagnostics, and recorded source
-contract hashes as the other embedding sources.
+details as the other embedding sources.
 
 ## Ordering
 
@@ -68,7 +68,7 @@ General BPM mode uses tempo for transition compatibility. Low-to-high and high-t
 SET resolves current SONARA tempo evidence first. Below `0.45` confidence, ranked SONARA candidates
 and the Mutagen BPM tag can corroborate or replace the working estimate. Beat-grid stability weakens
 unreliable tempo evidence, and a low-reliability estimate cannot become a hard rejection by itself.
-See the [SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).
+See the [SONARA integration reference](../reference/sonara-integration.md).
 
 ## Add preview is explicit
 

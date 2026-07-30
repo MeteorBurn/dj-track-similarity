@@ -7,9 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.classifier_production import normalize_label_suggestion_mode, suggest_classifier_labels
-from dj_track_similarity.classifier_manifest import CLASSIFIER_MANIFEST_VERSION
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import uvicorn_log_config
 from dj_track_similarity.rhythm_lab_collections import (
@@ -156,7 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument(
         "--source-catalog-uuid",
         default=None,
-        help="Require the selected v7 source database to match this catalog UUID.",
+        help="Require the selected source database to match this catalog UUID.",
     )
     serve_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     serve_parser.add_argument("--host", default="127.0.0.1")
@@ -248,10 +246,7 @@ def promote_profile_model(
     if feature_set is not None and artifact_feature_set != feature_set:
         raise PromotionError(f"Expected a {feature_set!r} artifact, got feature_set={artifact_feature_set!r}")
     feature_sources(artifact_feature_set)
-    required_outputs = _validated_required_outputs(
-        payload.get("required_outputs"),
-        feature_set=artifact_feature_set,
-    )
+    feature_names = _validated_feature_names(payload.get("feature_names"))
     production_calibration = _artifact_calibration_payload(payload)
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
@@ -260,21 +255,14 @@ def promote_profile_model(
     target = Path(target_root) / profile.artifact_prefix
     artifact_hash = verified_artifact.artifact_hash
     promoted_at = datetime.now(timezone.utc)
-    promoted_stamp = promoted_at.strftime("%Y%m%dT%H%M%SZ")
-    model_id = (
-        f"{profile.classifier_key}_{promoted_stamp}_"
-        f"{artifact_hash.removeprefix('sha256:')[:8]}"
-    )
     metadata = {
         "classifier_key": profile.classifier_key,
-        "manifest_version": CLASSIFIER_MANIFEST_VERSION,
-        "model_id": model_id,
         "artifact_hash": artifact_hash,
         "profile_name": profile.name,
         "profile_type": profile.profile_type,
         "feature_set": artifact_feature_set,
-        "feature_count": len(payload.get("feature_names", [])),
-        "feature_names": list(payload.get("feature_names", [])),
+        "feature_count": len(feature_names),
+        "feature_names": feature_names,
         "label_order": payload.get("label_order", list(profile.training_label_keys)),
         "positive_label": payload.get("positive_label", profile.positive_label),
         "negative_label": profile.negative_label,
@@ -282,7 +270,6 @@ def promote_profile_model(
         "promoted_at": promoted_at.isoformat(),
         "production": {
             "score_semantics": "positive_label_probability",
-            "required_outputs": required_outputs,
             "calibration": _manifest_calibration_payload(production_calibration),
             "limitations": _manifest_limitations(production_calibration),
         },
@@ -489,70 +476,17 @@ def _artifact_matches_calibration_filter(path: Path, calibration: str) -> bool:
     raise PromotionError(f"Unsupported calibration filter: {calibration}")
 
 
-def _validated_required_outputs(
-    value: object,
-    *,
-    feature_set: str,
-) -> list[dict[str, object]]:
-    if not isinstance(value, list) or not value:
+def _validated_feature_names(value: object) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(set(value)) != len(value)
+    ):
         raise PromotionError(
-            "Artifact must declare a non-empty ordered required_outputs list"
+            "Artifact must declare a non-empty ordered feature_names list"
         )
-    contracts: list[ContractIdentity] = []
-    result: list[dict[str, object]] = []
-    for index, item in enumerate(value):
-        if not isinstance(item, Mapping) or set(item) != {
-            "contract_hash",
-            "canonical_payload",
-        }:
-            raise PromotionError(
-                f"required_outputs[{index}] must contain exactly "
-                "contract_hash and canonical_payload"
-            )
-        canonical_payload = item["canonical_payload"]
-        if not isinstance(canonical_payload, Mapping):
-            raise PromotionError(
-                f"required_outputs[{index}].canonical_payload must be an object"
-            )
-        try:
-            canonical_json = json.dumps(
-                dict(canonical_payload),
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            )
-            contract = ContractIdentity.from_canonical_payload_json(canonical_json)
-        except (TypeError, ValueError) as error:
-            raise PromotionError(
-                f"required_outputs[{index}] is not a canonical analysis contract"
-            ) from error
-        if item["contract_hash"] != contract.contract_hash:
-            raise PromotionError(
-                f"required_outputs[{index}].contract_hash does not match "
-                "canonical_payload"
-            )
-        contracts.append(contract)
-        result.append(
-            {
-                "contract_hash": contract.contract_hash,
-                "canonical_payload": contract.canonical_payload,
-            }
-        )
-    expected = [
-        (source, "core" if source == "sonara" else "embedding")
-        for source in feature_sources(feature_set)
-    ]
-    actual = [
-        (contract.analysis_family, contract.output_kind)
-        for contract in contracts
-    ]
-    if actual != expected:
-        raise PromotionError(
-            "required_outputs must exactly follow feature source order; "
-            f"expected={expected!r}, actual={actual!r}"
-        )
-    return result
+    return list(value)
 
 
 def _artifact_calibration_payload(payload: dict[str, object]) -> dict[str, object]:

@@ -125,7 +125,7 @@ def test_http_error_responses_are_written_to_app_log(
     ) in contents
 
 
-def test_database_switch_creates_selected_v7_bundle(tmp_path: Path) -> None:
+def test_database_switch_creates_selected_current_bundle(tmp_path: Path) -> None:
     db_path = tmp_path / "new-library.sqlite"
     client = TestClient(api_module.create_app())
 
@@ -153,7 +153,7 @@ def test_database_switch_creates_selected_v7_bundle(tmp_path: Path) -> None:
     }
 
 
-def test_database_switch_reads_existing_v7_bundle_and_identity(
+def test_database_switch_reads_existing_current_bundle_and_identity(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "existing.sqlite"
@@ -181,7 +181,7 @@ def test_database_switch_reads_existing_v7_bundle_and_identity(
     assert tracks["items"][0]["title"] == "Stored Track"
 
 
-def test_database_file_dialog_switches_to_selected_v7_bundle(
+def test_database_file_dialog_switches_to_selected_current_bundle(
     monkeypatch,
     tmp_path: Path,
 ) -> None:

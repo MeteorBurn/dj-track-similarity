@@ -1,10 +1,10 @@
 # Browser controls reference
 
 > Audience: Users looking for current browser control ranges and defaults.
-> Goal: Describe the schema-v7 UI that is backed by the active API contracts.
+> Goal: Describe the current UI that is backed by the active API.
 > Type: reference
 
-The browser works with one schema-v7 catalog bundle. The database picker selects the Core SQLite
+The browser works with one catalog bundle. The database picker selects the Core SQLite
 file; the runtime resolves the mandatory `*.artifacts.sqlite` companion and validates the shared
 `catalog_uuid`. The optional `*.evaluation.sqlite` companion is opened only by evaluation
 workflows. There are no separate Timeline or Representations database controls.
@@ -15,7 +15,7 @@ workflows. There are no separate Timeline or Representations database controls.
   instead of being migrated in place.
 - **Music root** and **Scan workers** configure a scan. Scan and **Refresh Tags** update catalog
   rows without rewriting source audio.
-- Library pages contain up to `500` tracks. **Prev**, **Next**, and the page-number field request one
+- Library pages contain up to `200` tracks. **Prev**, **Next**, and the page-number field request one
   `/api/tracks` page at a time.
 - All rows from the current page render in one scrollable list. There is no second row-window
   paginator.
@@ -43,12 +43,11 @@ The initial analysis values are:
 | **Device** | `auto` | `auto`, `cpu`, or `cuda` |
 
 The stage controls keep **SONARA**, **ML**, and **CLASSIFIERS** distinct. **FULL** runs the ordered
-pipeline. SONARA is selected at startup. Its outputs are `core`, `timeline`, `embedding`, and
-`fingerprint`. Core is mandatory and locked, while Timeline, Embedding, and Fingerprint are
-optional. The ML selection contains MAEST, MERT, MuQ, and CLAP only; SONARA and CLASSIFIERS remain
-separate stages. On the first SONARA run in a catalog with no SONARA state, **Analyze** registers
-the exact runtime contracts automatically. The UI also shows queued/running progress, per-file
-failures, blockers, cancellation, and reset actions from the typed v7 job responses.
+pipeline. SONARA is selected at startup with `core`, `timeline`, `embedding`, and `fingerprint`
+all enabled by default. Core is mandatory and locked, while Timeline, Embedding, and Fingerprint
+can be cleared before starting the job. The ML selection contains MAEST, MERT, MuQ, and CLAP only;
+SONARA and CLASSIFIERS remain separate stages. The UI also shows queued/running progress, per-file
+failures, blockers, cancellation, and reset actions from the typed job responses.
 
 ## Search tabs
 
@@ -56,7 +55,7 @@ The primary tab list is **SET**, **SONARA**, **MERT**, **MUQ**, **CLAP**, **CLAS
 Use `ArrowLeft` and `ArrowRight` to move between tabs; `Home` and `End` jump to the first and last
 tab.
 
-MERT and MUQ use the same generic seed-search contract. Both accept a `1..500` result limit and
+MERT and MUQ use the same generic seed-search shape. Both accept a `1..500` result limit and
 selected seed tracks. A tab with zero current embeddings is disabled with a source-specific reason.
 Request failures stay visible in that tab instead of being replaced by an empty successful result.
 
@@ -113,5 +112,5 @@ provides **Reset defaults** and **Pre-MuQ legacy** actions. The legacy action se
 Report mode is the default. Apply mode still requires the exact `APPLY DELETE` confirmation. MuQ or
 CLAP evidence alone never authorizes deletion.
 
-For analysis semantics, see [Analyze a library with v7](../user-guide/analyze-library.md). For
+For analysis semantics, see [Analyze a library](../user-guide/analyze-library.md). For
 source-file boundaries, see [Local-first safety](../concepts/local-first-safety.md).

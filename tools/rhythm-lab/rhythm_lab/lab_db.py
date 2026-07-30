@@ -1394,7 +1394,7 @@ def _reject_noncanonical_table(
     columns = _columns(connection, table)
     if columns and columns != expected_columns:
         raise RuntimeError(
-            f"Rhythm Lab database table {table!r} is not the greenfield v7 schema; "
+            f"Rhythm Lab database table {table!r} is not the current structure; "
             f"choose a new lab database path such as {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r}. "
             "The existing database was not migrated; recover legacy labels with "
             "'python -m rhythm_lab.label_transfer'."

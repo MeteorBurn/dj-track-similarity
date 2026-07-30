@@ -5,18 +5,22 @@ from collections.abc import Callable
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from .api_route_utils import query_classifier_min_scores, valid_classifier_min_scores
+from .api_route_utils import (
+    current_classifier_specifications,
+    query_classifier_min_scores,
+    valid_classifier_min_scores,
+)
 from .api_schemas import (
     ClearLibraryResponse,
     FilteredTracksRequest,
-    LibrarySummaryV7,
+    LibrarySummaryResponse,
     RelocateLibraryRequest,
     ScanRequest,
     TagRefreshRequest,
-    TrackDetailV7,
+    TrackDetailResponse,
     TrackLikedRequest,
-    TrackPageV7,
-    TrackSummaryV7,
+    TrackPageResponse,
+    TrackSummaryResponse,
 )
 from .api_state import AppDatabaseState
 from .media_preview import AudioPreviewError, requires_browser_preview_transcode, transcoded_wav_file_response
@@ -87,7 +91,7 @@ def register_library_routes(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @app.get("/api/tracks", response_model=TrackPageV7)
+    @app.get("/api/tracks", response_model=TrackPageResponse)
     def tracks(
         q: str = "",
         preset: str = Query(default="all", pattern="^(all|syncopated)$"),
@@ -97,6 +101,9 @@ def register_library_routes(
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ):
+        classifier_specifications = current_classifier_specifications(
+            promoted_classifiers()
+        )
         return state.require_db().paginate_track_summaries(
             query=q,
             syncopated_only=preset == "syncopated",
@@ -105,11 +112,15 @@ def register_library_routes(
             limit=limit,
             offset=offset,
             search_mode=search_mode,
+            classifier_specifications=classifier_specifications,
         )
 
-    @app.post("/api/tracks/{track_id}/liked", response_model=TrackSummaryV7)
+    @app.post("/api/tracks/{track_id}/liked", response_model=TrackSummaryResponse)
     def set_track_liked(track_id: int, request: TrackLikedRequest):
         try:
+            classifier_specifications = current_classifier_specifications(
+                promoted_classifiers()
+            )
             return state.require_db().set_track_liked(
                 expected=TrackIdentity(
                     catalog_uuid=request.catalog_uuid,
@@ -118,16 +129,23 @@ def register_library_routes(
                     content_generation=request.expected_content_generation,
                 ),
                 liked=request.liked,
+                classifier_specifications=classifier_specifications,
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.get("/api/tracks/{track_id}", response_model=TrackDetailV7)
+    @app.get("/api/tracks/{track_id}", response_model=TrackDetailResponse)
     def track(track_id: int):
         try:
-            return state.require_db().get_track_detail(track_id)
+            classifier_specifications = current_classifier_specifications(
+                promoted_classifiers()
+            )
+            return state.require_db().get_track_detail(
+                track_id,
+                classifier_specifications=classifier_specifications,
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -138,24 +156,33 @@ def register_library_routes(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @app.post("/api/tracks/filtered", response_model=list[TrackSummaryV7])
+    @app.post("/api/tracks/filtered", response_model=list[TrackSummaryResponse])
     def filtered_tracks(request: FilteredTracksRequest):
+        classifier_specifications = current_classifier_specifications(
+            promoted_classifiers()
+        )
         return state.require_db().filter_track_summaries(
             query=request.query,
             syncopated_only=request.preset == "syncopated",
             liked_only=request.liked,
             classifier_min_scores=valid_classifier_min_scores(request.classifier_min_scores),
             search_mode=request.search_mode,
+            classifier_specifications=classifier_specifications,
         )
 
-    @app.get("/api/library/summary", response_model=LibrarySummaryV7)
+    @app.get("/api/library/summary", response_model=LibrarySummaryResponse)
     def library_summary():
+        classifier_specifications = current_classifier_specifications(
+            promoted_classifiers()
+        )
         classifier_keys = [
-            str(classifier["classifier_key"])
-            for classifier in promoted_classifiers()
-            if bool(classifier.get("is_scoring_compatible", True))
+            specification.classifier_key
+            for specification in classifier_specifications
         ]
-        return state.require_db().library_summary(classifier_keys=classifier_keys)
+        return state.require_db().library_summary(
+            classifier_keys=classifier_keys,
+            classifier_specifications=classifier_specifications,
+        )
 
     @app.get("/media/{track_id}")
     def media(track_id: int):

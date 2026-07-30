@@ -20,17 +20,12 @@ Search and SET scores are ranking signals. CLAP text scores, MERT seed scores, S
 
 Smart Set Builder always requires SONARA plus every enabled embedding source. The default sources are MERT, MAEST, MuQ, and CLAP. An explicit API source list can omit MuQ or another embedding. A partly analyzed library can browse and search elsewhere, but SET eligible counts will be low for the selected source set.
 
-## SONARA readiness uses exact active contracts
+## SONARA readiness is output-specific
 
-The library summary counts a SONARA Core row only when it matches the exact active `core` contract
-and release. Per-track coverage validates `timeline`, `embedding`, and `fingerprint` independently
-against their exact active contracts and the current track identity. The active release is one
-prepared four-contract set. A missing or stale output is not ready for that output.
-
-Because v7 is a greenfield schema rather than an in-place migration target, the workflow prepares
-and activates the loaded release's four contracts before reanalyzing from a clean SONARA state. This
-full project set does not request SONARA tags or its genre model. See the
-[SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).
+Per-track coverage validates `core`, `timeline`, `embedding`, and `fingerprint` independently against
+the current track identity and payload requirements. A missing output is not ready for that output.
+This project does not currently request SONARA tags or its genre model. See
+[SONARA integration](../reference/sonara-integration.md).
 
 ## Browser preview depends on files still existing
 

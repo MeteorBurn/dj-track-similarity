@@ -450,7 +450,7 @@ function renderSummary(data) {
 
 function featureCoverageBadge(label, value, state) {
   const status = featureStateStatus(state);
-  const reason = featureStateReason(state) || `${label} contract is ${status}.`;
+  const reason = featureStateReason(state) || `${label} data is ${status}.`;
   return `<span class="summary-badge coverage-feature feature-state-${escapeHtml(status)}" title="${escapeHtml(reason)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><i>${escapeHtml(status)}</i></span>`;
 }
 
@@ -841,7 +841,7 @@ function renderTrainingWorkflow(data, planText) {
       </label>
       <div class="workflow-variant-facts">
         ${trainingInfoLine("Required sources", (featureRecipe.required_sources || []).map(source => source.toUpperCase()).join(" + ") || "None")}
-        ${trainingInfoLine("Feature readiness", featureRecipe.ready ? "All required contracts are current" : recipeBlockingText(featureRecipe))}
+        ${trainingInfoLine("Feature readiness", featureRecipe.ready ? "All required source data is current" : recipeBlockingText(featureRecipe))}
         ${trainingInfoLine("Benchmark winner", winner ? `${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No winner yet")}
         ${trainingInfoLine("Selected", selected ? `${selected.feature_set} · rank ${selected.rank ?? "-"} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No selected variant yet")}
       </div>
@@ -879,7 +879,7 @@ function renderTrainingWorkflow(data, planText) {
         number: 5,
         title: "Promote model",
         status: canPromote ? "ready" : "blocked",
-        body: selected ? `Promote ${selected.feature_set} into models/classifiers, then reset and rescore this classifier in the main database.` : "No current-contract trained variant is available for promotion.",
+        body: selected ? `Promote ${selected.feature_set} into models/classifiers, then reset and rescore this classifier in the main database.` : "No structurally compatible trained variant is available for promotion.",
         action: workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier", !canPromote, canPromote ? "Promote selected variant" : "Train a model before promoting")
       })}
     </div>
@@ -896,7 +896,7 @@ function hasTrainedVariant(data) {
 
 function canPromoteArtifact(data) {
   return (data?.artifact_summary?.promotion_options || [])
-    .some(row => row.source_contract_ready === true);
+    .some(row => row.source_data_ready === true);
 }
 
 function renderWorkflowStep({ number, title, status, body, action }) {
@@ -928,7 +928,7 @@ function workflowRecommendation(data, selected) {
   if (!data?.model_artifact && !(data?.artifact_summary?.promotion_options || []).length) return "Train the first model for this profile.";
   if (!data?.artifact_summary?.benchmark_winner) return "Run benchmark to choose the strongest feature-source variant.";
   if (selected) return "Review the selected promotion variant, then promote it when the metrics look right.";
-  return "Retrain a variant against the current source contracts before promotion.";
+  return "Retrain a variant against the current source data before promotion.";
 }
 
 function missingLabelText(data) {
@@ -985,7 +985,7 @@ function readinessBlockedTitle(data) {
 function updatePromoteFeatureSetOptions(data) {
   if (!promoteFeatureSetEl) return;
   const options = data?.artifact_summary?.promotion_options || [];
-  const readyOptions = options.filter(row => row.source_contract_ready === true);
+  const readyOptions = options.filter(row => row.source_data_ready === true);
   const selected = selectedPromotionOption(data);
   const previous = promoteFeatureSetEl.value;
   promoteFeatureSetEl.innerHTML = options.length
@@ -998,10 +998,10 @@ function updatePromoteFeatureSetOptions(data) {
 
 function selectedPromotionOption(data) {
   const options = data?.artifact_summary?.promotion_options || [];
-  const readyOptions = options.filter(row => row.source_contract_ready === true);
+  const readyOptions = options.filter(row => row.source_data_ready === true);
   const requested = promoteFeatureSetEl?.value;
   return readyOptions.find(row => row.feature_set === requested)
-    || (data?.artifact_summary?.latest_promotable?.source_contract_ready === true
+    || (data?.artifact_summary?.latest_promotable?.source_data_ready === true
       ? data.artifact_summary.latest_promotable
       : null)
     || readyOptions[0]
@@ -1010,15 +1010,15 @@ function selectedPromotionOption(data) {
 
 function renderPromotionOptions(options) {
   return options.length
-    ? options.map(row => `<option value="${escapeHtml(String(row.feature_set || ""))}" ${row.source_contract_ready === true ? "" : "disabled"}>${escapeHtml(promotionOptionLabel(row))}</option>`).join("")
+    ? options.map(row => `<option value="${escapeHtml(String(row.feature_set || ""))}" ${row.source_data_ready === true ? "" : "disabled"}>${escapeHtml(promotionOptionLabel(row))}</option>`).join("")
     : '<option value="">No trained model</option>';
 }
 
 function promotionOptionLabel(row) {
   const rank = row.rank ? `#${row.rank}` : "unranked";
-  const sourceState = row.source_contract_ready === true
-    ? "source contracts current"
-    : `blocked: ${row.source_contract_reason || "source contract mismatch"}`;
+  const sourceState = row.source_data_ready === true
+    ? "source data current"
+    : `blocked: ${row.source_data_reason || "source data unavailable"}`;
   return `${row.feature_set || "model"} · ${rank} · F1 ${formatMetricPercent(row.macro_f1_mean)} · ${formatHumanDate(row.created_at)} · ${sourceState}`;
 }
 

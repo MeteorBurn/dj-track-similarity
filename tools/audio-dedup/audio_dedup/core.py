@@ -14,14 +14,7 @@ import zipfile
 
 import numpy as np
 
-from dj_track_similarity.analysis_contracts import (
-    ContractIdentity,
-    read_registered_contract,
-)
-from dj_track_similarity.analysis_model_runners import (
-    current_embedding_analysis_output,
-)
-from dj_track_similarity.analysis_models import ACTIVE_CONTRACT_SETTING_PREFIX
+from dj_track_similarity.analysis_models import current_embedding_spec
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_tracks import canonical_file_path
 from dj_track_similarity.track_models import TrackIdentity
@@ -538,16 +531,6 @@ def load_tracks(
     connection = selected_database.connect()
     artifacts_connection = selected_database.connect_artifacts()
     try:
-        sonara_contract = _active_contract(
-            connection,
-            family="sonara",
-            output_kind="core",
-        )
-        sonara_contract_hash = (
-            None
-            if sonara_contract is None
-            else sonara_contract.contract_hash
-        )
         rows = connection.execute(
             """
             SELECT
@@ -579,18 +562,16 @@ def load_tracks(
             LEFT JOIN sonara AS s
               ON s.track_id = t.track_id
              AND s.content_generation = t.content_generation
-             AND s.contract_hash = ?
             WHERE t.missing_since IS NULL
             ORDER BY t.track_id
             """,
-            (sonara_contract_hash,),
         ).fetchall()
         tracks = [
-            _track_from_v7_row(row, catalog_uuid=selected_database.catalog_uuid)
+            _track_from_row(row, catalog_uuid=selected_database.catalog_uuid)
             for row in rows
             if _path_matches(row["file_path"], root_text, contains)
         ]
-        _attach_v7_embeddings(
+        _attach_embeddings(
             connection,
             artifacts_connection,
             tracks,
@@ -1561,7 +1542,7 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
         f"min_score={payload['min_score']}",
         f"min_similarity={payload['min_similarity']}",
         "min_similarity_semantics=audio-to-audio content gate over enabled MERT/MAEST/MuQ/CLAP embeddings; not CLAP text-search score",
-        "muq_similarity_semantics=audio-to-audio cosine over exact-current-contract stored MuQ embeddings",
+        "muq_similarity_semantics=audio-to-audio cosine over structurally valid current-generation stored MuQ embeddings",
         f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",
@@ -2189,7 +2170,7 @@ def _connect_readonly(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _track_from_v7_row(
+def _track_from_row(
     row: sqlite3.Row,
     *,
     catalog_uuid: str,
@@ -2236,14 +2217,13 @@ def _track_from_v7_row(
     )
 
 
-def _attach_v7_embeddings(
+def _attach_embeddings(
     core_connection: sqlite3.Connection,
     artifacts_connection: sqlite3.Connection,
     tracks: list[TrackRecord],
 ) -> None:
     if not tracks:
         return
-    active_contracts = _active_embedding_contracts(core_connection)
     embeddings_by_track = {track.track_id: {} for track in tracks}
     identity_by_track = {
         track.track_id: (
@@ -2254,9 +2234,7 @@ def _attach_v7_embeddings(
     }
     track_ids = [track.track_id for track in tracks]
     for family in SUPPORTED_EMBEDDINGS:
-        contract = active_contracts.get(family)
-        if contract is None:
-            continue
+        specification = current_embedding_spec(family)
         table = f"{family}_embeddings"
         for chunk in _chunks(track_ids, 800):
             placeholders = ",".join("?" for _ in chunk)
@@ -2266,16 +2244,14 @@ def _attach_v7_embeddings(
                     track_id,
                     track_uuid,
                     content_generation,
-                    contract_hash,
                     dim,
                     normalization,
                     embedding_blob
                 FROM {table}
                 WHERE track_id IN ({placeholders})
-                  AND contract_hash = ?
                 ORDER BY track_id
                 """,
-                (*chunk, contract.contract_hash),
+                chunk,
             ).fetchall()
             for row in rows:
                 track_id = int(row["track_id"])
@@ -2287,8 +2263,8 @@ def _attach_v7_embeddings(
                     continue
                 dim = int(row["dim"])
                 if (
-                    dim != contract.dim
-                    or str(row["normalization"]) != contract.normalization
+                    dim != specification.dimension
+                    or str(row["normalization"]) != specification.normalization
                 ):
                     continue
                 vector = np.frombuffer(
@@ -2304,7 +2280,7 @@ def _attach_v7_embeddings(
                 if not math.isfinite(norm) or norm <= 0:
                     continue
                 if (
-                    contract.normalization == "l2"
+                    specification.normalization == "l2"
                     and not np.isclose(
                         norm,
                         1.0,
@@ -2335,56 +2311,6 @@ def _attach_v7_embeddings(
             content_generation=track.content_generation,
             file_modified_ns=track.file_modified_ns,
         )
-
-
-def _active_embedding_contracts(
-    connection: sqlite3.Connection,
-) -> dict[str, ContractIdentity]:
-    active: dict[str, ContractIdentity] = {}
-    for family in SUPPORTED_EMBEDDINGS:
-        contract = _active_contract(
-            connection,
-            family=family,
-            output_kind="embedding",
-        )
-        current = current_embedding_analysis_output(family)
-        if contract is not None and (
-            contract.contract_hash == current.contract_hash
-            and contract.canonical_payload_json
-            == current.contract.canonical_payload_json
-        ):
-            active[family] = contract
-    return active
-
-
-def _active_contract(
-    connection: sqlite3.Connection,
-    *,
-    family: str,
-    output_kind: str,
-) -> ContractIdentity | None:
-    row = connection.execute(
-        """
-        SELECT setting_value
-        FROM library_settings
-        WHERE setting_key = ?
-        """,
-        (
-            f"{ACTIVE_CONTRACT_SETTING_PREFIX}."
-            f"{family}.{output_kind}",
-        ),
-    ).fetchone()
-    if row is None:
-        return None
-    contract = read_registered_contract(connection, str(row[0]))
-    if (
-        contract is None
-        or contract.analysis_family != family
-        or contract.output_kind != output_kind
-    ):
-        return None
-    return contract
-
 
 def _path_matches(path: str, root: str, contains: list[str]) -> bool:
     normalized = canonical_file_path(path)

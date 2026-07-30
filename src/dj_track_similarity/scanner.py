@@ -1,4 +1,4 @@
-"""Audio-file discovery and the canonical v7 scan path."""
+"""Audio-file discovery and the canonical scan path."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def scan_library(
     repository: TrackRepository,
     root: str | Path,
 ) -> ScanStats:
-    """Scan one root through the sole v7 TrackRepository write path."""
+    """Scan one root through the sole TrackRepository write path."""
 
     root_path = _resolved_directory(root)
     stats = ScanStats()

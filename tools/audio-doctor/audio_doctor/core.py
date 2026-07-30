@@ -1166,7 +1166,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="append",
         type=Path,
         default=[],
-        help="V7 SQLite library database to read tracks.file_path values from.",
+        help="SQLite library database to read tracks.file_path values from.",
     )
     parser.add_argument(
         "--db-root",
@@ -1293,7 +1293,7 @@ def collect_db_paths(dbs: list[Path], *, db_roots: list[Path], file_root: Path |
 
 
 def paths_from_db(db_path: Path, *, db_roots: list[Path], file_root: Path | None) -> list[Path]:
-    """Return supported v7 track paths through the canonical repository."""
+    """Return supported track paths through the canonical repository."""
 
     return paths_from_track_records(
         _track_path_records_from_db(db_path),

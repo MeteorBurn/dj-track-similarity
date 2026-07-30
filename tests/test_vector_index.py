@@ -268,7 +268,7 @@ def _add_track(
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=output.contract,
+                    family=output.analysis_family,
                     vector=vector,
                     analyzed_at=_NOW,
                 ),

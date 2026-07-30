@@ -122,7 +122,12 @@ def create_app(
     register_audio_doctor_routes(app, state)
     register_evaluation_routes(app, state)
     register_reference_compare_routes(app, state)
-    register_search_routes(app, state, clap_embedding_adapter=ClapEmbeddingAdapter)
+    register_search_routes(
+        app,
+        state,
+        clap_embedding_adapter=ClapEmbeddingAdapter,
+        promoted_classifiers=promoted_classifiers,
+    )
     register_server_routes(app)
     register_set_builder_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)

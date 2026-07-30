@@ -7,7 +7,6 @@ from pathlib import Path
 import numpy as np
 
 from dj_track_similarity.analysis_model_runners import (
-    MaestModelRunner,
     current_embedding_analysis_output,
 )
 from dj_track_similarity.analysis_models import (
@@ -18,22 +17,14 @@ from dj_track_similarity.analysis_models import (
     MaestGenreScore,
     MaestWrite,
     SonaraWrite,
+    current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import SonaraRowV7
-from dj_track_similarity.prepare_sonara_release import (
-    CONFIRM_STRING,
-    prepare_sonara_release,
-)
+from dj_track_similarity.db_ddl import SonaraRow
 from dj_track_similarity.evaluation.seed_sampling import (
     SEED_SAMPLE_COLUMNS,
     export_seed_sample,
     write_seed_sample_csv,
-)
-from dj_track_similarity.sonara_contract import (
-    SONARA_EXPECTED_VERSION,
-    SonaraContractSet,
-    sonara_runtime_contracts,
 )
 from dj_track_similarity.track_models import (
     FileTags,
@@ -43,14 +34,6 @@ from dj_track_similarity.track_models import (
 
 
 _NOW = "2026-07-24T10:00:00.000000Z"
-
-
-class _FakeSonara:
-    __version__ = SONARA_EXPECTED_VERSION
-    SIMILARITY_VERSION = 2
-    __sonara_build_id__ = "sha256:" + "4" * 64
-    __sonara_vocalness_model_id__ = "sonara-vocalness-v2"
-    __sonara_vocalness_model_build_id__ = "sha256:" + "5" * 64
 
 
 def test_seed_sample_is_deterministic_for_same_seed(tmp_path: Path) -> None:
@@ -328,24 +311,30 @@ def _save_ml_embeddings(
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=mert.contract,
-                    vector=_unit_vector(int(mert.contract.dim), axis),
+                    family="mert",
+                    vector=_unit_vector(
+                        current_embedding_spec("mert").dimension, axis
+                    ),
                     analyzed_at=_NOW,
                 ),
             ),
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=muq.contract,
-                    vector=_unit_vector(int(muq.contract.dim), axis),
+                    family="muq",
+                    vector=_unit_vector(
+                        current_embedding_spec("muq").dimension, axis
+                    ),
                     analyzed_at=_NOW,
                 ),
             ),
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=clap.contract,
-                    vector=_unit_vector(int(clap.contract.dim), axis),
+                    family="clap",
+                    vector=_unit_vector(
+                        current_embedding_spec("clap").dimension, axis
+                    ),
                     analyzed_at=_NOW,
                 ),
             ),
@@ -356,14 +345,13 @@ def _save_ml_embeddings(
         (
             MaestWrite(
                 target=target,
-                analysis_contract=maest_analysis.contract,
                 genres=(MaestGenreScore(label="Techno", score=0.9),),
                 syncopated_rhythm=None,
                 analyzed_at=_NOW,
                 embedding=EmbeddingOutput(
-                    contract=maest_embedding.contract,
+                    family="maest",
                     vector=_unit_vector(
-                        int(maest_embedding.contract.dim),
+                        current_embedding_spec("maest").dimension,
                         axis,
                     ),
                     analyzed_at=_NOW,
@@ -383,14 +371,12 @@ def _save_sonara_core(
     musical_key: str | None = "1A",
 ) -> None:
     target = _target(identity)
-    contracts = _sonara_contracts()
-    _prepare_sonara_release(db)
-    values = {field.name: None for field in fields(SonaraRowV7)}
+    db.register_analysis_outputs((AnalysisOutput("sonara", "core"),))
+    values = {field.name: None for field in fields(SonaraRow)}
     values.update(
         {
             "track_id": target.track_id,
             "content_generation": target.content_generation,
-            "contract_hash": contracts.core.contract_hash,
             "detected_bpm": bpm,
             "detected_key_camelot": musical_key,
             "energy_score": energy,
@@ -404,8 +390,7 @@ def _save_sonara_core(
         (
             SonaraWrite(
                 target=target,
-                core_contract=contracts.core,
-                core=SonaraRowV7(**values),
+                core=SonaraRow(**values),
             ),
         )
     )
@@ -422,27 +407,9 @@ def _ml_outputs() -> tuple[
     mert = current_embedding_analysis_output("mert")
     muq = current_embedding_analysis_output("muq")
     clap = current_embedding_analysis_output("clap")
-    maest_analysis, maest_embedding = MaestModelRunner(
-        device="cpu",
-        top_k=3,
-        inference_batch_size=1,
-    ).active_outputs
+    maest_analysis = AnalysisOutput("maest", "analysis")
+    maest_embedding = current_embedding_analysis_output("maest")
     return mert, muq, clap, maest_analysis, maest_embedding
-
-
-def _sonara_contracts() -> SonaraContractSet:
-    return sonara_runtime_contracts(_FakeSonara)
-
-
-def _prepare_sonara_release(db: LibraryDatabase) -> None:
-    backup_dir = db.path.parent / "sonara-backups"
-    backup_dir.mkdir(exist_ok=True)
-    prepare_sonara_release(
-        db,
-        backup_dir=backup_dir,
-        confirm=CONFIRM_STRING,
-        sonara_module=_FakeSonara,
-    )
 
 
 def _unit_vector(dim: int, axis: int) -> np.ndarray:

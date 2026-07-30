@@ -12,9 +12,6 @@ class FakeJobs:
         self.created = []
         self.cancelled = []
 
-    def validate_sonara_preflight(self):
-        return None
-
     def create_job(self, **kwargs):
         job_id = f"child-{len(self.created) + 1}"
         self.created.append((job_id, kwargs))

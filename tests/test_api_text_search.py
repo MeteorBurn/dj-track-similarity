@@ -11,8 +11,10 @@ from dj_track_similarity.analysis_model_runners import (
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
+    CLAP_EMBEDDING_DIM,
     EmbeddingOutput,
     EmbeddingWrite,
+    MERT_EMBEDDING_DIM,
 )
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
@@ -244,7 +246,7 @@ def _track_with_embedding(
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    contract=output.contract,
+                    family=output.analysis_family,
                     vector=_typed_vector(output, embedding),
                     analyzed_at="2026-07-24T12:00:00.000000Z",
                 ),
@@ -259,6 +261,10 @@ def _typed_vector(
     output: AnalysisOutput,
     values: list[float],
 ) -> np.ndarray:
-    vector = np.zeros(output.contract.dim, dtype=np.float32)
+    dimensions = {
+        "clap": CLAP_EMBEDDING_DIM,
+        "mert": MERT_EMBEDDING_DIM,
+    }
+    vector = np.zeros(dimensions[output.analysis_family], dtype=np.float32)
     vector[: len(values)] = values
     return vector / np.linalg.norm(vector)

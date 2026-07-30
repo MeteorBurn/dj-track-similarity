@@ -6,12 +6,16 @@ import hashlib
 import math
 from typing import Mapping, Sequence
 
+from .analysis_models import ClassifierSpecification
 from .classifier_manifest import (
     ClassifierManifestSummary,
     classifier_manifest_from_info,
     load_classifier_manifest_summary,
 )
-from .classifier_scoring import default_classifier_model_path
+from .classifier_scoring import (
+    classifier_specification_from_manifest,
+    default_classifier_model_path,
+)
 from .database import LibraryDatabase
 from .library_models import ClassifierScoreDetail, TrackSummary
 
@@ -42,11 +46,6 @@ class ClassifierScoreRow:
     confidence: float
     probabilities: dict[str, object]
     feature_set: str
-    feature_manifest_hash: str
-    required_outputs_hash: str
-    model_id: str
-    uses_sonara: bool
-    sonara_release_hash: str | None
     positive_label: str
     analyzed_at: str
     liked: bool
@@ -81,7 +80,15 @@ def build_classifier_calibration_report(
 ) -> dict[str, object]:
     key = _clean_classifier_key(classifier_key)
     manifest = _manifest_for_classifier(key, classifier_info)
-    track_summaries = db.list_track_summaries()
+    specification = (
+        classifier_specification_from_manifest(manifest)
+        if manifest.is_scoring_compatible
+        else None
+    )
+    specifications = () if specification is None else (specification,)
+    track_summaries = db.list_track_summaries(
+        classifier_specifications=specifications
+    )
     liked_track_ids = frozenset(db.list_liked_track_ids())
     pair_feedback = db.get_pair_feedback_map()
     total_tracks = len(track_summaries)
@@ -89,6 +96,7 @@ def build_classifier_calibration_report(
         db,
         key,
         track_summaries=track_summaries,
+        specification=specification,
         liked_track_ids=liked_track_ids,
         pair_feedback=pair_feedback,
     )
@@ -99,7 +107,7 @@ def build_classifier_calibration_report(
         pair_feedback=pair_feedback,
         liked_track_ids=liked_track_ids,
     )
-    freshness = _score_freshness(manifest, score_rows)
+    freshness = _score_freshness(score_rows)
     status = _calibration_report_status(
         manifest,
         score_rows,
@@ -111,12 +119,6 @@ def build_classifier_calibration_report(
     if not manifest.has_calibrated_probability:
         warnings.append(
             "Stored classifier scores are model output probabilities, not calibrated probabilities."
-        )
-    if freshness["stale_scores"]:
-        warnings.append(
-            "Stored classifier scores were produced by a different full "
-            "classifier identity and are stale until this classifier is "
-            "rescored."
         )
     if feedback["candidate_feedback_count"] < min_feedback:
         warnings.append(
@@ -133,18 +135,6 @@ def build_classifier_calibration_report(
             **freshness,
             "coverage_ratio": _ratio(len(score_rows), total_tracks),
             "feature_sets": _count_values(row.feature_set for row in score_rows),
-            "feature_manifest_hashes": _count_values(
-                row.feature_manifest_hash for row in score_rows
-            ),
-            "required_outputs_hashes": _count_values(
-                row.required_outputs_hash for row in score_rows
-            ),
-            "model_ids": _count_values(row.model_id for row in score_rows),
-            "sonara_release_hashes": _count_values(
-                row.sonara_release_hash
-                for row in score_rows
-                if row.sonara_release_hash is not None
-            ),
         },
         "score_distribution": {
             "count": len(scores),
@@ -208,21 +198,19 @@ def suggest_classifier_labels(
             "warnings": warnings,
         }
 
-    track_summaries = db.list_track_summaries()
+    specification = classifier_specification_from_manifest(manifest)
+    track_summaries = db.list_track_summaries(
+        classifier_specifications=(specification,)
+    )
     rows = _load_classifier_score_rows(
         db,
         key,
         track_summaries=track_summaries,
+        specification=specification,
         liked_track_ids=frozenset(db.list_liked_track_ids()),
         pair_feedback=db.get_pair_feedback_map(),
     )
-    fresh_rows = _fresh_score_rows(manifest, rows)
-    stale_count = len(rows) - len(fresh_rows)
-    if stale_count:
-        warnings.append(
-            f"{stale_count} stored classifier score rows do not match the "
-            "current full classifier identity and were excluded."
-        )
+    fresh_rows = list(rows)
     if not fresh_rows:
         return {
             "classifier_key": key,
@@ -294,12 +282,15 @@ def _load_classifier_score_rows(
     classifier_key: str,
     *,
     track_summaries: Sequence[TrackSummary],
+    specification: ClassifierSpecification | None,
     liked_track_ids: frozenset[int],
     pair_feedback: Mapping[
         tuple[int, int, str],
         Mapping[str, object],
     ],
 ) -> list[ClassifierScoreRow]:
+    if specification is None:
+        return []
     feedback_by_track = _candidate_feedback_aggregates(pair_feedback)
     score_rows: list[ClassifierScoreRow] = []
     for track in track_summaries:
@@ -307,7 +298,10 @@ def _load_classifier_score_rows(
             score.classifier_key == classifier_key for score in track.classifier_scores
         ):
             continue
-        detail = db.get_track_detail(track.track_id)
+        detail = db.get_track_detail(
+            track.track_id,
+            classifier_specifications=(specification,),
+        )
         score = _classifier_score_detail(
             detail.classifier_scores_detail, classifier_key
         )
@@ -338,11 +332,6 @@ def _load_classifier_score_rows(
                     for label, probability in score.probabilities.items()
                 },
                 feature_set=score.feature_set,
-                feature_manifest_hash=score.feature_manifest_hash,
-                required_outputs_hash=score.required_outputs_hash,
-                model_id=score.model_id,
-                uses_sonara=score.uses_sonara,
-                sonara_release_hash=score.sonara_release_hash,
                 positive_label=score.positive_label,
                 analyzed_at=score.analyzed_at,
                 liked=track.track_id in liked_track_ids,
@@ -421,7 +410,7 @@ def _classifier_feedback_summary(
         "transition_feedback_rows_touching_scored_tracks": None,
         "transition_feedback_rows_total": transition_count,
         "transition_feedback_scope_note": (
-            "The v7 repository exposes the total transition-feedback count, "
+            "The repository exposes the total transition-feedback count, "
             "not a classifier-scoped transition-feedback reader."
         ),
         "label_source_note": (
@@ -462,9 +451,8 @@ def _status_gate_decision(
         return "No stored classifier scores are available yet."
     if stale_scores:
         return (
-            "Stored classifier scores are stale for the current full "
-            "manifest identity; rescore this classifier before treating "
-            "them as fresh calibrated evidence."
+            "Stored classifier scores are stale; rescore this classifier "
+            "before treating them as fresh calibrated evidence."
         )
     if feedback_count < max(1, int(min_feedback)):
         return "Insufficient app feedback for calibration diagnostics; use this as a coverage report only."
@@ -472,106 +460,14 @@ def _status_gate_decision(
 
 
 def _score_freshness(
-    manifest: ClassifierManifestSummary,
     score_rows: Sequence[ClassifierScoreRow],
 ) -> dict[str, object]:
-    expected_identity = _manifest_score_identity(manifest)
-    if expected_identity is None:
-        return {
-            "expected_model_id": manifest.model_id,
-            "expected_identity": None,
-            "fresh_scores": 0,
-            "stale_scores": 0,
-            "unknown_freshness_scores": len(score_rows),
-            "stale_model_ids": {},
-            "stale_identity_fields": {},
-        }
-    stale_rows: list[ClassifierScoreRow] = []
-    mismatch_counts: dict[str, int] = {}
-    for row in score_rows:
-        row_identity = _score_row_identity(row)
-        mismatched_fields = [
-            field_name
-            for field_name, expected_value in expected_identity.items()
-            if row_identity[field_name] != expected_value
-        ]
-        if not mismatched_fields:
-            continue
-        stale_rows.append(row)
-        for field_name in mismatched_fields:
-            mismatch_counts[field_name] = mismatch_counts.get(field_name, 0) + 1
-    stale_model_ids = _count_values(
-        row.model_id
-        for row in stale_rows
-        if row.model_id != expected_identity["model_id"]
-    )
-    stale_scores = len(stale_rows)
+    """Scores loaded through the library reader already match current content."""
+
     return {
-        "expected_model_id": expected_identity["model_id"],
-        "expected_identity": expected_identity,
-        "fresh_scores": len(score_rows) - stale_scores,
-        "stale_scores": stale_scores,
-        "unknown_freshness_scores": 0,
-        "stale_model_ids": stale_model_ids,
-        "stale_identity_fields": dict(sorted(mismatch_counts.items())),
+        "fresh_scores": len(score_rows),
+        "stale_scores": 0,
     }
-
-
-def _manifest_score_identity(
-    manifest: ClassifierManifestSummary,
-) -> dict[str, object] | None:
-    model_id = _optional_text(manifest.model_id)
-    feature_set = _optional_text(manifest.feature_set)
-    feature_manifest_hash = _optional_text(manifest.feature_manifest_hash)
-    required_outputs_hash = _optional_text(manifest.required_outputs_hash)
-    positive_label = _optional_text(manifest.positive_label)
-    uses_sonara = manifest.uses_sonara
-    sonara_release_hash = _optional_text(manifest.sonara_release_hash)
-    if not all(
-        (
-            model_id,
-            feature_set,
-            feature_manifest_hash,
-            required_outputs_hash,
-            positive_label,
-        )
-    ):
-        return None
-    if uses_sonara and sonara_release_hash is None:
-        return None
-    return {
-        "model_id": model_id,
-        "feature_set": feature_set,
-        "feature_manifest_hash": feature_manifest_hash,
-        "required_outputs_hash": required_outputs_hash,
-        "uses_sonara": uses_sonara,
-        "sonara_release_hash": (sonara_release_hash if uses_sonara else None),
-        "positive_label": positive_label,
-    }
-
-
-def _score_row_identity(
-    row: ClassifierScoreRow,
-) -> dict[str, object]:
-    return {
-        "model_id": row.model_id,
-        "feature_set": row.feature_set,
-        "feature_manifest_hash": row.feature_manifest_hash,
-        "required_outputs_hash": row.required_outputs_hash,
-        "uses_sonara": row.uses_sonara,
-        "sonara_release_hash": (row.sonara_release_hash if row.uses_sonara else None),
-        "positive_label": row.positive_label,
-    }
-
-
-def _fresh_score_rows(
-    manifest: ClassifierManifestSummary,
-    rows: Sequence[ClassifierScoreRow],
-) -> list[ClassifierScoreRow]:
-    expected_identity = _manifest_score_identity(manifest)
-    if expected_identity is None:
-        return []
-    return [row for row in rows if _score_row_identity(row) == expected_identity]
 
 
 def _ordered_suggestion_rows(

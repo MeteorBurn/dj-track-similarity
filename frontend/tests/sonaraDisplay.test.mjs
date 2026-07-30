@@ -6,16 +6,16 @@ import test from "node:test";
 const dialogPath = fileURLToPath(new URL("../src/TrackMetadataDialog.tsx", import.meta.url));
 const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
 
-test("metadata dialog accepts only the v7 detail contract", () => {
+test("metadata dialog accepts only the current detail response", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /import type \{ SonaraCoreV7, TrackDetailV7 \} from "\.\/api";/);
-  assert.match(source, /track: TrackDetailV7;/);
-  assert.doesNotMatch(source, /Track\s*\|\s*TrackDetailV7/);
+  assert.match(source, /import type \{ SonaraCore, TrackDetail \} from "\.\/api";/);
+  assert.match(source, /track: TrackDetail;/);
+  assert.doesNotMatch(source, /Track\s*\|\s*TrackDetail/);
   assert.doesNotMatch(source, /\.metadata\b|\.path\b|representation_fields/);
 });
 
-test("metadata dialog reads every detailed v7 surface directly", () => {
+test("metadata dialog reads every current detail surface directly", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   for (const field of [
@@ -27,7 +27,7 @@ test("metadata dialog reads every detailed v7 surface directly", () => {
     "track.classifier_scores_detail",
     "track.optional_outputs",
   ]) {
-    assert.ok(source.includes(field), `missing detailed v7 consumer: ${field}`);
+    assert.ok(source.includes(field), `missing detailed consumer: ${field}`);
   }
 });
 
@@ -44,7 +44,7 @@ test("SONARA storage is shown as Core Timeline Embedding and Fingerprint", () =>
   assert.doesNotMatch(source, /Representations|representation_fields/);
 });
 
-test("v7 API keeps the four independent SONARA output identifiers", () => {
+test("API keeps the four independent SONARA output identifiers", () => {
   const source = readFileSync(apiPath, "utf8");
 
   assert.match(source, /export type SonaraOutput = "core" \| "timeline" \| "embedding" \| "fingerprint";/);

@@ -22,7 +22,6 @@ from .classifier_scoring import (
     ClassifierRequirements,
     ClassifierScorer,
     load_classifier_requirements,
-    require_current_classifier_output,
 )
 from .database import LibraryDatabase
 from .job_runtime import JobStore
@@ -171,8 +170,7 @@ class ClassifierJobManager:
                     f"{key} scorer specification does not match its manifest"
                 )
 
-        # Preflight every immutable input identity before the first mutation.
-        # prepare_classifier_rescore() repeats this check transactionally.
+        # Preflight requested source availability before the first mutation.
         self._require_active_outputs(requirements.values())
 
         for requirement in requirements.values():
@@ -222,7 +220,7 @@ class ClassifierJobManager:
             adapter_name=keys[0] if len(keys) == 1 else "classifiers",
             required_families=tuple(
                 dict.fromkeys(
-                    output.contract.analysis_family
+                    output.analysis_family
                     for requirement in requirements.values()
                     for output in requirement.specification.required_outputs
                 )
@@ -426,29 +424,11 @@ class ClassifierJobManager:
     ) -> None:
         for requirement in requirements:
             for output in requirement.specification.required_outputs:
-                try:
-                    require_current_classifier_output(output)
-                except ValueError as error:
-                    family, kind = output.key
-                    raise RuntimeError(
-                        "required classifier output contract does not match "
-                        f"the current adapter identity: {family}/{kind}"
-                    ) from error
                 active = self.db.active_analysis_output(*output.key)
                 if active is None:
                     family, kind = output.key
                     raise RuntimeError(
                         f"required classifier output is not active: {family}/{kind}"
-                    )
-                if (
-                    active.contract_hash != output.contract_hash
-                    or active.contract.canonical_payload_json
-                    != output.contract.canonical_payload_json
-                ):
-                    family, kind = output.key
-                    raise RuntimeError(
-                        "required classifier output contract is not current: "
-                        f"{family}/{kind}"
                     )
 
     def get(self, job_id: str, *, classifier: str | None = None) -> ClassifierJobStatus:

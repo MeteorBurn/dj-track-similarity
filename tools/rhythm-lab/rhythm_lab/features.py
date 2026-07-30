@@ -3,16 +3,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import combinations
-import json
 import math
 from pathlib import Path
+from types import MappingProxyType
 
 import numpy as np
 
-from dj_track_similarity.analysis_contracts import ContractIdentity
-
 from .lab_db import RhythmLabDatabase, TrackIdentity, track_identity
-from .source_db import SONARA_CORE_OUTPUT, SourceDatabase, SourceTrack
+from .source_db import SourceDatabase, SourceTrack
 
 
 SONARA_SOURCE_VARIANTS = ("sonara", "sonara2", "sonara2vocal")
@@ -132,7 +130,7 @@ class FeatureMatrix:
     matrix: np.ndarray
     feature_names: list[str]
     skipped_identities: tuple[TrackIdentity, ...]
-    required_outputs: tuple[ContractIdentity, ...]
+    source_dimensions: Mapping[str, int]
 
 
 def build_labeled_feature_matrix(
@@ -155,7 +153,7 @@ def build_unlabeled_feature_matrix(
     source_db_path: str | Path,
     feature_set: str,
     *,
-    expected_required_outputs: object | None = None,
+    expected_feature_names: object | None = None,
 ) -> FeatureMatrix:
     source = SourceDatabase(source_db_path)
     tracks = source.list_tracks()
@@ -165,7 +163,7 @@ def build_unlabeled_feature_matrix(
         feature_set,
         labels_by_identity=labels,
         tracks=tracks,
-        expected_required_outputs=expected_required_outputs,
+        expected_feature_names=expected_feature_names,
     )
 
 
@@ -175,8 +173,8 @@ def build_feature_matrix(
     *,
     labels_by_identity: Mapping[TrackIdentity, str],
     tracks: Sequence[SourceTrack] | None = None,
-    embedding_cache: dict[str, tuple[ContractIdentity, dict[int, np.ndarray]]] | None = None,
-    expected_required_outputs: object | None = None,
+    embedding_cache: dict[str, tuple[int, dict[int, np.ndarray]]] | None = None,
+    expected_feature_names: object | None = None,
 ) -> FeatureMatrix:
     sources = feature_sources(feature_set)
     scalar_fields = _sonara_scalar_fields(feature_set)
@@ -188,22 +186,16 @@ def build_feature_matrix(
         for family in sources
         if family != "sonara"
     }
-    required_outputs = _required_outputs(
-        source,
-        sources,
-        embeddings=embeddings,
-    )
-    expected = _parse_required_outputs(expected_required_outputs)
-    if expected is not None and not _contracts_equal(required_outputs, expected):
-        raise ValueError(
-            "Prediction artifact required_outputs do not match the active source contracts"
-        )
-
     feature_names = _feature_names(
         sources,
         scalar_fields=scalar_fields,
-        contracts=required_outputs,
+        embeddings=embeddings,
     )
+    expected = _parse_feature_names(expected_feature_names)
+    if expected is not None and feature_names != expected:
+        raise ValueError(
+            "Prediction artifact feature_names do not match current source dimensions"
+        )
     selected_tracks: list[SourceTrack] = []
     rows: list[np.ndarray] = []
     labels: list[str] = []
@@ -236,20 +228,17 @@ def build_feature_matrix(
         matrix=matrix,
         feature_names=feature_names,
         skipped_identities=tuple(skipped),
-        required_outputs=required_outputs,
+        source_dimensions=MappingProxyType(
+            {
+                source: (
+                    len(_sonara_feature_names(scalar_fields))
+                    if source == "sonara"
+                    else embeddings[source][0]
+                )
+                for source in sources
+            }
+        ),
     )
-
-
-def required_outputs_payload(
-    contracts: Sequence[ContractIdentity],
-) -> list[dict[str, object]]:
-    return [
-        {
-            "contract_hash": contract.contract_hash,
-            "canonical_payload": contract.canonical_payload,
-        }
-        for contract in contracts
-    ]
 
 
 def _track_features(
@@ -257,9 +246,7 @@ def _track_features(
     sources: tuple[str, ...],
     *,
     scalar_fields: tuple[str, ...],
-    embeddings: Mapping[
-        str, tuple[ContractIdentity, dict[int, np.ndarray]]
-    ],
+    embeddings: Mapping[str, tuple[int, dict[int, np.ndarray]]],
 ) -> np.ndarray | None:
     parts: list[np.ndarray] = []
     if "sonara" in sources:
@@ -283,7 +270,7 @@ def _sonara_features(
     scalar_fields: tuple[str, ...],
 ) -> np.ndarray | None:
     features = track.sonara_features
-    if features is None or track.sonara_contract is None:
+    if features is None:
         return None
     values: list[float] = []
     for field in scalar_fields:
@@ -306,12 +293,12 @@ def _sonara_features(
 def _cached_embedding_vectors(
     source: SourceDatabase,
     family: str,
-    cache: dict[str, tuple[ContractIdentity, dict[int, np.ndarray]]],
-) -> tuple[ContractIdentity, dict[int, np.ndarray]]:
+    cache: dict[str, tuple[int, dict[int, np.ndarray]]],
+) -> tuple[int, dict[int, np.ndarray]]:
     if family not in cache:
         loaded = source.load_embedding_matrix(family)  # type: ignore[arg-type]
         cache[family] = (
-            loaded.contract,
+            loaded.dimension,
             {
                 track.track_id: loaded.matrix[index].astype(np.float32, copy=True)
                 for index, track in enumerate(loaded.tracks)
@@ -320,64 +307,17 @@ def _cached_embedding_vectors(
     return cache[family]
 
 
-def _required_outputs(
-    source_database: SourceDatabase,
-    sources: tuple[str, ...],
-    *,
-    embeddings: Mapping[str, tuple[ContractIdentity, dict[int, np.ndarray]]],
-) -> tuple[ContractIdentity, ...]:
-    contracts: list[ContractIdentity] = []
-    for source in sources:
-        if source == "sonara":
-            contract = source_database.active_contract(SONARA_CORE_OUTPUT)
-            if contract is None:
-                raise ValueError("SONARA features require one active current contract")
-            contracts.append(contract)
-        else:
-            contracts.append(embeddings[source][0])
-    return tuple(contracts)
-
-
-def _parse_required_outputs(value: object) -> tuple[ContractIdentity, ...] | None:
+def _parse_feature_names(value: object) -> list[str] | None:
     if value is None:
         return None
-    if not isinstance(value, list) or not value:
-        raise ValueError("required_outputs must be a non-empty ordered list")
-    result: list[ContractIdentity] = []
-    for index, item in enumerate(value):
-        if not isinstance(item, Mapping) or set(item) != {
-            "contract_hash",
-            "canonical_payload",
-        }:
-            raise ValueError(
-                f"required_outputs[{index}] must contain exactly contract_hash and canonical_payload"
-            )
-        payload = item["canonical_payload"]
-        if not isinstance(payload, Mapping):
-            raise ValueError(f"required_outputs[{index}].canonical_payload must be an object")
-        canonical_json = json.dumps(
-            dict(payload),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-        contract = ContractIdentity.from_canonical_payload_json(canonical_json)
-        if item["contract_hash"] != contract.contract_hash:
-            raise ValueError(
-                f"required_outputs[{index}].contract_hash does not match canonical_payload"
-            )
-        result.append(contract)
-    return tuple(result)
-
-
-def _contracts_equal(
-    left: Sequence[ContractIdentity],
-    right: Sequence[ContractIdentity],
-) -> bool:
-    return [contract.canonical_payload_json for contract in left] == [
-        contract.canonical_payload_json for contract in right
-    ]
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError("feature_names must be a non-empty ordered list of unique strings")
+    return list(value)
 
 
 def feature_sources(feature_set: str) -> tuple[str, ...]:
@@ -426,21 +366,15 @@ def _feature_state_payload(value: object, *, source: str) -> dict[str, object]:
     if isinstance(value, Mapping):
         status = str(value.get("status") or "missing")
         reason = value.get("reason")
-        contract_hash = value.get("contract_hash")
     else:
         status = str(getattr(value, "status", "missing"))
         reason = getattr(value, "reason", None)
-        contract_hash = getattr(value, "contract_hash", None)
-    if status not in {"current", "missing", "stale"}:
+    if status not in {"current", "missing"}:
         status = "missing"
         reason = f"{source.upper()} feature status is unavailable."
-        contract_hash = None
     return {
         "status": status,
         "reason": None if reason is None else str(reason),
-        "contract_hash": (
-            None if contract_hash is None else str(contract_hash)
-        ),
     }
 
 
@@ -461,20 +395,20 @@ def _feature_names(
     sources: tuple[str, ...],
     *,
     scalar_fields: tuple[str, ...],
-    contracts: Sequence[ContractIdentity],
+    embeddings: Mapping[str, tuple[int, dict[int, np.ndarray]]],
 ) -> list[str]:
-    by_family = {contract.analysis_family: contract for contract in contracts}
-    names: list[str] = []
-    if "sonara" in sources:
-        names.extend(f"sonara:{field}" for field in scalar_fields)
-        for field, length in SONARA_VECTOR_FIELDS.items():
-            names.extend(f"sonara:{field}:{index}" for index in range(length))
+    names = _sonara_feature_names(scalar_fields) if "sonara" in sources else []
     for family in EMBEDDING_FEATURE_SOURCES:
         if family in sources:
-            dim = by_family[family].dim
-            if dim is None:
-                raise ValueError(f"{family} embedding contract has no dimension")
-            names.extend(f"{family}:{index}" for index in range(dim))
+            names.extend(f"{family}:{index}" for index in range(embeddings[family][0]))
+    return names
+
+
+def _sonara_feature_names(scalar_fields: tuple[str, ...]) -> list[str]:
+    names: list[str] = []
+    names.extend(f"sonara:{field}" for field in scalar_fields)
+    for field, length in SONARA_VECTOR_FIELDS.items():
+        names.extend(f"sonara:{field}:{index}" for index in range(length))
     return names
 
 

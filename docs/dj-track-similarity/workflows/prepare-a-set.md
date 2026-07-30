@@ -14,7 +14,7 @@ The browser provides the complete workflow below. Direct clients can use `POST /
 `POST /api/search/sonara` to expand anchors, send chosen track IDs to
 `POST /api/set-builder/generate`, audition candidates through `GET /media/{track_id}`, and send the
 final IDs to `POST /api/export`. CLAP text search is also available through
-`dj-sim text-search`. The current contracts are in the [API reference](../reference/api.md).
+`dj-sim text-search`. The current payload details are in the [API reference](../reference/api.md).
 
 The browser's SET tab exposes the same source/weight fields in independent **Set Builder** and
 **Hybrid Preview** tabs. Expect to remove, replace, and reorder tracks after listening.

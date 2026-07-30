@@ -58,11 +58,11 @@ class SonaraSearchRepository(Protocol):
 
 
 class SonaraSearchUnavailable(RuntimeError):
-    """Raised when no exact active SONARA Core output can serve search."""
+    """Raised when no current SONARA Core data can serve search."""
 
 
 class SonaraSimilaritySearch:
-    """SONARA feature-mixer search over the exact active Core contract.
+    """SONARA feature-mixer search over current Core data.
 
     The separate 48-dimensional SONARA representation remains data-only and is
     intentionally not exposed as a public search mode.
@@ -91,7 +91,7 @@ class SonaraSimilaritySearch:
         )
         if output is None:
             raise SonaraSearchUnavailable(
-                "No active SONARA Core contract is registered"
+                "No active SONARA Core output is registered"
             )
         if output.key != ("sonara", "core"):
             raise RuntimeError(
@@ -99,13 +99,9 @@ class SonaraSimilaritySearch:
             )
         if self.analysis_output is None:
             return output
-        if (
-            self.analysis_output.contract_hash != output.contract_hash
-            or self.analysis_output.contract.canonical_payload_json
-            != output.contract.canonical_payload_json
-        ):
+        if self.analysis_output.key != output.key:
             raise SonaraSearchUnavailable(
-                "Requested SONARA Core contract is no longer active"
+                "Requested SONARA Core output is no longer active"
             )
         return self.analysis_output
 
@@ -356,14 +352,10 @@ def _validate_rows(
             raise TypeError(
                 "Analysis repository returned a non-SonaraFeatureRow value"
             )
-        if (
-            row.output.contract_hash != output.contract_hash
-            or row.output.contract.canonical_payload_json
-            != output.contract.canonical_payload_json
-        ):
+        if row.output.key != output.key:
             raise RuntimeError(
                 "Analysis repository returned SONARA features "
-                "from another contract"
+                "from another output"
             )
         if row.target.catalog_uuid != catalog_uuid:
             raise RuntimeError(

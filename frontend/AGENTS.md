@@ -1,13 +1,14 @@
 # Frontend Notes
 
-React 19 + Vite 7 + TypeScript 5.9 UI for `dj-track-similarity`. See root `AGENTS.md` for cross-repo rules.
+React + Vite + TypeScript UI for `dj-track-similarity`. See root `AGENTS.md` for cross-repo rules.
 
 ## Stack
 
-- React `19.2.3`, React DOM `19.2.3`, Vite `7.2.7`, TypeScript `5.9.3`, `@vitejs/plugin-react` `5.1.1`.
+- Package versions are defined by `package.json` and its lockfile and may be
+  updated when requested after compatibility checks.
 - Icons: `lucide-react`.
 - Node's built-in `node:test` runner (`node --test tests/*.test.mjs`). NOT Vitest. NOT Jest.
-- Playwright `1.61.1` is installed but no Playwright test files exist yet — do not assume `npm test` exercises a browser.
+- Playwright is installed but no Playwright test files exist yet — do not assume `npm test` exercises a browser.
 - No ESLint, no Biome, no Prettier config. Style discipline is enforced by strict TypeScript + review.
 
 ## Structure
@@ -17,19 +18,25 @@ React 19 + Vite 7 + TypeScript 5.9 UI for `dj-track-similarity`. See root `AGENT
 - Main panels: `LibraryPanel.tsx`, `TrackPanel.tsx`, `SearchPlaylistPanel.tsx`, `ReferenceComparePanel.tsx`, `ClapSearchTab.tsx`, `TrackMetadataDialog.tsx`.
 - Helper dialogs: `AudioDoctorDialog.tsx`, `AudioDedupDialog.tsx`, `dialogs.tsx`.
 - State and display helpers: `useLibraryState.ts`, `useSearchPlaylist.ts`, `useActivityLog.ts`, `useConfirmation.ts`, `analysisSelection.ts`, `jobUi.tsx`, `trackDisplay.ts`, `TrackRows.tsx`.
-- HTTP + contracts: `api.ts` (TypeScript mirror) + `apiClient.ts` (calls). Backend schemas/routes are authoritative; frontend types must match them exactly.
+- HTTP types: `api.ts` (TypeScript mirror) + `apiClient.ts` (calls). Keep frontend requests and responses compatible with the active backend routes.
 - Styling: `styles.css` (CSS custom properties per root `../DESIGN.md`). No CSS-in-JS.
 
-## Current Compatibility Boundary
+## Current Compatibility
 
-- The full v7 frontend port is not complete. `api.ts`, `apiClient.ts`, and active consumers still mix removed pre-v7 track/request shapes with isolated v7 types. Do not describe a successful build or `frontend/dist` as v7-compatible without a fresh end-to-end port and browser check.
-- MuQ already appears in analysis selection, coverage, metadata, and LAB Reference Compare, but current source still lacks a complete generic MuQ seed-search flow and full SET/Hybrid/Audio Dedup source contracts. Do not claim complete MuQ UI support from labels alone.
-- A full v7/MuQ port is a cross-cutting task and must be explicitly authorized. When authorized, update `api.ts`, `apiClient.ts`, all consumers, tests, and EN/RU docs in one pass; do not preserve drift with casts or local duplicate unions.
+- `api.ts`, `apiClient.ts`, and active consumers may need coordinated updates
+  when backend behavior changes. Use fresh focused checks for the paths being
+  adapted.
+- MuQ appears in analysis selection, coverage, metadata, and LAB Reference
+  Compare; verify each user flow directly when extending its support.
+- The frontend may be ported to newer backend behavior whenever requested.
+  Update the affected API types, clients, consumers, and focused tests without
+  treating the current generation as a compatibility ceiling.
 
-## Contract Alignment
+## API Alignment
 
-- Every FastAPI schema change in `src/dj_track_similarity/api_schemas.py` (or a new route) requires a matching update in `frontend/src/api.ts`, `apiClient.ts`, real UI consumers, and contract tests in the same change.
-- Contract tests live in `tests/apiContract.test.mjs` and read `api.ts` directly.
+- When backend request or response behavior changes, verify the affected
+  frontend types, client calls, consumers, and focused API parity tests.
+- API parity tests live in `tests/apiContract.test.mjs` and read `api.ts` directly.
 - Closed source types must include every current backend family: MERT/MAEST/MuQ/CLAP for embedding workflows and SONARA where Hybrid/evaluation permits it. Avoid broad `string[]` when the backend uses a `Literal`.
 - Generic embedding search sends the explicit `analysis_family`; analysis `device` is not a search field. Reset sends the backend's current family key and consumes the current reset response shape.
 

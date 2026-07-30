@@ -14,16 +14,11 @@ import uuid
 
 import numpy as np
 
-from .analysis_contracts import (
-    FLOAT32_LE_ENCODING,
-    ContractIdentity,
-    ContractIdentityError,
-)
 from .analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
     AnalysisVectorRow,
-    validate_production_contract,
+    current_embedding_spec,
 )
 from .vector_index import (
     HNSW_VECTOR_BACKEND_NAME,
@@ -42,7 +37,6 @@ if TYPE_CHECKING:
 
 
 SIDECAR_DIR_NAME = ".dj-track-similarity-indexes"
-PERSISTENT_INDEX_SCHEMA_VERSION = 2
 PERSISTENT_INDEX_MANIFEST_SUFFIX = ".manifest.json"
 PERSISTENT_INDEX_METRIC = "cosine"
 PERSISTENT_INDEX_HNSW_SPACE = "ip"
@@ -57,12 +51,10 @@ DEFAULT_RECALL_K_VALUES = (10, 50, 100)
 
 _MANIFEST_KEYS = frozenset(
     {
-        "schema_version",
         "analysis_family",
         "backend",
         "metric",
         "hnsw_space",
-        "contract",
         "catalog_uuid",
         "targets",
         "embedding_count",
@@ -73,12 +65,6 @@ _MANIFEST_KEYS = frozenset(
         "build_seconds",
         "settings",
         "artifact",
-    }
-)
-_CONTRACT_MANIFEST_KEYS = frozenset(
-    {
-        "contract_hash",
-        "canonical_payload",
     }
 )
 _TARGET_MANIFEST_KEYS = frozenset(
@@ -163,13 +149,12 @@ class PersistentIndexClearResult:
 
 @dataclass(frozen=True, slots=True)
 class _ParsedManifest:
-    contract: ContractIdentity
     targets: tuple[AnalysisTarget, ...]
     settings: dict[str, int]
 
 
 class PersistentAnnVectorSearchBackend:
-    """Strict persistent HNSW search over one active v7 embedding contract.
+    """Strict persistent HNSW search over one current embedding output.
 
     The backend deliberately has no exact-search fallback. A missing, stale,
     malformed, or unsupported persistent index raises
@@ -219,11 +204,9 @@ class PersistentAnnVectorSearchBackend:
                 "Persistent ANN verification did not return its current "
                 "embedding snapshot"
             )
-        if snapshot.output.contract.canonical_payload_json != (
-            self.output.contract.canonical_payload_json
-        ):
+        if snapshot.output.key != self.output.key:
             raise VectorIndexUnavailable(
-                "The active embedding contract changed after the persistent "
+                "The active embedding output changed after the persistent "
                 "ANN backend was created"
             )
 
@@ -380,24 +363,20 @@ def load_embedding_index_snapshot(
         )
     )
     for row in rows:
-        if row.output.contract.canonical_payload_json != (
-            output.contract.canonical_payload_json
-        ):
+        if row.output.key != output.key:
             raise ValueError(
                 "Analysis repository returned a vector under a different "
-                "contract identity"
+                "output identity"
             )
 
-    dim = output.contract.dim
-    if dim is None:
-        raise ValueError("Active embedding contract has no dimension")
+    dim = current_embedding_spec(family).dimension
     targets = tuple(row.target for row in rows)
     if rows:
         vectors = [np.asarray(row.vector, dtype="<f4").reshape(-1) for row in rows]
         if any(vector.shape != (dim,) for vector in vectors):
             raise ValueError(
                 "Analysis repository returned an embedding with a dimension "
-                "different from the active contract"
+                "different from the current family specification"
             )
         matrix = np.vstack(vectors).astype(np.float32, copy=False)
     else:
@@ -788,7 +767,6 @@ def benchmark_persistent_index(
     index_size_bytes = _file_size(artifact_path)
     return {
         "benchmark": "persistent_ann_recall",
-        "schema_version": PERSISTENT_INDEX_SCHEMA_VERSION,
         "generated_at": _utc_timestamp(),
         "status": status,
         "analysis_family": family,
@@ -874,12 +852,10 @@ def _validate_index_output(
             "Active analysis output does not match the requested embedding "
             f"family: {output.key!r}"
         )
-    validate_production_contract(output.contract)
-    if output.contract.encoding != FLOAT32_LE_ENCODING:
-        raise ValueError("Persistent ANN requires float32-le embedding encoding")
-    if output.contract.normalization != "l2":
+    spec = current_embedding_spec(analysis_family)
+    if spec.normalization != "l2":
         raise ValueError("Persistent ANN supports only normalization='l2' embeddings")
-    if output.contract.dim is None or output.contract.dim <= 0:
+    if spec.dimension <= 0:
         raise ValueError("Persistent ANN requires a positive embedding dimension")
 
 
@@ -895,17 +871,13 @@ def _active_index_output(
     )
     if output is None:
         raise ValueError(
-            f"No active {analysis_family}/embedding contract is registered"
+            f"No active {analysis_family}/embedding output is registered"
         )
     _validate_index_output(output, analysis_family)
-    if (
-        output.contract_hash != analysis_output.contract_hash
-        or output.contract.canonical_payload_json
-        != analysis_output.contract.canonical_payload_json
-    ):
+    if output.key != analysis_output.key:
         raise VectorIndexUnavailable(
-            "Current runtime embedding contract does not match the active "
-            f"{analysis_family!r} contract; reanalysis is required before "
+            "Current embedding output does not match the requested "
+            f"{analysis_family!r} output; reanalysis is required before "
             "building or using an ANN index"
         )
     return analysis_output
@@ -943,12 +915,10 @@ def _build_manifest(
     build_seconds: float,
 ) -> dict[str, Any]:
     return {
-        "schema_version": PERSISTENT_INDEX_SCHEMA_VERSION,
         "analysis_family": snapshot.analysis_family,
         "backend": backend,
         "metric": PERSISTENT_INDEX_METRIC,
         "hnsw_space": PERSISTENT_INDEX_HNSW_SPACE,
-        "contract": _contract_manifest(snapshot.output.contract),
         "catalog_uuid": snapshot.catalog_uuid,
         "targets": [_target_manifest(target) for target in snapshot.targets],
         "embedding_count": snapshot.embedding_count,
@@ -975,7 +945,6 @@ def _manifest_mismatch_reasons(
 ) -> list[str]:
     reasons: list[str] = []
     expected_values: dict[str, object] = {
-        "schema_version": PERSISTENT_INDEX_SCHEMA_VERSION,
         "analysis_family": analysis_family,
         "backend": HNSW_VECTOR_BACKEND_NAME,
         "metric": PERSISTENT_INDEX_METRIC,
@@ -989,11 +958,6 @@ def _manifest_mismatch_reasons(
     for key, expected in expected_values.items():
         if manifest.get(key) != expected:
             reasons.append(key)
-    if (
-        parsed.contract.canonical_payload_json
-        != snapshot.output.contract.canonical_payload_json
-    ):
-        reasons.append("contract")
     if parsed.targets != snapshot.targets:
         reasons.append("targets")
 
@@ -1014,8 +978,6 @@ def _parse_manifest(manifest: dict[str, Any]) -> _ParsedManifest:
         _MANIFEST_KEYS,
         "persistent ANN manifest",
     )
-    if manifest["schema_version"] != PERSISTENT_INDEX_SCHEMA_VERSION:
-        raise ValueError("Persistent ANN manifest schema_version is not current")
     normalize_index_family(
         _required_text(
             manifest["analysis_family"],
@@ -1033,15 +995,10 @@ def _parse_manifest(manifest: dict[str, Any]) -> _ParsedManifest:
     if manifest["hnsw_space"] != PERSISTENT_INDEX_HNSW_SPACE:
         raise ValueError("Persistent ANN manifest HNSW space must be ip")
 
-    contract = _parse_contract_manifest(manifest["contract"])
-    if (
-        contract.analysis_family != manifest["analysis_family"]
-        or contract.output_kind != "embedding"
-    ):
-        raise ValueError("Persistent ANN manifest contract does not match its family")
-    validate_production_contract(contract)
-    if contract.normalization != "l2":
-        raise ValueError("Persistent ANN manifest contract is not l2-normalized")
+    family = _required_text(manifest["analysis_family"], "analysis_family")
+    spec = current_embedding_spec(family)
+    if spec.normalization != "l2":
+        raise ValueError("Persistent ANN family is not l2-normalized")
 
     catalog_uuid = _required_text(
         manifest["catalog_uuid"],
@@ -1063,9 +1020,9 @@ def _parse_manifest(manifest: dict[str, Any]) -> _ParsedManifest:
         raise ValueError(
             "Persistent ANN manifest embedding_count does not match targets"
         )
-    if contract.dim != embedding_dim:
+    if spec.dimension != embedding_dim:
         raise ValueError(
-            "Persistent ANN manifest embedding_dim does not match contract"
+            "Persistent ANN manifest embedding_dim does not match the current family"
         )
     target_hash = _sha256_identity(
         manifest["target_identity_hash"],
@@ -1120,47 +1077,9 @@ def _parse_manifest(manifest: dict[str, Any]) -> _ParsedManifest:
         "artifact.sha256",
     )
     return _ParsedManifest(
-        contract=contract,
         targets=targets,
         settings=clean_settings,
     )
-
-
-def _parse_contract_manifest(value: object) -> ContractIdentity:
-    if not isinstance(value, Mapping):
-        raise ValueError("Persistent ANN manifest contract must be an object")
-    _require_exact_keys(
-        value,
-        _CONTRACT_MANIFEST_KEYS,
-        "persistent ANN contract",
-    )
-    contract_hash = _sha256_identity(
-        value["contract_hash"],
-        "contract.contract_hash",
-    )
-    canonical_payload = value["canonical_payload"]
-    if not isinstance(canonical_payload, Mapping):
-        raise ValueError("Persistent ANN contract canonical_payload must be an object")
-    try:
-        payload_json = json.dumps(
-            canonical_payload,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-        contract = ContractIdentity.from_canonical_payload_json(payload_json)
-    except (
-        ContractIdentityError,
-        TypeError,
-        ValueError,
-    ) as error:
-        raise ValueError(
-            "Persistent ANN manifest contract identity is invalid"
-        ) from error
-    if contract.contract_hash != contract_hash:
-        raise ValueError("Persistent ANN manifest contract self-hash is invalid")
-    return contract
 
 
 def _parse_target_manifests(
@@ -1248,10 +1167,9 @@ def _artifact_paths(
     *,
     build_token: str,
 ) -> tuple[Path, Path]:
-    contract_token = snapshot.output.contract.contract_hash.removeprefix("sha256:")[:16]
     vector_token = snapshot.vector_content_hash.removeprefix("sha256:")[:16]
     base_name = (
-        f"ann_{snapshot.analysis_family}_{contract_token}_{vector_token}_{build_token}"
+        f"ann_{snapshot.analysis_family}_{vector_token}_{build_token}"
     )
     return (
         index_dir / f"{base_name}.hnsw",
@@ -1316,15 +1234,6 @@ def _verification_result(
     )
 
 
-def _contract_manifest(
-    contract: ContractIdentity,
-) -> dict[str, object]:
-    return {
-        "contract_hash": contract.contract_hash,
-        "canonical_payload": contract.canonical_payload,
-    }
-
-
 def _target_manifest(
     target: AnalysisTarget,
 ) -> dict[str, object]:
@@ -1348,7 +1257,12 @@ def _vector_content_hash(
     matrix: np.ndarray,
 ) -> str:
     hasher = hashlib.sha256()
-    hasher.update(output.contract.canonical_payload_json.encode("utf-8"))
+    spec = current_embedding_spec(output.analysis_family)
+    hasher.update(output.analysis_family.encode("utf-8"))
+    hasher.update(b"\0")
+    hasher.update(str(spec.dimension).encode("ascii"))
+    hasher.update(b"\0")
+    hasher.update(spec.normalization.encode("ascii"))
     hasher.update(b"\n")
     for target, vector in zip(targets, matrix, strict=True):
         hasher.update(

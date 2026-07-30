@@ -93,22 +93,21 @@ configuration or the SONARA runner itself.
 Replace the availability-only optional-output fields with typed summaries:
 
 ```text
+sonara_completed_at: string | null
+
 timeline: {
   fields: string[]
-  analyzed_at: string
 } | null
 
 embedding: {
   dim: number
   normalization: string
-  analyzed_at: string
 } | null
 
 fingerprint: {
   version: string
   word_count: number
   byte_order: string
-  analyzed_at: string
 } | null
 ```
 
@@ -116,10 +115,19 @@ The repository builds these summaries only from artifact rows that pass the
 existing identity, generation, output-registration, and payload validators.
 An absent or invalid artifact becomes `null`; it must not leak stale metadata.
 
-Timeline exposes only its stored top-level field names and timestamp. Embedding
-exposes dimension, normalization, and timestamp. Fingerprint exposes version,
-word count, byte order, and timestamp. The API never sends the Timeline value
-arrays, embedding vector, or fingerprint blob as part of track details.
+Timeline exposes only its stored top-level field names. Embedding exposes
+dimension and normalization. Fingerprint exposes version, word count, and byte
+order. The API never sends the Timeline value arrays, embedding vector, or
+fingerprint blob as part of track details.
+
+`sonara_completed_at` is the one timestamp for the complete SONARA result. It
+is populated only when current, valid Core, Timeline, Embedding, and
+Fingerprint rows all exist and carry the same `analyzed_at` value. The current
+SONARA write path already creates one timestamp after analysis and shares it
+across the four outputs before saving them through the coordinated write path.
+Historical outputs created by separate partial runs can have different
+timestamps; those rows remain visible, but `sonara_completed_at` is `null`
+until one complete SONARA run replaces them.
 
 The existing dedicated Timeline endpoint remains unchanged for workflows that
 explicitly need Timeline values.
@@ -130,8 +138,10 @@ Rename the containing metadata block from `SONARA · Core` to `SONARA`, because
 it now contains both Core features and summaries of the three artifact
 outputs.
 
-Preserve the current Core feature groups and formatting. After
-`Vector summaries`, insert these categories in order:
+Preserve the current Core feature groups and value formatting, except that the
+`Analysis` group's timestamp source changes from the Core row alone to
+`sonara_completed_at`. After `Vector summaries`, use these categories in
+order:
 
 1. `Timeline`
 2. `Embedding`
@@ -141,11 +151,9 @@ Preserve the current Core feature groups and formatting. After
 Timeline, Embedding, and Fingerprint use one shared badge-category renderer.
 Example badges:
 
-- Timeline: `beats`, `downbeats`, `segments`, `energy_curve`,
-  `Analyzed 30.07.2026 12:34:56`;
-- Embedding: `48D`, `L2`, `Analyzed 30.07.2026 12:34:56`;
-- Fingerprint: `v7`, `1,024 words`, `little-endian`,
-  `Analyzed 30.07.2026 12:34:56`.
+- Timeline: `beats`, `downbeats`, `segments`, `energy_curve`;
+- Embedding: `48D`, `L2`;
+- Fingerprint: `v7`, `1,024 words`, `little-endian`.
 
 Canonical Timeline field names remain code-like so they map directly to the
 stored payload. Human-readable dimensions and counts use the dialog's existing
@@ -155,6 +163,13 @@ rendered.
 Each missing category displays the same subdued `Не рассчитано` state. This
 is required for databases created before all four outputs became mandatory and
 for tracks whose prior job failed after writing only part of its result.
+
+The `Analysis` category contains the single field `Analyzed`. It renders
+`sonara_completed_at` using the existing timestamp formatter. Timeline,
+Embedding, and Fingerprint never render their own timestamps. If the four
+current outputs do not form one complete result, `Analyzed` renders
+`Не рассчитано` rather than presenting the time of an older partial output as
+the completion time.
 
 The generic `Embedding analyses` section continues to show MAEST, MERT, MuQ,
 and CLAP summaries. It filters out SONARA so the new dedicated Embedding
@@ -167,15 +182,17 @@ category is not duplicated.
    output list.
 3. Backend configuration assigns all four canonical SONARA outputs.
 4. The SONARA runner analyzes and stores Core plus all three artifact outputs.
-5. Track-detail queries validate current artifact rows and return their small
-   typed summaries.
+5. Track-detail queries validate current rows, return their small typed
+   summaries, and expose one completion timestamp only when all four output
+   timestamps match.
 6. The metadata dialog converts each summary to badges through one shared
    presentation model and renderer.
 
 ## Compatibility and Failure Handling
 
 - Existing partial SONARA data stays readable. Missing outputs render as
-  `Не рассчитано` and will be completed by the next SONARA run.
+  `Не рассчитано`; `Analyzed` also stays `Не рассчитано` until the next full
+  SONARA run.
 - Existing databases require no schema migration; the required summary fields
   already exist in the artifact tables.
 - A failed SONARA job retains normal per-output status reporting, even though
@@ -196,10 +213,13 @@ Use test-first slices:
    SONARA output checkboxes, no output-selection state, and no output list in
    requests. Confirm the tests fail first.
 3. Add repository and API tests for the three typed artifact summaries,
-   including absent and invalid-artifact cases. Confirm the tests fail first.
+   including absent and invalid-artifact cases. Prove that the one completion
+   timestamp is present only when all four valid rows share it. Confirm the
+   tests fail first.
 4. Update metadata-model tests for category order, badge content, uniform
-   missing states, and SONARA de-duplication from generic embedding summaries.
-   Confirm the tests fail first.
+   missing states, one `Analyzed` field, no per-output timestamps, and SONARA
+   de-duplication from generic embedding summaries. Confirm the tests fail
+   first.
 
 After each focused red/green cycle, run:
 

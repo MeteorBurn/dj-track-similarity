@@ -107,8 +107,7 @@ Heavy SONARA data stays exclusively in the mandatory Artifacts database:
 - `sonara_timeline.payload_json` stores Timeline arrays, events, curves, and
   segments;
 - `sonara_similarity_embeddings.embedding_blob` stores the similarity vector;
-- `sonara_fingerprints.fingerprint_blob` stores packed fingerprint words, while
-  a small `fingerprint_sha256` column stores their persisted digest.
+- `sonara_fingerprints.fingerprint_blob` stores packed fingerprint words.
 
 The Core database keeps only the existing queryable SONARA scalars, compact
 vector summaries, identity fields, and the shared analysis timestamp. React
@@ -126,8 +125,8 @@ projections:
   `length(embedding_blob)` for structural validation, but not
   `embedding_blob`.
 - Fingerprint selects `fingerprint_version`, `word_count`, `byte_order`,
-  `fingerprint_sha256`, `analyzed_at`, and `length(fingerprint_blob)` for
-  structural validation, but not `fingerprint_blob`.
+  `analyzed_at`, and `length(fingerprint_blob)` for structural validation, but
+  not `fingerprint_blob`.
 
 Full payload validation happens before every write. Server-side workflows that
 actually consume an artifact load and validate it on demand. The existing
@@ -135,23 +134,9 @@ Timeline endpoint remains the explicit lazy-load path for Timeline values; the
 metadata dialog does not call it. Embeddings and fingerprints remain
 server-side inputs and are never serialized into the metadata UI.
 
-The digest is computed once while the canonical fingerprint bytes are already
-in memory for a write:
-
-```text
-SHA-256(UTF8("sonara-fingerprint") || NUL ||
-        ASCII(decimal fingerprint_version) || NUL || fingerprint_blob)
-```
-
-Including the internal format version domain-separates digests if SONARA ever
-changes the fingerprint bit layout. Reanalyzing unchanged audio with the same
-algorithm produces the same digest; the version does not increment per
-analysis run.
-
-Adding the digest column requires an explicit Artifacts database migration.
-The migration follows the project's normal backup and confirmation rules and
-backfills the digest once from existing blobs. Normal UI requests never
-recompute it.
+This projection design requires no database migration: the heavy tables
+already contain all required validation metadata, and Timeline's accepted key
+set is fixed by the current storage contract.
 
 ## Metadata Contract
 
@@ -169,8 +154,7 @@ optional_outputs: {
     normalization: string
   }
   fingerprint: {
-    sha256: string
-    word_count: number
+    ready: true
   }
 } | null
 ```
@@ -181,10 +165,10 @@ validators and share one `analyzed_at` value. Otherwise `optional_outputs` is
 `null`, and the track is treated as not analyzed by SONARA.
 
 Timeline exposes only its stored top-level field names. Embedding exposes
-dimension and normalization. Fingerprint exposes its stored digest and word
-count. Format version and byte order remain internal compatibility metadata;
-they are not user-facing badges. The API never sends the Timeline value
-arrays, embedding vector, or fingerprint blob as part of track details.
+dimension and normalization. Fingerprint exposes only its ready state. Format
+version, word count, and byte order remain internal compatibility metadata;
+they are not user-facing fields. The API never sends the Timeline value arrays,
+embedding vector, or fingerprint blob as part of track details.
 
 `optional_outputs.analyzed_at` is the one timestamp for the complete SONARA
 result. The SONARA write path creates it after analysis and shares it across
@@ -214,19 +198,12 @@ Example badges:
 
 - Timeline: `beats`, `downbeats`, `segments`, `energy_curve`;
 - Embedding: `48D`, `L2`;
-- Fingerprint: `ID 7e9a9d2c4b80a1f3`, `1,024 subprints`.
+- Fingerprint: `Ready`.
 
 Canonical Timeline field names remain code-like so they map directly to the
 stored payload. Human-readable dimensions and counts use the dialog's existing
 number and timestamp formatters. Raw vectors and binary values are never
-rendered. The UI shows a fixed 16-hex-character prefix of the SHA-256 as the
-compact Fingerprint ID and exposes the full digest in the badge tooltip and
-accessible label.
-
-The Fingerprint ID identifies an exact stored fingerprint, not a
-duplicate-equivalence class. Re-encoded copies may have slightly different
-fingerprint bits and therefore different digests even when SONARA's
-alignment-aware fingerprint matcher correctly considers them duplicates.
+rendered.
 
 The `Analysis` category contains the single field `Analyzed`. It renders
 `optional_outputs.analyzed_at` using the existing timestamp formatter.
@@ -257,8 +234,8 @@ category is not duplicated.
 
 - Any incomplete legacy residue is treated as no SONARA result and is replaced
   by the next SONARA run.
-- Existing databases require the explicit, backed-up Artifacts migration that
-  adds and backfills `fingerprint_sha256`.
+- Existing databases require no schema migration; the required metadata fields
+  already exist in the artifact tables.
 - A failed per-track conversion or write publishes none of the four outputs as
   a valid result. Job status still identifies the failing track and error.
 - API clients that still send an output list receive a validation error and
@@ -284,11 +261,8 @@ Use test-first slices:
    metadata do not select `payload_json`, `embedding_blob`, or
    `fingerprint_blob`; structural byte-length checks may remain in SQL.
    Confirm the tests fail first.
-5. Add digest tests proving deterministic SHA-256 generation, version-domain
-   separation, migration backfill, full-digest API transport, and abbreviated
-   UI rendering without loading the fingerprint BLOB. Confirm the tests fail
-   first.
-6. Update metadata-model tests for category order, badge content, uniform
+5. Update metadata-model tests for category order, badge content, the
+   Fingerprint `Ready` state without internal format metadata, uniform
    SONARA-level missing state, one `Analyzed` field, no per-output timestamps,
    and SONARA de-duplication from generic embedding summaries. Confirm the
    tests fail first.

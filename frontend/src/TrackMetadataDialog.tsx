@@ -17,11 +17,9 @@ type CoreFeatureGroup = {
 
 const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
-    title: "Tempo and beat grid",
+    title: "Tempo",
     features: [
-      feature("analyzed_duration_seconds", "Analyzed duration", "Duration represented by the current SONARA Core analysis."),
       feature("detected_bpm", "BPM", "Detected tempo after applying the active SONARA BPM range."),
-      feature("raw_bpm", "Raw BPM", "Unfolded tempo estimate before applying the active BPM range."),
       feature("bpm_confidence", "BPM confidence", "Confidence of the detected tempo."),
       feature("bpm_candidates", "BPM candidates", "Ranked tempo candidates returned by SONARA."),
       feature("onset_density_per_second", "Onset density", "Detected onsets per second."),
@@ -29,39 +27,39 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("tempo_variability", "Tempo variability", "Within-track tempo variation retained by SONARA."),
       feature("beat_grid_offset_seconds", "Beat-grid offset", "Offset of the detected beat grid from the beginning of the audio."),
       feature("beat_grid_stability", "Beat-grid stability", "Stability of the detected beat grid."),
-    ],
-  },
-  {
-    title: "Tonal",
-    features: [
-      feature("detected_key_name", "Key", "Detected musical key."),
-      feature("detected_key_camelot", "Camelot", "Camelot code derived by SONARA."),
-      feature("key_confidence", "Key confidence", "Confidence of the detected key."),
-      feature("key_candidates", "Key candidates", "Ranked key candidates returned by SONARA."),
-      feature("predominant_chord", "Predominant chord", "Most frequent detected chord."),
-      feature("chord_changes_per_second", "Chord changes", "Detected chord changes per second."),
-      feature("dissonance_score", "Dissonance", "SONARA dissonance score."),
+      feature("analyzed_duration_seconds", "Duration", "Duration represented by the current SONARA Core analysis."),
     ],
   },
   {
     title: "Perceptual",
     features: [
+      feature("energy_level", "Level", "SONARA energy tier."),
       feature("energy_score", "Energy", "SONARA energy ranking signal."),
-      feature("energy_level", "Energy level", "SONARA energy tier."),
       feature("danceability_score", "Danceability", "SONARA danceability ranking signal."),
       feature("valence_score", "Valence", "SONARA valence ranking signal."),
       feature("acousticness_score", "Acousticness", "SONARA acousticness ranking signal."),
     ],
   },
   {
-    title: "Spectral",
+    title: "Mood",
     features: [
-      feature("spectral_centroid_hz", "Spectral centroid", "Center of mass of the spectrum in hertz."),
-      feature("spectral_bandwidth_hz", "Spectral bandwidth", "Frequency spread in hertz."),
-      feature("spectral_rolloff_hz", "Spectral rolloff", "Rolloff frequency in hertz."),
-      feature("spectral_flatness", "Spectral flatness", "Tonal-to-noise-like spectral measure."),
-      feature("zero_crossing_rate", "Zero-crossing rate", "Rate of waveform sign changes."),
-      feature("vector_summaries", "Vector summaries", "Compact summaries for stored SONARA Core vectors."),
+      feature("vocal_probability", "Vocal", "Probability returned by the bundled SONARA vocal model."),
+      feature("mood_happy_score", "Happy", "SONARA happy-mood ranking signal."),
+      feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood ranking signal."),
+      feature("mood_relaxed_score", "Relaxed", "SONARA relaxed-mood ranking signal."),
+      feature("mood_sad_score", "Sad", "SONARA sad-mood ranking signal."),
+    ],
+  },
+  {
+    title: "Tonal",
+    features: [
+      feature("detected_key_camelot", "Camelot", "Camelot code derived by SONARA."),
+      feature("detected_key_name", "Key", "Detected musical key."),
+      feature("key_confidence", "Key confidence", "Confidence of the detected key."),
+      feature("key_candidates", "Key candidates", "Ranked key candidates returned by SONARA."),
+      feature("predominant_chord", "Predominant chord", "Most frequent detected chord."),
+      feature("chord_changes_per_second", "Chord changes", "Detected chord changes per second."),
+      feature("dissonance_score", "Dissonance", "SONARA dissonance score."),
     ],
   },
   {
@@ -93,13 +91,19 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     ],
   },
   {
-    title: "Voice and mood",
+    title: "Spectral",
     features: [
-      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
-      feature("mood_happy_score", "Happy", "SONARA happy-mood ranking signal."),
-      feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood ranking signal."),
-      feature("mood_relaxed_score", "Relaxed", "SONARA relaxed-mood ranking signal."),
-      feature("mood_sad_score", "Sad", "SONARA sad-mood ranking signal."),
+      feature("spectral_centroid_hz", "Spectral centroid", "Center of mass of the spectrum in hertz."),
+      feature("spectral_bandwidth_hz", "Spectral bandwidth", "Frequency spread in hertz."),
+      feature("spectral_rolloff_hz", "Spectral rolloff", "Rolloff frequency in hertz."),
+      feature("spectral_flatness", "Spectral flatness", "Tonal-to-noise-like spectral measure."),
+      feature("zero_crossing_rate", "Zero-crossing rate", "Rate of waveform sign changes."),
+    ],
+  },
+  {
+    title: "Vector summaries",
+    features: [
+      feature("vector_summaries", "Vectors", "Compact summaries for stored SONARA Core vectors."),
     ],
   },
   {
@@ -429,6 +433,10 @@ function readableClassifierName(key: string) {
 }
 
 function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
+  if (key === "analyzed_at") return formatTimestamp(String(value));
+  if (key === "bpm_candidates" && Array.isArray(value)) return formatBpmCandidates(value);
+  if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
+  if (key === "vector_summaries" && Array.isArray(value)) return formatVectorSummaries(value);
   if (Array.isArray(value)) return formatRecordList(value);
   if (typeof value === "number") {
     if (key === "detected_bpm" || key === "raw_bpm") return value.toFixed(2);
@@ -444,6 +452,46 @@ function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof So
     return formatNumber(value);
   }
   return String(value);
+}
+
+function formatBpmCandidates(value: Record<string, unknown>[]) {
+  return value.map((candidate) => {
+    const bpm = typeof candidate.bpm === "number"
+      ? candidate.bpm.toFixed(2).replace(/\.00$/, "")
+      : "-";
+    const score = typeof candidate.score === "number"
+      ? ` (${formatNumber(candidate.score)})`
+      : "";
+    return `${bpm}${score}`;
+  }).join(" · ");
+}
+
+function formatKeyCandidates(value: Record<string, unknown>[]) {
+  return value.map((candidate) => {
+    const camelot = typeof candidate.camelot === "string" ? candidate.camelot : "";
+    const keyName = typeof candidate.key_name === "string" ? candidate.key_name : "";
+    const name = [camelot, keyName].filter(Boolean).join(" · ") || "-";
+    const score = typeof candidate.score === "number"
+      ? ` (${formatConfidence(candidate.score)})`
+      : "";
+    return `${name}${score}`;
+  }).join(" | ");
+}
+
+function formatVectorSummaries(value: Record<string, unknown>[]) {
+  const labels: Record<string, string> = {
+    mfcc_mean: "MFCC",
+    chroma_mean: "Chroma",
+    spectral_contrast_mean: "Spectral Contrast",
+  };
+  return value.map((summary) => {
+    const vectorType = typeof summary.vector_type === "string"
+      ? summary.vector_type
+      : "";
+    const label = labels[vectorType] || vectorType || "Vector";
+    const dim = typeof summary.dim === "number" ? ` [${summary.dim}]` : "";
+    return `${label}${dim}`;
+  }).join(" · ");
 }
 
 function formatRecordList(value: Record<string, unknown>[]) {

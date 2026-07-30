@@ -142,6 +142,8 @@ def _sonara_core_row(
         minimum=float(SONARA_BPM_MIN),
         maximum=float(SONARA_BPM_MAX),
     )
+    if detected_bpm is not None:
+        detected_bpm = round(detected_bpm, 2)
     raw_bpm = _optional_float(analysis, "bpm_raw", minimum=0.0, strict_minimum=True)
     bpm_confidence = _optional_unit_interval(
         analysis,

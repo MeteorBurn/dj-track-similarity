@@ -9,7 +9,6 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
   const source = readFileSync(dialogPath, "utf8");
   const expected = new Map([
     ["detected_bpm", "BPM"],
-    ["raw_bpm", "Raw BPM"],
     ["onset_density_per_second", "Onset density"],
     ["detected_key_name", "Key"],
     ["detected_key_camelot", "Camelot"],
@@ -18,7 +17,7 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
     ["spectral_centroid_hz", "Spectral centroid"],
     ["integrated_loudness_lufs", "Integrated loudness"],
     ["true_peak_dbtp", "True peak"],
-    ["vocal_probability", "Vocal probability"],
+    ["vocal_probability", "Vocal"],
     ["mood_happy_score", "Happy"],
   ]);
 

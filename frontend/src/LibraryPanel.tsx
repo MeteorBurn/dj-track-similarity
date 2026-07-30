@@ -126,6 +126,9 @@ export function LibraryPanel({
   const blockerCount = classifiers.filter((item) => item.readiness_blockers?.length).length;
   const classifiersSelected = selectedAnalysisModels.includes("classifiers");
   const fullAnalysisSelected = selectedAnalysisModels.length === audioAnalysisModelOrder.length + 1;
+  const pipelineOwnsAnalysisJob = analysisJob != null
+    && pipelineJob != null
+    && Object.values(pipelineJob.stages).some((stage) => stage.child_job_id === analysisJob.job_id);
 
   const modelRow = (model: AnalysisModel) => (
     <div className="analysis-model-row" key={model}>
@@ -245,7 +248,7 @@ export function LibraryPanel({
         </div>
         <small>0 = все треки; ограничивает Scan и каждую стадию анализа</small>
       </div>
-      {analysisJob ? <small className="analysis-muted">Job {analysisJob.state} · {analysisJob.processed}/{analysisJob.total} · {analysisJob.current_model || analysisJob.models?.join(", ")}</small> : null}
+      {analysisJob && !pipelineOwnsAnalysisJob ? <small className="analysis-muted">Job {analysisJob.state} · {analysisJob.processed}/{analysisJob.total} · {analysisJob.current_model || analysisJob.models?.join(", ")}</small> : null}
       {pipelineJob ? <small className="analysis-muted">Pipeline {pipelineJob.state} · {pipelineJob.order.map((stage) => `${stage}:${pipelineJob.stages[stage]?.state}`).join(" → ")}</small> : null}
       <button
         className="analyze-selected-button analysis-pipeline-button"

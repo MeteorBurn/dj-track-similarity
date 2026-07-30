@@ -53,6 +53,30 @@ By default:
 - CLI entry is `dj-sim = dj_track_similarity.cli:app`. Commands: `scan`, `relocate-library`, `analyze`, `analyze-classifiers`, `analyze-classifier`, `analyze-pipeline`, `doctor`, `text-search`, `migrate-database`, `serve`, plus `eval`, `classifier`, and `index` command groups.
 - Central classes with heavy fan-in when editing: `LibraryDatabase`, `AppDatabaseState`, `AnalysisJobManager`, `ClassifierJobManager`, `AnalysisPipelineManager`, `SimilaritySearch`, `ClapEmbeddingAdapter`.
 
+## SONARA Result Semantics
+
+- Preserve SONARA scalar precision through database writes. Validate finite
+  values and documented bounds, but do not round model or DSP outputs before
+  storage; apply display precision only in the UI.
+- SONARA tempo analysis uses the configured `70..180` BPM range. Store
+  `detected_bpm` without rounding, render it with two decimal places, and do
+  not expose `raw_bpm` in the metadata UI.
+- The application passes `vocalness_model="bundled"`, so SONARA `vocalness`
+  is stored as `vocal_probability`. Render it as a percentage because it is
+  the bundled model's `P(vocal)`, but never describe it as the percentage of
+  track duration containing vocals. Do not expose a duplicate `vocalness`
+  field or derive a separate `instrumentalness` display.
+- `mood_happy`, `mood_aggressive`, `mood_relaxed`, and `mood_sad` are
+  independent heuristics, not classifier probabilities. Keep them in the
+  `Mood` group with labels `Happy`, `Aggressive`, `Relaxed`, and `Sad`, and
+  render them as `0.000`-style decimal scores rather than percentages.
+- Dedicated SONARA Aggression is distinct from `mood_aggressive`. Store its
+  rank, evidence support, forcefulness, harshness, tension, and rhythm without
+  rounding. Render each as a three-decimal score without `%`; the rank is not
+  a probability, and evidence support is not certainty.
+- In the SONARA metadata UI, keep the model-backed groups immediately before
+  `Vector summaries`, ordered as `Vocalness`, then `Aggression`.
+
 ## Safety Rules Agents Commonly Miss
 
 - Treat source audio as user data. Scan, Refresh Tags, analysis, search, preview, reset, relocation preview, export, and classifier scoring must not modify audio files.

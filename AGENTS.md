@@ -1,5 +1,31 @@
 # Agent Instructions
 
+## Active Development And Evolution Policy
+
+- This project is under continuous development. File layout, module boundaries,
+  schemas, API shapes, field names and order, model sets, weights, defaults,
+  commands, ports, and UI composition describe the current checkout, not
+  permanent contracts or compatibility ceilings.
+- A user request may deliberately reorder, rename, replace, split, combine, or
+  remove any of those elements. Treat the requested target behavior as the new
+  source of truth and update all affected source, types, migrations, tests, and
+  documentation together.
+- Do not preserve incidental current structure with duplicated registries,
+  exhaustive hard-coded checks, version gates, legacy branches, compatibility
+  aliases, or tests that freeze field order. Prefer one discoverable source of
+  truth, data-driven composition, and tests of observable behavior.
+- Add backward compatibility or a migration only when existing persisted data,
+  an external consumer, or the user actually requires it. Do not invent it in
+  anticipation of an unspecified future need.
+- Safety rules in this file are the baseline for tasks that do not explicitly
+  redesign the relevant destructive or user-data workflow. They are not a ban
+  on owner-directed evolution: when the user asks to change one, make the new
+  risk model explicit, retain appropriate confirmation/recovery safeguards,
+  and verify the changed boundary directly.
+- Keep these instructions synchronized with meaningful architectural changes.
+  Remove obsolete prescriptions instead of making new code imitate an old
+  snapshot.
+
 ## Connected SONARA repository
 
 This project consumes SONARA from a separate checkout:
@@ -29,13 +55,16 @@ By default:
 - Project databases are stored in `C:\projects\dj-track-similarity\database`.
   Never use a real project database in automated tests.
 
-## High-Value Map
+## Current High-Value Map
+
+Use this as orientation, then confirm relevant paths in the current checkout
+before editing. Refactoring this layout is allowed under the evolution policy.
 
 - Backend/CLI/API live under `src/dj_track_similarity/`. Hot files by concern:
   - **Composition**: `cli.py` (Typer), `api.py` (`create_app`), `api_schemas.py`, `api_state.py` (`AppDatabaseState` + job managers), `api_routes_*.py`, `dependencies.py`, `runtime.py`, `job_runtime.py`, `logging_config.py`.
   - **Database**: `database.py` (`LibraryDatabase`), `db_connection.py`, `db_schema.py`, `db_ddl.py`, `db_structure.py`, `db_artifacts.py`, `db_evaluation_sidecar.py`, `db_tracks.py`, `db_analysis.py`, `db_analysis_candidates.py`, `db_storage.py`, `db_library_queries.py`, `db_search_fts.py`, `db_summary.py`, `db_evaluation.py`.
   - **Scanning + audio + tags**: `scanner.py`, `scan_jobs.py`, `audio_loader.py`, `media_preview.py`, `tags.py`, `wave_tags.py`, `genres.py`, `track_resolution.py`, `tempo_resolution.py`.
-  - **Analysis orchestration**: `analysis_config.py`, `analysis_jobs.py`, `analysis_pipeline.py` (fixed order SONARA → ML → CLASSIFIERS), `analysis_queue.py`, `analysis_job_state.py`, `analysis_job_batch.py`, `analysis_model_runners.py`.
+  - **Analysis orchestration**: `analysis_config.py`, `analysis_jobs.py`, `analysis_pipeline.py` (currently SONARA → ML → CLASSIFIERS), `analysis_queue.py`, `analysis_job_state.py`, `analysis_job_batch.py`, `analysis_model_runners.py`.
   - **Models**: `sonara_runtime.py`, `sonara_features.py`, `sonara_storage.py`, `sonara_similarity.py`, `sonara_similarity_scoring.py`, `embedding.py` (MERT/MuQ/CLAP adapters), `genres.py` (MAEST labels).
   - **Search + set + hybrid**: `search.py` (`SimilaritySearch`), `hybrid_search.py`, `hybrid_explanation.py`, `hybrid_transition.py`, `set_builder.py`, `set_sequence.py`, `transition_diagnostics.py`, `vector_index.py`, `ann_index.py`.
   - **Classifiers**: `classifier_jobs.py`, `classifier_manifest.py`, `classifier_production.py`, `classifier_scoring.py`.
@@ -43,17 +72,34 @@ By default:
   - **Rhythm Lab bridge + misc**: `rhythm_lab_launcher.py`, `rhythm_lab_collections.py`, `reference_compare.py`, `exporter.py`.
 - `frontend/` is the React + Vite + TypeScript UI. Root component tree in `frontend/src/App.tsx`; main panels in `LibraryPanel.tsx`, `TrackPanel.tsx`, `SearchPlaylistPanel.tsx`, `ReferenceComparePanel.tsx`, `ClapSearchTab.tsx`. Frontend tests use Node's built-in `node --test`, not Vitest. See `frontend/AGENTS.md`.
 - `docs/dj-track-similarity/` is the VitePress source; `site/` is generated output. Style rules live in `.vale.ini`, `docs/dj-track-similarity/cspell.json`, and `docs/dj-track-similarity/.markdownlint.json`.
-- Helper tools are separate safety domains, each with its own `AGENTS.md`: `tools/audio-doctor/`, `tools/audio-dedup/`, `tools/rhythm-lab/`.
-- Runtime ports are fixed: backend `8765`, Vite `5173`, Rhythm Lab `8777`. Before starting one, check for an existing matching project process. Running `run_server.cmd` without arguments must prompt first for a database path with the shown default `C:\db\volumes.sqlite`, then prompt for local or LAN mode; pass the selected path to `dj-sim serve` only after both prompts complete. Explicit `run_server.cmd local ...` and `run_server.cmd lan ...` calls remain non-interactive and use only their supplied arguments. Keep argument forwarding through `scripts/run_server_launcher.py` as a list with `shell=False`; do not rebuild user-supplied paths into a `cmd.exe` command string.
+- Helper tools are separate safety domains, each with its own `AGENTS.md`:
+  `tools/audio-doctor/`, `tools/audio-dedup/`, `tools/kglite-bridge/`, and
+  `tools/rhythm-lab/`.
+- Current default ports are backend `8765`, Vite `5173`, and Rhythm Lab
+  `8777`; confirm current configuration before starting a process. The current
+  no-argument `run_server.cmd` flow prompts for the database path (default
+  `C:\db\volumes.sqlite`) and then local/LAN mode, while explicit `local` and
+  `lan` calls are non-interactive. This UX may evolve when requested. Preserve
+  safe list-based argument forwarding with `shell=False` unless the launcher is
+  deliberately redesigned with equivalent injection protection.
 
-## Architecture Sketch
+## Current Architecture Sketch
 
 - `create_app()` in `api.py` composes route modules and mounts the built `frontend/dist` at `/`. `AppDatabaseState` (`api_state.py`) owns `LibraryDatabase` plus job managers for scan, analysis, pipeline, classifier, audio-doctor, audio-dedup, and genre-tag work; a shared `AnalysisStageQueue` serialises SONARA/ML/CLASSIFIERS across UI and API.
-- `AnalysisPipelineManager` fixes pipeline order to `("sonara", "ml", "classifiers")` (see `analysis_pipeline.py:PIPELINE_STAGE_ORDER`). Per-file failures are retained in status and do not halt the next stage; a fatal init error or cancellation does.
+- `AnalysisPipelineManager` currently uses `("sonara", "ml", "classifiers")`
+  (see `analysis_pipeline.py:PIPELINE_STAGE_ORDER`). A requested redesign may
+  change that sequence; update dependencies, readiness accounting, status
+  behavior, and focused tests together rather than preserving the old order in
+  a hidden branch.
 - CLI entry is `dj-sim = dj_track_similarity.cli:app`. Commands: `scan`, `relocate-library`, `analyze`, `analyze-classifiers`, `analyze-classifier`, `analyze-pipeline`, `doctor`, `text-search`, `migrate-database`, `serve`, plus `eval`, `classifier`, and `index` command groups.
 - Central classes with heavy fan-in when editing: `LibraryDatabase`, `AppDatabaseState`, `AnalysisJobManager`, `ClassifierJobManager`, `AnalysisPipelineManager`, `SimilaritySearch`, `ClapEmbeddingAdapter`.
 
-## SONARA Result Semantics
+## Current SONARA Result Semantics
+
+These bullets capture the meaning and presentation of the fields in the
+current checkout. Field names, storage, grouping, precision, and display order
+may change when requested, but update producers, persistence, API types, UI,
+tests, and docs together and do not silently change a field's meaning.
 
 - Preserve SONARA scalar precision through database writes. Validate finite
   values and documented bounds, but do not round model or DSP outputs before
@@ -74,27 +120,62 @@ By default:
   rank, evidence support, forcefulness, harshness, tension, and rhythm without
   rounding. Render each as a three-decimal score without `%`; the rank is not
   a probability, and evidence support is not certainty.
-- In the SONARA metadata UI, keep the model-backed groups immediately before
-  `Vector summaries`, ordered as `Vocalness`, then `Aggression`.
+- The current SONARA metadata UI places the model-backed groups immediately
+  before `Vector summaries`, ordered as `Vocalness`, then `Aggression`. Treat
+  this as present UI composition, not a permanent ordering contract.
 
-## Safety Rules Agents Commonly Miss
+## Default Safety Baseline
+
+Apply these rules unless the task explicitly changes the corresponding safety
+boundary. Do not turn current implementation details inside these bullets into
+permanent APIs; preserve the safety outcome or replace it with an explicitly
+requested and verified outcome.
 
 - Treat source audio as user data. Scan, Refresh Tags, analysis, search, preview, reset, relocation preview, export, and classifier scoring must not modify audio files.
-- The app's normal tag-write path is only `/api/tags/genres/apply` (route in `api_routes_tags_export.py`, writer in `tags.py`, WAV persist in `wave_tags.py`): write the stored MAEST-derived standard genre field and preserve title, artist, album, BPM, key, and other normal tags. WAV genre writes use Mutagen WAVE/ID3 and read back `TCON`; do not add custom RIFF repair here.
+- The current normal tag-write path is `/api/tags/genres/apply` (route in
+  `api_routes_tags_export.py`, writer in `tags.py`, WAV persistence in
+  `wave_tags.py`). It writes the stored MAEST-derived standard genre field and
+  preserves title, artist, album, BPM, key, and other normal tags. Do not add
+  an incidental audio-write path; an explicit new write feature must define
+  preservation, recovery, and verification behavior. WAV genre writes
+  currently use Mutagen WAVE/ID3 and read back `TCON`; keep RIFF repair in its
+  own deliberately selected workflow.
 - Browser preview may transcode `.aif`/`.aiff` to a temporary WAV for streaming (`media_preview.py`), but must not rewrite or cache source audio.
-- SQLite writes go through `LibraryDatabase` with path-scoped locking, WAL, and busy timeout. Relocation apply (`db_tracks.py`) updates stored `tracks.file_path` only; it never moves, copies, deletes, or retags audio.
+- SQLite writes currently go through `LibraryDatabase` with path-scoped
+  locking, WAL, and busy timeout. That architecture may be refactored, but
+  equivalent concurrency and real-data safeguards must be designed and tested.
+  Current relocation apply (`db_tracks.py`) updates stored `tracks.file_path`
+  without moving, copying, deleting, or retagging audio.
 - Database reset/clear is database-only and must require explicit UI confirmation where applicable. Destructive SQLite maintenance on a real DB needs a backup/copy first and should finish with integrity/orphan checks.
-- Normal startup never changes an older database structure. Use only the explicit
-  `dj-sim migrate-database --db <path>` command after reviewing its plan; apply
-  requires the exact `MIGRATE DATABASE` confirmation and creates verified Core
-  and Artifacts backups before changing either database.
-- Audio Doctor is dry-run-first (`audio_doctor_jobs.py`). `--apply` may rewrite only prior `REPAIRABLE` findings, creates backups by default, verifies each result, and UI/API apply requires the exact `APPLY REPAIR` confirmation.
-- Audio Dedup is report-only by default (`audio_dedup_jobs.py`). `--apply` requires exact `APPLY DELETE`, deletes only safe duplicate candidates inside `--root`, and removes SQLite rows only for files it actually deleted. MuQ can add configurable embedding evidence but never replaces the existing MERT+MAEST delete-safety corroboration. Do not run apply modes for routine verification.
+- Current normal startup does not change an older database structure. The
+  explicit `dj-sim migrate-database --db <path>` workflow requires plan review,
+  the current `MIGRATE DATABASE` confirmation, and verified Core and Artifacts
+  backups. A requested migration redesign must still make real-data mutation
+  explicit and recoverable; keep confirmation text in one source of truth
+  rather than duplicating literals across layers.
+- Audio Doctor is currently dry-run-first (`audio_doctor_jobs.py`). Apply is
+  limited to prior `REPAIRABLE` findings, creates backups by default, verifies
+  results, and uses the confirmation defined by its job manager. Any requested
+  workflow change must preserve explicit intent and a recovery path.
+- Audio Dedup is currently report-first (`audio_dedup_jobs.py`). Apply uses the
+  confirmation defined by its job manager, operates only on qualified targets
+  inside the selected root, and removes rows only for files actually deleted.
+  The scoring profile may evolve, but deletion must remain independently
+  corroborated and fail closed under the active policy. Do not run apply modes
+  for routine verification.
 - Rhythm Lab opens the main SQLite DB mostly read-only; labels, predictions, checkpoints, and artifacts stay under `tools/rhythm-lab/`. The explicit liked-track toggle is the narrow source-DB write path.
 - Promoted classifier scoring (`classifier_scoring.py`) is database-only, scoped by `classifier_key`, and writes only that classifier's `classifier_scores`. Do not recompute or delete other classifier scores.
 - Keep CLAP text-search scores separate from audio-to-audio CLAP signals used by SET/Hybrid/Audio Dedup. MuQ embeddings are supported by seed search, SET, Hybrid, Audio Dedup, and classifier inputs; do not mix MuQ with CLAP text scores.
-- SET defaults to MERT/MAEST/MuQ/CLAP with raw weights `0.30/0.18/0.15/0.22` plus SONARA broad `0.30`, normalized over enabled signals. Hybrid defaults to MERT/MAEST/MuQ/SONARA/CLAP with equal normalized weights. Disabling a source removes it from eligibility and the weight map; never retain a disabled source at zero weight as a hidden readiness requirement.
-- MuQ decodes and resamples through shared torchaudio only, at 24 kHz `float32`, with no half/bfloat/autocast/compile path (`embedding.py`). Do not import `librosa` into project source; it exists only as a locked transitive dependency in `uv.lock`.
+- SET and Hybrid source sets, weights, and normalization behavior are tunable
+  current defaults defined by executable source and schemas. When changing
+  them, update eligibility, readiness, fusion, explanations, UI, and tests from
+  the same source of truth. Do not create a hidden readiness requirement for a
+  disabled source.
+- The current verified MuQ path uses shared torchaudio decoding/resampling at
+  24 kHz `float32` (`embedding.py`) without half precision, autocast, compile,
+  or a direct `librosa` dependency. Treat this as tested implementation, not a
+  permanent optimization ban: a deliberate replacement requires dependency,
+  numerical, device, and focused compatibility verification.
 
 ## Tooling
 
@@ -150,7 +231,7 @@ By default:
   compatible current versions, update manifests and lockfiles, and run focused
   compatibility checks. Do not reject an update solely because it changes a
   previously recorded package version.
-- MuQ analysis uses shared decode and torchaudio resampling at `24_000 Hz`
-  `float32`; project source does not use `librosa` for this path.
+- The current MuQ runtime assumptions are documented above; re-check source and
+  manifests instead of copying them into new compatibility gates.
 - Vale reads `.vale/styles` populated by `npm run vale:sync`; `vale.exe` is
   resolved from `VALE_EXE`, `PATH`, or `C:\Utils\tools\vale\vale.exe`.

@@ -3,7 +3,20 @@
 Standalone, read-only derived-graph exporter. The root `AGENTS.md` also
 applies.
 
-## Safety boundary
+## Active Development
+
+- The root evolution policy applies. Graph schema, node and relationship sets,
+  identity strategy, projections, CLI options, and validation rules describe
+  the current exporter, not a permanent KGLite contract.
+- A requested graph redesign may rename, reorder, add, or remove fields and
+  entities. Update exporter, validator, digest/determinism behavior, tests, and
+  consuming workflows together; add backward compatibility only for a real
+  stored or external consumer requirement.
+- Read-only treatment of project databases and source audio is the default
+  safety baseline. It may change only as an explicit owner-directed capability
+  with a newly defined and verified user-data boundary.
+
+## Current Safety Boundary
 
 - Project SQLite databases are inputs only. Open them with SQLite URI
   `mode=ro`, set `PRAGMA query_only = ON`, and never run
@@ -20,19 +33,21 @@ applies.
   is an optional local tool dependency imported only when writing or
   validating a graph.
 
-## Graph structure
+## Current Graph Structure
 
-- Stable node identities use `catalog_uuid` plus `track_uuid` or a
+- Current node identities use `catalog_uuid` plus `track_uuid` or a
   normalized-value digest. Numeric `track_id` is metadata, never graph
   identity.
-- Nodes include `Catalog`, `Projection`, `Track`, `Artist`, `Genre`, and
+- Current nodes include `Catalog`, `Projection`, `Track`, `Artist`, `Genre`, and
   `Collection`; evolve the graph shape as integration needs change.
-- Similarity relationships are source-specific:
-  `SIMILAR_MAEST`, `SIMILAR_MERT`, `SIMILAR_MUQ`, `SIMILAR_CLAP`, and
-  `SIMILAR_SONARA`.
-- Similarity is directed top-K per seed track. Every relationship carries
-  rank, cosine score, and source family.
-- Do not store raw embedding vectors in the graph.
+- Current similarity relationships are source-specific. Discover the active
+  set from exporter source and tests rather than freezing a duplicate list in
+  new consumers.
+- Current similarity is directed top-K per seed track, with rank, cosine score,
+  and source family on each relationship. These semantics may evolve with a
+  coordinated schema and consumer update.
+- The current derived graph omits raw embedding vectors. Adding them would be a
+  deliberate storage/privacy/size design change, not an incidental schema edit.
 - Keep ordering and the projection digest deterministic for identical
   SQLite snapshots and CLI options.
 

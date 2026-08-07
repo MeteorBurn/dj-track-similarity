@@ -11,6 +11,7 @@ dist/
 venv/
 
 # Local app state
+/database/
 *.sqlite
 *.sqlite-*
 *.sqlite.*.bak

@@ -2,23 +2,41 @@
 
 Standalone metadata / container repair helper. Independent safety domain — see root `AGENTS.md` for the write-path invariant and repo-wide rules.
 
-## Boundaries
+## Active Development
+
+- The root evolution policy applies. The package layout, state format,
+  classifications, CLI flags, and confirmation mechanism below describe the
+  current tool and may be deliberately redesigned.
+- Do not duplicate current literals or file layouts as permanent contracts.
+  Resolve them from the owning code where practical and update CLI, API, state,
+  tests, and docs together when they change.
+- The safety baseline applies unless the user explicitly requests a new repair
+  risk model. Such a change must preserve explicit intent, target identity,
+  recovery, and post-write verification or define and verify safer equivalents.
+
+## Current Boundaries
 
 - Not a Python package: no `pyproject.toml`, no `setup.py`, no per-tool test config. Script tree.
 - CLI entry: `tools/audio-doctor/audio_doctor_cli.py` → `audio_doctor.core.main()`.
 - Package: `tools/audio-doctor/audio_doctor/` with `core.py`, `cli.py`, `inputs.py`, `inspection.py`, `models.py`, `repair.py`, `reports.py`, `state.py`.
 - API integration lives in `src/dj_track_similarity/api_routes_audio_doctor.py` and `audio_doctor_jobs.py`; the job manager enforces the confirmation phrase and prior dry-run state.
 
-## Dry-Run Contract (NEVER weaken)
+## Current Dry-Run Safety Baseline
 
 - Default mode is dry-run. It reads files only; it writes reports + state under `tools/audio-doctor/data/reports/` and `tools/audio-doctor/data/state/`.
 - `--apply` is blocked unless a prior dry-run recorded state for the exact target files.
 - `--apply` only rewrites cases previously classified `REPAIRABLE`. It refuses unknown or non-repairable findings.
 - Apply mode default: backups on. Every repair creates a full-file backup under `tools/audio-doctor/data/backups/`, verifies the repaired file, and restores the backup on verification failure.
-- UI/API apply also requires the exact literal string `APPLY REPAIR` (`audio_doctor_jobs.py::APPLY_CONFIRMATION`). Do not weaken this to a boolean or a substring match.
-- No-backup mode exists (`--no-backup`) but is opt-in and must not become the default.
+- UI/API apply currently uses the exact confirmation owned by
+  `audio_doctor_jobs.py::APPLY_CONFIRMATION`. Consumers and tests should use the
+  owning source rather than create additional copies. A requested confirmation
+  redesign must remain explicit and migrate all surfaces together.
+- No-backup mode currently exists as opt-in behavior. Changing the default is a
+  safety-policy change, not an incidental CLI cleanup.
 
-## What This Tool Must Not Do
+## Current Responsibility Boundary
+
+Unless a task explicitly redesigns Audio Doctor's responsibility:
 
 - Never mutate audio outside `--apply`, and never touch files not previously classified as repairable.
 - Resolve every apply target and backup path before writing; keep all report/state identity checks bound to the same file observed during dry-run.

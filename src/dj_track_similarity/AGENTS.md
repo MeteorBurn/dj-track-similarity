@@ -2,15 +2,42 @@
 
 Guidance specific to `src/dj_track_similarity/`. See root `AGENTS.md` for global safety rules, model integration, and verification shortcuts — do not repeat them here.
 
-## Module Boundaries
+## Active Development
 
-- `api.py` composes route modules only. Add a new route by creating `api_routes_<area>.py` with a `register_<area>_routes(app, state, ...)` function and wiring it into `create_app()`. Keep composition free of business logic.
-- `api_state.py::AppDatabaseState` owns every job manager and the shared `AnalysisStageQueue`. Add a new job manager as a field, initialise it in `switch()`, and expose it through a `require_*` method. `_has_active_jobs()` guards DB switching — extend it if you add a manager.
-- `database.py::LibraryDatabase` is the sole SQLite gateway. New tables/queries live in a `db_*.py` module (repository style) and are called through a `LibraryDatabase` method. Do not open `sqlite3` connections directly outside `db_connection.py` — path-scoped locking, WAL, and busy timeout are set there.
-- `analysis_pipeline.py::PIPELINE_STAGE_ORDER = ("sonara", "ml", "classifiers")`. Never reorder unless deliberately redesigning; SONARA feeds classifier scoring, and reversing it breaks readiness accounting.
-- `analysis_model_runners.py` is the single seam between `AnalysisJobManager` and each model backend. Adding a model touches this file + `analysis_config.py` (validation) + `api_schemas.py` (schema).
+- The root evolution policy applies. Modules, schemas, pipeline order, source
+  families, defaults, and repository patterns below describe the current
+  package; they may be deliberately redesigned.
+- When requirements change, prefer a coherent new design and one source of
+  truth over version checks, duplicated tuples, legacy aliases, or adapters
+  whose only purpose is preserving this snapshot. Coordinate source, database
+  migration when real stored data requires it, API types, frontend, tests, and
+  docs.
+- Preserve safety outcomes during ordinary changes. An explicit owner-directed
+  safety redesign is allowed, but must define and verify the replacement
+  boundary rather than bypassing the current one incidentally.
 
-## Safety-Critical Files
+## Current Module Boundaries
+
+- `api.py` currently composes `api_routes_<area>.py` modules through
+  `register_<area>_routes(...)`. Follow that pattern for a local addition, or
+  deliberately refactor composition when the requested change warrants it;
+  avoid mixing business logic into composition accidentally.
+- `api_state.py::AppDatabaseState` currently owns the job managers and shared
+  `AnalysisStageQueue`; `switch()`, `require_*`, and `_has_active_jobs()` form
+  the active lifecycle pattern. Follow it for a local addition, or update the
+  complete lifecycle coherently when redesigning state ownership.
+- `database.py::LibraryDatabase` is the current SQLite gateway, with `db_*.py`
+  repository modules and connection policy in `db_connection.py`. This can be
+  refactored, but direct connections must not bypass active locking, WAL, busy
+  timeout, or equivalent concurrency safeguards.
+- `analysis_pipeline.py::PIPELINE_STAGE_ORDER` currently sequences SONARA, ML,
+  and classifiers. Reordering or replacing stages is allowed when requested;
+  update stage dependencies, readiness accounting, status, and tests together.
+- `analysis_model_runners.py` is the current seam between
+  `AnalysisJobManager` and model backends. Confirm and update all current
+  consumers rather than treating that fan-out as a permanent checklist.
+
+## Current Safety-Critical Files
 
 - `sonara_runtime.py`, `sonara_features.py`, and `sonara_storage.py` adapt the
   installed SONARA API and persist the concrete outputs the project uses.
@@ -21,11 +48,20 @@ Guidance specific to `src/dj_track_similarity/`. See root `AGENTS.md` for global
 - `db_connection.py` + `db_schema.py` + `db_ddl.py` + `db_structure.py` own database
   creation, validation, and DDL. Schema evolution and migrations are allowed
   when requested and should be verified against temporary databases first.
-- `tags.py` + `wave_tags.py` — the only sanctioned audio-write path (MAEST genre only). Do not add other write paths here.
+- `tags.py` + `wave_tags.py` implement the currently sanctioned normal
+  audio-write path. Do not introduce a new write as an incidental side effect;
+  an explicitly requested write feature must define preservation, recovery,
+  confirmation, and focused verification.
 - `db_tracks.py` — relocation mutates only `tracks.file_path`; never touch files.
 - `media_preview.py` — temporary WAV transcoding for AIFF preview only; must clean up the temp file.
-- `audio_doctor_jobs.py` + `audio_dedup_jobs.py` — dry-run / report-first invariants plus the exact `APPLY REPAIR` / `APPLY DELETE` phrases. Do not weaken.
-- `embedding.py::MuqEmbeddingAdapter` — 24 kHz `float32`, torchaudio-only. No librosa, no half-precision, no autocast, no `torch.compile`.
+- `audio_doctor_jobs.py` + `audio_dedup_jobs.py` own the current dry-run /
+  report-first policies and confirmation sources. Keep safety literals
+  centralized; a requested workflow change must update all surfaces and prove
+  the replacement gate.
+- `embedding.py::MuqEmbeddingAdapter` currently uses the verified 24 kHz
+  `float32` torchaudio path. Alternative decoding or optimization is allowed
+  when deliberately requested and supported by focused numerical, dependency,
+  and device verification.
 
 ## Large / Complex Files (Read Carefully Before Editing)
 
@@ -37,12 +73,20 @@ Guidance specific to `src/dj_track_similarity/`. See root `AGENTS.md` for global
   validation, and DDL; adapt these together when storage requirements change.
 - `transition_diagnostics.py` — mixing compatibility scoring; leans on `tempo_resolution.py` + `track_resolution.py`.
 
-## Embedding Sources
+## Current Embedding Sources
 
-- Canonical API types live in `api_schemas.py`: `EmbeddingSource` is MERT/MAEST/MuQ/CLAP; `HybridSearchSource` and `EvaluationSource` add SONARA. Extend shared literals and generic mappings instead of adding MuQ-only branches or aliases.
+- API source types currently live in `api_schemas.py`. Treat their members as
+  the active schema, not a permanent family list; change shared schemas and
+  generic mappings coherently instead of scattering family-specific branches.
 - Generic seed search accepts `analysis_family="muq"` and reads stored embeddings. Prefer shared endpoints and index formats where practical.
-- SET defaults are `("mert", "maest", "muq", "clap")`; raw weights are MERT `0.30`, MAEST `0.18`, MuQ `0.15`, CLAP `0.22`, and `sonara_broad` `0.30`. Weights must exactly match enabled embeddings plus `sonara_broad`, be finite/nonnegative, and normalize deterministically.
-- Hybrid defaults are `("mert", "maest", "muq", "sonara", "clap")` with equal normalized weights when no profile/custom weights are supplied. Disabled sources are absent from readiness, fusion, breakdowns, and transition diagnostics.
+- SET and Hybrid source sets, weights, and validation live in executable source
+  and schemas. Treat them as tunable current defaults. When changing them,
+  update selection, validation, readiness, normalization, explanations,
+  transition diagnostics, API/UI, and focused tests from a shared definition.
+- Under the current behavior, disabled sources are absent from readiness,
+  fusion, breakdowns, and transition diagnostics. A redesigned behavior should
+  state its semantics explicitly rather than preserving zero-weight sources as
+  hidden requirements.
 - MuQ cosine evidence is normalized like other embedding sources in Hybrid explanations, but it has no validated automatic mapping to mood/texture/genre axes. Keep it as generic acoustic support unless evidence justifies a specific semantic axis.
 - Evaluation auto-seed completeness follows the request/profile's selected sources. Do not make MuQ globally mandatory for an explicit legacy profile that excludes it.
 

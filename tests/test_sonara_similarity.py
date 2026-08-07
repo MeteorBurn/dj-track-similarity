@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import dj_track_similarity.db_analysis as db_analysis_module
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     SonaraWrite,
@@ -1145,6 +1146,46 @@ def test_sonara_feature_rows_refresh_after_typed_core_write(tmp_path: Path) -> N
 
     assert first_rows[0].values["energy_score"] == 0.2
     assert refreshed_rows[0].values["energy_score"] == 0.9
+
+
+def test_sonara_feature_rows_handle_full_library_and_chunked_queries(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    db = _library(tmp_path)
+    targets = tuple(
+        _add_sonara_track(
+            db,
+            f"track-{index}.wav",
+            {"energy": 0.1 * index},
+        )
+        for index in range(6)
+    )
+    output = db.active_analysis_output("sonara", "core")
+    assert output is not None
+    selected = (
+        *(
+            AnalysisTarget(
+                catalog_uuid=targets[0].catalog_uuid,
+                track_id=track_id,
+                track_uuid=f"synthetic-{track_id}",
+                content_generation=1,
+            )
+            for track_id in range(7, 33_001)
+        ),
+        *targets,
+    )
+    monkeypatch.setattr(
+        db_analysis_module,
+        "_selected_targets",
+        lambda *_args, **_kwargs: selected,
+    )
+
+    full_library_rows = db.load_sonara_feature_rows(output)
+    targeted_rows = db.load_sonara_feature_rows(output, targets=targets)
+
+    assert [row.target for row in full_library_rows] == list(targets)
+    assert [row.target for row in targeted_rows] == list(targets)
 
 
 def test_sonara_search_reports_context_tracks_without_features(tmp_path: Path) -> None:

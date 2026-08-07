@@ -72,11 +72,9 @@ def _insert_track(
         """
         INSERT INTO file_tags (
             track_id, title, artist, album, tag_bpm, tag_key,
-            comment, year, label, catalog_number, country, isrc,
-            track_number, disc_number, genres_json, tags_read_at
+            comment, year, label, country, track_number, genres_json, tags_read_at
         ) VALUES (?, ?, ?, 'Fixture Album', 128.0, '8A',
-                  NULL, 2026, NULL, NULL, NULL, NULL,
-                  NULL, NULL, ?, ?)
+                  NULL, 2026, NULL, NULL, NULL, ?, ?)
         """,
         (
             track_id,

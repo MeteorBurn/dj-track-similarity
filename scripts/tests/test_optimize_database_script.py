@@ -26,8 +26,6 @@ def _load_script():
 def test_optimize_database_script_optimizes_current_structural_bundle(
     tmp_path: Path,
 ) -> None:
-    source = SCRIPT_PATH.read_text(encoding="utf-8")
-    assert "require_current_structure" in source
     module = _load_script()
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)

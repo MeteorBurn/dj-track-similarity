@@ -38,7 +38,7 @@ def test_scan_job_records_progress_and_events(tmp_path: Path) -> None:
     assert status.updated == 0
     assert status.unchanged == 0
     assert status.avg_seconds_per_track is not None
-    assert status.events[0].message == "Scan queued · workers 1"
+    assert status.events[0].message == "Scan queued · workers 1 · limit all"
     assert any(event.level == "ok" and event.path.endswith("a.wav") for event in status.events)
     assert status.events[-1].message == "Scan completed"
 
@@ -54,9 +54,30 @@ def test_scan_job_records_requested_worker_count(tmp_path: Path) -> None:
     status = manager.run_sync(music, workers=2)
 
     assert status.workers == 2
-    assert status.events[0].message == "Scan queued · workers 2"
+    assert status.events[0].message == "Scan queued · workers 2 · limit all"
     assert status.state == "completed"
     assert status.processed == 2
+
+
+def test_limited_scan_does_not_mark_unseen_tracks_missing(tmp_path: Path) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    _audio(music, "a.wav")
+    _audio(music, "b.wav")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+    assert manager.run_sync(music).added == 2
+
+    status = manager.run_sync(music, limit=1)
+
+    assert status.limit == 1
+    assert status.total == 1
+    assert status.events[0].message == "Scan queued · workers 1 · limit 1"
+    with database.connect() as connection:
+        missing_count = connection.execute(
+            "SELECT COUNT(*) FROM tracks WHERE missing_since IS NOT NULL"
+        ).fetchone()[0]
+    assert missing_count == 0
 
 
 def test_scan_job_can_be_cancelled_then_rerun(

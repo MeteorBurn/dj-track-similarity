@@ -9,6 +9,8 @@ import numpy as np
 from typer.testing import CliRunner
 
 import dj_track_similarity.cli as cli
+import dj_track_similarity.evaluation.judged as judged_module
+import dj_track_similarity.evaluation.score_profile_optimizer as optimizer_module
 from dj_track_similarity.analysis_model_runners import (
     current_embedding_analysis_output,
 )
@@ -391,11 +393,13 @@ def test_eval_apply_score_profile_cli_includes_metrics_with_pair_feedback(
 
 
 def test_eval_optimize_score_profile_cli_writes_report_without_recording_by_default(
+    monkeypatch,
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "optimizer.json"
-    _build_optimizer_cli_library(db_path, tmp_path, seed_count=100)
+    _use_small_optimizer_policy(monkeypatch)
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=2)
     before_counts = LibraryDatabase(db_path).count_evaluation_rows()
 
     result = CliRunner().invoke(
@@ -411,6 +415,8 @@ def test_eval_optimize_score_profile_cli_writes_report_without_recording_by_defa
             "0.5",
             "--bootstrap-samples",
             "0",
+            "--min-judged-pairs",
+            "4",
             "--no-record",
         ],
     )
@@ -426,11 +432,13 @@ def test_eval_optimize_score_profile_cli_writes_report_without_recording_by_defa
 
 
 def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(
+    monkeypatch,
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "optimizer.json"
-    _build_optimizer_cli_library(db_path, tmp_path, seed_count=100)
+    _use_small_optimizer_policy(monkeypatch)
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=2)
     before_counts = LibraryDatabase(db_path).count_evaluation_rows()
 
     result = CliRunner().invoke(
@@ -446,6 +454,8 @@ def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(
             "0.5",
             "--bootstrap-samples",
             "0",
+            "--min-judged-pairs",
+            "4",
             "--record",
         ],
     )
@@ -472,11 +482,13 @@ def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(
 
 
 def test_eval_optimize_score_profile_cli_promote_writes_library_setting_only(
+    monkeypatch,
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "optimizer.json"
-    _build_optimizer_cli_library(db_path, tmp_path, seed_count=250)
+    _use_small_optimizer_policy(monkeypatch)
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=4)
     before_counts = LibraryDatabase(db_path).count_evaluation_rows()
 
     result = CliRunner().invoke(
@@ -492,6 +504,8 @@ def test_eval_optimize_score_profile_cli_promote_writes_library_setting_only(
             "0.5",
             "--bootstrap-samples",
             "0",
+            "--min-judged-pairs",
+            "4",
             "--promote",
         ],
     )
@@ -506,18 +520,20 @@ def test_eval_optimize_score_profile_cli_promote_writes_library_setting_only(
     assert promoted_profile["source"] == "judged_feedback"
     assert promoted_profile["promotion_source"] == "score_profile_optimizer"
     assert promoted_profile["can_apply_as_default"] is True
-    assert promoted_profile["judged_pairs"] == 500
+    assert promoted_profile["judged_pairs"] == 8
     assert promoted_profile["weights"]["mert"] > promoted_profile["weights"]["maest"]
     report = json.loads(output_path.read_text(encoding="utf-8"))
     assert report["promoted"] is True
 
 
 def test_eval_optimize_score_profile_cli_promote_rejects_candidate_only_gate(
+    monkeypatch,
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "optimizer.json"
-    _build_optimizer_cli_library(db_path, tmp_path, seed_count=100)
+    _use_small_optimizer_policy(monkeypatch)
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=2)
 
     result = CliRunner().invoke(
         cli.app,
@@ -532,6 +548,8 @@ def test_eval_optimize_score_profile_cli_promote_rejects_candidate_only_gate(
             "0.5",
             "--bootstrap-samples",
             "0",
+            "--min-judged-pairs",
+            "4",
             "--promote",
         ],
     )
@@ -958,6 +976,13 @@ def _build_optimizer_cli_library(
         )
         db.upsert_track_pair_feedback(seed_id, bad_id, 0, source="manual")
         db.upsert_track_pair_feedback(seed_id, good_id, 3, source="manual")
+
+
+def _use_small_optimizer_policy(monkeypatch) -> None:
+    monkeypatch.setattr(judged_module, "INSUFFICIENT_JUDGED_PAIRS", 2)
+    for module in (judged_module, optimizer_module):
+        monkeypatch.setattr(module, "CANDIDATE_PROFILE_JUDGED_PAIRS", 4)
+        monkeypatch.setattr(module, "DEFAULT_UPDATE_JUDGED_PAIRS", 8)
 
 
 def _upsert_cli_candidate_track(

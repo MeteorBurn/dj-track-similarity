@@ -68,6 +68,7 @@ _SONARA_IDENTITY_COLUMNS = {
     "content_generation",
 }
 _CLASSIFIER_PROBABILITY_TOLERANCE = 1e-9
+_SQLITE_IN_CHUNK_SIZE = 800
 
 
 def _classifier_feature_names_json(
@@ -886,16 +887,32 @@ class AnalysisRepository:
                 selected_by_id = {target.track_id: target for target in selected}
                 if not selected_by_id:
                     return ()
-                placeholders = ", ".join("?" for _ in selected_by_id)
-                rows = core_connection.execute(
-                    f"""
-                    SELECT {", ".join(SONARA_CORE_COLUMNS)}
-                    FROM sonara
-                    WHERE track_id IN ({placeholders})
-                    ORDER BY track_id
-                    """,
-                    tuple(selected_by_id.keys()),
-                ).fetchall()
+                if targets is None:
+                    rows = core_connection.execute(
+                        f"""
+                        SELECT {", ".join(SONARA_CORE_COLUMNS)}
+                        FROM sonara
+                        ORDER BY track_id
+                        """
+                    ).fetchall()
+                else:
+                    rows = []
+                    selected_ids = tuple(selected_by_id)
+                    for start in range(0, len(selected_ids), _SQLITE_IN_CHUNK_SIZE):
+                        chunk = selected_ids[start : start + _SQLITE_IN_CHUNK_SIZE]
+                        placeholders = ", ".join("?" for _ in chunk)
+                        rows.extend(
+                            core_connection.execute(
+                                f"""
+                                SELECT {", ".join(SONARA_CORE_COLUMNS)}
+                                FROM sonara
+                                WHERE track_id IN ({placeholders})
+                                ORDER BY track_id
+                                """,
+                                chunk,
+                            ).fetchall()
+                        )
+                    rows.sort(key=lambda row: int(row["track_id"]))
                 result: list[SonaraFeatureRow] = []
                 for row in rows:
                     target = selected_by_id.get(int(row["track_id"]))

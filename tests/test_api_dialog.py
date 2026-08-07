@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from dj_track_similarity import api as api_module
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import canonical_file_path
+from dj_track_similarity.db_tracks import canonical_file_path, resolved_file_path
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -135,12 +135,15 @@ def test_relocate_library_endpoint_returns_composite_dry_run_preview(
             "track_id": identity.track_id,
             "track_uuid": identity.track_uuid,
             "content_generation": identity.content_generation,
-            "old_path": canonical_file_path(old_file),
-            "new_path": canonical_file_path(
+            "old_path": resolved_file_path(old_file),
+            "new_path": resolved_file_path(
                 new_root / "Artist" / "track.wav"
             ),
         }
     ]
+    assert canonical_file_path(payload["changes"][0]["old_path"]) == canonical_file_path(
+        old_file
+    )
     assert database.get_track_file_state(old_file) == before
     assert old_file.read_bytes() == b"source audio"
 

@@ -232,8 +232,9 @@ def test_scan_accepts_existing_directory_without_persisting_request_state(
         root: str | Path,
         *,
         workers: int = 1,
+        limit: int | None = None,
     ):
-        return manager.run_sync(root, workers=workers)
+        return manager.run_sync(root, workers=workers, limit=limit)
 
     monkeypatch.setattr(
         api_state.ScanJobManager,
@@ -245,11 +246,12 @@ def test_scan_accepts_existing_directory_without_persisting_request_state(
 
     response = client.post(
         "/api/library/scan",
-        json={"root": str(scan_root), "workers": 1},
+        json={"root": str(scan_root), "workers": 1, "limit": 1},
     )
 
     assert response.status_code == 200
     assert response.json()["state"] == "completed"
+    assert response.json()["limit"] == 1
     assert response.json()["root"].casefold() == str(
         scan_root.resolve()
     ).casefold()
@@ -287,8 +289,9 @@ def test_database_switch_is_rejected_while_scan_job_is_queued(
         root: str | Path,
         *,
         workers: int = 1,
+        limit: int | None = None,
     ):
-        job_id = manager.create_job(root, workers=workers)
+        job_id = manager.create_job(root, workers=workers, limit=limit)
         return manager.get(job_id)
 
     monkeypatch.setattr(

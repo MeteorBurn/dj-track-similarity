@@ -707,6 +707,76 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert "track.path" not in script
 
 
+def test_web_reuses_lab_database_repository_for_profile_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    real_database = web_app_module.RhythmLabDatabase
+    constructor_calls: list[tuple[Path, str | None]] = []
+
+    class RecordingRhythmLabDatabase(real_database):
+        def __init__(
+            self,
+            path: str | Path,
+            *,
+            classifier_key: str | None = None,
+        ) -> None:
+            constructor_calls.append((Path(path), classifier_key))
+            super().__init__(path, classifier_key=classifier_key)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "RhythmLabDatabase",
+        RecordingRhythmLabDatabase,
+    )
+    app = create_app(labels_db_path=lab_path)
+
+    with TestClient(app) as client:
+        summary = client.get("/api/profiles/focused/summary")
+        tracks = client.get("/api/profiles/focused/tracks")
+        readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "mert"},
+        )
+
+    assert summary.status_code == 200
+    assert tracks.status_code == 200
+    assert readiness.status_code == 200
+    assert constructor_calls == [(lab_path, None)]
+
+
+def test_web_reuses_collection_repository_for_collection_requests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    real_collections = web_app_module.RhythmLabCollections
+    constructor_calls: list[Path] = []
+
+    class RecordingRhythmLabCollections(real_collections):
+        def __init__(self, labels_db_path: str | Path) -> None:
+            constructor_calls.append(Path(labels_db_path))
+            super().__init__(labels_db_path)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "RhythmLabCollections",
+        RecordingRhythmLabCollections,
+    )
+    app = create_app(labels_db_path=lab_path)
+
+    with TestClient(app) as client:
+        first = client.get("/api/collections")
+        second = client.get("/api/collections")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert constructor_calls == [lab_path]
+
+
 def test_calibration_preflight_uses_usable_rows_and_preserves_current_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

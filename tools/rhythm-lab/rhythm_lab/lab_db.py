@@ -61,6 +61,8 @@ _TRAINING_CHECKPOINT_COLUMNS = set(
 DEFAULT_TRAINING_MIN_ADDED = 50
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 LABEL_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+SQLITE_CACHE_SIZE_KIB = -32_768
 
 
 @dataclass(frozen=True)
@@ -253,12 +255,20 @@ class RhythmLabDatabase:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_lab_schema()
 
+    def scoped(self, classifier_key: str) -> "RhythmLabDatabase":
+        scoped = object.__new__(type(self))
+        scoped.path = self.path
+        scoped.classifier_key = _validate_profile_key(classifier_key)
+        return scoped
+
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
-        return connection
+        try:
+            _configure_lab_connection(connection)
+            return connection
+        except BaseException:
+            connection.close()
+            raise
 
     def _ensure_lab_schema(self) -> None:
         with self.connect() as connection:
@@ -292,6 +302,24 @@ class RhythmLabDatabase:
                     selected_path
                 );
 
+                CREATE INDEX IF NOT EXISTS idx_classifier_predictions_latest
+                ON classifier_predictions(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    updated_at DESC,
+                    model_artifact DESC
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_classifier_predictions_model
+                ON classifier_predictions(
+                    classifier_key,
+                    feature_set,
+                    model_artifact
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_state
                 ON classifier_label_queue(classifier_key, state, priority DESC, updated_at);
 
@@ -318,7 +346,7 @@ class RhythmLabDatabase:
                 ORDER BY LOWER(name), classifier_key
                 """
             ).fetchall()
-        return [self.get_profile(str(row["classifier_key"])) for row in rows]
+            return [_get_profile(connection, str(row["classifier_key"])) for row in rows]
 
     def get_profile(self, classifier_key: str | None = None) -> ClassifierProfile:
         key = _required_profile_key(classifier_key or self.classifier_key)
@@ -1292,6 +1320,22 @@ def _validate_existing_lab_schema_read_only(path: Path) -> None:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
         _validate_lab_schema_tables(connection)
+
+
+def _configure_lab_connection(connection: sqlite3.Connection) -> None:
+    connection.row_factory = sqlite3.Row
+    connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA synchronous = NORMAL")
+    connection.execute("PRAGMA temp_store = MEMORY")
+    connection.execute(f"PRAGMA cache_size = {SQLITE_CACHE_SIZE_KIB}")
+    journal_mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()
+    if journal_mode is None or str(journal_mode[0]).lower() != "wal":
+        actual = None if journal_mode is None else journal_mode[0]
+        raise RuntimeError(
+            "Rhythm Lab SQLite database could not enter WAL journal mode; "
+            f"got {actual!r}"
+        )
 
 
 def _validate_lab_schema_tables(connection: sqlite3.Connection) -> None:

@@ -20,6 +20,7 @@ if str(LAB_ROOT) not in sys.path:
 from dj_track_similarity.analysis_models import current_embedding_spec  # noqa: E402
 from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
 from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402
+    RhythmLabCollections,
     default_rhythm_lab_labels_path,
 )
 from rhythm_lab import cli as cli_module  # noqa: E402
@@ -646,6 +647,113 @@ def test_lab_database_starts_without_implicit_profiles(tmp_path: Path) -> None:
     assert database.list_profiles() == []
     with pytest.raises(ValueError, match="profile key is required"):
         database.get_profile()
+
+
+def test_lab_database_connections_use_wal_and_runtime_pragmas(tmp_path: Path) -> None:
+    database = RhythmLabDatabase(tmp_path / "lab.sqlite")
+
+    with database.connect() as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert connection.execute("PRAGMA synchronous").fetchone()[0] == 1
+        assert connection.execute("PRAGMA temp_store").fetchone()[0] == 2
+        assert connection.execute("PRAGMA cache_size").fetchone()[0] == -32768
+
+
+def test_collection_connections_use_wal_and_runtime_pragmas(tmp_path: Path) -> None:
+    collections = RhythmLabCollections(tmp_path / "lab.sqlite")
+
+    with collections.connect() as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert connection.execute("PRAGMA synchronous").fetchone()[0] == 1
+        assert connection.execute("PRAGMA temp_store").fetchone()[0] == 2
+        assert connection.execute("PRAGMA cache_size").fetchone()[0] == -32768
+
+
+def test_lab_database_ensures_prediction_hot_path_indexes(tmp_path: Path) -> None:
+    database = RhythmLabDatabase(tmp_path / "lab.sqlite")
+
+    with database.connect() as connection:
+        index_names = {
+            str(row["name"])
+            for row in connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'index'
+                  AND tbl_name = 'classifier_predictions'
+                """
+            ).fetchall()
+        }
+        assert "idx_classifier_predictions_latest" in index_names
+        assert "idx_classifier_predictions_model" in index_names
+
+        latest_plan = [
+            str(row["detail"])
+            for row in connection.execute(
+                """
+                EXPLAIN QUERY PLAN
+                SELECT rowid
+                FROM classifier_predictions
+                WHERE classifier_key = ?
+                  AND catalog_uuid = ?
+                ORDER BY track_uuid, content_generation, selected_path,
+                         updated_at DESC, model_artifact DESC
+                """,
+                ("focused", "catalog-a"),
+            ).fetchall()
+        ]
+        assert any("idx_classifier_predictions_latest" in detail for detail in latest_plan)
+
+        model_plan = [
+            str(row["detail"])
+            for row in connection.execute(
+                """
+                EXPLAIN QUERY PLAN
+                SELECT rowid
+                FROM classifier_predictions
+                WHERE classifier_key = ?
+                  AND feature_set = ?
+                  AND model_artifact = ?
+                """,
+                ("focused", "mert", "model.joblib"),
+            ).fetchall()
+        ]
+        assert any("idx_classifier_predictions_model" in detail for detail in model_plan)
+
+
+def test_list_profiles_loads_profile_payloads_with_one_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "lab.sqlite"
+    root = RhythmLabDatabase(path)
+    _create_profile(path)
+    root.create_profile(
+        classifier_key="other",
+        name="Other",
+        labels=[
+            {"key": "yes", "name": "Yes", "role": "positive"},
+            {"key": "no", "name": "No", "role": "negative"},
+        ],
+    )
+    calls = 0
+    real_connect = root.connect
+
+    def recording_connect() -> sqlite3.Connection:
+        nonlocal calls
+        calls += 1
+        return real_connect()
+
+    monkeypatch.setattr(root, "connect", recording_connect)
+
+    profiles = root.list_profiles()
+
+    assert [profile.classifier_key for profile in profiles] == ["focused", "other"]
+    assert calls == 1
 
 
 def test_profile_creation_update_archive_and_unique_names(tmp_path: Path) -> None:

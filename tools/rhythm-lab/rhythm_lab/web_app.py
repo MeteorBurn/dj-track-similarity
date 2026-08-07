@@ -216,6 +216,7 @@ def create_app(
 ) -> FastAPI:
     labels_path = Path(labels_db_path)
     labels_db = RhythmLabDatabase(labels_path)
+    collections_repository = RhythmLabCollections(labels_path)
     source_state = SourceDatabaseState(
         source_db_path,
         expected_catalog_uuid=source_catalog_uuid,
@@ -241,10 +242,10 @@ def create_app(
         return response
 
     def profile_db(profile_key: str) -> RhythmLabDatabase:
-        return RhythmLabDatabase(labels_path, classifier_key=profile_key)
+        return labels_db.scoped(profile_key)
 
     def collections_db() -> RhythmLabCollections:
-        return RhythmLabCollections(labels_path)
+        return collections_repository
 
     def collection_selection(track_ids: list[int]) -> RhythmLabCollectionSelection:
         source = source_state.require_source()

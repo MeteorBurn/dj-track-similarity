@@ -143,6 +143,7 @@ async function loadProfiles() {
 }
 
 async function setActiveProfile(profileKey, options = {}) {
+  invalidateActiveLoads();
   activeProfile = profiles.find(profile => profile.classifier_key === profileKey) || null;
   if (!activeProfile) {
     clearActiveProfile();
@@ -164,6 +165,7 @@ async function setActiveProfile(profileKey, options = {}) {
 }
 
 function clearActiveProfile() {
+  invalidateActiveLoads();
   activeProfile = null;
   latestTrainingReadiness = null;
   latestProfileSummary = null;
@@ -190,6 +192,10 @@ function clearActiveProfile() {
   deleteProfileEl.disabled = true;
   setWorkflowBusy(true);
   updateLibraryOrderControls();
+}
+
+function invalidateActiveLoads() {
+  loadSequence += 1;
 }
 
 function renderProfileControls() {
@@ -420,8 +426,10 @@ async function loadActive(options = {}) {
 }
 
 async function loadSummary(sequence = loadSequence) {
-  const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/summary`).then(parseJsonResponse);
-  if (sequence !== loadSequence) return;
+  if (!activeProfile) return;
+  const profileKey = activeProfile.classifier_key;
+  const data = await fetch(`/api/profiles/${profileKey}/summary`).then(parseJsonResponse);
+  if (sequence !== loadSequence || !activeProfile || activeProfile.classifier_key !== profileKey) return;
   latestProfileSummary = data;
   renderSummary(data);
   renderGuidance(data);
@@ -809,12 +817,15 @@ async function promoteClassifier() {
 }
 
 async function loadTrainingReadiness() {
+  if (!activeProfile) return null;
+  const profileKey = activeProfile.classifier_key;
   const params = new URLSearchParams({ feature_set: selectedTrainingFeatureSet });
-  const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness?${params}`);
+  const response = await fetch(`/api/profiles/${profileKey}/training/readiness?${params}`);
   const data = await response.json();
+  if (!activeProfile || activeProfile.classifier_key !== profileKey) return null;
   if (!response.ok) {
     setWorkflowBusy(true);
-    return;
+    return null;
   }
   latestTrainingReadiness = data;
   selectedTrainingFeatureSet = data.feature_recipe?.feature_set || selectedTrainingFeatureSet;
@@ -876,7 +887,9 @@ async function loadTrainingReadiness() {
 
 async function loadTrainingView() {
   const data = await loadTrainingReadiness();
+  if (!activeProfile || !data) return;
   await loadSummary();
+  if (!activeProfile) return;
   const planText = isMulticlassProfile()
     ? `Guided Logistic Regression across ${trainingLabels().map(label => escapeHtml(label.name)).join(", ")}. Each track contributes at most one class label.`
     : `Guided Logistic Regression on ${escapeHtml(labelByKey(activeProfile.positive_label).name)} vs ${escapeHtml(labelByKey(activeProfile.negative_label).name)}. Review-only labels stay out of fitting.`;

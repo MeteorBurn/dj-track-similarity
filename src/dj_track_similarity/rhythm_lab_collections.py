@@ -20,6 +20,8 @@ from .track_models import TrackIdentity
 DEFAULT_COLLECTION_SOURCE = "manual"
 COLLECTION_MODES = {"append", "replace"}
 DEFAULT_RHYTHM_LAB_LABELS_FILENAME = "rhythm_lab.sqlite"
+SQLITE_BUSY_TIMEOUT_MS = 30_000
+SQLITE_CACHE_SIZE_KIB = -32_768
 
 RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
     "classifier_profiles": frozenset(
@@ -472,10 +474,12 @@ class RhythmLabCollections:
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
-        return connection
+        try:
+            _configure_collection_connection(connection)
+            return connection
+        except BaseException:
+            connection.close()
+            raise
 
     def list_collections(self) -> list[ReviewCollection]:
         with self.connect() as connection:
@@ -923,6 +927,22 @@ def _immutable_read_only_connection(path: Path) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only = ON")
     return connection
+
+
+def _configure_collection_connection(connection: sqlite3.Connection) -> None:
+    connection.row_factory = sqlite3.Row
+    connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA synchronous = NORMAL")
+    connection.execute("PRAGMA temp_store = MEMORY")
+    connection.execute(f"PRAGMA cache_size = {SQLITE_CACHE_SIZE_KIB}")
+    journal_mode = connection.execute("PRAGMA journal_mode = WAL").fetchone()
+    if journal_mode is None or str(journal_mode[0]).lower() != "wal":
+        actual = None if journal_mode is None else journal_mode[0]
+        raise RuntimeError(
+            "Rhythm Lab collections database could not enter WAL journal mode; "
+            f"got {actual!r}"
+        )
 
 
 def _reject_noncanonical_table(

@@ -41,7 +41,11 @@ from rhythm_lab.artifact_io import (  # noqa: E402
     artifact_sha256,
     load_verified_artifact,
 )
-from rhythm_lab import artifact_io  # noqa: E402
+from rhythm_lab import (  # noqa: E402
+    artifact_io,
+    predictions as predictions_module,
+    source_db as source_db_module,
+)
 from rhythm_lab.cli import PromotionError  # noqa: E402
 from rhythm_lab.features import build_labeled_feature_matrix  # noqa: E402
 from rhythm_lab.lab_db import RhythmLabDatabase  # noqa: E402
@@ -51,6 +55,7 @@ from rhythm_lab.source_db import (  # noqa: E402
 )
 from rhythm_lab.predictions import apply_model_to_lab  # noqa: E402
 from rhythm_lab.training import train_feature_set  # noqa: E402
+from rhythm_lab import web_app as web_app_module  # noqa: E402
 from rhythm_lab.web_app import create_app  # noqa: E402
 
 
@@ -65,6 +70,9 @@ class _ReadyClassifier:
 
     def predict_proba(self, matrix: np.ndarray) -> np.ndarray:
         return np.tile(np.asarray([[0.8, 0.2]], dtype=np.float64), (len(matrix), 1))
+
+    def predict(self, matrix: np.ndarray) -> np.ndarray:
+        return np.full(len(matrix), "yes", dtype=object)
 
 
 class Repository(AnalysisRepository):
@@ -148,15 +156,41 @@ def _insert_track(
     assert result[0].ok
 
 
+def _insert_track_without_embedding(
+    repository: Repository,
+    *,
+    index: int,
+) -> None:
+    with repository.connect() as core:
+        core.execute(
+            """
+            INSERT INTO tracks(
+                track_uuid, file_path, file_size_bytes, file_modified_ns,
+                content_generation, last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, ?, 1, ?, ?, ?)
+            """,
+            (str(uuid.uuid4()), f"C:/music/{index}.wav", index + 1, NOW, NOW, NOW),
+        )
+
+
 def _write_promotable_artifact(
     root: Path,
     *,
     output: AnalysisOutput | None = None,
+    catalog_uuid: str | None = "catalog-current",
+    stamp: str = "test",
+    calibrated: bool = False,
 ) -> Path:
     selected_output = output or _mert_output()
     family = selected_output.analysis_family
     feature_count = current_embedding_spec(family).dimension
-    artifact = root / f"focused-{family}-test.joblib"
+    root.mkdir(parents=True, exist_ok=True)
+    artifact = root / f"focused-{family}-{stamp}.joblib"
+    calibration = (
+        {"status": "calibrated", "method": "sigmoid", "reason": None}
+        if calibrated
+        else {"status": "uncalibrated", "method": None, "reason": "test fixture"}
+    )
     joblib.dump(
         {
             "classifier_key": "focused",
@@ -166,10 +200,8 @@ def _write_promotable_artifact(
             ],
             "label_order": ["yes", "no"],
             "positive_label": "yes",
-            "production_calibration": {
-                "status": "uncalibrated",
-                "reason": "test fixture",
-            },
+            "production_calibration": calibration,
+            "source_catalog_uuid": catalog_uuid,
             "model": _ReadyClassifier(feature_count),
         },
         artifact,
@@ -184,6 +216,8 @@ def _write_promotable_artifact(
                 "feature_names": [
                     f"{family}:{index}" for index in range(feature_count)
                 ],
+                "source_catalog_uuid": catalog_uuid,
+                "production_calibration": calibration,
             }
         ),
         encoding="utf-8",
@@ -191,16 +225,97 @@ def _write_promotable_artifact(
     return artifact
 
 
-def _create_focused_profile(path: Path) -> None:
+def _create_focused_profile(
+    path: Path,
+    *,
+    artifact_dir: Path | None = None,
+) -> None:
     lab = RhythmLabDatabase(path)
     lab.create_profile(
         classifier_key="focused",
         name="Focused",
+        artifact_dir=artifact_dir,
         labels=[
             {"key": "yes", "name": "Yes", "role": "positive"},
             {"key": "no", "name": "No", "role": "negative"},
         ],
     )
+
+
+def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    with repository.connect() as core:
+        track_id = int(core.execute("SELECT track_id FROM tracks").fetchone()[0])
+        core.execute(
+            """
+            INSERT INTO file_tags(
+                track_id, title, artist, album, tag_bpm, tag_key, comment,
+                year, label, country, track_number, genres_json, tags_read_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                track_id,
+                "Current title",
+                "Current artist",
+                "Current album",
+                124.5,
+                "7A",
+                "Current comment",
+                2026,
+                "Current label",
+                "RO",
+                "03",
+                json.dumps(["Minimal", "Breaks"]),
+                NOW,
+            ),
+        )
+
+    source = SourceDatabase(repository.path)
+    track = source.list_tracks()[0]
+    assert track.file_tags is not None
+    assert track.file_tags.title == "Current title"
+    assert track.file_tags.artist == "Current artist"
+    assert track.file_tags.album == "Current album"
+    assert track.file_tags.tag_bpm == 124.5
+    assert track.file_tags.tag_key == "7A"
+    assert track.file_tags.comment == "Current comment"
+    assert track.file_tags.year == 2026
+    assert track.file_tags.label == "Current label"
+    assert track.file_tags.country == "RO"
+    assert track.file_tags.track_number == "03"
+    assert track.file_tags.genres == ("Minimal", "Breaks")
+    assert track.file_tags.tags_read_at == NOW
+
+    lab_path = tmp_path / "rhythm_lab.sqlite"
+    _create_focused_profile(lab_path)
+    page = source.list_tracks_page(
+        labels_db_path=lab_path,
+        classifier_key="focused",
+        label_keys=("yes", "no"),
+        training_label_keys=("yes", "no"),
+    )
+    assert page["total"] == 1
+    assert len(page["items"]) == 1
+    item = page["items"][0]
+    assert item["title"] == "Current title"
+    assert item["artist"] == "Current artist"
+    assert item["album"] == "Current album"
+    assert item["tag_bpm"] == 124.5
+    assert item["tag_key"] == "7A"
+    assert item["genres"] == ["Minimal", "Breaks"]
+
+    app = create_app(
+        repository.path,
+        labels_db_path=lab_path,
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/profiles/focused/tracks", params={"limit": 1})
+    assert response.status_code == 200
+    assert response.json()["items"][0]["title"] == "Current title"
 
 
 def test_source_features_lab_training_and_promotion_use_current_structure(
@@ -309,6 +424,7 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
         positive_label="yes",
         artifact_prefix="focused",
         classifier_key="focused",
+        source_catalog_uuid=repository.catalog_uuid,
     )
     promoted = promote_profile_model(
         lab_path,
@@ -386,6 +502,43 @@ def test_source_feature_states_distinguish_current_and_missing(
     assert states["muq"].status == "missing"
     assert "current-generation" in str(states["muq"].reason)
     assert states["clap"].status == "missing"
+
+
+def test_source_feature_inventory_is_cached_until_storage_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    source = SourceDatabase(repository.path)
+    real_feature_counts = source_db_module._feature_counts
+    calls = 0
+
+    def recording_feature_counts(connection: sqlite3.Connection) -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return real_feature_counts(connection)
+
+    monkeypatch.setattr(
+        source_db_module,
+        "_feature_counts",
+        recording_feature_counts,
+    )
+
+    first_counts, first_states = source.feature_inventory()
+    second_counts, second_states = source.feature_inventory()
+
+    assert calls == 1
+    assert dict(second_counts) == dict(first_counts)
+    assert dict(second_states) == dict(first_states)
+
+    _insert_track(repository, output, index=1)
+    refreshed_counts, _ = source.feature_inventory()
+
+    assert calls == 2
+    assert refreshed_counts["mert"] == first_counts["mert"] + 1
 
 
 def test_embedding_reads_are_bounded_by_track_id_chunks() -> None:
@@ -473,6 +626,8 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         ).json()
         assert mert_readiness["features_ready"] is True
         assert mert_readiness["labels_ready"] is False
+        assert mert_readiness["calibration_ready"] is False
+        assert "100" in mert_readiness["calibration_readiness"]["reason"]
         assert combined_readiness["features_ready"] is False
         assert combined_readiness["feature_recipe"]["required_sources"] == [
             "sonara",
@@ -540,8 +695,150 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert "trackFeatureStatus" in script
         assert '"muq"' in script
         assert "source_data_ready" in script
+        assert '"sonara2vocal+mert+maest+clap+muq"' in script
+        assert "async function calibrateClassifier()" in script
+        assert "/training/calibrate" in script
+        assert "async function refreshCandidates()" in script
+        assert "/predictions/refresh" in script
+        assert "feature_group_weights" in script
+        assert '["sonara", "mert", "maest", "clap", "muq"]' in script
+        assert "if (!selected) return" in script
         assert "track.id" not in script
         assert "track.path" not in script
+
+
+def test_calibration_preflight_uses_usable_rows_and_preserves_current_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track_without_embedding(repository, index=0)
+    for index in range(1, 4):
+        _insert_track(repository, output, index=index)
+    artifact_dir = tmp_path / "artifacts"
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path, artifact_dir=artifact_dir)
+    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    for index, track in enumerate(SourceDatabase(repository.path).list_tracks()):
+        scoped.set_label(track, "yes" if index < 2 else "no")
+    calibrated = _write_promotable_artifact(
+        artifact_dir,
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+        stamp="20260807T100000Z",
+        calibrated=True,
+    )
+    benchmark_calls = 0
+
+    def forbidden_benchmark(*args: object, **kwargs: object) -> object:
+        nonlocal benchmark_calls
+        benchmark_calls += 1
+        raise AssertionError("calibration must stop before training")
+
+    monkeypatch.setattr(
+        web_app_module,
+        "benchmark_lab_database",
+        forbidden_benchmark,
+    )
+    monkeypatch.setattr(web_app_module, "MIN_CALIBRATION_LABELS", 4)
+    monkeypatch.setattr(web_app_module, "MIN_CALIBRATION_POSITIVE", 2)
+    monkeypatch.setattr(web_app_module, "MIN_CALIBRATION_NEGATIVE", 2)
+    app = create_app(
+        repository.path,
+        labels_db_path=lab_path,
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+
+    with TestClient(app) as client:
+        readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "mert"},
+        ).json()
+        response = client.post(
+            "/api/profiles/focused/training/calibrate",
+            json={"feature_set": "mert"},
+        )
+        after = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "mert"},
+        ).json()
+
+    assert readiness["current"] == {"yes": 2, "no": 2}
+    assert readiness["usable"] == {"yes": 1, "no": 2}
+    assert readiness["calibration_ready"] is False
+    assert response.status_code == 409
+    assert benchmark_calls == 0
+    assert (
+        after["artifact_summary"]["promotion_options"][0]["latest_model"]
+        == str(calibrated)
+    )
+
+
+def test_train_refresh_applies_the_exact_artifact_returned_by_training(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    for index in range(4):
+        _insert_track(repository, output, index=index)
+    artifact_dir = tmp_path / "artifacts"
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path, artifact_dir=artifact_dir)
+    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    for index, track in enumerate(SourceDatabase(repository.path).list_tracks()):
+        scoped.set_label(track, "yes" if index < 2 else "no")
+
+    trained_artifact = _write_promotable_artifact(
+        artifact_dir,
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+        stamp="20260807T100000Z",
+    )
+    newer_artifact = _write_promotable_artifact(
+        artifact_dir,
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+        stamp="20260807T120000Z",
+    )
+
+    def fake_benchmark(*args: object, **kwargs: object) -> dict[str, object]:
+        return {
+            "mert": {
+                "status": "trained",
+                "artifact_path": str(trained_artifact),
+                "metrics_path": str(
+                    trained_artifact.with_suffix(".metrics.json")
+                ),
+                "trained_rows": 4,
+                "skipped_rows": 0,
+                "feature_count": 768,
+            }
+        }
+
+    monkeypatch.setattr(
+        web_app_module,
+        "benchmark_lab_database",
+        fake_benchmark,
+    )
+    app = create_app(
+        repository.path,
+        labels_db_path=lab_path,
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/profiles/focused/training/train-refresh",
+            json={"feature_set": "mert"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["artifact"] == str(trained_artifact)
+    assert response.json()["artifact"] != str(newer_artifact)
 
 
 def test_web_promotion_rejects_artifact_when_muq_vectors_are_invalid(
@@ -569,7 +866,11 @@ def test_web_promotion_rejects_artifact_when_muq_vectors_are_invalid(
             {"key": "no", "name": "No", "role": "negative"},
         ],
     )
-    _write_promotable_artifact(artifact_dir, output=current_muq)
+    _write_promotable_artifact(
+        artifact_dir,
+        output=current_muq,
+        catalog_uuid=repository.catalog_uuid,
+    )
 
     app = create_app(
         repository.path,
@@ -622,6 +923,351 @@ def test_promotion_accepts_structurally_complete_muq_artifact(
         f"muq:{index}"
         for index in range(current_embedding_spec("muq").dimension)
     )
+
+
+def test_prediction_refresh_uses_requested_feature_recipe(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    for index in range(4):
+        _insert_track(repository, output, index=index)
+    artifact_dir = tmp_path / "artifacts"
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path, artifact_dir=artifact_dir)
+    artifact = _write_promotable_artifact(
+        artifact_dir,
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+    )
+    app = create_app(
+        repository.path,
+        labels_db_path=lab_path,
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/profiles/focused/predictions/refresh",
+            json={"feature_set": "mert"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["feature_set"] == "mert"
+    assert response.json()["artifact"] == str(artifact)
+    assert response.json()["predicted"] == 4
+
+
+def test_prediction_rejects_artifact_from_another_source_catalog(
+    tmp_path: Path,
+) -> None:
+    first_repository = Repository(tmp_path)
+    other_root = tmp_path / "other"
+    other_root.mkdir()
+    other_repository = Repository(other_root)
+    output = _mert_output()
+    other_repository.register_analysis_outputs((output,))
+    _insert_track(other_repository, output, index=0)
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    artifact = _write_promotable_artifact(
+        tmp_path / "artifacts",
+        output=output,
+        catalog_uuid=first_repository.catalog_uuid,
+    )
+
+    with pytest.raises(ValueError, match="does not match active catalog"):
+        apply_model_to_lab(
+            other_repository.path,
+            lab_path,
+            artifact,
+            classifier_key="focused",
+        )
+
+
+def test_prediction_rejects_artifact_without_source_catalog_binding(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    artifact = _write_promotable_artifact(
+        tmp_path / "artifacts",
+        output=output,
+        catalog_uuid=None,
+    )
+
+    with pytest.raises(ValueError, match="not bound to a source catalog"):
+        apply_model_to_lab(
+            repository.path,
+            lab_path,
+            artifact,
+            classifier_key="focused",
+        )
+    with pytest.raises(PromotionError, match="not bound to a source catalog"):
+        promote_profile_model(
+            lab_path,
+            "focused",
+            artifact_path=artifact,
+            target_root=tmp_path / "promoted",
+        )
+
+
+def test_prediction_refresh_uses_bounded_features_and_one_atomic_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    for index in range(5):
+        _insert_track(repository, output, index=index)
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    artifact = _write_promotable_artifact(
+        tmp_path / "artifacts",
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+    )
+    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    old_track = SourceDatabase(repository.path).list_tracks()[0]
+    scoped.save_prediction(
+        old_track,
+        feature_set="muq",
+        model_artifact="old-other-recipe.joblib",
+        label="no",
+        confidence=0.7,
+        probabilities={"yes": 0.3, "no": 0.7},
+    )
+    feature_batch_sizes: list[int] = []
+    staged_batch_sizes: list[int] = []
+    swap_calls = 0
+    original_tracks_by_ids = SourceDatabase.tracks_by_ids
+    original_stage_append = predictions_module.PredictionStage.append
+    original_replace_predictions = (
+        RhythmLabDatabase.replace_predictions_from_stage
+    )
+
+    def recording_tracks_by_ids(
+        self: SourceDatabase,
+        track_ids: object,
+    ) -> dict[int, object]:
+        selected_ids = list(track_ids)  # type: ignore[arg-type]
+        feature_batch_sizes.append(len(selected_ids))
+        return original_tracks_by_ids(self, selected_ids)
+
+    def recording_stage_append(
+        self: object,
+        predictions: object,
+    ) -> None:
+        rows = list(predictions)  # type: ignore[arg-type]
+        staged_batch_sizes.append(len(rows))
+        original_stage_append(self, rows)
+
+    def recording_replace_predictions_from_stage(
+        self: RhythmLabDatabase,
+        stage_path: Path,
+        **kwargs: object,
+    ) -> int:
+        nonlocal swap_calls
+        swap_calls += 1
+        return original_replace_predictions(self, stage_path, **kwargs)
+
+    monkeypatch.setattr(predictions_module, "PREDICTION_BATCH_SIZE", 2)
+    monkeypatch.setattr(
+        SourceDatabase,
+        "tracks_by_ids",
+        recording_tracks_by_ids,
+    )
+    monkeypatch.setattr(
+        predictions_module.PredictionStage,
+        "append",
+        recording_stage_append,
+    )
+    monkeypatch.setattr(
+        RhythmLabDatabase,
+        "replace_predictions_from_stage",
+        recording_replace_predictions_from_stage,
+    )
+
+    result = apply_model_to_lab(
+        repository.path,
+        lab_path,
+        artifact,
+        classifier_key="focused",
+    )
+
+    assert result["predicted"] == 5
+    assert result["skipped"] == 0
+    assert result["deleted_old_predictions"] == 1
+    assert feature_batch_sizes == [2, 2, 1]
+    assert staged_batch_sizes == [2, 2, 1]
+    assert swap_calls == 1
+    visible_rows = scoped.predictions()
+    assert len(visible_rows) == 5
+    assert {row["model_artifact"] for row in visible_rows} == {str(artifact)}
+
+
+def test_prediction_refresh_failure_leaves_previous_candidate_set_untouched(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    for index in range(5):
+        _insert_track(repository, output, index=index)
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    tracks = SourceDatabase(repository.path).list_tracks()
+    for track in tracks:
+        scoped.save_prediction(
+            track,
+            feature_set="mert",
+            model_artifact="old.joblib",
+            label="no",
+            confidence=0.75,
+            probabilities={"yes": 0.25, "no": 0.75},
+        )
+    artifact = _write_promotable_artifact(
+        tmp_path / "artifacts",
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+        stamp="new",
+    )
+    build_calls = 0
+    original_build = predictions_module.build_feature_matrix
+
+    def fail_second_batch(*args: object, **kwargs: object):
+        nonlocal build_calls
+        build_calls += 1
+        if build_calls == 2:
+            raise RuntimeError("later batch failed")
+        return original_build(*args, **kwargs)
+
+    monkeypatch.setattr(predictions_module, "PREDICTION_BATCH_SIZE", 2)
+    monkeypatch.setattr(
+        predictions_module,
+        "build_feature_matrix",
+        fail_second_batch,
+    )
+
+    with pytest.raises(RuntimeError, match="later batch failed"):
+        apply_model_to_lab(
+            repository.path,
+            lab_path,
+            artifact,
+            classifier_key="focused",
+        )
+
+    rows = scoped.predictions()
+    assert len(rows) == 5
+    assert {row["model_artifact"] for row in rows} == {"old.joblib"}
+
+
+def test_calibration_becomes_current_for_refresh_and_web_promotion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    for index in range(4):
+        _insert_track(repository, output, index=index)
+    artifact_dir = tmp_path / "artifacts"
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path, artifact_dir=artifact_dir)
+    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    for index, track in enumerate(SourceDatabase(repository.path).list_tracks()):
+        scoped.set_label(track, "yes" if index < 2 else "no")
+    _write_promotable_artifact(
+        artifact_dir,
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+        stamp="20260807T100000Z",
+    )
+    calibrated_artifact: Path | None = None
+
+    def fake_benchmark(
+        source_db_path,
+        labels_db_path,
+        selected_artifact_dir,
+        *,
+        classifier_key,
+        feature_sets,
+        random_state=42,
+        calibrate=False,
+    ):
+        nonlocal calibrated_artifact
+        assert Path(source_db_path) == repository.path
+        assert Path(labels_db_path) == lab_path
+        assert Path(selected_artifact_dir) == artifact_dir
+        assert classifier_key == "focused"
+        assert feature_sets == ("mert",)
+        assert random_state == 42
+        assert calibrate is True
+        calibrated_artifact = _write_promotable_artifact(
+            artifact_dir,
+            output=output,
+            catalog_uuid=repository.catalog_uuid,
+            stamp="20260807T110000Z",
+            calibrated=True,
+        )
+        return {
+            "mert": {
+                "status": "trained",
+                "artifact_path": str(calibrated_artifact),
+                "metrics_path": str(
+                    calibrated_artifact.with_suffix(".metrics.json")
+                ),
+                "trained_rows": 4,
+                "skipped_rows": 0,
+                "feature_count": 768,
+            }
+        }
+
+    monkeypatch.setattr(
+        web_app_module,
+        "benchmark_lab_database",
+        fake_benchmark,
+    )
+    monkeypatch.setattr(web_app_module, "MIN_CALIBRATION_LABELS", 4)
+    monkeypatch.setattr(web_app_module, "MIN_CALIBRATION_POSITIVE", 2)
+    monkeypatch.setattr(web_app_module, "MIN_CALIBRATION_NEGATIVE", 2)
+    app = create_app(
+        repository.path,
+        labels_db_path=lab_path,
+        classifier_target_root=tmp_path / "promoted",
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+
+    with TestClient(app) as client:
+        calibration = client.post(
+            "/api/profiles/focused/training/calibrate",
+            json={"feature_set": "mert"},
+        )
+        assert calibration.status_code == 200, calibration.text
+        assert calibrated_artifact is not None
+        assert calibration.json()["artifact"] == str(calibrated_artifact)
+        readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "mert"},
+        ).json()
+        option = readiness["artifact_summary"]["promotion_options"][0]
+        assert option["latest_model"] == str(calibrated_artifact)
+        assert option["calibration_status"] == "calibrated"
+        promoted = client.post(
+            "/api/profiles/focused/promote",
+            json={"feature_set": "mert"},
+        )
+
+    assert promoted.status_code == 200, promoted.text
+    assert promoted.json()["source_artifact"] == str(calibrated_artifact)
 
 
 def test_tampered_or_unbound_artifact_is_rejected_before_joblib_load(

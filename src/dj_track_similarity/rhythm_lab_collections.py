@@ -19,7 +19,7 @@ from .track_models import TrackIdentity
 
 DEFAULT_COLLECTION_SOURCE = "manual"
 COLLECTION_MODES = {"append", "replace"}
-DEFAULT_RHYTHM_LAB_LABELS_FILENAME = "rhythm_lab_v7.sqlite"
+DEFAULT_RHYTHM_LAB_LABELS_FILENAME = "rhythm_lab.sqlite"
 
 RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
     "classifier_profiles": frozenset(
@@ -232,8 +232,6 @@ class ReviewCollection:
 
 
 def default_rhythm_lab_labels_path() -> Path:
-    # Keep the preserved legacy rhythm_lab.sqlite outside the normal writable
-    # path. Legacy labels move only through the explicit label-transfer flow.
     return (
         Path(__file__).resolve().parents[2]
         / "tools"
@@ -947,15 +945,11 @@ def _reject_noncanonical_table(
         ):
             raise RuntimeError(
                 "Rhythm Lab table 'classifier_labels' uses legacy track identity; "
-                f"choose {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r} as the writable "
-                "database and use the explicit label recovery command "
-                "'python -m rhythm_lab.label_transfer'"
+                "migrate the database to current track identities before opening it"
             )
         raise RuntimeError(
             f"Rhythm Lab table {table!r} is not the canonical structure; "
-            f"choose {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r} as the writable "
-            "database and use the explicit label recovery command "
-            "'python -m rhythm_lab.label_transfer'"
+            "migrate the database before opening it"
         )
 
 

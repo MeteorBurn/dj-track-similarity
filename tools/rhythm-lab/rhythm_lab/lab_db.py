@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 import re
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Literal
 
 from dj_track_similarity.rhythm_lab_collections import (
@@ -101,6 +101,111 @@ class ClassifierLabel:
     label: str
     note: str | None = None
     updated_at: str | None = None
+
+
+@dataclass(frozen=True)
+class ClassifierPredictionWrite:
+    catalog_uuid: str
+    track_uuid: str
+    content_generation: int
+    selected_path: str
+    artist: str | None
+    title: str | None
+    label: str
+    confidence: float
+    probabilities_json: str
+
+
+class PredictionStage:
+    """Task-scoped disk staging for one complete candidate refresh."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path).expanduser().resolve(strict=False)
+        self._connection: sqlite3.Connection | None = None
+
+    def __enter__(self) -> PredictionStage:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(self.path, timeout=30)
+        connection.execute("PRAGMA synchronous = NORMAL")
+        connection.execute(
+            """
+            CREATE TABLE staged_predictions(
+                catalog_uuid TEXT NOT NULL,
+                track_uuid TEXT NOT NULL,
+                content_generation INTEGER NOT NULL,
+                selected_path TEXT NOT NULL,
+                artist TEXT,
+                title TEXT,
+                label TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                probabilities_json TEXT NOT NULL,
+                PRIMARY KEY(
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path
+                )
+            ) WITHOUT ROWID
+            """
+        )
+        self._connection = connection
+        return self
+
+    def append(
+        self,
+        predictions: Iterable[ClassifierPredictionWrite],
+    ) -> None:
+        if self._connection is None:
+            raise RuntimeError("Prediction stage is not open")
+        values = [
+            (
+                prediction.catalog_uuid,
+                prediction.track_uuid,
+                prediction.content_generation,
+                prediction.selected_path,
+                prediction.artist,
+                prediction.title,
+                prediction.label,
+                prediction.confidence,
+                prediction.probabilities_json,
+            )
+            for prediction in predictions
+        ]
+        if values:
+            self._connection.executemany(
+                """
+                INSERT INTO staged_predictions(
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    artist,
+                    title,
+                    label,
+                    confidence,
+                    probabilities_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+
+    def __exit__(
+        self,
+        exc_type: object,
+        exc_value: object,
+        traceback: object,
+    ) -> None:
+        connection = self._connection
+        self._connection = None
+        if connection is None:
+            return
+        try:
+            if exc_type is None:
+                connection.commit()
+            else:
+                connection.rollback()
+        finally:
+            connection.close()
 
 
 @dataclass(frozen=True)
@@ -765,19 +870,159 @@ class RhythmLabDatabase:
         confidence: float,
         probabilities: dict[str, float],
     ) -> None:
+        self.save_predictions(
+            ((track, label, confidence, probabilities),),
+            feature_set=feature_set,
+            model_artifact=model_artifact,
+        )
+
+    def save_predictions(
+        self,
+        predictions: Iterable[
+            tuple[SourceTrack, str, float, dict[str, float]]
+        ],
+        *,
+        feature_set: str,
+        model_artifact: str | Path,
+    ) -> None:
+        writes = [
+            prepare_prediction_write(
+                track,
+                label=label,
+                confidence=confidence,
+                probabilities=probabilities,
+            )
+            for track, label, confidence, probabilities in predictions
+        ]
+        self._write_prediction_rows(
+            writes,
+            feature_set=feature_set,
+            model_artifact=model_artifact,
+        )
+
+    def replace_predictions_from_stage(
+        self,
+        stage_path: str | Path,
+        *,
+        feature_set: str,
+        model_artifact: str | Path,
+    ) -> int:
+        """Atomically swap one complete disk-staged candidate set into view."""
+
         profile_key = self._active_profile_key()
-        if label not in self.get_profile().training_label_keys:
-            raise ValueError(f"Unsupported predicted classifier label: {label}")
-        identity = track_identity(track)
-        confidence_value = _finite_number(confidence, "confidence")
-        clean_probabilities = {
-            str(key): _finite_number(value, f"probabilities[{key!r}]")
-            for key, value in probabilities.items()
-        }
-        payload = _canonical_json(clean_probabilities)
-        tags = track.file_tags
+        allowed_labels = set(self.get_profile().training_label_keys)
+        clean_feature_set = _required_identity_text(feature_set, "feature_set")
+        artifact_text = _required_identity_text(
+            str(model_artifact),
+            "model_artifact",
+        )
+        stage = Path(stage_path).expanduser().resolve(strict=True)
+        deleted = 0
         with self.connect() as connection:
             connection.execute(
+                "ATTACH DATABASE ? AS prediction_stage",
+                (str(stage),),
+            )
+            try:
+                staged_labels = {
+                    str(row[0])
+                    for row in connection.execute(
+                        """
+                        SELECT DISTINCT label
+                        FROM prediction_stage.staged_predictions
+                        """
+                    )
+                }
+                unsupported = sorted(staged_labels - allowed_labels)
+                if unsupported:
+                    raise ValueError(
+                        "Unsupported predicted classifier label: "
+                        + ", ".join(unsupported)
+                    )
+                connection.execute("BEGIN IMMEDIATE")
+                cursor = connection.execute(
+                    """
+                    DELETE FROM classifier_predictions
+                    WHERE classifier_key = ?
+                    """,
+                    (profile_key,),
+                )
+                deleted = int(cursor.rowcount)
+                connection.execute(
+                    """
+                    INSERT INTO classifier_predictions(
+                        classifier_key,
+                        catalog_uuid,
+                        track_uuid,
+                        content_generation,
+                        selected_path,
+                        artist,
+                        title,
+                        feature_set,
+                        model_artifact,
+                        label,
+                        confidence,
+                        probabilities_json
+                    )
+                    SELECT ?, catalog_uuid, track_uuid, content_generation,
+                           selected_path, artist, title, ?, ?, label,
+                           confidence, probabilities_json
+                    FROM prediction_stage.staged_predictions
+                    """,
+                    (profile_key, clean_feature_set, artifact_text),
+                )
+                connection.commit()
+            except BaseException:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
+            finally:
+                connection.execute("DETACH DATABASE prediction_stage")
+        return deleted
+
+    def _write_prediction_rows(
+        self,
+        predictions: list[ClassifierPredictionWrite],
+        *,
+        feature_set: str,
+        model_artifact: str | Path,
+    ) -> None:
+        profile_key = self._active_profile_key()
+        allowed_labels = set(self.get_profile().training_label_keys)
+        unsupported = sorted(
+            {prediction.label for prediction in predictions} - allowed_labels
+        )
+        if unsupported:
+            raise ValueError(
+                "Unsupported predicted classifier label: "
+                + ", ".join(unsupported)
+            )
+        clean_feature_set = _required_identity_text(feature_set, "feature_set")
+        artifact_text = _required_identity_text(
+            str(model_artifact),
+            "model_artifact",
+        )
+        values = [
+            (
+                profile_key,
+                prediction.catalog_uuid,
+                prediction.track_uuid,
+                prediction.content_generation,
+                prediction.selected_path,
+                prediction.artist,
+                prediction.title,
+                clean_feature_set,
+                artifact_text,
+                prediction.label,
+                prediction.confidence,
+                prediction.probabilities_json,
+            )
+            for prediction in predictions
+        ]
+        if not values:
+            return
+        with self.connect() as connection:
+            connection.executemany(
                 """
                 INSERT INTO classifier_predictions(
                     classifier_key,
@@ -810,20 +1055,7 @@ class RhythmLabDatabase:
                     probabilities_json = excluded.probabilities_json,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (
-                    profile_key,
-                    identity.catalog_uuid,
-                    identity.track_uuid,
-                    identity.content_generation,
-                    track.file_path,
-                    tags.artist if tags is not None else None,
-                    tags.title if tags is not None else None,
-                    feature_set,
-                    str(model_artifact),
-                    label,
-                    confidence_value,
-                    payload,
-                ),
+                values,
             )
 
     def predictions(self) -> list[dict[str, object]]:
@@ -935,6 +1167,33 @@ def track_identity(track: SourceTrack) -> TrackIdentity:
         track_uuid=track.track_uuid,
         content_generation=track.content_generation,
         file_path=track.file_path,
+    )
+
+
+def prepare_prediction_write(
+    track: SourceTrack,
+    *,
+    label: str,
+    confidence: float,
+    probabilities: Mapping[str, float],
+) -> ClassifierPredictionWrite:
+    identity = track_identity(track)
+    confidence_value = _finite_number(confidence, "confidence")
+    clean_probabilities = {
+        str(key): _finite_number(value, f"probabilities[{key!r}]")
+        for key, value in probabilities.items()
+    }
+    tags = track.file_tags
+    return ClassifierPredictionWrite(
+        catalog_uuid=identity.catalog_uuid,
+        track_uuid=identity.track_uuid,
+        content_generation=identity.content_generation,
+        selected_path=identity.file_path,
+        artist=tags.artist if tags is not None else None,
+        title=tags.title if tags is not None else None,
+        label=str(label),
+        confidence=confidence_value,
+        probabilities_json=_canonical_json(clean_probabilities),
     )
 
 
@@ -1395,9 +1654,7 @@ def _reject_noncanonical_table(
     if columns and columns != expected_columns:
         raise RuntimeError(
             f"Rhythm Lab database table {table!r} is not the current structure; "
-            f"choose a new lab database path such as {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r}. "
-            "The existing database was not migrated; recover legacy labels with "
-            "'python -m rhythm_lab.label_transfer'."
+            f"migrate {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r} before opening it."
         )
 
 

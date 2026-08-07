@@ -70,11 +70,11 @@ dj-sim analyze --models muq --db .\data\library.sqlite
 также можно запустить напрямую:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Имя файла сохранено как историческое расположение существующих профилей и меток, а не как
-требование к версии структуры.
+При запуске из основного приложения Lab использует эту единственную базу разметок и связывает её с
+выбранной в приложении базой треков.
 
 Откройте:
 
@@ -99,19 +99,19 @@ http://127.0.0.1:8777/
 первого обученного артефакта.
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 На вкладке Training кнопка `Train` переобучает модель по всем текущим меткам и автоматически
-обновляет кандидатов. Калибровка пока не показана в этом интерфейсе. Используйте API или CLI только
-при осознанной необходимости калибровки и достаточном числе меток для её порога. Пока калибровка
-скрыта, публикация из интерфейса игнорирует калиброванные артефакты, поэтому старый
-некалиброванный победитель безопаснее автоматически созданного калиброванного финалиста.
+обновляет кандидатов. Кнопка `Calibrate` явно переобучает выбранный бинарный вариант после
+прохождения порога по пригодным строкам: минимум 100 примеров, включая 20 положительных и
+20 отрицательных. По умолчанию публикация требует калиброванный артефакт, привязанный к активному
+каталогу; для экспериментального исключения в CLI есть `--allow-uncalibrated`.
 
-Обычное обучение через CLI включает отдельный набор `muq` вместе с прежними вариантами по
-умолчанию. В статическом UI вкладки Training есть селектор **Training recipe** для MuQ и всех
-поддерживаемых сочетаний источников. До включения обучения он заново определяет готовность и причины
-блокировки выбранного рецепта.
+CLI и UI по умолчанию используют актуальный полный рецепт
+`sonara2vocal+mert+maest+clap+muq`. Селектор **Training recipe** также предлагает отдельные
+источники и поддерживаемые сочетания. Готовность считается только по меткам, для которых есть все
+актуальные результаты, необходимые выбранному рецепту.
 
 После обучения прослушайте кандидатов с высокими, низкими и пограничными оценками. Полезные ошибки
 часто показывают, что понятие или разметку нужно уточнить до публикации.
@@ -121,7 +121,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation -
 Чтобы сравнить источники признаков активного профиля, запустите бенчмарк:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
 ```
 
 Вкладка Training показывает победителя и позволяет выбрать другой обученный вариант перед
@@ -132,7 +132,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 Для любого другого сочетания повторите параметр CLI:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\artifacts\ablation-muq.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\artifacts\ablation-muq.json
 ```
 
 ## 6. Необязательная калибровка
@@ -148,13 +148,13 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 Калибровка обычного обучения:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --calibrate
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
 ```
 
 Калибровка победителей после абляции:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
 ```
 
 Калибровка выбранного набора через API Rhythm Lab:
@@ -164,23 +164,23 @@ POST http://127.0.0.1:8777/api/profiles/live_instrumentation/training/calibrate
 {"feature_set": "mert+maest"}
 ```
 
-Обычная публикация из интерфейса игнорирует калиброванные артефакты. Для намеренной публикации
-калиброванного артефакта используйте требование CLI:
+UI и CLI по умолчанию публикуют только калиброванный артефакт активного каталога.
+Флаг требования делает это намерение явным:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 До публикации проверьте выбранный артефакт через `calibration-report`:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 ## 7. Опубликуйте
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set combined --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 Публикация копирует выбранный исполняемый артефакт в

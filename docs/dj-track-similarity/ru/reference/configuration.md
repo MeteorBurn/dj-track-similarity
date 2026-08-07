@@ -23,14 +23,14 @@
 | Журналы выполнения | `logs/` |
 | Отчёты, состояние и резервные копии Audio Doctor | `tools/audio-doctor/data/` |
 | Отчёты Audio Dedup | `tools/audio-dedup/data/reports/` |
-| Метки Rhythm Lab | `tools/rhythm-lab/data/rhythm_lab_v7.sqlite` |
+| Метки Rhythm Lab | `tools/rhythm-lab/data/rhythm_lab.sqlite` |
 | Артефакты Rhythm Lab | `tools/rhythm-lab/artifacts/` |
 | Опубликованные классификаторы | `models/classifiers/<artifact-prefix>/` |
 | Постоянные индексы ANN | `.dj-track-similarity-indexes/` рядом с выбранной базой по умолчанию |
 
-Существующее имя `rhythm_lab_v7.sqlite` сохранено, чтобы профили и метки оставались в привычном
-месте. Отдельный файл `rhythm_lab.sqlite` можно использовать только как явно выбранный источник для
-восстановления, но не как обычную записываемую базу Lab.
+Rhythm Lab использует `rhythm_lab.sqlite` как единственную записываемую базу состояния. При запуске
+из основного приложения треки и анализ читаются из выбранной пары Core/Artifacts, а профили, метки,
+предсказания, очереди и контрольные точки остаются в этой базе Lab.
 
 Создаваемые локальные артефакты исключены из Git, если политика явно не требует обратного.
 

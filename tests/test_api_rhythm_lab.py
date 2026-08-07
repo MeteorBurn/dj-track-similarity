@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sqlite3
 
 from fastapi.testclient import TestClient
 import pytest
@@ -95,16 +94,7 @@ def test_rhythm_lab_status_endpoint_returns_launcher_status(monkeypatch) -> None
 
 
 def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeypatch, tmp_path: Path) -> None:
-    legacy_path = tmp_path / "rhythm_lab.sqlite"
-    with sqlite3.connect(legacy_path) as connection:
-        connection.execute(
-            "CREATE TABLE classifier_labels(source_track_id INTEGER, path TEXT)"
-        )
-        connection.execute(
-            "INSERT INTO classifier_labels(source_track_id, path) VALUES (7, 'legacy.wav')"
-        )
-    legacy_before = legacy_path.read_bytes()
-    labels_path = tmp_path / "rhythm_lab_v7.sqlite"
+    labels_path = tmp_path / "rhythm_lab.sqlite"
     monkeypatch.setattr(rhythm_lab_routes, "default_rhythm_lab_labels_path", lambda: labels_path)
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -139,7 +129,6 @@ def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeyp
         first.track_uuid,
         second.track_uuid,
     ]
-    assert legacy_path.read_bytes() == legacy_before
     assert [track.content_generation for track in stored.tracks] == [1, 1]
     assert [track.selected_path for track in stored.tracks] == [
         track.selected_path for track in expected.tracks
@@ -449,7 +438,7 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
     assert binding.catalog_uuid in commands[0]
     labels_index = commands[0].index("--labels") + 1
     assert Path(commands[0][labels_index]) == default_rhythm_lab_labels_path()
-    assert Path(commands[0][labels_index]).name == "rhythm_lab_v7.sqlite"
+    assert Path(commands[0][labels_index]).name == "rhythm_lab.sqlite"
     assert result["source"] == binding.as_payload()
     assert popen_kwargs[0]["env"]["PYTHONUNBUFFERED"] == "1"
     assert log_path.parent.exists()

@@ -5,11 +5,12 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, TypeAlias
+from typing import Literal, Protocol, TypeAlias
 import hashlib
 import json
 import math
 import sqlite3
+import threading
 
 import numpy as np
 
@@ -213,6 +214,13 @@ class SourceTrack:
     )
 
 
+class TrackIdentityLike(Protocol):
+    catalog_uuid: str
+    track_uuid: str
+    content_generation: int
+    file_path: str
+
+
 @dataclass(frozen=True)
 class SourceEmbeddingMatrix:
     """One ordered, structurally valid current-generation embedding matrix."""
@@ -255,6 +263,9 @@ class SourceDatabase:
             expected_catalog_uuid=clean_expected
         )
         self._write_lock = write_lock_for_path(self.path)
+        self._feature_inventory_lock = threading.RLock()
+        self._feature_inventory_signature: tuple[tuple[int, int], ...] | None = None
+        self._feature_inventory_counts: Mapping[str, int] | None = None
 
     def _validate_storage_set(self, *, expected_catalog_uuid: str | None) -> str:
         with closing(_readonly_connection(self.path)) as core_connection:
@@ -315,9 +326,33 @@ class SourceDatabase:
     def feature_states(self) -> Mapping[str, SourceFeatureState]:
         """Return current-generation availability for all feature sources."""
 
-        with closing(self.connect()) as connection:
-            counts = _feature_counts(connection)
-        return _feature_source_states(counts)
+        _, states = self.feature_inventory()
+        return states
+
+    def feature_inventory(
+        self,
+    ) -> tuple[Mapping[str, int], Mapping[str, SourceFeatureState]]:
+        """Return validated counts and states, cached until storage changes."""
+
+        with self._feature_inventory_lock:
+            before = _storage_change_signature(self.path, self.artifacts_path)
+            if (
+                self._feature_inventory_counts is not None
+                and before == self._feature_inventory_signature
+            ):
+                counts = self._feature_inventory_counts
+                return counts, _feature_source_states(counts)
+            with closing(self.connect()) as connection:
+                loaded = _feature_counts(connection)
+            counts = MappingProxyType(dict(loaded))
+            after = _storage_change_signature(self.path, self.artifacts_path)
+            if before == after:
+                self._feature_inventory_signature = after
+                self._feature_inventory_counts = counts
+            else:
+                self._feature_inventory_signature = None
+                self._feature_inventory_counts = None
+            return counts, _feature_source_states(counts)
 
     def count_tracks(self) -> int:
         with closing(self.connect()) as connection:
@@ -326,6 +361,18 @@ class SourceDatabase:
             ).fetchone()
         assert row is not None
         return int(row[0])
+
+    def current_track_ids(self) -> tuple[int, ...]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT track_id
+                FROM tracks
+                WHERE missing_since IS NULL
+                ORDER BY track_id
+                """
+            ).fetchall()
+        return tuple(int(row[0]) for row in rows)
 
     def count_embeddings(self, family: EmbeddingFamily) -> int:
         return len(self.embedding_track_ids(family))
@@ -337,9 +384,8 @@ class SourceDatabase:
     def feature_counts(self) -> Mapping[str, int]:
         """Count structurally valid current-generation feature rows."""
 
-        with closing(self.connect()) as connection:
-            counts = _feature_counts(connection)
-        return MappingProxyType(counts)
+        counts, _ = self.feature_inventory()
+        return counts
 
     def count_liked_tracks(self) -> int:
         with closing(self.connect()) as connection:
@@ -378,6 +424,59 @@ class SourceDatabase:
             )
         return {track.track_id: track for track in tracks}
 
+    def tracks_by_identities(
+        self,
+        identities: Iterable[TrackIdentityLike],
+    ) -> list[SourceTrack]:
+        """Resolve exact current track identities without scanning all tracks."""
+
+        requested = list(
+            dict.fromkeys(
+                (
+                    str(identity.catalog_uuid),
+                    str(identity.track_uuid),
+                    int(identity.content_generation),
+                    str(identity.file_path),
+                )
+                for identity in identities
+                if str(identity.catalog_uuid) == self.catalog_uuid
+            )
+        )
+        if not requested:
+            return []
+        requested_set = set(requested)
+        requested_uuids = list(dict.fromkeys(key[1] for key in requested))
+        track_ids_by_identity: dict[tuple[str, str, int, str], int] = {}
+        with closing(self.connect()) as connection:
+            for start in range(0, len(requested_uuids), _READ_CHUNK_SIZE):
+                chunk = requested_uuids[start : start + _READ_CHUNK_SIZE]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = connection.execute(
+                    f"""
+                    SELECT track_id, track_uuid, content_generation, file_path
+                    FROM tracks
+                    WHERE missing_since IS NULL
+                      AND track_uuid IN ({placeholders})
+                    """,
+                    chunk,
+                ).fetchall()
+                for row in rows:
+                    key = (
+                        self.catalog_uuid,
+                        str(row["track_uuid"]),
+                        int(row["content_generation"]),
+                        str(row["file_path"]),
+                    )
+                    if key in requested_set:
+                        track_ids_by_identity[key] = int(row["track_id"])
+        tracks_by_id = self.tracks_by_ids(track_ids_by_identity.values())
+        return [
+            tracks_by_id[track_ids_by_identity[key]]
+            for key in requested
+            if key in track_ids_by_identity
+            and track_ids_by_identity[key] in tracks_by_id
+        ]
+
     def list_tracks(self) -> list[SourceTrack]:
         with closing(self.connect()) as connection:
             return list(
@@ -399,15 +498,27 @@ class SourceDatabase:
     def load_embedding_matrix(
         self,
         family: EmbeddingFamily,
+        *,
+        track_ids: Iterable[int] | None = None,
     ) -> SourceEmbeddingMatrix:
         clean_family = _embedding_family(family)
         spec = current_embedding_spec(clean_family)
+        selected_ids = (
+            None
+            if track_ids is None
+            else list(
+                dict.fromkeys(
+                    _positive_track_id(track_id) for track_id in track_ids
+                )
+            )
+        )
         with closing(self.connect()) as connection:
             tracks = tuple(
                 sorted(
                     _load_tracks(
                         connection,
                         catalog_uuid=self.catalog_uuid,
+                        track_ids=selected_ids,
                     ),
                     key=lambda track: track.track_id,
                 )
@@ -858,11 +969,8 @@ def _base_track_query(id_clause: str) -> str:
             ft.comment,
             ft.year,
             ft.label,
-            ft.catalog_number,
             ft.country,
-            ft.isrc,
             ft.track_number,
-            ft.disc_number,
             ft.genres_json,
             ft.tags_read_at,
             l.track_id IS NOT NULL AS liked,
@@ -994,11 +1102,8 @@ def _file_tags_from_row(row: sqlite3.Row) -> FileTags | None:
         comment=_optional_text(row["comment"]),
         year=None if row["year"] is None else int(row["year"]),
         label=_optional_text(row["label"]),
-        catalog_number=_optional_text(row["catalog_number"]),
         country=_optional_text(row["country"]),
-        isrc=_optional_text(row["isrc"]),
         track_number=_optional_text(row["track_number"]),
-        disc_number=_optional_text(row["disc_number"]),
         genres=_file_genres(row["genres_json"]),
         tags_read_at=str(row["tags_read_at"]),
     )
@@ -1888,6 +1993,27 @@ def _float_tuple(payload: object, dim: int) -> tuple[float, ...] | None:
     if vector.shape != (dim,) or not bool(np.all(np.isfinite(vector))):
         return None
     return tuple(float(value) for value in vector)
+
+
+def _storage_change_signature(
+    core_path: Path,
+    artifacts_path: Path,
+) -> tuple[tuple[int, int], ...]:
+    paths = (
+        core_path,
+        core_path.with_name(f"{core_path.name}-wal"),
+        artifacts_path,
+        artifacts_path.with_name(f"{artifacts_path.name}-wal"),
+    )
+    signature: list[tuple[int, int]] = []
+    for path in paths:
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            signature.append((-1, -1))
+        else:
+            signature.append((int(stat.st_mtime_ns), int(stat.st_size)))
+    return tuple(signature)
 
 
 def _feature_counts(connection: sqlite3.Connection) -> dict[str, int]:

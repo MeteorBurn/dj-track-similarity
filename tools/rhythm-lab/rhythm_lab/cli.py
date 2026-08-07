@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping
 import csv
 from datetime import datetime, timezone
 import json
@@ -23,7 +22,7 @@ from .artifact_io import (
     load_verified_artifact,
     publish_promoted_artifact,
 )
-from .features import feature_sources
+from .features import DEFAULT_TRAINING_FEATURE_SET, feature_sources
 from .lab_db import RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
 from .source_db import SourceDatabase
@@ -45,10 +44,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Auxiliary classifier labeling and training lab.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    train_parser = subcommands.add_parser("train", help="Benchmark a classifier profile for available feature sets.")
+    train_parser = subcommands.add_parser(
+        "train",
+        help="Train one classifier profile with the selected feature recipe.",
+    )
     _add_data_options(train_parser)
     train_parser.add_argument("--profile", required=True)
     train_parser.add_argument("--artifacts", type=Path, default=None)
+    train_parser.add_argument(
+        "--feature-set",
+        default=DEFAULT_TRAINING_FEATURE_SET,
+        help="Feature recipe to train. Defaults to the current full recipe.",
+    )
     train_parser.add_argument("--calibrate", action="store_true", help="Fit a calibrated classifier when label gates are satisfied.")
     train_parser.set_defaults(func=_train)
 
@@ -74,20 +81,45 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--profile", required=True)
     export_parser.set_defaults(func=_export_predictions)
 
-    promote_parser = subcommands.add_parser("promote", help="Copy the latest combined profile model into the main project.")
+    promote_parser = subcommands.add_parser(
+        "promote",
+        help="Copy the selected current-recipe profile model into the main project.",
+    )
     promote_parser.add_argument("--profile", required=True)
     promote_parser.add_argument("--artifacts", type=Path, default=None)
-    promote_parser.add_argument("--feature-set", default=None, help="Promote the latest artifact for this feature set. Defaults to combined.")
+    promote_parser.add_argument(
+        "--feature-set",
+        default=DEFAULT_TRAINING_FEATURE_SET,
+        help="Promote the latest artifact for this feature recipe.",
+    )
+    promote_parser.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="Active source database whose catalog UUID must match the artifact.",
+    )
     promote_parser.add_argument("--target", type=Path, default=DEFAULT_CLASSIFIER_TARGET_ROOT)
     promote_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    promote_parser.add_argument("--require-calibration", action="store_true", help="Fail unless the selected artifact has a calibrated production report.")
-    promote_parser.add_argument("--allow-uncalibrated", action="store_true", help="Allow experimental promotion when the artifact is not calibrated.")
+    promote_parser.add_argument(
+        "--require-calibration",
+        action="store_true",
+        help="Require calibration explicitly (also the CLI default).",
+    )
+    promote_parser.add_argument(
+        "--allow-uncalibrated",
+        action="store_true",
+        help="Opt in to experimental promotion without calibration.",
+    )
     promote_parser.set_defaults(func=_promote_profile)
 
-    calibration_parser = subcommands.add_parser("calibration-report", help="Print the latest combined artifact calibration report.")
+    calibration_parser = subcommands.add_parser("calibration-report", help="Print the selected artifact calibration report.")
     calibration_parser.add_argument("--profile", required=True)
     calibration_parser.add_argument("--artifacts", type=Path, default=None)
     calibration_parser.add_argument("--artifact", type=Path, default=None)
+    calibration_parser.add_argument(
+        "--feature-set",
+        default=DEFAULT_TRAINING_FEATURE_SET,
+    )
     calibration_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     calibration_parser.set_defaults(func=_calibration_report)
 
@@ -178,7 +210,14 @@ def _add_data_options(parser: argparse.ArgumentParser) -> None:
 def _train(args: argparse.Namespace) -> None:
     profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
     artifact_dir = args.artifacts or Path(profile.artifact_dir)
-    results = benchmark_lab_database(args.source, args.labels, artifact_dir, classifier_key=args.profile, calibrate=args.calibrate)
+    results = benchmark_lab_database(
+        args.source,
+        args.labels,
+        artifact_dir,
+        classifier_key=args.profile,
+        feature_sets=(args.feature_set,),
+        calibrate=args.calibrate,
+    )
     print(json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True))
 
 
@@ -218,6 +257,7 @@ def promote_profile_model(
     target_root: str | Path = DEFAULT_CLASSIFIER_TARGET_ROOT,
     require_calibration: bool = False,
     allow_uncalibrated: bool = False,
+    expected_source_catalog_uuid: str | None = None,
 ) -> dict[str, object]:
     labels_db = RhythmLabDatabase(labels_path, classifier_key=profile_key)
     profile = labels_db.get_profile()
@@ -229,7 +269,7 @@ def promote_profile_model(
         artifact = _latest_feature_artifact(
             artifact_dir,
             profile.artifact_prefix,
-            feature_set or "combined",
+            feature_set or DEFAULT_TRAINING_FEATURE_SET,
             calibration=calibration_filter,
         )
     try:
@@ -246,11 +286,28 @@ def promote_profile_model(
     if feature_set is not None and artifact_feature_set != feature_set:
         raise PromotionError(f"Expected a {feature_set!r} artifact, got feature_set={artifact_feature_set!r}")
     feature_sources(artifact_feature_set)
+    artifact_source_catalog_uuid = str(
+        payload.get("source_catalog_uuid") or ""
+    ).strip()
+    if expected_source_catalog_uuid is not None:
+        expected_catalog_uuid = str(expected_source_catalog_uuid).strip()
+        if not expected_catalog_uuid:
+            raise PromotionError(
+                "expected_source_catalog_uuid must be non-empty when provided"
+            )
+        if artifact_source_catalog_uuid != expected_catalog_uuid:
+            actual = artifact_source_catalog_uuid or "<missing>"
+            raise PromotionError(
+                f"Artifact source catalog {actual} does not match active "
+                f"catalog {expected_catalog_uuid}"
+            )
     feature_names = _validated_feature_names(payload.get("feature_names"))
     production_calibration = _artifact_calibration_payload(payload)
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
         raise PromotionError(f"Artifact calibration is required but not available: {reason}")
+    if not artifact_source_catalog_uuid:
+        raise PromotionError("Artifact is not bound to a source catalog UUID")
 
     target = Path(target_root) / profile.artifact_prefix
     artifact_hash = verified_artifact.artifact_hash
@@ -263,6 +320,7 @@ def promote_profile_model(
         "feature_set": artifact_feature_set,
         "feature_count": len(feature_names),
         "feature_names": feature_names,
+        "source_catalog_uuid": artifact_source_catalog_uuid or None,
         "label_order": payload.get("label_order", list(profile.training_label_keys)),
         "positive_label": payload.get("positive_label", profile.positive_label),
         "negative_label": profile.negative_label,
@@ -300,16 +358,21 @@ def promote_profile_model(
 
 def _promote_profile(args: argparse.Namespace) -> None:
     try:
+        active_catalog_uuid = SourceDatabase(args.source).catalog_uuid
+        require_calibration = bool(
+            args.require_calibration or not args.allow_uncalibrated
+        )
         result = promote_profile_model(
             args.labels,
             args.profile,
             artifacts=args.artifacts,
             feature_set=args.feature_set,
             target_root=args.target,
-            require_calibration=args.require_calibration,
+            require_calibration=require_calibration,
             allow_uncalibrated=args.allow_uncalibrated,
+            expected_source_catalog_uuid=active_catalog_uuid,
         )
-    except PromotionError as error:
+    except (FileNotFoundError, PromotionError, ValueError) as error:
         raise SystemExit(str(error)) from error
     print(f"model={result['model_path']} metadata={result['metadata_path']} source={result['source_artifact']}")
 
@@ -319,7 +382,12 @@ def _calibration_report(args: argparse.Namespace) -> None:
     artifact = (
         Path(args.artifact)
         if args.artifact is not None
-        else _latest_feature_artifact(args.artifacts or profile.artifact_dir, profile.artifact_prefix, "combined", calibration="any")
+        else _latest_feature_artifact(
+            args.artifacts or profile.artifact_dir,
+            profile.artifact_prefix,
+            args.feature_set,
+            calibration="any",
+        )
     )
     payload = _load_artifact_payload(artifact)
     report = _artifact_calibration_payload(payload)

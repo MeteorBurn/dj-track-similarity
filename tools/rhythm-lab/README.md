@@ -14,7 +14,7 @@ Full documentation is in
 Run from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 Open:
@@ -28,11 +28,10 @@ labels database also starts without a built-in classifier profile. The UI has a
 source database path field, file picker, Load database button, and profile
 creation dialog. Choose or create a classifier profile before loading tracks.
 
-The current writable default is
-`tools/rhythm-lab/data/rhythm_lab_v7.sqlite`. An existing
-`tools/rhythm-lab/data/rhythm_lab.sqlite` belongs to the legacy runtime and is
-left untouched by normal startup and collection saves. Use it only as input to
-the explicit recovery workflow below.
+The writable default is the single stable database at
+`tools/rhythm-lab/data/rhythm_lab.sqlite`. Normal startup and collection saves
+use this same file. A database with legacy label columns must be migrated before
+the current Lab can open it.
 
 The profile `Delete` action is permanent and asks you to type the profile name
 or key. It removes Rhythm Lab labels, predictions, training queue rows,
@@ -44,7 +43,7 @@ runtime models under `models/classifiers/` are left in place.
 Lab state is stored at:
 
 ```text
-tools/rhythm-lab/data/rhythm_lab_v7.sqlite
+tools/rhythm-lab/data/rhythm_lab.sqlite
 ```
 
 Training artifacts stay under:

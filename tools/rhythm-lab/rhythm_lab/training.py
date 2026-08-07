@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
+from uuid import uuid4
 
 import numpy as np
 
@@ -14,7 +15,7 @@ from .features import (
     build_labeled_feature_matrix,
 )
 from .lab_db import RhythmLabDatabase
-from .source_db import SourceDatabaseError
+from .source_db import SourceDatabase, SourceDatabaseError
 
 
 POSITIVE_DISCOVERY_THRESHOLDS = (0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
@@ -47,6 +48,8 @@ def train_feature_set(
     classifier_key: str,
     random_state: int = 42,
     calibrate: bool = False,
+    source_catalog_uuid: str | None = None,
+    skipped_rows: int = 0,
 ) -> TrainResult:
     from joblib import dump
     from sklearn.calibration import CalibratedClassifierCV
@@ -58,14 +61,16 @@ def train_feature_set(
     ordered_labels = [str(label) for label in label_order]
     positive_label = str(positive_label)
     _validate_training_data(matrix, labels, label_order=ordered_labels)
-
-    train_x, test_x, train_y, test_y = train_test_split(
-        matrix,
-        labels,
-        test_size=_test_size(len(labels)),
-        random_state=random_state,
-        stratify=labels,
+    clean_source_catalog_uuid = (
+        str(source_catalog_uuid).strip() if source_catalog_uuid is not None else None
     )
+    if source_catalog_uuid is not None and not clean_source_catalog_uuid:
+        raise ValueError("source_catalog_uuid must be non-empty when provided")
+    clean_skipped_rows = int(skipped_rows)
+    if clean_skipped_rows < 0:
+        raise ValueError("skipped_rows must be non-negative")
+    feature_group_weights = _feature_group_weights(feature_names)
+
     label_counts = {label: labels.count(label) for label in ordered_labels}
     calibration_gate = _calibration_gate(
         label_counts,
@@ -73,37 +78,63 @@ def train_feature_set(
         label_order=ordered_labels,
         calibrate_requested=calibrate,
     )
+    if calibrate and calibration_gate["status"] != "ready":
+        raise ValueError(
+            "Calibration requested but usable training rows do not satisfy "
+            f"the calibration gate: {calibration_gate['reason']} "
+            f"(total={calibration_gate['actual_labels']}, "
+            f"positive={calibration_gate['actual_positive']}, "
+            f"negative={calibration_gate['actual_negative']})"
+        )
+    train_x, test_x, train_y, test_y = train_test_split(
+        matrix,
+        labels,
+        test_size=_test_size(len(labels)),
+        random_state=random_state,
+        stratify=labels,
+    )
     if calibration_gate["status"] == "ready":
         cv_folds = min(3, *(label_counts[label] for label in ordered_labels))
-        model = CalibratedClassifierCV(
-            estimator=_make_model(random_state),
+        evaluation_model = CalibratedClassifierCV(
+            estimator=_make_model(
+                random_state,
+                feature_names=feature_names,
+            ),
             method="sigmoid",
             cv=max(2, int(cv_folds)),
         )
         calibration_method = "sigmoid"
     else:
-        model = _make_model(random_state)
+        evaluation_model = _make_model(
+            random_state,
+            feature_names=feature_names,
+        )
         calibration_method = None
-    model.fit(train_x, train_y)
-    predictions = model.predict(test_x)
-    positive_probabilities = _positive_probabilities(model, test_x, positive_label=positive_label)
+    evaluation_model.fit(train_x, train_y)
+    predictions = evaluation_model.predict(test_x)
+    positive_probabilities = _positive_probabilities(
+        evaluation_model,
+        test_x,
+        positive_label=positive_label,
+    )
     report = classification_report(test_y, predictions, labels=ordered_labels, output_dict=True, zero_division=0)
     confusion = confusion_matrix(test_y, predictions, labels=ordered_labels).tolist()
 
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    created_at = datetime.now(timezone.utc)
+    stamp = created_at.strftime("%Y%m%dT%H%M%S%fZ") + uuid4().hex[:8]
     artifact_path = artifact_root / f"{artifact_prefix}-{feature_set}-{stamp}.joblib"
     metrics_path = artifact_root / f"{artifact_prefix}-{feature_set}-{stamp}.metrics.json"
     payload = {
         "classifier_key": classifier_key,
-        "model": model,
+        "model": None,
         "feature_set": feature_set,
         "feature_names": list(feature_names),
         "label_order": ordered_labels,
         "positive_label": positive_label,
         "feature_count": int(matrix.shape[1]),
-        "created_at": stamp,
+        "created_at": created_at.isoformat().replace("+00:00", "Z"),
     }
     positive_discovery = _positive_discovery_metrics(test_y, positive_probabilities, positive_label=positive_label)
     cross_validation = _cross_validation_metrics(
@@ -112,6 +143,7 @@ def train_feature_set(
         label_order=ordered_labels,
         positive_label=positive_label,
         random_state=random_state,
+        feature_names=feature_names,
     )
     production_calibration = _production_calibration_report(
         test_y,
@@ -123,19 +155,40 @@ def train_feature_set(
         calibration_gate=calibration_gate,
         calibration_method=calibration_method,
     )
+    if calibration_gate["status"] == "ready":
+        production_model = CalibratedClassifierCV(
+            estimator=_make_model(
+                random_state,
+                feature_names=feature_names,
+            ),
+            method="sigmoid",
+            cv=max(2, int(cv_folds)),
+        )
+    else:
+        production_model = _make_model(
+            random_state,
+            feature_names=feature_names,
+        )
+    production_model.fit(matrix, labels)
+    payload["model"] = production_model
     payload["production_calibration"] = production_calibration
+    payload["source_catalog_uuid"] = clean_source_catalog_uuid
+    payload["feature_group_weights"] = feature_group_weights
     dump(payload, artifact_path)
     artifact_hash = artifact_sha256(artifact_path.read_bytes())
     metrics = {
         "classifier_key": classifier_key,
         "feature_set": feature_set,
-        "created_at": stamp,
+        "created_at": created_at.isoformat().replace("+00:00", "Z"),
         "label_order": ordered_labels,
         "positive_label": positive_label,
         "feature_names": list(feature_names),
         "trained_rows": len(labels),
+        "skipped_rows": clean_skipped_rows,
         "test_rows": len(test_y),
         "feature_count": int(matrix.shape[1]),
+        "source_catalog_uuid": clean_source_catalog_uuid,
+        "feature_group_weights": feature_group_weights,
         "artifact_filename": artifact_path.name,
         "artifact_hash": artifact_hash,
         "classification_report": report,
@@ -145,7 +198,14 @@ def train_feature_set(
         "production_calibration": production_calibration,
     }
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    return TrainResult(feature_set, model, artifact_path, metrics_path, len(labels), 0)
+    return TrainResult(
+        feature_set,
+        production_model,
+        artifact_path,
+        metrics_path,
+        len(labels),
+        clean_skipped_rows,
+    )
 
 
 def benchmark_lab_database(
@@ -159,6 +219,7 @@ def benchmark_lab_database(
     calibrate: bool = False,
 ) -> dict[str, dict[str, object]]:
     profile = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key).get_profile()
+    source_catalog_uuid = SourceDatabase(source_db_path).catalog_uuid
     label_order = list(profile.training_label_keys)
     results: dict[str, dict[str, object]] = {}
     for feature_set in feature_sets:
@@ -182,6 +243,8 @@ def benchmark_lab_database(
                 classifier_key=profile.classifier_key,
                 random_state=random_state,
                 calibrate=calibrate,
+                source_catalog_uuid=source_catalog_uuid,
+                skipped_rows=len(features.skipped_identities),
             )
             results[feature_set] = {
                 "status": "trained",
@@ -234,15 +297,56 @@ def _test_size(row_count: int) -> float:
     return 0.5 if row_count < 8 else 0.25
 
 
-def _make_model(random_state: int):
+def _make_model(random_state: int, *, feature_names: list[str]):
+    from sklearn.compose import ColumnTransformer
     from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
 
+    groups = _feature_group_indices(feature_names)
+    weights = _feature_group_weights(feature_names)
+    source_balance = ColumnTransformer(
+        [
+            (f"source_{index}_{source}", "passthrough", indices)
+            for index, (source, indices) in enumerate(groups.items())
+        ],
+        transformer_weights={
+            f"source_{index}_{source}": weights[source]
+            for index, source in enumerate(groups)
+        },
+        remainder="drop",
+        sparse_threshold=0.0,
+        verbose_feature_names_out=False,
+    )
     return make_pipeline(
         StandardScaler(),
+        source_balance,
         LogisticRegression(class_weight="balanced", max_iter=1000, random_state=random_state),
     )
+
+
+def _feature_group_indices(feature_names: list[str]) -> dict[str, list[int]]:
+    groups: dict[str, list[int]] = {}
+    for index, feature_name in enumerate(feature_names):
+        source, separator, _ = str(feature_name).partition(":")
+        if not separator or not source:
+            raise ValueError(
+                "Feature names must use the '<source>:<feature>' format"
+            )
+        groups.setdefault(source, []).append(index)
+    if not groups:
+        raise ValueError("At least one feature source is required")
+    return groups
+
+
+def _feature_group_weights(feature_names: list[str]) -> dict[str, float]:
+    groups = _feature_group_indices(feature_names)
+    total_features = len(feature_names)
+    group_count = len(groups)
+    return {
+        source: math.sqrt(total_features / (group_count * len(indices)))
+        for source, indices in groups.items()
+    }
 
 
 def _positive_probabilities(model: object, matrix: np.ndarray, *, positive_label: str) -> np.ndarray:
@@ -335,6 +439,7 @@ def _cross_validation_metrics(
     label_order: list[str],
     positive_label: str,
     random_state: int,
+    feature_names: list[str],
 ) -> dict[str, object]:
     from sklearn.metrics import accuracy_score, classification_report
     from sklearn.model_selection import StratifiedKFold
@@ -347,7 +452,7 @@ def _cross_validation_metrics(
     macro_f1s: list[float] = []
     accuracies: list[float] = []
     for train_index, test_index in splitter.split(matrix, labels):
-        model = _make_model(random_state)
+        model = _make_model(random_state, feature_names=feature_names)
         train_y = [labels[index] for index in train_index]
         test_y = [labels[index] for index in test_index]
         model.fit(matrix[train_index], train_y)

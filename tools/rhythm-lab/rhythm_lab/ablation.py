@@ -19,7 +19,10 @@ from .training import train_feature_set
 
 
 SELECTION_METRIC = "cross_validation.macro_f1_mean"
-MODEL_FAMILY = 'StandardScaler + LogisticRegression(class_weight="balanced")'
+MODEL_FAMILY = (
+    "StandardScaler + source-balanced feature blocks + "
+    'LogisticRegression(class_weight="balanced")'
+)
 LAB_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -84,7 +87,7 @@ def benchmark_profile_ablation(
     label_counts = labels_db.label_counts()
     labels_by_identity = labels_db.training_labels()
     source = SourceDatabase(source_db_path)
-    tracks = tuple(source.list_tracks())
+    tracks = tuple(source.tracks_by_identities(labels_by_identity))
     embedding_cache: dict[str, tuple[int, dict[int, np.ndarray]]] = {}
     result_rows: list[dict[str, object]] = []
     artifact_root = Path(artifact_dir)
@@ -190,6 +193,8 @@ def _train_feature_set_row(
             classifier_key=profile.classifier_key,
             random_state=random_state,
             calibrate=calibrate,
+            source_catalog_uuid=source.catalog_uuid,
+            skipped_rows=len(features.skipped_identities),
         )
     except ValueError as error:
         return {

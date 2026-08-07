@@ -39,6 +39,7 @@ const newProfileTypeEl = document.getElementById("newProfileType");
 const binaryLabelGridEl = document.getElementById("binaryLabelGrid");
 const multiclassLabelEditorEl = document.getElementById("multiclassLabelEditor");
 const multiclassLabelRowsEl = document.getElementById("multiclassLabelRows");
+const DEFAULT_TRAINING_FEATURE_SET = "sonara2vocal+mert+maest+clap+muq";
 
 let profiles = [];
 let activeProfile = null;
@@ -54,7 +55,7 @@ let latestTrainingReadiness = null;
 let latestProfileSummary = null;
 let promoteFeatureSetEl = null;
 let trainingFeatureSetEl = null;
-let selectedTrainingFeatureSet = "combined";
+let selectedTrainingFeatureSet = DEFAULT_TRAINING_FEATURE_SET;
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
@@ -152,7 +153,7 @@ async function setActiveProfile(profileKey, options = {}) {
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
   trainingFeatureSetEl = null;
-  selectedTrainingFeatureSet = "combined";
+  selectedTrainingFeatureSet = DEFAULT_TRAINING_FEATURE_SET;
   renderProfileControls();
   offset = 0;
   viewOffsets.library = 0;
@@ -168,7 +169,7 @@ function clearActiveProfile() {
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
   trainingFeatureSetEl = null;
-  selectedTrainingFeatureSet = "combined";
+  selectedTrainingFeatureSet = DEFAULT_TRAINING_FEATURE_SET;
   profileSelectEl.value = "";
   summaryCoverageEl.textContent = "";
   summaryLabelsEl.textContent = "";
@@ -196,6 +197,8 @@ function renderProfileControls() {
   setTrainingActionDisabled("openLibrary", false);
   setTrainingActionDisabled("openCandidates", true);
   setTrainingActionDisabled("runBenchmark", true);
+  setTrainingActionDisabled("calibrateClassifier", true);
+  setTrainingActionDisabled("refreshCandidates", true);
   setTrainingActionDisabled("promoteClassifier", true, "Train a model before promoting");
   labelEl.innerHTML = "";
   addOption(labelEl, "all", "all labels");
@@ -246,7 +249,7 @@ function setTrainingActionDisabled(id, disabled, title = null) {
 }
 
 function setWorkflowBusy(disabled) {
-  ["openLibrary", "trainRefresh", "openCandidates", "runBenchmark", "promoteClassifier"].forEach(id => {
+  ["openLibrary", "trainRefresh", "openCandidates", "runBenchmark", "calibrateClassifier", "refreshCandidates", "promoteClassifier"].forEach(id => {
     setTrainingActionDisabled(id, disabled);
   });
 }
@@ -259,6 +262,8 @@ async function handleTrainingActionClick(event) {
   if (action === "train") return trainRefresh();
   if (action === "candidates") return openCandidatesForReview();
   if (action === "benchmark") return runBenchmark();
+  if (action === "calibrate") return calibrateClassifier();
+  if (action === "refresh") return refreshCandidates();
   if (action === "promote") return promoteClassifier();
 }
 
@@ -476,7 +481,12 @@ function labelCountBadges(labels) {
 function renderGuidance(summary) {
   const counts = summary.labels || {};
   const readiness = latestTrainingReadiness;
-  const trainingCountText = trainingLabels().map(label => `${escapeHtml(label.name)} ${readiness?.current?.[label.key] ?? counts[label.key] ?? 0}`).join(" · ");
+  const trainingCountText = trainingLabels().map(label => {
+    const current = readiness?.current?.[label.key] ?? counts[label.key] ?? 0;
+    const usable = readiness?.usable?.[label.key];
+    const value = usable === undefined || usable === current ? `${current}` : `${usable}/${current} usable`;
+    return `${escapeHtml(label.name)} ${escapeHtml(value)}`;
+  }).join(" · ");
   const winner = readiness?.artifact_summary?.benchmark_winner;
   const selected = selectedPromotionOption(readiness);
   const lastRun = readiness?.last_trained_at ? formatHumanDate(readiness.last_trained_at) : "not trained yet";
@@ -728,9 +738,58 @@ async function runBenchmark() {
   }
 }
 
+function selectedArtifactFeatureSet(data = latestTrainingReadiness) {
+  return promoteFeatureSetEl?.value
+    || selectedPromotionOption(data)?.feature_set
+    || selectedTrainingFeatureSet
+    || DEFAULT_TRAINING_FEATURE_SET;
+}
+
+async function calibrateClassifier() {
+  if (trainingActionElement("calibrateClassifier")?.disabled) return;
+  const selectedFeatureSet = selectedArtifactFeatureSet();
+  if (!window.confirm(`Calibrate a new ${activeProfile.name} ${selectedFeatureSet} model from all current labels?`)) {
+    return;
+  }
+  setWorkflowBusy(true);
+  refreshCandidatesStatusEl.textContent = "calibrating model...";
+  try {
+    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/calibrate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feature_set: selectedFeatureSet })
+    });
+    const data = await parseRefreshResponse(response);
+    refreshCandidatesStatusEl.textContent = `calibrated ${data.feature_set} · ${fileName(data.artifact)}`;
+  } finally {
+    if (activeView === "training") await loadTrainingView();
+    else await loadTrainingReadiness();
+  }
+}
+
+async function refreshCandidates() {
+  if (trainingActionElement("refreshCandidates")?.disabled) return;
+  const selectedFeatureSet = selectedArtifactFeatureSet();
+  setWorkflowBusy(true);
+  refreshCandidatesStatusEl.textContent = `refreshing ${selectedFeatureSet} candidates...`;
+  try {
+    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feature_set: selectedFeatureSet })
+    });
+    const data = await parseRefreshResponse(response);
+    refreshCandidatesStatusEl.textContent = `refreshed ${data.feature_set} · updated ${data.predicted} · skipped ${data.skipped}`;
+    await switchView("candidates");
+    await loadCandidates({ reset: true });
+  } finally {
+    await loadTrainingReadiness();
+  }
+}
+
 async function promoteClassifier() {
   if (trainingActionElement("promoteClassifier")?.disabled) return;
-  const selectedFeatureSet = promoteFeatureSetEl?.value || selectedPromotionOption(latestTrainingReadiness)?.feature_set || "combined";
+  const selectedFeatureSet = selectedArtifactFeatureSet();
   if (!window.confirm(`Promote the latest ${activeProfile.name} ${selectedFeatureSet} model to the main app?`)) {
     return;
   }
@@ -777,14 +836,39 @@ async function loadTrainingReadiness() {
   );
   setTrainingActionDisabled(
     "runBenchmark",
-    !hasModel,
-    hasModel ? "Run benchmark" : "Train the first model before benchmarking"
+    !data.labels_ready,
+    data.labels_ready ? "Run benchmark across current feature recipes" : readinessBlockedTitle(data)
+  );
+  const selected = selectedPromotionOption(data);
+  const selectedReady = selected?.source_data_ready === true;
+  const canCalibrate = Boolean(
+    data.calibration_ready
+    && selectedReady
+    && selected?.calibration_status !== "calibrated"
+  );
+  setTrainingActionDisabled(
+    "calibrateClassifier",
+    !canCalibrate,
+    canCalibrate
+      ? `Calibrate selected ${selected.feature_set} model`
+      : selected?.calibration_status === "calibrated"
+        ? `${selected.feature_set} is already calibrated`
+        : data.calibration_readiness?.reason || "Select a source-ready trained variant"
+  );
+  setTrainingActionDisabled(
+    "refreshCandidates",
+    !selectedReady,
+    selectedReady
+      ? `Refresh candidates with selected ${selected.feature_set} model`
+      : "Select a source-ready trained variant"
   );
   const canPromote = canPromoteArtifact(data);
   setTrainingActionDisabled(
     "promoteClassifier",
     !canPromote,
-    canPromote ? `Promote selected ${selectedPromotionOption(data)?.feature_set || "combined"} model to main app` : "Train a model before promoting"
+    canPromote
+      ? `Promote calibrated ${selected?.feature_set || DEFAULT_TRAINING_FEATURE_SET} model to main app`
+      : "Calibrate the selected source-ready model before promoting"
   );
   if (latestProfileSummary) renderGuidance(latestProfileSummary);
   return data;
@@ -803,7 +887,7 @@ async function loadTrainingView() {
   promoteFeatureSetEl?.addEventListener("change", () => loadTrainingReadiness().catch(showError));
   trainingFeatureSetEl = document.getElementById("trainingFeatureSet");
   trainingFeatureSetEl?.addEventListener("change", () => {
-    selectedTrainingFeatureSet = trainingFeatureSetEl.value || "combined";
+    selectedTrainingFeatureSet = trainingFeatureSetEl.value || DEFAULT_TRAINING_FEATURE_SET;
     loadTrainingView().catch(showError);
   });
   updateTrainingFeatureSetOptions(data);
@@ -816,6 +900,9 @@ function renderTrainingWorkflow(data, planText) {
   const winner = data?.artifact_summary?.benchmark_winner;
   const optionMarkup = renderPromotionOptions(options);
   const hasModel = hasTrainedVariant(data);
+  const selectedReady = selected?.source_data_ready === true;
+  const selectedCalibrated = selected?.calibration_status === "calibrated";
+  const canCalibrate = Boolean(data?.calibration_ready && selectedReady && !selectedCalibrated);
   const canPromote = canPromoteArtifact(data);
   const featureRecipe = data?.feature_recipe || {};
   const featureOptions = renderTrainingFeatureOptions(data);
@@ -837,50 +924,67 @@ function renderTrainingWorkflow(data, planText) {
         <select id="trainingFeatureSet">${featureOptions}</select>
       </label>
       <label class="workflow-variant-select">Selected variant
-        <select id="promoteFeatureSet" ${canPromote ? "" : "disabled"}>${optionMarkup}</select>
+        <select id="promoteFeatureSet" ${options.some(row => row.source_data_ready === true) ? "" : "disabled"}>${optionMarkup}</select>
       </label>
       <div class="workflow-variant-facts">
         ${trainingInfoLine("Required sources", (featureRecipe.required_sources || []).map(source => source.toUpperCase()).join(" + ") || "None")}
         ${trainingInfoLine("Feature readiness", featureRecipe.ready ? "All required source data is current" : recipeBlockingText(featureRecipe))}
         ${trainingInfoLine("Benchmark winner", winner ? `${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No winner yet")}
         ${trainingInfoLine("Selected", selected ? `${selected.feature_set} · rank ${selected.rank ?? "-"} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No selected variant yet")}
+        ${trainingInfoLine("Calibration", selectedCalibrated ? `${selected.calibration_method || "calibrated"} · ready for promotion` : selected ? `not calibrated${selected.calibration_reason ? ` · ${selected.calibration_reason}` : ""}` : "No selected variant")}
+        ${trainingInfoLine("Feature block weights", formatFeatureGroupWeights(selected?.feature_group_weights))}
       </div>
     </div>
     <div class="workflow-steps">
       ${renderWorkflowStep({
         number: 1,
         title: "Collect labels",
-        status: "ready",
-        body: `Label enough tracks for this profile before training. Need: ${formatLabelCounts(data?.required_added || {})}. Current new labels: ${formatLabelCounts(data?.added || {})}.`,
+        status: data?.labels_ready ? "done" : "blocked",
+        body: data?.labels_ready
+          ? `Training labels are sufficient. Usable totals: ${formatLabelCounts(data?.usable || data?.current || {})}. New since the last run: ${formatLabelCounts(data?.added || {})}.`
+          : Number(data?.skipped_training_rows || 0) > 0
+            ? `${data.skipped_training_rows} labeled track(s) are missing current outputs for this recipe. Restore those outputs or add feature-complete examples: ${missingLabelText(data) || "at least two tracks per training class"}.`
+            : `Add the missing training labels: ${missingLabelText(data) || "at least two tracks per training class"}.`,
         action: workflowButton("openLibrary", "library", "Open Library", "open-library", false, "Open Library to label tracks")
       })}
       ${renderWorkflowStep({
         number: 2,
         title: "Train model",
         status: data?.ready ? "ready" : "blocked",
-        body: `${planText} Selected recipe: ${selectedTrainingFeatureSet}. Retrain from all current labels, create a new artifact, then refresh candidates automatically.`,
+        body: `${planText} Selected recipe: ${selectedTrainingFeatureSet}. Fit evaluation metrics, then refit the saved production model on all current labels. Candidate predictions refresh automatically.`,
         action: workflowButton("trainRefresh", "train", "Train", "train-refresh", !data?.ready, data?.ready ? `Train ${selectedTrainingFeatureSet} and refresh candidates` : trainingBlocked)
       })}
       ${renderWorkflowStep({
         number: 3,
-        title: "Review candidates",
-        status: hasModel ? "ready" : "blocked",
-        body: hasModel ? "Open model-suggested candidates, review uncertain or high-confidence predictions, and add more labels for the next training run." : "Train the first model before candidate review is available.",
-        action: workflowButton("openCandidates", "candidates", "Open Candidates", "open-candidates", !hasModel, hasModel ? "Open model candidates for review" : "Train a model before reviewing candidates")
+        title: "Benchmark variants",
+        status: winner ? "done" : data?.labels_ready ? "ready" : "blocked",
+        body: winner ? `Current winner: ${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)}.` : "Compare SONARA, MERT, MAEST, CLAP, and MuQ feature-source combinations.",
+        action: workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark", !data?.labels_ready, data?.labels_ready ? "Run benchmark" : trainingBlocked)
       })}
       ${renderWorkflowStep({
         number: 4,
-        title: "Benchmark variants",
-        status: winner ? "done" : hasModel ? "ready" : "blocked",
-        body: winner ? `Current winner: ${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)}.` : "Compare SONARA, MERT, MAEST, CLAP, and MuQ feature-source combinations.",
-        action: workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark", !hasModel, hasModel ? "Run benchmark" : "Train the first model before benchmarking")
+        title: "Calibrate selected variant",
+        status: selectedCalibrated ? "done" : canCalibrate ? "ready" : "blocked",
+        body: selectedCalibrated
+          ? `${selected.feature_set} uses ${selected.calibration_method || "calibrated"} probabilities and is eligible for promotion.`
+          : selectedReady && data?.calibration_ready
+            ? "Refit the selected recipe with probability calibration before promotion."
+            : data?.calibration_readiness?.reason || "Train or benchmark a variant whose source data matches the active catalog.",
+        action: workflowButton("calibrateClassifier", "calibrate", "Calibrate", "calibrate-classifier", !canCalibrate, canCalibrate ? `Calibrate ${selected.feature_set}` : selectedCalibrated ? "Selected variant is already calibrated" : data?.calibration_readiness?.reason || "Select a source-ready variant")
       })}
       ${renderWorkflowStep({
         number: 5,
+        title: "Refresh and review candidates",
+        status: selectedReady ? "ready" : "blocked",
+        body: selectedReady ? `Refresh predictions with ${selected.feature_set}, then review uncertain and high-confidence candidates.` : "Train a source-ready variant before candidate review is available.",
+        action: `${workflowButton("refreshCandidates", "refresh", "Refresh", "refresh-candidates", !selectedReady, selectedReady ? `Refresh candidates with ${selected.feature_set}` : "Select a source-ready model")}${workflowButton("openCandidates", "candidates", "Open", "open-candidates", !hasModel, hasModel ? "Open existing candidates" : "Train a model before reviewing candidates")}`
+      })}
+      ${renderWorkflowStep({
+        number: 6,
         title: "Promote model",
         status: canPromote ? "ready" : "blocked",
-        body: selected ? `Promote ${selected.feature_set} into models/classifiers, then reset and rescore this classifier in the main database.` : "No structurally compatible trained variant is available for promotion.",
-        action: workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier", !canPromote, canPromote ? "Promote selected variant" : "Train a model before promoting")
+        body: canPromote ? `Promote calibrated ${selected.feature_set} into models/classifiers for scoring in the main app.` : "Promotion is gated on a calibrated artifact bound to the active source catalog.",
+        action: workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier", !canPromote, canPromote ? "Promote selected calibrated variant" : "Calibrate the selected variant before promoting")
       })}
     </div>
   </div>`;
@@ -895,8 +999,11 @@ function hasTrainedVariant(data) {
 }
 
 function canPromoteArtifact(data) {
-  return (data?.artifact_summary?.promotion_options || [])
-    .some(row => row.source_data_ready === true);
+  const selected = selectedPromotionOption(data);
+  return Boolean(
+    selected?.source_data_ready === true
+    && selected?.calibration_status === "calibrated"
+  );
 }
 
 function renderWorkflowStep({ number, title, status, body, action }) {
@@ -919,26 +1026,34 @@ function actionIcon(action) {
   if (action === "train") return '<svg class="lucide lucide-brain" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>';
   if (action === "candidates") return '<svg class="lucide lucide-sparkles" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594Z" /><path d="M20 2v4" /><path d="M22 4h-4" /></svg>';
   if (action === "benchmark") return '<svg class="lucide lucide-chart-no-axes-column-increasing" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" /></svg>';
+  if (action === "calibrate") return '<svg class="lucide lucide-gauge" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /></svg>';
+  if (action === "refresh") return '<svg class="lucide lucide-refresh-cw" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" /></svg>';
   return '<svg class="lucide lucide-upload" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>';
 }
 
 function workflowRecommendation(data, selected) {
   const missing = missingLabelText(data);
+  const skipped = Number(data?.skipped_training_rows || 0);
+  if (missing && skipped > 0) return `Restore feature outputs for ${skipped} labeled track(s), or add ${missing} feature-complete examples.`;
   if (missing) return `Add ${missing} before the next train run.`;
+  if (!data?.features_ready) return recipeBlockingText(data?.feature_recipe);
   if (!data?.model_artifact && !(data?.artifact_summary?.promotion_options || []).length) return "Train the first model for this profile.";
   if (!data?.artifact_summary?.benchmark_winner) return "Run benchmark to choose the strongest feature-source variant.";
-  if (selected) return "Review the selected promotion variant, then promote it when the metrics look right.";
-  return "Retrain a variant against the current source data before promotion.";
+  if (!selected) return "Retrain a variant against the current source data before calibration or promotion.";
+  if (selected?.calibration_status !== "calibrated" && !data?.calibration_ready) {
+    return data?.calibration_readiness?.reason || "Add more labels before calibration.";
+  }
+  if (selected?.calibration_status !== "calibrated") return "Calibrate the selected benchmark variant, then refresh its candidates.";
+  return "Refresh and review candidates from the calibrated variant, then promote it.";
 }
 
 function missingLabelText(data) {
-  const added = data?.added || {};
-  const required = data?.required_added || {};
+  const missingTrainingRows = data?.missing_training_rows || {};
   const missing = {};
   const missingRows = [];
   let hasMissing = false;
   trainingLabels().forEach(label => {
-    const value = Math.max(0, Number(required[label.key] || 0) - Number(added[label.key] || 0));
+    const value = Math.max(0, Number(missingTrainingRows[label.key] || 0));
     if (value > 0) {
       missing[label.key] = value;
       missingRows.push(value);
@@ -957,7 +1072,7 @@ function missingLabelText(data) {
 }
 
 function renderTrainingFeatureOptions(data) {
-  const options = data?.available_feature_sets || ["combined"];
+  const options = data?.available_feature_sets || [DEFAULT_TRAINING_FEATURE_SET];
   return options
     .map(featureSet => `<option value="${escapeHtml(featureSet)}" ${featureSet === selectedTrainingFeatureSet ? "selected" : ""}>${escapeHtml(featureSet)}</option>`)
     .join("");
@@ -979,7 +1094,7 @@ function recipeBlockingText(recipe) {
 
 function readinessBlockedTitle(data) {
   if (!data?.features_ready) return recipeBlockingText(data?.feature_recipe);
-  return `Need enough new labels. Added: ${formatLabelCounts(data?.added || {})}.`;
+  return `Add missing training labels: ${missingLabelText(data) || "at least two per class"}.`;
 }
 
 function updatePromoteFeatureSetOptions(data) {
@@ -1019,7 +1134,19 @@ function promotionOptionLabel(row) {
   const sourceState = row.source_data_ready === true
     ? "source data current"
     : `blocked: ${row.source_data_reason || "source data unavailable"}`;
-  return `${row.feature_set || "model"} · ${rank} · F1 ${formatMetricPercent(row.macro_f1_mean)} · ${formatHumanDate(row.created_at)} · ${sourceState}`;
+  const calibration = row.calibration_status === "calibrated"
+    ? `calibrated ${row.calibration_method || ""}`.trim()
+    : "not calibrated";
+  return `${row.feature_set || "model"} · ${rank} · F1 ${formatMetricPercent(row.macro_f1_mean)} · ${calibration} · ${formatHumanDate(row.created_at)} · ${sourceState}`;
+}
+
+function formatFeatureGroupWeights(weights) {
+  if (!weights || typeof weights !== "object") return "Not recorded for this artifact";
+  const entries = Object.entries(weights);
+  if (!entries.length) return "Not recorded for this artifact";
+  return entries
+    .map(([source, value]) => `${String(source).toUpperCase()} ${Number(value).toFixed(3)}`)
+    .join(" · ");
 }
 
 function renderTrainingInformationMetrics(data) {
@@ -1034,47 +1161,51 @@ function renderTrainingInformationMetrics(data) {
 }
 
 function renderTrainingLastRunLine(data) {
-  const combined = featureSummary(data?.artifact_summary, "combined");
-  const artifact = data?.model_artifact || data?.artifact_summary?.latest_combined;
-  const runDate = combined?.created_at || data?.last_trained_at;
-  const modelText = combined
-    ? `${combined.feature_set} model ${formatBytes(combined.model_bytes)}`
-    : fileName(artifact) || "no combined model";
+  const current = featureSummary(data?.artifact_summary, selectedTrainingFeatureSet)
+    || selectedPromotionOption(data);
+  const artifact = data?.model_artifact || current?.latest_model;
+  const runDate = current?.created_at || data?.last_trained_at;
+  const modelText = current
+    ? `${current.feature_set} model ${formatBytes(current.model_bytes)}`
+    : fileName(artifact) || "no current model";
   return trainingInfoLine("Last run", `${formatHumanDate(runDate)} · labels ${formatLabelCounts(data?.last_trained || {})} · ${modelText}`);
 }
 
 function renderTrainingArtifactsLine(summary) {
   const features = summary?.by_feature || [];
-  const combined = featureSummary(summary, "combined");
+  const current = featureSummary(summary, selectedTrainingFeatureSet);
   const header = `${summary?.model_count || 0} models · ${summary?.metrics_count || 0} metrics · ${summary?.artifact_prefix || activeProfile.artifact_prefix || "profile"}`;
   const featureNames = features.map(row => String(row.feature_set || "").toUpperCase()).join(", ");
   const detail = features.length
-    ? `${features.length} feature sets · latest combined ${combined?.created_at ? formatHumanDate(combined.created_at) : "none"} · ${featureNames}`
+    ? `${features.length} feature sets · selected recipe ${current?.created_at ? formatHumanDate(current.created_at) : "not trained"} · ${featureNames}`
     : "no profile artifacts found";
   return trainingInfoLine("Artifacts", `${header} · ${detail}`);
 }
 
 function renderTrainingMetricsLine(summary) {
-  const combined = featureSummary(summary, "combined") || (summary?.by_feature || [])[0];
-  if (!combined) return trainingInfoLine("Metrics", "No metrics JSON has been written for this profile yet.");
+  const current = featureSummary(summary, selectedTrainingFeatureSet)
+    || selectedPromotionOption({ artifact_summary: summary })
+    || (summary?.by_feature || [])[0];
+  if (!current) return trainingInfoLine("Metrics", "No metrics JSON has been written for this profile yet.");
   const values = [
-    `accuracy ${formatMetricPercent(combined.accuracy_mean)}`,
-    `F1 ${formatMetricPercent(combined.macro_f1_mean)}`,
-    `precision ${formatMetricPercent(combined.positive_precision_mean)}`,
-    `recall ${formatMetricPercent(combined.positive_recall_mean)}`,
-    `${combined.trained_rows ?? "-"} rows`,
-    `${combined.feature_count ?? "-"} features`
+    `accuracy ${formatMetricPercent(current.accuracy_mean)}`,
+    `F1 ${formatMetricPercent(current.macro_f1_mean)}`,
+    `precision ${formatMetricPercent(current.positive_precision_mean)}`,
+    `recall ${formatMetricPercent(current.positive_recall_mean)}`,
+    `${current.trained_rows ?? "-"} rows`,
+    `${current.feature_count ?? "-"} features`,
+    current.calibration_status === "calibrated" ? `calibrated ${current.calibration_method || ""}`.trim() : "not calibrated"
   ].join(" · ");
-  return trainingInfoLine("Metrics", `${combined.feature_set} · ${values}`);
+  return trainingInfoLine("Metrics", `${current.feature_set} · ${values}`);
 }
 
 function renderTrainingDynamicsLine(history) {
   const latest = (history || [])[0];
   const previous = (history || [])[1];
-  if (!latest) return trainingInfoLine("Dynamics", "Train a combined model to start the metrics history.");
+  if (!latest) return trainingInfoLine("Dynamics", `Train ${selectedTrainingFeatureSet} to start the metrics history.`);
   const trend = previous
     ? `accuracy ${formatMetricDelta(latest.accuracy_mean, previous.accuracy_mean)}, F1 ${formatMetricDelta(latest.macro_f1_mean, previous.macro_f1_mean)} vs previous run`
-    : "first combined metrics snapshot";
+    : "first metrics snapshot for this recipe";
   return trainingInfoLine(
     "Dynamics",
     `${trend} · latest ${formatHumanDate(latest.created_at)} · ${latest.trained_rows ?? "-"} rows · ${formatMetricPercent(latest.accuracy_mean)} acc · ${formatMetricPercent(latest.macro_f1_mean)} F1`
@@ -1546,7 +1677,7 @@ function featuresIndicator(track) {
 }
 
 function requiredFeatureSources() {
-  return latestTrainingReadiness?.feature_recipe?.required_sources || ["sonara", "mert", "maest"];
+  return latestTrainingReadiness?.feature_recipe?.required_sources || ["sonara", "mert", "maest", "clap", "muq"];
 }
 
 function featureStateStatus(state) {

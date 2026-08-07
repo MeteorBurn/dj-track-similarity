@@ -6,6 +6,7 @@ from itertools import combinations
 from pathlib import Path
 import sqlite3
 import sys
+from types import SimpleNamespace
 
 import joblib
 import numpy as np
@@ -21,6 +22,9 @@ from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
 from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402
     default_rhythm_lab_labels_path,
 )
+from rhythm_lab import cli as cli_module  # noqa: E402
+from rhythm_lab import features as feature_module  # noqa: E402
+from rhythm_lab import training as training_module  # noqa: E402
 from rhythm_lab.artifact_io import artifact_sha256  # noqa: E402
 from rhythm_lab.cli import (  # noqa: E402
     DEFAULT_LABELS_DB,
@@ -30,6 +34,7 @@ from rhythm_lab.cli import (  # noqa: E402
 )
 from rhythm_lab.features import (  # noqa: E402
     ABLATION_FEATURE_SETS,
+    DEFAULT_TRAINING_FEATURE_SET,
     FEATURE_RECIPE_OPTIONS,
     FEATURE_SETS,
     SONARA_SCALAR_FIELDS,
@@ -48,7 +53,9 @@ from rhythm_lab.source_db import (  # noqa: E402
 )
 from rhythm_lab.training import train_feature_set  # noqa: E402
 from rhythm_lab.web_app import (  # noqa: E402
+    _artifact_summary,
     _bind_artifact_source_readiness,
+    _training_readiness,
     cleanup_training_artifacts,
     create_app,
 )
@@ -185,16 +192,30 @@ class _FeatureSource:
     def list_tracks(self) -> list[SourceTrack]:
         return [self.track]
 
-    def load_embedding_matrix(self, family: str) -> SourceEmbeddingMatrix:
+    def load_embedding_matrix(
+        self,
+        family: str,
+        *,
+        track_ids: object | None = None,
+    ) -> SourceEmbeddingMatrix:
         specification = self.specifications[family]
         family_value = float(("mert", "maest", "clap", "muq").index(family) + 2)
-        matrix = np.full((1, specification.dimension), family_value, dtype=np.float32)
+        tracks = (
+            (self.track,)
+            if track_ids is None or self.track.track_id in set(track_ids)  # type: ignore[arg-type]
+            else ()
+        )
+        matrix = np.full(
+            (len(tracks), specification.dimension),
+            family_value,
+            dtype=np.float32,
+        )
         matrix.setflags(write=False)
         return SourceEmbeddingMatrix(
             family=family,  # type: ignore[arg-type]
             dimension=specification.dimension,
             normalization=specification.normalization,
-            tracks=(self.track,),
+            tracks=tracks,
             matrix=matrix,
             not_ready_track_ids=(),
         )
@@ -270,6 +291,7 @@ def test_muq_defaults_preserve_legacy_combined_and_ablation_selection() -> None:
         "sonara+muq",
         "mert+muq",
         "sonara+mert+maest+clap+muq",
+        "sonara2vocal+mert+maest+clap+muq",
     )
 
 
@@ -406,13 +428,12 @@ def test_serve_parser_forwards_expected_source_catalog_uuid(
     assert run_kwargs["port"] == 8777
 
 
-def test_default_labels_path_is_shared_greenfield_current_path() -> None:
+def test_default_labels_path_is_shared_stable_path() -> None:
     args = build_parser().parse_args(["serve"])
 
     assert DEFAULT_LABELS_DB == default_rhythm_lab_labels_path()
     assert args.labels == DEFAULT_LABELS_DB
-    assert args.labels.name == "rhythm_lab_v7.sqlite"
-    assert args.labels.name != "rhythm_lab.sqlite"
+    assert args.labels.name == "rhythm_lab.sqlite"
 
 
 def test_explicit_legacy_labels_path_fails_closed_without_mutation(
@@ -465,7 +486,7 @@ def test_explicit_legacy_labels_path_fails_closed_without_mutation(
 
     with pytest.raises(
         RuntimeError,
-        match=r"rhythm_lab_v7\.sqlite.*label_transfer",
+        match=r"legacy track identity.*migrate the database",
     ):
         RhythmLabDatabase(legacy_path)
 
@@ -591,25 +612,16 @@ def test_wal_visible_legacy_schema_is_rejected_before_any_ddl(
         reader.close()
 
 
-def test_web_app_uses_separate_current_labels_without_touching_legacy(
+def test_web_app_creates_current_schema_at_stable_labels_path(
     tmp_path: Path,
 ) -> None:
-    legacy_path = tmp_path / "rhythm_lab.sqlite"
-    with sqlite3.connect(legacy_path) as connection:
-        connection.execute(
-            "CREATE TABLE classifier_labels(source_track_id INTEGER, path TEXT)"
-        )
-        connection.execute(
-            "INSERT INTO classifier_labels(source_track_id, path) VALUES (9, 'legacy.wav')"
-        )
-    legacy_before = legacy_path.read_bytes()
     labels_path = tmp_path / DEFAULT_LABELS_DB.name
 
     app = create_app(labels_db_path=labels_path)
 
     assert app.title == "Rhythm Lab"
+    assert labels_path.name == "rhythm_lab.sqlite"
     assert labels_path.exists()
-    assert legacy_path.read_bytes() == legacy_before
     with sqlite3.connect(
         f"file:{labels_path.as_posix()}?mode=ro",
         uri=True,
@@ -875,6 +887,362 @@ def test_train_feature_set_binds_exact_bytes_and_features_to_metrics(
     payload = joblib.load(result.artifact_path)
     assert payload["classifier_key"] == "focused"
     assert payload["feature_names"] == ["mert:0", "mert:1"]
+
+
+def test_training_artifact_names_are_collision_safe(tmp_path: Path) -> None:
+    first = _train_artifact(tmp_path / "artifacts")
+    second = _train_artifact(tmp_path / "artifacts")
+
+    assert first.artifact_path != second.artifact_path
+    assert first.metrics_path != second.metrics_path
+    assert first.artifact_path.is_file()
+    assert second.artifact_path.is_file()
+
+
+def test_calibration_gate_failure_does_not_write_uncalibrated_artifact(
+    tmp_path: Path,
+) -> None:
+    matrix = np.asarray(
+        [[float(index), float(index % 2)] for index in range(20)],
+        dtype=np.float32,
+    )
+    labels = ["yes" if index % 2 == 0 else "no" for index in range(20)]
+    artifact_dir = tmp_path / "artifacts"
+
+    with pytest.raises(ValueError, match="usable training rows"):
+        train_feature_set(
+            matrix,
+            labels,
+            feature_names=["mert:0", "mert:1"],
+            feature_set="mert",
+            artifact_dir=artifact_dir,
+            label_order=["yes", "no"],
+            positive_label="yes",
+            artifact_prefix="focused",
+            classifier_key="focused",
+            calibrate=True,
+            source_catalog_uuid="catalog-current",
+        )
+
+    assert not list(artifact_dir.glob("*.joblib"))
+    assert not list(artifact_dir.glob("*.metrics.json"))
+
+
+def test_default_training_recipe_uses_current_sonara_and_all_embeddings() -> None:
+    expected = "sonara2vocal+mert+maest+clap+muq"
+
+    assert getattr(feature_module, "DEFAULT_TRAINING_FEATURE_SET", None) == expected
+    assert expected in FEATURE_RECIPE_OPTIONS
+    assert expected in ABLATION_FEATURE_SETS
+    assert feature_sources(expected) == (
+        "sonara",
+        "mert",
+        "maest",
+        "clap",
+        "muq",
+    )
+
+
+class _RecordingClassifier:
+    def fit(self, matrix: np.ndarray, labels: list[str]):
+        self.fit_rows = len(matrix)
+        self.classes_ = np.asarray(sorted(set(labels)), dtype=object)
+        return self
+
+    def predict(self, matrix: np.ndarray) -> np.ndarray:
+        return np.asarray([self.classes_[0]] * len(matrix), dtype=object)
+
+    def predict_proba(self, matrix: np.ndarray) -> np.ndarray:
+        return np.tile(
+            np.full(len(self.classes_), 1.0 / len(self.classes_)),
+            (len(matrix), 1),
+        )
+
+
+def test_training_serializes_full_data_model_source_binding_and_block_weights(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        training_module,
+        "_make_model",
+        lambda random_state, **_kwargs: _RecordingClassifier(),
+    )
+    matrix = np.asarray(
+        [[float(index), 0.0, 1.0, 2.0, 3.0] for index in range(20)],
+        dtype=np.float32,
+    )
+    labels = ["yes" if index % 2 == 0 else "no" for index in range(20)]
+    feature_names = [
+        "sonara:bpm",
+        "mert:0",
+        "mert:1",
+        "mert:2",
+        "mert:3",
+    ]
+
+    result = train_feature_set(
+        matrix,
+        labels,
+        feature_names=feature_names,
+        feature_set="sonara+mert",
+        artifact_dir=tmp_path,
+        label_order=["yes", "no"],
+        positive_label="yes",
+        artifact_prefix="focused",
+        classifier_key="focused",
+        source_catalog_uuid="catalog-current",
+        skipped_rows=3,
+    )
+
+    payload = joblib.load(result.artifact_path)
+    metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
+    expected_weights = {
+        "sonara": pytest.approx(np.sqrt(5.0 / 2.0)),
+        "mert": pytest.approx(np.sqrt(5.0 / 8.0)),
+    }
+    assert payload["model"].fit_rows == 20
+    assert payload["source_catalog_uuid"] == "catalog-current"
+    assert payload["feature_group_weights"] == expected_weights
+    assert metrics["source_catalog_uuid"] == "catalog-current"
+    assert metrics["feature_group_weights"] == expected_weights
+    assert metrics["skipped_rows"] == 3
+    assert result.skipped_rows == 3
+
+
+class _ReadyFeatureSource:
+    catalog_uuid = "catalog-current"
+
+    def __init__(
+        self,
+        *,
+        track_count: int = 4,
+        missing_embedding_track_ids: frozenset[int] = frozenset(),
+    ) -> None:
+        self.track_count = track_count
+        self.missing_embedding_track_ids = missing_embedding_track_ids
+
+    def feature_states(self) -> dict[str, SourceFeatureState]:
+        return {
+            source: SourceFeatureState(status="current", reason=None)
+            for source in ("sonara", "mert", "maest", "clap", "muq")
+        }
+
+    def feature_counts(self) -> dict[str, int]:
+        return {
+            source: self.track_count
+            for source in ("sonara", "mert", "maest", "clap", "muq")
+        }
+
+    def tracks_by_identities(
+        self,
+        identities: object,
+    ) -> list[SourceTrack]:
+        requested = list(identities)  # type: ignore[arg-type]
+        return [
+            _track(int(identity.track_uuid.rsplit("-", 1)[-1]))
+            for identity in requested
+            if identity.catalog_uuid == self.catalog_uuid
+        ]
+
+    def load_embedding_matrix(
+        self,
+        family: str,
+        *,
+        track_ids: object | None = None,
+    ) -> SourceEmbeddingMatrix:
+        specification = current_embedding_spec(family)
+        selected_ids = (
+            list(track_ids)  # type: ignore[arg-type]
+            if track_ids is not None
+            else list(range(1, self.track_count + 1))
+        )
+        tracks = tuple(
+            _track(track_id)
+            for track_id in selected_ids
+            if track_id not in self.missing_embedding_track_ids
+        )
+        matrix = np.ones(
+            (len(tracks), specification.dimension),
+            dtype=np.float32,
+        )
+        matrix.setflags(write=False)
+        return SourceEmbeddingMatrix(
+            family=family,  # type: ignore[arg-type]
+            dimension=specification.dimension,
+            normalization=specification.normalization,
+            tracks=tracks,
+            matrix=matrix,
+            not_ready_track_ids=tuple(
+                track_id
+                for track_id in selected_ids
+                if track_id in self.missing_embedding_track_ids
+            ),
+        )
+
+
+def test_explicit_retrain_uses_total_label_sufficiency_not_checkpoint_delta(
+    tmp_path: Path,
+) -> None:
+    labels = _create_profile(tmp_path / "lab.sqlite", artifact_dir=tmp_path / "artifacts")
+    labels.set_label(_track(1), "yes")
+    labels.set_label(_track(2), "yes")
+    labels.set_label(_track(3), "no")
+    labels.set_label(_track(4), "no")
+    labels.record_training_checkpoint(
+        {"yes": 2, "no": 2},
+        model_artifact="previous.joblib",
+    )
+
+    readiness = _training_readiness(
+        labels,
+        artifact_dir=tmp_path / "artifacts",
+        source=_ReadyFeatureSource(),  # type: ignore[arg-type]
+        feature_set="mert",
+    )
+
+    assert readiness["labels_ready"] is True
+    assert readiness["ready"] is True
+    assert readiness["added"] == {"yes": 0, "no": 0}
+    assert readiness["retrain_recommended"] is False
+    assert readiness["minimum_training_rows"] == {"yes": 2, "no": 2}
+    assert readiness["missing_training_rows"] == {"yes": 0, "no": 0}
+
+
+def test_training_readiness_uses_only_rows_usable_by_selected_recipe(
+    tmp_path: Path,
+) -> None:
+    labels = _create_profile(
+        tmp_path / "lab.sqlite",
+        artifact_dir=tmp_path / "artifacts",
+    )
+    labels.set_label(_track(1), "yes")
+    labels.set_label(_track(2), "yes")
+    labels.set_label(_track(3), "no")
+    labels.set_label(_track(4), "no")
+
+    readiness = _training_readiness(
+        labels,
+        artifact_dir=tmp_path / "artifacts",
+        source=_ReadyFeatureSource(
+            missing_embedding_track_ids=frozenset({1}),
+        ),  # type: ignore[arg-type]
+        feature_set="mert",
+    )
+
+    assert readiness["current"] == {"yes": 2, "no": 2}
+    assert readiness["usable"] == {"yes": 1, "no": 2}
+    assert readiness["unusable"] == {"yes": 1, "no": 0}
+    assert readiness["skipped_training_rows"] == 1
+    assert readiness["labels_ready"] is False
+    assert readiness["ready"] is False
+    assert readiness["missing_training_rows"] == {"yes": 1, "no": 0}
+
+
+def test_cli_training_promotion_and_calibration_default_to_current_recipe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser = build_parser()
+    train = parser.parse_args(["train", "--profile", "focused"])
+    calibration = parser.parse_args(
+        ["calibration-report", "--profile", "focused"]
+    )
+    source = tmp_path / "library.sqlite"
+    promote = parser.parse_args(
+        [
+            "promote",
+            "--profile",
+            "focused",
+            "--source",
+            str(source),
+        ]
+    )
+
+    assert train.feature_set == DEFAULT_TRAINING_FEATURE_SET
+    assert calibration.feature_set == DEFAULT_TRAINING_FEATURE_SET
+    assert promote.feature_set == DEFAULT_TRAINING_FEATURE_SET
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli_module,
+        "SourceDatabase",
+        lambda path: SimpleNamespace(catalog_uuid="catalog-current"),
+    )
+
+    def fake_promote(*args: object, **kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "model_path": tmp_path / "model.joblib",
+            "metadata_path": tmp_path / "metadata.json",
+            "source_artifact": tmp_path / "source.joblib",
+        }
+
+    monkeypatch.setattr(cli_module, "promote_profile_model", fake_promote)
+    promote.func(promote)
+
+    assert captured["feature_set"] == DEFAULT_TRAINING_FEATURE_SET
+    assert captured["expected_source_catalog_uuid"] == "catalog-current"
+    assert captured["require_calibration"] is True
+
+
+def test_artifact_readiness_rejects_a_different_source_catalog() -> None:
+    summary = {
+        "by_feature": [
+            {
+                "feature_set": "mert",
+                "feature_names": ["mert:0"],
+                "source_catalog_uuid": "catalog-old",
+                "latest_model": "model.joblib",
+            }
+        ],
+        "promotion_options": [],
+    }
+    states = {"mert": SourceFeatureState(status="current", reason=None)}
+
+    rebound = _bind_artifact_source_readiness(
+        summary,
+        states,
+        active_catalog_uuid="catalog-current",
+    )
+
+    option = rebound["promotion_options"][0]
+    assert option["source_data_ready"] is False
+    assert "catalog-old" in option["source_data_reason"]
+    assert "catalog-current" in option["source_data_reason"]
+
+
+def test_artifact_summary_surfaces_latest_calibrated_artifact(
+    tmp_path: Path,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    uncalibrated = artifact_dir / "focused-mert-20260807T100000Z.joblib"
+    calibrated = artifact_dir / "focused-mert-20260807T110000Z.joblib"
+    for artifact, calibration in (
+        (uncalibrated, {"status": "uncalibrated", "method": None}),
+        (calibrated, {"status": "calibrated", "method": "sigmoid"}),
+    ):
+        artifact.write_bytes(artifact.name.encode("utf-8"))
+        artifact.with_suffix(".metrics.json").write_text(
+            json.dumps(
+                {
+                    "feature_set": "mert",
+                    "feature_names": ["mert:0"],
+                    "source_catalog_uuid": "catalog-current",
+                    "created_at": artifact.stem.rsplit("-", 1)[-1],
+                    "production_calibration": calibration,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    summary = _artifact_summary(artifact_dir, "focused")
+
+    option = summary["promotion_options"][0]
+    assert option["latest_model"] == str(calibrated)
+    assert option["calibration_status"] == "calibrated"
+    assert option["calibration_method"] == "sigmoid"
 
 
 def test_promotion_requires_matching_profile_and_calibration_gate(

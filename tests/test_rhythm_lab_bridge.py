@@ -70,11 +70,11 @@ def _selection(
     )
 
 
-def test_default_rhythm_lab_labels_path_is_greenfield_current() -> None:
+def test_default_rhythm_lab_labels_path_is_stable_current() -> None:
     labels_path = default_rhythm_lab_labels_path()
 
     assert labels_path.name == DEFAULT_RHYTHM_LAB_LABELS_FILENAME
-    assert labels_path.name == "rhythm_lab_v7.sqlite"
+    assert labels_path.name == "rhythm_lab.sqlite"
     assert labels_path.parent.name == "data"
 
 
@@ -114,7 +114,7 @@ def test_collection_repository_rejects_legacy_labels_without_mutation(
 
     with pytest.raises(
         RuntimeError,
-        match=r"legacy track identity.*rhythm_lab_v7\.sqlite",
+        match=r"legacy track identity.*migrate",
     ):
         RhythmLabCollections(legacy_path)
 
@@ -428,7 +428,7 @@ def test_legacy_collection_schema_is_rejected_without_rewrite(
             """
         )
 
-    with pytest.raises(RuntimeError, match="explicit label recovery"):
+    with pytest.raises(RuntimeError, match="migrate the database"):
         RhythmLabCollections(labels_path)
 
 

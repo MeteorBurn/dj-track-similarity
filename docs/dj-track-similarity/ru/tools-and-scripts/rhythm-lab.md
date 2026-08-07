@@ -10,13 +10,12 @@ Rhythm Lab — отдельный локальный инструмент раз
 изменяет исходное аудио.
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Штатная записываемая база остаётся в `tools/rhythm-lab/data/rhythm_lab_v7.sqlite`, чтобы
-существующие профили и метки сохраняли исторически установленное расположение. Если существует
-`tools/rhythm-lab/data/rhythm_lab.sqlite`, обычный запуск и сохранение коллекций не изменяют её.
-Используйте её только в описанном ниже сценарии восстановления.
+Единственная штатная записываемая база находится в
+`tools/rhythm-lab/data/rhythm_lab.sqlite`. Обычный запуск и сохранение коллекций используют этот
+же файл. Базу с устаревшими столбцами меток нужно мигрировать до запуска текущего Lab.
 
 Создайте и разметьте профиль, обучите его по объявленным входам, проверьте предсказания и опубликуйте
 выбранный артефакт. Публикация делает артефакт доступным для расчёта только по базе данных в основном

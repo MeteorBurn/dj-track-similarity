@@ -18,9 +18,14 @@ EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap", "muq")
 BASE_FEATURE_SOURCES = ("sonara", *EMBEDDING_FEATURE_SOURCES)
 SUPPORTED_FEATURE_SOURCES = (*SONARA_SOURCE_VARIANTS, *EMBEDDING_FEATURE_SOURCES)
 FEATURE_SOURCE_ALIASES = {"sonara2": "sonara", "sonara2vocal": "sonara"}
+MODERN_FULL_FEATURE_SET = "sonara2vocal+mert+maest+clap+muq"
+DEFAULT_TRAINING_FEATURE_SET = MODERN_FULL_FEATURE_SET
 FEATURE_SETS = ("sonara", "mert", "maest", "muq", "combined")
 FEATURE_RECIPE_OPTIONS = (
     "combined",
+    DEFAULT_TRAINING_FEATURE_SET,
+    "sonara2vocal",
+    "sonara2",
     *(
         "+".join(sources)
         for size in range(1, len(BASE_FEATURE_SOURCES) + 1)
@@ -42,6 +47,7 @@ ABLATION_FEATURE_SETS = (
     "sonara+muq",
     "mert+muq",
     "sonara+mert+maest+clap+muq",
+    MODERN_FULL_FEATURE_SET,
 )
 SONARA_SCALAR_FIELDS = (
     "bpm",
@@ -142,10 +148,24 @@ def build_labeled_feature_matrix(
 ) -> FeatureMatrix:
     source = SourceDatabase(source_db_path)
     labels = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key)
+    return build_labeled_feature_matrix_from_sources(
+        source,
+        labels,
+        feature_set,
+    )
+
+
+def build_labeled_feature_matrix_from_sources(
+    source: SourceDatabase,
+    labels: RhythmLabDatabase,
+    feature_set: str,
+) -> FeatureMatrix:
+    labels_by_identity = labels.training_labels()
     return build_feature_matrix(
         source,
         feature_set,
-        labels_by_identity=labels.training_labels(),
+        labels_by_identity=labels_by_identity,
+        tracks=source.tracks_by_identities(labels_by_identity),
     )
 
 
@@ -181,8 +201,14 @@ def build_feature_matrix(
     current_tracks = tuple(tracks if tracks is not None else source.list_tracks())
     by_identity = {track_identity(track): track for track in current_tracks}
     cache = embedding_cache if embedding_cache is not None else {}
+    selected_track_ids = tuple(track.track_id for track in current_tracks)
     embeddings = {
-        family: _cached_embedding_vectors(source, family, cache)
+        family: _cached_embedding_vectors(
+            source,
+            family,
+            cache,
+            track_ids=selected_track_ids,
+        )
         for family in sources
         if family != "sonara"
     }
@@ -294,16 +320,32 @@ def _cached_embedding_vectors(
     source: SourceDatabase,
     family: str,
     cache: dict[str, tuple[int, dict[int, np.ndarray]]],
+    *,
+    track_ids: Sequence[int],
 ) -> tuple[int, dict[int, np.ndarray]]:
-    if family not in cache:
-        loaded = source.load_embedding_matrix(family)  # type: ignore[arg-type]
-        cache[family] = (
-            loaded.dimension,
-            {
-                track.track_id: loaded.matrix[index].astype(np.float32, copy=True)
-                for index, track in enumerate(loaded.tracks)
-            },
+    cached = cache.get(family)
+    missing_ids = (
+        list(track_ids)
+        if cached is None
+        else [track_id for track_id in track_ids if track_id not in cached[1]]
+    )
+    if cached is None or missing_ids:
+        loaded = source.load_embedding_matrix(  # type: ignore[arg-type]
+            family,
+            track_ids=missing_ids,
         )
+        loaded_vectors = {
+            track.track_id: loaded.matrix[index].astype(np.float32, copy=True)
+            for index, track in enumerate(loaded.tracks)
+        }
+        if cached is None:
+            cache[family] = (loaded.dimension, loaded_vectors)
+        else:
+            if loaded.dimension != cached[0]:
+                raise ValueError(
+                    f"{family.upper()} source dimension changed while building features"
+                )
+            cached[1].update(loaded_vectors)
     return cache[family]
 
 

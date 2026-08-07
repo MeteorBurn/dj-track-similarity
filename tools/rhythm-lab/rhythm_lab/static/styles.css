@@ -697,6 +697,8 @@ main {
 .workflow-step-action {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .workflow-action-button {
@@ -1132,6 +1134,7 @@ menu {
   }
 
   .workflow-step-action {
+    flex-direction: column;
     justify-content: stretch;
   }
 

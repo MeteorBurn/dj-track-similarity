@@ -69,12 +69,11 @@ test("metadata reads exact file_tags fields without legacy metadata fallback", (
   assert.doesNotMatch(source, /track\.metadata|track\.genre_scores|track\.genres/);
 });
 
-test("metadata exposes current analysis coverage including MuQ", () => {
+test("metadata title shows MAEST genres instead of analysis badges", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /\["sonara", "maest", "mert", "muq", "clap"\] as const/);
-  assert.match(source, /trackHasAnalysis\(track, model\)/);
-  assert.match(source, /track\.classifier_scores_detail\.length > 0/);
+  assert.match(source, /className="genre-list metadata-title-genre-row"/);
+  assert.doesNotMatch(source, /analysis-badge-row|analysis-badge|readableAnalysisBadges|trackHasAnalysis/);
 });
 
 test("metadata shows structural embedding and classifier detail records", () => {

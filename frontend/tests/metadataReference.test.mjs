@@ -184,6 +184,18 @@ function sonaraFeatures(overrides = {}) {
   );
 }
 
+function expectedLocalTimestamp(value) {
+  const date = new Date(value);
+  const milliseconds = date.getMilliseconds();
+  const hasFractionalSeconds = /\.(\d+)/.test(value) && milliseconds !== 0;
+  const pad2 = (part) => String(part).padStart(2, "0");
+  const pad3 = (part) => String(part).padStart(3, "0");
+  return [
+    `${pad2(date.getDate())}.${pad2(date.getMonth() + 1)}.${date.getFullYear()}`,
+    `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}${hasFractionalSeconds ? `.${pad3(milliseconds)}` : ""}`,
+  ].join(" ");
+}
+
 test("track display and analysis coverage use only current summary fields", () => {
   const track = summary({ title: null, artist: null });
 
@@ -259,21 +271,21 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
     ["Sample Rate", "48,000 Hz"],
     ["Bit Rate", "1000 kbps"],
     ["Channels", "2"],
-    ["Last Scanned", "24.07.2026 10:00:00"],
+    ["Last Scanned", expectedLocalTimestamp("2026-07-24T10:00:00.123456Z")],
     ["Missing Since", "-"],
   ]);
   assert.equal(model.tagEntries, undefined);
+  assert.equal(model.analysisBadges, undefined);
   assert.equal(model.syncopatedRhythm, true);
   assert.equal(model.embeddings[0].label, "MUQ");
   assert.match(model.embeddings[0].value, /1024D/);
+  assert.ok(model.embeddings[0].value.includes(expectedLocalTimestamp("2026-07-24T10:03:00Z")));
   assert.doesNotMatch(model.embeddings[0].value, /legacy-embedding-version/);
   assert.match(model.classifierScores[0].value, /muq/);
   assert.deepEqual(
     model.classifierScores[0].featureNames,
     ["muq:embedding_0", "sonara:energy_score", "muq:embedding_1"]
   );
-  assert.ok(model.analysisBadges.some((badge) => badge.key === "muq"));
-  assert.ok(model.analysisBadges.some((badge) => badge.key === "classifiers"));
 });
 
 test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => {
@@ -505,7 +517,7 @@ test("SONARA structure spectral and analysis metadata uses natural display units
   assert.equal(features.get("spectral_rolloff_hz").value, "4,500 Hz");
   assert.equal(features.get("spectral_flatness").value, "0.0305");
   assert.equal(features.get("zero_crossing_rate").value, "0.0598");
-  assert.equal(features.get("analyzed_at").value, "30.07.2026 09:51:32 UTC");
+  assert.equal(features.get("analyzed_at").value, expectedLocalTimestamp("2026-07-30T09:51:32.510995Z"));
 });
 
 test("Reference Compare ordering preserves MuQ or supplies a model-scoped reason", () => {

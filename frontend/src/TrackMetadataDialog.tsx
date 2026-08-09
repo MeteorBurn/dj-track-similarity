@@ -2,7 +2,7 @@ import { Check, Copy, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
-import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
+import { basename, displayTrack } from "./trackDisplay";
 
 type MetadataEntry = readonly [label: string, value: string];
 type CoreFeature = {
@@ -148,7 +148,6 @@ export function metadataDialogModel(track: TrackDetail) {
   return {
     primaryEntries: readablePrimaryTrackInfo(track),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
-    analysisBadges: readableAnalysisBadges(track),
     classifierScores: readableClassifierScores(track),
     embeddings: readableEmbeddings(track),
     genres,
@@ -175,7 +174,7 @@ export function TrackMetadataDialog({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <div className="modal-backdrop" role="presentation">
       <section
         className="metadata-dialog"
         role="dialog"
@@ -186,11 +185,16 @@ export function TrackMetadataDialog({
         <div className="dialog-title">
           <div>
             <h2 className="metadata-track-title">{displayTrack(track)}</h2>
-            {view.analysisBadges.length ? (
-              <div className="analysis-badge-row">
-                {view.analysisBadges.map((badge) => (
-                  <span className="analysis-badge" key={badge.key}>{badge.label}</span>
+            {view.genres.length || view.syncopatedRhythm ? (
+              <div className="genre-list metadata-title-genre-row">
+                {view.genres.map((genre) => (
+                  <span className="genre-pill" key={`${genre.rank}:${genre.genre_name}`}>
+                    {formatMaestGenreLabel(genre.genre_name)} <b>{formatConfidence(genre.score)}</b>
+                  </span>
                 ))}
+                {view.syncopatedRhythm ? (
+                  <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -284,25 +288,6 @@ export function TrackMetadataDialog({
           )}
         </div>
 
-        <div className="genre-block">
-          <div className="genre-block-title">
-            <strong>MAEST genres</strong>
-          </div>
-          {view.genres.length || view.syncopatedRhythm ? (
-            <div className="genre-list">
-              {view.genres.map((genre) => (
-                <span className="genre-pill" key={`${genre.rank}:${genre.genre_name}`}>
-                  {formatMaestGenreLabel(genre.genre_name)} <b>{formatConfidence(genre.score)}</b>
-                </span>
-              ))}
-              {view.syncopatedRhythm ? (
-                <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span>
-              ) : null}
-            </div>
-          ) : (
-            <span className="empty-genres">Жанры ещё не извлечены</span>
-          )}
-        </div>
       </section>
     </div>
   );
@@ -376,19 +361,9 @@ function readableEmbeddings(track: TrackDetail) {
     value: [
       `${embedding.dim}D`,
       embedding.normalization,
-      embedding.analyzed_at,
+      formatTimestamp(embedding.analyzed_at),
     ].filter((part): part is string => Boolean(part)).join(" · "),
   }));
-}
-
-function readableAnalysisBadges(track: TrackDetail) {
-  const badges: Array<{ key: string; label: string }> = (["sonara", "maest", "mert", "muq", "clap"] as const)
-    .filter((model) => trackHasAnalysis(track, model))
-    .map((model) => ({ key: model, label: model.toUpperCase() }));
-  if (track.classifier_scores_detail.length > 0) {
-    badges.push({ key: "classifiers", label: "CLASSIFIERS" });
-  }
-  return badges;
 }
 
 function readableClassifierName(key: string) {
@@ -400,7 +375,7 @@ function readableClassifierName(key: string) {
 }
 
 function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
-  if (key === "analyzed_at") return formatSonaraTimestamp(String(value));
+  if (key === "analyzed_at") return formatTimestamp(String(value));
   if (key === "bpm_candidates" && Array.isArray(value)) return formatBpmCandidates(value);
   if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
   if (key === "vector_summaries" && Array.isArray(value)) return formatVectorSummaries(value);
@@ -590,13 +565,6 @@ function formatSignedNumber(value: number, decimalPlaces: number) {
   return `${sign}${Math.abs(rounded).toFixed(decimalPlaces)}`;
 }
 
-function formatSonaraTimestamp(value: string) {
-  const timestamp = formatTimestamp(value);
-  if (value.endsWith("Z")) return `${timestamp} UTC`;
-  const offset = /([+-]\d{2}:\d{2})$/.exec(value)?.[1];
-  return offset ? `${timestamp} UTC${offset}` : timestamp;
-}
-
 function formatDuration(seconds: number | null) {
   if (seconds == null || !Number.isFinite(seconds)) return "-";
   const rounded = Math.max(0, Math.round(seconds));
@@ -614,9 +582,22 @@ function formatAudioLength(seconds: number | null) {
 
 function formatTimestamp(value: string | null) {
   if (!value) return "-";
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(value);
-  if (!match) return value;
-  return `${match[3]}.${match[2]}.${match[1]} ${match[4]}:${match[5]}:${match[6]}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const milliseconds = date.getMilliseconds();
+  const hasFractionalSeconds = /\.(\d+)/.test(value) && milliseconds !== 0;
+  return [
+    `${pad2(date.getDate())}.${pad2(date.getMonth() + 1)}.${date.getFullYear()}`,
+    `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}${hasFractionalSeconds ? `.${pad3(milliseconds)}` : ""}`,
+  ].join(" ");
+}
+
+function pad2(value: number) {
+  return value.toString().padStart(2, "0");
+}
+
+function pad3(value: number) {
+  return value.toString().padStart(3, "0");
 }
 
 function formatFrequency(value: number | null) {

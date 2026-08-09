@@ -59,6 +59,10 @@ def _run_isolated_launcher(
         "@echo off\r\nexit /b 0\r\n",
         encoding="utf-8",
     )
+    (tmp_path / "npm.cmd").write_text(
+        "@echo off\r\nexit /b 0\r\n",
+        encoding="utf-8",
+    )
 
     environment = os.environ.copy()
     environment["DJ_SIM_CAPTURE"] = str(capture_path)
@@ -89,10 +93,12 @@ def test_root_server_script_prompts_supports_modes_and_forwards_args() -> None:
 
     assert 'call "%PROJECT_ROOT%\\.venv\\Scripts\\activate.bat"' in text
     assert "where dj-sim" in text
+    assert "where npm" in text
     assert "dj-sim serve" in text
     assert "python -m uvicorn" not in text
     assert "Local virtual environment was not found" in text
     assert "dj-sim is not available" in text
+    assert "npm is not available" in text
     assert 'set "DEFAULT_DB_PATH=%~dp0database\\volumes.sqlite"' in text
     assert r"C:\db\volumes.sqlite" not in text
     assert "Database path [%DEFAULT_DB_PATH%]" in text
@@ -105,6 +111,9 @@ def test_root_server_script_prompts_supports_modes_and_forwards_args() -> None:
     assert 'set "HOST=127.0.0.1"' in text
     assert 'set "HOST=0.0.0.0"' in text
     assert 'set "PORT=8765"' in text
+    assert 'set "FRONTEND_PORT=5173"' in text
+    assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV=1"' in text
+    assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_HOST=%FRONTEND_HOST%"' in text
     assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_HOST=%HOST%"' in text
     assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_PORT=%PORT%"' in text
     assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE=%DB_PATH%"' in text
@@ -249,6 +258,8 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         "--port",
         "8765",
     ]
+    assert module.build_frontend_command(host="127.0.0.1") == ["npm", "run", "dev"]
+    assert module.build_frontend_command(host="0.0.0.0") == ["npm", "run", "dev:lan"]
 
     captured_run: dict[str, object] = {}
 

@@ -298,7 +298,7 @@ mkdir data
 dj-sim scan D:/Music --db ./data/library.sqlite
 ```
 
-Start the backend:
+Start the backend directly when you want it to serve the last built static UI:
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db ./data/library.sqlite
@@ -309,17 +309,18 @@ that path. If you omit `--db`, the server starts without a selected database and
 SQLite file. You can then choose an existing database or create a new one with the database picker.
 
 The root mount serves `frontend/dist` when it exists. Build that bundle from the current frontend
-source so its client matches the current backend responses.
+source when you intentionally want the backend to serve a static UI.
 
-There is also an interactive Windows launcher:
+For day-to-day Windows use, start the interactive launcher:
 
 ```powershell
 run_server.cmd
 ```
 
 It first suggests `database\volumes.sqlite` under the repository root. Press Enter to accept that
-path or type a replacement. The next prompt selects local or LAN mode. The launcher passes the
-confirmed database path to `dj-sim serve` only after both prompts are complete.
+path or type a replacement. The next prompt selects local or LAN mode. The launcher starts the
+backend plus the Vite live UI. Open the printed `5173` UI URL; frontend source changes are visible
+without rebuilding `frontend/dist`.
 
 For non-interactive use, specify the mode and database explicitly:
 

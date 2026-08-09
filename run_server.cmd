@@ -3,9 +3,12 @@ setlocal EnableExtensions DisableDelayedExpansion
 
 set "PROJECT_ROOT=%~dp0."
 set "PORT=8765"
+set "FRONTEND_PORT=5173"
 set "DEFAULT_DB_PATH=%~dp0database\volumes.sqlite"
 set "DB_PATH="
 set "MODE="
+set "FRONTEND_HOST="
+set "FRONTEND_URL="
 set "INTERACTIVE_START=0"
 set "PROMPT_ON_EXIT=0"
 
@@ -73,22 +76,45 @@ if errorlevel 1 (
     goto :setup_error
 )
 
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] npm is not available on PATH.
+    echo.
+    echo The launcher starts the live Vite UI so frontend changes are visible
+    echo immediately. Install Node.js/npm or start dj-sim serve manually to use
+    echo the last built frontend/dist bundle.
+    goto :setup_error
+)
+
 if /I "%MODE%"=="lan" call :detect_lan_ip
+
+if /I "%MODE%"=="lan" (
+    set "FRONTEND_HOST=0.0.0.0"
+    if defined LAN_IP (
+        set "FRONTEND_URL=http://%LAN_IP%:%FRONTEND_PORT%/"
+    ) else (
+        set "FRONTEND_URL=http://127.0.0.1:%FRONTEND_PORT%/"
+    )
+) else (
+    set "FRONTEND_HOST=127.0.0.1"
+    set "FRONTEND_URL=http://127.0.0.1:%FRONTEND_PORT%/"
+)
 
 echo Starting DJ Track Similarity UI server...
 echo.
 if defined DB_PATH echo Database: "%DB_PATH%"
-echo This computer: http://127.0.0.1:%PORT%/
+echo Live UI: %FRONTEND_URL%
+echo Backend API: http://127.0.0.1:%PORT%/
 if /I "%MODE%"=="lan" (
     if defined LAN_IP (
-        echo Local network: http://%LAN_IP%:%PORT%/
+        echo Local network backend: http://%LAN_IP%:%PORT%/
     ) else (
-        echo Local network: http://^<this-computer-lan-ip^>:%PORT%/
+        echo Local network backend: http://^<this-computer-lan-ip^>:%PORT%/
     )
     echo.
     echo Leave this window open while using the UI.
     echo Press Ctrl+C to stop the server.
-    echo If another device cannot connect, allow Python through Windows Firewall.
+    echo If another device cannot connect, allow Python and Node.js through Windows Firewall.
 ) else (
     echo Local mode only. Other devices on the LAN cannot connect to this process.
     echo.
@@ -100,6 +126,8 @@ echo.
 set "DJ_TRACK_SIMILARITY_LAUNCHER_HOST=%HOST%"
 set "DJ_TRACK_SIMILARITY_LAUNCHER_PORT=%PORT%"
 set "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE=%DB_PATH%"
+set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV=1"
+set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_HOST=%FRONTEND_HOST%"
 python "%PROJECT_ROOT%\scripts\run_server_launcher.py" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 

@@ -66,9 +66,9 @@ each search approach returns before spending time on full-library analysis.
 In the CLI, omit `--limit` for the whole library. In the browser, **Analyze limit** `0` has the same
 whole-eligible-library meaning.
 
-## 4. Build the frontend and start the app
+## 4. Start the app
 
-Build the current typed client:
+For the static backend-served UI, build the current typed client and start the backend:
 
 ```powershell
 npm --prefix .\frontend install
@@ -93,16 +93,18 @@ run_server.cmd
 ```
 
 The first prompt suggests `database\volumes.sqlite` under the repository root. Press Enter to accept
-it or type another database path. The next prompt selects local-only or LAN mode. The selected path
-is passed to `dj-sim serve` only after both prompts are complete.
+it or type another database path. The next prompt selects local-only or LAN mode. The launcher starts
+the backend plus the Vite live UI. Use the printed `5173` UI URL during development so frontend
+source changes appear without rebuilding `frontend/dist`.
 
 For a non-interactive launch, use `run_server.cmd local --db .\database\volumes.sqlite`. Replace
 `local` with `lan` only when you want the server reachable from other devices on the local network.
 Explicit mode commands use only the arguments you provide. The server command keeps its terminal
 occupied. Run later CLI jobs in a second activated terminal.
 
-Open `http://127.0.0.1:8765/`. The served bundle uses the current typed database, track, analysis,
-search, set, classifier, Lab, and exact-identity mutation responses.
+With direct `dj-sim serve`, open `http://127.0.0.1:8765/`. With `run_server.cmd`, open the printed
+live UI URL. The browser uses the current typed database, track, analysis, search, set, classifier,
+Lab, and exact-identity mutation responses.
 
 ## 5. Check the backend and browser
 

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import struct
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from dj_track_similarity.analysis_models import current_embedding_spec
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_search_fts import (
     fts_match_query,
@@ -308,6 +310,95 @@ def _insert_artifact(
                 ),
             )
         connection.commit()
+
+
+def test_library_summary_coverage_does_not_read_model_blobs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    track = _add_track(database, tmp_path / "covered.wav", title="Covered")
+    with database.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO sonara(
+                track_id,
+                content_generation,
+                mfcc_mean_blob,
+                chroma_mean_blob,
+                spectral_contrast_mean_blob,
+                analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                track.identity.track_id,
+                track.identity.content_generation,
+                b"\x00" * 52,
+                b"\x00" * 48,
+                b"\x00" * 28,
+                _NOW,
+            ),
+        )
+        connection.commit()
+    spec = current_embedding_spec("mert")
+    vector = [1.0, *([0.0] * (spec.dimension - 1))]
+    with database.connect_artifacts() as connection:
+        connection.execute(
+            """
+            INSERT INTO mert_embeddings(
+                track_id,
+                track_uuid,
+                content_generation,
+                dim,
+                normalization,
+                embedding_blob,
+                analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                track.identity.track_id,
+                track.identity.track_uuid,
+                track.identity.content_generation,
+                spec.dimension,
+                spec.normalization,
+                struct.pack(f"<{spec.dimension}f", *vector),
+                _NOW,
+            ),
+        )
+        connection.commit()
+
+    original_connect = database.connect
+    original_connect_artifacts = database.connect_artifacts
+
+    def guarded_connect():
+        connection = original_connect()
+
+        def authorizer(action, _arg1, arg2, _database, _trigger):
+            if action == sqlite3.SQLITE_READ and str(arg2).endswith("_blob"):
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+
+        connection.set_authorizer(authorizer)
+        return connection
+
+    def guarded_connect_artifacts():
+        connection = original_connect_artifacts()
+
+        def authorizer(action, _arg1, arg2, _database, _trigger):
+            if action == sqlite3.SQLITE_READ and arg2 == "embedding_blob":
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+
+        connection.set_authorizer(authorizer)
+        return connection
+
+    monkeypatch.setattr(database, "connect", guarded_connect)
+    monkeypatch.setattr(database, "connect_artifacts", guarded_connect_artifacts)
+
+    summary = database.library_summary()
+
+    assert summary.sonara == 1
+    assert summary.mert == 1
 
 
 def test_new_track_creates_uuid_generation_typed_tags_and_live_fts(

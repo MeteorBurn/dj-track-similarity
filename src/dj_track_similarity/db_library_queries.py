@@ -16,10 +16,7 @@ from .analysis_models import (
     AnalysisOutput,
     ClassifierSpecification,
     OUTPUT_KINDS_BY_FAMILY,
-)
-from .db_artifacts import (
-    ArtifactTrackIdentity,
-    validate_embedding_row_payload,
+    current_embedding_spec,
 )
 from .db_tracks import utc_now_text
 from .library_models import (
@@ -86,6 +83,18 @@ class _ReadContext:
 def _json_ids(track_ids: Iterable[int]) -> str:
     return json.dumps(
         sorted({int(track_id) for track_id in track_ids}),
+        separators=(",", ":"),
+    )
+
+
+def _json_identity_rows(identities: Mapping[int, tuple[str, int]]) -> str:
+    return json.dumps(
+        [
+            [track_id, track_uuid, content_generation]
+            for track_id, (track_uuid, content_generation) in sorted(
+                identities.items()
+            )
+        ],
         separators=(",", ":"),
     )
 
@@ -644,10 +653,38 @@ def _valid_maest_analysis_ids(
     return valid_ids
 
 
+def _current_analysis_row_count(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    output: AnalysisOutput | None,
+    identities: Mapping[int, tuple[str, int]],
+) -> int:
+    if output is None or not identities:
+        return 0
+    return int(
+        connection.execute(
+            f"""
+            WITH requested AS (
+                SELECT
+                    CAST(json_extract(value, '$[0]') AS INTEGER) AS track_id,
+                    CAST(json_extract(value, '$[2]') AS INTEGER) AS content_generation
+                FROM json_each(?)
+            )
+            SELECT COUNT(*)
+            FROM {table} stored
+            JOIN requested
+              ON requested.track_id = stored.track_id
+             AND requested.content_generation = stored.content_generation
+            """,
+            (_json_identity_rows(identities),),
+        ).fetchone()[0]
+    )
+
+
 def _valid_artifact_rows(
     connection: sqlite3.Connection,
     *,
-    catalog_uuid: str,
     table: str,
     output: AnalysisOutput | None,
     identities: Mapping[int, tuple[str, int]],
@@ -656,7 +693,16 @@ def _valid_artifact_rows(
 ) -> dict[int, Mapping[str, object]]:
     if output is None or not identities:
         return {}
-    embedding_fields = ", dim, normalization, embedding_blob" if embedding else ""
+    expected_dim: int | None = None
+    expected_normalization: str | None = None
+    if embedding:
+        try:
+            expected_spec = current_embedding_spec(output.analysis_family)
+        except ValueError:
+            return {}
+        expected_dim = expected_spec.dimension
+        expected_normalization = expected_spec.normalization
+    embedding_fields = ", dim, normalization" if embedding else ""
     if drive_from_requested:
         rows = connection.execute(
             f"""
@@ -689,28 +735,71 @@ def _valid_artifact_rows(
         expected = identities.get(track_id)
         if expected is None:
             continue
-        expected_track = ArtifactTrackIdentity(
-            catalog_uuid=catalog_uuid,
-            track_id=track_id,
-            track_uuid=expected[0],
-            content_generation=expected[1],
-        )
-        is_valid, _reason = validate_embedding_row_payload(
-            family=output.analysis_family,
-            row=row,
-            expected_track=expected_track,
-        )
-        if not is_valid:
+        if (
+            row["track_id"] != track_id
+            or str(row["track_uuid"]) != expected[0]
+            or int(row["content_generation"]) != expected[1]
+        ):
             continue
+        if embedding:
+            dim = _optional_int(row["dim"])
+            if (
+                dim is None
+                or dim != expected_dim
+                or row["normalization"] != expected_normalization
+            ):
+                continue
         valid[track_id] = {
             "track_id": row["track_id"],
             "track_uuid": row["track_uuid"],
             "content_generation": row["content_generation"],
             "analyzed_at": row["analyzed_at"],
-            "dim": row["dim"],
-            "normalization": row["normalization"],
         }
+        if embedding:
+            valid[track_id]["dim"] = row["dim"]
+            valid[track_id]["normalization"] = row["normalization"]
     return valid
+
+
+def _current_artifact_row_count(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    output: AnalysisOutput | None,
+    identities: Mapping[int, tuple[str, int]],
+) -> int:
+    if output is None or not identities:
+        return 0
+    try:
+        expected_spec = current_embedding_spec(output.analysis_family)
+    except ValueError:
+        return 0
+    return int(
+        connection.execute(
+            f"""
+            WITH requested AS (
+                SELECT
+                    CAST(json_extract(value, '$[0]') AS INTEGER) AS track_id,
+                    CAST(json_extract(value, '$[1]') AS TEXT) AS track_uuid,
+                    CAST(json_extract(value, '$[2]') AS INTEGER) AS content_generation
+                FROM json_each(?)
+            )
+            SELECT COUNT(*)
+            FROM {table} stored
+            JOIN requested
+              ON requested.track_id = stored.track_id
+             AND requested.track_uuid = stored.track_uuid
+             AND requested.content_generation = stored.content_generation
+            WHERE stored.dim = ?
+              AND stored.normalization = ?
+            """,
+            (
+                _json_identity_rows(identities),
+                expected_spec.dimension,
+                expected_spec.normalization,
+            ),
+        ).fetchone()[0]
+    )
 
 
 def _current_classifier_details(
@@ -835,7 +924,6 @@ def _coverage_and_classifiers(
     for family, output_kind, table in _EMBEDDING_TABLES:
         artifact_rows[(family, output_kind)] = _valid_artifact_rows(
             artifacts_connection,
-            catalog_uuid=context.catalog_uuid,
             table=table,
             output=context.outputs.get((family, output_kind)),
             identities=identities,
@@ -1696,30 +1784,27 @@ class LibraryQueryRepository:
                 """
             ).fetchall()
             identities = _identity_map(rows)
-            sonara = _valid_sonara_core_ids(
+            sonara_count = _current_analysis_row_count(
                 core_connection,
+                table="sonara",
                 output=context.outputs.get(("sonara", "core")),
                 identities=identities,
-                drive_from_requested=False,
             )
-            maest_analysis = _valid_maest_analysis_ids(
+            maest_analysis_count = _current_analysis_row_count(
                 core_connection,
+                table="maest_scores",
                 output=context.outputs.get(("maest", "analysis")),
                 identities=identities,
-                drive_from_requested=False,
             )
             artifact_counts: dict[str, int] = {}
             for family in ("maest", "mert", "muq", "clap"):
-                valid = _valid_artifact_rows(
+                count = _current_artifact_row_count(
                     artifacts_connection,
-                    catalog_uuid=context.catalog_uuid,
                     table=f"{family}_embeddings",
                     output=context.outputs.get((family, "embedding")),
                     identities=identities,
-                    embedding=True,
-                    drive_from_requested=False,
                 )
-                artifact_counts[family] = len(valid)
+                artifact_counts[family] = count
             classifier_rows = _current_classifier_details(
                 core_connection,
                 identities=identities,
@@ -1736,8 +1821,8 @@ class LibraryQueryRepository:
                 classifier_count = len(classifier_rows)
             return LibrarySummary(
                 tracks=len(rows),
-                sonara=len(sonara),
-                maest_analysis=len(maest_analysis),
+                sonara=sonara_count,
+                maest_analysis=maest_analysis_count,
                 maest_embedding=artifact_counts["maest"],
                 mert=artifact_counts["mert"],
                 muq=artifact_counts["muq"],

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -45,9 +46,17 @@ def build_server_command(
     return command
 
 
-def build_frontend_command(*, host: str) -> list[str]:
+def resolve_npm_executable() -> str:
+    npm_name = "npm.cmd" if os.name == "nt" else "npm"
+    executable = shutil.which(npm_name) or shutil.which("npm")
+    if executable is None:
+        raise FileNotFoundError("npm was not found on PATH")
+    return executable
+
+
+def build_frontend_command(*, host: str, npm_executable: str | None = None) -> list[str]:
     script = "dev:lan" if host == "0.0.0.0" else "dev"
-    return ["npm", "run", script]
+    return [npm_executable or resolve_npm_executable(), "run", script]
 
 
 def frontend_directory() -> Path:

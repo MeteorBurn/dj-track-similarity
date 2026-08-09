@@ -258,8 +258,14 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         "--port",
         "8765",
     ]
-    assert module.build_frontend_command(host="127.0.0.1") == ["npm", "run", "dev"]
-    assert module.build_frontend_command(host="0.0.0.0") == ["npm", "run", "dev:lan"]
+    assert module.build_frontend_command(
+        host="127.0.0.1",
+        npm_executable="npm.cmd",
+    ) == ["npm.cmd", "run", "dev"]
+    assert module.build_frontend_command(
+        host="0.0.0.0",
+        npm_executable="npm.cmd",
+    ) == ["npm.cmd", "run", "dev:lan"]
 
     captured_run: dict[str, object] = {}
 

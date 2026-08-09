@@ -19,13 +19,6 @@ from .logging_config import exception_summary, log_failure, log_job_event
 
 LOGGER = logging.getLogger(__name__)
 APPLY_CONFIRMATION = "APPLY DELETE"
-DEFAULT_SOURCES = ("mert", "maest", "muq", "clap")
-DEFAULT_WEIGHTS = {
-    "mert": 0.43,
-    "maest": 0.32,
-    "muq": 0.12,
-    "clap": 0.04,
-}
 
 
 @dataclass(frozen=True)
@@ -46,13 +39,9 @@ class AudioDedupJobStatus:
     job_id: str
     state: str
     root: str
+    sources: list[str]
+    weights: dict[str, float]
     path_contains: list[str] = field(default_factory=list)
-    sources: list[str] = field(
-        default_factory=lambda: list(DEFAULT_SOURCES)
-    )
-    weights: dict[str, float] = field(
-        default_factory=lambda: dict(DEFAULT_WEIGHTS)
-    )
     preset: str = "safe"
     min_score: float | None = None
     min_similarity: float | None = None

@@ -195,13 +195,6 @@ def _read_only_connection(path: Path) -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
-def _pragma_int(connection: sqlite3.Connection, pragma: str) -> int:
-    row = connection.execute(f"PRAGMA {pragma}").fetchone()
-    if row is None:
-        raise BridgeError(f"SQLite did not return PRAGMA {pragma}")
-    return int(row[0])
-
-
 def _require_tables(
     connection: sqlite3.Connection, names: Sequence[str], label: str
 ) -> None:

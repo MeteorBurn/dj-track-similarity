@@ -34,7 +34,7 @@ from .evaluation.weighted_candidates import build_weighted_candidate_pool, limit
 def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
     @app.get("/api/evaluation/summary")
     def evaluation_summary():
-        db = _require_current_evaluation_db(state)
+        db = state.require_db()
         try:
             return {
                 "counts": db.count_evaluation_rows(),
@@ -44,7 +44,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
     @app.post("/api/evaluation/feedback/pair")
     def record_pair_feedback(request: EvaluationPairFeedbackRequest):
-        db = _require_current_evaluation_db(state)
+        db = state.require_db()
         try:
             feedback_ids = db.upsert_track_pair_feedback_for_seeds(
                 request.seed_track_ids,
@@ -71,7 +71,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
     @app.post("/api/evaluation/feedback/transition")
     def record_transition_feedback(request: EvaluationTransitionFeedbackRequest):
-        db = _require_current_evaluation_db(state)
+        db = state.require_db()
         try:
             feedback_id = db.add_transition_feedback(
                 request.outgoing_track_id,
@@ -97,7 +97,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
     @app.post("/api/evaluation/run/source-profile")
     def run_source_profile(request: EvaluationSourceProfileRunRequest):
-        db = _require_current_evaluation_db(state)
+        db = state.require_db()
         try:
             source_profile = build_source_profile(
                 db,
@@ -120,7 +120,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
     @app.post("/api/evaluation/run/apply-score-profile")
     def apply_score_profile(request: EvaluationApplyScoreProfileRequest):
-        db = _require_current_evaluation_db(state)
+        db = state.require_db()
         try:
             score_profile = _score_profile_from_request(request)
             return build_score_profile_application_report(db, score_profile, k_values=request.k, rrf_k=request.rrf_k)
@@ -131,7 +131,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
     @app.post("/api/evaluation/run/weighted-candidates")
     def run_weighted_candidates(request: EvaluationWeightedCandidatesRunRequest):
-        db = _require_current_evaluation_db(state)
+        db = state.require_db()
         try:
             score_profile = _score_profile_from_request(request)
             seed_track_ids = _weighted_candidate_seed_track_ids(
@@ -181,9 +181,9 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
     @app.get("/api/evaluation/reports/latest")
     def latest_evaluation_reports():
-        db = _require_current_evaluation_db(state)
+        db = state.require_db()
         try:
-            calibration_runs = _latest_calibration_runs(db)
+            calibration_runs = db.list_calibration_runs(limit=10)
         except (RuntimeError, sqlite3.OperationalError) as error:
             raise _evaluation_schema_error(error) from error
         if not calibration_runs:
@@ -197,10 +197,6 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
             "summary": "Latest persisted calibration_runs rows from the selected SQLite database.",
             "calibration_runs": calibration_runs,
         }
-
-
-def _require_current_evaluation_db(state: AppDatabaseState) -> LibraryDatabase:
-    return state.require_db()
 
 
 def _score_profile_from_source_profile(source_profile: dict[str, Any], profile_name: str | None, include_profile: bool) -> dict[str, Any] | None:
@@ -272,10 +268,6 @@ def _score_profile_name(value: str | None) -> str:
     if not text:
         raise ValueError("score profile name must not be empty")
     return text
-
-
-def _latest_calibration_runs(db: LibraryDatabase) -> list[dict[str, Any]]:
-    return db.list_calibration_runs(limit=10)
 
 
 def _evaluation_schema_error(error: Exception) -> HTTPException:

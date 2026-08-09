@@ -26,7 +26,6 @@ from dj_track_similarity.classifier_scoring import (
     analyze_classifier,
     load_classifier_requirements,
     promoted_classifiers,
-    save_classifier_score,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_ddl import ClassifierScoreRecord
@@ -577,8 +576,9 @@ def test_classifier_writes_reject_wrong_uuid_and_generation(
         score=replace(base.score, content_generation=1),
     )
 
-    uuid_result = save_classifier_score(db, wrong_uuid)
-    generation_result = save_classifier_score(db, wrong_generation)
+    uuid_result, generation_result = db.save_classifier_scores(
+        (wrong_uuid, wrong_generation)
+    )
 
     assert not uuid_result.ok
     assert "track_uuid mismatch" in str(uuid_result.error)
@@ -627,7 +627,7 @@ def test_classifier_writer_rejects_contradictory_score_math(
         score=replace(base.score, **score_changes),
     )
 
-    result = save_classifier_score(db, contradictory)
+    result = db.save_classifier_scores((contradictory,))[0]
 
     assert not result.ok
     assert expected_error in str(result.error)
@@ -682,7 +682,7 @@ def test_classifier_writer_rejects_numeric_strings_before_persistence(
         score=replace(base.score, **score_changes),
     )
 
-    result = save_classifier_score(db, malformed)
+    result = db.save_classifier_scores((malformed,))[0]
 
     assert not result.ok
     assert expected_error in str(result.error)
@@ -704,7 +704,7 @@ def test_classifier_writer_valid_numbers_round_trip_through_reader(
         score=numeric_score,
     )
 
-    result = save_classifier_score(db, write)
+    result = db.save_classifier_scores((write,))[0]
     detail = db.get_track_detail(
         target.track_id,
         classifier_specifications=(write.specification,),

@@ -8,7 +8,7 @@ content generation and selected path retained as an immutable audit snapshot.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
@@ -240,60 +240,6 @@ def default_rhythm_lab_labels_path() -> Path:
         / "rhythm-lab"
         / "data"
         / DEFAULT_RHYTHM_LAB_LABELS_FILENAME
-    )
-
-
-def build_rhythm_lab_collection_selection(
-    repository: RhythmLabTrackRepository,
-    track_ids: Iterable[int],
-) -> RhythmLabCollectionSelection:
-    """Resolve transient Core ids into one ordered, stable selection.
-
-    Resolution is delegated to the canonical TrackRepository batch method. No
-    Core SQL is issued here, and no missing or changed track is guessed from a
-    saved path.
-    """
-
-    catalog_uuid = _required_text(
-        repository.catalog_uuid,
-        field="repository catalog_uuid",
-    )
-    ordered_ids = _unique_positive_ids(track_ids)
-    states = repository.get_track_file_states_by_ids(
-        ordered_ids,
-        include_missing=False,
-    )
-    states_by_id: dict[int, _TrackFileState] = {}
-    for state in states:
-        track_id = _positive_int(state.track_id, field="track_id")
-        if track_id in states_by_id:
-            raise RuntimeError(
-                "TrackRepository returned a duplicate track identity"
-            )
-        states_by_id[track_id] = state
-    if set(states_by_id) != set(ordered_ids):
-        raise RuntimeError(
-            "TrackRepository did not return exactly the requested current tracks"
-        )
-
-    selected: list[RhythmLabTrackSelection] = []
-    for track_id in ordered_ids:
-        state = states_by_id[track_id]
-        if state.catalog_uuid != catalog_uuid:
-            raise RuntimeError(
-                "TrackRepository returned a track from a different catalog"
-            )
-        selected.append(
-            RhythmLabTrackSelection(
-                catalog_uuid=catalog_uuid,
-                track_uuid=str(state.track_uuid),
-                content_generation=state.content_generation,
-                selected_path=str(state.file_path),
-            )
-        )
-    return RhythmLabCollectionSelection(
-        catalog_uuid=catalog_uuid,
-        tracks=tuple(selected),
     )
 
 
@@ -864,17 +810,6 @@ def _validate_mode(value: str) -> str:
             + ", ".join(sorted(COLLECTION_MODES))
         )
     return clean
-
-
-def _unique_positive_ids(values: Iterable[int]) -> list[int]:
-    result: list[int] = []
-    seen: set[int] = set()
-    for value in values:
-        clean = _positive_int(value, field="track_id")
-        if clean not in seen:
-            seen.add(clean)
-            result.append(clean)
-    return result
 
 
 def _positive_int(value: object, *, field: str) -> int:

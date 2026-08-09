@@ -43,7 +43,6 @@ test("analysis model rows render summary counts near each model", () => {
   assert.match(librarySource, /analysis-model-count/);
   assert.match(librarySource, /analysis-model-description/);
   assert.match(librarySource, /analysisCounts\[model\]/);
-  assert.doesNotMatch(appSource, /trackCountLabel/);
   assert.match(badgeRule, /border-radius:\s*999px/);
   assert.match(badgeRule, /background:/);
   assert.match(badgeRule, /min-height:\s*22px/);

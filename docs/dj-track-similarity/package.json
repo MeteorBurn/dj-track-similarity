@@ -6,8 +6,6 @@
   "scripts": {
     "dev": "vitepress dev . --host 127.0.0.1",
     "vale:sync": "node scripts/run-vale.mjs sync",
-    "vale:report": "node scripts/run-vale.mjs report",
-    "vale:strict": "node scripts/run-vale.mjs strict",
     "lint:style": "node scripts/run-vale.mjs report",
     "lint:style:strict": "node scripts/run-vale.mjs strict",
     "check:locales": "node scripts/check-locales.mjs",
@@ -16,9 +14,7 @@
     "preview": "vitepress preview . --host 127.0.0.1"
   },
   "devDependencies": {
-    "@fontsource-variable/ibm-plex-sans": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@fontsource-variable/space-grotesk": "^5.2.10",
     "vitepress": "^1.6.4"
   }
 }

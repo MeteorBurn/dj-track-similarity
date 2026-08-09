@@ -20,13 +20,6 @@ Search and SET scores are ranking signals. CLAP text scores, MERT seed scores, S
 
 Smart Set Builder always requires SONARA plus every enabled embedding source. The default sources are MERT, MAEST, MuQ, and CLAP. An explicit API source list can omit MuQ or another embedding. A partly analyzed library can browse and search elsewhere, but SET eligible counts will be low for the selected source set.
 
-## SONARA readiness is output-specific
-
-Per-track coverage validates `core`, `timeline`, `embedding`, and `fingerprint` independently against
-the current track identity and payload requirements. A missing output is not ready for that output.
-This project does not currently request SONARA tags or its genre model. See
-[SONARA integration](../reference/sonara-integration.md).
-
 ## Browser preview depends on files still existing
 
 The database stores paths. If files move or disappear, preview fails until you rescan or relocate stored paths.

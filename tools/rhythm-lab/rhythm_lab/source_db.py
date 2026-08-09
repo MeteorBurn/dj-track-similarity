@@ -61,10 +61,6 @@ class SourceDatabaseIntegrityError(SourceDatabaseError):
     """The selected storage set or one of its registered identities is invalid."""
 
 
-class SourceDataNotReadyError(SourceDatabaseError):
-    """A requested current analysis output is unavailable."""
-
-
 class SourceTrackNotCurrentError(SourceDatabaseError):
     """A write target no longer identifies the current track content."""
 

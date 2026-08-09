@@ -1498,13 +1498,6 @@ def _classifier_detail(
     return None
 
 
-def _optional_text(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
 def _optional_finite_float(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None

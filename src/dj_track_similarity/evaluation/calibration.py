@@ -336,22 +336,6 @@ def _matching_label(
     return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
 
 
-def _first_label_for_any_source(
-    seed_track_ids: Sequence[int],
-    candidate_track_id: int,
-    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    seed_id_set = set(seed_track_ids)
-    matches = [
-        label
-        for (seed_track_id, label_candidate_id, _source), label in feedback_map.items()
-        if seed_track_id in seed_id_set and label_candidate_id == candidate_track_id
-    ]
-    if not matches:
-        return None
-    return sorted(matches, key=lambda label: (int(label["seed_track_id"]), str(label["source"])))[0]
-
-
 def _minmax_rank_scores(ranked_candidates: Sequence[Any]) -> dict[int, float]:
     raw_scores = [float(candidate.rank_score) for candidate in ranked_candidates]
     min_score = min(raw_scores)

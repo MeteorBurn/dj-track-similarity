@@ -350,47 +350,6 @@ def _apply_schema(conn: sqlite3.Connection) -> None:
 
 
 @dataclass(frozen=True)
-class TrackRow:
-    """Identity and file-fact row from the ``tracks`` table."""
-
-    track_id: int
-    track_uuid: str
-    file_path: str
-    file_size_bytes: int
-    file_modified_ns: int
-    audio_format: Optional[str]
-    audio_codec: Optional[str]
-    sample_rate_hz: Optional[int]
-    channel_count: Optional[int]
-    bit_rate_bps: Optional[int]
-    audio_duration_seconds: Optional[float]
-    content_generation: int
-    last_scanned_at: str
-    missing_since: Optional[str]
-    created_at: str
-    updated_at: str
-
-
-@dataclass(frozen=True)
-class FileTagsRow:
-    """Mutagen tag row from the ``file_tags`` table."""
-
-    track_id: int
-    title: Optional[str]
-    artist: Optional[str]
-    album: Optional[str]
-    tag_bpm: Optional[float]
-    tag_key: Optional[str]
-    comment: Optional[str]
-    year: Optional[int]
-    label: Optional[str]
-    country: Optional[str]
-    track_number: Optional[str]
-    genres_json: str  # JSON array string, e.g. '["Techno", "House"]'
-    tags_read_at: str
-
-
-@dataclass(frozen=True)
 class SonaraRow:
     """SONARA Core row from the ``sonara`` table.
 

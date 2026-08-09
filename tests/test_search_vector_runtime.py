@@ -29,7 +29,6 @@ from dj_track_similarity.search import (
 )
 from dj_track_similarity.vector_index import (
     ExactVectorSearchBackend,
-    VectorIndexUnavailable,
     create_vector_backend,
 )
 

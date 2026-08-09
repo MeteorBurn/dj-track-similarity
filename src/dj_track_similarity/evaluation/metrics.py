@@ -180,13 +180,6 @@ def recommended_songs_clicks(
     return math.ceil(len(relevances) / clean_batch_size)
 
 
-def pairwise_accuracy(preferred_pairs: Sequence[tuple[int | float, int | float]]) -> float:
-    if not preferred_pairs:
-        return 0.0
-    correct = sum(_pair_credit(preferred_score, other_score) for preferred_score, other_score in preferred_pairs)
-    return correct / len(preferred_pairs)
-
-
 def _top_k(relevances: Sequence[int | float], k: int) -> list[float]:
     clean_k = max(0, int(k))
     if clean_k <= 0:
@@ -293,13 +286,3 @@ def _axis_value(match_character: Mapping[str, object], axis: str) -> float | Non
     if value == EXPLANATION_NEUTRAL_VALUE:
         return None
     return max(0.0, min(1.0, value))
-
-
-def _pair_credit(preferred_score: int | float, other_score: int | float) -> float:
-    preferred = _finite_relevance(preferred_score)
-    other = _finite_relevance(other_score)
-    if preferred > other:
-        return 1.0
-    if preferred == other:
-        return 0.5
-    return 0.0

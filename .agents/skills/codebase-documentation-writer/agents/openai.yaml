@@ -1,6 +1,6 @@
 interface:
   display_name: "Codebase Documentation Writer"
-  short_description: "Write grounded docs, with specific rules for MeteorBurn/dj-track-similarity."
+  short_description: "Route grounded docs work to the current dj-track-similarity sources."
   default_prompt: "Use $codebase-documentation-writer to inspect this repository from scratch and update the appropriate README.md and docs/dj-track-similarity pages with grounded technical and user-facing documentation."
 
 policy:

@@ -364,7 +364,6 @@ test("explicit database refresh adopts its catalog scope and suppresses the dupl
 
 test("analysis and scan controls use the measured machine defaults", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
   const apiSchemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
@@ -372,8 +371,6 @@ test("analysis and scan controls use the measured machine defaults", () => {
   assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(8\)/);
   assert.match(appSource, /analysisInferenceBatchSize,\s*setAnalysisInferenceBatchSize\]\s*=\s*useState\(16\)/);
   assert.match(appSource, /sonaraBatchSize,\s*setSonaraBatchSize\]\s*=\s*useState\(8\)/);
-  assert.match(apiSource, /track_batch_size:\s*payload\.track_batch_size\s*\?\?\s*8/);
-  assert.match(apiSource, /inference_batch_size:\s*payload\.inference_batch_size\s*\?\?\s*16/);
   assert.match(schemaSource, /DEFAULT_ANALYSIS_TRACK_BATCH_SIZE\s*=\s*8/);
   assert.match(schemaSource, /DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE\s*=\s*16/);
   assert.match(schemaSource, /DEFAULT_SONARA_BATCH_SIZE\s*=\s*8/);
@@ -567,7 +564,6 @@ test("topbar keeps only rhythm lab launch control", () => {
 
   assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*stop-active-stage-button/);
   assert.doesNotMatch(actionsBlock, /rhythm-lab-stop-button/);
-  assert.doesNotMatch(appSource, /api\.stopRhythmLab\(\)/);
   assert.doesNotMatch(appSource, /handleStopRhythmLab/);
 });
 

@@ -119,23 +119,6 @@ def confidence_aware_target_score(
     )
 
 
-def tempo_filter_compatible(
-    candidate: TempoEvidence, reference: TempoEvidence, tolerance_bpm: float
-) -> bool:
-    if candidate.bpm is None or reference.bpm is None:
-        return False
-    distance = min(
-        best_tempo_distance(candidate_bpm, reference_bpm)
-        for candidate_bpm in candidate.alternatives or (candidate.bpm,)
-        for reference_bpm in reference.alternatives or (reference.bpm,)
-    )
-    if distance <= max(0.0, float(tolerance_bpm)):
-        return True
-    # A hard BPM filter must not reject ambient/rubato material on an explicitly unreliable
-    # estimate. Candidate/tag alternatives were already checked above.
-    return tempo_pair_reliability(candidate, reference) < LOW_BPM_CONFIDENCE
-
-
 def tempo_pair_reliability(candidate: TempoEvidence, reference: TempoEvidence) -> float:
     return math.sqrt(_clamp01(candidate.reliability) * _clamp01(reference.reliability))
 

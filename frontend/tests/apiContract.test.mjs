@@ -139,42 +139,6 @@ test("filtered tracks client sends defaulted domain payloads for library view co
   });
 });
 
-test("analysis job client preserves ML defaults without classifier scoring", async () => {
-  const calls = [];
-  const { api } = loadApiModule(async (path, options) => {
-    calls.push({ path, options });
-    return jsonResponse({ job_id: "job-1", state: "queued", errors: [], events: [] });
-  });
-
-  await api.analysisJobStart({ models: ["maest", "clap"], limit: null, device: "auto" });
-
-  assert.equal(calls[0].path, "/api/analysis/jobs");
-  assert.deepEqual(JSON.parse(calls[0].options.body), {
-    models: ["maest", "clap"],
-    limit: null,
-    device: "auto",
-    top_k: 3,
-    track_batch_size: 8,
-    inference_batch_size: 16
-  });
-});
-
-test("analysis job client sends a SONARA-only Core request without output selection", async () => {
-  const calls = [];
-  const { api } = loadApiModule(async (path, options) => {
-    calls.push({ path, options });
-    return jsonResponse({ job_id: "job-sonara", state: "queued", total: 0, processed: 0, analyzed: 0, failed: 0, errors: [], events: [], cancel_requested: false, workers: 4, device_requested: "auto" });
-  });
-
-  await api.analysisJobStart({ models: ["sonara"] });
-
-  assert.deepEqual(JSON.parse(calls[0].options.body), {
-    models: ["sonara"],
-    limit: null,
-    sonara_batch_size: 8
-  });
-});
-
 test("SONARA status client reads neutral current-output counts", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {

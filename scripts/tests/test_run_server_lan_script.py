@@ -210,12 +210,12 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
     ) == [
         "dj-sim",
         "serve",
+        "--db",
+        explicit_path,
         "--host",
         "0.0.0.0",
         "--port",
         "8765",
-        "--db",
-        explicit_path,
     ]
     assert module.build_server_command(
         (),
@@ -231,6 +231,23 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         "8765",
         "--db",
         r"C:\db\volumes.sqlite",
+    ]
+    assert module.build_server_command(
+        ("local", "--host", "0.0.0.0", "--port", "9999"),
+        host="127.0.0.1",
+        port="8765",
+        database_path=None,
+    ) == [
+        "dj-sim",
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "9999",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
     ]
 
     captured_run: dict[str, object] = {}
@@ -254,26 +271,13 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         "command": [
             "dj-sim",
             "serve",
+            "--db",
+            explicit_path,
             "--host",
             "0.0.0.0",
             "--port",
             "8765",
-            "--db",
-            explicit_path,
         ],
         "check": False,
         "shell": False,
     }
-
-
-def test_lan_server_script_was_removed_to_keep_one_main_entrypoint() -> None:
-    root = Path(__file__).resolve().parents[2]
-
-    assert not (root / "run_server_lan.cmd").exists()
-    assert not (root / "scripts" / "run_server_lan.cmd").exists()
-
-
-def test_scripts_server_script_was_removed_to_keep_one_main_entrypoint() -> None:
-    root = Path(__file__).resolve().parents[2]
-
-    assert not (root / "scripts" / "run_server.cmd").exists()

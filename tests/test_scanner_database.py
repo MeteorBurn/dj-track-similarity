@@ -10,7 +10,6 @@ from dj_track_similarity.analysis_model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import canonical_file_path
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
 
 

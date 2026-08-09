@@ -11,17 +11,9 @@ import type {
   DatabaseClearResult,
   DatabaseSelection,
   EmbeddingSearchPayload,
-  EvaluationApplyScoreProfilePayload,
-  EvaluationLatestReports,
   EvaluationPairFeedbackPayload,
   EvaluationPairFeedbackResult,
-  EvaluationSourceProfilePayload,
-  EvaluationSourceProfileResult,
   EvaluationSummary,
-  EvaluationTransitionFeedbackPayload,
-  EvaluationTransitionFeedbackResult,
-  EvaluationWeightedCandidatesPayload,
-  EvaluationWeightedCandidatesResult,
   GenreTagJobStatus,
   HybridSearchPayload,
   HybridSearchResponse,
@@ -33,8 +25,6 @@ import type {
   ReferenceCompareVerdictResult,
   RhythmLabCollectionSaveResult,
   RhythmLabLaunchResult,
-  RhythmLabStopResult,
-  RhythmLabStatus,
   ScanStats,
   SearchResult,
   ServerShutdownResult,
@@ -66,16 +56,6 @@ type FilteredTracksPayload = {
   preset?: string;
   liked?: boolean;
   classifierMinScores?: Record<string, number>;
-};
-
-type AnalysisJobStartPayload = {
-  models?: AnalysisModel[];
-  limit?: number | null;
-  device?: "auto" | "cpu" | "cuda";
-  top_k?: number;
-  track_batch_size?: number;
-  inference_batch_size?: number;
-  sonara_batch_size?: number;
 };
 
 type SonaraSearchPayload = {
@@ -143,11 +123,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 const databaseApi = {
   currentDatabase: () => request<DatabaseSelection>("/api/database/current"),
-  switchDatabase: (path: string) =>
-    request<DatabaseSelection>("/api/database/switch", {
-      method: "POST",
-      body: JSON.stringify({ path })
-    }),
   chooseDatabase: () =>
     request<DatabaseSelection>("/api/database/dialog", {
       method: "POST",
@@ -232,12 +207,6 @@ const shellApi = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  rhythmLabStatus: () => request<RhythmLabStatus>("/api/rhythm-lab/status"),
-  stopRhythmLab: () =>
-    request<RhythmLabStopResult>("/api/rhythm-lab/stop", {
-      method: "POST",
-      body: JSON.stringify({})
-    }),
   shutdownServer: () =>
     request<ServerShutdownResult>("/api/server/shutdown", {
       method: "POST",
@@ -280,27 +249,6 @@ const analysisApi = {
       method: "POST",
       body: JSON.stringify({ analysis_family: analysisFamily })
     }),
-  analysisJobStart: (payload: AnalysisJobStartPayload = {}) => {
-    const sonaraOnly = payload.models?.length === 1 && payload.models[0] === "sonara";
-    const body = sonaraOnly
-      ? {
-          models: payload.models,
-          limit: payload.limit ?? null,
-          sonara_batch_size: payload.sonara_batch_size ?? 8
-        }
-      : {
-          models: payload.models,
-          limit: payload.limit ?? null,
-          device: payload.device ?? "auto",
-          top_k: payload.top_k ?? 3,
-          track_batch_size: payload.track_batch_size ?? 8,
-          inference_batch_size: payload.inference_batch_size ?? 16
-        };
-    return request<AnalysisJobStatus>("/api/analysis/jobs", {
-      method: "POST",
-      body: JSON.stringify(body)
-    });
-  },
   analysisJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analysis/jobs/${jobId}`),
   latestAnalysisJob: () => request<AnalysisJobStatus | null>("/api/analysis/jobs/latest"),
   cancelAnalysisJob: (jobId: string) =>
@@ -312,11 +260,6 @@ const analysisApi = {
     request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze`, {
       method: "POST",
       body: JSON.stringify({ limit: limit || null })
-    }),
-  analyzeClassifiers: (classifierKeys: string[] = [], limit?: number) =>
-    request<AnalysisJobStatus>("/api/classifiers/analyze", {
-      method: "POST",
-      body: JSON.stringify({ classifier_keys: classifierKeys, limit: limit || null })
     }),
   aggregateClassifierJob: (jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/analyze/jobs/${jobId}`),
   latestAggregateClassifierJob: () => request<AnalysisJobStatus | null>("/api/classifiers/analyze/jobs/latest"),
@@ -399,28 +342,7 @@ const evaluationApi = {
     request<EvaluationPairFeedbackResult>("/api/evaluation/feedback/pair", {
       method: "POST",
       body: JSON.stringify(payload)
-    }),
-  evaluationTransitionFeedback: (payload: EvaluationTransitionFeedbackPayload) =>
-    request<EvaluationTransitionFeedbackResult>("/api/evaluation/feedback/transition", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
-  evaluationSourceProfile: (payload: EvaluationSourceProfilePayload = {}) =>
-    request<EvaluationSourceProfileResult>("/api/evaluation/run/source-profile", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
-  evaluationApplyScoreProfile: (payload: EvaluationApplyScoreProfilePayload) =>
-    request<Record<string, unknown>>("/api/evaluation/run/apply-score-profile", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
-  evaluationWeightedCandidates: (payload: EvaluationWeightedCandidatesPayload) =>
-    request<EvaluationWeightedCandidatesResult>("/api/evaluation/run/weighted-candidates", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
-  evaluationLatestReports: () => request<EvaluationLatestReports>("/api/evaluation/reports/latest")
+    })
 };
 
 const playlistApi = {

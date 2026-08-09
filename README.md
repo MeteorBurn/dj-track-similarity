@@ -317,9 +317,9 @@ There is also an interactive Windows launcher:
 run_server.cmd
 ```
 
-It first shows `C:\db\volumes.sqlite` as the database path. Press Enter to accept that path or type a
-replacement. The next prompt selects local or LAN mode. The launcher passes the confirmed database
-path to `dj-sim serve` only after both prompts are complete.
+It first suggests `database\volumes.sqlite` under the repository root. Press Enter to accept that
+path or type a replacement. The next prompt selects local or LAN mode. The launcher passes the
+confirmed database path to `dj-sim serve` only after both prompts are complete.
 
 For non-interactive use, specify the mode and database explicitly:
 

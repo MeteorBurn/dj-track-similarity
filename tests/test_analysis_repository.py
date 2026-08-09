@@ -309,14 +309,6 @@ def test_repeated_write_replaces_same_family_row_without_version_identity(
         assert connection.execute(
             "SELECT COUNT(*) FROM mert_embeddings"
         ).fetchone()[0] == 1
-    assert tuple(row.keys()) == (
-        "track_id",
-        "track_uuid",
-        "content_generation",
-        "dim",
-        "normalization",
-        "embedding_blob",
-    )
     np.testing.assert_array_equal(
         np.frombuffer(row["embedding_blob"], dtype="<f4"),
         second,

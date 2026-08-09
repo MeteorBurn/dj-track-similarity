@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
 
@@ -12,44 +11,8 @@ from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabCollectionSelection,
     RhythmLabCollections,
     RhythmLabTrackSelection,
-    build_rhythm_lab_collection_selection,
     default_rhythm_lab_labels_path,
 )
-
-
-@dataclass(frozen=True)
-class _FakeTrackState:
-    catalog_uuid: str
-    track_id: int
-    track_uuid: str
-    file_path: str
-    content_generation: int
-
-
-class _FakeTrackRepository:
-    def __init__(
-        self,
-        *,
-        catalog_uuid: str,
-        states: tuple[_FakeTrackState, ...],
-    ) -> None:
-        self.catalog_uuid = catalog_uuid
-        self.states = states
-        self.calls: list[tuple[tuple[int, ...], bool]] = []
-
-    def get_track_file_states_by_ids(
-        self,
-        track_ids: list[int],
-        *,
-        include_missing: bool = False,
-    ) -> tuple[_FakeTrackState, ...]:
-        self.calls.append((tuple(track_ids), include_missing))
-        requested = set(track_ids)
-        return tuple(
-            state
-            for state in reversed(self.states)
-            if state.track_id in requested
-        )
 
 
 def _selection(
@@ -241,67 +204,6 @@ def test_collection_repository_rejects_wal_visible_legacy_identity_before_ddl(
         assert tables == {"sentinel", "classifier_labels"}
     finally:
         reader.close()
-
-
-def test_collection_selection_uses_repository_identity_and_request_order() -> None:
-    repository = _FakeTrackRepository(
-        catalog_uuid="catalog-a",
-        states=(
-            _FakeTrackState(
-                catalog_uuid="catalog-a",
-                track_id=7,
-                track_uuid="uuid-seven",
-                file_path="C:/Music/Seven.wav",
-                content_generation=4,
-            ),
-            _FakeTrackState(
-                catalog_uuid="catalog-a",
-                track_id=2,
-                track_uuid="uuid-two",
-                file_path="C:/Music/Two.wav",
-                content_generation=9,
-            ),
-        ),
-    )
-
-    selection = build_rhythm_lab_collection_selection(
-        repository,
-        [7, 2, 7],
-    )
-
-    assert repository.calls == [((7, 2), False)]
-    assert selection.catalog_uuid == "catalog-a"
-    assert [
-        (
-            track.track_uuid,
-            track.content_generation,
-            track.selected_path,
-        )
-        for track in selection.tracks
-    ] == [
-        ("uuid-seven", 4, "C:/Music/Seven.wav"),
-        ("uuid-two", 9, "C:/Music/Two.wav"),
-    ]
-
-
-def test_collection_selection_rejects_invalid_or_cross_catalog_rows() -> None:
-    repository = _FakeTrackRepository(
-        catalog_uuid="catalog-a",
-        states=(
-            _FakeTrackState(
-                catalog_uuid="catalog-b",
-                track_id=1,
-                track_uuid="uuid-one",
-                file_path="C:/Music/One.wav",
-                content_generation=1,
-            ),
-        ),
-    )
-
-    with pytest.raises(ValueError, match="positive integer"):
-        build_rhythm_lab_collection_selection(repository, [True])
-    with pytest.raises(RuntimeError, match="different catalog"):
-        build_rhythm_lab_collection_selection(repository, [1])
 
 
 def test_collection_append_never_rebinds_and_replace_is_explicit(

@@ -14,7 +14,6 @@ import numpy as np
 
 from .analysis_models import (
     AnalysisOutput,
-    AnalysisWriteResult,
     ClassifierFeatureRow,
     ClassifierScoreWrite,
     ClassifierSpecification,
@@ -412,18 +411,6 @@ class ClassifierScorer:
         rows: Iterable[ClassifierFeatureRow],
     ) -> tuple[ClassifierScoreWrite, ...]:
         return tuple(self.score_row(row) for row in rows)
-
-
-def save_classifier_score(
-    repository: LibraryDatabase,
-    write: ClassifierScoreWrite,
-) -> AnalysisWriteResult:
-    """Persist one already-derived score through the repository only."""
-
-    results = repository.save_classifier_scores((write,))
-    if len(results) != 1:
-        raise RuntimeError("classifier repository returned an invalid result count")
-    return results[0]
 
 
 def classifier_specification_from_manifest(

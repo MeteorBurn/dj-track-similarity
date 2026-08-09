@@ -302,13 +302,7 @@ class ClassifierJobManager:
             threading.Thread(target=self.run_job, args=(job_id,), daemon=True).start()
         return self.get(job_id)
 
-    def run_job(
-        self,
-        job_id: str,
-        classifier: str | None = None,
-        model_path: str | Path | None = None,
-    ) -> ClassifierJobStatus:
-        del classifier, model_path
+    def run_job(self, job_id: str) -> ClassifierJobStatus:
         status = self.get(job_id)
         payload = cast(_ClassifierPayload, self._store.payload(job_id))
         if status.cancel_requested:

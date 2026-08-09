@@ -15,7 +15,6 @@ from dj_track_similarity.tempo_resolution import (
     confidence_aware_target_score,
     confidence_aware_tempo_score,
     resolve_tempo_evidence,
-    tempo_filter_compatible,
     tempo_pair_reliability,
 )
 from dj_track_similarity.track_models import TrackIdentity
@@ -104,15 +103,6 @@ def test_low_confidence_uses_tag_confirmed_by_sonara_candidate() -> None:
     assert evidence.source == "tag_confirmed_by_sonara_candidate"
     assert evidence.alternatives == (126.0, 190.0, 95.0)
     assert evidence.reliability == pytest.approx(0.3)
-
-
-def test_low_confidence_mismatch_does_not_become_a_hard_filter_rejection() -> None:
-    candidate = _evidence(90.0, 0.2)
-    reference = _evidence(128.0, 0.9)
-    high_confidence_candidate = _evidence(90.0, 0.9)
-
-    assert tempo_filter_compatible(candidate, reference, 4.0) is True
-    assert tempo_filter_compatible(high_confidence_candidate, reference, 4.0) is False
 
 
 def test_quarter_or_quadruple_tempo_is_not_treated_as_half_double_match() -> None:

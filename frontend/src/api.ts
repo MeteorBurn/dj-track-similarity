@@ -687,20 +687,6 @@ export type RhythmLabLaunchResult = {
   source: RhythmLabSourceBinding | null;
 };
 
-export type RhythmLabStatus = {
-  url: string;
-  running: boolean;
-  managed: boolean;
-  source: RhythmLabSourceBinding | null;
-};
-
-export type RhythmLabStopResult = {
-  url: string;
-  running: boolean;
-  managed: boolean;
-  stopped: boolean;
-};
-
 export type ServerShutdownResult = {
   status: "shutdown_requested";
 };
@@ -745,8 +731,9 @@ export type SetBuilderGenerateResult = {
 export type EvaluationSummary = {
   counts: {
     search_sessions: number;
+    search_session_seeds: number;
     search_result_events: number;
-    track_pair_feedback: number;
+    pair_feedback: number;
     transition_feedback: number;
     calibration_runs: number;
   };
@@ -758,15 +745,6 @@ export type EvaluationPairFeedbackPayload = {
   candidate_track_id: number;
   rating: 0 | 1 | 2 | 3;
   reason_tags?: EvaluationPairReasonTag[];
-  notes?: string | null;
-  source?: string;
-};
-
-export type EvaluationTransitionFeedbackPayload = {
-  outgoing_track_id: number;
-  incoming_track_id: number;
-  rating: 0 | 1 | 2 | 3;
-  risk_tags?: string[];
   notes?: string | null;
   source?: string;
 };
@@ -783,92 +761,6 @@ export type EvaluationScoreProfile = {
   version: number;
 };
 
-export type EvaluationSourceProfilePayload = {
-  seed_track_ids?: number[] | null;
-  sample_count?: number;
-  sources?: EvaluationSource[];
-  per_source?: number;
-  top_k?: number[];
-  random_seed?: number;
-  profile_name?: string | null;
-  include_profile?: boolean;
-};
-
-export type EvaluationSourceProfileResult = {
-  source_profile: Record<string, unknown>;
-  score_profile?: EvaluationScoreProfile | null;
-};
-
-export type EvaluationApplyScoreProfilePayload = {
-  profile?: EvaluationScoreProfile | Record<string, unknown> | null;
-  weights?: Record<string, number> | null;
-  name?: string | null;
-  k?: number[];
-  rrf_k?: number;
-};
-
-export type EvaluationWeightedCandidatesPayload = {
-  profile?: EvaluationScoreProfile | Record<string, unknown> | null;
-  weights?: Record<string, number> | null;
-  name?: string | null;
-  seed_track_ids?: number[] | null;
-  sample_count?: number;
-  sources?: EvaluationSource[] | null;
-  per_source?: number;
-  random_seed?: number;
-  rrf_k?: number;
-  transition_risk_weight?: number;
-  record_session?: boolean;
-  limit_per_seed?: number;
-};
-
-export type EvaluationWeightedCandidateRow = {
-  seed_track_id: number;
-  candidate_track_id: number;
-  profile_rank: number;
-  profile_score: number;
-  adjusted_score: number;
-  raw_rrf_score: number;
-  transition_risk: number | null;
-  transition_risk_penalty: number;
-  transition_risk_weight: number;
-  rating: "";
-  reason_tags: "";
-  notes: "";
-  source: string;
-  seed_artist: string;
-  seed_title: string;
-  candidate_artist: string;
-  candidate_title: string;
-  candidate_album: string;
-  candidate_bpm: string;
-  candidate_musical_key: string;
-  candidate_energy: string;
-  source_count: number;
-  sources_json: string;
-  sources: Record<string, { rank: number; score: number }>;
-  score_profile_name: string;
-  score_profile_weights_json: string;
-  score_profile_weights: Record<string, number>;
-};
-
-export type EvaluationWeightedCandidatesResult = {
-  score_profile: EvaluationScoreProfile;
-  seed_track_ids: number[];
-  sources: EvaluationSource[];
-  per_source: number;
-  random_seed: number;
-  rrf_k: number;
-  transition_risk_weight: number;
-  limit_per_seed: number;
-  rows_total: number;
-  rows_returned: number;
-  rows: EvaluationWeightedCandidateRow[];
-  warnings: string[];
-  session_ids: number[];
-  record_session: boolean;
-};
-
 export type EvaluationPairFeedbackResult = Record<string, unknown> & {
   ids: number[];
   seed_track_ids: number[];
@@ -878,21 +770,6 @@ export type EvaluationPairFeedbackResult = Record<string, unknown> & {
   notes?: string | null;
   source: string;
   session_id?: number | null;
-};
-
-export type EvaluationTransitionFeedbackResult = Record<string, unknown> & { id: number; rating: number; source: string };
-
-export type EvaluationLatestReports = {
-  status: "ok" | "no_persisted_reports";
-  summary: string;
-  calibration_runs: Array<{
-    id: number;
-    profile_name: string;
-    search_mode: string;
-    config: Record<string, unknown>;
-    metrics: Record<string, unknown>;
-    created_at: string;
-  }>;
 };
 
 export type RhythmLabCollectionSaveResult = {

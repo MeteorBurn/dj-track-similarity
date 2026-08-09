@@ -13,10 +13,7 @@ from mutagen.id3 import TALB, TBPM, TCON, TIT2, TKEY, TPE1
 from mutagen.wave import WAVE
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import (
-    canonical_file_path,
-    ordinal_path_key,
-)
+from dj_track_similarity.db_tracks import ordinal_path_key
 from dj_track_similarity.scan_jobs import ScanJobManager
 from dj_track_similarity.scanner import scan_library
 

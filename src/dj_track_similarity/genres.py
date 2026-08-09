@@ -191,9 +191,6 @@ class MaestGenreAdapter:
     def embedding_for_path(self, path: str | Path) -> np.ndarray | None:
         return self._embeddings_by_path.get(str(path))
 
-    def _prepare_audio(self, path: str | Path):
-        return self._prepare_audio_windows(path)[0]
-
     def _prepare_audio_windows(self, path: str | Path):
         return self._prepare_audio_windows_with_timing(path)[0]
 

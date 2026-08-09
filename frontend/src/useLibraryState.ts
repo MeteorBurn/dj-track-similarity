@@ -313,22 +313,16 @@ export function useLibraryState({
   }
 
   return {
-    tracks,
-    setTracks,
     libraryTotal,
-    setLibraryTotal,
     libraryOffset,
-    setLibraryOffset,
     libraryLoading,
     libraryError,
     librarySummary,
-    setLibrarySummary,
     query: queryState,
     setQuery,
     searchMode: searchModeState,
     setSearchMode,
     libraryPreset,
-    setLibraryPreset,
     librarySortDirection,
     likedOnly,
     classifierMinScores: classifierMinScoresState,

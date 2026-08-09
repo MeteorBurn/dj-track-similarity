@@ -73,7 +73,7 @@ def register_analysis_routes(
         except RuntimeError as error:
             raise HTTPException(
                 status_code=409,
-                detail=_analysis_conflict_detail(error),
+                detail=str(error),
             ) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -176,7 +176,7 @@ def register_analysis_routes(
         except RuntimeError as error:
             raise HTTPException(
                 status_code=409,
-                detail=_analysis_conflict_detail(error),
+                detail=str(error),
             ) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -349,11 +349,6 @@ def _outputs_for_family(
         AnalysisOutput(analysis_family, output_kind)
         for output_kind in output_kinds
     )
-
-
-def _analysis_conflict_detail(error: Exception) -> str:
-    detail = str(error)
-    return detail
 
 
 def _require_known_classifier(

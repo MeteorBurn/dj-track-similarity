@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -715,16 +714,6 @@ def _text(value: object) -> str | None:
         return None
     text = value.strip()
     return text or None
-
-
-def _json_array(value: object) -> list[object]:
-    if not isinstance(value, str):
-        return []
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
-        return []
-    return parsed if isinstance(parsed, list) else []
 
 
 def _best_relative_tempo_delta(

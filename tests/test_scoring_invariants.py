@@ -26,7 +26,6 @@ from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
 from dj_track_similarity.tempo_resolution import (
     confidence_aware_tempo_score,
     resolve_tempo_evidence_from_values,
-    tempo_filter_compatible,
 )
 from dj_track_similarity.track_models import TrackIdentity
 
@@ -117,7 +116,7 @@ def _score_set_layers(
 def test_set_fixed_weights_and_exact_synthetic_aggregate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert set_builder.DEFAULT_MODEL_WEIGHTS == {
+    assert set_builder.DEFAULT_SET_MODEL_WEIGHTS == {
         "mert": 0.30,
         "maest": 0.18,
         "muq": 0.15,
@@ -565,7 +564,6 @@ def test_current_null_bpm_confidence_is_neutral_and_does_not_promote_tag_bpm() -
     assert candidate.source == "sonara_low_confidence"
     assert candidate.reliability == 0.0
     assert confidence_aware_tempo_score(candidate, reference) == pytest.approx(0.5)
-    assert tempo_filter_compatible(candidate, reference, tolerance_bpm=1.0)
 
 
 def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(

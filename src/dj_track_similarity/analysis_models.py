@@ -366,10 +366,6 @@ class StaleAnalysisTargetError(RuntimeError):
     """Raised when a write target no longer names the current track content."""
 
 
-class InactiveAnalysisOutputError(RuntimeError):
-    """Raised when a stale job tries to use a superseded analysis output."""
-
-
 def _required_text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
@@ -401,13 +397,6 @@ def _positive_number(value: object, field_name: str) -> float:
     return number
 
 
-def _non_negative_number(value: object, field_name: str) -> float:
-    number = _finite_number(value, field_name)
-    if number < 0:
-        raise ValueError(f"{field_name} must be non-negative")
-    return number
-
-
 def _merge_parameters(
     reserved: Mapping[str, object],
     extras: Mapping[str, object] | None,
@@ -433,23 +422,6 @@ def _with_ml_runtime_identity(
     if family == "mert":
         defaults["remote_code_revision"] = model_version
     return {**defaults, **parameters}
-
-
-def _parameter_positive_int(
-    parameters: Mapping[str, object],
-    key: str,
-) -> int:
-    return _positive_int(parameters.get(key), f"analysis.parameters.{key}")
-
-
-def _parameter_positive_number(
-    parameters: Mapping[str, object],
-    key: str,
-) -> float:
-    return _positive_number(
-        parameters.get(key),
-        f"analysis.parameters.{key}",
-    )
 
 
 def _validate_window_ratios(value: object, field_name: str) -> tuple[float, ...]:
@@ -479,26 +451,6 @@ def _validate_positive_int_sequence(
     if not values:
         raise ValueError(f"{field_name} must not be empty")
     return values
-
-
-def _json_copy(
-    value: object, *, expected: Literal["object", "array"], field_name: str
-) -> object:
-    try:
-        encoded = json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-        decoded = json.loads(encoded)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be finite JSON") from error
-    expected_type = dict if expected == "object" else list
-    if not isinstance(decoded, expected_type):
-        raise ValueError(f"{field_name} must be a JSON {expected}")
-    return decoded
 
 
 def _readonly_float32_vector(

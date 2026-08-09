@@ -12,7 +12,6 @@ from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabCollections,
-    build_rhythm_lab_collection_selection,
     default_rhythm_lab_labels_path,
 )
 from dj_track_similarity.rhythm_lab_launcher import RhythmLabSourceBinding
@@ -119,10 +118,6 @@ def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeyp
     assert response.json()["name"] == "Main UI set"
     assert response.json()["track_count"] == 2
     stored = RhythmLabCollections(labels_path).collection_by_name("Main UI set")
-    expected = build_rhythm_lab_collection_selection(
-        db,
-        [first.track_id, second.track_id],
-    )
     assert stored is not None
     assert stored.catalog_uuid == db.catalog_uuid
     assert [track.track_uuid for track in stored.tracks] == [
@@ -131,7 +126,8 @@ def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeyp
     ]
     assert [track.content_generation for track in stored.tracks] == [1, 1]
     assert [track.selected_path for track in stored.tracks] == [
-        track.selected_path for track in expected.tracks
+        (tmp_path / "first.wav").as_posix(),
+        (tmp_path / "second.wav").as_posix(),
     ]
 
 

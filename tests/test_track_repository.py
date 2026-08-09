@@ -13,7 +13,6 @@ from dj_track_similarity.db_search_fts import (
     fts_match_query,
     rebuild_track_search_fts,
 )
-from dj_track_similarity.db_tracks import canonical_file_path
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 

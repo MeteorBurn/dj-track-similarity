@@ -170,7 +170,7 @@ def _validate_staged_classifier(
 
     model_path = staging_dir / "model.joblib"
     try:
-        manifest = require_scoring_compatible_manifest(
+        require_scoring_compatible_manifest(
             model_path,
             expected_classifier_key=expected_classifier_key,
         )

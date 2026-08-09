@@ -674,13 +674,6 @@ def state_report_action(status: str) -> str:
     return "REVIEW MANUALLY"
 
 
-def summarize_status_counts(results: list[FileRepairResult]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for result in results:
-        counts[result.status] = counts.get(result.status, 0) + 1
-    return {key: counts[key] for key in sorted(counts)}
-
-
 def summarize_report_status_counts(results: list[dict[str, object]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for result in results:
@@ -688,16 +681,6 @@ def summarize_report_status_counts(results: list[dict[str, object]]) -> dict[str
         if not isinstance(status, str) or not status:
             continue
         counts[status] = counts.get(status, 0) + 1
-    return {key: counts[key] for key in sorted(counts)}
-
-
-def summarize_reason_counts(results: list[FileRepairResult]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for result in results:
-        reason = result_reason(result)
-        if reason is None:
-            continue
-        counts[reason] = counts.get(reason, 0) + 1
     return {key: counts[key] for key in sorted(counts)}
 
 
@@ -1292,16 +1275,6 @@ def collect_db_paths(dbs: list[Path], *, db_roots: list[Path], file_root: Path |
     return paths, missing
 
 
-def paths_from_db(db_path: Path, *, db_roots: list[Path], file_root: Path | None) -> list[Path]:
-    """Return supported track paths through the canonical repository."""
-
-    return paths_from_track_records(
-        _track_path_records_from_db(db_path),
-        db_roots=db_roots,
-        file_root=file_root,
-    )
-
-
 def collect_repository_paths(
     track_paths: Iterable[TrackPathRecord],
     *,
@@ -1414,14 +1387,6 @@ def source_state_label(sources: list[str]) -> str:
         return safe_filename_part(f"{source_type}-{name}")
     digest = hashlib.sha1(source_signature(sources).encode("utf-8", errors="replace")).hexdigest()[:8]
     return f"multiple_{digest}"
-
-
-def folder_signature(folders: list[Path]) -> str:
-    return source_signature(state_sources(folders, []))
-
-
-def folder_state_label(folders: list[Path]) -> str:
-    return source_state_label(state_sources(folders, []))
 
 
 def safe_filename_part(value: str) -> str:

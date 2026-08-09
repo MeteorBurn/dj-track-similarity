@@ -142,12 +142,8 @@ def create_app(
     package_path = Path(__file__).resolve()
     register_docs_routes(app, package_path)
 
-    static_candidates = [
-        package_path.parents[2] / "frontend" / "dist",
-        package_path.parent.parent / "frontend" / "dist",
-    ]
-    static_dir = next((candidate for candidate in static_candidates if candidate.exists()), None)
-    if static_dir is not None:
+    static_dir = package_path.parents[2] / "frontend" / "dist"
+    if static_dir.exists():
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
     return app

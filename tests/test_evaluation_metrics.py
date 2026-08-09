@@ -14,7 +14,6 @@ from dj_track_similarity.evaluation.metrics import (
     mean_average_precision,
     mean_reciprocal_rank,
     ndcg_at_k,
-    pairwise_accuracy,
     precision_at_k,
     r_precision,
     rating_rate_at_k,
@@ -49,11 +48,10 @@ def test_list_metrics_on_toy_sessions() -> None:
     assert hit_rate_at_k(relevance_lists, 2) == pytest.approx(1 / 3)
 
 
-def test_recommended_songs_clicks_and_pairwise_accuracy() -> None:
+def test_recommended_songs_clicks() -> None:
     assert recommended_songs_clicks([0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2]) == 1
     assert recommended_songs_clicks([0] * 25) == 3
     assert recommended_songs_clicks([]) == 0
-    assert pairwise_accuracy([(0.9, 0.1), (0.2, 0.2), (0.1, 0.4)]) == pytest.approx(0.5)
 
 
 def test_empty_inputs_return_zero() -> None:
@@ -71,7 +69,6 @@ def test_empty_inputs_return_zero() -> None:
     assert maybe_rate_at_k([], 5) == 0.0
     assert reject_rate_at_k([], 5) == 0.0
     assert r_precision([], total_relevant=0) == 0.0
-    assert pairwise_accuracy([]) == 0.0
 
 
 def test_explanation_tag_agreement_is_not_available_until_explanations_exist() -> None:

@@ -21,7 +21,6 @@ from dj_track_similarity.library_models import TrackSummary
 from dj_track_similarity.reference_compare import (
     ReferenceCompareQuery,
     build_reference_compare,
-    record_reference_compare_verdict,
 )
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -202,31 +201,3 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     assert groups["sonara"].available
     assert groups["sonara"].results[0].target == sonara_top
     assert not database.evaluation_path.exists()
-
-
-def test_reference_compare_verdict_uses_current_current_tracks(
-    tmp_path: Path,
-) -> None:
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    seed = _insert_track(database, tmp_path, "seed")
-    candidate = _insert_track(database, tmp_path, "candidate")
-
-    verdict = record_reference_compare_verdict(
-        database,
-        seed_track_id=seed.track_id,
-        candidate_track_id=candidate.track_id,
-        model="muq",
-        verdict="palette",
-        notes="same pressure and texture",
-    )
-    assert verdict.source == "reference_compare:muq"
-    assert verdict.rating == 2
-    feedback = database.get_pair_feedback_map()[
-        (
-            seed.track_id,
-            candidate.track_id,
-            "reference_compare:muq",
-        )
-    ]
-    assert feedback["reason_tags"] == ["palette"]
-    assert feedback["notes"] == "same pressure and texture"

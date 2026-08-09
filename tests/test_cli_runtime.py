@@ -49,8 +49,6 @@ def test_root_help_exposes_current_commands() -> None:
         "migrate-database",
     ):
         assert command in result.output
-    assert "prepare-sonara-release" not in result.output
-    assert "v6" not in result.output.lower()
 
 
 def test_scan_bootstraps_bound_current_bundle(tmp_path: Path) -> None:
@@ -149,42 +147,6 @@ def test_analyze_opens_current_bundle_for_sonara_core_only(
     assert captured["database"].path == core_path.resolve()
     assert "sonara_outputs" not in captured["kwargs"]
     _assert_database_bundle(core_path)
-
-
-def test_analyze_rejects_removed_sonara_outputs_option_before_opening_database(
-    tmp_path: Path,
-) -> None:
-    core_path = tmp_path / "library.sqlite"
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "analyze",
-            "--models",
-            "sonara",
-            "--sonara-outputs",
-            "timeline",
-            "--db",
-            str(core_path),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "No such option" in result.output
-    assert "--sonara-outputs" in result.output
-    assert not core_path.exists()
-    assert not _artifacts_path(core_path).exists()
-
-
-def test_prepare_sonara_release_command_is_removed() -> None:
-    result = CliRunner().invoke(
-        cli.app,
-        ["prepare-sonara-release", "--help"],
-    )
-
-    assert result.exit_code == 2
-    assert "No such command" in result.output
-    assert "prepare-sonara-release" in result.output
 
 
 def test_index_help_uses_model_family_not_embedding_key() -> None:

@@ -169,24 +169,6 @@ def build_labeled_feature_matrix_from_sources(
     )
 
 
-def build_unlabeled_feature_matrix(
-    source_db_path: str | Path,
-    feature_set: str,
-    *,
-    expected_feature_names: object | None = None,
-) -> FeatureMatrix:
-    source = SourceDatabase(source_db_path)
-    tracks = source.list_tracks()
-    labels = {track_identity(track): "" for track in tracks}
-    return build_feature_matrix(
-        source,
-        feature_set,
-        labels_by_identity=labels,
-        tracks=tracks,
-        expected_feature_names=expected_feature_names,
-    )
-
-
 def build_feature_matrix(
     source: SourceDatabase,
     feature_set: str,

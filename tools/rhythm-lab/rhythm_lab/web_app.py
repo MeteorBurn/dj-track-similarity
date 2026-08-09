@@ -1685,25 +1685,6 @@ def _read_metrics(path: Path | None) -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _latest_uncalibrated_artifact(paths: list[Path]) -> Path | None:
-    for path in paths:
-        if not _artifact_has_calibrated_metrics(path):
-            return path
-    return None
-
-
-def _latest_uncalibrated_metrics(paths: list[Path]) -> Path | None:
-    for path in paths:
-        if not _metrics_are_calibrated(_read_metrics(path)):
-            return path
-    return None
-
-
-def _artifact_has_calibrated_metrics(path: Path) -> bool:
-    metrics_path = _artifact_metrics_path(path)
-    return metrics_path.exists() and _metrics_are_calibrated(_read_metrics(metrics_path))
-
-
 def _artifact_metrics_path(path: Path) -> Path:
     return path.with_suffix(".metrics.json")
 

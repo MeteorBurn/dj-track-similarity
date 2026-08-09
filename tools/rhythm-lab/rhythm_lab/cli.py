@@ -501,10 +501,6 @@ def _collection_track_ids_from_args(args: argparse.Namespace) -> list[int]:
     return values
 
 
-def _latest_combined_artifact(artifact_dir: str | Path, artifact_prefix: str) -> Path:
-    return _latest_feature_artifact(artifact_dir, artifact_prefix, "combined")
-
-
 def _latest_feature_artifact(
     artifact_dir: str | Path,
     artifact_prefix: str,

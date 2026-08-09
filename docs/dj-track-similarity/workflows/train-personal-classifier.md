@@ -136,8 +136,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 
 Calibration is advanced and opt-in. Use it only when you explicitly want
 calibrated positive-label probabilities instead of the normal uncalibrated
-classifier score. It is available through API and CLI, not through the Training
-UI.
+classifier score.
 
 Calibration is data-gated. Binary profiles need at least 100 training labels,
 20 positive labels, and 20 negative labels. If the gate is not satisfied, the

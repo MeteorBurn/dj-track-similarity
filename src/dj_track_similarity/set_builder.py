@@ -110,8 +110,6 @@ DEFAULT_SET_MODEL_WEIGHTS = {
     "clap": 0.22,
     "sonara_broad": 0.30,
 }
-# Public raw defaults retained for callers that inspect SET scoring behavior.
-DEFAULT_MODEL_WEIGHTS = DEFAULT_SET_MODEL_WEIGHTS
 SEQUENCE_POOL_FACTOR = 20
 SEQUENCE_POOL_MIN = 256
 SEQUENCE_POOL_MAX = 512
@@ -418,10 +416,6 @@ class SmartSetBuilder:
             "coverage": coverage,
             "items": ordered_items[: cleaned.limit],
         }
-
-    def _load_candidates(self) -> tuple[list[_Candidate], dict[str, int]]:
-        light_candidates, coverage = self._load_light_candidates()
-        return self._hydrate_candidates(light_candidates), coverage
 
     def _load_light_candidates(
         self,
@@ -2331,10 +2325,6 @@ def _transition(
     }
 
 
-def _track_bpm(candidate: _Candidate) -> float | None:
-    return _tempo_evidence(candidate).bpm
-
-
 def _tempo_evidence(candidate: _LightCandidate | _Candidate) -> TempoEvidence:
     return resolve_tempo_evidence(
         _candidate_identity(candidate),
@@ -2388,25 +2378,6 @@ def _key_relation(
     return relation, attenuate_harmonic_score(
         score, candidate_confidence, previous_confidence
     )
-
-
-def _combined_similarity(
-    candidate: _Candidate,
-    seed: _Candidate,
-    ranges: dict[str, tuple[float, float]],
-    embedding_sources: Sequence[str] = DEFAULT_SET_EMBEDDING_SOURCES,
-) -> float:
-    embedding_score = float(
-        np.mean(
-            [
-                _bounded(float(candidate.vectors[key] @ seed.vectors[key]))
-                for key in embedding_sources
-            ]
-        )
-    )
-    context = _Context(seeds=[seed], ranges=ranges)
-    sonara_score, _groups = _sonara_similarity(candidate, context)
-    return embedding_score * 0.7 + (sonara_score or 0.0) * 0.3
 
 
 def _diversity_score(

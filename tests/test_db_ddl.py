@@ -16,9 +16,7 @@ import pytest
 from dj_track_similarity.db_artifacts import create_artifacts_sidecar_schema
 from dj_track_similarity.db_ddl import (
     ClassifierScoreRecord,
-    FileTagsRow,
     SonaraRow,
-    TrackRow,
     create_core_schema,
 )
 from dj_track_similarity.db_structure import inspect_database_structure
@@ -337,11 +335,11 @@ def test_file_tags_genres_json_must_be_array() -> None:
 
 
 def test_dataclasses_are_importable() -> None:
-    """All four domain dataclasses can be imported and are frozen."""
+    """Persisted analysis row dataclasses are importable and frozen."""
     import dataclasses
     import struct
 
-    for cls in (TrackRow, FileTagsRow, SonaraRow, ClassifierScoreRecord):
+    for cls in (SonaraRow, ClassifierScoreRecord):
         assert dataclasses.is_dataclass(cls), f"{cls.__name__} is not a dataclass"
         assert len(dataclasses.fields(cls)) > 0, f"{cls.__name__} has no fields"
 

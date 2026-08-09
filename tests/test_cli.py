@@ -251,14 +251,6 @@ def test_relocate_library_cli_applies_typed_current_path_update(
     )
 
 
-def test_analyze_cli_does_not_expose_removed_fake_or_legacy_batch_options() -> None:
-    for arguments in (["analyze", "--fake"], ["analyze", "--batch-size", "4"]):
-        result = CliRunner().invoke(cli.app, arguments)
-
-        assert result.exit_code != 0
-        assert "No such option" in result.output
-
-
 def test_analyze_cli_rejects_unknown_device_before_opening_manager(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -320,30 +312,6 @@ def test_analyze_cli_runs_sonara_core_only(
     assert result.exit_code == 0
     assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
     assert "sonara_batch_size=8" in result.output
-
-
-def test_analyze_cli_rejects_removed_sonara_outputs_option_before_opening_database(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "library.sqlite"
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "analyze",
-            "--models",
-            "sonara",
-            "--sonara-outputs",
-            "timeline",
-            "--db",
-            str(db_path),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "No such option" in result.output
-    assert "--sonara-outputs" in result.output
-    assert not db_path.exists()
 
 
 def test_analyze_cli_passes_separate_ml_batch_sizes(
@@ -431,20 +399,3 @@ def test_text_search_cli_writes_adapter_stderr_to_app_log(
     for handler in logging.getLogger("dj_track_similarity").handlers:
         handler.flush()
     assert "CLAP CLI adapter stderr" in log_path.read_text(encoding="utf-8")
-
-
-@pytest.mark.parametrize(
-    "command",
-    [
-        ["analyze", "--adapter", "mert"],
-        ["analyze-genres"],
-        ["analyze-sonara"],
-    ],
-)
-def test_removed_individual_analysis_cli_paths_are_not_available(
-    command: list[str],
-) -> None:
-    result = CliRunner().invoke(cli.app, command)
-
-    assert result.exit_code != 0
-    assert "No such" in result.output

@@ -801,10 +801,6 @@ def _optional_signed_unit(value: object) -> float | None:
     return min(1.0, max(-1.0, number))
 
 
-def _optional_bool(value: object) -> bool | None:
-    return value if isinstance(value, bool) else None
-
-
 def _optional_text(value: object) -> str | None:
     if value is None:
         return None

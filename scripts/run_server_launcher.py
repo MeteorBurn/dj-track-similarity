@@ -34,10 +34,11 @@ def build_server_command(
     if forwarded_arguments and forwarded_arguments[0].casefold() in _MODE_ALIASES:
         del forwarded_arguments[0]
 
-    command = ["dj-sim", "serve", "--host", host, "--port", port]
+    command = ["dj-sim", "serve"]
+    command.extend(forwarded_arguments)
+    command.extend(("--host", host, "--port", port))
     if database_path:
         command.extend(("--db", database_path))
-    command.extend(forwarded_arguments)
     return command
 
 

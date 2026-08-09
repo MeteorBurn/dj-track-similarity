@@ -1,5 +1,4 @@
 from pathlib import Path
-import inspect
 import logging
 import shutil
 import subprocess
@@ -230,10 +229,6 @@ def test_ffmpeg_decode_reports_invalid_audio_stream_when_ffmpeg_fails(monkeypatc
 
     with pytest.raises(RuntimeError, match="Invalid audio stream: ffmpeg could not decode audio"):
         load_decoded_audio(audio_path)
-
-
-def test_load_decoded_audio_exposes_only_one_decode_mode() -> None:
-    assert list(inspect.signature(load_decoded_audio).parameters) == ["path"]
 
 
 def test_torch_compatible_audio_copies_readonly_float32_buffers() -> None:

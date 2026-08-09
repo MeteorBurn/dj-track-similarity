@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -9,6 +10,20 @@ import zipfile
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
+
+
+def test_audio_doctor_module_entrypoint_exposes_help() -> None:
+    tool_root = Path(__file__).resolve().parents[2] / "tools" / "audio-doctor"
+
+    completed = subprocess.run(
+        (sys.executable, "-m", "audio_doctor", "--help"),
+        cwd=tool_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def _load_repair_module():

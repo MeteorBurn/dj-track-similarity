@@ -92,14 +92,14 @@ If you use the Windows launcher:
 run_server.cmd
 ```
 
-The first prompt suggests `C:\db\volumes.sqlite`. Press Enter to accept it or type another database
-path. The next prompt selects local-only or LAN mode. The selected path is passed to `dj-sim serve`
-only after both prompts are complete.
+The first prompt suggests `database\volumes.sqlite` under the repository root. Press Enter to accept
+it or type another database path. The next prompt selects local-only or LAN mode. The selected path
+is passed to `dj-sim serve` only after both prompts are complete.
 
-For a non-interactive launch, use `run_server.cmd local --db C:\db\volumes.sqlite`. Replace `local`
-with `lan` only when you want the server reachable from other devices on the local network. Explicit
-mode commands use only the arguments you provide. The server command keeps its terminal occupied.
-Run later CLI jobs in a second activated terminal.
+For a non-interactive launch, use `run_server.cmd local --db .\database\volumes.sqlite`. Replace
+`local` with `lan` only when you want the server reachable from other devices on the local network.
+Explicit mode commands use only the arguments you provide. The server command keeps its terminal
+occupied. Run later CLI jobs in a second activated terminal.
 
 Open `http://127.0.0.1:8765/`. The served bundle uses the current typed database, track, analysis,
 search, set, classifier, Lab, and exact-identity mutation responses.

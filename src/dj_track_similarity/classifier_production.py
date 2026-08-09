@@ -706,13 +706,6 @@ def _optional_float(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _optional_text(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
 def _clean_classifier_key(value: object) -> str:
     text = str(value or "").strip()
     if not text:

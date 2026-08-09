@@ -101,7 +101,6 @@ export function buildAudioDedupJobPayload(
   }
   if (
     draft.apply
-    && !isLegacyDeleteSafetyProfile(sources, effectiveWeights)
     && (
       !sources.includes("mert")
       || !sources.includes("maest")
@@ -498,17 +497,6 @@ function defaultWeightInputs(): AudioDedupWeightInputs {
     muq: String(audioDedupDefaultWeights.muq),
     clap: String(audioDedupDefaultWeights.clap)
   };
-}
-
-function isLegacyDeleteSafetyProfile(
-  sources: EmbeddingSource[],
-  weights: Partial<Record<EmbeddingSource, number>>
-) {
-  return (
-    sources.length === legacySources.length
-    && legacySources.every((source) => sources.includes(source))
-    && legacySources.every((source) => weights[source] === audioDedupDefaultWeights[source])
-  );
 }
 
 function splitPathContains(value: string) {

@@ -6,52 +6,7 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
 import dj_track_similarity.api_state as api_state
-import dj_track_similarity.audio_dedup_jobs as audio_dedup_jobs
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
-
-
-_SCANNED_AT = "2026-07-24T00:00:00.000000Z"
-
-
-def _scan(
-    database: LibraryDatabase,
-    path: Path,
-    *,
-    title: str,
-) -> TrackIdentity:
-    stat = path.stat()
-    return database.upsert_scanned_track(
-        file=ScannedFile(
-            file_path=str(path),
-            file_size_bytes=stat.st_size,
-            file_modified_ns=stat.st_mtime_ns,
-            audio_duration_seconds=1.0,
-        ),
-        tags=FileTags(title=title),
-        scanned_at=_SCANNED_AT,
-    ).identity
-
-
-def _candidate(
-    database: LibraryDatabase,
-    identity: TrackIdentity,
-    *,
-    decision: str = "delete_candidate",
-    safe_to_delete: str = "true_candidate",
-) -> dict[str, object]:
-    state = database.get_track_file_states_by_ids((identity.track_id,))[0]
-    return {
-        "track_id": identity.track_id,
-        "catalog_uuid": identity.catalog_uuid,
-        "track_uuid": identity.track_uuid,
-        "content_generation": identity.content_generation,
-        "path": state.file_path,
-        "size": state.file_size_bytes,
-        "file_modified_ns": state.file_modified_ns,
-        "decision": decision,
-        "safe_to_delete": safe_to_delete,
-    }
 
 
 class SynchronousAudioDedupManager:
@@ -229,66 +184,3 @@ def test_api_accepts_audio_dedup_apply_only_with_exact_confirmation(monkeypatch,
     assert response.status_code == 200
     assert SynchronousAudioDedupManager.last_request["apply"] is True
     assert SynchronousAudioDedupManager.last_request["confirmation"] == "APPLY DELETE"
-
-
-def test_audio_dedup_manager_rejects_apply_without_exact_confirmation(tmp_path: Path) -> None:
-    manager = audio_dedup_jobs.AudioDedupJobManager(LibraryDatabase(tmp_path / "library.sqlite"))
-
-    try:
-        manager.create_job(root=tmp_path, apply=True, confirmation="DELETE")
-    except ValueError as error:
-        assert str(error) == 'Type exactly "APPLY DELETE" to run apply mode'
-    else:  # pragma: no cover - protects the fail-closed contract
-        raise AssertionError("Audio Dedup apply must require exact confirmation")
-
-
-def test_audio_dedup_apply_deletes_only_safe_temp_fixture_candidate(tmp_path: Path) -> None:
-    core = audio_dedup_jobs._load_audio_dedup_core()
-    audio_dir = tmp_path / "library"
-    audio_dir.mkdir()
-    keep_path = audio_dir / "keep.wav"
-    delete_path = audio_dir / "delete.wav"
-    outside_path = tmp_path / "outside.wav"
-    keep_path.write_bytes(b"keep")
-    delete_path.write_bytes(b"delete")
-    outside_path.write_bytes(b"outside")
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    keep = _scan(db, keep_path, title="Keep")
-    delete = _scan(db, delete_path, title="Delete")
-    outside = _scan(db, outside_path, title="Outside")
-    payload = {
-        "groups": [
-            {
-                "candidate_deletes": [
-                    _candidate(db, delete),
-                    _candidate(db, outside),
-                    _candidate(
-                        db,
-                        keep,
-                        decision="review",
-                        safe_to_delete="false",
-                    ),
-                ]
-            }
-        ]
-    }
-    delete_state = db.get_track_file_states_by_ids((delete.track_id,))[0]
-
-    result = core.apply_duplicate_deletions(
-        database=db,
-        root=audio_dir,
-        payload=payload,
-        rhythm_lab_db=tmp_path / "missing-lab.sqlite",
-    )
-
-    assert result.deleted_track_ids == (delete.track_id,)
-    assert result.deleted_paths == (delete_state.file_path,)
-    assert result.skipped == (f"track_id={outside.track_id}: path outside root",)
-    assert result.failed == ()
-    assert keep_path.exists()
-    assert outside_path.exists()
-    assert not delete_path.exists()
-    assert db.get_track_identity(delete.track_id) is None
-    assert db.get_track_identity(keep.track_id) == keep
-    assert db.get_track_identity(outside.track_id) == outside

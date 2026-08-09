@@ -17,15 +17,6 @@ export function sameTrackIdentity(
   );
 }
 
-export function trackCountLabel(count: number) {
-  const lastTwo = count % 100;
-  const last = count % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) return "треков";
-  if (last === 1) return "трек";
-  if (last >= 2 && last <= 4) return "трека";
-  return "треков";
-}
-
 export function trackHasAnalysis(track: TrackSummary, adapter: AnalysisModel) {
   if (adapter === "sonara") return track.analysis_coverage.sonara_core;
   if (adapter === "maest") return track.analysis_coverage.maest_analysis;

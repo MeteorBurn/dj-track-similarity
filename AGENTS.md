@@ -37,22 +37,6 @@ remove obsolete guidance instead of layering more rules on top of it.
 - Project databases live under `C:\projects\dj-track-similarity\database`.
   Never use a real project database in automated tests.
 
-## Current Project Map
-
-- Backend, CLI, API, database, analysis, search, Hybrid, SET, classifiers, and
-  Rhythm Lab bridge live under `src/dj_track_similarity/`.
-- Frontend is React + Vite + TypeScript under `frontend/`. It has no ESLint,
-  Biome, or Prettier config in the current checkout. Tests use Node's built-in
-  runner, not Vitest/Jest.
-- Docs are VitePress under `docs/dj-track-similarity/`.
-- Helper tools are script-tree safety domains, not separate packages:
-  `tools/audio-doctor/`, `tools/audio-dedup/`, `tools/kglite-bridge/`, and
-  `tools/rhythm-lab/`.
-- Default local ports are backend `8765`, frontend `5173`, and Rhythm Lab
-  `8777`; confirm current configuration before starting processes.
-- There is no CI workflow and no cross-package task runner. Verification is
-  local and deliberately scoped.
-
 ## Safety Baseline
 
 These rules apply unless the user explicitly asks to redesign that workflow. A
@@ -62,9 +46,8 @@ direct verification.
 - Treat source audio as user data. Scan, tag refresh preview, analysis, search,
   preview, reset, relocation preview, export, graph export, classifier scoring,
   and routine verification must not modify audio files.
-- The normal tag-write path is `/api/tags/genres/apply` through `tags.py` and
-  `wave_tags.py`. It preserves existing normal tags. Do not add incidental
-  audio writes.
+- The normal tag-write workflow is explicit and genre-only. It preserves
+  existing normal tags. Do not add incidental audio writes.
 - Browser preview may transcode AIFF to temporary WAV for streaming but must
   not rewrite or cache source audio.
 - SQLite writes go through `LibraryDatabase` and the active locking/WAL/busy
@@ -84,9 +67,10 @@ direct verification.
 - KGLite Bridge treats project SQLite databases and source audio as read-only
   inputs. Open SQLite inputs read-only/query-only, do not write/checkpoint/vacuum
   them, and refuse output paths that resolve to input databases.
-- Rhythm Lab keeps labels, predictions, queues, checkpoints, and artifacts under
-  `tools/rhythm-lab/`. Its only narrow source-DB write path is the explicit
-  liked-track toggle. Promotion must keep runtime model/manifest reads atomic.
+- Rhythm Lab keeps its labels, predictions, queues, checkpoints, and artifacts
+  separate from the source database. Its only narrow source-DB write path is
+  the explicit liked-track toggle. Promotion must keep runtime model/manifest
+  reads atomic.
 - Promoted classifier scoring is database-only, scoped by classifier key, and
   writes only that classifier's scores.
 - Keep CLAP text-search scores separate from audio-to-audio CLAP signals used
@@ -111,19 +95,10 @@ outside both checkouts and smoke-test wheels in an isolated environment.
 - Work directly on `main` for this project unless the user asks for another
   branch/worktree.
 - Preserve unrelated dirty work. This repository may be dirty.
-- Do not commit generated/local state: `*.sqlite`, `*.log`, `__pycache__/`,
-  `.pytest_cache/`, virtualenvs, `frontend/node_modules/`, `frontend/dist`,
-  `docs/dj-track-similarity/site/`, runtime logs, helper reports/backups,
-  Rhythm Lab data/artifacts, or promoted classifier model files unless the user
-  explicitly requests it.
-- README examples should use `python ...` or `dj-sim ...`, not hard-coded
-  `.venv` paths. Tool READMEs may show local helper invocations.
-- Use the project interpreter from repo root:
-  `.\.venv\Scripts\python.exe -m pytest ...`.
-- For SQLite CLI work, use `$env:SQLITE_TOOLKIT_HOME` or
-  `C:\Utils\tools\sqlite-toolkit`; read that toolkit's instructions first.
+- Do not stage generated or local state unless the user explicitly requests
+  it. Respect ignore rules and inspect exact staged paths before delivery.
 
-## Verification Budget
+## Verification Routing
 
 Use the cheapest check that can actually catch a mistake in the touched scope.
 Do not run full backend, frontend, docs, tool, or repository suites merely as a
@@ -146,24 +121,3 @@ precaution.
   matter.
 - **Release, broad refactor, migration, cross-module API/schema change, or
   explicit user request:** broaden verification deliberately and report why.
-
-Common focused commands:
-
-- Backend root tests: `.\.venv\Scripts\python.exe -m pytest tests --override-ini addopts=`
-- Single backend test file: `.\.venv\Scripts\python.exe -m pytest tests\test_<name>.py --override-ini addopts=`
-- Frontend: from `frontend/`, `npm run typecheck`, `npm test`, `npm run build`
-- Docs: from `docs/dj-track-similarity/`, `npm run check`
-- Audio Doctor: `.\.venv\Scripts\python.exe -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=`
-- Audio Dedup: `.\.venv\Scripts\python.exe -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=`
-- KGLite Bridge: `.\.venv\Scripts\python.exe -m pytest tools\kglite-bridge\tests\test_kglite_bridge.py --override-ini addopts=`
-- Rhythm Lab: `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`
-
-## Runtime Notes
-
-- Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`.
-- TorchCodec-backed Windows decoding needs a compatible FFmpeg build; the
-  verified local build is under `C:\Utils\tools\ffmpeg\bin`.
-- Current MuQ decoding uses shared torchaudio resampling at 24 kHz `float32`
-  without half precision, autocast, compile, or direct `librosa`. Treat this as
-  tested current behavior, not an optimization ban.
-- Vale resolves from `VALE_EXE`, `PATH`, or `C:\Utils\tools\vale\vale.exe`.

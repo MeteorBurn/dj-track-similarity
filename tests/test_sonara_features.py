@@ -5,7 +5,6 @@ import struct
 import uuid
 
 import numpy as np
-import pytest
 
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,

@@ -68,17 +68,6 @@ class ReferenceCompareRepository(
     ) -> tuple[TrackSummary, ...]:
         ...
 
-    def upsert_track_pair_feedback(
-        self,
-        seed_track_id: int,
-        candidate_track_id: int,
-        rating: int,
-        reason_tags: Sequence[str] = (),
-        notes: str | None = None,
-        source: str = "manual",
-    ) -> int:
-        ...
-
     def upsert_track_pair_feedback_exact(
         self,
         seed: TrackIdentity,
@@ -177,51 +166,6 @@ def build_reference_compare(
             )
             for model in query.models
         ),
-    )
-
-
-def record_reference_compare_verdict(
-    repository: ReferenceCompareRepository,
-    *,
-    seed_track_id: int,
-    candidate_track_id: int,
-    model: ReferenceCompareModel,
-    verdict: ReferenceCompareVerdict,
-    notes: str | None,
-) -> ReferenceCompareVerdictResult:
-    if model not in _REFERENCE_COMPARE_MODELS:
-        raise ValueError(
-            f"Unsupported reference compare model: {model}"
-        )
-    if verdict not in _REFERENCE_COMPARE_VERDICTS:
-        raise ValueError(
-            f"Unsupported reference compare verdict: {verdict}"
-        )
-    summaries = repository.list_track_summaries()
-    summary_by_id = {
-        summary.track_id: summary for summary in summaries
-    }
-    _require_summary(summary_by_id, seed_track_id)
-    _require_summary(summary_by_id, candidate_track_id)
-    source = _feedback_source(model)
-    rating = _verdict_rating(verdict)
-    feedback_id = repository.upsert_track_pair_feedback(
-        seed_track_id,
-        candidate_track_id,
-        rating,
-        reason_tags=(verdict,),
-        notes=notes,
-        source=source,
-    )
-    return ReferenceCompareVerdictResult(
-        id=feedback_id,
-        seed_track_id=seed_track_id,
-        candidate_track_id=candidate_track_id,
-        model=model,
-        verdict=verdict,
-        source=source,
-        rating=rating,
-        notes=notes,
     )
 
 

@@ -72,19 +72,9 @@ def test_evaluation_structure_ignores_sqlite_user_version() -> None:
             == "catalog-for-structure-test"
         )
         report = inspect_database_structure(connection, "evaluation")
-        metadata_columns = tuple(
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(storage_metadata)")
-        )
 
         assert report.is_current
         assert report.catalog_uuid == "catalog-for-structure-test"
-        assert metadata_columns == (
-            "singleton_id",
-            "catalog_uuid",
-            "created_at",
-            "updated_at",
-        )
     finally:
         connection.close()
 

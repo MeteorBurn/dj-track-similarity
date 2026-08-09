@@ -734,7 +734,7 @@ export function SearchPlaylistPanel({
     try {
       const summary = await api.evaluationSummary();
       setEvaluationLabelCounts({
-        pair: summary.counts.track_pair_feedback,
+        pair: summary.counts.pair_feedback,
         transition: summary.counts.transition_feedback
       });
     } catch {

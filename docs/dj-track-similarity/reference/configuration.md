@@ -19,7 +19,7 @@ If the variable is set but points to a missing file, server startup fails clearl
 | Default non-server CLI database | `dj-track-similarity.sqlite` when `--db` is omitted |
 | Initial `serve` database | None when `--db` is omitted |
 | Example project database | `.\data\library.sqlite` |
-| No-argument Windows launcher suggestion | `C:\db\volumes.sqlite` |
+| No-argument Windows launcher suggestion | `database\volumes.sqlite` under the repository root |
 | Runtime logs | `logs/` |
 | Audio Doctor reports/state/backups | `tools/audio-doctor/data/` |
 | Audio Dedup reports | `tools/audio-dedup/data/reports/` |
@@ -69,13 +69,13 @@ Windows helper:
 run_server.cmd
 ```
 
-With no arguments, the launcher prompts for a database path with `C:\db\volumes.sqlite` as the shown
-default, then prompts for local or LAN mode. It forwards the confirmed path only after both prompts
-complete.
+With no arguments, the launcher suggests `database\volumes.sqlite` under the repository root, then
+prompts for local or LAN mode. It forwards the confirmed path only after both prompts complete.
 
-For non-interactive use, run `run_server.cmd local --db C:\db\volumes.sqlite` or replace `local` with
-`lan`. Explicit mode commands use only the supplied arguments. Direct `dj-sim serve` commands still
-create no database when `--db` is omitted and wait for a selection through the database API or picker.
+For non-interactive use, run `run_server.cmd local --db .\database\volumes.sqlite` or replace `local`
+with `lan`. Explicit mode commands use only the supplied arguments. Direct `dj-sim serve` commands
+still create no database when `--db` is omitted and wait for a selection through the database API or
+picker.
 
 ## Build commands
 

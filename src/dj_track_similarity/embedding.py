@@ -6,7 +6,6 @@ import importlib
 from pathlib import Path
 import threading
 import time
-from typing import Protocol
 
 import numpy as np
 
@@ -39,24 +38,6 @@ from .verified_assets import (
     bind_verified_file,
     bind_verified_snapshot,
 )
-
-
-class EmbeddingAdapter(Protocol):
-    embedding_key: str
-    model_name: str
-    model_version: str
-    checkpoint_id: str
-    preprocessing: str
-    dim: int
-
-    def runtime_parameters(self) -> dict[str, object]:
-        ...
-
-    def embed(self, path: str | Path) -> np.ndarray:
-        ...
-
-    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
-        ...
 
 
 _CLAP_CONSTRUCTION_LOCK = threading.RLock()
@@ -680,11 +661,6 @@ def adapter_factories():
         "muq": MuqEmbeddingAdapter,
         "clap": ClapEmbeddingAdapter,
     }
-
-
-def adapter_embedding_key(adapter_name: str) -> str:
-    factory = adapter_factories().get(adapter_name)
-    return str(getattr(factory, "embedding_key", adapter_name)) if factory else adapter_name
 
 
 def _download_verified_hf_checkpoint(

@@ -25,7 +25,6 @@ state.*.json
 .dj-track-similarity-indexes/
 .codex/
 /.worktrees/
-/.kglite/
 .omo/
 models/
 /.ideas/

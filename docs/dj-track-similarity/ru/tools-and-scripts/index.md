@@ -13,8 +13,6 @@
 - [Rhythm Lab](./rhythm-lab.md): разметка, обучение, публикация и очереди проверки классификаторов.
 - [Audio Dedup](./audio-dedup.md): поиск вероятных дубликатов и необязательное удаление безопасных кандидатов после подтверждения.
 - [Audio Doctor](./audio-doctor.md): проверка и исправление известных безопасных проблем контейнера или тегов после предварительного запуска.
-- [Мост KGLite](./kglite-bridge.md): перенос выбранных метаданных и текущих эмбеддингов в
-  одноразовый граф только для чтения.
 - [Постоянные индексы ANN](./persistent-ann-indexes.md): необязательные векторные индексы для ускорения повторного поиска.
 - [Оптимизация базы данных](./optimize-database.md): резервное копирование, проверка целостности, VACUUM, ANALYZE и создание контрольной точки SQLite.
 
@@ -26,7 +24,6 @@
 - `tools/audio-dedup/data/reports/`;
 - `tools/rhythm-lab/data/`;
 - `tools/rhythm-lab/artifacts/`;
-- `tools/kglite-bridge/data/`;
 - `models/classifiers/`;
 - `.dj-track-similarity-indexes/`.
 

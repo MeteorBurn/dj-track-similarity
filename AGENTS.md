@@ -64,9 +64,6 @@ direct verification.
 - Audio Dedup is report-first. Apply requires explicit confirmation, deletes
   only qualified targets inside the selected root, and removes DB rows only for
   files actually deleted. Never run apply mode for routine verification.
-- KGLite Bridge treats project SQLite databases and source audio as read-only
-  inputs. Open SQLite inputs read-only/query-only, do not write/checkpoint/vacuum
-  them, and refuse output paths that resolve to input databases.
 - Rhythm Lab keeps its labels, predictions, queues, checkpoints, and artifacts
   separate from the source database. Its only narrow source-DB write path is
   the explicit liked-track toggle. Promotion must keep runtime model/manifest

@@ -31,9 +31,7 @@ remove obsolete guidance instead of layering more rules on top of it.
 - Executable sources beat prose when they disagree: `pyproject.toml`,
   `frontend/package.json`, `docs/dj-track-similarity/package.json`, tests,
   schemas, routes, and current source are authoritative.
-- The maintained docs surface is `README.md` plus `docs/dj-track-similarity/`;
-  English is primary and Russian mirrors live under
-  `docs/dj-track-similarity/ru/`.
+- The maintained docs surface is `README.md` plus `docs/dj-track-similarity/`.
 - Project databases live under `C:\projects\dj-track-similarity\database`.
   Never use a real project database in automated tests.
 

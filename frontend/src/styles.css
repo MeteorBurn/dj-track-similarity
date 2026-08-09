@@ -1768,6 +1768,24 @@ h2 {
   color: var(--danger-text-hover);
 }
 
+.rhythm-lab-launch-button {
+  background: var(--accent-muted-bg);
+  border-color: var(--accent-muted-border);
+  color: var(--accent);
+}
+
+.rhythm-lab-launch-button:hover:not(:disabled) {
+  background: var(--accent-active-bg);
+  border-color: var(--accent-active-border);
+  color: var(--accent-active-text);
+}
+
+.rhythm-lab-launch-button.active {
+  background: var(--accent-strong-bg);
+  border-color: var(--accent-border);
+  color: var(--accent-active-text);
+}
+
 .audio-dedup-launch-button {
   background: var(--blue-bg);
   border-color: var(--blue-border);

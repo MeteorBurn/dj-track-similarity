@@ -89,6 +89,25 @@ function jsonResponse(value = {}) {
   };
 }
 
+test("rhythm lab client uses explicit status, launch, and stop endpoints", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options = {}) => {
+    calls.push({ path, options });
+    return jsonResponse({ running: false, managed: false, url: "http://127.0.0.1:8777/" });
+  });
+
+  await api.rhythmLabStatus();
+  await api.launchRhythmLab();
+  await api.stopRhythmLab();
+
+  assert.equal(calls[0].path, "/api/rhythm-lab/status");
+  assert.equal(calls[0].options.method, undefined);
+  assert.equal(calls[1].path, "/api/rhythm-lab/launch");
+  assert.equal(calls[1].options.method, "POST");
+  assert.equal(calls[2].path, "/api/rhythm-lab/stop");
+  assert.equal(calls[2].options.method, "POST");
+});
+
 test("tracks client serializes library query controls into the current API query contract", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {

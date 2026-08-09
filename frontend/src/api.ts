@@ -679,12 +679,21 @@ export type RhythmLabSourceBinding = {
   database_path: string;
 };
 
-export type RhythmLabLaunchResult = {
-  url: string;
-  already_running: boolean;
+export type RhythmLabStatus = {
+  running: boolean;
   managed: boolean;
+  url: string;
+  source?: RhythmLabSourceBinding | null;
+};
+
+export type RhythmLabLaunchResult = RhythmLabStatus & {
+  already_running: boolean;
   pid?: number | null;
   source: RhythmLabSourceBinding | null;
+};
+
+export type RhythmLabStopResult = RhythmLabStatus & {
+  stopped: boolean;
 };
 
 export type ServerShutdownResult = {

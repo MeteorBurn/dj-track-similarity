@@ -25,6 +25,8 @@ import type {
   ReferenceCompareVerdictResult,
   RhythmLabCollectionSaveResult,
   RhythmLabLaunchResult,
+  RhythmLabStatus,
+  RhythmLabStopResult,
   ScanStats,
   SearchResult,
   ServerShutdownResult,
@@ -202,8 +204,14 @@ const shellApi = {
       method: "POST",
       body: JSON.stringify({})
     }),
+  rhythmLabStatus: () => request<RhythmLabStatus>("/api/rhythm-lab/status"),
   launchRhythmLab: () =>
     request<RhythmLabLaunchResult>("/api/rhythm-lab/launch", {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+  stopRhythmLab: () =>
+    request<RhythmLabStopResult>("/api/rhythm-lab/stop", {
       method: "POST",
       body: JSON.stringify({})
     }),

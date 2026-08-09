@@ -544,27 +544,44 @@ test("documentation title click opens the docs in a separate window", () => {
   assert.match(headerLink, /onClick=\{openDocumentationWindow\}/);
 });
 
-test("topbar rhythm lab launch button opens the lab in a separate window", () => {
+test("topbar rhythm lab controls open and stop the lab explicitly", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
 
+  assert.match(apiSource, /rhythmLabStatus:\s*\(\)\s*=>/);
+  assert.match(apiSource, /\/api\/rhythm-lab\/status/);
   assert.match(apiSource, /launchRhythmLab:\s*\(\)\s*=>/);
   assert.match(apiSource, /\/api\/rhythm-lab\/launch/);
+  assert.match(apiSource, /stopRhythmLab:\s*\(\)\s*=>/);
+  assert.match(apiSource, /\/api\/rhythm-lab\/stop/);
   assert.match(appSource, /function openRhythmLabWindow/);
   assert.match(appSource, /api\.launchRhythmLab\(\)/);
+  assert.match(appSource, /api\.stopRhythmLab\(\)/);
   assert.match(appSource, /window\.open\("about:blank", "_blank"\)/);
   assert.match(appSource, /pendingWindow\.location\.href = result\.url/);
-  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*stop-active-stage-button/);
+  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*rhythm-lab-stop-button[\s\S]*stop-active-stage-button/);
 });
 
-test("topbar keeps only rhythm lab launch control", () => {
+test("topbar keeps rhythm lab stop separate from active-stage stop", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
 
-  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*stop-active-stage-button/);
-  assert.doesNotMatch(actionsBlock, /rhythm-lab-stop-button/);
-  assert.doesNotMatch(appSource, /handleStopRhythmLab/);
+  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*rhythm-lab-stop-button[\s\S]*audio-doctor-launch-button/);
+  assert.match(actionsBlock, /rhythm-lab-stop-button[\s\S]*stop-active-stage-button/);
+  assert.match(appSource, /handleStopRhythmLab/);
+});
+
+test("audio helper latest jobs are restored only from their own dialogs", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const loader = appSource.match(/async function loadLatestJobs[\s\S]*?function adoptClassifierProfiles/)?.[0] || "";
+  const dedupEffect = appSource.match(/if \(!audioDedupOpen\) return;[\s\S]*?api\.latestAudioDedupJob\(\)/)?.[0] || "";
+  const doctorEffect = appSource.match(/if \(!audioDoctorOpen\) return;[\s\S]*?api\.latestAudioDoctorJob\(\)/)?.[0] || "";
+
+  assert.doesNotMatch(loader, /latestAudioDedupJob/);
+  assert.doesNotMatch(loader, /latestAudioDoctorJob/);
+  assert.match(dedupEffect, /api\.latestAudioDedupJob\(\)/);
+  assert.match(doctorEffect, /api\.latestAudioDoctorJob\(\)/);
 });
 
 test("library controls keep pagination left and actions pinned right", () => {

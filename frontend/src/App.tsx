@@ -14,6 +14,7 @@ import {
   GenreTagJobStatus,
   PromotedClassifier,
   RhythmLabLaunchResult,
+  RhythmLabStatus,
   ScanStats,
   Track,
 } from "./api";
@@ -167,6 +168,7 @@ export function App() {
   const [audioDoctorJob, setAudioDoctorJob] = useState<AudioDoctorJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
+  const [rhythmLabStatus, setRhythmLabStatus] = useState<RhythmLabStatus | null>(null);
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "audio_dedup" | "audio_doctor">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [scanWorkers, setScanWorkers] = useState(8);
@@ -251,6 +253,11 @@ export function App() {
   const audioDedupRunning = Boolean(audioDedupJob && ["queued", "running"].includes(audioDedupJob.state));
   const audioDoctorRunning = Boolean(audioDoctorJob && ["queued", "running"].includes(audioDoctorJob.state));
   const stageRunning = scanRunning || analysisRunning || genreTagRunning || audioDedupRunning || audioDoctorRunning;
+  const rhythmLabRunning = Boolean(rhythmLabStatus?.running);
+  const rhythmLabManaged = Boolean(rhythmLabStatus?.managed);
+  const rhythmLabStopTitle = rhythmLabRunning && !rhythmLabManaged
+    ? "Rhythm Lab запущен вне управления Core"
+    : "Остановить Rhythm Lab";
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
@@ -275,6 +282,7 @@ export function App() {
 
   useEffect(() => {
     void initializeDatabase();
+    void refreshRhythmLabStatus();
   }, []);
 
   useEffect(() => {
@@ -285,6 +293,28 @@ export function App() {
       // Theme persistence is optional; keep the UI usable if storage is blocked.
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (!audioDedupOpen) return;
+    let cancelled = false;
+    void api.latestAudioDedupJob().then((job) => {
+      if (!cancelled && job) setAudioDedupJob(job);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [audioDedupOpen]);
+
+  useEffect(() => {
+    if (!audioDoctorOpen) return;
+    let cancelled = false;
+    void api.latestAudioDoctorJob().then((job) => {
+      if (!cancelled && job) setAudioDoctorJob(job);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [audioDoctorOpen]);
 
   useEffect(() => {
     genericSearchInputKeyRef.current = genericSearchInputKey;
@@ -513,20 +543,16 @@ export function App() {
           setGenreTagJob(job);
           if (["queued", "running"].includes(job.state)) setProcessLogKind("genre_tags");
         }
-      }).catch(() => undefined),
-      api.latestAudioDedupJob().then((job) => {
-        if (job) {
-          setAudioDedupJob(job);
-          if (["queued", "running"].includes(job.state)) setProcessLogKind("audio_dedup");
-        }
-      }).catch(() => undefined),
-      api.latestAudioDoctorJob().then((job) => {
-        if (job) {
-          setAudioDoctorJob(job);
-          if (["queued", "running"].includes(job.state)) setProcessLogKind("audio_doctor");
-        }
       }).catch(() => undefined)
     ]);
+  }
+
+  async function refreshRhythmLabStatus() {
+    try {
+      setRhythmLabStatus(await api.rhythmLabStatus());
+    } catch {
+      setRhythmLabStatus(null);
+    }
   }
 
   function adoptClassifierProfiles(promotedClassifiers: PromotedClassifier[]) {
@@ -1385,11 +1411,28 @@ export function App() {
     setTheme((current) => current === "dark" ? "light" : "dark");
   }
 
+  function openAudioDedupDialog() {
+    setProcessLogKind("audio_dedup");
+    setAudioDedupOpen(true);
+  }
+
+  function openAudioDoctorDialog() {
+    setProcessLogKind("audio_doctor");
+    setAudioDoctorOpen(true);
+  }
+
   async function handleLaunchRhythmLab() {
     const pendingWindow = window.open("about:blank", "_blank");
     if (pendingWindow) pendingWindow.opener = null;
+    setBusy(true);
     try {
       const result = await api.launchRhythmLab();
+      setRhythmLabStatus({
+        running: true,
+        managed: result.managed,
+        url: result.url,
+        source: result.source
+      });
       const opened = openRhythmLabWindow(result, pendingWindow);
       const status = result.already_running ? "Rhythm Lab уже запущен" : "Rhythm Lab запущен";
       setNotice({ kind: "ok", text: opened ? status : `${status}: ${result.url}` });
@@ -1399,6 +1442,41 @@ export function App() {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось запустить Rhythm Lab", message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStopRhythmLab() {
+    setBusy(true);
+    appendActivity("warn", "Остановка Rhythm Lab запрошена");
+    try {
+      const result = await api.stopRhythmLab();
+      setRhythmLabStatus({
+        running: result.running,
+        managed: result.managed,
+        url: result.url,
+        source: result.source ?? null
+      });
+      if (result.stopped) {
+        setNotice({ kind: "ok", text: "Rhythm Lab остановлен" });
+        appendActivity("ok", "Rhythm Lab остановлен", result.url);
+        return;
+      }
+      if (result.running && !result.managed) {
+        setNotice({ kind: "idle", text: "Rhythm Lab запущен вне управления Core" });
+        appendActivity("warn", "Rhythm Lab не остановлен", "Процесс не управляется Core");
+        return;
+      }
+      setNotice({ kind: "idle", text: "Rhythm Lab не запущен" });
+      appendActivity("info", "Rhythm Lab не запущен", result.url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось остановить Rhythm Lab", message);
+      await refreshRhythmLabStatus();
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1434,19 +1512,31 @@ export function App() {
             <ScrollText size={16} />
           </button>
           <button
-            className="icon-button rhythm-lab-launch-button"
-            title="Запустить Rhythm Lab"
-            aria-label="Запустить Rhythm Lab"
+            className={`icon-button rhythm-lab-launch-button ${rhythmLabRunning ? "active" : ""}`}
+            title={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"}
+            aria-label={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"}
+            aria-pressed={rhythmLabRunning}
+            disabled={busy}
             onClick={() => void handleLaunchRhythmLab()}
             type="button"
           >
             <FlaskConical size={16} />
           </button>
           <button
+            className="icon-button stop-button rhythm-lab-stop-button"
+            title={rhythmLabStopTitle}
+            aria-label={rhythmLabStopTitle}
+            disabled={busy || !rhythmLabRunning || !rhythmLabManaged}
+            onClick={() => void handleStopRhythmLab()}
+            type="button"
+          >
+            <Square size={15} />
+          </button>
+          <button
             className="icon-button audio-doctor-launch-button"
             title="Открыть Audio Doctor"
             aria-label="Открыть Audio Doctor"
-            onClick={() => setAudioDoctorOpen(true)}
+            onClick={openAudioDoctorDialog}
             type="button"
           >
             <Wrench size={16} />
@@ -1455,7 +1545,7 @@ export function App() {
             className="icon-button audio-dedup-launch-button"
             title="Открыть Audio Dedup"
             aria-label="Открыть Audio Dedup"
-            onClick={() => setAudioDedupOpen(true)}
+            onClick={openAudioDedupDialog}
             type="button"
           >
             <CopyX size={16} />

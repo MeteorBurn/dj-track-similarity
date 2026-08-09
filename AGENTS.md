@@ -109,8 +109,8 @@ precaution.
   do not call real SONARA, CLAP, MERT, MuQ, MAEST, or the user's music library.
 - **Frontend change:** run `npm run typecheck`. The Windows launcher starts the
   Vite live UI so source changes are visible without rebuilding `frontend/dist`.
-  Run `npm run build` when validating or shipping the static backend-served
-  bundle; add `npm test` when touched logic warrants it.
+  Run `npm run build` only when explicitly checking the generated static bundle;
+  add `npm test` when touched logic warrants it.
 - **Docs site change:** from `docs/dj-track-similarity/`, run `npm run check`
   only for maintained docs-site content or docs tooling changes.
 - **Real DB maintenance:** use backups/copies, integrity checks, row-count or

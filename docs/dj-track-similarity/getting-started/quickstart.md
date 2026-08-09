@@ -68,25 +68,7 @@ whole-eligible-library meaning.
 
 ## 4. Start the app
 
-For the static backend-served UI, build the current typed client and start the backend:
-
-```powershell
-npm --prefix .\frontend install
-npm --prefix .\frontend run build
-```
-
-```powershell
-dj-sim serve --host 127.0.0.1 --port 8765
-```
-
-Without `--db`, the server starts with no selected database and creates no SQLite files. Use the
-database picker to select an existing compatible bundle or choose a new `.sqlite` path. Selecting
-a new path creates the Core database and its mandatory adjacent Artifacts database.
-
-To select the database before the server starts, pass `--db .\data\library.sqlite`. An existing
-compatible bundle is opened. A wholly missing bundle is created.
-
-If you use the Windows launcher:
+Start the backend plus live Vite UI:
 
 ```powershell
 run_server.cmd
@@ -102,9 +84,12 @@ For a non-interactive launch, use `run_server.cmd local --db .\database\volumes.
 Explicit mode commands use only the arguments you provide. The server command keeps its terminal
 occupied. Run later CLI jobs in a second activated terminal.
 
-With direct `dj-sim serve`, open `http://127.0.0.1:8765/`. With `run_server.cmd`, open the printed
-live UI URL. The browser uses the current typed database, track, analysis, search, set, classifier,
-Lab, and exact-identity mutation responses.
+Without `--db`, the server starts with no selected database and creates no SQLite files. Use the
+database picker to select an existing compatible bundle or choose a new `.sqlite` path. Selecting
+a new path creates the Core database and its mandatory adjacent Artifacts database.
+
+Open the printed live UI URL. The browser uses the current typed database, track, analysis, search,
+set, classifier, Lab, and exact-identity mutation responses.
 
 ## 5. Check the backend and browser
 

@@ -103,13 +103,13 @@ if /I "%MODE%"=="lan" (
 echo Starting DJ Track Similarity UI server...
 echo.
 if defined DB_PATH echo Database: "%DB_PATH%"
-echo Live UI: %FRONTEND_URL%
+echo Open UI: %FRONTEND_URL%
 echo Backend API: http://127.0.0.1:%PORT%/
 if /I "%MODE%"=="lan" (
     if defined LAN_IP (
-        echo Local network backend: http://%LAN_IP%:%PORT%/
+        echo Local network UI: http://%LAN_IP%:%FRONTEND_PORT%/
     ) else (
-        echo Local network backend: http://^<this-computer-lan-ip^>:%PORT%/
+        echo Local network UI: http://^<this-computer-lan-ip^>:%FRONTEND_PORT%/
     )
     echo.
     echo Leave this window open while using the UI.
@@ -144,8 +144,8 @@ exit /b 0
 
 :prompt_mode
 echo Choose server mode:
-echo   1. Local only     http://127.0.0.1:%PORT%/
-echo   2. Local network  http://^<this-computer-lan-ip^>:%PORT%/
+echo   1. Local only     http://127.0.0.1:%FRONTEND_PORT%/
+echo   2. Local network  http://^<this-computer-lan-ip^>:%FRONTEND_PORT%/
 echo.
 set "MODE_CHOICE="
 set /p "MODE_CHOICE=Mode [1/2, default 1]: "

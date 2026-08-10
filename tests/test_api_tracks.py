@@ -39,7 +39,6 @@ def _add_track(
             file_size_bytes=stat.st_size,
             file_modified_ns=stat.st_mtime_ns,
             audio_format=path.suffix.lstrip("."),
-            audio_codec="pcm_s16le",
             sample_rate_hz=44_100,
             channel_count=2,
             bit_rate_bps=1_411_200,
@@ -231,6 +230,8 @@ def test_track_detail_endpoint_returns_full_typed_tags(
     assert payload["track_uuid"] == identity.track_uuid
     assert payload["content_generation"] == identity.content_generation
     assert payload["file_tags"]["comment"] == "stored comment"
+    assert "audio_codec" not in payload["file"]
+    assert payload["file"]["bit_depth"] is None
     assert "catalog_number" not in payload["file_tags"]
     assert "isrc" not in payload["file_tags"]
     assert "disc_number" not in payload["file_tags"]
@@ -276,10 +277,10 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
                 file_size_bytes=5,
                 file_modified_ns=1,
                 audio_format="wav",
-                audio_codec="pcm_s16le",
                 sample_rate_hz=44_100,
                 channel_count=2,
                 bit_rate_bps=1_411_200,
+                bit_depth=16,
                 audio_duration_seconds=1.0,
                 last_scanned_at="2026-07-30T00:00:00Z",
                 missing_since=None,

@@ -461,6 +461,11 @@ def test_apply_backs_up_then_migrates_and_reports_excluded_derived_rows(
             "2025-01-02T00:00:00Z",
         )
         assert core.execute("SELECT title FROM file_tags").fetchone()[0] == "One"
+        track_columns = {
+            str(row[1]) for row in core.execute("PRAGMA table_info(tracks)")
+        }
+        assert "audio_codec" not in track_columns
+        assert "bit_depth" in track_columns
         assert core.execute("SELECT COUNT(*) FROM likes").fetchone()[0] == 1
         assert core.execute("SELECT COUNT(*) FROM maest_scores").fetchone()[0] == 1
         assert core.execute("SELECT COUNT(*) FROM classifier_scores").fetchone()[0] == 0

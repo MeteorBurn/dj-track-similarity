@@ -78,10 +78,10 @@ CREATE TABLE tracks (
     file_size_bytes         INTEGER NOT NULL CHECK(file_size_bytes >= 0),
     file_modified_ns        INTEGER NOT NULL CHECK(file_modified_ns >= 0),
     audio_format            TEXT,
-    audio_codec             TEXT,
     sample_rate_hz          INTEGER CHECK(sample_rate_hz IS NULL OR sample_rate_hz > 0),
     channel_count           INTEGER CHECK(channel_count   IS NULL OR channel_count   > 0),
     bit_rate_bps            INTEGER CHECK(bit_rate_bps    IS NULL OR bit_rate_bps    > 0),
+    bit_depth               INTEGER CHECK(bit_depth       IS NULL OR bit_depth       > 0),
     audio_duration_seconds  REAL    CHECK(
         audio_duration_seconds IS NULL
         OR (

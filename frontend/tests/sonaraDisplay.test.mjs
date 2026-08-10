@@ -56,6 +56,8 @@ test("metadata copies the canonical file_path", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /copyTextToClipboard\(track\.file_path\)/);
-  assert.match(source, /aria-label=\{`Copy file path: \$\{track\.file_path\}`\}/);
+  assert.match(source, /Copy file path/);
+  assert.match(source, /copyTextToClipboard\(displayTrack\(track\)\)/);
+  assert.match(source, /Copy file name/);
   assert.doesNotMatch(source, /track\.path/);
 });

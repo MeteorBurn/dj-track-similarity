@@ -21,6 +21,7 @@ from .scanner import (
     read_audio_metadata,
     read_audio_metadata_stable,
     scan_audio_file,
+    scanned_file_from_metadata,
 )
 from .track_models import TrackFileState
 
@@ -413,11 +414,21 @@ class ScanJobManager:
             self.repository.refresh_file_tags(
                 expected,
                 file_tags_from_metadata(path, metadata),
+                technical_file=(
+                    scanned_file_from_metadata(
+                        path,
+                        metadata,
+                        file_size_bytes=int(stable_stat.st_size),
+                        file_modified_ns=int(stable_stat.st_mtime_ns),
+                    )
+                    if "audio_format" in metadata
+                    else None
+                ),
             )
             self._increment(
                 job_id,
                 updated=1,
-                message="Tags refreshed",
+                message="Tags and technical metadata refreshed",
                 level="ok",
                 path=str(path),
             )

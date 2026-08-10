@@ -101,7 +101,7 @@ def test_read_audio_metadata_uses_fixed_tag_whitelist(
 ) -> None:
     class FakeInfo:
         length = 123.4
-        codec = "FLAC"
+        bits_per_sample = 24
 
     class FakeAudio:
         info = FakeInfo()
@@ -124,8 +124,8 @@ def test_read_audio_metadata_uses_fixed_tag_whitelist(
 
     assert metadata == {
         "artist": "Artist",
-        "audio_codec": "FLAC",
         "audio_format": "FLAC",
+        "bit_depth": 24,
         "duration": 123.4,
         "genre": "Deep Techno",
         "country": "DE",

@@ -29,7 +29,6 @@ def _add_track(
             file_size_bytes=stat.st_size,
             file_modified_ns=stat.st_mtime_ns,
             audio_format="wav",
-            audio_codec="pcm_s16le",
             sample_rate_hz=44_100,
             channel_count=2,
             audio_duration_seconds=1.0,

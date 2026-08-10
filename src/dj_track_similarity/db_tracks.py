@@ -179,6 +179,7 @@ def _validate_file_facts(file: ScannedFile) -> None:
     _require_optional_positive_int("sample_rate_hz", file.sample_rate_hz)
     _require_optional_positive_int("channel_count", file.channel_count)
     _require_optional_positive_int("bit_rate_bps", file.bit_rate_bps)
+    _require_optional_positive_int("bit_depth", file.bit_depth)
     _require_optional_positive_float(
         "audio_duration_seconds",
         file.audio_duration_seconds,
@@ -655,10 +656,10 @@ class TrackRepository:
                                 file_size_bytes,
                                 file_modified_ns,
                                 audio_format,
-                                audio_codec,
                                 sample_rate_hz,
                                 channel_count,
                                 bit_rate_bps,
+                                bit_depth,
                                 audio_duration_seconds,
                                 content_generation,
                                 last_scanned_at,
@@ -673,10 +674,10 @@ class TrackRepository:
                                 int(file.file_size_bytes),
                                 int(file.file_modified_ns),
                                 file.audio_format,
-                                file.audio_codec,
                                 file.sample_rate_hz,
                                 file.channel_count,
                                 file.bit_rate_bps,
+                                file.bit_depth,
                                 audio_duration_seconds,
                                 timestamp,
                                 timestamp,
@@ -742,10 +743,10 @@ class TrackRepository:
                                     file_size_bytes = ?,
                                     file_modified_ns = ?,
                                     audio_format = ?,
-                                    audio_codec = ?,
                                     sample_rate_hz = ?,
                                     channel_count = ?,
                                     bit_rate_bps = ?,
+                                    bit_depth = ?,
                                     audio_duration_seconds = ?,
                                     content_generation = ?,
                                     last_scanned_at = ?,
@@ -758,10 +759,10 @@ class TrackRepository:
                                     int(file.file_size_bytes),
                                     int(file.file_modified_ns),
                                     file.audio_format,
-                                    file.audio_codec,
                                     file.sample_rate_hz,
                                     file.channel_count,
                                     file.bit_rate_bps,
+                                    file.bit_depth,
                                     audio_duration_seconds,
                                     next_generation,
                                     timestamp,
@@ -798,13 +799,25 @@ class TrackRepository:
         expected: TrackFileState,
         tags: FileTags,
         *,
+        technical_file: ScannedFile | None = None,
         tags_read_at: str | None = None,
     ) -> TrackIdentity:
-        """Refresh typed file tags only for one unchanged source snapshot."""
+        """Refresh tags and technical facts for one unchanged source snapshot."""
 
         if not isinstance(expected, TrackFileState):
             raise TypeError("expected must be a TrackFileState")
         _validate_tags(tags)
+        if technical_file is not None:
+            _validate_file_facts(technical_file)
+            if (
+                resolved_file_path(technical_file.file_path)
+                != resolved_file_path(expected.file_path)
+                or int(technical_file.file_size_bytes) != expected.file_size_bytes
+                or int(technical_file.file_modified_ns) != expected.file_modified_ns
+            ):
+                raise ValueError(
+                    "technical_file must match the expected source file snapshot"
+                )
         timestamp = _timestamp_or_now(tags_read_at)
         source_path = Path(resolved_file_path(expected.file_path))
         with self._write_lock:
@@ -824,6 +837,33 @@ class TrackRepository:
                     if before_facts != expected_facts:
                         raise RuntimeError(
                             "Source file changed before tag refresh could be recorded"
+                        )
+                    if technical_file is not None:
+                        connection.execute(
+                            """
+                            UPDATE tracks
+                            SET audio_format = ?,
+                                sample_rate_hz = ?,
+                                channel_count = ?,
+                                bit_rate_bps = ?,
+                                bit_depth = ?,
+                                audio_duration_seconds = ?,
+                                last_scanned_at = ?,
+                                missing_since = NULL
+                            WHERE track_id = ?
+                            """,
+                            (
+                                technical_file.audio_format,
+                                technical_file.sample_rate_hz,
+                                technical_file.channel_count,
+                                technical_file.bit_rate_bps,
+                                technical_file.bit_depth,
+                                _normalized_audio_duration(
+                                    technical_file.audio_duration_seconds
+                                ),
+                                timestamp,
+                                expected.track_id,
+                            ),
                         )
                     _upsert_file_tags(
                         connection,

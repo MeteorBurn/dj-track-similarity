@@ -1,8 +1,8 @@
-import { Check, Copy, X } from "lucide-react";
+import { Check, Copy, Pause, Play, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
-import { basename, displayTrack } from "./trackDisplay";
+import { displayTrack } from "./trackDisplay";
 
 type MetadataEntry = readonly [label: string, value: string];
 type CoreFeature = {
@@ -146,7 +146,10 @@ function feature(key: keyof SonaraCore, label: string, description: string): Cor
 export function metadataDialogModel(track: TrackDetail) {
   const genres = track.maest?.genres ?? [];
   return {
-    primaryEntries: readablePrimaryTrackInfo(track),
+    trackDetailsEntries: readablePrimaryTrackInfo(track),
+    tagEntries: readableTagInfo(track),
+    audioEntries: readableAudioData(track),
+    scanEntries: readableScanDetails(track),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
     classifierScores: readableClassifierScores(track),
     embeddings: readableEmbeddings(track),
@@ -158,19 +161,32 @@ export function metadataDialogModel(track: TrackDetail) {
 export function TrackMetadataDialog({
   track,
   onClose,
+  onPreview,
+  playingTrackId,
 }: {
   track: TrackDetail;
   onClose: () => void;
+  onPreview: (track: TrackDetail) => void;
+  playingTrackId: number | null;
 }) {
   const [filePathCopied, setFilePathCopied] = useState(false);
+  const [fileNameCopied, setFileNameCopied] = useState(false);
   const view = metadataDialogModel(track);
   const sonaraFeatureCount = view.coreGroups.reduce((total, group) => total + group.features.length, 0);
+  const previewActive = playingTrackId === track.track_id;
 
   async function copyFilePath() {
     const copied = await copyTextToClipboard(track.file_path);
     if (!copied) return;
     setFilePathCopied(true);
     window.setTimeout(() => setFilePathCopied(false), 1400);
+  }
+
+  async function copyFileName() {
+    const copied = await copyTextToClipboard(displayTrack(track));
+    if (!copied) return;
+    setFileNameCopied(true);
+    window.setTimeout(() => setFileNameCopied(false), 1400);
   }
 
   return (
@@ -182,22 +198,7 @@ export function TrackMetadataDialog({
         aria-label="Теги и анализ трека"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="dialog-title">
-          <div>
-            <h2 className="metadata-track-title">{displayTrack(track)}</h2>
-            {view.genres.length || view.syncopatedRhythm ? (
-              <div className="genre-list metadata-title-genre-row">
-                {view.genres.map((genre) => (
-                  <span className="genre-pill" key={`${genre.rank}:${genre.genre_name}`}>
-                    {formatMaestGenreLabel(genre.genre_name)} <b>{formatConfidence(genre.score)}</b>
-                  </span>
-                ))}
-                {view.syncopatedRhythm ? (
-                  <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+        <div className="metadata-dialog-close-actions">
           <button
             className="icon-button close-metadata-dialog-button"
             title="Закрыть"
@@ -208,24 +209,64 @@ export function TrackMetadataDialog({
             <X size={15} />
           </button>
         </div>
+        <div className="dialog-title">
+          <h2 className="metadata-track-title">
+            <span>{displayTrack(track)}</span>
+            <button
+              className="icon-button metadata-preview-button"
+              title={previewActive ? "Pause preview" : "Preview"}
+              aria-label={`${previewActive ? "Pause" : "Preview"} ${displayTrack(track)}`}
+              onClick={() => onPreview(track)}
+              type="button"
+            >
+              {previewActive ? <Pause size={16} /> : <Play size={16} />}
+            </button>
+          </h2>
+        </div>
+
+        <div className="maest-genres-block">
+          <span className="sonara-feature-group-title">MAEST Genres</span>
+          {view.genres.length || view.syncopatedRhythm ? (
+            <div className="genre-list">
+                {view.genres.map((genre) => (
+                  <span className="genre-pill" key={`${genre.rank}:${genre.genre_name}`}>
+                    {formatMaestGenreLabel(genre.genre_name)} <b>{formatConfidence(genre.score)}</b>
+                  </span>
+                ))}
+                {view.syncopatedRhythm ? (
+                  <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span>
+                ) : null}
+            </div>
+          ) : (
+            <span className="maest-genres-empty">MAEST genre data is not available.</span>
+          )}
+        </div>
 
         <div className="mutagen-block">
-          <strong>Tags</strong>
+          <strong>Track Details</strong>
           <dl className="metadata-grid mutagen-grid">
-            {view.primaryEntries.map(([label, value]) => (
+            {view.trackDetailsEntries.map(([label, value]) => (
               <Fragment key={label}>
                 <dt>{label}</dt>
-                {label === "File Path" ? (
+                {label === "File Path" || label === "File Name" ? (
                   <dd className="metadata-file-path-row">
                     <span className="metadata-file-path-value">{value}</span>
                     <button
                       className="icon-button metadata-copy-path-button"
-                      title={filePathCopied ? "Copied" : "Copy file path"}
-                      aria-label={`Copy file path: ${track.file_path}`}
-                      onClick={() => void copyFilePath()}
+                      title={
+                        label === "File Path"
+                          ? filePathCopied ? "Copied" : "Copy file path"
+                          : fileNameCopied ? "Copied" : "Copy file name"
+                      }
+                      aria-label={
+                        label === "File Path"
+                          ? `Copy file path: ${track.file_path}`
+                          : `Copy file name: ${displayTrack(track)}`
+                      }
+                      onClick={() => void (label === "File Path" ? copyFilePath() : copyFileName())}
                       type="button"
                     >
-                      {filePathCopied ? <Check size={14} /> : <Copy size={14} />}
+                      {(label === "File Path" ? filePathCopied : fileNameCopied) ? <Check size={14} /> : <Copy size={14} />}
                     </button>
                   </dd>
                 ) : (
@@ -234,7 +275,40 @@ export function TrackMetadataDialog({
               </Fragment>
             ))}
           </dl>
+          <span className="sonara-feature-group-title">Tags</span>
+          <dl className="metadata-grid mutagen-grid">
+            {view.tagEntries.map(([label, value]) => (
+              <Fragment key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </Fragment>
+            ))}
+          </dl>
         </div>
+
+        <div className="mutagen-block">
+          <span className="sonara-feature-group-title">Data</span>
+          <dl className="metadata-grid mutagen-grid">
+            {view.audioEntries.map(([label, value]) => (
+              <Fragment key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+
+        <details className="metadata-scan-state">
+          <summary>Scan details</summary>
+          <dl className="metadata-grid mutagen-grid">
+            {view.scanEntries.map(([label, value]) => (
+              <Fragment key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </details>
 
         <div className="sonara-block">
           <strong>SONARA · Core</strong>
@@ -294,12 +368,17 @@ export function TrackMetadataDialog({
 }
 
 function readablePrimaryTrackInfo(track: TrackDetail): MetadataEntry[] {
+  return [
+    ["File Name", displayTrack(track)],
+    ["File Path", track.file_path],
+    ["File Size", formatFileSizeMb(track.file.file_size_bytes)],
+  ];
+}
+
+function readableTagInfo(track: TrackDetail): MetadataEntry[] {
   const tags = track.file_tags;
   const duration = track.file.audio_duration_seconds ?? track.audio_duration_seconds;
   return [
-    ["File Path", track.file_path],
-    ["File Name", basename(track.file_path)],
-    ["File Size", formatFileSizeMb(track.file.file_size_bytes)],
     ["Title", formatOptionalText(tags?.title ?? track.title)],
     ["Artist", formatOptionalText(tags?.artist ?? track.artist)],
     ["Album", formatOptionalText(tags?.album ?? track.album)],
@@ -307,15 +386,27 @@ function readablePrimaryTrackInfo(track: TrackDetail): MetadataEntry[] {
     ["Country", formatOptionalText(tags?.country ?? null)],
     ["Label", formatOptionalText(tags?.label ?? null)],
     ["Genre", tags?.genres.length ? tags.genres.join(", ") : "-"],
+    ["Duration", formatDuration(duration)],
     ["BPM", formatOptionalNumber(tags?.tag_bpm ?? track.tag_bpm)],
     ["Key", formatOptionalText(tags?.tag_key ?? track.tag_key)],
     ["Comment", formatOptionalText(tags?.comment ?? null)],
+  ];
+}
+
+function readableAudioData(track: TrackDetail): MetadataEntry[] {
+  const duration = track.file.audio_duration_seconds ?? track.audio_duration_seconds;
+  return [
     ["Audio Length", formatAudioLength(duration)],
     ["Audio Format", formatOptionalText(track.file.audio_format)],
-    ["Audio Codec", formatOptionalText(track.file.audio_codec)],
     ["Sample Rate", formatFrequency(track.file.sample_rate_hz)],
     ["Bit Rate", formatBitRate(track.file.bit_rate_bps)],
-    ["Channels", formatOptionalNumber(track.file.channel_count)],
+    ["Bit Depth", formatBitDepth(track.file.bit_depth)],
+    ["Channels", formatChannelCount(track.file.channel_count)],
+  ];
+}
+
+function readableScanDetails(track: TrackDetail): MetadataEntry[] {
+  return [
     ["Last Scanned", formatTimestamp(track.file.last_scanned_at)],
     ["Missing Since", formatTimestamp(track.file.missing_since)],
   ];
@@ -577,7 +668,7 @@ function formatDuration(seconds: number | null) {
 
 function formatAudioLength(seconds: number | null) {
   if (seconds == null || !Number.isFinite(seconds)) return "-";
-  return `${formatDuration(seconds)} (${seconds.toFixed(2)} sec.)`;
+  return seconds.toFixed(2);
 }
 
 function formatTimestamp(value: string | null) {
@@ -608,6 +699,18 @@ function formatFrequency(value: number | null) {
 function formatBitRate(value: number | null) {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${Math.round(value / 1000)} kbps`;
+}
+
+function formatBitDepth(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return `${value}-bit`;
+}
+
+function formatChannelCount(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  if (value === 1) return "Mono (1)";
+  if (value === 2) return "Stereo (2)";
+  return `${value} channels`;
 }
 
 function formatFileSizeMb(bytes: number) {

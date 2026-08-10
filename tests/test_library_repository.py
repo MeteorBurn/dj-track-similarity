@@ -121,11 +121,11 @@ def _insert_track(
             """
             INSERT INTO tracks (
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
-                audio_format, audio_codec, sample_rate_hz, channel_count,
+                audio_format, sample_rate_hz, channel_count,
                 bit_rate_bps, audio_duration_seconds, content_generation,
                 last_scanned_at, missing_since, created_at, updated_at
             ) VALUES (
-                ?, ?, 12345, 987654321, 'flac', 'flac', 44100, 2,
+                ?, ?, 12345, 987654321, 'flac', 44100, 2,
                 1411200, 300.0, 1, ?, ?, ?, ?
             )
             """,

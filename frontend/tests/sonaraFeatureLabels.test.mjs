@@ -43,12 +43,15 @@ test("metadata descriptions keep model outputs as ranking signals", () => {
 test("metadata header and file block are driven by the current detail", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /metadata-track-title">\{displayTrack\(track\)\}/);
-  assert.match(source, /<strong>Tags<\/strong>/);
+  assert.match(source, /metadata-track-title">\s*<span>\{displayTrack\(track\)\}<\/span>/);
+  assert.match(source, /metadata-track-title[\s\S]*metadata-preview-button/);
+  assert.match(source, /className="metadata-dialog-close-actions"/);
+  assert.doesNotMatch(source, /metadata-dialog-actions/);
+  assert.match(source, /<strong>Track Details<\/strong>/);
   assert.match(source, /\["Audio Length", formatAudioLength\(duration\)\]/);
   assert.match(source, /seconds\.toFixed\(2\)/);
   assert.match(source, /\["Last Scanned", formatTimestamp\(track\.file\.last_scanned_at\)\]/);
-  assert.match(source, /\["File Name", basename\(track\.file_path\)\]/);
+  assert.match(source, /\["File Name", displayTrack\(track\)\]/);
   assert.match(source, /\["File Path", track\.file_path\]/);
 });
 
@@ -69,10 +72,11 @@ test("metadata reads exact file_tags fields without legacy metadata fallback", (
   assert.doesNotMatch(source, /track\.metadata|track\.genre_scores|track\.genres/);
 });
 
-test("metadata title shows MAEST genres instead of analysis badges", () => {
+test("metadata renders MAEST genres in a dedicated block instead of analysis badges", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /className="genre-list metadata-title-genre-row"/);
+  assert.match(source, /className="maest-genres-block"/);
+  assert.match(source, /MAEST genre data is not available/);
   assert.doesNotMatch(source, /analysis-badge-row|analysis-badge|readableAnalysisBadges|trackHasAnalysis/);
 });
 

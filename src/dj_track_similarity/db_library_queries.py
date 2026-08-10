@@ -281,10 +281,10 @@ def _base_select_fields() -> str:
         t.file_size_bytes,
         t.file_modified_ns,
         t.audio_format,
-        t.audio_codec,
         t.sample_rate_hz,
         t.channel_count,
         t.bit_rate_bps,
+        t.bit_depth,
         t.audio_duration_seconds,
         t.last_scanned_at,
         t.missing_since,
@@ -1457,10 +1457,10 @@ class LibraryQueryRepository:
                     file_size_bytes=int(row["file_size_bytes"]),
                     file_modified_ns=int(row["file_modified_ns"]),
                     audio_format=_optional_text(row["audio_format"]),
-                    audio_codec=_optional_text(row["audio_codec"]),
                     sample_rate_hz=_optional_int(row["sample_rate_hz"]),
                     channel_count=_optional_int(row["channel_count"]),
                     bit_rate_bps=_optional_int(row["bit_rate_bps"]),
+                    bit_depth=_optional_int(row["bit_depth"]),
                     audio_duration_seconds=_optional_float(
                         row["audio_duration_seconds"]
                     ),

@@ -230,13 +230,16 @@ def read_audio_metadata(path: str | Path) -> dict[str, object]:
     bit_rate = _positive_int_or_none(getattr(info, "bitrate", None))
     if bit_rate is not None:
         metadata["bit_rate_bps"] = bit_rate
+    bit_depth = _positive_int_or_none(
+        getattr(info, "bits_per_sample", None)
+        or getattr(info, "sample_size", None)
+    )
+    if bit_depth is not None:
+        metadata["bit_depth"] = bit_depth
 
     audio_format = _audio_format(audio, audio_path)
     if audio_format:
         metadata["audio_format"] = audio_format
-    audio_codec = _audio_codec(audio, info)
-    if audio_codec:
-        metadata["audio_codec"] = audio_codec
 
     tags = getattr(audio, "tags", None)
     if not tags:
@@ -261,10 +264,10 @@ def scanned_file_from_metadata(
         file_size_bytes=int(file_size_bytes),
         file_modified_ns=int(file_modified_ns),
         audio_format=_string_or_none(metadata.get("audio_format")),
-        audio_codec=_string_or_none(metadata.get("audio_codec")),
         sample_rate_hz=_positive_int_or_none(metadata.get("sample_rate_hz")),
         channel_count=_positive_int_or_none(metadata.get("channel_count")),
         bit_rate_bps=_positive_int_or_none(metadata.get("bit_rate_bps")),
+        bit_depth=_positive_int_or_none(metadata.get("bit_depth")),
         audio_duration_seconds=_positive_float_or_none(
             metadata.get("duration")
         ),
@@ -397,20 +400,3 @@ def _audio_format_from_mime(mime: str) -> str | None:
     if cleaned.startswith("audio/"):
         cleaned = cleaned.removeprefix("audio/")
     return DISPLAY_AUDIO_FORMATS.get(f".{cleaned}") or cleaned.upper()
-
-
-def _audio_codec(audio: object, info: object | None) -> str | None:
-    for source in (info, audio):
-        if source is None:
-            continue
-        for attribute in ("codec", "codec_name", "encoder_info", "pprint"):
-            value = getattr(source, attribute, None)
-            if callable(value):
-                try:
-                    value = value()
-                except Exception:
-                    continue
-            text = _string_or_none(value)
-            if text:
-                return text
-    return None

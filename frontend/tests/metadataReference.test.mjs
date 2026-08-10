@@ -108,10 +108,10 @@ function detail() {
       file_size_bytes: 40 * 1024 * 1024,
       file_modified_ns: 1,
       audio_format: "audio/flac",
-      audio_codec: "FLAC",
       sample_rate_hz: 48000,
       channel_count: 2,
       bit_rate_bps: 1000000,
+      bit_depth: 24,
       audio_duration_seconds: 247.37,
       last_scanned_at: "2026-07-24T10:00:00.123456Z",
       missing_since: null,
@@ -196,10 +196,10 @@ function expectedLocalTimestamp(value) {
   ].join(" ");
 }
 
-test("track display and analysis coverage use only current summary fields", () => {
-  const track = summary({ title: null, artist: null });
+test("track display uses the file path stem instead of tags", () => {
+  const track = summary();
 
-  assert.equal(trackDisplay.displayTrack(track), "Artist - Track.flac");
+  assert.equal(trackDisplay.displayTrack(track), "Artist - Track");
   assert.equal(trackDisplay.trackHasAnalysis(track, "sonara"), true);
   assert.equal(trackDisplay.trackHasAnalysis(track, "maest"), true);
   assert.equal(trackDisplay.trackHasAnalysis(track, "muq"), true);
@@ -246,15 +246,17 @@ test("syncopated rhythm reads the detailed MAEST record", () => {
 
 test("metadata model maps detailed file tags MuQ and classifiers", () => {
   const model = metadataDialog.metadataDialogModel(detail());
-  const entries = Array.from(
-    model.primaryEntries,
+  const trackDetailsEntries = Array.from(
+    model.trackDetailsEntries,
     ([label, value]) => [label, value],
   );
 
-  assert.deepEqual(entries, [
+  assert.deepEqual(trackDetailsEntries, [
+    ["File Name", "Artist - Track"],
     ["File Path", "D:/Music/Artist - Track.flac"],
-    ["File Name", "Artist - Track.flac"],
     ["File Size", "40.00 MB"],
+  ]);
+  assert.deepEqual(Array.from(model.tagEntries, ([label, value]) => [label, value]), [
     ["Title", "Track"],
     ["Artist", "Artist"],
     ["Album", "Album"],
@@ -262,21 +264,26 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
     ["Country", "UA"],
     ["Label", "Label"],
     ["Genre", "Breakbeat"],
+    ["Duration", "4:07"],
     ["BPM", "128"],
     ["Key", "8A"],
     ["Comment", "Club mix"],
-    ["Audio Length", "4:07 (247.37 sec.)"],
+  ]);
+  assert.deepEqual(Array.from(model.audioEntries, ([label, value]) => [label, value]), [
+    ["Audio Length", "247.37"],
     ["Audio Format", "audio/flac"],
-    ["Audio Codec", "FLAC"],
     ["Sample Rate", "48,000 Hz"],
     ["Bit Rate", "1000 kbps"],
-    ["Channels", "2"],
+    ["Bit Depth", "24-bit"],
+    ["Channels", "Stereo (2)"],
+  ]);
+  assert.deepEqual(Array.from(model.scanEntries, ([label, value]) => [label, value]), [
     ["Last Scanned", expectedLocalTimestamp("2026-07-24T10:00:00.123456Z")],
     ["Missing Since", "-"],
   ]);
-  assert.equal(model.tagEntries, undefined);
   assert.equal(model.analysisBadges, undefined);
   assert.equal(model.syncopatedRhythm, true);
+  assert.equal(new Map(model.audioEntries).has("Audio Codec"), false);
   assert.equal(model.embeddings[0].label, "MUQ");
   assert.match(model.embeddings[0].value, /1024D/);
   assert.ok(model.embeddings[0].value.includes(expectedLocalTimestamp("2026-07-24T10:03:00Z")));
@@ -286,6 +293,8 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
     model.classifierScores[0].featureNames,
     ["muq:embedding_0", "sonara:energy_score", "muq:embedding_1"]
   );
+
+  assert.equal(new Map(model.audioEntries).get("Audio Format"), "audio/flac");
 });
 
 test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => {

@@ -61,10 +61,10 @@ export interface FileTechnical {
     file_size_bytes: number;
     file_modified_ns: number;
     audio_format: string | null;
-    audio_codec: string | null;
     sample_rate_hz: number | null;
     channel_count: number | null;
     bit_rate_bps: number | null;
+    bit_depth: number | null;
     audio_duration_seconds: number | null;
     last_scanned_at: string;
     missing_since: string | null;

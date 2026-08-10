@@ -1,8 +1,7 @@
 import type { AnalysisModel, TrackSummary } from "./api";
 
 export function displayTrack(track: TrackSummary) {
-  if (track.artist && track.title) return `${track.artist} - ${track.title}`;
-  return track.title || basename(track.file_path) || track.file_path;
+  return stem(track.file_path);
 }
 
 export function sameTrackIdentity(
@@ -25,6 +24,12 @@ export function trackHasAnalysis(track: TrackSummary, adapter: AnalysisModel) {
 
 export function basename(path: string) {
   return path.split(/[\\/]/).pop() || path;
+}
+
+function stem(path: string) {
+  const name = basename(path);
+  const extensionStart = name.lastIndexOf(".");
+  return extensionStart > 0 ? name.slice(0, extensionStart) : name;
 }
 
 export function formatEta(seconds: number) {

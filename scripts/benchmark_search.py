@@ -186,7 +186,6 @@ def _insert_synthetic_tracks(
                 file_size_bytes=1_024 + index,
                 file_modified_ns=1_000_000_000 + index,
                 audio_format="wav",
-                audio_codec="pcm_s16le",
                 sample_rate_hz=44_100,
                 channel_count=2,
                 bit_rate_bps=1_411_200,

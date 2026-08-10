@@ -490,10 +490,10 @@ class FileTechnicalResponse(_ResponseModel):
     file_size_bytes: int
     file_modified_ns: int
     audio_format: str | None
-    audio_codec: str | None
     sample_rate_hz: int | None
     channel_count: int | None
     bit_rate_bps: int | None
+    bit_depth: int | None
     audio_duration_seconds: float | None
     last_scanned_at: str
     missing_since: str | None

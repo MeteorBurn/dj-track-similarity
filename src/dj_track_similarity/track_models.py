@@ -46,10 +46,10 @@ class ScannedFile:
     file_size_bytes: int
     file_modified_ns: int
     audio_format: str | None = None
-    audio_codec: str | None = None
     sample_rate_hz: int | None = None
     channel_count: int | None = None
     bit_rate_bps: int | None = None
+    bit_depth: int | None = None
     audio_duration_seconds: float | None = None
 
 

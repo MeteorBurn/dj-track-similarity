@@ -350,12 +350,21 @@ def test_parallel_tag_refresh_updates_tags_and_fts_without_generation_change(
             )
         }
 
+    with database.connect() as connection:
+        connection.execute("UPDATE tracks SET bit_depth = NULL")
+
     monkeypatch.setattr(
         scan_jobs_module,
         "read_audio_metadata",
         lambda path: {
             "title": f"Refreshed {Path(path).stem}",
             "artist": "Refresh Artist",
+            "audio_format": "Wave",
+            "sample_rate_hz": 44_100,
+            "channel_count": 1,
+            "bit_rate_bps": 705_600,
+            "bit_depth": 16,
+            "duration": 1.0,
         },
     )
     job_id = manager.create_tag_refresh_job(workers=3)
@@ -395,9 +404,16 @@ def test_parallel_tag_refresh_updates_tags_and_fts_without_generation_change(
             WHERE track_search_fts MATCH '"Refresh"'
             """
         ).fetchone()[0]
+        bit_depths = [
+            row[0]
+            for row in connection.execute(
+                "SELECT bit_depth FROM tracks ORDER BY track_id"
+            )
+        ]
     assert after == before
     assert all(title.startswith("Refreshed track-") for title in refreshed_titles)
     assert int(fts_matches) == 4
+    assert bit_depths == [16, 16, 16, 16]
 
 
 def test_windows_runtime_path_variants_do_not_duplicate_track(

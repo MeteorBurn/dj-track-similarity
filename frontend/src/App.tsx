@@ -1720,7 +1720,14 @@ export function App() {
           handleExport={(format) => void handleExport(format)}
         />
       </section>
-      {metadataTrack && <TrackMetadataDialog track={metadataTrack} onClose={() => setMetadataTrack(null)} />}
+      {metadataTrack && (
+        <TrackMetadataDialog
+          track={metadataTrack}
+          onClose={() => setMetadataTrack(null)}
+          onPreview={togglePreview}
+          playingTrackId={playingTrackId}
+        />
+      )}
       {confirmation && (
           <ConfirmationDialog
             request={confirmation}

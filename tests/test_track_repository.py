@@ -33,7 +33,6 @@ def _scanned_file(
         file_size_bytes=stat.st_size if size is None else size,
         file_modified_ns=(stat.st_mtime_ns if modified_ns is None else modified_ns),
         audio_format="Wave",
-        audio_codec="PCM",
         sample_rate_hz=44_100,
         channel_count=2,
         bit_rate_bps=1_411_200,

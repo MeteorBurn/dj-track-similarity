@@ -1,7 +1,6 @@
 {
   "version": "0.2",
-  "language": "en,ru",
-  "ignoreRegExpList": ["/[А-Яа-яЁё]+/g"],
+  "language": "en",
   "words": [
     "AGENTS", "AIFF", "ALAC", "CLAP", "Diataxis", "FFmpeg", "MAEST", "MERT", "Mutagen", "PyTorch", "Rhythm", "SONARA", "SQLite", "TCON", "Torchaudio", "Typer", "VitePress", "Vorbis", "WAL", "classifier", "classifiers", "crates", "cuda", "dedup", "embeddings", "frontend", "metadata", "multiclass", "pytest", "rescoring", "retag", "shortlist", "syncopated", "transcoded", "venv"
   ],

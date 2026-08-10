@@ -72,19 +72,6 @@ direct verification.
   by SET, Hybrid, Audio Dedup, and classifiers. Do not substitute MuQ, MERT,
   MAEST, CLAP, or SONARA evidence for another family.
 
-## Connected SONARA Repository
-
-This project consumes SONARA from `C:\projects\sonara`.
-
-Before SONARA work:
-
-1. Read `C:\projects\sonara\AGENTS.md`.
-2. Inspect Git status in both repositories.
-3. Keep Git commands scoped to the intended repository.
-
-By default, SONARA audits are fetch/inspection only. Build release wheels
-outside both checkouts and smoke-test wheels in an isolated environment.
-
 ## Development Workflow
 
 - Work directly on `main` for this project unless the user asks for another

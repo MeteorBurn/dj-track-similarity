@@ -11,7 +11,6 @@ produce it.
 
 | Outcome | Workflow |
 | --- | --- |
-| A possible running order around a few anchors | [Prepare a set](./prepare-a-set.md) |
 | A short list around one reference track | [Find compatible tracks](./find-compatible-tracks.md) |
 | A broader pool to audition later | [Build crates](./build-crates.md) |
 | A reusable score for your own recurring concept | [Train a personal classifier](./train-personal-classifier.md) |
@@ -22,7 +21,6 @@ decides what survives.
 
 ## Pages
 
-- [Prepare a set](./prepare-a-set.md): seeds, search, SET preview, Hybrid check, export.
 - [Find compatible tracks](./find-compatible-tracks.md): one reference track to candidate list.
 - [Build crates](./build-crates.md): create listening pools and export them.
 - [Train a personal classifier](./train-personal-classifier.md): turn Rhythm Lab labels into a promoted score.

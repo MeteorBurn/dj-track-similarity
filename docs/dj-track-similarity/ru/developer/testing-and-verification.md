@@ -30,7 +30,7 @@ git diff --check
 - Rhythm Lab: `tools\rhythm-lab\tests\test_rhythm_lab.py`.
 - Выполнение и хранилище SONARA: `tests\test_sonara_features.py`,
   `tests\test_sonara_native_batch.py` и `tests\test_sonara_storage.py`.
-- Темп, Camelot, SET и переходы: `tests\test_tempo_resolution.py`, `tests\test_track_resolution.py`, `tests\test_set_builder.py` и `tests\test_transition_diagnostics.py`.
+- Темп, Camelot и переходы: `tests\test_tempo_resolution.py`, `tests\test_track_resolution.py` и `tests\test_transition_diagnostics.py`.
 - Совместимость классификаторов: `tests\test_classifier_productionization.py`, `tests\test_break_energy.py` и `tools\rhythm-lab\tests\test_rhythm_lab.py`.
 
 ## Безопасность

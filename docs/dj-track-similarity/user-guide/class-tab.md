@@ -22,7 +22,6 @@ question will return across many sessions.
 2. Training produces candidate artifacts that you review and promote.
 3. The main app scores compatible tracks for that promoted profile.
 4. The CLASS tab can filter by the stored score.
-5. SET can prefer, avoid, raise, or lower the concept through a preview.
 
 The backend reads promoted local profiles only when their manifest is valid and compatible with
 current scoring inputs. The browser lists those profiles in **CLASS**, shows each profile's blocker
@@ -46,7 +45,7 @@ Promotion verifies and syncs both generation files before atomically switching
 manifest, or model hash mismatch.
 
 The manifest describes the classifier key, labels, model id, calibration status, ordered feature
-names, required inputs, and optional Hybrid signal metadata. A SONARA-dependent feature set names
+names, and required inputs. A SONARA-dependent feature set names
 the SONARA values it uses, while `muq:<index>` features require the expected vector dimension.
 Artifacts with an incomplete or changed feature recipe remain visible with a blocker until that
 profile is retrained and promoted.
@@ -55,7 +54,7 @@ profile is retrained and promoted.
 
 Each promoted classifier appears with a slider from `0.00` to `1.00`. The library browser can filter tracks by minimum stored score for that classifier.
 
-Missing classifier scores do not pass a positive minimum filter. In SET and Hybrid modifiers, missing scores stay neutral.
+Missing classifier scores do not pass a positive minimum filter.
 
 ## Rescoring
 
@@ -77,12 +76,6 @@ selections; **FULL** is the explicit way to combine all stages in one ordered pi
 manifest-specific ready/not-ready counts and blockers. Missing inputs exclude a track before the job
 total is formed and do not create a partial score. Empty aggregate selection means all compatible
 promoted classifiers.
-
-## SET and Hybrid
-
-SET classifier preferences are signed. Negative values avoid the classifier concept, while positive values prefer it. Flow can stay flat or move upward/downward through the set.
-
-Hybrid preview can use classifier preference and risk metadata when a promoted manifest exposes a compatible signal. The Hybrid details panel shows whether classifier support was available, fresh, stale, missing, or neutral.
 
 ## When no profiles appear
 

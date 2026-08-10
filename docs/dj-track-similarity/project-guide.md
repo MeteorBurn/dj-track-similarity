@@ -13,8 +13,8 @@ the search space, show why a candidate appeared, and leave the musical decision 
 
 The backend, CLI, and React client use a structurally validated Core plus mandatory Artifacts
 bundle, with Evaluation only when needed. Normal startup refuses incompatible layouts and points to
-the explicit database migration command. The browser adds typed library, analysis, search, set,
-classifier, and Lab workflows on top of the same API.
+the explicit database migration command. The browser adds typed library, analysis, search, current
+set, classifier, and Lab workflows on top of the same API.
 
 ## What you can get from it
 
@@ -22,9 +22,9 @@ classifier, and Lab workflows on top of the same API.
 | --- | --- | --- |
 | You remember one useful track | MERT or SONARA seed search | A ranked list of nearby candidates to preview |
 | You can describe the sound, but not name a track | CLAP text search | A shortlist matched to an audible description |
-| You have a few anchors for a set | Smart Set Builder | An editable ordered preview with an energy and tempo direction |
+| You have useful candidates to collect | Current Set | An editable working list for preview and export |
 | You want a broad pool for later listening | Filters, seeds, or text search | A crate that you can export as CSV or M3U |
-| You repeatedly judge tracks by a personal idea | Rhythm Lab classifier | A reusable per-track score for filtering and gentle SET or Hybrid steering |
+| You repeatedly judge tracks by a personal idea | Rhythm Lab classifier | A reusable per-track score for CLASS filtering |
 
 Use this guide to choose the shortest route from your current idea to one of those results. Exact
 CLI, API, storage, and model details remain available in the reference section.
@@ -36,22 +36,19 @@ CLI, API, storage, and model details remain available in the reference section.
 3. Build a database with [First library](./getting-started/first-library.md).
 4. Add model data with [First analysis](./getting-started/first-analysis.md).
 5. Make a first shortlist with [Search with seed tracks](./user-guide/search-with-seeds.md) or [Text search](./user-guide/text-search.md).
-6. Preview the results by ear before building a crate or set.
+6. Preview the results by ear before adding them to a crate or the current set.
 
 ## If you want to prepare music
 
-- Use [Prepare a set](./workflows/prepare-a-set.md) for the full seed-to-export flow.
 - Use [Find compatible tracks](./workflows/find-compatible-tracks.md) when you have one or more reference tracks.
 - Use [Build crates](./workflows/build-crates.md) when you want a listening pool rather than a final order.
-- Use [Smart Set Builder](./user-guide/smart-set-builder.md) for SET controls and Hybrid preview.
 - Use [Text search](./user-guide/text-search.md) when you know the sound but not the seed.
 
 ## If you want to understand the signals
 
 - [Project idea](./concepts/project-idea.md) explains the local-first DJ set dramaturgy goal and the author's modest scope.
 - [Features, embeddings, and tags](./concepts/features-embeddings-tags.md) explains what each stored signal means.
-- [Similarity scores](./concepts/similarity-scores.md) explains why MERT, MuQ, SONARA, CLAP, SET, Hybrid, and Audio Dedup scores should not be mixed casually.
-- [SET routing](./concepts/smart-set-builder-routing.md) explains why the generated order is a preview, not a guarantee.
+- [Similarity scores](./concepts/similarity-scores.md) explains why MERT, MuQ, SONARA, CLAP, and Audio Dedup scores should not be mixed casually.
 - [Classifiers and Rhythm Lab](./concepts/classifiers-and-rhythm-lab.md) explains local classifier profiles and promoted scores.
 
 ## If you are maintaining a library

@@ -17,7 +17,7 @@ original location.
 
 Scanning does not make sound-based search available by itself. It creates the catalog first; the
 next step, [analysis](./first-analysis.md), adds audio evidence for similarity search, text search,
-and SET previews.
+LAB comparison, Audio Dedup, and classifiers.
 
 ## How the catalog is stored
 

@@ -27,12 +27,11 @@ Training adds maintenance: a weak or narrow label set produces a weak or narrow 
 ## What the finished workflow produces
 
 ```text
-your labels -> trained candidate -> promoted profile -> per-track scores -> CLASS / SET / Hybrid
+your labels -> trained candidate -> promoted profile -> per-track scores -> CLASS
 ```
 
 The final score is not a tag written into the audio and not an objective truth. It is a reusable
-ranking signal for one profile. The score can filter the library and steer SET toward or away from
-the concept. A promoted manifest may also expose it as diagnostic evidence in Hybrid.
+ranking signal for one profile. The score can filter the library through CLASS.
 
 Rhythm Lab is the classifier workspace. It uses the main SQLite library as source context and keeps
 labels, predictions, queues, and checkpoints in its own labels database.

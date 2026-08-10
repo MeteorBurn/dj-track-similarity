@@ -6,12 +6,12 @@
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | file paths decoded natively by SONARA/Symphonia | Core feature rows | SONARA search, SET, Hybrid, classifier input |
-| MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, SET, Hybrid, Audio Dedup signal, classifier input |
-| MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
-| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup signal, classifier input |
-| CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | seed and text search, SET, Hybrid, Audio Dedup signal, classifier input |
-| CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters, SET preferences, Hybrid diagnostics |
+| SONARA | file paths decoded natively by SONARA/Symphonia | Core feature rows | SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
+| MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters |
 
 ## Device behavior
 
@@ -25,7 +25,7 @@ SONARA uses its CPU runner. MAEST, MERT, MuQ, and CLAP use model adapters with t
 
 SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes paths to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns decoding and no FFmpeg or signal-analysis fallback is used.
 
-Tempo-aware search, transition diagnostics, and SET ordering resolve current SONARA evidence
+Tempo-aware search and transition diagnostics resolve current SONARA evidence
 first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.
 `grid_stability` can weaken reliability, and an unreliable estimate moves toward neutral instead of
 adding similarity or becoming an automatic hard rejection.
@@ -50,7 +50,7 @@ versions, or future contract.
 
 `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
 
-Core deliberately does not request SONARA's Full-only `time_signature` metrogram. It was not used by search, SET, Hybrid, or classifier inputs, while real-library results had no usable confidence and the calculation more than doubled Core compute time. Beatgrid uses SONARA's normal 4/4 fallback instead of consuming an untrusted meter estimate.
+Core deliberately does not request SONARA's Full-only `time_signature` metrogram. It was not used by search or classifier inputs, while real-library results had no usable confidence and the calculation more than doubled Core compute time. Beatgrid uses SONARA's normal 4/4 fallback instead of consuming an untrusted meter estimate.
 
 See [SONARA integration](./sonara-integration.md) for the current decode, storage, and update
 boundaries.
@@ -77,7 +77,7 @@ does not become a zero-valued feature. Mood, true peak, and ReplayGain remain ou
 scoring.
 
 Storage does not imply scoring. `mood_*` values are retained for inspection and future workflows but
-are not current SONARA similarity, SET, Hybrid, or Rhythm Lab classifier inputs. True peak and
+are not current SONARA similarity or Rhythm Lab classifier inputs. True peak and
 ReplayGain are not direct SONARA similarity dimensions. They are retained for possible
 loudness-management features. Loudness scalars remain available to the `sonara2` classifier
 variant, momentary loudness maximum and loudness range remain available to the existing SONARA

@@ -43,7 +43,7 @@ This is a personal enthusiast project first. It does not claim expert ML or musi
   <div><strong>Rediscover nearby tracks</strong><p>Start from a familiar track and audition a ranked neighborhood from your own collection.</p></div>
   <div><strong>Search for a sound</strong><p>Describe rhythm, texture, instruments, space, or energy when you do not have a reference track.</p></div>
   <div><strong>Draft a musical route</strong><p>Turn a few anchors into an editable sequence with a chosen energy, diversity, and tempo direction.</p></div>
-  <div><strong>Reuse your own criteria</strong><p>Label a recurring personal concept and make it available as a library filter or gentle SET preference.</p></div>
+  <div><strong>Reuse your own criteria</strong><p>Label a recurring personal concept and make it available as a CLASS library filter.</p></div>
 </div>
 
 <div class="dts-signal-board">
@@ -82,7 +82,7 @@ The file-writing exceptions are explicit:
 Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and does not move files.
 
 <div class="dts-status-grid">
-  <div><strong>Read-heavy by default</strong><p>Search, SET, preview, analysis, reset, and export avoid source-audio edits.</p></div>
+  <div><strong>Read-heavy by default</strong><p>Search, preview, analysis, reset, current-set editing, and export avoid source-audio edits.</p></div>
   <div><strong>Explicit write paths</strong><p>Genre apply, Audio Doctor apply, and Audio Dedup apply are separate guarded flows.</p></div>
   <div><strong>Local artifacts</strong><p>SQLite databases, reports, logs, indexes, and classifier files stay on disk.</p></div>
 </div>

@@ -25,14 +25,6 @@ CLAP text search compares text embeddings to stored CLAP audio embeddings. Raw t
 
 When the Negative bank is enabled, the visible score is contrast evidence, not a probability.
 
-## SET scores
-
-Smart Set Builder combines its enabled MERT, MAEST, MuQ, and CLAP embeddings with broad SONARA similarity, transition confidence, diversity, energy curve, BPM curve, artist pressure, and optional classifier preferences. The output score is for ordering a preview under the selected controls.
-
-## Hybrid preview scores
-
-Hybrid preview uses weighted reciprocal-rank fusion across enabled sources, optional transition-risk penalty, and optional classifier controls. Its detail panel is designed to explain source support and risk, not to prove a final mix.
-
 ## Reference Compare scores
 
 The LAB Reference Compare panel keeps CLAP, MERT, MuQ, MAEST, and SONARA results in separate groups for one seed track. Compare scores within one model group first. A high MERT score, a high CLAP audio score, and a high SONARA score are related listening hints, not the same measurement.

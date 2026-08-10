@@ -15,7 +15,6 @@ CLAP
 Rhythm Lab
 Audio Doctor
 Audio Dedup
-Smart Set Builder
 
 SQLite
 Mutagen

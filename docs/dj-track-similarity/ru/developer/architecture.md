@@ -18,7 +18,7 @@ flowchart LR
     Queue --> DB
     DB --> Classifiers[Этап классификаторов, готовых по манифесту]
     Classifiers --> Queue
-    DB --> Search[Поиск и построители SET]
+    DB --> Search[Поиск, Reference Compare и Evaluation]
     Lab[Rhythm Lab] --> DB
 ```
 
@@ -34,7 +34,7 @@ flowchart LR
 - `analysis_pipeline.py`: фиксированное управление родительской задачей и дочерними этапами SONARA, ML, CLASSIFIERS.
 - `sonara_runtime.py`: текущий набор результатов и параметры запуска SONARA.
 - `tempo_resolution.py` и `track_resolution.py`: определение BPM и Camelot/тональности с учётом достоверности.
-- `search.py`, `sonara_similarity*.py`, `set_builder.py` и `transition_diagnostics.py`: поиск, порядок SET и риск перехода.
+- `search.py`, `sonara_similarity*.py` и `transition_diagnostics.py`: поиск и диагностика риска перехода.
 - `classifier_manifest.py`, `classifier_scoring.py` и `classifier_jobs.py`: проверка опубликованных артефактов, готовность по манифесту, общий прогресс и расчёт оценок только по базе.
 - `api_routes_*.py`: группы маршрутов FastAPI.
 - `frontend/src/`: клиент API, координаторы состояния фонотеки и поиска, панели React.

@@ -62,7 +62,7 @@ function extractNumbers(markdown) {
 }
 
 function extractProtectedFenceTokens(body) {
-  return [...body.matchAll(/\b(?:[A-Z][A-Z0-9]{1,}|Typer|LibraryDatabase|FastAPI|React|SONARA|Symphonia|FFmpeg|Rhythm Lab|Hybrid)\b/g)]
+  return [...body.matchAll(/\b(?:[A-Z][A-Z0-9]{1,}|Typer|LibraryDatabase|FastAPI|React|SONARA|Symphonia|FFmpeg|Rhythm Lab)\b/g)]
     .map((match) => match[0]);
 }
 

@@ -87,8 +87,6 @@ broken electro rhythm, syncopated drums, dry bass, metallic synth hits
 Не сравнивайте оценку текстового поиска CLAP напрямую с:
 
 - сходством поиска MERT по референсному треку;
-- оценками SET;
-- оценкой сходства аудио в Hybrid;
 - `min_similarity` в Audio Dedup.
 
 Это разные шкалы оценок.

@@ -54,7 +54,8 @@ That stance shapes the docs and UI:
 
 ## Current boundary
 
-The current app supports library scanning and analysis, seed and text search, SET and Hybrid previews, local classifier profiles, and playlist export.
+The current app supports library scanning and analysis, seed and text search, LAB comparison,
+local classifier profiles, a browser-local current set, and playlist export.
 
 It does not yet generate a finished automatic DJ set from a story prompt. That is the direction, not a completed claim.
 
@@ -62,5 +63,4 @@ It does not yet generate a finished automatic DJ set from a story prompt. That i
 
 - [Features, embeddings, and tags](./features-embeddings-tags.md)
 - [Similarity scores](./similarity-scores.md)
-- [SET routing](./smart-set-builder-routing.md)
 - [Model citations and licenses](../reference/model-citations.md)

@@ -79,7 +79,7 @@ From each visible result row you can:
 - open metadata,
 - toggle liked state.
 
-Seeds feed MERT, MuQ, SONARA, SET, Hybrid preview, and LAB Reference Compare. The current set is the
+Seeds feed MERT, MuQ, SONARA, and LAB Reference Compare. The current set is the
 temporary playlist shown in the right panel. It is not written to disk until you export it or save
 it as a Rhythm Lab collection.
 

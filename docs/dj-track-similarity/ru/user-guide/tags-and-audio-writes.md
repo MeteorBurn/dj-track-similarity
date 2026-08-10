@@ -14,7 +14,7 @@
 - сканирование;
 - **Refresh Tags**;
 - анализ SONARA, MAEST, MERT, MuQ и CLAP;
-- поиск MAEST, MERT, MuQ, SONARA, CLAP, SET и Hybrid;
+- поиск или сравнение MAEST, MERT, MuQ, SONARA и CLAP;
 - предварительное прослушивание в браузере;
 - сброс анализа;
 - расчёт классификаторов;

@@ -18,7 +18,7 @@ flowchart LR
     Queue --> DB
     DB --> Classifiers[Manifest-ready classifier stage]
     Classifiers --> Queue
-    DB --> Search[Search and SET builders]
+    DB --> Search[Search, Reference Compare, and Evaluation]
     Lab[Rhythm Lab] --> DB
 ```
 
@@ -32,7 +32,7 @@ flowchart LR
 - `analysis_pipeline.py`: fixed SONARA, ML, CLASSIFIERS parent/child orchestration.
 - `sonara_runtime.py`: current SONARA Core feature selection.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.
-- `search.py`, `sonara_similarity*.py`, `set_builder.py`, and `transition_diagnostics.py`: search, SET ordering, and transition-risk logic.
+- `search.py`, `sonara_similarity*.py`, and `transition_diagnostics.py`: search and transition-risk diagnostics.
 - `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, aggregate progress, and database-only scoring.
 - `api_routes_*.py`: FastAPI route groups.
 - `frontend/src/`: typed API client, library/search state coordinators, and React UI panels.

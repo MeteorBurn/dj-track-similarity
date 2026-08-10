@@ -30,7 +30,7 @@ These operations do not modify source audio files:
 | Scan | SQLite track rows and metadata |
 | Refresh Tags | SQLite metadata for existing tracks |
 | Analysis | Core rows plus active ML embedding rows in the mandatory Artifacts database |
-| Search and SET | Usually no data writes, except evaluation rows when Hybrid feedback is recorded |
+| Search and Evaluation | Usually no data writes, except explicit feedback and evaluation rows |
 | Browser preview | Temporary WAV only when transcoding is needed |
 | Reset | Core and Artifacts records only; optional Evaluation data is handled separately when present |
 | Database clear | database records only; it does not touch source audio |

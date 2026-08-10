@@ -15,9 +15,9 @@ different sources and help with different decisions.
 | Which tracks share a learned audio neighborhood? | MERT | Seed-search rankings |
 | Which tracks align on audible rhythm, sound, dynamics, harmony, or tempo? | SONARA | Feature search and transition evidence |
 | Which tracks fit a written sound description? | CLAP | Text-search rankings |
-| What genre-like and audio evidence does another model add? | MAEST | Display labels plus SET and Hybrid support |
-| How does another general audio model rank and combine this seed? | MuQ | Seed search, a separate LAB group, SET, Hybrid, Audio Dedup, and classifier input |
-| How strongly does a track match my own labeled idea? | Classifier score | CLASS filters and optional SET or Hybrid controls |
+| What genre-like and audio evidence does another model add? | MAEST | Display labels, LAB comparison, Audio Dedup, and classifier input |
+| How does another general audio model rank this seed? | MuQ | Seed search, a separate LAB group, Audio Dedup, and classifier input |
+| How strongly does a track match my own labeled idea? | Classifier score | CLASS filters |
 
 An embedding is a compact model representation used for comparison. You do not need to interpret
 its individual numbers. Features have direct names and can often explain which audible quality
@@ -32,14 +32,14 @@ These are source-file tags. They can be incomplete or inconsistent. The app stor
 
 ## SONARA features
 
-SONARA produces explainable audio features and derived working fields such as BPM, key, duration, and energy. SONARA features support the SONARA tab and help Smart Set Builder reason about rhythm, dynamics, timbre, tonal content, energy flow, and transition compatibility.
+SONARA produces explainable audio features and derived working fields such as BPM, key, duration, and energy. SONARA features support the SONARA tab, Evaluation transition diagnostics, Audio Dedup, and compatible classifier inputs.
 
 Newer SONARA analysis adds optional Camelot key, vocalness, mood, loudness, beat-grid, structure,
 and silence fields. Treat these analysis estimates as inspectable evidence. Only fields wired into
 a scorer affect ranking.
 
 Mood affinities are shown as analysis data and retained for possible future workflows. They are not
-current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also retained
+current similarity or classifier inputs. True peak and ReplayGain are also retained
 for possible loudness-management features rather than direct SONARA similarity. Loudness scalars
 can enter the `sonara2` classifier variant. The existing SONARA dynamics comparison uses momentary
 loudness maximum and loudness range. Vocalness is available through an explicit search modifier
@@ -64,25 +64,23 @@ The exact field and scoring boundaries are in the
 
 ## MAEST labels and embedding
 
-MAEST stores genre-like labels and a MAEST audio embedding. The labels are used for display and optional standard genre tag writing. The embedding can be used as an audio-to-audio signal in SET and Hybrid preview.
-
-Smart Set Builder may use the MAEST embedding, but it does not use MAEST genre labels as selection rules.
+MAEST stores genre-like labels and a MAEST audio embedding. The labels are used for display and optional standard genre tag writing. LAB Reference Compare and Audio Dedup can use the embedding. Compatible classifier manifests can consume it too.
 
 ## MERT embedding
 
-MERT stores an audio embedding. The MERT tab searches from selected seed tracks in this embedding space. SET, Hybrid preview, and Audio Dedup can also use stored MERT embeddings.
+MERT stores an audio embedding. The MERT tab searches from selected seed tracks in this embedding space. LAB Reference Compare, Audio Dedup, and compatible classifier manifests can also use stored MERT embeddings.
 
 ## MuQ embedding
 
-MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The vector supports direct seed search and a separate LAB Reference Compare group. SET, Hybrid, Audio Dedup, and compatible Rhythm Lab classifier feature sets can also consume it. Those configurable multi-source workflows disable MuQ by omitting `muq` from their explicit source list.
+MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The vector supports direct seed search and a separate LAB Reference Compare group. Audio Dedup and compatible Rhythm Lab classifier feature sets can also use it. Audio Dedup can omit `muq` from its explicit source list.
 
 ## CLAP audio embedding
 
-CLAP analysis stores audio embeddings. The CLAP tab embeds a text prompt at search time and compares it to stored audio embeddings. SET, Hybrid, and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals, which are not the same as CLAP prompt scores.
+CLAP analysis stores audio embeddings. The CLAP tab embeds a text prompt at search time and compares it to stored audio embeddings. LAB Reference Compare and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals, which are not the same as CLAP prompt scores.
 
 ## Classifier scores
 
-Promoted Rhythm Lab classifiers write scores under a `classifier_key`. A manifest can require current SONARA, MERT, MAEST, MuQ, and/or CLAP inputs. Scores are optional. Missing scores stay neutral in SET and Hybrid modifiers.
+Promoted Rhythm Lab classifiers write scores under a `classifier_key`. A manifest can require current SONARA, MERT, MAEST, MuQ, and/or CLAP inputs. Scores are optional and are consumed by the selected CLASS profile.
 
 ## Why separation matters
 

@@ -16,7 +16,7 @@ not reorganize or rewrite the source files.
 1. **Scan** turns a folder tree into a library you can browse and filter.
 2. **Analysis** adds the evidence needed for sound-based search and set previews.
 3. **Search** reduces a large library to a listening shortlist.
-4. **SET or crate building** turns useful candidates into an editable working list.
+4. **Current Set or crate building** turns useful candidates into an editable working list.
 5. **Export** creates an M3U or CSV file for the next part of your workflow.
 
 ## Pages

@@ -8,8 +8,7 @@ Here, "compatible" means worth auditioning next to the reference under the searc
 choose. It does not mean guaranteed harmonic, rhythmic, or stylistic compatibility.
 
 The useful result is a manageable list of alternatives and adjacent ideas. Export the list as a
-crate, or reuse useful tracks as new seeds. Put the strongest candidates into a SET preview when you
-need an order.
+crate, reuse useful tracks as new seeds, or add the strongest candidates to the current set.
 
 ## Steps
 
@@ -27,9 +26,7 @@ Add a second or third seed that represents the intended direction. Do not add un
 
 ## Tempo note
 
-SONARA tempo weighting uses compatibility logic that can handle half/double relationships. SET BPM trajectory is separate: use it only when you want the actual order to move toward a BPM target.
-
-Tempo-aware search and SET start with current SONARA evidence. Below `0.45` confidence, they inspect
+Tempo-aware search starts with current SONARA evidence. Below `0.45` confidence, it inspects
 ranked SONARA candidates and the Mutagen BPM tag. Grid stability can weaken the evidence, and low
 reliability moves the score toward neutral rather than creating a bonus or automatic rejection.
 

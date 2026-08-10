@@ -50,40 +50,13 @@ failures, blockers, cancellation, and reset actions from the typed job responses
 
 ## Search tabs
 
-The primary tab list is **SET**, **SONARA**, **MERT**, **MUQ**, **CLAP**, **CLASS**, and **LAB**.
+The primary tab list is **LAB**, **SONARA**, **MERT**, **MUQ**, **CLAP**, and **CLASS**.
 Use `ArrowLeft` and `ArrowRight` to move between tabs; `Home` and `End` jump to the first and last
 tab.
 
 MERT and MUQ use the same generic seed-search shape. Both accept a `1..500` result limit and
 selected seed tracks. A tab with zero current embeddings is disabled with a source-specific reason.
 Request failures stay visible in that tab instead of being replaced by an empty successful result.
-
-## SET and Hybrid
-
-The **SET** tab contains the independent **Set Builder** and **Hybrid Preview** nested tabs. They use
-the same keyboard navigation keys as the primary tabs, but keep separate form state, results,
-errors, cancellation, and request freshness.
-
-Set Builder starts with:
-
-- manual seed mode, balanced-set mode, a track limit of `24`, diversity `0.35`, and `5` automatic
-  anchors;
-- enabled `mert`, `maest`, `muq`, and `clap` sources;
-- backend default raw weights `0.30`, `0.18`, `0.15`, and `0.22`, plus
-  `sonara_broad` at `0.30`;
-- no custom weights, a balanced energy curve, general BPM handling, and random seed `0`.
-
-Custom SET weights must match the enabled embedding sources plus `sonara_broad`. **Backend defaults**
-restores the current four-source profile and stops sending custom weights. **Reset sliders** resets
-only diversity and classifier preference or flow values; it leaves the seed source, mode, limit,
-anchors, energy curve, and BPM controls unchanged. **Add preview** is enabled only for the latest
-response whose database and request controls still match; it never appends Hybrid or unrelated
-search results.
-
-Hybrid Preview starts with `30` candidates per source, a result limit of `25`, transition-risk
-weight `0`, and enabled `mert`, `maest`, `muq`, `sonara`, and `clap` sources. With no custom
-weights, the backend normalizes them equally to `0.20`. Disabled sources are omitted from
-eligibility and the request rather than retained at zero weight.
 
 ## CLASS, LAB, and Rhythm Lab
 

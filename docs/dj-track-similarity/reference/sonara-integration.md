@@ -56,6 +56,6 @@ Rhythm Lab profiles and labels remain separate from this Core/Artifacts migratio
 
 ## Scoring boundary
 
-Search, SET, Hybrid, and classifiers use stored SONARA Core values. MERT, MuQ, MAEST, and CLAP
+Search, Evaluation diagnostics, Audio Dedup, and classifiers use stored SONARA Core values. MERT, MuQ, MAEST, and CLAP
 remain separate analysis sources. Every result is a ranking or diagnostic signal, not an automatic
 DJ decision.

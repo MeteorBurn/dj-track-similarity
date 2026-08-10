@@ -86,38 +86,17 @@ Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`,
 response returns `core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`.
 SONARA removes only dependent classifier rows; labels, feedback, and embedding-only results remain.
 
-## Search and SET
+## Search and Reference Compare
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/search` | seed search for `maest`, `mert`, `muq`, or `clap` |
 | `POST` | `/api/search/sonara` | SONARA seed search |
 | `POST` | `/api/search/text` | CLAP text search |
-| `POST` | `/api/search/hybrid` | weighted Hybrid preview |
-| `POST` | `/api/set-builder/generate` | Smart Set Builder preview |
 | `POST` | `/api/reference/compare` | per-model Reference Compare groups for one seed |
 | `POST` | `/api/reference/compare/verdict` | save one Reference Compare listening verdict |
 
-Important ranges:
-
-- seed lists for Hybrid feedback and Hybrid search are `1..5` unique track IDs,
-- search limits are usually `1..500`,
-- Hybrid `per_source` is `1..100`,
-- Hybrid `limit` is `1..100`,
-- SET `limit` is `1..500`,
-- SET `auto_seed_count` is `1..5`,
-- SET `bpm_start` and `bpm_target` are `20..300` when provided.
-
-SET accepts `sources` from `mert`, `maest`, `muq`, and `clap`. The default enables all four, while
-SONARA broad similarity remains mandatory and is not part of that list. Default raw weights are
-`mert=0.30`, `maest=0.18`, `muq=0.15`, `clap=0.22`, and `sonara_broad=0.30`; the backend normalizes
-the enabled values. A custom `weights` object must contain exactly the enabled source keys plus
-`sonara_broad`. Omitting `muq` from `sources` restores the legacy raw mix
-`0.30/0.18/0.22/0.30`.
-
-Hybrid accepts `mert`, `maest`, `muq`, `sonara`, and `clap`. All five are enabled by default with
-equal normalized weight `0.20`. When `muq` is omitted and no custom weights are supplied, the four
-remaining sources each receive `0.25`. Custom weights must match the selected source keys exactly.
+Search limits are usually `1..500`.
 
 Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `mert`, `muq`, `maest`, and `sonara`, and `limit=1..100`. Verdicts use `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`. They persist as local pair feedback under `reference_compare:<model>`.
 

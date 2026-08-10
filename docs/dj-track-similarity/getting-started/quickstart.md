@@ -56,11 +56,10 @@ each search approach returns before spending time on full-library analysis.
 
 - SONARA makes feature-guided search and transition evidence available.
 - MERT gives you a direct "find tracks near this track" search.
-- MAEST, MuQ, and CLAP complete the default embedding evidence used by SET.
+- MAEST, MuQ, and CLAP add evidence for LAB comparison, Audio Dedup, and classifiers.
 - CLAP also enables text search.
-- MuQ also enables its seed-search and LAB views and joins the default SET and Hybrid source lists.
-  Audio Dedup and compatible classifier feature sets can use it too. API and helper-CLI callers can
-  omit `muq` from an explicit source list when they want the legacy source mix; CLAP remains the
+- MuQ also enables its seed-search and LAB views. Audio Dedup and compatible classifier feature
+  sets can use it too. Audio Dedup can omit `muq` from its explicit source list; CLAP remains the
   model for text search.
 
 In the CLI, omit `--limit` for the whole library. In the browser, **Analyze limit** `0` has the same
@@ -106,7 +105,7 @@ For a first text shortlist, use the CLI after CLAP analysis:
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
 ```
 
-Seed search, SONARA search, SET, and export are available in the browser and through the backend
+Seed search, SONARA search, Current Set, and export are available in the browser and through the backend
 endpoints documented in the [API reference](../reference/api.md).
 
 ## First browser flow
@@ -117,8 +116,8 @@ endpoints documented in the [API reference](../reference/api.md).
 3. Add one to five tracks as seeds.
 4. Open **MERT** or **MUQ** for an embedding neighborhood, or **SONARA** when you want to steer the
    search by rhythm, sound, dynamics, harmony, or tempo.
-5. Open **SET** to generate an ordered preview.
-6. Preview candidates by ear before adding them to the current set.
+5. Preview candidates by ear and add useful rows to the current set.
+6. Review or remove entries in the current set.
 7. Export the set as M3U or CSV when it is useful.
 
 This remains a listening-led loop: start from an idea, get a shortlist, listen, keep the useful

@@ -34,7 +34,7 @@ reused.
 ## Can I use the browser UI with a compatible database?
 
 Yes. Build the current frontend bundle and serve it with the current backend. Database selection,
-library paging and chunked loads, analysis, search, SET/Hybrid, CLASS, LAB, Rhythm Lab launch,
+library paging and chunked loads, analysis, search, Current Set, CLASS, LAB, Rhythm Lab launch,
 metadata, preview, and exact-identity writes use the current typed responses.
 
 ## Can I share reports or databases?

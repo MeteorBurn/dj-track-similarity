@@ -18,9 +18,9 @@ source audio files.
 | Start from a track and find a broad audio neighborhood | MERT | Ranked seed-search candidates |
 | Steer by rhythm, texture, dynamics, harmony, or tempo | SONARA | Explainable feature search and transition evidence |
 | Describe a desired sound in words | CLAP | Text-search candidates |
-| Generate SET or compare several model views | SONARA, MAEST, MERT, MuQ, CLAP | Feature-complete candidates for the default SET and Hybrid source lists |
+| Compare several model views or inspect duplicates | SONARA, MAEST, MERT, MuQ, CLAP | Feature-complete candidates for LAB, Audio Dedup, and classifiers |
 | Compare another model's neighbors in LAB | MuQ | A separate MuQ result column in Reference Compare |
-| Reuse your own labeled concept | CLASSIFIERS | Stored scores for CLASS filters and optional SET or Hybrid controls |
+| Reuse your own labeled concept | CLASSIFIERS | Stored scores for CLASS filters |
 
 For a first experiment, analyze 25 familiar tracks. Try the resulting searches before choosing
 which families deserve a full-library run.
@@ -29,12 +29,12 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | Core feature rows | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
-| MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, SET, Hybrid, Audio Dedup, classifier input |
-| MERT | Artifacts embedding | seed search, SET, Hybrid, Audio Dedup, classifier input |
-| MuQ | Artifacts embedding | seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, classifier input |
-| CLAP | Artifacts audio embedding | seed and text search, SET, Hybrid, Audio Dedup, classifier input |
-| CLASSIFIERS | Core `classifier_scores` rows | CLASS filters, SET bias, Hybrid diagnostics |
+| SONARA | Core feature rows | feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs |
+| MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
+| MERT | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
+| MuQ | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
+| CLAP | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup, classifier input |
+| CLASSIFIERS | Core `classifier_scores` rows | CLASS filters |
 
 Classifier scoring is a separate stage. Each promoted manifest defines its exact SONARA and
 MAEST/MERT/MuQ/CLAP requirements. Incomplete tracks are counted as not ready rather than failed.
@@ -65,7 +65,7 @@ dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batc
 - `--sonara-batch-size` is `1..16` paths per native SONARA batch. The default is `8`.
 - `--diagnostics` writes decoder fallback and batch timing details to the file log.
 
-MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. Its embedding can feed seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and compatible classifier manifests. SET, Hybrid, and Audio Dedup can disable MuQ by omitting `muq` from an explicit source list.
+MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. Its embedding can feed seed search and LAB Reference Compare. Audio Dedup and compatible classifier manifests can also use it. Audio Dedup can disable MuQ by omitting `muq` from an explicit source list.
 
 In the CLI, omit `--limit` for the whole library.
 

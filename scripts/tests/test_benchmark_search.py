@@ -52,7 +52,6 @@ def test_benchmark_search_runs_and_deletes_temporary_bundle(tmp_path: Path) -> N
     assert run["load_embedding_matrix"]["maest"]["dim"] == 768
     assert run["exact_similarity"]["mert"]["backend"] == "exact_numpy"
     assert run["exact_similarity"]["mert"]["seed_count"] == 3
-    assert run["hybrid_search"]["seed_count"] == 3
 
 
 def test_benchmark_search_rejects_invalid_vector_backend(tmp_path: Path) -> None:

@@ -29,7 +29,7 @@ change. Use `npm run lint:style` when you want the same style report without fai
 - Audio Dedup: `scripts\tests\test_audio_dedup.py`.
 - Rhythm Lab: `tools\rhythm-lab\tests\test_rhythm_lab.py`.
 - SONARA runtime and storage: `tests\test_sonara_features.py`, `tests\test_sonara_native_batch.py`, and `tests\test_sonara_storage.py`.
-- Tempo, Camelot, SET, and transitions: `tests\test_tempo_resolution.py`, `tests\test_track_resolution.py`, `tests\test_set_builder.py`, and `tests\test_transition_diagnostics.py`.
+- Tempo, Camelot, and transitions: `tests\test_tempo_resolution.py`, `tests\test_track_resolution.py`, and `tests\test_transition_diagnostics.py`.
 - Classifier compatibility: `tests\test_classifier_productionization.py`, `tests\test_break_energy.py`, and `tools\rhythm-lab\tests\test_rhythm_lab.py`.
 
 ## Safety

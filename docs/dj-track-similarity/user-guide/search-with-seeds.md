@@ -34,9 +34,7 @@ now?"
 ## Choose seeds
 
 In the library list, add tracks to the seed strip. The search panel uses the selected seed IDs for
-MERT, MuQ, SONARA, SET, Hybrid preview, and the LAB Reference Compare panel.
-
-Hybrid and feedback endpoints accept one to five unique seeds. SET manual mode also expects one to five practical anchors because the artist guard and waypoint placement are built around a small seed set.
+MERT, MuQ, SONARA, and the LAB Reference Compare panel.
 
 ## MERT and MUQ tabs
 

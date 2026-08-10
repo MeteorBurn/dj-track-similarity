@@ -10,15 +10,11 @@ The app depends on your local Python environment, FFmpeg, optional ML packages, 
 
 ## Model analysis can be heavy
 
-MAEST, MERT, MuQ, and CLAP require optional ML dependencies. Large libraries can take time and memory. MuQ runs on 24 kHz `float32` audio; its stored embedding can participate in seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and classifier feature sets. Use a small `--limit` first, then adjust device and batch sizes.
+MAEST, MERT, MuQ, and CLAP require optional ML dependencies. Large libraries can take time and memory. MuQ runs on 24 kHz `float32` audio. Its stored embedding can participate in seed search and LAB Reference Compare. Audio Dedup and classifier feature sets can use it too. Use a small `--limit` first, then adjust device and batch sizes.
 
 ## Scores are not probabilities
 
-Search and SET scores are ranking signals. CLAP text scores, MERT seed scores, SET scores, Hybrid scores, and Audio Dedup thresholds should not be treated as one scale.
-
-## SET needs full coverage
-
-Smart Set Builder always requires SONARA plus every enabled embedding source. The default sources are MERT, MAEST, MuQ, and CLAP. An explicit API source list can omit MuQ or another embedding. A partly analyzed library can browse and search elsewhere, but SET eligible counts will be low for the selected source set.
+Search scores are ranking signals. CLAP text scores, MERT seed scores, LAB model scores, and Audio Dedup thresholds should not be treated as one scale.
 
 ## Browser preview depends on files still existing
 

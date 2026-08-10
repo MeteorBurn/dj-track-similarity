@@ -79,8 +79,6 @@ CLAP text-to-audio scores are usually lower than seed-based audio-to-audio score
 Do not compare CLAP text scores directly with:
 
 - MERT seed-search similarity,
-- SET scores,
-- Hybrid audio-to-audio support,
 - Audio Dedup `min_similarity`.
 
 Those are different scoring surfaces.

@@ -78,7 +78,7 @@ A typical use case:
 3. Review tracks that are close in sound, compatible for mixing, and useful for the next emotional step.
 4. Add one candidate.
 5. Continue from the previously selected track, letting the set evolve step by step.
-6. Shape the flow with controls for energy, mood, similarity, diversity, BPM movement, classifiers, and hybrid scoring.
+6. Shape the flow through listening and manual choices while treating model scores as suggestions.
 
 The set becomes less like a static playlist and more like a musical path.
 
@@ -107,14 +107,13 @@ The current application already supports the practical parts of that vision:
 
 - Create a compatible Core/Artifacts SQLite bundle and scan local audio files with Mutagen metadata.
 - Browse large libraries through paginated API responses.
-- Read typed metadata, analysis coverage, likes, audio preview, and search/set state.
+- Read typed metadata, analysis coverage, likes, audio preview, search state, and the current set.
 - Run SONARA, MAEST, MERT, MuQ, and CLAP analysis jobs.
 - Search from seed tracks with MAEST, MERT, MuQ, CLAP, and SONARA.
 - Search from text prompts with CLAP after CLAP audio embeddings exist.
-- Build Smart Set Builder previews from selected seeds or automatic anchors.
-- Use Hybrid preview for weighted MERT, MAEST, MuQ, SONARA, and CLAP candidate checks.
 - Launch Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
-- Read promoted Rhythm Lab classifier scores for CLASS filtering, SET biasing, and Hybrid diagnostics.
+- Read promoted Rhythm Lab classifier scores for CLASS filtering.
+- Run optional Evaluation API and CLI workflows for feedback, profiles, calibration, and transition diagnostics.
 - Export the current set as M3U or CSV.
 - Run report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
 - Preview and explicitly migrate an incompatible Core/Artifacts pair with verified backups when its structure changes.
@@ -125,7 +124,7 @@ database plus a mandatory adjacent `*.artifacts.sqlite` database; the optional
 does not rewrite an incompatible layout. It refuses the database with a clear message so you
 can inspect the explicit migration plan first.
 
-The React frontend consumes the current database, track, analysis, search, SET/Hybrid, CLASS, LAB,
+The React frontend consumes the current database, track, analysis, search, Current Set, CLASS, LAB,
 Rhythm Lab, Audio Dedup, metadata, media, and exact-identity mutation responses. Large-library loading
 uses fixed server-side pages of up to `200` tracks with previous, next, and page-number navigation.
 
@@ -146,7 +145,10 @@ In that direction, a set should be able to feel like chapters in a book:
 opening mood -> first turn -> deeper chapter -> tension -> release -> final destination
 ```
 
-The current project should be understood as a local-first foundation for that idea. Some parts are already implemented as search, SET, Hybrid, CLAP text search, LAB Reference Compare, classifier scoring, and playlist export. Other parts are still a product direction rather than a finished automatic DJ.
+The current project should be understood as a local-first foundation for that idea. Seed search and
+CLAP text search are implemented today. LAB Reference Compare and classifier scoring are also
+available. The browser keeps a manual current set and exports playlists. Other parts are still a
+product direction rather than a finished automatic DJ.
 
 ## 🧩 How the pieces fit
 
@@ -155,7 +157,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
       |                         ^
       +---- SONARA native -------+
       +---- FFmpeg -> ML --------+
-      +---- stored inputs -> classifiers -> CLASS/SET/Hybrid scores
+      +---- stored inputs -> classifiers -> CLASS scores
 ```
 
 The app keeps evidence sources separate:
@@ -164,17 +166,17 @@ The app keeps evidence sources separate:
 - **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
-- **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and Rhythm Lab classifier feature sets.
+- **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
 
-Tempo-aware search, transition diagnostics, and SET ordering use current signed SONARA tempo
+Tempo-aware search and Evaluation transition diagnostics use current signed SONARA tempo
 evidence. At low confidence, they also inspect SONARA candidates and the Mutagen BPM tag, while
 `grid_stability` can weaken reliability. Unreliable tempo evidence moves toward a neutral score
 instead of earning a similarity bonus or becoming an automatic hard rejection.
 
 SONARA mood values are retained for inspection and possible future audio workflows; they are not
-current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for
+current similarity or classifier inputs. True peak and ReplayGain are also stored for
 future loudness-management work, not direct SONARA similarity scoring. MAEST/MERT/MuQ/CLAP
 embeddings live in dedicated tables in the mandatory Artifacts database.
 
@@ -202,25 +204,15 @@ This is useful even when you are not building a set. The project can act like a 
 
 ### 2. 🎯 Start from a reference track
 
-Pick one or more tracks as seeds. The system can rank candidates around the seed using audio-space proximity and SONARA compatibility. Hybrid profiles remain available for diagnostic previews.
+Pick one or more tracks as seeds. The system can rank candidates around the seed using audio-space proximity and SONARA compatibility. LAB keeps model-family results separate for listening-led comparison.
 
 This is useful when you have a track that feels special but you do not know what should come after it.
 
-### 3. 🌊 Build a gradual flow
+### 3. 🌊 Curate the current set
 
-Smart Set Builder can create a read-only ordered preview from manual seeds or automatic anchors.
-
-The goal is to create a flow that can respect:
-
-- similarity;
-- diversity;
-- energy curve;
-- BPM direction;
-- broad sonic coherence;
-- transition confidence;
-- classifier preferences;
-- artist pressure;
-- user-selected set mode.
+Preview search candidates by ear and add useful rows individually to the shared current set. You
+can remove entries before export. The same list can be saved as a Rhythm Lab collection; exports
+support M3U and CSV. This is browser-local working state, not automatic sequencing.
 
 ### 4. 💬 Search by text
 
@@ -247,7 +239,7 @@ The normal loop is:
 2. Train and review benchmark output for the active profile.
 3. Promote one trained artifact into `models/classifiers/<profile>/`.
 4. Run classifier scoring in the main library database.
-5. Use CLASS, SET, or Hybrid preview with the promoted scores.
+5. Use the promoted scores as CLASS filters.
 
 Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/MuQ/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
 
@@ -380,16 +372,17 @@ Queued-stage messages contain only settings used by that stage. SONARA reports i
 native batch, ML reports its models, device, Track batch, and Inference batch, and CLASSIFIERS
 reports the selected profile count.
 
-MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. The stored embedding is a normal source for seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and compatible classifier manifests. SET, Hybrid, and Audio Dedup accept explicit source lists, so API or CLI callers can omit `muq` when they need the legacy source mix.
+MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. The stored embedding is a normal source for seed search, LAB Reference Compare, Audio Dedup, and compatible classifier manifests. Audio Dedup callers can omit `muq` from an explicit source list.
 
 In the CLI, omit `--limit` to analyze the whole library.
 
 ## 🖥️ Frontend status
 
-The React source uses the current backend responses. Its main search tabs are SET, SONARA, MERT, MUQ, CLAP,
-CLASS, and LAB. SET contains independent Set Builder and Hybrid Preview workflows with source
-selection, custom weights, request cancellation, and stale-response guards. Database changes clear
-catalog-bound state; exact-identity writes carry catalog UUID, track UUID, and content generation.
+The React source uses the current backend responses. Its main search tabs are LAB, SONARA, MERT,
+MUQ, CLAP, and CLASS. Search results provide individual current-set actions, and the shared Current
+Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.
+Database changes clear catalog-bound state; exact-identity writes carry catalog UUID, track UUID,
+and content generation.
 
 The UI remains a local, listening-led workbench. Similarity and classifier values are ranking
 signals for review, not objective musical truth or automatic performance decisions.
@@ -451,7 +444,6 @@ Documentation languages: [English](docs/dj-track-similarity/project-guide.md) ·
 - [Migrate and reanalyze SONARA storage](docs/dj-track-similarity/workflows/reanalyze-sonara-split-storage.md)
 - [Browse library](docs/dj-track-similarity/user-guide/browse-library.md)
 - [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md)
-- [Smart Set Builder](docs/dj-track-similarity/user-guide/smart-set-builder.md)
 - [Text search](docs/dj-track-similarity/user-guide/text-search.md)
 - [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md)
 - [SONARA integration](docs/dj-track-similarity/reference/sonara-integration.md)

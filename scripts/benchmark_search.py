@@ -33,7 +33,6 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
 )
 from dj_track_similarity.database import LibraryDatabase  # noqa: E402
 from dj_track_similarity.db_storage import storage_database_paths  # noqa: E402
-from dj_track_similarity.hybrid_search import build_hybrid_search_preview  # noqa: E402
 from dj_track_similarity.search import SimilaritySearch  # noqa: E402
 from dj_track_similarity.track_models import FileTags, ScannedFile  # noqa: E402
 from dj_track_similarity.vector_index import (  # noqa: E402
@@ -123,7 +122,6 @@ def _benchmark_database_path(
     )
     load_metrics = _measure_embedding_loads(db)
     exact_metrics = _measure_vector_similarity_searches(db, config, seed_track_ids)
-    hybrid_metrics = _measure_hybrid_searches(db, config, seed_track_ids)
     return {
         "track_count": track_count,
         "db_path": str(db_path),
@@ -139,7 +137,6 @@ def _benchmark_database_path(
         },
         "load_embedding_matrix": load_metrics,
         "exact_similarity": exact_metrics,
-        "hybrid_search": hybrid_metrics,
         "memory_rss_bytes": _memory_rss_bytes(),
     }
 
@@ -348,30 +345,6 @@ def _measure_recall_at_k(
     }
 
 
-def _measure_hybrid_searches(
-    db: LibraryDatabase,
-    config: BenchmarkConfig,
-    seed_track_ids: Sequence[int],
-) -> dict[str, Any]:
-    analysis_outputs = {
-        source: _active_embedding_output(db, source)
-        for source in EMBEDDING_SOURCES
-    }
-    metrics = _measure_seed_operation(
-        seed_track_ids,
-        lambda seed_track_id: build_hybrid_search_preview(
-            db,
-            seed_track_ids=(seed_track_id,),
-            analysis_outputs=analysis_outputs,
-            sources=EMBEDDING_SOURCES,
-            per_source=config.per_source,
-            limit=min(config.per_source, 25),
-            random_seed=config.random_seed,
-        ).results,
-    )
-    return {"sources": list(EMBEDDING_SOURCES), **metrics}
-
-
 def _active_embedding_output(
     db: LibraryDatabase,
     source: str,
@@ -509,7 +482,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(
         description=(
             "Create a synthetic greenfield Core+Artifacts bundle and benchmark "
-            "MERT/MAEST vector and Hybrid search operations."
+            "MERT/MAEST vector search operations."
         ),
     )
     parser.add_argument("--output", required=True, type=Path, help="Path to write the JSON benchmark report.")

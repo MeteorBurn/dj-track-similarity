@@ -11,7 +11,7 @@ Call `POST /api/export` with `name`, `track_ids`, `output_dir`, and `format`. Th
 The browser does the same when it sends its temporary current set. See the
 [API reference](../reference/api.md).
 
-The current set in the UI stays temporary until export, and search results or SET previews change it only when you explicitly add tracks.
+The current set in the UI stays temporary until export, and library or search rows change it only when you explicitly add tracks.
 
 ## UI flow
 
@@ -20,7 +20,7 @@ track updates the visible set count without opening the disclosure. Expand it wh
 review the temporary set. The expanded block shows 20 tracks per page with **Prev** and **Next**
 navigation, and its current page scrolls inside the block.
 
-1. Add tracks to the current set from library rows, search results, SET preview, or another UI action.
+1. Add tracks to the current set from library or search rows. Other UI actions can add tracks too.
 2. Expand **Set and export**.
 3. Set the playlist name.
 4. Choose or type an output directory.

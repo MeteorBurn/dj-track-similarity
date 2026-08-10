@@ -66,6 +66,19 @@ def frontend_directory() -> Path:
 def stop_process(process: subprocess.Popen[object]) -> None:
     if process.poll() is not None:
         return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        return
     process.terminate()
     try:
         process.wait(timeout=5)

@@ -126,7 +126,7 @@ def create_app(
         state,
         clap_embedding_adapter=ClapEmbeddingAdapter,
     )
-    register_server_routes(app)
+    register_server_routes(app, stop_rhythm_lab=stop_rhythm_lab)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)
     register_rhythm_lab_routes(
         app,

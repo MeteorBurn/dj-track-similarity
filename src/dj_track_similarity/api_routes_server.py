@@ -25,6 +25,7 @@ def register_server_routes(
     app: FastAPI,
     *,
     shutdown_server: Callable[[], None] = shutdown_current_process,
+    stop_rhythm_lab: Callable[[], dict[str, object]] | None = None,
 ) -> None:
     @app.post("/api/server/shutdown")
     def shutdown_server_route(
@@ -33,5 +34,7 @@ def register_server_routes(
     ):
         if action != SHUTDOWN_ACTION_HEADER:
             raise HTTPException(status_code=403, detail="Server shutdown requires the explicit shutdown action header")
+        if stop_rhythm_lab is not None:
+            stop_rhythm_lab()
         background_tasks.add_task(shutdown_server)
         return {"status": "shutdown_requested"}

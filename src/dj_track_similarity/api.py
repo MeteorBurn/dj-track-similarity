@@ -18,7 +18,6 @@ from .api_routes_reference_compare import register_reference_compare_routes
 from .api_routes_rhythm_lab import register_rhythm_lab_routes
 from .api_routes_search import register_search_routes
 from .api_routes_server import register_server_routes
-from .api_routes_set_builder import register_set_builder_routes
 from .api_routes_tags_export import register_tags_export_routes
 from .api_state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
 from .classifier_scoring import promoted_classifiers
@@ -126,10 +125,8 @@ def create_app(
         app,
         state,
         clap_embedding_adapter=ClapEmbeddingAdapter,
-        promoted_classifiers=promoted_classifiers,
     )
     register_server_routes(app)
-    register_set_builder_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)
     register_rhythm_lab_routes(
         app,

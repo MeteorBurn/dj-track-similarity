@@ -12,10 +12,7 @@ from .analysis_model_runners import (
     current_embedding_analysis_output,
     embedding_analysis_output,
 )
-from .api_route_utils import current_classifier_specifications
 from .api_schemas import (
-    HybridSearchRequest,
-    HybridSearchResponse,
     SearchRequest,
     SimilaritySearchResultResponse,
     SonaraSearchRequest,
@@ -23,7 +20,6 @@ from .api_schemas import (
 )
 from .api_state import AppDatabaseState
 from .database import LibraryDatabase
-from .hybrid_search import build_hybrid_search_preview
 from .search import (
     CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
     SearchFilters,
@@ -67,7 +63,6 @@ def register_search_routes(
     state: AppDatabaseState,
     *,
     clap_embedding_adapter: Callable[..., _TextEmbeddingAdapter],
-    promoted_classifiers: Callable[[], list[dict[str, object]]],
 ) -> None:
     @app.post(
         "/api/search",
@@ -153,39 +148,6 @@ def register_search_routes(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
-
-    @app.post("/api/search/hybrid", response_model=HybridSearchResponse)
-    def hybrid_search(request: HybridSearchRequest):
-        try:
-            result = build_hybrid_search_preview(
-                state.require_db(),
-                seed_track_ids=request.seed_track_ids,
-                analysis_outputs={
-                    family: current_embedding_analysis_output(family)
-                    for family in ("mert", "maest", "muq", "clap")
-                },
-                sources=request.sources,
-                weights=request.weights,
-                score_profile=request.score_profile,
-                per_source=request.per_source,
-                limit=request.limit,
-                rrf_k=request.rrf_k,
-                random_seed=request.random_seed,
-                transition_risk_weight=request.transition_risk_weight,
-                transition_risk_version=request.transition_risk_version,
-                classifier_preferences=request.classifier_preferences,
-                classifier_risk_weights=request.classifier_risk_weights,
-                classifier_specifications=current_classifier_specifications(
-                    promoted_classifiers()
-                ),
-                record_session=request.record_session,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        return result.api_response(include_diagnostics=request.include_diagnostics)
-
 
 def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
     query = request.query.strip()

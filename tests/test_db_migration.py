@@ -275,7 +275,7 @@ def _legacy_bundle(tmp_path: Path) -> _LegacyBundle:
     with sqlite3.connect(paths.evaluation) as connection:
         request_json = json.dumps(
             {
-                "mode": "hybrid",
+                "mode": "evaluation_candidate_pool",
                 "filters": {"limit": 10},
                 "source_contract_hashes": {"mert": "legacy"},
                 "nested": {
@@ -289,7 +289,7 @@ def _legacy_bundle(tmp_path: Path) -> _LegacyBundle:
         cursor = connection.execute(
             """
             INSERT INTO search_sessions(mode, request_json, created_at)
-            VALUES ('hybrid', ?, '2025-01-03T00:00:00Z')
+            VALUES ('evaluation_candidate_pool', ?, '2025-01-03T00:00:00Z')
             """,
             (request_json,),
         )

@@ -9,7 +9,7 @@ from evaluation_fixtures import EvaluationRepository
 def test_search_report_matches_typed_current_events_to_manual_feedback() -> None:
     repository = EvaluationRepository()
     repository.add_session(
-        mode="hybrid_search_preview",
+        mode="evaluation_candidate_pool",
         events=(
             {"candidate_track_id": 2, "rank": 1, "sources": {"mert": {"rank": 1}}},
             {"candidate_track_id": 3, "rank": 2, "sources": {"mert": {"rank": 2}}},

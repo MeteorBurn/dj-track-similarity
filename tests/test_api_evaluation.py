@@ -94,7 +94,7 @@ def test_evaluation_feedback_endpoints_validate_and_preserve_seed_scope(
             "candidate_track_id": candidate.track_id,
             "rating": 3,
             "reason_tags": ["good_groove"],
-            "source": "hybrid_ui",
+            "source": "manual",
         },
     )
     duplicate = client.post(
@@ -123,7 +123,7 @@ def test_evaluation_feedback_endpoints_validate_and_preserve_seed_scope(
     assert {
         key[0]
         for key in feedback
-        if key[1:] == (candidate.track_id, "hybrid_ui")
+        if key[1:] == (candidate.track_id, "manual")
     } == {first_seed.track_id, second_seed.track_id}
 
 

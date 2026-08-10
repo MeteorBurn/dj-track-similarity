@@ -703,7 +703,7 @@ def evaluation_run_calibration(
 def evaluation_optimize_score_profile(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True),
-    profile_name: str = typer.Option("hybrid_judged_v1", "--profile-name", help="Proposal profile name stored in the JSON report."),
+    profile_name: str = typer.Option("weighted_candidates_judged_v1", "--profile-name", help="Proposal profile name stored in the JSON report."),
     objective: str = typer.Option("balanced", "--objective", help="Optimization objective. MVP supports: balanced."),
     split_by: str = typer.Option("seed", "--split-by", help="Train/validation split strategy. MVP supports: seed."),
     min_judged_pairs: int = typer.Option(200, "--min-judged-pairs", min=1, help="Minimum matched judged pairs requested before proposing a profile."),

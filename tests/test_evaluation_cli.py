@@ -110,12 +110,12 @@ def test_eval_report_cli_judged_only_writes_label_gate(tmp_path: Path) -> None:
     candidate_id = _add_cli_track(db, tmp_path, "candidate")
     _record_current_session(
         db,
-        mode="hybrid_search_preview",
+        mode="evaluation_candidate_pool",
         seed_id=seed_id,
         events=((candidate_id, 1, {"mert": {"score": 0.9}}),),
-        request={"feedback_source": "hybrid_ui"},
+        request={"feedback_source": "manual"},
     )
-    db.upsert_track_pair_feedback(seed_id, candidate_id, 3, source="hybrid_ui")
+    db.upsert_track_pair_feedback(seed_id, candidate_id, 3, source="manual")
 
     result = CliRunner().invoke(
         cli.app,
@@ -476,7 +476,7 @@ def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(
         row = connection.execute(
             "SELECT profile_name, search_mode, metrics_json FROM calibration_runs"
         ).fetchone()
-    assert row["profile_name"] == "hybrid_judged_v1"
+    assert row["profile_name"] == "weighted_candidates_judged_v1"
     assert row["search_mode"] == "score_profile_optimizer"
     assert json.loads(row["metrics_json"])["status"] == "ok"
 
@@ -516,7 +516,7 @@ def test_eval_optimize_score_profile_cli_promote_writes_library_setting_only(
     assert after_counts == before_counts
     promoted_profile = LibraryDatabase(db_path).get_promoted_score_profile()
     assert promoted_profile is not None
-    assert promoted_profile["profile_name"] == "hybrid_judged_v1"
+    assert promoted_profile["profile_name"] == "weighted_candidates_judged_v1"
     assert promoted_profile["source"] == "judged_feedback"
     assert promoted_profile["promotion_source"] == "score_profile_optimizer"
     assert promoted_profile["can_apply_as_default"] is True

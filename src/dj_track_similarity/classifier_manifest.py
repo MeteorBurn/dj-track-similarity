@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import json
-import math
 from pathlib import Path
 import re
 from typing import Any
@@ -17,24 +16,6 @@ CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
 CLASSIFIER_PUBLICATION_POINTER_NAME = "current.json"
 CLASSIFIER_PUBLICATION_GENERATIONS_DIR = "generations"
-CLASSIFIER_HYBRID_SIGNAL_ROLES = (
-    "preference_boost",
-    "preference_penalty",
-    "risk_penalty",
-    "context_modifier",
-)
-CLASSIFIER_HYBRID_SIGNAL_AXES = (
-    "groove",
-    "density",
-    "texture",
-    "mood",
-    "tonal",
-    "vocalness",
-    "energy_flow",
-    "novelty",
-)
-CLASSIFIER_HYBRID_SIGNAL_MISSING_POLICIES = ("neutral",)
-
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _GENERATION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _OUTPUT_KIND_BY_FEATURE_SOURCE = {
@@ -77,8 +58,6 @@ class ClassifierManifestSummary:
     score_semantics: str = CLASSIFIER_SCORE_SEMANTICS
     calibration_status: str = "uncalibrated"
     calibration: dict[str, Any] | None = None
-    hybrid_signal: dict[str, Any] | None = None
-    hybrid_signal_source: str | None = None
 
     @property
     def is_scoring_compatible(self) -> bool:
@@ -138,7 +117,6 @@ class ClassifierManifestSummary:
             "calibration": dict(self.calibration or {}),
             "has_calibrated_probability": self.has_calibrated_probability,
             "required_inputs": list(self.required_inputs),
-            **classifier_hybrid_signal_api_fields(self),
         }
 
 
@@ -341,18 +319,6 @@ def classifier_manifest_api_fields(
         "calibration": dict(summary.calibration or {}),
         "has_calibrated_probability": summary.has_calibrated_probability,
         "required_inputs": list(summary.required_inputs),
-        **classifier_hybrid_signal_api_fields(summary),
-    }
-
-
-def classifier_hybrid_signal_api_fields(
-    summary: ClassifierManifestSummary,
-) -> dict[str, object]:
-    return {
-        "hybrid_signal": (
-            dict(summary.hybrid_signal) if summary.hybrid_signal is not None else None
-        ),
-        "hybrid_signal_source": summary.hybrid_signal_source,
     }
 
 
@@ -472,11 +438,6 @@ def _parse_manifest_payload(
         payload.get("trained_label_counts"),
         warnings,
     )
-    hybrid_signal = _hybrid_signal(
-        payload.get("hybrid_signal"),
-        errors,
-        warnings,
-    )
     status = "invalid" if errors else "valid"
     return ClassifierManifestSummary(
         classifier_key=classifier_key,
@@ -500,8 +461,6 @@ def _parse_manifest_payload(
         score_semantics=score_semantics,
         calibration_status=calibration_status,
         calibration=calibration_payload,
-        hybrid_signal=hybrid_signal,
-        hybrid_signal_source="manifest" if hybrid_signal is not None else None,
     )
 
 
@@ -683,119 +642,3 @@ def _trained_label_counts(
             continue
         counts[label] = raw_count
     return counts
-
-
-def _hybrid_signal(
-    value: object,
-    errors: list[str],
-    warnings: list[str],
-) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    if not isinstance(value, Mapping):
-        errors.append("model.json hybrid_signal must be an object")
-        return None
-
-    role = _optional_text(value.get("role"))
-    axis = _optional_text(value.get("axis"))
-    if role is None:
-        errors.append("model.json hybrid_signal.role is required")
-    elif role not in CLASSIFIER_HYBRID_SIGNAL_ROLES:
-        errors.append(f"model.json hybrid_signal.role {role!r} is not supported")
-    if axis is None:
-        errors.append("model.json hybrid_signal.axis is required")
-    elif axis not in CLASSIFIER_HYBRID_SIGNAL_AXES:
-        errors.append(f"model.json hybrid_signal.axis {axis!r} is not supported")
-    if (
-        role is None
-        or axis is None
-        or role not in CLASSIFIER_HYBRID_SIGNAL_ROLES
-        or axis not in CLASSIFIER_HYBRID_SIGNAL_AXES
-    ):
-        return None
-
-    signal: dict[str, Any] = {"role": role, "axis": axis}
-    for field_name in ("label", "description"):
-        text = _optional_text(value.get(field_name))
-        if text is not None:
-            signal[field_name] = text
-
-    if "enabled_by_default" in value:
-        if isinstance(value.get("enabled_by_default"), bool):
-            signal["enabled_by_default"] = bool(value["enabled_by_default"])
-        else:
-            warnings.append(
-                "model.json hybrid_signal.enabled_by_default is not a boolean"
-            )
-
-    for field_name in ("default_preference", "default_risk_weight"):
-        if field_name not in value:
-            continue
-        number = _optional_float(
-            value.get(field_name),
-            f"hybrid_signal.{field_name}",
-            warnings,
-        )
-        if number is None:
-            continue
-        if field_name == "default_preference":
-            signal[field_name] = max(-1.0, min(1.0, number))
-        else:
-            signal[field_name] = max(0.0, min(1.0, number))
-
-    allowed_modes = _optional_string_list(
-        value.get("allowed_modes"),
-        "hybrid_signal.allowed_modes",
-        warnings,
-    )
-    if allowed_modes is not None:
-        signal["allowed_modes"] = allowed_modes
-
-    policy = _optional_text(value.get("missing_score_policy"))
-    if policy is not None:
-        if policy not in CLASSIFIER_HYBRID_SIGNAL_MISSING_POLICIES:
-            warnings.append(
-                f"model.json hybrid_signal.missing_score_policy {policy!r} "
-                "is not supported"
-            )
-        else:
-            signal["missing_score_policy"] = policy
-
-    return signal
-
-
-def _optional_float(
-    value: object,
-    field_name: str,
-    warnings: list[str],
-) -> float | None:
-    if value is None or isinstance(value, bool):
-        warnings.append(f"model.json {field_name} must be a number")
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        warnings.append(f"model.json {field_name} must be a number")
-        return None
-    if not math.isfinite(number):
-        warnings.append(f"model.json {field_name} must be finite")
-        return None
-    return number
-
-
-def _optional_string_list(
-    value: object,
-    field_name: str,
-    warnings: list[str],
-) -> list[str] | None:
-    if value is None:
-        return None
-    if not isinstance(value, list):
-        warnings.append(f"model.json {field_name} must be a list")
-        return None
-    result: list[str] = []
-    for item in value:
-        text = _optional_text(item)
-        if text is not None:
-            result.append(text)
-    return result

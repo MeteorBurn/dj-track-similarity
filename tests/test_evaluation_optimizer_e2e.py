@@ -9,8 +9,8 @@ from dj_track_similarity.evaluation.score_profile_optimizer import (
 from evaluation_fixtures import EvaluationRepository
 
 
-def test_hybrid_feedback_optimizer_promotion_e2e_fixture() -> None:
-    rejected_db = _build_hybrid_feedback_fixture(seed_count=50)
+def test_weighted_feedback_optimizer_promotion_e2e_fixture() -> None:
+    rejected_db = _build_weighted_feedback_fixture(seed_count=50)
     rejected = build_score_profile_optimizer_report(
         rejected_db,
         grid_step=0.5,
@@ -22,7 +22,7 @@ def test_hybrid_feedback_optimizer_promotion_e2e_fixture() -> None:
     assert rejected["judged_pairs"] == 100
     assert rejected["matched_judged_examples"] == 100
 
-    candidate_db = _build_hybrid_feedback_fixture(seed_count=100)
+    candidate_db = _build_weighted_feedback_fixture(seed_count=100)
     candidate = build_score_profile_optimizer_report(
         candidate_db,
         grid_step=0.5,
@@ -45,7 +45,7 @@ def test_hybrid_feedback_optimizer_promotion_e2e_fixture() -> None:
     with pytest.raises(ValueError, match="500 matched judged-pair"):
         build_promoted_score_profile_payload(candidate)
 
-    promotable_db = _build_hybrid_feedback_fixture(seed_count=250)
+    promotable_db = _build_weighted_feedback_fixture(seed_count=250)
     promotable = build_score_profile_optimizer_report(
         promotable_db,
         grid_step=0.5,
@@ -61,7 +61,7 @@ def test_hybrid_feedback_optimizer_promotion_e2e_fixture() -> None:
     assert promoted_payload["can_apply_as_default"] is True
 
 
-def _build_hybrid_feedback_fixture(
+def _build_weighted_feedback_fixture(
     *,
     seed_count: int,
 ) -> EvaluationRepository:
@@ -71,8 +71,8 @@ def _build_hybrid_feedback_fixture(
     for seed_id in range(1, seed_count + 1):
         repository.add_session(
             seed_track_id=seed_id,
-            mode="hybrid",
-            feedback_source="hybrid_ui",
+            mode="evaluation_candidate_pool",
+            feedback_source="manual",
             events=(
                 {
                     "candidate_track_id": good_id,
@@ -101,13 +101,13 @@ def _build_hybrid_feedback_fixture(
             good_id,
             3,
             seed_track_id=seed_id,
-            source="hybrid_ui",
+            source="manual",
         )
         repository.add_feedback(
             bad_id,
             0,
             seed_track_id=seed_id,
-            source="hybrid_ui",
+            source="manual",
         )
     return repository
 

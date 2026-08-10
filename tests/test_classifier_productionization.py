@@ -24,11 +24,7 @@ _ARTIFACT_BYTES = b"fixture"
 _ARTIFACT_HASH = f"sha256:{hashlib.sha256(_ARTIFACT_BYTES).hexdigest()}"
 
 
-def _manifest_payload(
-    classifier_key: str,
-    *,
-    hybrid_signal: dict[str, object] | None = None,
-) -> dict[str, object]:
+def _manifest_payload(classifier_key: str) -> dict[str, object]:
     feature_names = ("mert:0",)
     payload: dict[str, object] = {
         "classifier_key": classifier_key,
@@ -45,8 +41,6 @@ def _manifest_payload(
             "calibration": {"status": "uncalibrated"},
         },
     }
-    if hybrid_signal is not None:
-        payload["hybrid_signal"] = hybrid_signal
     return payload
 
 
@@ -197,38 +191,6 @@ def test_promoted_classifiers_expose_feature_driven_manifest_fields(
     assert valid["manifest_status"] == "valid"
     assert valid["required_inputs"] == ["mert"]
     assert valid["feature_names"] == ["mert:0"]
-
-
-def test_hybrid_signal_is_manifest_only_without_legacy_fallback(
-    tmp_path: Path,
-) -> None:
-    _write_promoted(
-        tmp_path,
-        "manifest_signal",
-        payload=_manifest_payload(
-            "manifest_signal",
-            hybrid_signal={
-                "role": "preference_boost",
-                "axis": "groove",
-                "label": "Boost groove",
-                "missing_score_policy": "neutral",
-            },
-        ),
-    )
-    _write_promoted(tmp_path, "break_energy")
-
-    by_key = {item["classifier_key"]: item for item in promoted_classifiers(tmp_path)}
-
-    assert by_key["manifest_signal"]["hybrid_signal"] == {
-        "role": "preference_boost",
-        "axis": "groove",
-        "label": "Boost groove",
-        "missing_score_policy": "neutral",
-    }
-    assert by_key["manifest_signal"]["hybrid_signal_source"] == "manifest"
-    assert by_key["break_energy"]["hybrid_signal"] is None
-    assert by_key["break_energy"]["hybrid_signal_source"] is None
-    assert all("legacy_hybrid_signal" not in item for item in by_key.values())
 
 
 def test_reports_use_public_current_readers_and_scope_by_classifier_key(

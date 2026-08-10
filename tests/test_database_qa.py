@@ -476,7 +476,7 @@ def test_qa_rejects_evaluation_track_orphan_without_mutating_sidecar(
         cursor = evaluation.execute(
             """
             INSERT INTO search_sessions(mode, request_json, created_at)
-            VALUES ('hybrid', '{}', ?)
+            VALUES ('evaluation_candidate_pool', '{}', ?)
             """,
             (_NOW,),
         )
@@ -507,7 +507,7 @@ def test_qa_rejects_nonfinite_evaluation_score(
         cursor = evaluation.execute(
             """
             INSERT INTO search_sessions(mode, request_json, created_at)
-            VALUES ('hybrid', '{}', ?)
+            VALUES ('evaluation_candidate_pool', '{}', ?)
             """,
             (_NOW,),
         )

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
 
 
-DEFAULT_PROFILE_NAME = "hybrid_judged_v1"
+DEFAULT_PROFILE_NAME = "weighted_candidates_judged_v1"
 DEFAULT_OBJECTIVE = "balanced"
 DEFAULT_SPLIT_BY = "seed"
 DEFAULT_MIN_JUDGED_PAIRS = CANDIDATE_PROFILE_JUDGED_PAIRS

@@ -217,7 +217,7 @@ def test_calibration_setting_and_explicit_open_lazily_create_sidecar(
 
     calibration_id = repository.record_calibration_run(
         "manual-feedback",
-        "hybrid",
+        "evaluation_candidate_pool",
         {"k": [5, 10]},
         {"precision_at_5": 0.5},
     )

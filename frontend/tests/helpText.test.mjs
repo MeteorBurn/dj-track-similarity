@@ -17,17 +17,14 @@ function loadHelpText() {
   return module.exports.helpText;
 }
 
-test("MuQ help describes current search SET Hybrid Dedup and classifier support", () => {
+test("MuQ help describes current seed search, Dedup, and classifier support", () => {
   const helpText = loadHelpText();
 
   assert.match(helpText.muqAnalyze, /seed-поиска/);
-  assert.match(helpText.muqAnalyze, /SET/);
-  assert.match(helpText.muqAnalyze, /Hybrid/);
   assert.match(helpText.muqAnalyze, /Audio Dedup/);
   assert.match(helpText.classifiersAnalyze, /MuQ/);
   assert.match(helpText.classifiersAnalyze, /CLAP/);
   assert.doesNotMatch(helpText.classifiersAnalyze, /contract|schema|version/i);
-  assert.doesNotMatch(helpText.muqAnalyze, /без поиска и SET/);
   assert.doesNotMatch(helpText.classifiersAnalyze, /только .*SONARA, MERT и MAEST/);
 });
 

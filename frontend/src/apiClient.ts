@@ -11,12 +11,7 @@ import type {
   DatabaseClearResult,
   DatabaseSelection,
   EmbeddingSearchPayload,
-  EvaluationPairFeedbackPayload,
-  EvaluationPairFeedbackResult,
-  EvaluationSummary,
   GenreTagJobStatus,
-  HybridSearchPayload,
-  HybridSearchResponse,
   LibrarySummary,
   PromotedClassifier,
   ReferenceComparePayload,
@@ -30,8 +25,6 @@ import type {
   ScanStats,
   SearchResult,
   ServerShutdownResult,
-  SetBuilderGeneratePayload,
-  SetBuilderGenerateResult,
   SonaraMixerWeights,
   SonaraModifiers,
   SonaraStatus,
@@ -316,18 +309,6 @@ const searchApi = {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,
-    }),
-  hybridSearch: (payload: HybridSearchPayload, options?: { signal?: AbortSignal }) =>
-    request<HybridSearchResponse>("/api/search/hybrid", {
-      method: "POST",
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    }),
-  setBuilderGenerate: (payload: SetBuilderGeneratePayload, options?: { signal?: AbortSignal }) =>
-    request<SetBuilderGenerateResult>("/api/set-builder/generate", {
-      method: "POST",
-      body: JSON.stringify(payload),
-      signal: options?.signal,
     })
 };
 
@@ -339,15 +320,6 @@ const referenceCompareApi = {
     }),
   referenceCompareVerdict: (payload: ReferenceCompareVerdictPayload) =>
     request<ReferenceCompareVerdictResult>("/api/reference/compare/verdict", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    })
-};
-
-const evaluationApi = {
-  evaluationSummary: () => request<EvaluationSummary>("/api/evaluation/summary"),
-  evaluationPairFeedback: (payload: EvaluationPairFeedbackPayload) =>
-    request<EvaluationPairFeedbackResult>("/api/evaluation/feedback/pair", {
       method: "POST",
       body: JSON.stringify(payload)
     })
@@ -398,7 +370,6 @@ export const api = {
   ...analysisApi,
   ...searchApi,
   ...referenceCompareApi,
-  ...evaluationApi,
   ...playlistApi,
   ...tagApi
 };

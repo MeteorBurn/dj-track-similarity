@@ -510,7 +510,6 @@ test("clap search exposes prompt presets and optional negative contrast fields w
   assert.match(appSource, /embeddingCounts=\{\{[\s\S]*clap:\s*librarySummary\.clap/);
   assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /api\.textSearch/);
-  assert.doesNotMatch(appSource, /api\.hybridSearch\(\{[\s\S]*query: prompt/);
   assert.match(appSource, /const\s+\[clapUseNegativePrompt,\s*setClapUseNegativePrompt\]\s*=\s*useState\(true\)/);
   assert.match(appSource, /promptQueriesFromText\(prompt,\s*clapNegativeQuery,\s*clapUseNegativePrompt\)/);
   assert.match(apiClientSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);

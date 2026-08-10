@@ -1166,22 +1166,6 @@ export function App() {
     }
   }
 
-  function handleAddGeneratedSetToPlaylist(tracks: Track[]) {
-    if (!tracks.length) {
-      setNotice({ kind: "error", text: "Нет SET preview для добавления" });
-      return;
-    }
-    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
-    const added = nextPlaylist.length - playlist.length;
-    if (!added) {
-      setNotice({ kind: "idle", text: "Все треки preview уже в сете" });
-      return;
-    }
-    setPlaylist(nextPlaylist);
-    appendActivity("ok", "SET preview добавлен в сет", `${added} новых`);
-    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
-  }
-
   async function handleCancelAnalyze() {
     if (analysisPipelineJob && ["queued", "running"].includes(analysisPipelineJob.state)) {
       await run(
@@ -1689,7 +1673,6 @@ export function App() {
           clapPromptPresets={clapPromptPresets}
           clapMinSimilarity={clapMinSimilarity}
           onClapMinSimilarityChange={setClapMinSimilarity}
-          databasePath={databasePath}
           databaseIdentity={databaseCatalogUuid}
           busy={busy || genericSearchPending || !databasePath}
           filters={filters}
@@ -1726,7 +1709,6 @@ export function App() {
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleEmbeddingSearch={handleEmbeddingSearch}
-          addGeneratedSetToPlaylist={handleAddGeneratedSetToPlaylist}
           addSeed={addSeed}
           toggleLiked={handleToggleTrackLiked}
           togglePlaylist={togglePlaylist}

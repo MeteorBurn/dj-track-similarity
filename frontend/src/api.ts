@@ -1,6 +1,4 @@
 export type EmbeddingSource = "mert" | "maest" | "muq" | "clap";
-export type EvaluationSource = EmbeddingSource | "sonara";
-export type HybridSearchSource = EvaluationSource;
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type SonaraStatusOutput = {
   output_kind: "core";
@@ -244,128 +242,6 @@ export type ReferenceCompareVerdictResult = {
   rating: number;
   notes?: string | null;
 };
-export type HybridMatchAxis = "groove" | "density" | "texture" | "mood" | "tonal" | "vocalness" | "energy_flow" | "novelty";
-export type HybridClassifierSignalRole = "preference_boost" | "preference_penalty" | "risk_penalty" | "context_modifier";
-export type HybridClassifierSignal = {
-  role: HybridClassifierSignalRole;
-  axis: HybridMatchAxis;
-  label?: string | null;
-  description?: string | null;
-  enabled_by_default?: boolean | null;
-  default_preference?: number | null;
-  default_risk_weight?: number | null;
-  allowed_modes?: string[] | null;
-  missing_score_policy?: string | null;
-};
-
-export type HybridSearchPayload = {
-  seed_track_ids: number[];
-  sources?: HybridSearchSource[];
-  weights?: Partial<Record<HybridSearchSource, number>> | null;
-  score_profile?: EvaluationScoreProfile | Record<string, unknown> | null;
-  per_source?: number;
-  limit?: number;
-  rrf_k?: number;
-  random_seed?: number;
-  transition_risk_weight?: number;
-  transition_risk_version?: "v1" | "v2";
-  classifier_preferences?: Record<string, number>;
-  classifier_risk_weights?: Record<string, number>;
-  include_diagnostics?: boolean;
-  record_session?: boolean;
-};
-
-export type EvaluationPairReasonTag =
-  | "good_groove"
-  | "good_density"
-  | "good_texture"
-  | "good_mood"
-  | "good_tonal"
-  | "too_vocal"
-  | "bad_density"
-  | "bad_tonal"
-  | "too_obvious"
-  | "interesting_adjacent"
-  | "wrong_energy"
-  | "wrong_texture"
-  | "bad_transition_risk";
-
-export type EvaluationPairFeedbackState = {
-  state: "rated" | "mixed";
-  source: string;
-  seed_track_ids: number[];
-  candidate_track_id: number;
-  rating: 0 | 1 | 2 | 3 | null;
-  reason_tags: EvaluationPairReasonTag[];
-  notes?: string | null;
-  per_seed?: Array<{
-    id: number;
-    seed_track_id: number;
-    candidate_track_id: number;
-    rating: 0 | 1 | 2 | 3;
-    reason_tags: EvaluationPairReasonTag[];
-    notes?: string | null;
-    source: string;
-    updated_at?: string | null;
-  }>;
-};
-
-export type HybridSearchResult = {
-  track: Track;
-  score: number;
-  total_score: number;
-  calibrated_score?: null;
-  adjusted_score: number;
-  transition_risk?: number | null;
-  transition_risk_penalty: number;
-  transition_risk_weight: number;
-  raw_rrf_score: number;
-  rank: number;
-  score_breakdown: Partial<Record<HybridSearchSource, { rank: number; weight: number; contribution: number; score?: number }>>;
-  risk_breakdown: Record<string, number | null>;
-  source_support: Partial<Record<HybridSearchSource, {
-    available: boolean;
-    rank?: number | null;
-    score?: number | null;
-    weight?: number | null;
-    contribution?: number | null;
-    best_seed_track_id?: number | null;
-    best_rank?: number | null;
-    supporting_seed_track_ids?: number[];
-  }>>;
-  classifier_support: Record<string, {
-    available: boolean;
-    score?: number | null;
-    preference?: number | null;
-    risk_weight?: number | null;
-    score_contribution?: number | null;
-    risk_contribution?: number | null;
-    role?: HybridClassifierSignalRole | string | null;
-    axis?: HybridMatchAxis | string | null;
-    label?: string | null;
-    description?: string | null;
-    missing_score_policy?: string | null;
-    hybrid_signal_source?: string | null;
-  }>;
-  match_character: Record<HybridMatchAxis, number>;
-  warnings: string[];
-  explanation: string[];
-  transition_diagnostics: Record<string, unknown>;
-  diagnostics: Record<string, unknown>;
-  feedback?: EvaluationPairFeedbackState | null;
-};
-
-export type HybridSearchResponse = {
-  results: HybridSearchResult[];
-  warnings: string[];
-  weights_used: Partial<Record<HybridSearchSource, number>>;
-  sources: HybridSearchSource[];
-  contributing_sources: HybridSearchSource[];
-  limitations: string[];
-  diagnostics: Record<string, unknown>;
-  session_id?: number | null;
-};
-
 export type TrackPage = {
   items: Track[];
   total: number;
@@ -398,13 +274,6 @@ export type LibrarySummary = {
 };
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
-
-export type SetBuilderSeedMode = "manual" | "auto";
-export type SetBuilderMode = "similar_crate" | "weird_adjacent" | "balanced_set" | "discovery";
-export type SetBuilderEnergyCurve = "warmup" | "balanced" | "peak" | "wave";
-export type SetBuilderBpmMode = "general" | "low_to_high" | "high_to_low";
-export type SetBuilderBpmChange = "slow" | "medium" | "fast";
-export type SetBuilderClassifierFlow = "flat" | "rise" | "fall";
 
 export type SonaraMixerWeights = {
   timbre: number;
@@ -525,8 +394,6 @@ export type PromotedClassifier = {
   not_ready?: number;
   candidate_count?: number;
   readiness_blockers?: string[];
-  hybrid_signal?: HybridClassifierSignal | null;
-  hybrid_signal_source?: string | null;
 };
 
 export type GenreTagJobStatus = {
@@ -698,87 +565,6 @@ export type RhythmLabStopResult = RhythmLabStatus & {
 
 export type ServerShutdownResult = {
   status: "shutdown_requested";
-};
-
-export type SetBuilderGeneratePayload = {
-  seed_mode: SetBuilderSeedMode;
-  seed_track_ids: number[];
-  auto_seed_count: number;
-  mode: SetBuilderMode;
-  limit: number;
-  diversity: number;
-  energy_curve: SetBuilderEnergyCurve;
-  bpm_mode: SetBuilderBpmMode;
-  bpm_change: SetBuilderBpmChange;
-  bpm_start?: number;
-  bpm_target?: number;
-  classifier_preferences?: Record<string, number>;
-  classifier_flows?: Record<string, SetBuilderClassifierFlow>;
-  random_seed?: number;
-  sources?: EmbeddingSource[];
-  weights?: Partial<Record<EmbeddingSource | "sonara_broad", number>> | null;
-};
-
-export type SetBuilderGenerateResult = {
-  mode: SetBuilderMode;
-  seed_mode: SetBuilderSeedMode;
-  seed_track_ids: number[];
-  sources: EmbeddingSource[];
-  weights_used: Partial<Record<EmbeddingSource | "sonara_broad", number>>;
-  coverage: {
-    tracks: number;
-    eligible_tracks: number;
-    missing_mert: number;
-    missing_maest: number;
-    missing_muq: number;
-    missing_clap: number;
-    missing_sonara: number;
-  };
-  items: SearchResult[];
-};
-
-export type EvaluationSummary = {
-  counts: {
-    search_sessions: number;
-    search_session_seeds: number;
-    search_result_events: number;
-    pair_feedback: number;
-    transition_feedback: number;
-    calibration_runs: number;
-  };
-};
-
-export type EvaluationPairFeedbackPayload = {
-  session_id?: number | null;
-  seed_track_ids: number[];
-  candidate_track_id: number;
-  rating: 0 | 1 | 2 | 3;
-  reason_tags?: EvaluationPairReasonTag[];
-  notes?: string | null;
-  source?: string;
-};
-
-export type EvaluationScoreProfile = {
-  name: string;
-  profile_kind: "unsupervised_source_profile";
-  weight_kind: "unsupervised_internal_profile";
-  sources: EvaluationSource[];
-  weights: Partial<Record<EvaluationSource, number>>;
-  created_at: string;
-  source_report_summary: Record<string, unknown>;
-  limitations: string[];
-  version: number;
-};
-
-export type EvaluationPairFeedbackResult = Record<string, unknown> & {
-  ids: number[];
-  seed_track_ids: number[];
-  candidate_track_id: number;
-  rating: 0 | 1 | 2 | 3;
-  reason_tags: EvaluationPairReasonTag[];
-  notes?: string | null;
-  source: string;
-  session_id?: number | null;
 };
 
 export type RhythmLabCollectionSaveResult = {

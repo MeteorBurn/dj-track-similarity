@@ -336,36 +336,13 @@ test("MuQ search and resets serialize only current field names", async () => {
   });
 });
 
-test("SET Hybrid and Audio Dedup preserve MuQ profiles and omit undefined fields", async () => {
+test("Audio Dedup preserves MuQ profiles and omits undefined fields", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
     return jsonResponse({});
   });
 
-  await api.setBuilderGenerate({
-    seed_mode: "manual",
-    seed_track_ids: [3],
-    auto_seed_count: 5,
-    sources: ["mert", "maest", "muq", "clap"],
-    weights: null,
-    mode: "balanced_set",
-    limit: 24,
-    diversity: 0.35,
-    energy_curve: "balanced",
-    bpm_mode: "general",
-    bpm_change: "medium",
-    random_seed: 0
-  });
-  await api.hybridSearch({
-    seed_track_ids: [3],
-    sources: ["mert", "maest", "muq", "sonara", "clap"],
-    weights: null,
-    per_source: 30,
-    limit: 25,
-    include_diagnostics: true,
-    record_session: false
-  });
   await api.audioDedupJobStart({
     root: "D:/Music",
     sources: ["mert", "maest", "muq", "clap"],
@@ -378,33 +355,8 @@ test("SET Hybrid and Audio Dedup preserve MuQ profiles and omit undefined fields
     apply: false
   });
 
-  assert.equal(calls[0].path, "/api/set-builder/generate");
+  assert.equal(calls[0].path, "/api/audio-dedup/jobs");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
-    seed_mode: "manual",
-    seed_track_ids: [3],
-    auto_seed_count: 5,
-    sources: ["mert", "maest", "muq", "clap"],
-    weights: null,
-    mode: "balanced_set",
-    limit: 24,
-    diversity: 0.35,
-    energy_curve: "balanced",
-    bpm_mode: "general",
-    bpm_change: "medium",
-    random_seed: 0
-  });
-  assert.equal(calls[1].path, "/api/search/hybrid");
-  assert.deepEqual(JSON.parse(calls[1].options.body), {
-    seed_track_ids: [3],
-    sources: ["mert", "maest", "muq", "sonara", "clap"],
-    weights: null,
-    per_source: 30,
-    limit: 25,
-    include_diagnostics: true,
-    record_session: false
-  });
-  assert.equal(calls[2].path, "/api/audio-dedup/jobs");
-  assert.deepEqual(JSON.parse(calls[2].options.body), {
     root: "D:/Music",
     sources: ["mert", "maest", "muq", "clap"],
     weights: {
@@ -445,18 +397,7 @@ test("API client surfaces backend error text for unknown or invalid payload fail
   }));
 
   await assert.rejects(
-    api.setBuilderGenerate({
-      seed_mode: "auto",
-      seed_track_ids: [],
-      auto_seed_count: 3,
-      mode: "balanced_set",
-      limit: 12,
-      diversity: 0.35,
-      energy_curve: "balanced",
-      bpm_mode: "general",
-      bpm_change: "medium",
-      classifier_preferences: { break_energy: 0.7 }
-    }),
+    api.audioDedupJobStart({ root: "D:/Music", apply: false }),
     /Unknown classifier: break_energy/
   );
 });

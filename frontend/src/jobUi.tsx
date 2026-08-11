@@ -198,7 +198,7 @@ function UnifiedEventList({ events }: { events: UnifiedLogEvent[] }) {
             <div className={`process-log-row ${event.level}`} key={event.id}>
               <time>{new Date(event.timeMs).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
               <strong>{event.level}</strong>
-              <span>{sourceLabel(event.source)}: {event.message}{event.detail ? ` · ${event.detail}` : ""}</span>
+              <span>[{sourceLabel(event.source)}]: {event.message}{event.detail ? ` · ${event.detail}` : ""}</span>
             </div>
           ))
         )}

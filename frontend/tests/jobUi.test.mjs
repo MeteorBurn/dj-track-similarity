@@ -56,3 +56,12 @@ test("stage indicator prioritizes running destructive helper jobs and cancelled 
   assert.match(indicatorBlock, /audioDoctorJob\?\.state === "cancelled"/);
   assert.match(indicatorBlock, /return "Этап остановлен"/);
 });
+
+test("unified event log brackets the source label before each message", () => {
+  const source = readFileSync(jobUiPath, "utf8");
+  const eventListBlock = source.match(/function UnifiedEventList[\s\S]*?function sourceLabel/)?.[0] || "";
+
+  assert.match(eventListBlock, /<strong>\{event\.level\}<\/strong>/);
+  assert.match(eventListBlock, /<span>\[\{sourceLabel\(event\.source\)\}\]: \{event\.message\}/);
+  assert.doesNotMatch(eventListBlock, /sourceLabel\(event\.source\):/);
+});

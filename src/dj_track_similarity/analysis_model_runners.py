@@ -31,6 +31,7 @@ from .embedding import (
     MuqEmbeddingAdapter,
 )
 from .genres import MaestGenreAdapter
+from .maest_analysis_validation import has_maest_syncopated_rhythm
 from .timestamps import utc_timestamp
 from .sonara_features import (
     SonaraBatchMetrics,
@@ -40,26 +41,6 @@ from .sonara_features import (
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
-_SYNCOPATED_RHYTHM_LABELS = frozenset(
-    label.casefold()
-    for label in (
-        "Breakbeat",
-        "Breakcore",
-        "Breaks",
-        "Progressive Breaks",
-        "Broken Beat",
-        "Drum n Bass",
-        "Jungle",
-        "Halftime",
-        "Juke",
-        "UK Garage",
-        "Speed Garage",
-        "Bassline",
-        "Electro",
-    )
-)
-
-
 class AnalysisWriteRepository(Protocol):
     def current_sonara_track_count(self) -> int: ...
 
@@ -574,7 +555,7 @@ def _maest_genres(
 
 
 def _has_syncopated_rhythm(genres: Sequence[MaestGenreScore]) -> bool:
-    return any(genre.label.casefold() in _SYNCOPATED_RHYTHM_LABELS for genre in genres)
+    return has_maest_syncopated_rhythm(genre.label for genre in genres)
 
 
 def _embedding_for_path(

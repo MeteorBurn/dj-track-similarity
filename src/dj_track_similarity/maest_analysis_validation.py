@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TypeAlias
 
 MaestAnalysisRow: TypeAlias = Mapping[str, object] | sqlite3.Row
@@ -17,6 +17,35 @@ MAEST_ANALYSIS_COLUMNS = (
     "genres_json",
     "analyzed_at",
 )
+
+_SYNCOPATED_RHYTHM_LABELS = frozenset(
+    label.casefold()
+    for label in (
+        "Breakbeat",
+        "Breakcore",
+        "Breaks",
+        "Progressive Breaks",
+        "Broken Beat",
+        "Drum n Bass",
+        "Jungle",
+        "Halftime",
+        "Juke",
+        "UK Garage",
+        "Speed Garage",
+        "Bassline",
+        "Electro",
+    )
+)
+
+
+def has_maest_syncopated_rhythm(labels: Iterable[str]) -> bool:
+    """Return whether MAEST genre labels indicate a syncopated rhythm style."""
+
+    return any(
+        label.rsplit("---", 1)[-1].strip().casefold()
+        in _SYNCOPATED_RHYTHM_LABELS
+        for label in labels
+    )
 
 
 def validate_maest_analysis_row(

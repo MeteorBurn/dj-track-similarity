@@ -155,6 +155,36 @@ def test_valid_maest_embedding_output_saves_through_repository(
     )
 
 
+def test_recompute_maest_syncopated_rhythm_uses_hierarchical_labels(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    repository.save_maest_results(
+        (
+            MaestWrite(
+                target=_target(repository),
+                genres=(
+                    MaestGenreScore(
+                        label="Electronic---Breakbeat",
+                        score=0.9,
+                    ),
+                ),
+                syncopated_rhythm=False,
+                analyzed_at=ANALYZED_AT,
+            ),
+        )
+    )
+
+    assert repository.recompute_maest_syncopated_rhythm() == 1
+    assert repository.recompute_maest_syncopated_rhythm() == 0
+    with repository.connect() as connection:
+        row = connection.execute(
+            "SELECT syncopated_rhythm FROM maest_scores WHERE track_id = 1"
+        ).fetchone()
+    assert row is not None
+    assert row["syncopated_rhythm"] == 1
+
+
 @pytest.mark.parametrize(
     ("family", "kind"),
     (("unknown", "embedding"), ("mert", "analysis")),

@@ -513,7 +513,7 @@ class _FakeMaestAdapter(MaestGenreAdapter):
             vector = np.zeros(768, dtype=np.float32)
             vector[:2] = (3.0, 4.0)
             self._vectors[item.path] = vector
-        return [[{"label": "Breaks", "score": 0.9}] for _item in decoded_items]
+        return [[{"label": "Electronic---Breaks", "score": 0.9}] for _item in decoded_items]
 
     def embedding_for_path(self, path: str) -> np.ndarray | None:
         return self._vectors.get(path)

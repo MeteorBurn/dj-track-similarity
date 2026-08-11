@@ -80,28 +80,7 @@ def register_analysis_routes(
 
     @app.get("/api/classifiers")
     def classifiers():
-        available = promoted_classifiers()
-        compatible = [
-            str(item["classifier_key"])
-            for item in available
-            if bool(item.get("is_scoring_compatible", True))
-        ]
-        readiness = state.require_classifier_jobs().readiness(compatible)
-        for item in available:
-            key = str(item.get("classifier_key") or "")
-            counts = readiness.get(key)
-            if counts is None:
-                errors = item.get("manifest_errors")
-                item["ready"] = 0
-                item["not_ready"] = 0
-                item["candidate_count"] = 0
-                item["readiness_blockers"] = list(errors) if isinstance(errors, list) else ["Classifier artifact is not scoring-compatible"]
-                continue
-            item["ready"] = int(counts["ready"])
-            item["not_ready"] = int(counts["not_ready"])
-            item["candidate_count"] = int(counts["candidates"])
-            item["readiness_blockers"] = list(counts["blockers"])
-        return available
+        return promoted_classifiers()
 
     @app.post("/api/classifiers/analyze")
     def analyze_classifiers(request: ClassifiersAnalyzeRequest):

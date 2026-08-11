@@ -230,6 +230,7 @@ def _create_focused_profile(
     lab.create_profile(
         classifier_key="focused",
         name="Focused",
+        description="Focused classifier description.",
         artifact_dir=artifact_dir,
         labels=[
             {"key": "yes", "name": "Yes", "role": "positive"},
@@ -1513,11 +1514,13 @@ def test_promote_replaces_the_root_model_pair(tmp_path: Path) -> None:
     assert not (profile_dir / "generations").exists()
     manifest = json.loads((profile_dir / "model.json").read_text(encoding="utf-8"))
     assert manifest["publication_status"] == "ready"
+    assert manifest["profile_description"] == "Focused classifier description."
     resolved = resolve_classifier_artifact_paths(profile_dir / "model.joblib")
     assert resolved.model_path == profile_dir / "model.joblib"
     discovered = promoted_classifiers(target_root)
     assert len(discovered) == 1
     assert discovered[0]["manifest_status"] == "valid"
+    assert discovered[0]["profile_description"] == "Focused classifier description."
     assert discovered[0]["model_path"] == str(profile_dir / "model.joblib")
 
 

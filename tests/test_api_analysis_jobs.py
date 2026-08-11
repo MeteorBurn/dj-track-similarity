@@ -27,6 +27,25 @@ def _analysis_start(calls: list[dict[str, object]]):
     return start
 
 
+def test_api_lists_classifier_manifests_without_database_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    classifiers = [
+        {
+            "classifier_key": "voice_presence",
+            "name": "Voice Presence",
+            "is_scoring_compatible": True,
+        }
+    ]
+    monkeypatch.setattr(api, "promoted_classifiers", lambda: classifiers)
+
+    response = _client(monkeypatch, tmp_path).get("/api/classifiers")
+
+    assert response.status_code == 200
+    assert response.json() == classifiers
+
+
 def test_api_starts_selected_ml_job_without_classifier_fields(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

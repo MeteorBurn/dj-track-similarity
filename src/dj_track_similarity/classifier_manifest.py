@@ -38,6 +38,7 @@ class ClassifierManifestSummary:
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     profile_name: str | None = None
+    profile_description: str | None = None
     profile_type: str | None = None
     artifact_prefix: str | None = None
     feature_set: str | None = None
@@ -94,6 +95,7 @@ class ClassifierManifestSummary:
             "manifest_warnings": list(self.warnings),
             "is_scoring_compatible": self.is_scoring_compatible,
             "profile_name": self.profile_name,
+            "profile_description": self.profile_description,
             "profile_type": self.profile_type,
             "artifact_prefix": self.artifact_prefix,
             "feature_set": self.feature_set,
@@ -236,6 +238,11 @@ def classifier_manifest_api_fields(
         "manifest_errors": list(summary.errors),
         "manifest_warnings": list(summary.warnings),
         "is_scoring_compatible": summary.is_scoring_compatible,
+        "profile_name": summary.profile_name,
+        "profile_description": summary.profile_description,
+        "profile_type": summary.profile_type,
+        "negative_label": summary.negative_label,
+        "trained_label_counts": dict(summary.trained_label_counts or {}),
         "artifact_hash": summary.artifact_hash,
         "promoted_at": summary.promoted_at,
         "feature_names": list(summary.feature_names),
@@ -376,6 +383,7 @@ def _parse_manifest_payload(
         errors=tuple(errors),
         warnings=tuple(warnings),
         profile_name=_optional_text(payload.get("profile_name")),
+        profile_description=_optional_text(payload.get("profile_description")),
         profile_type=_optional_text(payload.get("profile_type")),
         artifact_prefix=artifact_prefix,
         feature_set=feature_set,

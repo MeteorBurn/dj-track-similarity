@@ -1,6 +1,7 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, PromotedClassifier } from "./api";
 import { audioAnalysisModelOrder, mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
+import { classifierIsAvailable } from "./classifierCompatibility";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
 
@@ -121,9 +122,7 @@ export function LibraryPanel({
   onResetClassifiers: () => void;
 }) {
   const analysisDisabled = busy || stageRunning || !hasTracks;
-  const readyClassifiers = classifiers.reduce((sum, item) => sum + (item.ready || 0), 0);
-  const notReadyClassifiers = classifiers.reduce((sum, item) => sum + (item.not_ready || 0), 0);
-  const blockerCount = classifiers.filter((item) => item.readiness_blockers?.length).length;
+  const availableClassifierProfiles = classifiers.filter(classifierIsAvailable).length;
   const classifiersSelected = selectedAnalysisModels.includes("classifiers");
   const fullAnalysisSelected = selectedAnalysisModels.length === audioAnalysisModelOrder.length + 1;
   const pipelineOwnsAnalysisJob = analysisJob != null
@@ -232,7 +231,7 @@ export function LibraryPanel({
         <div className="analysis-actions classifiers-analysis-block">
           <div className="analysis-model-row">
             <span className="analysis-model-check"><input className="analysis-model-checkbox" type="checkbox" aria-label="CLASSIFIERS selected" checked={classifiersSelected} disabled={busy || stageRunning} onChange={() => onToggleAnalysisModel("classifiers")} /></span>
-            <span className="analysis-model-name"><span className="analysis-model-title">CLASSIFIERS</span><span className="analysis-model-description">ready {readyClassifiers} · not ready {notReadyClassifiers}{blockerCount ? ` · blockers ${blockerCount}` : ""}</span></span>
+            <span className="analysis-model-name"><span className="analysis-model-title">CLASSIFIERS</span><span className="analysis-model-description">profiles {availableClassifierProfiles}</span></span>
             <span className="analysis-model-count">{analysisCounts.classifiers || 0}</span>
             <button className="icon-button stop-button analysis-reset-button classifiers-reset-button" title="Сбросить CLASSIFIERS" disabled={analysisDisabled} onClick={onResetClassifiers} type="button"><Trash2 size={16} /></button>
           </div>

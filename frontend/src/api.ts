@@ -371,6 +371,7 @@ export type PromotedClassifier = {
   name: string;
   artifact_prefix: string;
   positive_label?: string | null;
+  negative_label?: string | null;
   label_order?: string[];
   model_path: string;
   metadata_path: string;
@@ -379,6 +380,7 @@ export type PromotedClassifier = {
   manifest_warnings?: string[];
   is_scoring_compatible?: boolean;
   profile_name?: string | null;
+  profile_description?: string | null;
   profile_type?: string | null;
   feature_set?: string | null;
   feature_names?: string[];
@@ -389,12 +391,9 @@ export type PromotedClassifier = {
   artifact_hash?: string | null;
   promoted_at?: string | null;
   calibration?: Record<string, unknown>;
+  trained_label_counts?: Record<string, number>;
   has_calibrated_probability?: boolean;
   required_inputs?: string[];
-  ready?: number;
-  not_ready?: number;
-  candidate_count?: number;
-  readiness_blockers?: string[];
 };
 
 export type GenreTagJobStatus = {

@@ -29,6 +29,7 @@ def _manifest_payload(classifier_key: str) -> dict[str, object]:
     payload: dict[str, object] = {
         "classifier_key": classifier_key,
         "profile_name": classifier_key.replace("_", " ").title(),
+        "profile_description": "Human-readable classifier description.",
         "artifact_hash": _ARTIFACT_HASH,
         "feature_set": "mert-features",
         "feature_names": list(feature_names),
@@ -36,6 +37,7 @@ def _manifest_payload(classifier_key: str) -> dict[str, object]:
         "label_order": ["negative", "positive"],
         "negative_label": "negative",
         "positive_label": "positive",
+        "trained_label_counts": {"negative": 12, "positive": 14},
         "production": {
             "score_semantics": "positive_label_probability",
             "calibration": {"status": "uncalibrated"},
@@ -191,6 +193,8 @@ def test_promoted_classifiers_expose_feature_driven_manifest_fields(
     assert valid["manifest_status"] == "valid"
     assert valid["required_inputs"] == ["mert"]
     assert valid["feature_names"] == ["mert:0"]
+    assert valid["profile_description"] == "Human-readable classifier description."
+    assert valid["trained_label_counts"] == {"negative": 12, "positive": 14}
 
 
 def test_reports_use_public_current_readers_and_scope_by_classifier_key(

@@ -2107,11 +2107,32 @@ h2 {
 }
 
 .classifier-profile-status-reason,
-.classifier-profile-readiness {
+.classifier-profile-description,
+.classifier-profile-labels {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.classifier-profile-description {
+  color: var(--text);
+}
+
+.classifier-profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.classifier-profile-meta > span {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-muted);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  padding: 4px 6px;
 }
 
 .classifier-profile-status-reason {

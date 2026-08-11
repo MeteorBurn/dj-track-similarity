@@ -324,6 +324,7 @@ def promote_profile_model(
         "classifier_key": profile.classifier_key,
         "artifact_hash": artifact_hash,
         "profile_name": profile.name,
+        "profile_description": profile.description,
         "profile_type": profile.profile_type,
         "feature_set": artifact_feature_set,
         "feature_count": len(feature_names),

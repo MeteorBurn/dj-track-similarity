@@ -164,7 +164,9 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /analysisLimit >= 100000/);
   assert.doesNotMatch(source, /FFmpeg decode/);
   assert.doesNotMatch(source, /Отдельный анализ по локальным профилям/);
-  assert.match(source, /ready \{readyClassifiers\} · not ready \{notReadyClassifiers\}\{blockerCount \? ` · blockers \$\{blockerCount\}` : ""\}/);
+  assert.match(source, /profiles \{availableClassifierProfiles\}/);
+  assert.match(source, /classifiers\.filter\(classifierIsAvailable\)\.length/);
+  assert.doesNotMatch(source, /readyClassifiers|notReadyClassifiers|blockerCount/);
   assert.doesNotMatch(source, /visibleClassifierBlockers|className="analysis-muted" key=\{item\.key\}/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /Run SONARA|Run ML|Run CLASSIFIERS|Run selected pipeline/);
@@ -288,6 +290,10 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /classifierScoringBlockedReason\(classifier\)/);
   assert.match(searchSource, /className="classifier-profile unavailable"/);
   assert.match(searchSource, /classifier-profile-status-reason/);
+  assert.match(searchSource, /classifier\.profile_description/);
+  assert.match(searchSource, /classifierManifestFacts\(classifier\)/);
+  assert.match(searchSource, /classifierLabelSummary\(classifier\)/);
+  assert.doesNotMatch(searchSource, /database ready|classifier\.ready|classifier\.not_ready/);
   assert.match(searchSource, /available \{availableClassifierCount\} · blocked \{blockedClassifierCount\}/);
   assert.match(searchSource, /empty-state classifier-empty-state/);
   assert.match(searchSource, /No promoted classifier profiles found/);

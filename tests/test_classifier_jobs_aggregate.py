@@ -206,18 +206,6 @@ def test_classifier_job_is_unavailable_without_current_sonara(
     ):
         manager.create_job(classifier="test_classifier")
 
-    assert manager.readiness(["test_classifier"]) == {
-        "test_classifier": {
-            "candidates": 0,
-            "ready": 0,
-            "not_ready": 0,
-            "blockers": [
-                "Classifier analysis requires at least one track "
-                "with current SONARA analysis"
-            ],
-        }
-    }
-
 
 def test_aggregate_limit_caps_track_classifier_pairs_on_current_rows(
     tmp_path: Path,
@@ -280,14 +268,13 @@ def test_not_ready_outputs_are_excluded_before_job_total(
         scorer_factory=_FakeScorer,
     )
 
-    readiness = manager.readiness(("test_classifier",))
     job_id = manager.create_job(classifier="test_classifier")
 
-    assert readiness["test_classifier"] == {
+    assert manager.get(job_id).readiness["test_classifier"] == {
         "candidates": 2,
         "ready": 1,
         "not_ready": 1,
-        "blockers": [],
+        "selected": 1,
     }
     assert manager.get(job_id).total == 1
     completed = manager.run_job(job_id)

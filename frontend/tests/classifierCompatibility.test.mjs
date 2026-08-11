@@ -31,7 +31,7 @@ function classifier(classifierKey, overrides = {}) {
   };
 }
 
-test("classifier availability includes manifest and live readiness blockers", async () => {
+test("classifier availability follows manifest scoring compatibility", async () => {
   const {
     classifierIsAvailable,
     classifierProfileStatus,
@@ -44,16 +44,9 @@ test("classifier availability includes manifest and live readiness blockers", as
     manifest_status: "unsupported",
     production_status: "unsupported",
     manifest_errors: ["Manifest version 1 is no longer supported."],
-    readiness_blockers: ["Manifest version 1 is no longer supported."],
-  });
-  const runtimeBlocked = classifier("runtime", {
-    is_scoring_compatible: true,
-    production_status: "production_ready",
-    readiness_blockers: ["Required MERT contract is unavailable."],
   });
   const available = classifier("ready", {
     is_scoring_compatible: true,
-    readiness_blockers: [],
   });
 
   assert.equal(classifierIsAvailable(unsupported), false);
@@ -62,18 +55,12 @@ test("classifier availability includes manifest and live readiness blockers", as
     classifierScoringBlockedReason(unsupported),
     "Manifest version 1 is no longer supported.",
   );
-  assert.equal(classifierIsAvailable(runtimeBlocked), false);
-  assert.equal(classifierProfileStatus(runtimeBlocked), "blocked");
-  assert.equal(
-    classifierScoringBlockedReason(runtimeBlocked),
-    "Required MERT contract is unavailable.",
-  );
   assert.equal(classifierIsAvailable(available), true);
   assert.equal(classifierProfileStatus(available), "available");
   assert.deepEqual(
     filterAvailableClassifierValues(
-      [unsupported, runtimeBlocked, available],
-      { legacy: 0.75, runtime: -0.25, ready: 0.5, removed: 1 },
+      [unsupported, available],
+      { legacy: 0.75, ready: 0.5, removed: 1 },
     ),
     { ready: 0.5 },
   );

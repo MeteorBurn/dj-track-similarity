@@ -248,52 +248,6 @@ class ClassifierJobManager:
         self._append_event(job_id, "info", f"CLASSIFIERS queued · profiles {len(keys)}")
         return job_id
 
-    def readiness(
-        self, classifiers: Sequence[str]
-    ) -> dict[str, dict[str, int | list[str]]]:
-        result: dict[str, dict[str, int | list[str]]] = {}
-        keys = _clean_classifier_keys(classifiers)
-        if self.db.current_sonara_track_count() < 1:
-            blocker = (
-                "Classifier analysis requires at least one track with current "
-                "SONARA analysis"
-            )
-            return {
-                key: {
-                    "candidates": 0,
-                    "ready": 0,
-                    "not_ready": 0,
-                    "blockers": [blocker],
-                }
-                for key in keys
-            }
-        for key in keys:
-            try:
-                requirement = self._load_requirements(key)
-                specification = requirement.specification
-                counts = self.db.classifier_candidate_readiness(specification)
-                candidates = self.db.list_classifier_candidates(specification)
-                rows = self.db.load_classifier_feature_rows(
-                    specification,
-                    targets=tuple(candidate.target for candidate in candidates),
-                )
-                feature_not_ready = len(candidates) - len(rows)
-                result[key] = {
-                    **_readiness_payload(
-                        counts,
-                        feature_not_ready=feature_not_ready,
-                    ),
-                    "blockers": [],
-                }
-            except (FileNotFoundError, RuntimeError, ValueError) as error:
-                result[key] = {
-                    "candidates": 0,
-                    "ready": 0,
-                    "not_ready": 0,
-                    "blockers": [str(error)],
-                }
-        return result
-
     def start(self, **kwargs: object) -> ClassifierJobStatus:
         job_id = self.create_job(**kwargs)
         if self._stage_queue is not None:

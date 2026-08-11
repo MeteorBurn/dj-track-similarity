@@ -10,7 +10,7 @@ export function classifierScoringBlockedReason(classifier: PromotedClassifier | 
     return "Classifier manifest is not compatible with scoring.";
   }
 
-  return (classifier.readiness_blockers || []).filter(Boolean).join("; ");
+  return "";
 }
 
 export function classifierIsAvailable(classifier: PromotedClassifier): boolean {
@@ -19,10 +19,7 @@ export function classifierIsAvailable(classifier: PromotedClassifier): boolean {
 
 export function classifierProfileStatus(classifier: PromotedClassifier): string {
   if (classifierIsAvailable(classifier)) return "available";
-  if (classifier.is_scoring_compatible === false) {
-    return classifier.production_status || classifier.manifest_status || "blocked";
-  }
-  return "blocked";
+  return classifier.production_status || classifier.manifest_status || "blocked";
 }
 
 export function filterAvailableClassifierValues<T>(

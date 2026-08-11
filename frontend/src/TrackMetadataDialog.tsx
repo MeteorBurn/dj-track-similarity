@@ -40,29 +40,9 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     ],
   },
   {
-    title: "Perceptual",
-    features: [
-      feature("energy_level", "Level", "SONARA energy tier."),
-      feature("energy_score", "Energy", "SONARA energy ranking signal."),
-      feature("danceability_score", "Danceability", "SONARA danceability ranking signal."),
-      feature("valence_score", "Valence", "SONARA valence ranking signal."),
-      feature("acousticness_score", "Acousticness", "SONARA acousticness ranking signal."),
-    ],
-  },
-  {
-    title: "Mood",
-    features: [
-      feature("mood_happy_score", "Happy", "SONARA happy-mood ranking signal."),
-      feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood heuristic; distinct from the dedicated Aggression model."),
-      feature("mood_relaxed_score", "Relaxed", "SONARA relaxed-mood ranking signal."),
-      feature("mood_sad_score", "Sad", "SONARA sad-mood ranking signal."),
-    ],
-  },
-  {
     title: "Tonal",
     features: [
-      feature("detected_key_camelot", "Camelot", "Camelot code derived by SONARA."),
-      feature("detected_key_name", "Key", "Detected musical key."),
+      feature("detected_key_name", "Key", "Detected musical key with SONARA Camelot notation."),
       feature("key_confidence", "Key confidence", "Confidence of the detected key."),
       feature("key_candidates", "Key candidates", "Ranked key candidates returned by SONARA."),
       feature("predominant_chord", "Predominant chord", "Most frequent detected chord."),
@@ -73,14 +53,14 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Loudness",
     features: [
-      feature("rms_mean", "RMS", "Mean root-mean-square level."),
-      feature("rms_max", "RMS max", "Maximum root-mean-square level."),
-      feature("integrated_loudness_lufs", "Integrated loudness", "Integrated loudness in LUFS."),
-      feature("dynamic_range_db", "Dynamic range", "Stored SONARA dynamic range in decibels."),
-      feature("true_peak_dbtp", "True peak", "True peak in dBTP."),
-      feature("replay_gain_db", "ReplayGain", "Suggested ReplayGain adjustment in decibels."),
-      feature("max_momentary_loudness_lufs", "Momentary max", "Maximum momentary loudness in LUFS."),
-      feature("loudness_range_lu", "Loudness range", "Loudness range in LU."),
+      feature("integrated_loudness_lufs", "Integrated loudness", "Overall programme loudness across the track in LUFS. Use it to compare perceived level between tracks; less-negative values are louder."),
+      feature("loudness_range_lu", "Loudness range", "Variation of loudness across the track in LU. Higher values usually mean a less even, more dynamic loudness profile."),
+      feature("dynamic_range_db", "Dynamic range", "SONARA estimate of the spread between quieter and louder material in dB. Use it as a relative signal, not a mastering-quality grade."),
+      feature("max_momentary_loudness_lufs", "Momentary max", "Highest short-term loudness in LUFS. It represents the loudest sustained moment, not an instantaneous sample peak."),
+      feature("true_peak_dbtp", "True peak", "Highest reconstructed sample peak in dBTP. Values near 0 dBTP leave less headroom and can matter for limiting or lossy encoding."),
+      feature("rms_mean", "RMS", "Average RMS energy across the track. It is a simple signal-strength measure and should be read alongside integrated loudness."),
+      feature("rms_max", "RMS max", "Highest RMS energy observed during analysis. It indicates the densest sustained section of the track."),
+      feature("replay_gain_db", "ReplayGain", "Suggested gain adjustment in dB for consistent playback level. Negative values reduce a louder track; positive values raise a quieter one."),
     ],
   },
   {
@@ -109,9 +89,22 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     ],
   },
   {
-    title: "Vocalness",
+    title: "Perceptual",
     features: [
-      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
+      feature("energy_level", "Level", "SONARA energy tier."),
+      feature("energy_score", "Energy", "SONARA energy ranking signal."),
+      feature("danceability_score", "Danceability", "SONARA danceability ranking signal."),
+      feature("valence_score", "Valence", "SONARA valence ranking signal."),
+      feature("acousticness_score", "Acousticness", "SONARA acousticness ranking signal."),
+    ],
+  },
+  {
+    title: "Mood",
+    features: [
+      feature("mood_happy_score", "Happy", "SONARA happy-mood ranking signal."),
+      feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood heuristic; distinct from the dedicated Aggression model."),
+      feature("mood_relaxed_score", "Relaxed", "SONARA relaxed-mood ranking signal."),
+      feature("mood_sad_score", "Sad", "SONARA sad-mood ranking signal."),
     ],
   },
   {
@@ -126,15 +119,15 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     ],
   },
   {
-    title: "Vector summaries",
+    title: "Vocalness",
     features: [
-      feature("vector_summaries", "Vectors", "Compact summaries for stored SONARA Core vectors."),
+      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
     ],
   },
   {
-    title: "Analysis",
+    title: "Vector summaries",
     features: [
-      feature("analyzed_at", "Analyzed at", "Timestamp of the current SONARA Core analysis."),
+      feature("vector_summaries", "Vectors", "Compact summaries for stored SONARA Core vectors."),
     ],
   },
 ];
@@ -150,10 +143,13 @@ export function metadataDialogModel(track: TrackDetail) {
     tagEntries: readableTagInfo(track),
     audioEntries: readableAudioData(track),
     scanEntries: readableScanDetails(track),
+    sonaraAnalysisEntries: readableSonaraAnalysisDetails(track),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
     classifierScores: readableClassifierScores(track),
+    classifierAnalysisEntries: readableClassifierAnalysisDetails(track),
     embeddings: readableEmbeddings(track),
     genres,
+    maestAnalyzed: track.maest !== null,
     syncopatedRhythm: hasMaestSyncopatedRhythm(track),
   };
 }
@@ -190,7 +186,7 @@ export function TrackMetadataDialog({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="metadata-dialog-backdrop" role="presentation">
       <section
         className="metadata-dialog"
         role="dialog"
@@ -209,7 +205,7 @@ export function TrackMetadataDialog({
             <X size={15} />
           </button>
         </div>
-        <div className="dialog-title">
+        <div className="metadata-dialog-title">
           <h2 className="metadata-track-title">
             <span>{displayTrack(track)}</span>
             <button
@@ -225,34 +221,33 @@ export function TrackMetadataDialog({
         </div>
 
         <div className="maest-genres-block">
-          <span className="sonara-feature-group-title">MAEST Genres</span>
-          {view.genres.length || view.syncopatedRhythm ? (
-            <div className="genre-list">
-                {view.genres.map((genre) => (
-                  <span className="genre-pill" key={`${genre.rank}:${genre.genre_name}`}>
-                    {formatMaestGenreLabel(genre.genre_name)} <b>{formatConfidence(genre.score)}</b>
-                  </span>
-                ))}
-                {view.syncopatedRhythm ? (
-                  <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span>
-                ) : null}
+          {view.maestAnalyzed ? (
+            <div className="maest-genre-list" title="MAEST-detected genres">
+              {view.genres.map((genre) => (
+                <span className="maest-genre-pill" key={`${genre.rank}:${genre.genre_name}`}>
+                  {formatMaestGenreLabel(genre.genre_name)} <b>{formatConfidence(genre.score)}</b>
+                </span>
+              ))}
+              {view.syncopatedRhythm ? (
+                <span className="maest-genre-pill maest-syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span>
+              ) : null}
             </div>
           ) : (
-            <span className="maest-genres-empty">MAEST genre data is not available.</span>
+            <span className="maest-genres-empty">MAEST analysis has not been run for this track.</span>
           )}
         </div>
 
-        <div className="mutagen-block">
+        <div className="metadata-details-block">
           <strong>Track Details</strong>
-          <dl className="metadata-grid mutagen-grid">
+          <dl className="metadata-grid metadata-details-grid">
             {view.trackDetailsEntries.map(([label, value]) => (
               <Fragment key={label}>
                 <dt>{label}</dt>
                 {label === "File Path" || label === "File Name" ? (
-                  <dd className="metadata-file-path-row">
-                    <span className="metadata-file-path-value">{value}</span>
+                  <dd className="metadata-file-value-row">
+                    <span className="metadata-file-value">{value}</span>
                     <button
-                      className="icon-button metadata-copy-path-button"
+                      className="icon-button metadata-copy-value-button"
                       title={
                         label === "File Path"
                           ? filePathCopied ? "Copied" : "Copy file path"
@@ -275,8 +270,8 @@ export function TrackMetadataDialog({
               </Fragment>
             ))}
           </dl>
-          <span className="sonara-feature-group-title">Tags</span>
-          <dl className="metadata-grid mutagen-grid">
+          <span className="metadata-section-title">Tags</span>
+          <dl className="metadata-grid metadata-details-grid">
             {view.tagEntries.map(([label, value]) => (
               <Fragment key={label}>
                 <dt>{label}</dt>
@@ -286,22 +281,10 @@ export function TrackMetadataDialog({
           </dl>
         </div>
 
-        <div className="mutagen-block">
-          <span className="sonara-feature-group-title">Data</span>
-          <dl className="metadata-grid mutagen-grid">
+        <details className="metadata-data-details">
+          <summary>Data</summary>
+          <dl className="metadata-grid metadata-details-grid">
             {view.audioEntries.map(([label, value]) => (
-              <Fragment key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </Fragment>
-            ))}
-          </dl>
-        </div>
-
-        <details className="metadata-scan-state">
-          <summary>Scan details</summary>
-          <dl className="metadata-grid mutagen-grid">
-            {view.scanEntries.map(([label, value]) => (
               <Fragment key={label}>
                 <dt>{label}</dt>
                 <dd>{value}</dd>
@@ -317,7 +300,7 @@ export function TrackMetadataDialog({
               {view.coreGroups.map((group) => (
                 <div className="sonara-feature-group" key={group.title}>
                   <span className="sonara-feature-group-title">{group.title}</span>
-                  <dl className="metadata-grid tag-grid sonara-feature-grid">
+                  <dl className="metadata-grid sonara-feature-grid">
                     {group.features.map((coreFeature) => (
                       <Fragment key={coreFeature.key}>
                         <dt title={coreFeature.description}>{coreFeature.label}</dt>
@@ -329,14 +312,55 @@ export function TrackMetadataDialog({
               ))}
             </div>
           ) : (
-            <span className="empty-genres">Core данные ещё не рассчитаны</span>
+            <span className="metadata-empty-state">Core данные ещё не рассчитаны</span>
           )}
         </div>
 
-        <div className="sonara-storage-block">
-          <strong>Embedding analyses</strong>
+        <div className="metadata-classifier-block">
+          <strong>Classifier scores</strong>
+          {view.classifierScores.length ? (
+            <dl className="metadata-grid metadata-analysis-grid">
+              {view.classifierScores.map((score) => (
+                <Fragment key={score.key}><dt>{score.label}</dt><dd>{score.value}</dd></Fragment>
+              ))}
+            </dl>
+          ) : (
+            <span className="metadata-empty-state">Classifier scores ещё не рассчитаны</span>
+          )}
+        </div>
+
+        <details className="metadata-scan-analyses-details">
+          <summary>Scan analyses details</summary>
+          <section className="metadata-scan-analyses-section">
+            <span className="metadata-scan-analyses-section-title">File scan (Mutagen)</span>
+            <dl className="metadata-grid metadata-details-grid">
+              {view.scanEntries.map(([label, value]) => (
+                <Fragment key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          </section>
+          <section className="metadata-scan-analyses-section">
+            <span className="metadata-scan-analyses-section-title">SONARA</span>
+            {view.sonaraAnalysisEntries.length ? (
+              <dl className="metadata-grid metadata-details-grid">
+                {view.sonaraAnalysisEntries.map(([label, value]) => (
+                  <Fragment key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            ) : (
+              <span className="metadata-empty-state">SONARA Core ещё не рассчитан</span>
+            )}
+          </section>
+          <section className="metadata-scan-analyses-section">
+            <span className="metadata-scan-analyses-section-title">Embedding analyses</span>
           {view.embeddings.length ? (
-            <dl className="metadata-grid classifier-score-grid">
+            <dl className="metadata-grid metadata-analysis-grid">
               {view.embeddings.map((embedding) => (
                 <Fragment key={embedding.key}>
                   <dt>{embedding.label}</dt>
@@ -345,22 +369,25 @@ export function TrackMetadataDialog({
               ))}
             </dl>
           ) : (
-            <span className="empty-genres">Embedding-анализы ещё не рассчитаны</span>
+            <span className="metadata-empty-state">Embedding-анализы ещё не рассчитаны</span>
           )}
-        </div>
-
-        <div className="classifier-score-block">
-          <strong>Classifier scores</strong>
-          {view.classifierScores.length ? (
-            <dl className="metadata-grid classifier-score-grid">
-              {view.classifierScores.map((score) => (
-                <Fragment key={score.key}><dt>{score.label}</dt><dd>{score.value}</dd></Fragment>
-              ))}
-            </dl>
-          ) : (
-            <span className="empty-genres">Classifier scores ещё не рассчитаны</span>
-          )}
-        </div>
+          </section>
+          <section className="metadata-scan-analyses-section">
+            <span className="metadata-scan-analyses-section-title">Classifier analyses</span>
+            {view.classifierAnalysisEntries.length ? (
+              <dl className="metadata-grid metadata-details-grid">
+                {view.classifierAnalysisEntries.map(([label, value]) => (
+                  <Fragment key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            ) : (
+              <span className="metadata-empty-state">Classifier analyses ещё не рассчитаны</span>
+            )}
+          </section>
+        </details>
 
       </section>
     </div>
@@ -396,8 +423,8 @@ function readableTagInfo(track: TrackDetail): MetadataEntry[] {
 function readableAudioData(track: TrackDetail): MetadataEntry[] {
   const duration = track.file.audio_duration_seconds ?? track.audio_duration_seconds;
   return [
-    ["Audio Length", formatAudioLength(duration)],
     ["Audio Format", formatOptionalText(track.file.audio_format)],
+    ["Audio Length", formatAudioLength(duration)],
     ["Sample Rate", formatFrequency(track.file.sample_rate_hz)],
     ["Bit Rate", formatBitRate(track.file.bit_rate_bps)],
     ["Bit Depth", formatBitDepth(track.file.bit_depth)],
@@ -412,6 +439,11 @@ function readableScanDetails(track: TrackDetail): MetadataEntry[] {
   ];
 }
 
+function readableSonaraAnalysisDetails(track: TrackDetail): MetadataEntry[] {
+  if (!track.sonara_core) return [];
+  return [["Analyzed at", formatTimestamp(track.sonara_core.analyzed_at)]];
+}
+
 function readableSonaraCoreGroups(core: SonaraCore | null) {
   if (!core) return [];
   return sonaraCoreFeatureGroups
@@ -419,6 +451,13 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
       title: group.title,
       features: group.features
         .map((descriptor) => {
+          if (descriptor.key === "detected_key_name") {
+            const value = formatDetectedKey(
+              core.detected_key_name,
+              core.detected_key_camelot,
+            );
+            return value ? { ...descriptor, value } : null;
+          }
           const value = core[descriptor.key];
           if (value == null || (Array.isArray(value) && value.length === 0)) return null;
           return {
@@ -443,6 +482,13 @@ function readableClassifierScores(track: TrackDetail) {
       score.feature_set,
     ].join(" · "),
   }));
+}
+
+function readableClassifierAnalysisDetails(track: TrackDetail): MetadataEntry[] {
+  return track.classifier_scores_detail.map((score) => [
+    readableClassifierName(score.classifier_key),
+    formatTimestamp(score.analyzed_at),
+  ]);
 }
 
 function readableEmbeddings(track: TrackDetail) {
@@ -514,6 +560,15 @@ function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof So
     return formatNumber(value);
   }
   return String(value);
+}
+
+function formatDetectedKey(
+  keyName: string | null,
+  camelot: string | null,
+): string {
+  return [keyName, camelot]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" · ");
 }
 
 function formatBpmCandidates(value: Record<string, unknown>[]) {

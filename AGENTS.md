@@ -28,6 +28,9 @@ remove obsolete guidance instead of layering more rules on top of it.
 - `dj-track-similarity` is a local-first DJ-library workbench. Keep claims
   modest: model outputs are ranking signals for listening-led shortlisting, not
   objective truth or finished automatic DJ generation.
+- Browser search tabs are rank-only: do not add or submit a minimum-similarity
+  threshold there. Use `Limit` for result count and preserve descending score
+  order. API/CLI thresholds and the Audio Dedup content gate are separate.
 - Executable sources beat prose when they disagree: `pyproject.toml`,
   `frontend/package.json`, `docs/dj-track-similarity/package.json`, tests,
   schemas, routes, and current source are authoritative.

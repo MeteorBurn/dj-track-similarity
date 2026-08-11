@@ -16,7 +16,7 @@ crate, reuse useful tracks as new seeds, or add the strongest candidates to the 
 2. Add it as a seed.
 3. Run **MERT search** for embedding-near candidates.
 4. Run **SONARA search** when you want more control over rhythm, timbre, dynamics, harmonic color, or tempo.
-5. Lower similarity thresholds if results are too narrow.
+5. Increase **Limit** if you want to hear more lower-ranked candidates.
 6. Preview candidates before adding them to the current set.
 7. Add good candidates to the set or save them into a crate/export.
 

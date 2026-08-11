@@ -22,8 +22,8 @@ identity are documented in the [API reference](../reference/api.md).
 
 | Use | When it helps | What you can change |
 | --- | --- | --- |
-| MERT | You want a broad learned audio neighborhood with few decisions | Similarity threshold and result limit |
-| MuQ | You want a second generic acoustic embedding neighborhood | Similarity threshold and result limit |
+| MERT | You want a broad learned audio neighborhood with few decisions | Result limit |
+| MuQ | You want a second generic acoustic embedding neighborhood | Result limit |
 | SONARA | You know which audible qualities should stay close or move | Feature mode, mixer weights, and directional modifiers |
 | LAB | You want to hear how separate model families disagree | Model columns, result limit, and listening verdicts |
 
@@ -45,10 +45,8 @@ Use MERT or MuQ when you want audio-to-audio similarity from a learned embedding
 broad musical representation. MuQ adds a separate generic acoustic view. Neither knows your exact
 DJ intention, and their scores are not one shared scale.
 
-Common controls:
-
-- **Similarity**: minimum score threshold from `0.00` to `1.00`.
-- **Limit**: maximum result count, `1..500`.
+The browser ranks every returned candidate by score, from highest to lowest. **Limit** controls the
+maximum result count, `1..500`. There is no browser similarity threshold.
 
 When a tab has zero current embeddings, its search action is disabled with a source-specific
 reason. Request errors remain visible instead of looking like an empty successful result.
@@ -111,7 +109,7 @@ candidate with a lower score can still be the better mix.
 ## When results are empty
 
 - Confirm the selected model family was analyzed.
-- Lower the similarity threshold.
+- Increase **Limit**.
 - Use fewer or clearer seeds.
 - Check that the database path in the UI is the database you analyzed.
 - In LAB, a model can be unavailable for the seed if that seed is missing the matching embedding or SONARA features.

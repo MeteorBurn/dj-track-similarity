@@ -22,6 +22,7 @@ from typing import Protocol
 
 READBACK_FAILURE = "Genre tag was not readable after WAV save:"
 ID3_CHUNK_IDS = {b"id3 ", b"ID3 "}
+PCM_WAVE_FORMAT_CODES = {1, 3}
 PACKAGE_DIR = Path(__file__).resolve().parent
 TOOL_ROOT = PACKAGE_DIR.parent
 DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
@@ -131,6 +132,7 @@ STATUS_COLORS = {
 }
 EXCEL_CELL_TEXT_LIMIT = 32767
 MUTAGEN_KEY_TEXT_LIMIT = 160
+FULL_DECODE_TIMEOUT_SECONDS = 600
 
 
 class RepairError(Exception):
@@ -1613,24 +1615,35 @@ def inspect_file(path: Path) -> FileInspectionResult:
     probe_format, probe_codec = probe_file(path)
     display_format = probe_format or detected_format
     expected_formats = EXPECTED_FORMAT_BY_EXTENSION.get(suffix)
-    if detected_format and expected_formats and detected_format not in expected_formats:
+    format_mismatch = bool(detected_format and expected_formats and detected_format not in expected_formats)
+    expected_codecs = EXPECTED_CODECS_BY_EXTENSION.get(suffix)
+    codec_mismatch = bool(probe_codec and expected_codecs and probe_codec not in expected_codecs)
+
+    decode_error = full_decode_error(path)
+    if decode_error is not None:
+        return FileInspectionResult(
+            path=path,
+            status="failed",
+            message=f"full FFmpeg decode failed: {decode_error}",
+            detected_format=display_format,
+            detected_codec=probe_codec,
+        )
+    if format_mismatch:
         return FileInspectionResult(
             path=path,
             status="suspicious",
             message=f"extension={suffix} detected={detected_format}",
-            detected_format=detected_format,
+            detected_format=display_format,
             detected_codec=probe_codec,
         )
-    if probe_codec:
-        expected_codecs = EXPECTED_CODECS_BY_EXTENSION.get(suffix)
-        if expected_codecs and probe_codec not in expected_codecs:
-            return FileInspectionResult(
-                path=path,
-                status="suspicious",
-                message=f"extension={suffix} detected_codec={probe_codec}",
-                detected_format=display_format,
-                detected_codec=probe_codec,
-            )
+    if codec_mismatch:
+        return FileInspectionResult(
+            path=path,
+            status="suspicious",
+            message=f"extension={suffix} detected_codec={probe_codec}",
+            detected_format=display_format,
+            detected_codec=probe_codec,
+        )
 
     tag_summary = read_mutagen_tag_summary(path)
     if tag_summary.startswith("mutagen error:"):
@@ -1661,6 +1674,48 @@ def inspect_file(path: Path) -> FileInspectionResult:
         detected_format=display_format,
         detected_codec=probe_codec,
         tag_summary=tag_summary,
+    )
+
+
+def full_decode_error(path: Path) -> str | None:
+    """Return a strict full-decode error, or ``None`` when FFmpeg reads all audio."""
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return "ffmpeg is not available"
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg,
+                "-v",
+                "error",
+                "-xerror",
+                "-nostdin",
+                "-i",
+                str(path),
+                "-map",
+                "0:a:0",
+                "-f",
+                "null",
+                "-",
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=FULL_DECODE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return f"timed out after {FULL_DECODE_TIMEOUT_SECONDS} seconds"
+    except OSError as error:
+        return str(error)
+    if result.returncode == 0:
+        return None
+    return next(
+        (line.strip() for line in result.stderr.splitlines() if line.strip()),
+        f"ffmpeg exited with status {result.returncode}",
     )
 
 
@@ -1793,8 +1848,26 @@ def repair_wave_file(
         repair_actions = list(repaired.actions)
         repaired_payload_hash = data_payload_hash(repaired.data)
         if original_payload_hash != repaired_payload_hash:
-            raise RepairError("audio data payload would change; refusing to write")
+            expected_payload_hash = aligned_pcm_data_payload_hash(data)
+            if (
+                not any(action.startswith("trimmed incomplete PCM data") for action in repair_actions)
+                or expected_payload_hash != repaired_payload_hash
+            ):
+                raise RepairError("audio data payload would change; refusing to write")
         if is_cosmetic_only_wave_repair(repaired):
+            inspection = inspect_file(path)
+            if inspection.status != "ok":
+                return FileRepairResult(
+                    path=path,
+                    status=inspection.status,
+                    message=inspection.message,
+                    actions=repair_actions,
+                    original_size=repaired.original_size,
+                    repaired_size=repaired.repaired_size,
+                    id3_seen=repaired.id3_seen,
+                    id3_removed=repaired.id3_removed,
+                    mutagen_summary=inspection.tag_summary,
+                )
             return FileRepairResult(
                 path=path,
                 status="notice",
@@ -1823,6 +1896,21 @@ def repair_wave_file(
                 if post_write_inspection.tag_summary:
                     repaired.mutagen_summary = post_write_inspection.tag_summary
                 status = "repaired"
+
+        if status == "ok":
+            inspection = inspect_file(path)
+            return FileRepairResult(
+                path=path,
+                status=inspection.status,
+                message=inspection.message,
+                actions=repair_actions + apply_actions,
+                backup_path=backup_path,
+                original_size=repaired.original_size,
+                repaired_size=repaired.repaired_size,
+                id3_seen=repaired.id3_seen,
+                id3_removed=repaired.id3_removed,
+                mutagen_summary=inspection.tag_summary,
+            )
 
         return FileRepairResult(
             path=path,
@@ -1939,6 +2027,7 @@ def repair_wave_bytes(data: bytes, *, keep_id3: str = "first") -> ByteRepairResu
         raise RepairError("not a RIFF/WAVE file")
 
     chunks, actions = parse_chunks_for_repair(data)
+    chunks = trim_incomplete_pcm_data_chunks(chunks, actions)
     id3_indices = [index for index, chunk in enumerate(chunks) if is_id3_chunk(chunk)]
     keep_index: int | None = None
     if keep_id3 == "first" and id3_indices:
@@ -2102,6 +2191,19 @@ def parse_chunks_for_repair(data: bytes) -> tuple[list[ParsedChunk], list[str]]:
             continue
 
         if padded_end > len(data):
+            if chunk_id == b"data" and unpadded_end == len(data):
+                chunks.append(
+                    ParsedChunk(
+                        chunk_id=chunk_id,
+                        payload=data[data_offset:unpadded_end],
+                        source_start=pos,
+                        source_end=unpadded_end,
+                    )
+                )
+                actions.append(f"inserted missing RIFF padding after final data chunk at offset {pos}")
+                found_data = True
+                pos = unpadded_end
+                continue
             if chunk_id == b"data":
                 marker = find_next_id3_chunk(data, data_offset)
                 if marker is not None and marker > data_offset:
@@ -2189,6 +2291,72 @@ def data_payload(data: bytes) -> bytes:
         else:
             pos = padded_end
     raise RepairError("no readable data chunk found")
+
+
+def trim_incomplete_pcm_data_chunks(chunks: list[ParsedChunk], actions: list[str]) -> list[ParsedChunk]:
+    block_align = pcm_wave_block_align(chunks)
+    if block_align is None:
+        return chunks
+
+    repaired_chunks: list[ParsedChunk] = []
+    for chunk in chunks:
+        if chunk.chunk_id != b"data":
+            repaired_chunks.append(chunk)
+            continue
+        remainder = len(chunk.payload) % block_align
+        if remainder == 0:
+            repaired_chunks.append(chunk)
+            continue
+        repaired_chunks.append(
+            ParsedChunk(
+                chunk_id=chunk.chunk_id,
+                payload=chunk.payload[:-remainder],
+                source_start=chunk.source_start,
+                source_end=chunk.source_end,
+            )
+        )
+        actions.append(
+            f"trimmed incomplete PCM data tail at offset {chunk.source_start + 8} "
+            f"size {remainder} for block align {block_align}"
+        )
+    return repaired_chunks
+
+
+def pcm_wave_block_align(chunks: Iterable[ParsedChunk]) -> int | None:
+    fmt_chunk = next((chunk for chunk in chunks if chunk.chunk_id == b"fmt "), None)
+    if fmt_chunk is None or len(fmt_chunk.payload) < 16:
+        return None
+    audio_format = int.from_bytes(fmt_chunk.payload[0:2], "little")
+    block_align = int.from_bytes(fmt_chunk.payload[12:14], "little")
+    if audio_format not in PCM_WAVE_FORMAT_CODES or block_align == 0:
+        return None
+    return block_align
+
+
+def aligned_pcm_data_payload_hash(data: bytes) -> str:
+    chunks, _ = parse_chunks_for_repair(data)
+    data_chunk = next(chunk for chunk in chunks if chunk.chunk_id == b"data")
+    block_align = pcm_wave_block_align(chunks)
+    payload = data_chunk.payload
+    if block_align is not None:
+        payload = payload[: len(payload) - (len(payload) % block_align)]
+    return hashlib.sha256(payload).hexdigest()
+
+
+def validate_pcm_data_block_alignment(data: bytes) -> None:
+    chunks, _ = parse_chunks_for_repair(data)
+    block_align = pcm_wave_block_align(chunks)
+    if block_align is None:
+        return
+    for chunk in chunks:
+        if chunk.chunk_id != b"data":
+            continue
+        remainder = len(chunk.payload) % block_align
+        if remainder:
+            raise RepairError(
+                f"PCM data chunk at offset {chunk.source_start} has {remainder} trailing byte(s) "
+                f"that do not complete block align {block_align}"
+            )
 
 
 def aiff_sound_payload_hash(data: bytes) -> str:
@@ -2289,6 +2457,7 @@ def verify_repaired_file(path: Path) -> None:
     if int.from_bytes(data[4:8], "little") != len(data) - 8:
         raise RepairError("repaired RIFF size does not match file size")
     data_payload_hash(data)
+    validate_pcm_data_block_alignment(data)
     summary = mutagen_summary(data)
     if summary and summary.startswith("mutagen error:"):
         raise RepairError(summary)
@@ -2507,6 +2676,8 @@ def repairable_reason(result: FileRepairResult) -> str | None:
         return None
     joined_actions = " | ".join(result.actions)
     suffix = result.path.suffix.lower()
+    if suffix in {".wav", ".wave"} and "trimmed incomplete PCM data tail" in joined_actions:
+        return "incomplete_pcm_tail"
     if suffix in {".wav", ".wave"} and "shrunk oversized data chunk" in joined_actions:
         return "oversized_data"
     if suffix in {".wav", ".wave"} and "removed duplicate/unselected ID3 chunks" in joined_actions:
@@ -2548,6 +2719,8 @@ def result_problem_summary(result: FileRepairResult) -> str | None:
 def repairable_reason_description(reason: str, result: FileRepairResult) -> str:
     reason = reason.lower()
     suffix = result.path.suffix.lower()
+    if reason == "incomplete_pcm_tail":
+        return "WAV incomplete PCM frame at the end of the data chunk"
     if reason == "oversized_data":
         return "WAV oversized data chunk before ID3 chunk"
     if reason == "duplicate_id3":

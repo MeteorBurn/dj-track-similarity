@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 import zipfile
 
+import pytest
+
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -54,6 +56,27 @@ def _minimal_aiff_with_empty_id3_chunks() -> tuple[bytes, bytes]:
     return b"FORM" + len(body).to_bytes(4, "big") + body, ssnd_payload
 
 
+def _riff_chunk(chunk_id: bytes, payload: bytes) -> bytes:
+    padding = b"\x00" if len(payload) % 2 else b""
+    return chunk_id + len(payload).to_bytes(4, "little") + payload + padding
+
+
+def _minimal_pcm_wave(data_payload: bytes, *, pad_data_chunk: bool = True) -> bytes:
+    fmt_payload = (
+        b"\x01\x00"  # PCM
+        b"\x02\x00"  # stereo
+        b"\x44\xac\x00\x00"  # 44100 Hz
+        b"\x10\xb1\x02\x00"  # 176400 bytes/s
+        b"\x04\x00"  # block align
+        b"\x10\x00"  # 16 bit
+    )
+    data_chunk = _riff_chunk(b"data", data_payload)
+    if not pad_data_chunk and len(data_payload) % 2:
+        data_chunk = data_chunk[:-1]
+    body = b"WAVE" + _riff_chunk(b"fmt ", fmt_payload) + data_chunk
+    return b"RIFF" + len(body).to_bytes(4, "little") + body
+
+
 def test_log_collection_stays_limited_to_wav_post_save_readback(tmp_path: Path) -> None:
     repair = _load_repair_module()
     log_path = tmp_path / "app.log"
@@ -92,10 +115,11 @@ def test_collect_paths_includes_audio_files_from_folder_recursively(tmp_path: Pa
     assert ignored not in paths
 
 
-def test_mp3_content_with_flac_extension_is_reported_as_suspicious(tmp_path: Path) -> None:
+def test_mp3_content_with_flac_extension_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
     repair = _load_repair_module()
     audio_path = tmp_path / "wrong.flac"
     audio_path.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00")
+    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
 
     result = repair.inspect_file(audio_path)
 
@@ -104,10 +128,11 @@ def test_mp3_content_with_flac_extension_is_reported_as_suspicious(tmp_path: Pat
     assert "extension=.flac" in result.message
 
 
-def test_mp3_content_with_ogg_extension_is_reported_as_suspicious(tmp_path: Path) -> None:
+def test_mp3_content_with_ogg_extension_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
     repair = _load_repair_module()
     audio_path = tmp_path / "wrong.ogg"
     audio_path.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00")
+    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
 
     result = repair.inspect_file(audio_path)
 
@@ -122,6 +147,7 @@ def test_ogg_container_with_opus_codec_is_allowed(monkeypatch, tmp_path: Path) -
     audio_path.write_bytes(b"OggS\x00\x02")
     monkeypatch.setattr(repair, "probe_file", lambda path: ("ogg", "opus"))
     monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
+    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
 
     result = repair.inspect_file(audio_path)
 
@@ -136,6 +162,7 @@ def test_wav_container_with_flac_codec_is_reported_as_suspicious(monkeypatch, tm
     audio_path.write_bytes(b"RIFF\x04\x00\x00\x00WAVE")
     monkeypatch.setattr(repair, "probe_file", lambda path: ("wav", "flac"))
     monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
+    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
 
     result = repair.inspect_file(audio_path)
 
@@ -151,6 +178,7 @@ def test_flac_container_with_vorbis_codec_is_reported_as_suspicious(monkeypatch,
     audio_path.write_bytes(b"fLaC")
     monkeypatch.setattr(repair, "probe_file", lambda path: ("flac", "vorbis"))
     monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
+    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
 
     result = repair.inspect_file(audio_path)
 
@@ -158,6 +186,20 @@ def test_flac_container_with_vorbis_codec_is_reported_as_suspicious(monkeypatch,
     assert result.detected_format == "flac"
     assert result.detected_codec == "vorbis"
     assert result.message == "extension=.flac detected_codec=vorbis"
+
+
+def test_full_decode_failure_is_reported_even_when_header_tags_and_codec_look_valid(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    audio_path = tmp_path / "broken.flac"
+    audio_path.write_bytes(b"fLaC")
+    monkeypatch.setattr(repair, "probe_file", lambda path: ("flac", "flac"))
+    monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=yes")
+    monkeypatch.setattr(repair, "full_decode_error", lambda path: "[flac] invalid sync code")
+
+    result = repair.inspect_file(audio_path)
+
+    assert result.status == "failed"
+    assert result.message == "full FFmpeg decode failed: [flac] invalid sync code"
 
 
 def test_aiff_repair_removes_only_empty_id3_chunks_and_preserves_sound_payload() -> None:
@@ -187,6 +229,60 @@ def test_wave_repair_reports_dropped_trailing_zero_padding() -> None:
     assert "dropped trailing zero padding bytes at offset 24 size 1" in result.actions
 
 
+def test_wave_repair_trims_incomplete_pcm_data_tail_and_verifies_result(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    original_payload = b"\x01\x02\x03\x04\x05\x06\x07\x08\xaa\xbb"
+    result = repair.repair_wave_bytes(_minimal_pcm_wave(original_payload))
+
+    assert result.changed is True
+    assert repair.data_payload(result.data) == original_payload[:-2]
+    assert "trimmed incomplete PCM data tail at offset 44 size 2 for block align 4" in result.actions
+
+    audio_path = tmp_path / "tail.wav"
+    audio_path.write_bytes(result.data)
+    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    repair.verify_repaired_file(audio_path)
+
+
+def test_wave_verification_rejects_incomplete_pcm_data_tail(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    audio_path = tmp_path / "tail.wav"
+    audio_path.write_bytes(_minimal_pcm_wave(b"\x01\x02\x03\x04\xaa\xbb"))
+    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+
+    with pytest.raises(repair.RepairError, match=r"2 trailing byte\(s\).*block align 4"):
+        repair.verify_repaired_file(audio_path)
+
+
+def test_wave_repair_trims_single_pcm_tail_byte_without_final_riff_padding() -> None:
+    repair = _load_repair_module()
+    result = repair.repair_wave_bytes(
+        _minimal_pcm_wave(b"\x01\x02\x03\x04\xaa", pad_data_chunk=False)
+    )
+
+    assert repair.data_payload(result.data) == b"\x01\x02\x03\x04"
+    assert "inserted missing RIFF padding after final data chunk at offset 36" in result.actions
+    assert "trimmed incomplete PCM data tail at offset 44 size 1 for block align 4" in result.actions
+
+
+def test_wave_dry_run_marks_incomplete_pcm_data_tail_repairable(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    audio_path = tmp_path / "tail.wav"
+    audio_path.write_bytes(_minimal_pcm_wave(b"\x01\x02\x03\x04\xaa\xbb"))
+    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+
+    result = repair.repair_wave_file(
+        audio_path,
+        apply_changes=False,
+        backup_dir=None,
+        no_backup=False,
+        keep_id3="first",
+    )
+
+    assert result.status == "repairable"
+    assert repair.repairable_reason(result) == "incomplete_pcm_tail"
+
+
 def test_wave_file_with_only_trailing_zero_padding_is_notice(monkeypatch, tmp_path: Path) -> None:
     repair = _load_repair_module()
     audio_path = tmp_path / "track.wav"
@@ -194,6 +290,11 @@ def test_wave_file_with_only_trailing_zero_padding_is_notice(monkeypatch, tmp_pa
     body = b"WAVE" + b"data" + len(data_payload).to_bytes(4, "little") + data_payload + b"\x00"
     audio_path.write_bytes(b"RIFF" + len(body).to_bytes(4, "little") + body)
     monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    monkeypatch.setattr(
+        repair,
+        "inspect_file",
+        lambda path: repair.FileInspectionResult(path=path, status="ok", message="ok", tag_summary="mutagen ok tags=no"),
+    )
 
     result = repair.repair_file(
         audio_path,
@@ -208,6 +309,25 @@ def test_wave_file_with_only_trailing_zero_padding_is_notice(monkeypatch, tmp_pa
     assert result.original_size == len(audio_path.read_bytes())
     assert result.repaired_size == len(audio_path.read_bytes())
     assert result.actions == ["dropped trailing zero padding bytes"]
+
+
+def test_wave_without_container_repair_is_failed_when_full_decode_fails(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    audio_path = tmp_path / "broken.wav"
+    audio_path.write_bytes(_minimal_pcm_wave(b"\x01\x02\x03\x04"))
+    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    monkeypatch.setattr(repair, "full_decode_error", lambda path: "[pcm] invalid packet")
+
+    result = repair.repair_wave_file(
+        audio_path,
+        apply_changes=False,
+        backup_dir=None,
+        no_backup=False,
+        keep_id3="first",
+    )
+
+    assert result.status == "failed"
+    assert result.message == "full FFmpeg decode failed: [pcm] invalid packet"
 
 
 def test_main_output_includes_total_and_track_number(monkeypatch, tmp_path: Path, capsys) -> None:

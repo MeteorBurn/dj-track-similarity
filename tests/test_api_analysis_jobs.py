@@ -43,7 +43,7 @@ def test_api_lists_classifier_manifests_without_database_readiness(
     response = _client(monkeypatch, tmp_path).get("/api/classifiers")
 
     assert response.status_code == 200
-    assert response.json() == classifiers
+    assert response.json() == [{**classifiers[0], "scored_tracks": 0}]
 
 
 def test_api_starts_selected_ml_job_without_classifier_fields(

@@ -141,7 +141,7 @@ def _insert_track(
         track_id = int(cursor.lastrowid)
         core.execute(
             """
-            INSERT INTO file_tags (
+            INSERT INTO tags (
                 track_id, title, artist, album, tag_bpm, tag_key,
                 comment, year, label, country, track_number,
                 genres_json, tags_read_at
@@ -435,7 +435,9 @@ def test_library_coverage_rejects_malformed_embedding_payload(
     summary = repository.get_track_summaries((track.track_id,))[0]
     assert not summary.analysis_coverage.mert
     assert repository.get_track_detail(track.track_id).embeddings == ()
-    assert repository.library_summary().mert == 0
+    assert repository.library_summary().mert == (
+        1 if malformed_kind == "zero_l2" else 0
+    )
 
 
 def test_sonara_reads_core_and_ignores_reserved_optional_artifacts(
@@ -545,7 +547,7 @@ def test_maest_analysis_and_embedding_have_independent_readiness(
     with _core(repository) as core:
         core.execute(
             """
-            INSERT INTO maest_scores (
+            INSERT INTO maest_genres (
                 track_id, content_generation,
                 syncopated_rhythm, genres_json, analyzed_at
             ) VALUES (?, 1, 1, ?, ?)
@@ -657,7 +659,7 @@ def test_summary_and_classifier_filters_use_current_rows(
     with _core(repository) as core:
         core.execute(
             """
-            INSERT INTO maest_scores (
+            INSERT INTO maest_genres (
                 track_id, content_generation,
                 syncopated_rhythm, genres_json, analyzed_at
             ) VALUES (?, 1, 1, ?, ?)

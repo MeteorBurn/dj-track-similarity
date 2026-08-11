@@ -28,13 +28,13 @@ class FileTags:
     title: str | None = None
     artist: str | None = None
     album: str | None = None
-    tag_bpm: float | None = None
-    tag_key: str | None = None
-    comment: str | None = None
-    year: int | None = None
+    track_number: str | None = None
     label: str | None = None
     country: str | None = None
-    track_number: str | None = None
+    year: int | None = None
+    tag_key: str | None = None
+    tag_bpm: float | None = None
+    comment: str | None = None
     genres: tuple[str, ...] = ()
 
 

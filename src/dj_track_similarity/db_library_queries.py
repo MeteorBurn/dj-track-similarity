@@ -18,6 +18,7 @@ from .analysis_models import (
     OUTPUT_KINDS_BY_FAMILY,
     current_embedding_spec,
 )
+from .db_artifacts import ArtifactTrackIdentity, validate_embedding_row_payload
 from .db_tracks import utc_now_text
 from .library_models import (
     AnalysisCoverage,
@@ -54,6 +55,15 @@ _EMBEDDING_TABLES: tuple[tuple[str, str, str], ...] = (
     ("mert", "embedding", "mert_embeddings"),
     ("muq", "embedding", "muq_embeddings"),
     ("clap", "embedding", "clap_embeddings"),
+)
+ANALYSIS_COUNT_SETTING_PREFIX = "analysis.count."
+_ANALYSIS_COUNT_FIELDS = (
+    "tracks",
+    "sonara",
+    "maest",
+    "mert",
+    "muq",
+    "clap",
 )
 _SONARA_VECTOR_SUMMARIES = (
     VectorSummary("mfcc_mean", 13),
@@ -111,6 +121,32 @@ def _optional_float(value: object) -> float | None:
     return None if value is None else float(value)
 
 
+def _stored_analysis_counts(
+    connection: sqlite3.Connection,
+) -> dict[str, int] | None:
+    setting_keys = tuple(
+        f"{ANALYSIS_COUNT_SETTING_PREFIX}{field}"
+        for field in _ANALYSIS_COUNT_FIELDS
+    )
+    placeholders = ", ".join("?" for _ in setting_keys)
+    rows = connection.execute(
+        f"""
+        SELECT setting_key, setting_value
+        FROM library_settings
+        WHERE setting_key IN ({placeholders})
+        """,
+        setting_keys,
+    ).fetchall()
+    raw_counts = {str(row["setting_key"]): row["setting_value"] for row in rows}
+    counts: dict[str, int] = {}
+    for field in _ANALYSIS_COUNT_FIELDS:
+        raw_value = raw_counts.get(f"{ANALYSIS_COUNT_SETTING_PREFIX}{field}")
+        if not isinstance(raw_value, str) or not raw_value.isdecimal():
+            return None
+        counts[field] = int(raw_value)
+    return counts
+
+
 def _json_array(raw: object, field_name: str) -> list[object]:
     try:
         value = json.loads(str(raw))
@@ -145,9 +181,9 @@ def _json_object_sequence(
 
 
 def _parse_genres(raw: object) -> tuple[str, ...]:
-    values = _json_array(raw, "file_tags.genres_json")
+    values = _json_array(raw, "tags.genres_json")
     if any(not isinstance(value, str) for value in values):
-        raise RuntimeError("file_tags.genres_json entries must be strings")
+        raise RuntimeError("tags.genres_json entries must be strings")
     return tuple(str(value) for value in values)
 
 
@@ -371,7 +407,7 @@ def _filter_sql(
                 """
                 EXISTS(
                     SELECT 1
-                    FROM maest_scores ms
+                    FROM maest_genres ms
                     WHERE ms.track_id = t.track_id
                       AND ms.content_generation = t.content_generation
                       AND ms.syncopated_rhythm = 1
@@ -454,11 +490,11 @@ def _base_from_sql(*, has_primary_classifier: bool) -> str:
             FROM classifier_scores primary_cs
                  INDEXED BY idx_classifier_scores_lookup
             JOIN tracks t ON t.track_id = primary_cs.track_id
-            LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+            LEFT JOIN tags ft ON ft.track_id = t.track_id
         """
     return """
         FROM tracks t
-        LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+        LEFT JOIN tags ft ON ft.track_id = t.track_id
     """
 
 
@@ -619,7 +655,7 @@ def _valid_maest_analysis_ids(
             f"""
             SELECT {", ".join(f"stored.{column}" for column in MAEST_ANALYSIS_COLUMNS)}
             FROM json_each(?) requested
-            CROSS JOIN maest_scores stored
+            CROSS JOIN maest_genres stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
             """,
             (_json_ids(identities),),
@@ -628,7 +664,7 @@ def _valid_maest_analysis_ids(
         rows = connection.execute(
             f"""
             SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
-            FROM maest_scores
+            FROM maest_genres
             WHERE track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
@@ -688,21 +724,18 @@ def _valid_artifact_rows(
     table: str,
     output: AnalysisOutput | None,
     identities: Mapping[int, tuple[str, int]],
+    catalog_uuid: str,
     embedding: bool,
     drive_from_requested: bool,
 ) -> dict[int, Mapping[str, object]]:
     if output is None or not identities:
         return {}
-    expected_dim: int | None = None
-    expected_normalization: str | None = None
     if embedding:
         try:
-            expected_spec = current_embedding_spec(output.analysis_family)
+            current_embedding_spec(output.analysis_family)
         except ValueError:
             return {}
-        expected_dim = expected_spec.dimension
-        expected_normalization = expected_spec.normalization
-    embedding_fields = ", dim, normalization" if embedding else ""
+    embedding_fields = ", dim, normalization, embedding_blob" if embedding else ""
     if drive_from_requested:
         rows = connection.execute(
             f"""
@@ -742,12 +775,17 @@ def _valid_artifact_rows(
         ):
             continue
         if embedding:
-            dim = _optional_int(row["dim"])
-            if (
-                dim is None
-                or dim != expected_dim
-                or row["normalization"] != expected_normalization
-            ):
+            valid_embedding, _reason = validate_embedding_row_payload(
+                family=output.analysis_family,
+                row=row,
+                expected_track=ArtifactTrackIdentity(
+                    catalog_uuid=catalog_uuid,
+                    track_id=track_id,
+                    track_uuid=expected[0],
+                    content_generation=expected[1],
+                ),
+            )
+            if not valid_embedding:
                 continue
         valid[track_id] = {
             "track_id": row["track_id"],
@@ -927,6 +965,7 @@ def _coverage_and_classifiers(
             table=table,
             output=context.outputs.get((family, output_kind)),
             identities=identities,
+            catalog_uuid=context.catalog_uuid,
             embedding=True,
             drive_from_requested=drive_from_requested,
         )
@@ -1023,13 +1062,13 @@ def _file_tags(row: sqlite3.Row) -> FileTags | None:
         title=_optional_text(row["title"]),
         artist=_optional_text(row["artist"]),
         album=_optional_text(row["album"]),
-        tag_bpm=_optional_float(row["tag_bpm"]),
-        tag_key=_optional_text(row["tag_key"]),
-        comment=_optional_text(row["comment"]),
-        year=_optional_int(row["year"]),
+        track_number=_optional_text(row["track_number"]),
         label=_optional_text(row["label"]),
         country=_optional_text(row["country"]),
-        track_number=_optional_text(row["track_number"]),
+        year=_optional_int(row["year"]),
+        tag_key=_optional_text(row["tag_key"]),
+        tag_bpm=_optional_float(row["tag_bpm"]),
+        comment=_optional_text(row["comment"]),
         genres=_parse_genres(row["genres_json"]),
         tags_read_at=str(row["tags_read_at"]),
     )
@@ -1146,7 +1185,7 @@ def _maest_analysis(
     row = connection.execute(
         f"""
         SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
-        FROM maest_scores
+        FROM maest_genres
         WHERE track_id = ?
           AND content_generation = ?
         """,
@@ -1180,6 +1219,43 @@ class LibraryQueryRepository:
 
     def connect_artifacts(self) -> sqlite3.Connection:
         raise NotImplementedError
+
+    def classifier_score_counts(
+        self,
+        classifier_specifications: Sequence[ClassifierSpecification],
+    ) -> dict[str, int]:
+        specifications_by_key = _classifier_specifications_by_key(
+            classifier_specifications
+        )
+        counts = {key: 0 for key in specifications_by_key}
+        if not counts:
+            return counts
+        placeholders = ", ".join("?" for _ in counts)
+        with closing(self.connect()) as core_connection:
+            rows = core_connection.execute(
+                f"""
+                SELECT cs.classifier_key, cs.feature_names_json, COUNT(*) AS score_count
+                FROM classifier_scores AS cs
+                JOIN tracks AS t ON t.track_id = cs.track_id
+                WHERE cs.classifier_key IN ({placeholders})
+                  AND cs.track_uuid = t.track_uuid
+                  AND cs.content_generation = t.content_generation
+                  AND t.missing_since IS NULL
+                GROUP BY cs.classifier_key, cs.feature_names_json
+                """,
+                tuple(counts),
+            ).fetchall()
+        for row in rows:
+            classifier_key = str(row["classifier_key"])
+            specification = specifications_by_key.get(classifier_key)
+            if specification is None:
+                continue
+            if str(row["feature_names_json"]) != _classifier_feature_names_json(
+                specification
+            ):
+                continue
+            counts[classifier_key] = int(row["score_count"])
+        return counts
 
     @contextmanager
     def _open_library_bundle(
@@ -1264,7 +1340,7 @@ class LibraryQueryRepository:
                 f"""
                 SELECT {_base_select_fields()}
                 FROM tracks t
-                LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+                LEFT JOIN tags ft ON ft.track_id = t.track_id
                 WHERE t.track_id IN (
                     SELECT CAST(value AS INTEGER)
                     FROM json_each(?)
@@ -1401,7 +1477,7 @@ class LibraryQueryRepository:
                 f"""
                 SELECT {_base_select_fields()}
                 FROM tracks t
-                LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+                LEFT JOIN tags ft ON ft.track_id = t.track_id
                 WHERE t.track_id = ?
                 {missing_sql}
                 """,
@@ -1562,7 +1638,7 @@ class LibraryQueryRepository:
                     f"""
                     SELECT {_base_select_fields()}
                     FROM tracks t
-                    LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+                    LEFT JOIN tags ft ON ft.track_id = t.track_id
                     WHERE t.track_id = ?
                     """,
                     (expected.track_id,),
@@ -1633,7 +1709,7 @@ class LibraryQueryRepository:
                     ms.genres_json,
                     ms.analyzed_at
                 FROM tracks t
-                JOIN maest_scores ms
+                JOIN maest_genres ms
                  ON ms.track_id = t.track_id
                  AND ms.content_generation = t.content_generation
                 WHERE 1 = 1
@@ -1699,7 +1775,7 @@ class LibraryQueryRepository:
                     ft.tag_bpm,
                     ft.tag_key
                 FROM tracks t
-                LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+                LEFT JOIN tags ft ON ft.track_id = t.track_id
                 WHERE t.track_id IN (
                     SELECT CAST(value AS INTEGER)
                     FROM json_each(?)
@@ -1768,7 +1844,57 @@ class LibraryQueryRepository:
             artifacts_connection,
             context,
         ):
+            cached_counts = (
+                None if include_missing else _stored_analysis_counts(core_connection)
+            )
             missing_sql = "" if include_missing else "WHERE t.missing_since IS NULL"
+            if cached_counts is not None:
+                liked = int(
+                    core_connection.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM likes l
+                        JOIN tracks t ON t.track_id = l.track_id
+                        WHERE t.missing_since IS NULL
+                        """
+                    ).fetchone()[0]
+                )
+                classifier_count = 0
+                if specifications_by_key:
+                    classifier_rows = core_connection.execute(
+                        """
+                        SELECT t.track_id, t.track_uuid, t.content_generation
+                        FROM tracks t
+                        WHERE t.missing_since IS NULL
+                        """
+                    ).fetchall()
+                    classifier_details = _current_classifier_details(
+                        core_connection,
+                        identities=_identity_map(classifier_rows),
+                        drive_from_requested=False,
+                        classifier_specifications=specifications_by_key,
+                    )
+                    if requested_classifiers:
+                        expected = set(requested_classifiers)
+                        classifier_count = sum(
+                            expected.issubset(
+                                {score.classifier_key for score in scores}
+                            )
+                            for scores in classifier_details.values()
+                        )
+                    else:
+                        classifier_count = len(classifier_details)
+                return LibrarySummary(
+                    tracks=cached_counts["tracks"],
+                    sonara=cached_counts["sonara"],
+                    maest_analysis=cached_counts["maest"],
+                    maest_embedding=cached_counts["maest"],
+                    mert=cached_counts["mert"],
+                    muq=cached_counts["muq"],
+                    clap=cached_counts["clap"],
+                    liked=liked,
+                    classifiers=classifier_count,
+                )
             rows = core_connection.execute(
                 f"""
                 SELECT
@@ -1792,7 +1918,7 @@ class LibraryQueryRepository:
             )
             maest_analysis_count = _current_analysis_row_count(
                 core_connection,
-                table="maest_scores",
+                table="maest_genres",
                 output=context.outputs.get(("maest", "analysis")),
                 identities=identities,
             )

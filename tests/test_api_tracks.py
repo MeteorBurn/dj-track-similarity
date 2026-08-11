@@ -350,24 +350,41 @@ def test_library_summary_uses_split_current_analysis_families(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
+    database = LibraryDatabase(db_path)
     _add_track(
-        LibraryDatabase(db_path),
+        database,
         tmp_path / "track.wav",
         artist="Artist",
         title="Track",
     )
+    with database.connect() as connection:
+        connection.executemany(
+            """
+            INSERT INTO library_settings(setting_key, setting_value, updated_at)
+            VALUES (?, ?, '2026-08-11T00:00:00.000000Z')
+            """,
+            (
+                ("analysis.count.tracks", "7"),
+                ("analysis.count.sonara", "6"),
+                ("analysis.count.maest", "5"),
+                ("analysis.count.mert", "3"),
+                ("analysis.count.muq", "2"),
+                ("analysis.count.clap", "1"),
+            ),
+        )
+        connection.commit()
 
     response = _client(monkeypatch, db_path).get("/api/library/summary")
 
     assert response.status_code == 200
     assert response.json() == {
-        "tracks": 1,
-        "sonara": 0,
-        "maest_analysis": 0,
-        "maest_embedding": 0,
-        "mert": 0,
-        "muq": 0,
-        "clap": 0,
+        "tracks": 7,
+        "sonara": 6,
+        "maest_analysis": 5,
+        "maest_embedding": 5,
+        "mert": 3,
+        "muq": 2,
+        "clap": 1,
         "liked": 0,
         "classifiers": 0,
     }

@@ -113,7 +113,7 @@ def test_fresh_storage_has_no_contract_identity_schema() -> None:
             )
         }
         assert "contracts" not in core_tables
-        for table in ("sonara", "maest_scores", "classifier_scores"):
+        for table in ("sonara", "maest_genres", "classifier_scores"):
             columns = {
                 str(row[1]) for row in core.execute(f'PRAGMA table_info("{table}")')
             }

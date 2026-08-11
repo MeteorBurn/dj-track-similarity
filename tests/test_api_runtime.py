@@ -124,7 +124,7 @@ def test_tag_refresh_job_rejects_stale_snapshot_after_generation_race(
             """
             SELECT t.content_generation, ft.title
             FROM tracks AS t
-            JOIN file_tags AS ft ON ft.track_id = t.track_id
+            JOIN tags AS ft ON ft.track_id = t.track_id
             WHERE t.track_id = ?
             """,
             (identity.track_id,),

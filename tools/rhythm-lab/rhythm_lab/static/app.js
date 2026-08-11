@@ -39,6 +39,10 @@ const binaryLabelGridEl = document.getElementById("binaryLabelGrid");
 const multiclassLabelEditorEl = document.getElementById("multiclassLabelEditor");
 const multiclassLabelRowsEl = document.getElementById("multiclassLabelRows");
 const DEFAULT_TRAINING_FEATURE_SET = "sonara+mert+maest+clap+muq";
+const TRAINING_RECIPE_OPTIONS = [
+  { value: DEFAULT_TRAINING_FEATURE_SET, label: "Combined" },
+  { value: "sonara", label: "Sonara" },
+];
 
 let profiles = [];
 let activeProfile = null;
@@ -517,14 +521,8 @@ function formatLabelCounts(labels) {
 }
 
 function renderSummary(data) {
-  const featureStates = data.feature_states || {};
   const coverage = [
     coverageBadge("Tracks", data.tracks || 0, "tracks"),
-    featureCoverageBadge("SONARA", data.sonara || 0, featureStates.sonara),
-    featureCoverageBadge("MERT", data.mert || 0, featureStates.mert),
-    featureCoverageBadge("MAEST", data.maest || 0, featureStates.maest),
-    featureCoverageBadge("CLAP", data.clap || 0, featureStates.clap),
-    featureCoverageBadge("MuQ", data.muq || 0, featureStates.muq),
     coverageBadge("Liked", data.liked || 0, "liked")
   ].join("");
   summaryCoverageEl.innerHTML = `
@@ -535,12 +533,6 @@ function renderSummary(data) {
     <span class="summary-group summary-labels" aria-label="Label counts">
       <span class="summary-group-title">Labels</span>${labelCountBadges(data.labels || {})}
     </span>`;
-}
-
-function featureCoverageBadge(label, value, state) {
-  const status = featureStateStatus(state);
-  const reason = featureStateReason(state) || `${label} data is ${status}.`;
-  return `<span class="summary-badge coverage-feature feature-state-${escapeHtml(status)}" title="${escapeHtml(reason)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><i>${escapeHtml(status)}</i></span>`;
 }
 
 function coverageBadge(label, value, key) {
@@ -575,13 +567,20 @@ function renderGuidance(summary) {
   const selected = selectedPromotionOption(readiness);
   const lastRun = readiness?.last_trained_at ? formatHumanDate(readiness.last_trained_at) : "not trained yet";
   const recipe = readiness?.feature_recipe;
-  const recipeState = recipe?.ready
-    ? `${recipe.feature_set} features current`
-    : recipeBlockingText(recipe);
+  const readinessState = readiness
+    ? readiness.ready
+      ? "Ready to train"
+      : "Not ready yet"
+    : "Loading Training Information";
+  const recipeState = readiness
+    ? recipe?.ready
+      ? `${recipe.feature_set} features current`
+      : recipeBlockingText(recipe)
+    : "Checking feature recipe status";
   guidancePanelEl.innerHTML = `
     <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(profileSignalText())}</span></div>
     <div class="guidance-card"><b>Labels</b><span class="meta">${trainingCountText}</span></div>
-    <div class="guidance-card"><b>Training state</b><span class="meta">${readiness?.ready ? "Ready to train" : "Not ready yet"} · ${escapeHtml(recipeState || "feature recipe unavailable")} · last ${escapeHtml(lastRun)}</span></div>
+    <div class="guidance-card"><b>Training state</b><span class="meta">${escapeHtml(readinessState)} · ${escapeHtml(recipeState || "feature recipe unavailable")} · last ${escapeHtml(lastRun)}</span></div>
     <div class="guidance-card"><b>Benchmark</b><span class="meta">${winner ? `${escapeHtml(winner.feature_set)} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No benchmark winner yet"}</span></div>
     <div class="guidance-card"><b>Production</b><span class="meta">${selected ? `Selected ${escapeHtml(selected.feature_set)} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No promotion variant yet"}</span></div>`;
 }
@@ -1072,7 +1071,7 @@ function renderTrainingWorkflow(data, planText) {
       <span>${escapeHtml(workflowRecommendation(data, selected))}</span>
     </div>
     <div class="workflow-variant-row">
-      <label class="workflow-variant-select">Training recipe
+      <label class="workflow-variant-select">Next training recipe
         <select id="trainingFeatureSet">${featureOptions}</select>
       </label>
       <label class="workflow-variant-select">Selected variant
@@ -1230,9 +1229,8 @@ function missingLabelText(data) {
 }
 
 function renderTrainingFeatureOptions(data) {
-  const options = data?.available_feature_sets || [DEFAULT_TRAINING_FEATURE_SET];
-  return options
-    .map(featureSet => `<option value="${escapeHtml(featureSet)}" ${featureSet === selectedTrainingFeatureSet ? "selected" : ""}>${escapeHtml(featureSet)}</option>`)
+  return TRAINING_RECIPE_OPTIONS
+    .map(option => `<option value="${escapeHtml(option.value)}" ${option.value === selectedTrainingFeatureSet ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
     .join("");
 }
 
@@ -1317,53 +1315,70 @@ function renderTrainingInformationMetrics(data) {
   return `<section class="training-info-card">
     <header class="training-info-heading">
       <b>Training overview</b>
-      <span class="meta">Saved model, validation quality, and change since the previous run.</span>
+      <span class="meta">Last training checkpoint and the promoted model used for scoring.</span>
     </header>
     <div class="meta training-info-text">
       ${renderTrainingLastRunLine(data)}
-      ${renderTrainingArtifactsLine(data?.artifact_summary)}
-      ${renderTrainingMetricsLine(data?.artifact_summary)}
+      ${renderTrainingPromotedModelLine(data?.promoted_model)}
+      ${renderTrainingMetricsLine(data?.promoted_model)}
       ${renderTrainingDynamicsLine(data?.metrics_history)}
     </div>
   </section>`;
 }
 
 function renderTrainingLastRunLine(data) {
-  const current = featureSummary(data?.artifact_summary, selectedTrainingFeatureSet)
-    || selectedPromotionOption(data);
-  const artifact = data?.model_artifact || current?.latest_model;
-  const runDate = current?.created_at || data?.last_trained_at;
-  const modelText = current
-    ? `${current.feature_set} model ${formatBytes(current.model_bytes)}`
-    : fileName(artifact) || "no current model";
-  return trainingInfoLine("Latest model", `${formatHumanDate(runDate)} · trained on ${formatLabelCounts(data?.last_trained || {})} · ${modelText}`);
+  const model = data?.trained_model;
+  if (!model?.artifact) {
+    return trainingInfoLine("Trained Model", "No training checkpoint has been recorded.");
+  }
+  return trainingInfoLine(
+    "Trained Model",
+    `Last training checkpoint · ${model.feature_set || "unknown recipe"} · ${formatHumanDate(model.trained_at)} · ${formatLabelCounts(model.label_counts || {})}`
+  );
 }
 
-function renderTrainingArtifactsLine(summary) {
-  const features = summary?.by_feature || [];
-  const current = featureSummary(summary, selectedTrainingFeatureSet);
-  const header = `${summary?.model_count || 0} saved models · ${summary?.metrics_count || 0} metric reports`;
-  const detail = features.length
-    ? `${features.length} recipes are available. The selected training recipe was saved ${current?.created_at ? formatHumanDate(current.created_at) : "not yet"}.`
-    : "No saved artifacts yet. Train a recipe to create the first model.";
-  return trainingInfoLine("Saved files", `${header} · ${detail}`);
+function renderTrainingPromotedModelLine(model) {
+  if (!model || model.status === "not_promoted") {
+    return trainingInfoLine("Promoted Model", "No production model has been promoted.");
+  }
+  const status = model.status === "ready"
+    ? "ready for scoring"
+    : `invalid: ${(model.manifest_errors || ["production manifest is not usable"])[0]}`;
+  const promotedAt = model.promoted_at ? formatHumanDate(model.promoted_at) : "date unavailable";
+  return trainingInfoLine(
+    "Promoted Model",
+    `${model.feature_set || "unknown recipe"} · promoted ${promotedAt} · ${status}`
+  );
 }
 
-function renderTrainingMetricsLine(summary) {
-  const current = featureSummary(summary, selectedTrainingFeatureSet)
-    || selectedPromotionOption({ artifact_summary: summary })
-    || (summary?.by_feature || [])[0];
-  if (!current) return trainingInfoLine("Quality", "No validation report yet. Train a recipe to measure model quality.");
+function renderTrainingMetricsLine(model) {
+  if (!model || model.status !== "ready") {
+    return trainingInfoLine("Quality", "No promoted model.json is available for scoring quality.");
+  }
+  const calibration = model.calibration || {};
+  const calibrationState = model.calibration_status === "calibrated"
+    ? `calibrated${calibration.method ? ` (${calibration.method})` : ""}`
+    : `not calibrated${calibration.reason ? `: ${calibration.reason}` : ""}`;
   const values = [
-    `accuracy ${formatMetricPercent(current.accuracy_mean)}`,
-    `F1 balance ${formatMetricPercent(current.macro_f1_mean)}`,
-    `precision ${formatMetricPercent(current.positive_precision_mean)}`,
-    `recall ${formatMetricPercent(current.positive_recall_mean)}`,
-    `${current.trained_rows ?? "-"} labeled tracks`,
-    `${current.feature_count ?? "-"} inputs`,
-    current.calibration_status === "calibrated" ? `calibrated ${current.calibration_method || ""}`.trim() : "not calibrated"
-  ].join(" · ");
-  return trainingInfoLine("Quality", `${current.feature_set} · ${values}`);
+    `${model.feature_set || "unknown recipe"} variant`,
+    calibrationState,
+    `scoring: ${model.score_semantics || "not recorded"}`,
+    metricPercentText("validation F1", calibration.validation_f1),
+    metricPercentText("ROC-AUC", calibration.validation_roc_auc),
+    metricPercentText("average precision", calibration.validation_average_precision),
+    metricNumberText("Brier", calibration.brier),
+    metricPercentText("ECE10", calibration.ece10),
+  ].filter(Boolean).join(" · ");
+  return trainingInfoLine("Quality", `Promoted model.json · ${values}`);
+}
+
+function metricPercentText(label, value) {
+  return Number.isFinite(Number(value)) ? `${label} ${formatMetricPercent(value)}` : "";
+}
+
+function metricNumberText(label, value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${label} ${number.toFixed(3)}` : "";
 }
 
 function renderTrainingDynamicsLine(history) {
@@ -1410,22 +1425,21 @@ function renderCandidate(track) {
   return row;
 }
 
-function predictionBadge(track) {
-  const label = track.predicted_label || "";
-  const role = labelByKey(label).role || "review";
-  return `<span class="profile-label-badge label-role-${escapeHtml(role)} label-${escapeHtml(label)}">${escapeHtml(displayLabel(label))}</span>`;
+function formatMaestGenreLabel(label) {
+  return String(label).replace(/_/g, " ").split("---").pop()?.trim() || "";
 }
 
-function predictedScore(track) {
-  if (isMulticlassProfile()) return track.confidence;
-  return positiveScore(track);
-}
-
-function positiveScore(track) {
-  const positive = Number(track.positive_probability || 0);
-  const negative = Number(track.negative_probability || 0);
-  if (positive === 1 && negative > 0 && negative < 1) return 1 - negative;
-  return positive;
+function genreBadges(track) {
+  const scores = track.maest_genre_scores || {};
+  return (track.genres || [])
+    .map(rawGenre => {
+      const genre = formatMaestGenreLabel(rawGenre);
+      if (!genre) return "";
+      const score = Number(scores[rawGenre]);
+      const confidence = Number.isFinite(score) ? `<b>${Math.round(score * 100)}%</b>` : "";
+      return `<span class="maest-genre-pill">${escapeHtml(genre)}${confidence}</span>`;
+    })
+    .join("");
 }
 
 function trackMarkup(track) {
@@ -1437,7 +1451,7 @@ function trackMarkup(track) {
         <div class="meta feature-line">${trackStatusLine(track)}</div>
       </div>
       <div class="rhythm-media-block">
-        <div class="meta genres-line"><span class="status-item"><b>GENRES</b></span><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>
+        <div class="meta genres-line"><span class="status-item"><b>GENRES</b></span><span class="genres">${genreBadges(track)}</span>${badgeRow(track)}</div>
         <audio controls preload="none" src="/media/${track.track_id}"></audio>
       </div>
     </div>
@@ -1722,7 +1736,13 @@ function badgeRow(track) {
 }
 
 function syncopatedBadge(track) {
-  return track.maest_syncopated_rhythm === true ? '<span class="syncopated-badge">syncopated rhythm</span>' : "";
+  return track.maest_syncopated_rhythm === true
+    ? `<span aria-label="syncopated rhythm" class="syncopated-rhythm-indicator" role="img" title="MAEST detected syncopated rhythm">
+        <svg class="lucide lucide-audio-waveform" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12h.01" /><path d="M6 12v4" /><path d="M10 12v-2" /><path d="M14 12v6" /><path d="M18 12v-8" /><path d="M22 12v2" />
+        </svg>
+      </span>`
+    : "";
 }
 
 function displayLabel(key) {
@@ -1782,7 +1802,8 @@ function parseTrainingDate(value) {
     return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)));
   }
   const normalized = text.includes("T") ? text : text.replace(" ", "T");
-  const date = new Date(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const date = new Date(hasTimezone ? normalized : `${normalized}Z`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -1805,18 +1826,8 @@ function mark(value) {
 function trackStatusLine(track) {
   return [
     trainedStatus(track),
-    predictionStatus(track),
-    predictionScoreStatus(track),
-    ...["sonara", "mert", "maest", "clap", "muq"].map(
-      source => trackFeatureStatus(source, track.feature_status?.[source])
-    ),
+    activeView === "candidates" ? predictionScoreStatus(track) : "",
   ].filter(Boolean).join(" ");
-}
-
-function trackFeatureStatus(source, state) {
-  const status = featureStateStatus(state);
-  const reason = featureStateReason(state) || `${source.toUpperCase()} output is ${status}.`;
-  return `<span class="status-item" title="${escapeHtml(reason)}"><b>${escapeHtml(source.toUpperCase())}</b><span class="analysis-status-badge status-${escapeHtml(status)}">${escapeHtml(status)}</span></span>`;
 }
 
 function featuresReady(track) {
@@ -1859,12 +1870,22 @@ function trainedStatus(track) {
   return featureStatusBadge("TRAINED", track.label_trained);
 }
 
-function predictionStatus(track) {
-  return track.predicted_label ? `<span class="status-item"><b>PREDICTED</b>${predictionBadge(track)}</span>` : "";
+function predictionScoreStatus(track) {
+  return track.predicted_label
+    ? `<span class="status-item"><b>SCORE</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>`
+    : "";
 }
 
-function predictionScoreStatus(track) {
-  return track.predicted_label ? `<span class="status-item"><b>SCORE</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>` : "";
+function predictedScore(track) {
+  if (isMulticlassProfile()) return track.confidence;
+  return positiveScore(track);
+}
+
+function positiveScore(track) {
+  const positive = Number(track.positive_probability || 0);
+  const negative = Number(track.negative_probability || 0);
+  if (positive === 1 && negative > 0 && negative < 1) return 1 - negative;
+  return positive;
 }
 
 function featureStatusBadge(name, value) {

@@ -34,6 +34,7 @@ from dj_track_similarity.db_artifacts import (  # noqa: E402
     create_artifacts_sidecar_schema,
 )
 from dj_track_similarity.db_ddl import create_core_schema  # noqa: E402
+from dj_track_similarity.db_summary import SummaryRepository  # noqa: E402
 from rhythm_lab.cli import promote_profile_model  # noqa: E402
 from rhythm_lab.artifact_io import (  # noqa: E402
     ArtifactIntegrityError,
@@ -71,7 +72,7 @@ class _ReadyClassifier:
         return np.full(len(matrix), "yes", dtype=object)
 
 
-class Repository(AnalysisRepository):
+class Repository(AnalysisRepository, SummaryRepository):
     def __init__(self, root: Path) -> None:
         self.path = root / "library.sqlite"
         self.artifacts_path = root / "library.artifacts.sqlite"
@@ -274,7 +275,7 @@ def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
         track_id = int(core.execute("SELECT track_id FROM tracks").fetchone()[0])
         core.execute(
             """
-            INSERT INTO file_tags(
+            INSERT INTO tags(
                 track_id, title, artist, album, tag_bpm, tag_key, comment,
                 year, label, country, track_number, genres_json, tags_read_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -292,6 +293,24 @@ def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
                 "RO",
                 "03",
                 json.dumps(["Minimal", "Breaks"]),
+                NOW,
+            ),
+        )
+        core.execute(
+            """
+            INSERT INTO maest_genres(
+                track_id, content_generation, syncopated_rhythm,
+                genres_json, analyzed_at
+            ) VALUES (?, 1, 0, ?, ?)
+            """,
+            (
+                track_id,
+                json.dumps(
+                    [
+                        {"label": "MAEST Minimal", "score": 0.93},
+                        {"label": "MAEST Breaks", "score": 0.81},
+                    ]
+                ),
                 NOW,
             ),
         )
@@ -328,7 +347,7 @@ def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
     assert item["album"] == "Current album"
     assert item["tag_bpm"] == 124.5
     assert item["tag_key"] == "7A"
-    assert item["genres"] == ["Minimal", "Breaks"]
+    assert item["genres"] == ["MAEST Minimal", "MAEST Breaks"]
 
     app = create_app(
         repository.path,
@@ -607,6 +626,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
     app = create_app(
         repository.path,
         labels_db_path=lab_path,
+        classifier_target_root=tmp_path / "promoted",
         source_catalog_uuid=repository.catalog_uuid,
     )
 
@@ -648,6 +668,8 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             params={"feature_set": "muq"},
         ).json()
         assert mert_readiness["features_ready"] is True
+        assert mert_readiness["promoted_model"]["status"] == "not_promoted"
+        assert mert_readiness["trained_model"]["feature_set"] is None
         assert mert_readiness["labels_ready"] is False
         assert mert_readiness["calibration_ready"] is False
         assert "100" in mert_readiness["calibration_readiness"]["reason"]
@@ -711,7 +733,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
 
         index = client.get("/")
         assert index.status_code == 200
-        assert "app.js?v=rhythm-lab-20260811-training-info-refresh" in index.text
+        assert "app.js?v=rhythm-lab-20260811-promoted-model-quality-v4" in index.text
         assert 'id="refreshCandidatesStatus"' not in index.text
 
         static_script = client.get("/static/app.js")
@@ -720,7 +742,16 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert "track.track_id" in script
         assert "track.file_path" in script
         assert "catalog_uuid: track.catalog_uuid" in script
-        assert "trackFeatureStatus" in script
+        assert "function trackStatusLine(track)" in script
+        assert 'activeView === "candidates" ? predictionScoreStatus(track)' in script
+        assert "maest-genre-pill" in script
+        assert 'split("---").pop()' in script
+        assert "lucide-audio-waveform" in script
+        assert '"Trained Model"' in script
+        assert '"Promoted Model"' in script
+        assert "Promoted model.json" in script
+        assert "Next training recipe" in script
+        assert 'label: "Combined"' in script
         assert '"muq"' in script
         assert "source_data_ready" in script
         assert '"sonara+mert+maest+clap+muq"' in script

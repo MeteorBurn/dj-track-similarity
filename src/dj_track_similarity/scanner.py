@@ -284,15 +284,15 @@ def file_tags_from_metadata(
         title=title,
         artist=_string_or_none(metadata.get("artist")),
         album=_string_or_none(metadata.get("album")),
-        tag_bpm=_positive_float_or_none(metadata.get("bpm")),
+        track_number=_string_or_none(metadata.get("track_number")),
+        label=_string_or_none(metadata.get("label")),
+        country=_string_or_none(metadata.get("country")),
+        year=_year_or_none(metadata.get("year")),
         tag_key=_string_or_none(
             metadata.get("key") or metadata.get("initialkey")
         ),
+        tag_bpm=_positive_float_or_none(metadata.get("bpm")),
         comment=_string_or_none(metadata.get("comment")),
-        year=_year_or_none(metadata.get("year")),
-        label=_string_or_none(metadata.get("label")),
-        country=_string_or_none(metadata.get("country")),
-        track_number=_string_or_none(metadata.get("track_number")),
         genres=_genres(metadata.get("genre")),
     )
 

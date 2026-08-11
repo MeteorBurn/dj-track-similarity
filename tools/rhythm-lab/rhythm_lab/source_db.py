@@ -975,12 +975,12 @@ def _base_track_query(id_clause: str) -> str:
             ms.genres_json AS maest_genres_json,
             ms.analyzed_at AS maest_analyzed_at
         FROM tracks AS t
-        LEFT JOIN file_tags AS ft ON ft.track_id = t.track_id
+        LEFT JOIN tags AS ft ON ft.track_id = t.track_id
         LEFT JOIN likes AS l ON l.track_id = t.track_id
         LEFT JOIN sonara AS s
           ON s.track_id = t.track_id
          AND s.content_generation = t.content_generation
-        LEFT JOIN maest_scores AS ms
+        LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
          AND ms.content_generation = t.content_generation
         WHERE t.missing_since IS NULL
@@ -1339,12 +1339,12 @@ def _embedding_vector(
 
 def _track_page_joins(collection_join: str) -> str:
     return f"""
-        LEFT JOIN file_tags AS ft ON ft.track_id = t.track_id
+        LEFT JOIN tags AS ft ON ft.track_id = t.track_id
         LEFT JOIN likes AS l ON l.track_id = t.track_id
         LEFT JOIN sonara AS s
           ON s.track_id = t.track_id
          AND s.content_generation = t.content_generation
-        LEFT JOIN maest_scores AS ms
+        LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
          AND ms.content_generation = t.content_generation
         {collection_join}
@@ -1463,7 +1463,7 @@ def _track_page_item(
             else None
         ),
         "tag_key": tags.tag_key if tags is not None else None,
-        "genres": list(tags.genres) if tags is not None else [],
+        "genres": [genre.genre_name for genre in maest_genres],
         "maest_genre_scores": {
             genre.genre_name: genre.score for genre in maest_genres
         },
@@ -1548,11 +1548,11 @@ def _prediction_page_cte(trained_members: str) -> str:
              AND t.content_generation = p.content_generation
              AND t.file_path = p.selected_path
              AND t.missing_since IS NULL
-            LEFT JOIN file_tags AS ft ON ft.track_id = t.track_id
+            LEFT JOIN tags AS ft ON ft.track_id = t.track_id
             LEFT JOIN sonara AS s
               ON s.track_id = t.track_id
              AND s.content_generation = t.content_generation
-            LEFT JOIN maest_scores AS ms
+            LEFT JOIN maest_genres AS ms
               ON ms.track_id = t.track_id
              AND ms.content_generation = t.content_generation
             LEFT JOIN labels.classifier_labels AS rl
@@ -1682,6 +1682,11 @@ def _prediction_page_item(
     negative_label: str,
 ) -> dict[str, object]:
     tags = track.file_tags if track is not None else None
+    maest_genres = (
+        track.maest.genres
+        if track is not None and track.maest is not None
+        else ()
+    )
     probabilities = _probabilities_from_json(row["probabilities_json"])
     positive_probability = probabilities.get(positive_label)
     negative_probability = probabilities.get(negative_label)
@@ -1724,15 +1729,10 @@ def _prediction_page_item(
         "probabilities": probabilities,
         "feature_set": row["feature_set"],
         "model_artifact": row["model_artifact"],
-        "genres": list(tags.genres) if tags is not None else [],
-        "maest_genre_scores": (
-            {
-                genre.genre_name: genre.score
-                for genre in track.maest.genres
-            }
-            if track is not None and track.maest is not None
-            else {}
-        ),
+        "genres": [genre.genre_name for genre in maest_genres],
+        "maest_genre_scores": {
+            genre.genre_name: genre.score for genre in maest_genres
+        },
         "maest_syncopated_rhythm": (
             track.maest.syncopated_rhythm
             if track is not None and track.maest is not None
@@ -1897,7 +1897,7 @@ def _file_genres(payload: object) -> tuple[str, ...]:
 
 
 def _maest_genres(payload: object) -> tuple[MaestGenre, ...]:
-    values = _json_array(payload, "maest_scores.genres_json")
+    values = _json_array(payload, "maest_genres.genres_json")
     result: list[MaestGenre] = []
     for rank, value in enumerate(values, start=1):
         if not isinstance(value, dict):

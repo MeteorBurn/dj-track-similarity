@@ -27,7 +27,7 @@ from .sonara_core_validation import (
 
 _CORE_TABLE_BY_OUTPUT = {
     ("sonara", "core"): "sonara",
-    ("maest", "analysis"): "maest_scores",
+    ("maest", "analysis"): "maest_genres",
 }
 _ARTIFACT_TABLE_BY_OUTPUT = {
     ("maest", "embedding"): "maest_embeddings",
@@ -253,7 +253,7 @@ def _valid_maest_analysis_rows(
     rows = connection.execute(
         f"""
         SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
-        FROM maest_scores
+        FROM maest_genres
         """
     ).fetchall()
     valid_rows: list[tuple[int, str, int]] = []

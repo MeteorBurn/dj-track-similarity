@@ -498,7 +498,11 @@ export function App() {
     setClassifierMinScores((current) => {
       const availableKeys = new Set(
         promotedClassifiers
-          .filter(classifierIsAvailable)
+          .filter(
+            (classifier) =>
+              classifierIsAvailable(classifier)
+              && Number(classifier.scored_tracks || 0) > 0,
+          )
           .map((classifier) => classifier.classifier_key)
       );
       return Object.fromEntries(

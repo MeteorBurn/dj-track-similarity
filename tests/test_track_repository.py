@@ -118,7 +118,7 @@ def _set_maest_genres(
     with database.connect() as connection:
         connection.execute(
             """
-            INSERT INTO maest_scores(
+            INSERT INTO maest_genres(
                 track_id,
                 content_generation,
                 genres_json,
@@ -171,7 +171,7 @@ def _insert_core_state(
         )
         connection.execute(
             """
-            INSERT INTO maest_scores(
+            INSERT INTO maest_genres(
                 track_id,
                 content_generation,
                 syncopated_rhythm,
@@ -430,7 +430,7 @@ def test_new_track_creates_uuid_generation_typed_tags_and_live_fts(
                 ft.genres_json,
                 ft.tags_read_at
             FROM tracks AS t
-            JOIN file_tags AS ft ON ft.track_id = t.track_id
+            JOIN tags AS ft ON ft.track_id = t.track_id
             WHERE t.track_id = ?
             """,
             (mutation.identity.track_id,),
@@ -552,7 +552,7 @@ def test_external_file_change_invalidates_derived_rows_but_preserves_human_data(
     assert changed.identity.track_uuid == first.identity.track_uuid
     assert changed.identity.content_generation == 2
     with database.connect() as connection:
-        for table in ("sonara", "maest_scores", "classifier_scores"):
+        for table in ("sonara", "maest_genres", "classifier_scores"):
             assert (
                 connection.execute(
                     f"SELECT COUNT(*) FROM {table} WHERE track_id = ?",
@@ -568,7 +568,8 @@ def test_external_file_change_invalidates_derived_rows_but_preserves_human_data(
             == 1
         )
         assert (
-            connection.execute("SELECT COUNT(*) FROM pair_feedback").fetchone()[0] == 1
+            connection.execute("SELECT COUNT(*) FROM pair_feedback").fetchone()[0]
+            == 1
         )
         assert (
             connection.execute("SELECT COUNT(*) FROM transition_feedback").fetchone()[0]
@@ -686,7 +687,7 @@ def test_refresh_and_self_tag_write_do_not_change_generation_or_analysis(
                 ft.title,
                 ft.genres_json
             FROM tracks AS t
-            JOIN file_tags AS ft ON ft.track_id = t.track_id
+            JOIN tags AS ft ON ft.track_id = t.track_id
             WHERE t.track_id = ?
             """,
             (identity.track_id,),
@@ -1282,7 +1283,7 @@ def test_fts_rebuild_indexes_only_human_text_and_is_idempotent(
     )
     with database.connect() as connection:
         connection.execute(
-            "DELETE FROM file_tags WHERE track_id = ?",
+            "DELETE FROM tags WHERE track_id = ?",
             (third.identity.track_id,),
         )
         first_count = rebuild_track_search_fts(connection)

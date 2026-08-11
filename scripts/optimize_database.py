@@ -11,9 +11,9 @@ from dj_track_similarity.db_structure import DatabaseRole, require_current_struc
 CORE_DATABASE_MARKERS = {
     "library_catalog",
     "tracks",
-    "file_tags",
+    "tags",
     "sonara",
-    "maest_scores",
+    "maest_genres",
     "classifier_scores",
     "likes",
 }

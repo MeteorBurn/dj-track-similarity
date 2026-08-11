@@ -45,7 +45,7 @@ from .track_models import (
 
 _CORE_DERIVED_TABLES = (
     "sonara",
-    "maest_scores",
+    "maest_genres",
     "classifier_scores",
 )
 _ARTIFACT_TABLES = (
@@ -244,18 +244,18 @@ def _upsert_file_tags(
 ) -> None:
     connection.execute(
         """
-        INSERT INTO file_tags(
+        INSERT INTO tags(
             track_id,
             title,
             artist,
             album,
-            tag_bpm,
-            tag_key,
-            comment,
-            year,
+            track_number,
             label,
             country,
-            track_number,
+            year,
+            tag_key,
+            tag_bpm,
+            comment,
             genres_json,
             tags_read_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -263,13 +263,13 @@ def _upsert_file_tags(
             title = excluded.title,
             artist = excluded.artist,
             album = excluded.album,
-            tag_bpm = excluded.tag_bpm,
-            tag_key = excluded.tag_key,
-            comment = excluded.comment,
-            year = excluded.year,
+            track_number = excluded.track_number,
             label = excluded.label,
             country = excluded.country,
-            track_number = excluded.track_number,
+            year = excluded.year,
+            tag_key = excluded.tag_key,
+            tag_bpm = excluded.tag_bpm,
+            comment = excluded.comment,
             genres_json = excluded.genres_json,
             tags_read_at = excluded.tags_read_at
         """,
@@ -278,13 +278,13 @@ def _upsert_file_tags(
             tags.title,
             tags.artist,
             tags.album,
-            tags.tag_bpm,
-            tags.tag_key,
-            tags.comment,
-            tags.year,
+            tags.track_number,
             tags.label,
             tags.country,
-            tags.track_number,
+            tags.year,
+            tags.tag_key,
+            tags.tag_bpm,
+            tags.comment,
             _genres_json(tags),
             tags_read_at,
         ),

@@ -153,6 +153,24 @@ def test_valid_maest_embedding_output_saves_through_repository(
         np.frombuffer(row["embedding_blob"], dtype="<f4"),
         vector,
     )
+    with repository.connect() as connection:
+        counts = dict(
+            connection.execute(
+                """
+                SELECT setting_key, setting_value
+                FROM library_settings
+                WHERE setting_key LIKE 'analysis.count.%'
+                """
+            ).fetchall()
+        )
+    assert counts == {
+        "analysis.count.tracks": "1",
+        "analysis.count.sonara": "0",
+        "analysis.count.maest": "1",
+        "analysis.count.mert": "0",
+        "analysis.count.muq": "0",
+        "analysis.count.clap": "0",
+    }
 
 
 def test_recompute_maest_syncopated_rhythm_uses_hierarchical_labels(
@@ -179,7 +197,7 @@ def test_recompute_maest_syncopated_rhythm_uses_hierarchical_labels(
     assert repository.recompute_maest_syncopated_rhythm() == 0
     with repository.connect() as connection:
         row = connection.execute(
-            "SELECT syncopated_rhythm FROM maest_scores WHERE track_id = 1"
+            "SELECT syncopated_rhythm FROM maest_genres WHERE track_id = 1"
         ).fetchone()
     assert row is not None
     assert row["syncopated_rhythm"] == 1

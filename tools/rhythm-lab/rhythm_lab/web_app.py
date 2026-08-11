@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from dj_track_similarity.classifier_manifest import load_classifier_manifest_summary
 from dj_track_similarity.dependencies import require_ffmpeg
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
 from dj_track_similarity.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
@@ -796,13 +797,17 @@ def create_app(
     ):
         profile = profile_or_404(profile_key)
         try:
-            return _training_readiness(
+            readiness = _training_readiness(
                 profile_db(profile.classifier_key),
                 artifact_dir=Path(profile.artifact_dir),
                 profile=profile,
                 source=source_state.source,
                 feature_set=feature_set,
             )
+            return {
+                **readiness,
+                "promoted_model": _promoted_model_summary(profile, target_root),
+            }
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -1677,12 +1682,45 @@ def _training_readiness(
         "retrain_recommended": retrain_recommended,
         "recipe_changed": recipe_changed,
         "model_artifact": checkpoint_artifact,
+        "trained_model": {
+            "artifact": checkpoint_artifact,
+            "feature_set": checkpoint_feature_set,
+            "trained_at": checkpoint["updated_at"],
+            "label_counts": {
+                label: int(checkpoint_counts.get(label, 0))
+                for label in profile.training_label_keys
+            },
+        },
         "artifact_summary": artifact_summary,
         "metrics_history": _metrics_history(
             artifact_dir,
             profile.artifact_prefix,
             feature_set=str(recipe["feature_set"]),
         ),
+    }
+
+
+def _promoted_model_summary(
+    profile: ClassifierProfile,
+    classifier_target_root: Path,
+) -> dict[str, object]:
+    target = classifier_target_root / profile.artifact_prefix
+    model_path = target / "model.joblib"
+    metadata_path = target / "model.json"
+    if not model_path.is_file():
+        return {
+            "status": "not_promoted",
+            "model_path": str(model_path),
+            "metadata_path": str(metadata_path),
+        }
+    manifest = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key=profile.classifier_key,
+        metadata_path=metadata_path,
+    )
+    return {
+        "status": "ready" if manifest.is_scoring_compatible else "invalid",
+        **manifest.to_api_dict(),
     }
 
 

@@ -394,6 +394,7 @@ export type PromotedClassifier = {
   trained_label_counts?: Record<string, number>;
   has_calibrated_probability?: boolean;
   required_inputs?: string[];
+  scored_tracks?: number;
 };
 
 export type GenreTagJobStatus = {

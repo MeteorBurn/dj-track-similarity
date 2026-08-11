@@ -79,7 +79,7 @@ def _legacy_bundle(tmp_path: Path) -> _LegacyBundle:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
-            CREATE TABLE file_tags (
+            CREATE TABLE tags (
                 track_id INTEGER PRIMARY KEY REFERENCES tracks ON DELETE CASCADE,
                 title TEXT,
                 artist TEXT,
@@ -97,7 +97,7 @@ def _legacy_bundle(tmp_path: Path) -> _LegacyBundle:
                 genres_json TEXT NOT NULL,
                 tags_read_at TEXT NOT NULL
             );
-            CREATE TABLE maest_scores (
+            CREATE TABLE maest_genres (
                 track_id INTEGER PRIMARY KEY REFERENCES tracks ON DELETE CASCADE,
                 content_generation INTEGER NOT NULL,
                 contract_hash TEXT NOT NULL REFERENCES contracts,
@@ -179,7 +179,7 @@ def _legacy_bundle(tmp_path: Path) -> _LegacyBundle:
         )
         connection.execute(
             """
-            INSERT INTO file_tags
+            INSERT INTO tags
                 (track_id, title, artist, album, tag_bpm, tag_key, comment,
                  year, label, catalog_number, country, isrc, track_number,
                  disc_number, genres_json, tags_read_at)
@@ -191,7 +191,7 @@ def _legacy_bundle(tmp_path: Path) -> _LegacyBundle:
         )
         connection.execute(
             """
-            INSERT INTO maest_scores
+            INSERT INTO maest_genres
                 (track_id, content_generation, contract_hash,
                  syncopated_rhythm, genres_json, analyzed_at)
             VALUES
@@ -445,6 +445,7 @@ def test_apply_backs_up_then_migrates_and_reports_excluded_derived_rows(
             )
         }
         assert "contracts" not in tables
+        assert "tags" in tables
         assert core.execute(
             """
             SELECT setting_key, setting_value
@@ -460,14 +461,31 @@ def test_apply_backs_up_then_migrates_and_reports_excluded_derived_rows(
             "2025-01-01T00:00:00Z",
             "2025-01-02T00:00:00Z",
         )
-        assert core.execute("SELECT title FROM file_tags").fetchone()[0] == "One"
+        assert core.execute("SELECT title FROM tags").fetchone()[0] == "One"
+        assert tuple(
+            str(row[1]) for row in core.execute("PRAGMA table_info(tags)")
+        ) == (
+            "track_id",
+            "title",
+            "artist",
+            "album",
+            "track_number",
+            "label",
+            "country",
+            "year",
+            "tag_key",
+            "tag_bpm",
+            "comment",
+            "genres_json",
+            "tags_read_at",
+        )
         track_columns = {
             str(row[1]) for row in core.execute("PRAGMA table_info(tracks)")
         }
         assert "audio_codec" not in track_columns
         assert "bit_depth" in track_columns
         assert core.execute("SELECT COUNT(*) FROM likes").fetchone()[0] == 1
-        assert core.execute("SELECT COUNT(*) FROM maest_scores").fetchone()[0] == 1
+        assert core.execute("SELECT COUNT(*) FROM maest_genres").fetchone()[0] == 1
         assert core.execute("SELECT COUNT(*) FROM classifier_scores").fetchone()[0] == 0
         classifier_columns = {
             str(row[1])
@@ -604,7 +622,7 @@ def test_apply_rejects_a_plan_after_source_changes(tmp_path: Path) -> None:
     plan = plan_database_migration(bundle.core)
     with closing(sqlite3.connect(bundle.core)) as connection:
         connection.execute(
-            "UPDATE file_tags SET title = 'Changed after preview' WHERE track_id = 1"
+            "UPDATE tags SET title = 'Changed after preview' WHERE track_id = 1"
         )
         connection.commit()
 
@@ -637,7 +655,7 @@ def test_wal_commit_after_preview_is_rejected_without_losing_the_commit(
     writer = sqlite3.connect(bundle.core)
     try:
         writer.execute(
-            "UPDATE file_tags SET title = 'Committed after preview' WHERE track_id = 1"
+            "UPDATE tags SET title = 'Committed after preview' WHERE track_id = 1"
         )
         writer.commit()
 
@@ -656,7 +674,7 @@ def test_wal_commit_after_preview_is_rejected_without_losing_the_commit(
     assert not (tmp_path / "backup").exists()
     with sqlite3.connect(bundle.core) as connection:
         assert connection.execute(
-            "SELECT title FROM file_tags WHERE track_id = 1"
+            "SELECT title FROM tags WHERE track_id = 1"
         ).fetchone()[0] == "Committed after preview"
         assert connection.execute(
             "SELECT COUNT(*) FROM contracts"
@@ -687,7 +705,7 @@ def test_write_attempt_during_pair_publication_is_rejected_and_not_lost(
                 "core",
                 bundle.core,
                 """
-                UPDATE file_tags
+                UPDATE tags
                 SET title = 'Raced during publication'
                 WHERE track_id = 1
                 """,
@@ -720,7 +738,7 @@ def test_write_attempt_during_pair_publication_is_rejected_and_not_lost(
     assert all("locked" in error.lower() for error in writer_errors.values())
     with sqlite3.connect(bundle.core) as connection:
         assert connection.execute(
-            "SELECT title FROM file_tags WHERE track_id = 1"
+            "SELECT title FROM tags WHERE track_id = 1"
         ).fetchone()[0] == "One"
     with sqlite3.connect(bundle.artifacts) as connection:
         assert connection.execute(
@@ -769,7 +787,7 @@ def test_stale_core_derived_rows_are_excluded_and_reported(
     bundle = _legacy_bundle(tmp_path)
     with closing(sqlite3.connect(bundle.core)) as connection:
         connection.execute(
-            "UPDATE maest_scores SET content_generation = 2 WHERE track_id = 1"
+            "UPDATE maest_genres SET content_generation = 2 WHERE track_id = 1"
         )
         connection.commit()
     plan = plan_database_migration(bundle.core)
@@ -786,11 +804,11 @@ def test_stale_core_derived_rows_are_excluded_and_reported(
     )
     assert receipt.excluded_rows == (
         ("core", "classifier_scores", 1),
-        ("core", "maest_scores", 1),
+        ("core", "maest_genres", 1),
     )
     with sqlite3.connect(bundle.core) as connection:
         assert connection.execute(
-            "SELECT COUNT(*) FROM maest_scores"
+            "SELECT COUNT(*) FROM maest_genres"
         ).fetchone()[0] == 0
 
 

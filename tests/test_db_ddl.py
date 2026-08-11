@@ -74,21 +74,21 @@ def test_new_database_matches_current_core_structure() -> None:
     track_cols = _columns(conn, "tracks")
     assert "file_modified_ns" in track_cols, "tracks missing 'file_modified_ns'"
 
-    assert _columns(conn, "file_tags") == {
+    assert _column_names(conn, "tags") == (
         "track_id",
         "title",
         "artist",
         "album",
-        "tag_bpm",
-        "tag_key",
-        "comment",
-        "year",
+        "track_number",
         "label",
         "country",
-        "track_number",
+        "year",
+        "tag_key",
+        "tag_bpm",
+        "comment",
         "genres_json",
         "tags_read_at",
-    }
+    )
 
     # --- tracks does NOT have metadata_json ---
     assert "metadata_json" not in track_cols, "tracks must NOT have 'metadata_json'"
@@ -322,13 +322,13 @@ def test_classifier_scores_score_bucket_constraint() -> None:
     conn.close()
 
 
-def test_file_tags_genres_json_must_be_array() -> None:
+def test_tags_genres_json_must_be_array() -> None:
     """genres_json CHECK rejects non-array JSON."""
     conn = _open_database()
     conn.execute("PRAGMA foreign_keys = OFF")
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
-            "INSERT INTO file_tags(track_id, genres_json, tags_read_at) "
+            "INSERT INTO tags(track_id, genres_json, tags_read_at) "
             "VALUES (1, '{\"not\": \"array\"}', '2026-01-01T00:00:00.000000Z')"
         )
     conn.close()

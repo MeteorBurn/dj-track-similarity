@@ -84,7 +84,7 @@ def test_scan_library_uses_canonical_absolute_path_and_marks_missing(
             """
         ).fetchone()
         assert connection.execute(
-            "SELECT COUNT(*) FROM file_tags"
+            "SELECT COUNT(*) FROM tags"
         ).fetchone()[0] == 1
         assert connection.execute(
             "SELECT COUNT(*) FROM track_search_fts"
@@ -140,7 +140,7 @@ def test_scan_library_reads_typed_file_tags_through_runtime_repository(
                 ft.tag_key,
                 ft.genres_json
             FROM tracks AS t
-            JOIN file_tags AS ft ON ft.track_id = t.track_id
+            JOIN tags AS ft ON ft.track_id = t.track_id
             """
         ).fetchone()
     assert int(row["content_generation"]) == 1
@@ -219,7 +219,7 @@ def test_scan_audio_file_retries_until_metadata_and_file_facts_are_stable(
             """
             SELECT t.file_size_bytes, t.file_modified_ns, ft.title
             FROM tracks AS t
-            JOIN file_tags AS ft ON ft.track_id = t.track_id
+            JOIN tags AS ft ON ft.track_id = t.track_id
             """
         ).fetchone()
     assert int(row["file_size_bytes"]) == final_stat.st_size
@@ -299,7 +299,7 @@ def test_scan_job_manager_parallel_workers_share_thread_safe_repository(
             "SELECT COUNT(*) FROM tracks"
         ).fetchone()[0] == 12
         assert connection.execute(
-            "SELECT COUNT(*) FROM file_tags"
+            "SELECT COUNT(*) FROM tags"
         ).fetchone()[0] == 12
         assert connection.execute(
             "SELECT COUNT(*) FROM track_search_fts"
@@ -394,7 +394,7 @@ def test_parallel_tag_refresh_updates_tags_and_fts_without_generation_change(
         refreshed_titles = [
             str(row[0])
             for row in connection.execute(
-                "SELECT title FROM file_tags ORDER BY track_id"
+                "SELECT title FROM tags ORDER BY track_id"
             )
         ]
         fts_matches = connection.execute(

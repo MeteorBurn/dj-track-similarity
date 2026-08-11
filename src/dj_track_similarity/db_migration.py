@@ -43,9 +43,9 @@ _COPY_BATCH_SIZE = 500
 _CORE_COPY_ORDER = (
     "library_settings",
     "tracks",
-    "file_tags",
+    "tags",
     "sonara",
-    "maest_scores",
+    "maest_genres",
     "classifier_scores",
     "likes",
     "pair_feedback",
@@ -65,7 +65,7 @@ _ARTIFACT_FAMILY = {
 }
 _CORE_DERIVED_FAMILY = {
     "sonara": "sonara",
-    "maest_scores": "maest",
+    "maest_genres": "maest",
     "classifier_scores": "classifiers",
 }
 _LEGACY_JSON_IDENTITY_KEYS = frozenset(
@@ -566,6 +566,8 @@ def _plan_role(
             details.append("remove columns " + ", ".join(removed_columns))
         if added_columns:
             details.append("add columns " + ", ".join(added_columns))
+        if source_columns != target_columns:
+            details.append("reorder columns")
         if not details:
             details.append("recreate current table definition")
         changes.append(
@@ -1219,7 +1221,7 @@ def _validate_current_connections(
         )
     }
     orphan_count = 0
-    for table in ("sonara", "maest_scores"):
+    for table in ("sonara", "maest_genres"):
         orphan_count += int(
             core.execute(
                 f"""

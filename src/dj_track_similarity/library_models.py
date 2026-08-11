@@ -68,13 +68,13 @@ class FileTags:
     title: str | None
     artist: str | None
     album: str | None
-    tag_bpm: float | None
-    tag_key: str | None
-    comment: str | None
-    year: int | None
+    track_number: str | None
     label: str | None
     country: str | None
-    track_number: str | None
+    year: int | None
+    tag_key: str | None
+    tag_bpm: float | None
+    comment: str | None
     genres: tuple[str, ...]
     tags_read_at: str
 

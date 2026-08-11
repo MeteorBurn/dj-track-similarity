@@ -77,9 +77,9 @@ def _track_search_row(
             ft.genres_json AS file_genres_json,
             ms.genres_json AS maest_genres_json
         FROM tracks AS t
-        LEFT JOIN file_tags AS ft
+        LEFT JOIN tags AS ft
           ON ft.track_id = t.track_id
-        LEFT JOIN maest_scores AS ms
+        LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
          AND ms.content_generation = t.content_generation
         WHERE t.track_id = ?

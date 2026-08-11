@@ -69,7 +69,7 @@ def _insert_healthy_core_rows(
 ) -> None:
     connection.execute(
         """
-        INSERT INTO file_tags(
+        INSERT INTO tags(
             track_id, title, artist, genres_json, tags_read_at
         ) VALUES (?, 'Track', 'Artist', '["electronic"]', ?)
         """,
@@ -93,7 +93,7 @@ def _insert_healthy_core_rows(
     )
     connection.execute(
         """
-        INSERT INTO maest_scores(
+        INSERT INTO maest_genres(
             track_id, content_generation, syncopated_rhythm,
             genres_json, analyzed_at
         ) VALUES (?, 1, 1, '["electronic"]', ?)

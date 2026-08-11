@@ -2037,10 +2037,11 @@ h2 {
 }
 
 .classifier-controls {
+  background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   padding: 8px;
 }
@@ -2056,7 +2057,7 @@ h2 {
   border: 1px solid var(--border-muted);
   border-radius: 6px;
   display: grid;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
   padding: 8px;
 }
@@ -2107,7 +2108,6 @@ h2 {
 }
 
 .classifier-profile-status-reason,
-.classifier-profile-description,
 .classifier-profile-labels {
   color: var(--text-muted);
   font-size: 11px;
@@ -2115,24 +2115,72 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.classifier-profile-description {
+.classifier-profile-title {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.classifier-profile-title strong {
   color: var(--text);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.classifier-profile-title small {
+  min-width: 0;
 }
 
 .classifier-profile-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 5px 10px;
 }
 
 .classifier-profile-meta > span {
-  background: var(--surface-subtle);
-  border: 1px solid var(--border-muted);
-  border-radius: 999px;
+  align-items: baseline;
   color: var(--text-muted);
+  display: inline-flex;
   font-size: 10px;
+  gap: 3px;
+  line-height: 1.3;
+}
+
+.classifier-profile-meta b {
+  color: var(--meta-label);
+  font-weight: 700;
+}
+
+.classifier-profile-meta i {
+  color: var(--text);
+  font-style: normal;
+  font-weight: 650;
+}
+
+.classifier-profile-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.classifier-profile-labels > span {
+  background: var(--accent-muted-bg);
+  border: 1px solid var(--accent-muted-border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
   line-height: 1;
   padding: 4px 6px;
+}
+
+.classifier-profile-labels b {
+  color: var(--accent);
+  font-weight: 760;
+}
+
+.classifier-profile .range-control {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 7px;
 }
 
 .classifier-profile-status-reason {

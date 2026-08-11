@@ -52,9 +52,9 @@ _SONARA_SHORT_VECTORS: Mapping[str, int] = {
     "spectral_contrast_mean_blob": 7,
 }
 _CORE_JSON_FIELDS: Mapping[str, tuple[str, ...]] = {
-    "file_tags": ("genres_json",),
+    "tags": ("genres_json",),
     "sonara": ("bpm_candidates_json", "key_candidates_json"),
-    "maest_scores": ("genres_json",),
+    "maest_genres": ("genres_json",),
     "pair_feedback": ("reason_tags_json",),
     "transition_feedback": ("risk_tags_json",),
 }
@@ -298,14 +298,14 @@ def _validate_core_analysis(
         for column, dim in _SONARA_SHORT_VECTORS.items():
             _float32_values(row[column], dim, f"{context}.{column}")
 
-    for row in core.execute("SELECT * FROM maest_scores ORDER BY track_id"):
+    for row in core.execute("SELECT * FROM maest_genres ORDER BY track_id"):
         track_id = row["track_id"]
         _require_current_track(
             tracks,
             track_id=track_id,
             track_uuid=None,
             content_generation=row["content_generation"],
-            context=f"Core maest_scores track_id={track_id}",
+            context=f"Core maest_genres track_id={track_id}",
         )
 
 

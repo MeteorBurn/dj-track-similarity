@@ -531,13 +531,24 @@ export function SearchPlaylistPanel({
                       </div>
                     );
                   }
+                  const scoredTracks = Math.max(
+                    0,
+                    Math.trunc(Number(classifier.scored_tracks || 0)),
+                  );
+                  const hasScores = scoredTracks > 0;
                   const rescoreTitle = `Reset and rescore all ${classifier.name} classifier results`;
+                  const sliderTitle = hasScores
+                    ? title
+                    : `${classifier.name} has no current calculated scores. Run classifier scoring first.`;
                   const manifestFacts = classifierManifestFacts(classifier);
-                  const labelSummary = classifierLabelSummary(classifier);
+                  const labelBadges = classifierLabelBadges(classifier);
                   return (
                     <div className="classifier-profile available" key={classifier.classifier_key}>
                       <div className="custom-control-header" title={title}>
-                        <span>{classifier.name}</span>
+                        <div className="custom-control-copy classifier-profile-title">
+                          <strong>{classifier.name}</strong>
+                          <small>— {classifier.profile_description || "No description in model.json."}</small>
+                        </div>
                         <div className="classifier-profile-actions">
                           <span className="classifier-profile-status-badge available">available</span>
                           <button
@@ -552,16 +563,21 @@ export function SearchPlaylistPanel({
                           </button>
                         </div>
                       </div>
-                      <span className="classifier-profile-description">
-                        {classifier.profile_description || "No description in model.json."}
-                      </span>
-                      {manifestFacts.length ? (
-                        <div className="classifier-profile-meta">
-                          {manifestFacts.map((fact, index) => <span key={`${index}:${fact}`}>{fact}</span>)}
+                      {labelBadges.length ? (
+                        <div className="classifier-profile-labels">
+                          {labelBadges.map(({ label, count }) => (
+                            <span key={label}><b>{label}</b> {count.toLocaleString("en-US")}</span>
+                          ))}
                         </div>
                       ) : null}
-                      {labelSummary ? <span className="classifier-profile-labels">labels: {labelSummary}</span> : null}
-                      <label className="range-control" title={title}>
+                      {manifestFacts.length ? (
+                        <div className="classifier-profile-meta">
+                          {manifestFacts.map((fact) => (
+                            <span key={fact.label}><b>{fact.label}:</b><i>{fact.value}</i></span>
+                          ))}
+                        </div>
+                      ) : null}
+                      <label className="range-control" title={sliderTitle}>
                         <span>
                           <em>{value.toFixed(2)}</em>
                         </span>
@@ -571,7 +587,8 @@ export function SearchPlaylistPanel({
                           max={1}
                           step={0.01}
                           value={value}
-                          title={title}
+                          title={sliderTitle}
+                          disabled={!hasScores}
                           onChange={(event) => onClassifierMinScoreChange(classifier.classifier_key, Number(event.target.value))}
                         />
                       </label>
@@ -709,30 +726,42 @@ function classifierHelp(classifier: PromotedClassifier) {
   return `${description}Minimum ${classifier.name}. Type: number 0.00-1.00. Filters tracks by stored promoted classifier score.${label}`;
 }
 
-function classifierManifestFacts(classifier: PromotedClassifier) {
-  const facts: string[] = [];
-  if (classifier.profile_type) facts.push(classifier.profile_type);
+function classifierManifestFacts(classifier: PromotedClassifier): Array<{ label: string; value: string }> {
+  const facts: Array<{ label: string; value: string }> = [];
+  if (classifier.profile_type) {
+    facts.push({
+      label: "Type",
+      value: classifier.profile_type.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase()),
+    });
+  }
   if (classifier.feature_set) {
-    facts.push(classifier.feature_set.split("+").map((source) => source.toUpperCase()).join(" + "));
+    facts.push({
+      label: "Models",
+      value: classifier.feature_set.split("+").map((source) => source.toUpperCase()).join(" + "),
+    });
   }
   if (typeof classifier.feature_count === "number") {
-    facts.push(`${classifier.feature_count.toLocaleString("en-US")} features`);
+    facts.push({ label: "Features", value: classifier.feature_count.toLocaleString("en-US") });
   }
   const trainedLabels = Object.values(classifier.trained_label_counts || {}).reduce((sum, count) => sum + count, 0);
   if (trainedLabels) {
-    facts.push(`${trainedLabels.toLocaleString("en-US")} labeled`);
+    facts.push({ label: "Labels", value: trainedLabels.toLocaleString("en-US") });
   }
-  if (classifier.calibration_status) facts.push(classifier.calibration_status);
+  if (classifier.calibration_status) {
+    facts.push({ label: "Calibrated", value: String(classifier.calibration_status === "calibrated") });
+  }
   const validationF1 = classifier.calibration?.validation_f1;
-  if (typeof validationF1 === "number") facts.push(`validation F1 ${(validationF1 * 100).toFixed(1)}%`);
+  if (typeof validationF1 === "number") {
+    facts.push({ label: "Validation", value: `F1 ${(validationF1 * 100).toFixed(1)}%` });
+  }
   const promotedAt = classifier.promoted_at ? new Date(classifier.promoted_at) : null;
   if (promotedAt && Number.isFinite(promotedAt.getTime())) {
-    facts.push(`promoted ${promotedAt.toLocaleDateString("en-GB")}`);
+    facts.push({ label: "Promoted", value: promotedAt.toLocaleDateString("en-GB") });
   }
   return facts;
 }
 
-function classifierLabelSummary(classifier: PromotedClassifier) {
+function classifierLabelBadges(classifier: PromotedClassifier) {
   const counts = classifier.trained_label_counts || {};
   const orderedLabels = [
     ...(classifier.label_order || []),
@@ -740,8 +769,7 @@ function classifierLabelSummary(classifier: PromotedClassifier) {
   ];
   return orderedLabels
     .filter((label, index) => orderedLabels.indexOf(label) === index && typeof counts[label] === "number")
-    .map((label) => `${label.replaceAll("_", " ")} ${counts[label].toLocaleString("en-US")}`)
-    .join(" · ");
+    .map((label) => ({ label: label.replaceAll("_", " "), count: counts[label] }));
 }
 
 function optionTitle<T extends string>(options: Array<SelectOption<T>>, value: T) {

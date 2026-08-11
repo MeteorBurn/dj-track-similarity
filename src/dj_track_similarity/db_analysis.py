@@ -287,7 +287,7 @@ def _upsert_maest_analysis(
         raise ValueError(f"invalid MAEST analysis row: {reason}")
     core_connection.execute(
         """
-        INSERT INTO maest_scores (
+        INSERT INTO maest_genres (
             track_id, content_generation,
             syncopated_rhythm, genres_json, analyzed_at
         ) VALUES (?, ?, ?, ?, ?)
@@ -528,7 +528,7 @@ class AnalysisRepository:
                 try:
                     core_connection.execute("BEGIN IMMEDIATE")
                     rows = core_connection.execute(
-                        "SELECT track_id, syncopated_rhythm, genres_json FROM maest_scores"
+                        "SELECT track_id, syncopated_rhythm, genres_json FROM maest_genres"
                     ).fetchall()
                     updates = [
                         (expected, int(row["track_id"]))
@@ -546,7 +546,7 @@ class AnalysisRepository:
                         != row["syncopated_rhythm"]
                     ]
                     core_connection.executemany(
-                        "UPDATE maest_scores SET syncopated_rhythm = ? WHERE track_id = ?",
+                        "UPDATE maest_genres SET syncopated_rhythm = ? WHERE track_id = ?",
                         updates,
                     )
                     core_connection.commit()
@@ -677,7 +677,10 @@ class AnalysisRepository:
                         coordinated_artifacts,
                     )
                     raise
-        return tuple(results)
+        completed = tuple(results)
+        if any(result.ok for result in completed):
+            self.refresh_analysis_counts()
+        return completed
 
     def save_maest_results(
         self,
@@ -774,7 +777,10 @@ class AnalysisRepository:
                         coordinated_artifacts,
                     )
                     raise
-        return tuple(results)
+        completed = tuple(results)
+        if any(result.ok for result in completed):
+            self.refresh_analysis_counts()
+        return completed
 
     def save_embedding_results(
         self,
@@ -867,7 +873,10 @@ class AnalysisRepository:
                         artifacts_connection,
                     )
                     raise
-        return tuple(results)
+        completed = tuple(results)
+        if any(result.ok for result in completed):
+            self.refresh_analysis_counts()
+        return completed
 
     def load_analysis_vectors(
         self,
@@ -1429,7 +1438,7 @@ class AnalysisRepository:
                             )
                         elif output.key == ("maest", "analysis"):
                             cursor = core_connection.execute(
-                                "DELETE FROM maest_scores"
+                                "DELETE FROM maest_genres"
                             )
                             core_deleted += max(
                                 0,
@@ -1457,6 +1466,7 @@ class AnalysisRepository:
                         coordinated_artifacts,
                     )
                     raise
+        self.refresh_analysis_counts()
         return AnalysisResetResult(
             core_rows_deleted=core_deleted,
             artifact_rows_deleted=artifact_deleted,

@@ -304,43 +304,6 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
-.coverage-feature i {
-  padding: 2px 4px;
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 9px;
-  font-style: normal;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.coverage-feature.feature-state-current {
-  border-color: rgba(92, 214, 143, 0.42);
-}
-
-.coverage-feature.feature-state-current i {
-  background: rgba(92, 214, 143, 0.14);
-  color: #9cf0be;
-}
-
-.coverage-feature.feature-state-missing {
-  border-color: rgba(240, 184, 74, 0.42);
-}
-
-.coverage-feature.feature-state-missing i {
-  background: rgba(240, 184, 74, 0.14);
-  color: #ffe0a3;
-}
-
-.coverage-feature.feature-state-stale {
-  border-color: rgba(255, 95, 137, 0.48);
-}
-
-.coverage-feature.feature-state-stale i {
-  background: rgba(255, 95, 137, 0.14);
-  color: #ffd6df;
-}
-
 .summary-badge svg {
   width: 14px;
   height: 14px;
@@ -858,6 +821,7 @@ main {
   font-weight: 700;
   letter-spacing: 0.035em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .training-info-value {
@@ -969,9 +933,26 @@ main {
 }
 
 .genres {
-  color: var(--amber);
-  font-size: 13px;
-  font-weight: 800;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.maest-genre-pill {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid rgba(57, 214, 223, 0.42);
+  border-radius: 999px;
+  background: rgba(57, 214, 223, 0.12);
+  color: var(--cyan);
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.maest-genre-pill b {
+  color: var(--text);
+  font-weight: 650;
+  margin-left: 3px;
 }
 
 .badge-row {
@@ -980,7 +961,6 @@ main {
   align-items: center;
 }
 
-.syncopated-badge,
 .profile-label-badge,
 .analysis-status-badge {
   display: inline-block;
@@ -1019,9 +999,19 @@ main {
   background: #b4235f;
 }
 
-.syncopated-badge {
-  background: rgba(240, 184, 74, 0.18);
-  color: #ffd68a;
+.syncopated-rhythm-indicator {
+  align-items: center;
+  color: var(--rose);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 17px;
+  justify-content: center;
+  width: 17px;
+}
+
+.syncopated-rhythm-indicator svg {
+  height: 13px;
+  width: 13px;
 }
 
 .profile-label-badge {

@@ -144,9 +144,11 @@ class _FakeRunner:
         self.candidate_outputs = tuple(outputs)
         self._errors = None if errors is None else tuple(errors)
         self._preflight_error = preflight_error
+        self.preflight_calls = 0
         self.items: list[AnalysisBatchItem] = []
 
     def preflight(self) -> None:
+        self.preflight_calls += 1
         if self._preflight_error is not None:
             raise self._preflight_error
 
@@ -252,6 +254,46 @@ def test_runner_initialization_failure_is_fatal_before_activation() -> None:
     assert status.processed == 0
     assert repository.events == []
     assert "identity is unavailable" in status.events[-1].message
+
+
+def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight() -> None:
+    output = _mert_output()
+    repository = _FakeRepository([])
+    created: list[_FakeRunner] = []
+
+    def factory(model: str, _device: str, _batch_size: int, _top_k: int) -> _FakeRunner:
+        assert model == "mert"
+        runner = _FakeRunner(model, (output,))
+        created.append(runner)
+        return runner
+
+    manager = AnalysisJobManager(repository, runner_factory=factory)
+
+    first = manager.run_sync(models=["mert"], device="cpu")
+    second = manager.run_sync(models=["mert"], device="cpu")
+
+    assert first.state == second.state == "completed"
+    assert len(created) == 1
+    assert created[0].preflight_calls == 1
+
+
+def test_ml_runtime_runner_is_not_reused_across_runtime_settings() -> None:
+    output = _mert_output()
+    repository = _FakeRepository([])
+    created: list[_FakeRunner] = []
+
+    def factory(model: str, _device: str, _batch_size: int, _top_k: int) -> _FakeRunner:
+        runner = _FakeRunner(model, (output,))
+        created.append(runner)
+        return runner
+
+    manager = AnalysisJobManager(repository, runner_factory=factory)
+
+    manager.run_sync(models=["mert"], device="cpu", inference_batch_size=8)
+    manager.run_sync(models=["mert"], device="cpu", inference_batch_size=16)
+
+    assert len(created) == 2
+    assert [runner.preflight_calls for runner in created] == [1, 1]
 
 
 def test_model_preflight_failure_preserves_prior_active_output() -> None:

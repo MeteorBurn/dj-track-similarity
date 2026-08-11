@@ -85,8 +85,8 @@ def test_hf_checkpoint_download_creates_immutable_verified_binding(
     expected = hashlib.sha256(b"checkpoint").hexdigest()
     calls: dict[str, object] = {}
 
-    def download(*, repo_id, filename, revision):
-        calls["download"] = (repo_id, filename, revision)
+    def download(*, repo_id, filename, revision, local_files_only):
+        calls["download"] = (repo_id, filename, revision, local_files_only)
         return str(checkpoint)
 
     def verify(path, *, expected_sha256, description):
@@ -159,8 +159,8 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
 
-    def download(*, repo_id, revision, allow_patterns):
-        calls["download"] = (repo_id, revision, allow_patterns)
+    def download(*, repo_id, revision, allow_patterns, local_files_only):
+        calls["download"] = (repo_id, revision, allow_patterns, local_files_only)
         return str(snapshot)
 
     hf_module.snapshot_download = download
@@ -188,6 +188,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
+    assert calls["download"][3] is True
     processor_path, processor_kwargs = calls["processor"]
     model_path, model_kwargs = calls["model"]
     assert processor_path == model_path
@@ -235,8 +236,8 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
 
-    def download(*, repo_id, revision, allow_patterns):
-        calls["download"] = (repo_id, revision, allow_patterns)
+    def download(*, repo_id, revision, allow_patterns, local_files_only):
+        calls["download"] = (repo_id, revision, allow_patterns, local_files_only)
         return str(snapshot)
 
     hf_module.snapshot_download = download
@@ -263,6 +264,7 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
+    assert calls["download"][3] is True
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
     assert not Path(model_path).exists()
@@ -287,14 +289,14 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
 
-    def download(*, repo_id, filename, revision):
-        calls["download"] = (repo_id, filename, revision)
+    def download(*, repo_id, filename, revision, local_files_only):
+        calls["download"] = (repo_id, filename, revision, local_files_only)
         return str(checkpoint)
 
     hf_module.hf_hub_download = download
 
-    def snapshot_download(*, repo_id, revision, allow_patterns):
-        calls["text_download"] = (repo_id, revision, allow_patterns)
+    def snapshot_download(*, repo_id, revision, allow_patterns, local_files_only):
+        calls["text_download"] = (repo_id, revision, allow_patterns, local_files_only)
         return str(text_snapshot)
 
     hf_module.snapshot_download = snapshot_download
@@ -348,6 +350,8 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     )
     assert calls["text_download"][0] == adapter.text_model_name
     assert calls["text_download"][2] == list(adapter.text_snapshot_files)
+    assert calls["download"][3] is True
+    assert calls["text_download"][3] is True
     assert calls["module"] == (
         False,
         "HTSAT-base",

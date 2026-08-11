@@ -95,6 +95,22 @@ class _AnalysisPayload:
 @dataclass
 class _RunnerLifecycle:
     runners: dict[str, AnalysisModelRunner] = field(default_factory=dict)
+    handles: dict[str, _RunnerHandle] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _RunnerRuntimeKey:
+    model: str
+    device_requested: str
+    inference_batch_size: int
+    top_k: int
+
+
+@dataclass
+class _RunnerHandle:
+    runner: AnalysisModelRunner
+    lock: threading.RLock = field(default_factory=threading.RLock)
+    preflight_complete: bool = False
 
 
 class _RunnerInitializationError(RuntimeError):
@@ -148,6 +164,16 @@ class AnalysisJobManager:
     ) -> None:
         self.db = db
         self._model_runners = dict(model_runners) if model_runners is not None else None
+        self._provided_runner_handles = (
+            {
+                model: _RunnerHandle(runner)
+                for model, runner in self._model_runners.items()
+            }
+            if self._model_runners is not None
+            else None
+        )
+        self._runtime_runners: dict[_RunnerRuntimeKey, _RunnerHandle] = {}
+        self._runtime_runners_lock = threading.RLock()
         self._runner_factory = (
             runner_factory or model_runner_module.default_model_runners
         )
@@ -347,7 +373,8 @@ class AnalysisJobManager:
         config = payload.config
         for model in config.models:
             try:
-                runner = self._runner_for_model(model, self.get(job_id))
+                handle = self._runner_for_model(model, self.get(job_id))
+                runner = handle.runner
                 _validate_runner(model, runner)
             except Exception as error:
                 raise _RunnerInitializationError(model, error) from error
@@ -358,10 +385,15 @@ class AnalysisJobManager:
                     total,
                 )
             lifecycle.runners[model] = runner
+            lifecycle.handles[model] = handle
 
         for model in config.models:
             try:
-                lifecycle.runners[model].preflight()
+                handle = lifecycle.handles[model]
+                with handle.lock:
+                    if not handle.preflight_complete:
+                        handle.runner.preflight()
+                        handle.preflight_complete = True
             except Exception as error:
                 raise _RunnerPreflightError(model, error) from error
 
@@ -502,13 +534,14 @@ class AnalysisJobManager:
                 model_name=runner.model_name,
                 device=runner.device,
             )
-            if not self._run_model_batch(
-                job_id,
-                model,
-                runner,
-                model_items,
-            ):
-                return False
+            with lifecycle.handles[model].lock:
+                if not self._run_model_batch(
+                    job_id,
+                    model,
+                    runner,
+                    model_items,
+                ):
+                    return False
 
         for item in items:
             self._mark_track_processed(job_id, item.candidate)
@@ -532,20 +565,44 @@ class AnalysisJobManager:
         self,
         model: str,
         status: AnalysisJobStatus,
-    ) -> AnalysisModelRunner:
+    ) -> _RunnerHandle:
         if self._model_runners is not None:
             try:
-                return self._model_runners[model]
+                assert self._provided_runner_handles is not None
+                return self._provided_runner_handles[model]
             except KeyError as error:
                 raise ValueError(
                     f"No analysis runner configured for: {model}"
                 ) from error
-        return self._runner_factory(
-            model,
-            status.device_requested,
-            status.inference_batch_size,
-            status.top_k,
+        if model == "sonara":
+            return _RunnerHandle(
+                self._runner_factory(
+                    model,
+                    status.device_requested,
+                    status.inference_batch_size,
+                    status.top_k,
+                )
+            )
+
+        key = _RunnerRuntimeKey(
+            model=model,
+            device_requested=status.device_requested,
+            inference_batch_size=status.inference_batch_size,
+            top_k=status.top_k,
         )
+        with self._runtime_runners_lock:
+            cached = self._runtime_runners.get(key)
+            if cached is None:
+                cached = _RunnerHandle(
+                    self._runner_factory(
+                        model,
+                        status.device_requested,
+                        status.inference_batch_size,
+                        status.top_k,
+                    )
+                )
+                self._runtime_runners[key] = cached
+            return cached
 
     def _run_model_batch(
         self,

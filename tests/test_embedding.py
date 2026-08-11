@@ -112,14 +112,21 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
 
-    def fake_hf_hub_download(*, repo_id, filename, revision):
-        calls.setdefault("downloads", []).append((repo_id, filename, revision))
+    def fake_hf_hub_download(*, repo_id, filename, revision, local_files_only):
+        calls.setdefault("downloads", []).append(
+            (repo_id, filename, revision, local_files_only)
+        )
         return str(checkpoint)
 
     hf_module.hf_hub_download = fake_hf_hub_download
 
-    def fake_snapshot_download(*, repo_id, revision, allow_patterns):
-        calls["text_download"] = (repo_id, revision, allow_patterns)
+    def fake_snapshot_download(*, repo_id, revision, allow_patterns, local_files_only):
+        calls["text_download"] = (
+            repo_id,
+            revision,
+            allow_patterns,
+            local_files_only,
+        )
         return str(text_snapshot)
 
     hf_module.snapshot_download = fake_snapshot_download
@@ -222,6 +229,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
             "lukewys/laion_clap",
             "music_audioset_epoch_15_esc_90.14.pt",
             "b3708341862f581175dba5c356a4ebf74a9b6651",
+            True,
         )
     ]
     assert calls["verify"] == (
@@ -237,6 +245,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
         "roberta-base",
         "e2da8e2f811d1448a5b465c236feacd80ffbac7b",
         list(adapter.text_snapshot_files),
+        True,
     )
     assert calls["module"] == (
         False,
@@ -291,9 +300,11 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
 
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
-    hf_module.hf_hub_download = lambda *, repo_id, filename, revision: str(checkpoint)
+    hf_module.hf_hub_download = (
+        lambda *, repo_id, filename, revision, local_files_only: str(checkpoint)
+    )
     hf_module.snapshot_download = (
-        lambda *, repo_id, revision, allow_patterns: str(text_snapshot)
+        lambda *, repo_id, revision, allow_patterns, local_files_only: str(text_snapshot)
     )
     transformers_module = types.ModuleType("transformers")
     transformers_module.RobertaModel = object()

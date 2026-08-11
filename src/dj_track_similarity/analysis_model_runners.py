@@ -27,10 +27,10 @@ from .analysis_models import (
 from .audio_loader import DecodedAudio
 from .embedding import (
     ClapEmbeddingAdapter,
+    MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
     MuqEmbeddingAdapter,
 )
-from .genres import MaestGenreAdapter
 from .maest_analysis_validation import has_maest_syncopated_rhythm
 from .timestamps import utc_timestamp
 from .sonara_features import (
@@ -166,9 +166,9 @@ class MaestModelRunner:
         device: str,
         top_k: int,
         inference_batch_size: int,
-        adapter: MaestGenreAdapter | None = None,
+        adapter: MaestEmbeddingAdapter | None = None,
     ) -> None:
-        self.adapter = adapter or MaestGenreAdapter(
+        self.adapter = adapter or MaestEmbeddingAdapter(
             device=device,
             top_k=top_k,
             inference_batch_size=inference_batch_size,
@@ -233,23 +233,20 @@ class MaestModelRunner:
         items: Sequence[AnalysisBatchItem],
     ) -> Sequence[Exception | None]:
         decoded_items = _decoded_items(items)
-        genres_by_track = self.adapter.predict_decoded_batch(
+        results_by_track = self.adapter.analyze_decoded_batch(
             decoded_items,
             window_contexts=[
                 item.candidate.maest_window_context for item in items
             ],
         )
-        if len(genres_by_track) != len(items):
+        if len(results_by_track) != len(items):
             raise ValueError("MAEST batch result count does not match track count")
 
         prepared: list[MaestWrite | Exception] = []
-        for item, decoded, genres in zip(items, decoded_items, genres_by_track):
+        for item, result in zip(items, results_by_track):
             try:
                 analyzed_at = utc_timestamp()
-                genre_scores = _maest_genres(genres)
-                vector = _embedding_for_path(self.adapter, decoded.path)
-                if vector is None:
-                    raise ValueError("MAEST did not return the required embedding")
+                genre_scores = _maest_genres(result.genres)
                 prepared.append(
                     MaestWrite(
                         target=item.candidate.target,
@@ -258,7 +255,7 @@ class MaestModelRunner:
                         analyzed_at=analyzed_at,
                         embedding=EmbeddingOutput(
                             family="maest",
-                            vector=_l2_normalize(vector, model="MAEST"),
+                            vector=_l2_normalize(result.embedding, model="MAEST"),
                             analyzed_at=analyzed_at,
                         ),
                     )
@@ -522,7 +519,7 @@ def current_embedding_analysis_output(
 
     clean_model = str(model).strip().lower()
     if clean_model == "maest":
-        adapter: object = MaestGenreAdapter(device=device)
+        adapter: object = MaestEmbeddingAdapter(device=device)
     elif clean_model == "mert":
         adapter = MertEmbeddingAdapter(device=device)
     elif clean_model == "muq":
@@ -563,16 +560,6 @@ def _maest_genres(
 
 def _has_syncopated_rhythm(genres: Sequence[MaestGenreScore]) -> bool:
     return has_maest_syncopated_rhythm(genre.label for genre in genres)
-
-
-def _embedding_for_path(
-    adapter: MaestGenreAdapter,
-    path: str,
-) -> npt.NDArray[np.float32] | None:
-    vector = adapter.embedding_for_path(path)
-    if vector is None:
-        return None
-    return np.asarray(vector, dtype=np.float32)
 
 
 def _l2_normalize(

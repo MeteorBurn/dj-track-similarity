@@ -16,13 +16,16 @@ import dj_track_similarity.embedding as embedding
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.embedding import (
     ClapEmbeddingAdapter,
+    MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
     MuqEmbeddingAdapter,
+    _move_maest_runtime_modules,
     _array_output_to_numpy,
     _pad_or_trim_audio_window,
     adapter_factories,
 )
 from dj_track_similarity.logging_config import configure_logging
+from dj_track_similarity.maest_windows import MaestWindowContext
 
 
 def test_clap_adapter_uses_immutable_music_checkpoint_identity() -> None:
@@ -53,7 +56,7 @@ def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
 
 
 def test_product_embedding_adapters_do_not_expose_removed_fake_adapter() -> None:
-    assert set(adapter_factories()) == {"mert", "muq", "clap"}
+    assert set(adapter_factories()) == {"maest", "mert", "muq", "clap"}
 
 
 @pytest.mark.parametrize(
@@ -586,3 +589,187 @@ def test_mert_embed_decoded_batch_uses_feature_vector_attention_mask() -> None:
     np.testing.assert_allclose(vectors[0], np.asarray([1.0, 0.0], dtype=np.float32))
     np.testing.assert_allclose(vectors[1], np.asarray([0.0, 1.0], dtype=np.float32))
     assert adapter.fake_model.feature_mask_calls == [(2, (2, 4))]
+
+
+class MovableModule:
+    def __init__(self) -> None:
+        self.devices: list[str] = []
+
+    def to(self, device: str):
+        self.devices.append(device)
+        return self
+
+
+class FakeMaestModel:
+    labels = ["A", "B", "C"]
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple[int, ...], bool]] = []
+        self.first_samples: list[float] = []
+        self.melspectrogram: MovableModule | None = None
+        self.init_calls = 0
+        self.offset = 0
+
+    def init_melspectrogram(self) -> None:
+        self.init_calls += 1
+        self.melspectrogram = MovableModule()
+
+    def __call__(self, audio, *, melspectrogram_input=False):
+        self.calls.append((tuple(audio.shape), melspectrogram_input))
+        self.first_samples.extend(float(row[0].item()) for row in audio)
+        logits = [
+            [0.0, 2.0, 1.0],
+            [0.5, 1.5, 1.0],
+            [1.0, 1.0, 1.0],
+            [3.0, 1.0, 0.0],
+            [2.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+        ]
+        embeddings = [
+            [1.0, 10.0],
+            [2.0, 20.0],
+            [3.0, 30.0],
+            [4.0, 40.0],
+            [5.0, 50.0],
+            [6.0, 60.0],
+        ]
+        start = self.offset
+        end = start + audio.shape[0]
+        self.offset = end
+        return torch.tensor(logits[start:end]), torch.tensor(embeddings[start:end])
+
+
+class BatchMaestAdapter(MaestEmbeddingAdapter):
+    def __init__(self, *, inference_batch_size: int = 32) -> None:
+        super().__init__(device="cpu", top_k=2, inference_batch_size=inference_batch_size)
+        self.fake_model = FakeMaestModel()
+
+    def _load_model(self) -> None:
+        self._torch = torch
+        self._torchaudio = object()
+        self.device = "cpu"
+        self._model = self.fake_model
+
+
+def test_maest_initializes_only_missing_melspectrogram() -> None:
+    model = FakeMaestModel()
+
+    _move_maest_runtime_modules(model, "cuda")
+
+    assert model.init_calls == 1
+    assert model.melspectrogram is not None
+    assert model.melspectrogram.devices == ["cuda"]
+
+    _move_maest_runtime_modules(model, "cuda")
+
+    assert model.init_calls == 1
+    assert model.melspectrogram.devices == ["cuda", "cuda"]
+
+
+def test_maest_analyze_batch_returns_genres_and_embeddings(monkeypatch) -> None:
+    def fake_load_audio(path, *, torchaudio_module=None):
+        value = 1.0 if Path(path).name == "a.wav" else 2.0
+        return np.full(16000 * 120, value, dtype=np.float32), 16000, "fake"
+
+    monkeypatch.setattr(embedding, "load_audio_mono", fake_load_audio)
+    adapter = BatchMaestAdapter()
+
+    results = adapter.analyze_batch(["a.wav", "b.wav"])
+
+    assert adapter.fake_model.calls == [((6, 480000), False)]
+    assert [[genre["label"] for genre in result.genres] for result in results] == [
+        ["B", "C"],
+        ["A", "B"],
+    ]
+    assert results[0].genres[0]["score"] == pytest.approx(
+        torch.sigmoid(torch.tensor([2.0, 1.5, 1.0])).mean().item()
+    )
+    np.testing.assert_allclose(
+        results[0].embedding,
+        np.asarray([2.0, 20.0], dtype=np.float32) / np.linalg.norm([2.0, 20.0]),
+    )
+    np.testing.assert_allclose(
+        results[1].embedding,
+        np.asarray([5.0, 50.0], dtype=np.float32) / np.linalg.norm([5.0, 50.0]),
+    )
+
+
+def test_maest_analyze_batch_chunks_windows(monkeypatch) -> None:
+    monkeypatch.setattr(
+        embedding,
+        "load_audio_mono",
+        lambda *_args, **_kwargs: (
+            np.full(16000 * 120, 1.0, dtype=np.float32),
+            16000,
+            "fake",
+        ),
+    )
+    adapter = BatchMaestAdapter(inference_batch_size=2)
+
+    results = adapter.analyze_batch(["a.wav", "b.wav"])
+
+    assert adapter.fake_model.calls == [
+        ((2, 480000), False),
+        ((2, 480000), False),
+        ((2, 480000), False),
+    ]
+    assert len(results) == 2
+
+
+def test_maest_analyze_decoded_batch_uses_shared_audio() -> None:
+    adapter = BatchMaestAdapter()
+    decoded = [
+        DecodedAudio(
+            path="a.wav",
+            audio=np.full(16000 * 120, 1.0, dtype=np.float32),
+            sample_rate=16000,
+            detail="shared",
+        ),
+        DecodedAudio(
+            path="b.wav",
+            audio=np.full(16000 * 120, 2.0, dtype=np.float32),
+            sample_rate=16000,
+            detail="shared",
+        ),
+    ]
+
+    results = adapter.analyze_decoded_batch(decoded)
+
+    assert adapter.fake_model.calls == [((6, 480000), False)]
+    assert len(results) == 2
+
+
+def test_maest_decoded_batch_applies_context_per_track() -> None:
+    sample_rate = 16_000
+    adapter = BatchMaestAdapter()
+    structured = MaestWindowContext(
+        leading_silence_seconds=5.0,
+        trailing_silence_seconds=10.0,
+        intro_end_seconds=40.0,
+        outro_start_seconds=170.0,
+    )
+    decoded = [
+        DecodedAudio(
+            path="structured.wav",
+            audio=np.arange(sample_rate * 200, dtype=np.float32),
+            sample_rate=sample_rate,
+            detail="test",
+        ),
+        DecodedAudio(
+            path="fallback.wav",
+            audio=np.arange(sample_rate * 200, dtype=np.float32) + 10_000_000.0,
+            sample_rate=sample_rate,
+            detail="test",
+        ),
+    ]
+
+    adapter.analyze_decoded_batch(decoded, window_contexts=[structured, None])
+
+    assert adapter.fake_model.first_samples == [
+        float(sample_rate * 51),
+        float(sample_rate * 90),
+        float(sample_rate * 129),
+        float(10_000_000 + sample_rate * 25),
+        float(10_000_000 + sample_rate * 85),
+        float(10_000_000 + sample_rate * 145),
+    ]

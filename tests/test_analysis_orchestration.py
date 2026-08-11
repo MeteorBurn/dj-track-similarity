@@ -29,8 +29,11 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.embedding import MertEmbeddingAdapter
-from dj_track_similarity.genres import MaestGenreAdapter
+from dj_track_similarity.embedding import (
+    MaestAnalysisResult,
+    MaestEmbeddingAdapter,
+    MertEmbeddingAdapter,
+)
 from dj_track_similarity.maest_windows import MaestWindowContext
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -528,8 +531,7 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     assert vector[0] == pytest.approx(1.0)
 
 
-class _FakeMaestAdapter(MaestGenreAdapter):
-    _vectors: dict[str, np.ndarray]
+class _FakeMaestAdapter(MaestEmbeddingAdapter):
     received_window_contexts: tuple[MaestWindowContext | None, ...]
 
     def __init__(self) -> None:
@@ -538,27 +540,29 @@ class _FakeMaestAdapter(MaestGenreAdapter):
             top_k=3,
             inference_batch_size=2,
         )
-        self._vectors = {}
         self.received_window_contexts = ()
 
     def preflight(self) -> None:
         pass
 
-    def predict_decoded_batch(
+    def analyze_decoded_batch(
         self,
         decoded_items: Sequence[DecodedAudio],
         *,
         window_contexts: Sequence[MaestWindowContext | None] | None = None,
-    ) -> list[list[dict[str, object]]]:
+    ) -> list[MaestAnalysisResult]:
         self.received_window_contexts = tuple(window_contexts or ())
+        results: list[MaestAnalysisResult] = []
         for item in decoded_items:
             vector = np.zeros(768, dtype=np.float32)
             vector[:2] = (3.0, 4.0)
-            self._vectors[item.path] = vector
-        return [[{"label": "Electronic---Breaks", "score": 0.9}] for _item in decoded_items]
-
-    def embedding_for_path(self, path: str) -> np.ndarray | None:
-        return self._vectors.get(path)
+            results.append(
+                MaestAnalysisResult(
+                    genres=[{"label": "Electronic---Breaks", "score": 0.9}],
+                    embedding=vector,
+                )
+            )
+        return results
 
 
 @dataclass

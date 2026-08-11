@@ -6,18 +6,17 @@ from pathlib import Path
 import pytest
 
 import dj_track_similarity.embedding as embedding
-import dj_track_similarity.genres as genres
 from dj_track_similarity.embedding import (
     ClapEmbeddingAdapter,
+    MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
     MuqEmbeddingAdapter,
 )
-from dj_track_similarity.genres import MaestGenreAdapter
 
 
 def test_adapters_expose_dimensions_and_normalization_before_model_load() -> None:
     adapters = (
-        MaestGenreAdapter(device="cpu"),
+        MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
@@ -38,7 +37,7 @@ def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> N
     }
 
     for adapter in (
-        MaestGenreAdapter(device="cpu"),
+        MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
@@ -47,7 +46,7 @@ def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> N
 
 
 def test_maest_runtime_parameters_describe_structure_aware_windows() -> None:
-    parameters = MaestGenreAdapter(device="cpu").runtime_parameters()
+    parameters = MaestEmbeddingAdapter(device="cpu").runtime_parameters()
 
     assert parameters["analysis_window_positions"] == (0.2, 0.5, 0.8)
     assert (
@@ -392,12 +391,12 @@ def test_maest_loader_verifies_checkpoint_before_public_discogs_path(
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "maest_infer", maest_module)
     monkeypatch.setattr(
-        genres,
+        embedding,
         "_ensure_verified_maest_checkpoint",
         lambda *args, **kwargs: order.append("verify"),
     )
 
-    adapter = MaestGenreAdapter(device="cpu")
+    adapter = MaestEmbeddingAdapter(device="cpu")
     adapter._load_model()
 
     assert order == ["verify", "load"]
@@ -425,19 +424,19 @@ def test_maest_checkpoint_is_downloaded_and_verified_before_use(
             Path(destination).write_bytes(checkpoint_bytes)
 
     fake_torch = types.SimpleNamespace(hub=FakeHub())
-    checkpoint = genres._ensure_verified_maest_checkpoint(
+    checkpoint = embedding._ensure_verified_maest_checkpoint(
         fake_torch,
-        checkpoint_url=MaestGenreAdapter.checkpoint_url,
-        checkpoint_filename=MaestGenreAdapter.checkpoint_filename,
+        checkpoint_url=MaestEmbeddingAdapter.checkpoint_url,
+        checkpoint_filename=MaestEmbeddingAdapter.checkpoint_filename,
         expected_sha256=expected_sha256,
     )
 
     expected_path = (
-        tmp_path / "checkpoints" / MaestGenreAdapter.checkpoint_filename
+        tmp_path / "checkpoints" / MaestEmbeddingAdapter.checkpoint_filename
     )
     assert checkpoint == expected_path
     assert calls["download"] == (
-        MaestGenreAdapter.checkpoint_url,
+        MaestEmbeddingAdapter.checkpoint_url,
         str(expected_path),
         expected_sha256,
         True,
@@ -447,7 +446,7 @@ def test_maest_checkpoint_is_downloaded_and_verified_before_use(
 def test_maest_cached_checkpoint_hash_is_checked_before_use(tmp_path) -> None:
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    checkpoint = checkpoint_dir / MaestGenreAdapter.checkpoint_filename
+    checkpoint = checkpoint_dir / MaestEmbeddingAdapter.checkpoint_filename
     checkpoint.write_bytes(b"wrong checkpoint")
     fake_torch = types.SimpleNamespace(
         hub=types.SimpleNamespace(get_dir=lambda: str(tmp_path))
@@ -455,9 +454,9 @@ def test_maest_cached_checkpoint_hash_is_checked_before_use(tmp_path) -> None:
     expected = hashlib.sha256(b"expected checkpoint").hexdigest()
 
     with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-        genres._ensure_verified_maest_checkpoint(
+        embedding._ensure_verified_maest_checkpoint(
             fake_torch,
-            checkpoint_url=MaestGenreAdapter.checkpoint_url,
-            checkpoint_filename=MaestGenreAdapter.checkpoint_filename,
+            checkpoint_url=MaestEmbeddingAdapter.checkpoint_url,
+            checkpoint_filename=MaestEmbeddingAdapter.checkpoint_filename,
             expected_sha256=expected,
         )

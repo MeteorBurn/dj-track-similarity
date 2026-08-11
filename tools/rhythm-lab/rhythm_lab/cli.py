@@ -358,8 +358,6 @@ def promote_profile_model(
     return {
         "model_path": published.model_path,
         "metadata_path": published.metadata_path,
-        "pointer_path": published.pointer_path,
-        "generation_id": published.generation_id,
         "source_artifact": artifact,
         "metadata": metadata,
     }

@@ -25,7 +25,6 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
     current_embedding_spec,
 )
 from dj_track_similarity.classifier_manifest import (  # noqa: E402
-    CLASSIFIER_PUBLICATION_POINTER_NAME,
     load_classifier_manifest_summary,
     resolve_classifier_artifact_paths,
 )
@@ -41,11 +40,8 @@ from rhythm_lab.artifact_io import (  # noqa: E402
     artifact_sha256,
     load_verified_artifact,
 )
-from rhythm_lab import (  # noqa: E402
-    artifact_io,
-    predictions as predictions_module,
-    source_db as source_db_module,
-)
+from rhythm_lab import predictions as predictions_module  # noqa: E402
+from rhythm_lab import source_db as source_db_module  # noqa: E402
 from rhythm_lab.cli import PromotionError  # noqa: E402
 from rhythm_lab.features import build_labeled_feature_matrix  # noqa: E402
 from rhythm_lab.lab_db import RhythmLabDatabase  # noqa: E402
@@ -688,7 +684,8 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
 
         index = client.get("/")
         assert index.status_code == 200
-        assert "app.js?v=rhythm-lab-20260811-training-recipes" in index.text
+        assert "app.js?v=rhythm-lab-20260811-training-info-refresh" in index.text
+        assert 'id="refreshCandidatesStatus"' not in index.text
 
         static_script = client.get("/static/app.js")
         assert static_script.status_code == 200
@@ -704,6 +701,48 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert "/training/calibrate" in script
         assert "async function refreshCandidates()" in script
         assert "/predictions/refresh" in script
+        assert "function setWorkflowStatus(message)" in script
+        assert "let trainingProgressPollGeneration = 0;" in script
+        assert "let trainingProgressHasStarted = false;" in script
+        assert 'class="training-workflow-feedback"' in script
+        assert 'id="refreshCandidatesStatus" class="meta source-status-line"' in script
+        assert 'id="trainingInformation"' in script
+        assert "function refreshTrainingInformation(data)" in script
+        train_refresh_script = script.split("async function trainRefresh()", 1)[1].split(
+            "async function runBenchmark()", 1
+        )[0]
+        assert 'switchView("candidates")' not in train_refresh_script
+        assert "await refreshWorkflowData({ candidatesChanged: true });" not in train_refresh_script
+        assert "loadTrainingView()" not in train_refresh_script
+        assert 'stage: "Training and candidate refresh complete", percent: 100' in train_refresh_script
+        refresh_candidates_script = script.split(
+            "async function refreshCandidates()", 1
+        )[1].split("async function promoteClassifier()", 1)[0]
+        assert 'switchView("candidates")' not in refresh_candidates_script
+        assert "await refreshWorkflowData({ candidatesChanged: true });" not in refresh_candidates_script
+        assert "loadTrainingView()" not in refresh_candidates_script
+        assert "await loadTrainingReadiness();" in refresh_candidates_script
+        assert 'startTrainingProgressPolling(activeProfile.classifier_key, "refresh");' in refresh_candidates_script
+        assert 'String(progress.operation || "") !== operation' in script
+        benchmark_script = script.split("async function runBenchmark()", 1)[1].split(
+            "function selectedArtifactFeatureSet", 1
+        )[0]
+        assert "loadTrainingView()" not in benchmark_script
+        assert 'stage: "Benchmark complete", percent: 100' in benchmark_script
+        assert "await loadTrainingReadiness();" in benchmark_script
+        promotion_script = script.split("async function promoteClassifier()", 1)[1].split(
+            "async function refreshWorkflowData", 1
+        )[0]
+        assert "await refreshWorkflowData();" not in promotion_script
+        assert 'stage: "Promotion complete", percent: 100' in promotion_script
+        assert "await loadTrainingReadiness();" in promotion_script
+        calibrate_script = script.split("async function calibrateClassifier()", 1)[1].split(
+            "async function refreshCandidates()", 1
+        )[0]
+        assert "loadTrainingView()" not in calibrate_script
+        assert "await loadTrainingReadiness();" in calibrate_script
+        assert 'startTrainingProgressPolling(activeProfile.classifier_key, "calibrate");' in calibrate_script
+        assert 'stage: "Calibration complete", percent: 100' in calibrate_script
         assert "feature_group_weights" in script
         assert '["sonara", "mert", "maest", "clap", "muq"]' in script
         assert "Loading Training" in script
@@ -1278,6 +1317,7 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
         feature_sets,
         random_state=42,
         calibrate=False,
+        progress_callback=None,
     ):
         nonlocal calibrated_artifact
         assert Path(source_db_path) == repository.path
@@ -1287,6 +1327,8 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
         assert feature_sets == ("mert",)
         assert random_state == 42
         assert calibrate is True
+        assert progress_callback is not None
+        progress_callback("Calibrating test model", 5, 10)
         calibrated_artifact = _write_promotable_artifact(
             artifact_dir,
             output=output,
@@ -1330,6 +1372,16 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
         assert calibration.status_code == 200, calibration.text
         assert calibrated_artifact is not None
         assert calibration.json()["artifact"] == str(calibrated_artifact)
+        calibration_progress = client.get(
+            "/api/profiles/focused/training/progress"
+        ).json()
+        assert calibration_progress == {
+            "operation": "calibrate",
+            "status": "completed",
+            "stage": "Calibration complete",
+            "percent": 100,
+            "error": None,
+        }
         readiness = client.get(
             "/api/profiles/focused/training/readiness",
             params={"feature_set": "mert"},
@@ -1417,51 +1469,33 @@ def test_tampered_or_unbound_artifact_is_rejected_before_joblib_load(
     assert calls == 0
 
 
-def test_atomic_generation_pointer_survives_failed_publication_switch(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_promote_replaces_the_root_model_pair(tmp_path: Path) -> None:
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path)
     artifact = _write_promotable_artifact(tmp_path)
     target_root = tmp_path / "promoted"
-    first = promote_profile_model(
+    promoted = promote_profile_model(
         lab_path,
         "focused",
         artifact_path=artifact,
         target_root=target_root,
     )
-    pointer = Path(first["pointer_path"])
-    pointer_before = pointer.read_bytes()
-    old_model = Path(first["model_path"])
-    real_replace = artifact_io.os.replace
-
-    def fail_pointer_switch(source: object, destination: object) -> None:
-        if Path(destination).name == CLASSIFIER_PUBLICATION_POINTER_NAME:
-            raise OSError("injected pointer-switch failure")
-        real_replace(source, destination)
-
-    monkeypatch.setattr(artifact_io.os, "replace", fail_pointer_switch)
-    with pytest.raises(PromotionError, match="pointer-switch failure"):
-        promote_profile_model(
-            lab_path,
-            "focused",
-            artifact_path=artifact,
-            target_root=target_root,
-        )
-
-    assert pointer.read_bytes() == pointer_before
-    resolved = resolve_classifier_artifact_paths(
-        pointer.parent / "model.joblib"
-    )
-    assert resolved.model_path == old_model
+    profile_dir = target_root / "focused"
+    assert Path(promoted["model_path"]) == profile_dir / "model.joblib"
+    assert Path(promoted["metadata_path"]) == profile_dir / "model.json"
+    assert not (profile_dir / "current.json").exists()
+    assert not (profile_dir / "generations").exists()
+    manifest = json.loads((profile_dir / "model.json").read_text(encoding="utf-8"))
+    assert manifest["publication_status"] == "ready"
+    resolved = resolve_classifier_artifact_paths(profile_dir / "model.joblib")
+    assert resolved.model_path == profile_dir / "model.joblib"
     discovered = promoted_classifiers(target_root)
     assert len(discovered) == 1
     assert discovered[0]["manifest_status"] == "valid"
-    assert discovered[0]["model_path"] == str(old_model)
+    assert discovered[0]["model_path"] == str(profile_dir / "model.joblib")
 
 
-def test_scoring_ready_artifact_is_validated_before_pointer_publication(
+def test_scoring_ready_artifact_is_validated_before_root_replacement(
     tmp_path: Path,
 ) -> None:
     lab_path = tmp_path / "lab.sqlite"
@@ -1476,8 +1510,7 @@ def test_scoring_ready_artifact_is_validated_before_pointer_publication(
         target_root=target_root,
     )
 
-    pointer = Path(promoted["pointer_path"])
-    resolved = resolve_classifier_artifact_paths(pointer.parent / "model.joblib")
+    resolved = resolve_classifier_artifact_paths(Path(promoted["model_path"]))
     discovered = promoted_classifiers(target_root)
     assert resolved.model_path == promoted["model_path"]
     assert discovered[0]["manifest_status"] == "valid"
@@ -1491,7 +1524,7 @@ def test_scoring_ready_artifact_is_validated_before_pointer_publication(
         ("unusable_model", "must implement predict_proba"),
     ],
 )
-def test_semantically_invalid_artifact_does_not_switch_pointer(
+def test_semantically_invalid_artifact_does_not_replace_root_model(
     tmp_path: Path,
     invalid_case: str,
     expected_error: str,
@@ -1506,12 +1539,10 @@ def test_semantically_invalid_artifact_does_not_switch_pointer(
         artifact_path=artifact,
         target_root=target_root,
     )
-    pointer = Path(first["pointer_path"])
-    pointer_before = pointer.read_bytes()
-    generations_dir = pointer.parent / "generations"
-    generations_before = {
-        path.name for path in generations_dir.iterdir() if path.is_dir()
-    }
+    model_path = Path(first["model_path"])
+    metadata_path = Path(first["metadata_path"])
+    model_before = model_path.read_bytes()
+    metadata_before = metadata_path.read_bytes()
 
     payload = joblib.load(artifact)
     if invalid_case == "empty_features":
@@ -1537,15 +1568,13 @@ def test_semantically_invalid_artifact_does_not_switch_pointer(
             target_root=target_root,
         )
 
-    assert pointer.read_bytes() == pointer_before
-    assert {
-        path.name for path in generations_dir.iterdir() if path.is_dir()
-    } == generations_before
-    resolved = resolve_classifier_artifact_paths(pointer.parent / "model.joblib")
+    assert model_path.read_bytes() == model_before
+    assert metadata_path.read_bytes() == metadata_before
+    resolved = resolve_classifier_artifact_paths(model_path)
     assert resolved.model_path == first["model_path"]
 
 
-def test_promoted_generation_tamper_fails_before_joblib_load(
+def test_promoted_model_requires_ready_publication_status_before_load(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1561,7 +1590,9 @@ def test_promoted_generation_tamper_fails_before_joblib_load(
     )
     model_path = Path(promoted["model_path"])
     metadata_path = Path(promoted["metadata_path"])
-    model_bytes = model_path.read_bytes()
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["publication_status"] = "publishing"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
     calls = 0
 
     def forbidden_load(*args: object, **kwargs: object) -> object:
@@ -1570,20 +1601,11 @@ def test_promoted_generation_tamper_fails_before_joblib_load(
         raise AssertionError("joblib.load must not run before SHA-256 verification")
 
     monkeypatch.setattr(joblib, "load", forbidden_load)
-    model_path.write_bytes(model_bytes + b"tampered")
-    with pytest.raises(ArtifactIntegrityError, match="SHA-256 mismatch"):
+    with pytest.raises(ArtifactIntegrityError, match="publication_status"):
         load_verified_artifact(model_path)
-    discovered = promoted_classifiers(target_root)
-    assert discovered[0]["manifest_status"] == "invalid"
-    assert calls == 0
-
-    model_path.write_bytes(model_bytes)
-    metadata_path.write_text(
-        metadata_path.read_text(encoding="utf-8") + " ",
-        encoding="utf-8",
+    summary = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key="focused",
     )
-    with pytest.raises(ValueError, match="manifest SHA-256"):
-        resolve_classifier_artifact_paths(
-            Path(promoted["pointer_path"]).parent / "model.joblib"
-        )
+    assert summary.status == "invalid"
     assert calls == 0

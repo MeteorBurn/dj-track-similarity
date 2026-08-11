@@ -27,7 +27,6 @@ import tempfile
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 from dj_track_similarity.classifier_manifest import (
-    CLASSIFIER_PUBLICATION_POINTER_NAME,
     resolve_classifier_artifact_paths,
 )
 
@@ -1163,7 +1162,6 @@ def _read_promoted_models(root: Path) -> list[dict[str, Any]]:
             path.parent
             for path in (
                 *selected.glob("*/model.json"),
-                *selected.glob(f"*/{CLASSIFIER_PUBLICATION_POINTER_NAME}"),
             )
         },
         key=lambda path: path.relative_to(selected).as_posix().casefold(),
@@ -2143,9 +2141,6 @@ def main(argv: Iterable[str] | None = None) -> int:
             args.lab_db,
             *promoted_root.glob("*/model.json"),
             *promoted_root.glob("*/model.joblib"),
-            *promoted_root.glob(f"*/{CLASSIFIER_PUBLICATION_POINTER_NAME}"),
-            *promoted_root.glob("*/generations/*/model.json"),
-            *promoted_root.glob("*/generations/*/model.joblib"),
         ]
     elif args.command == "preview":
         bundle = preview_rebind_bundle(

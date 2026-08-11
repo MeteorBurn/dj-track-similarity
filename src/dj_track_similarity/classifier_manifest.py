@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -14,10 +13,7 @@ from .analysis_models import current_embedding_spec
 CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap", "muq")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
-CLASSIFIER_PUBLICATION_POINTER_NAME = "current.json"
-CLASSIFIER_PUBLICATION_GENERATIONS_DIR = "generations"
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_GENERATION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _OUTPUT_KIND_BY_FEATURE_SOURCE = {
     "sonara": "core",
     "mert": "embedding",
@@ -31,8 +27,6 @@ _OUTPUT_KIND_BY_FEATURE_SOURCE = {
 class ClassifierArtifactPaths:
     model_path: Path
     metadata_path: Path
-    pointer_path: Path | None = None
-    generation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -125,7 +119,7 @@ def resolve_classifier_artifact_paths(
     *,
     metadata_path: str | Path | None = None,
 ) -> ClassifierArtifactPaths:
-    """Resolve an immutable promoted generation without a mixed-pair fallback."""
+    """Resolve the root model and its matching root manifest."""
 
     selected_model = Path(model_path)
     if metadata_path is not None:
@@ -139,73 +133,9 @@ def resolve_classifier_artifact_paths(
             metadata_path=selected_model.with_name("model.json"),
         )
 
-    pointer_path = selected_model.parent / CLASSIFIER_PUBLICATION_POINTER_NAME
-    if not pointer_path.exists():
-        return ClassifierArtifactPaths(
-            model_path=selected_model,
-            metadata_path=selected_model.with_name("model.json"),
-        )
-
-    try:
-        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(
-            f"Classifier publication pointer is unreadable: {pointer_path}"
-        ) from error
-    if not isinstance(pointer, Mapping):
-        raise ValueError("Classifier publication pointer must contain an object")
-    generation_id = pointer.get("generation_id")
-    if (
-        not isinstance(generation_id, str)
-        or _GENERATION_ID_RE.fullmatch(generation_id) is None
-        or generation_id in {".", ".."}
-    ):
-        raise ValueError("Classifier publication pointer generation_id is invalid")
-    artifact_hash = pointer.get("artifact_hash")
-    manifest_hash = pointer.get("manifest_hash")
-    if (
-        not isinstance(artifact_hash, str)
-        or _SHA256_RE.fullmatch(artifact_hash) is None
-    ):
-        raise ValueError("Classifier publication pointer artifact_hash is invalid")
-    if (
-        not isinstance(manifest_hash, str)
-        or _SHA256_RE.fullmatch(manifest_hash) is None
-    ):
-        raise ValueError("Classifier publication pointer manifest_hash is invalid")
-
-    generation = (
-        selected_model.parent / CLASSIFIER_PUBLICATION_GENERATIONS_DIR / generation_id
-    )
-    generation_model = generation / "model.joblib"
-    generation_metadata = generation / "model.json"
-    if not generation_model.is_file() or not generation_metadata.is_file():
-        raise ValueError(
-            f"Classifier publication generation is incomplete: {generation_id}"
-        )
-    try:
-        manifest_bytes = generation_metadata.read_bytes()
-        manifest = json.loads(manifest_bytes.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError(
-            f"Classifier publication manifest is unreadable: {generation_metadata}"
-        ) from error
-    actual_manifest_hash = f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}"
-    if actual_manifest_hash != manifest_hash:
-        raise ValueError(
-            "Classifier publication manifest SHA-256 does not match current.json"
-        )
-    if not isinstance(manifest, Mapping):
-        raise ValueError("Classifier publication manifest must contain an object")
-    if manifest.get("artifact_hash") != artifact_hash:
-        raise ValueError(
-            "Classifier publication artifact hash does not match current.json"
-        )
     return ClassifierArtifactPaths(
-        model_path=generation_model,
-        metadata_path=generation_metadata,
-        pointer_path=pointer_path,
-        generation_id=generation_id,
+        model_path=selected_model,
+        metadata_path=selected_model.with_name("model.json"),
     )
 
 
@@ -222,11 +152,7 @@ def load_classifier_manifest_summary(
     )
     clean_model_path = resolved.model_path
     clean_metadata_path = resolved.metadata_path
-    artifact_prefix = (
-        resolved.pointer_path.parent.name
-        if resolved.pointer_path is not None
-        else clean_model_path.parent.name
-    ) or None
+    artifact_prefix = clean_model_path.parent.name or None
     if not clean_metadata_path.exists():
         return _invalid_manifest(
             clean_key,
@@ -349,6 +275,9 @@ def _parse_manifest_payload(
         "artifact_hash",
         errors,
     )
+    publication_status = payload.get("publication_status")
+    if publication_status is not None and publication_status != "ready":
+        errors.append("model.json publication_status must be 'ready' before scoring")
     feature_set = _required_text_field(
         payload.get("feature_set"),
         "feature_set",

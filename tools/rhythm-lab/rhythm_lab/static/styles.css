@@ -460,15 +460,6 @@ main {
   background: rgba(255, 95, 137, 0.2);
 }
 
-.source-status-line {
-  grid-column: 4;
-  grid-row: 2;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .collection-controls {
   display: inline-flex;
   align-items: center;
@@ -529,9 +520,16 @@ main {
   line-height: 1.42;
 }
 
+.training-workflow-feedback {
+  padding: 0 2px;
+}
+
 .meta.source-status-line {
-  font-size: 10px;
-  line-height: 1.2;
+  display: block;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
 }
 
 .guidance-panel,
@@ -1213,12 +1211,6 @@ menu {
   .collection-controls {
     flex-wrap: wrap;
     justify-content: flex-start;
-  }
-
-  .source-status-line {
-    grid-column: auto;
-    grid-row: auto;
-    flex: 1 1 100%;
   }
 
   #collectionSelect {

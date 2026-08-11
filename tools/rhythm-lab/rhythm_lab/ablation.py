@@ -74,7 +74,11 @@ def run_ablation_benchmark(
         )
         report["profiles"].append(profile_report)
 
-    output = Path(output_path) if output_path is not None else _default_output_path(generated_at)
+    output = (
+        Path(output_path)
+        if output_path is not None
+        else _default_output_path(generated_at, profiles)
+    )
     _report_progress(
         progress_callback,
         "Writing benchmark report",
@@ -416,9 +420,14 @@ def _compact_row(row: dict[str, object] | None) -> dict[str, object] | None:
     }
 
 
-def _default_output_path(generated_at: datetime) -> Path:
-    stamp = generated_at.strftime("%Y%m%dT%H%M%SZ")
-    return LAB_ROOT / "artifacts" / f"ablation-{stamp}.json"
+def _default_output_path(
+    generated_at: datetime,
+    profiles: Sequence[ClassifierProfile],
+) -> Path:
+    stamp = generated_at.strftime("%Y-%m-%d-%H-%M-%S")
+    if len(profiles) == 1:
+        return Path(profiles[0].artifact_dir) / f"ablation-benchmark-{stamp}.json"
+    return LAB_ROOT / "artifacts" / f"ablation-benchmark-{stamp}.json"
 
 
 def _optional_float(value: object) -> float | None:

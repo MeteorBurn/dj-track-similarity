@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import fields, replace
 from pathlib import Path
 import sqlite3
@@ -224,17 +225,17 @@ def test_ablation_benchmark_reports_progress_across_profile_and_report(
     monkeypatch.setattr(ablation_module, "benchmark_profile_ablation", fake_profile_benchmark)
     events: list[tuple[str, int, int]] = []
 
-    ablation_module.run_ablation_benchmark(
+    report = ablation_module.run_ablation_benchmark(
         tmp_path / "source.sqlite",
         tmp_path / "labels.sqlite",
         profile_keys=("focused",),
         feature_sets=("mert",),
-        output_path=tmp_path / "benchmark.json",
         progress_callback=lambda stage, completed, total: events.append((stage, completed, total)),
     )
 
     assert events[0] == ("Focused: Cross-validation fold 5/5", 10, 11)
     assert events[-1] == ("Benchmark complete", 11, 11)
+    assert Path(str(report["output_path"])).parent == profile.artifact_dir
 
 
 class _ConstantClassifier:
@@ -1125,6 +1126,10 @@ def test_training_artifact_names_are_collision_safe(tmp_path: Path) -> None:
     assert first.metrics_path != second.metrics_path
     assert first.artifact_path.is_file()
     assert second.artifact_path.is_file()
+    assert re.search(
+        r"-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-[0-9a-f]{8}\.joblib$",
+        first.artifact_path.name,
+    )
 
 
 def test_calibration_gate_failure_does_not_write_uncalibrated_artifact(

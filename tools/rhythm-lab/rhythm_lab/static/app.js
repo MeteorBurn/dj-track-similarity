@@ -23,7 +23,6 @@ const candidatePredictedEl = document.getElementById("candidatePredicted");
 const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
 const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
 const deleteProfileEl = document.getElementById("deleteProfile");
-const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
 const summaryCoverageEl = document.getElementById("summaryCoverage");
 const summaryLabelsEl = document.getElementById("summaryLabels");
 const pageSizeEl = document.getElementById("pageSize");
@@ -57,7 +56,10 @@ let promoteFeatureSetEl = null;
 let trainingFeatureSetEl = null;
 let selectedTrainingFeatureSet = DEFAULT_TRAINING_FEATURE_SET;
 let trainingProgressPollHandle = null;
+let trainingProgressPollGeneration = 0;
+let trainingProgressHasStarted = false;
 let latestWorkflowProgress = { status: "idle" };
+let workflowStatusText = "";
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
@@ -263,6 +265,14 @@ function setWorkflowBusy(disabled) {
   });
 }
 
+function setWorkflowStatus(message) {
+  workflowStatusText = String(message || "");
+  const statusEl = document.getElementById("refreshCandidatesStatus");
+  if (!statusEl) return;
+  statusEl.textContent = workflowStatusText;
+  statusEl.parentElement.hidden = !workflowStatusText;
+}
+
 function renderTrainingProgress(progress) {
   const container = document.getElementById("trainingProgress");
   const stageEl = document.getElementById("trainingProgressStage");
@@ -285,13 +295,15 @@ function renderTrainingProgress(progress) {
 }
 
 function stopTrainingProgressPolling() {
+  trainingProgressPollGeneration += 1;
   if (trainingProgressPollHandle !== null) {
     window.clearInterval(trainingProgressPollHandle);
     trainingProgressPollHandle = null;
   }
 }
 
-async function pollTrainingProgress(profileKey) {
+async function pollTrainingProgress(profileKey, operation, pollingGeneration) {
+  if (pollingGeneration !== trainingProgressPollGeneration) return;
   if (!activeProfile || activeProfile.classifier_key !== profileKey) {
     stopTrainingProgressPolling();
     return;
@@ -299,17 +311,30 @@ async function pollTrainingProgress(profileKey) {
   const response = await fetch(`/api/profiles/${profileKey}/training/progress`);
   if (!response.ok) return;
   const progress = await response.json();
+  if (pollingGeneration !== trainingProgressPollGeneration) return;
+  if (!activeProfile || activeProfile.classifier_key !== profileKey) {
+    stopTrainingProgressPolling();
+    return;
+  }
+  if (String(progress.operation || "") !== operation) return;
+  if (progress.status === "running") {
+    trainingProgressHasStarted = true;
+  } else if (!trainingProgressHasStarted) {
+    return;
+  }
   renderTrainingProgress(progress);
   if (progress.status === "completed" || progress.status === "failed") {
     stopTrainingProgressPolling();
   }
 }
 
-function startTrainingProgressPolling(profileKey) {
+function startTrainingProgressPolling(profileKey, operation) {
   stopTrainingProgressPolling();
+  trainingProgressHasStarted = false;
   renderTrainingProgress({ status: "running", stage: "Starting training", percent: 0 });
+  const pollingGeneration = trainingProgressPollGeneration;
   trainingProgressPollHandle = window.setInterval(() => {
-    pollTrainingProgress(profileKey).catch(() => {});
+    pollTrainingProgress(profileKey, operation, pollingGeneration).catch(() => {});
   }, 350);
 }
 
@@ -402,14 +427,14 @@ function applySourceState(data) {
 async function shutdownLab() {
   shutdownLabEl.disabled = true;
   shutdownLabEl.classList.add("stopping");
-  refreshCandidatesStatusEl.textContent = "stopping Rhythm Lab...";
+  setWorkflowStatus("stopping Rhythm Lab...");
   const response = await fetch("/api/shutdown", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({})
   });
   await parseJsonResponse(response);
-  refreshCandidatesStatusEl.textContent = "Rhythm Lab stopping...";
+  setWorkflowStatus("Rhythm Lab stopping...");
   window.setTimeout(() => window.close(), 300);
 }
 
@@ -761,8 +786,8 @@ async function trainRefresh() {
     return;
   }
   setWorkflowBusy(true);
-  refreshCandidatesStatusEl.textContent = "training model...";
-  startTrainingProgressPolling(activeProfile.classifier_key);
+  setWorkflowStatus("training model...");
+  startTrainingProgressPolling(activeProfile.classifier_key, "train-refresh");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, {
       method: "POST",
@@ -770,9 +795,9 @@ async function trainRefresh() {
       body: JSON.stringify({ feature_set: selectedTrainingFeatureSet })
     });
     const data = await parseRefreshResponse(response);
-    refreshCandidatesStatusEl.textContent = `trained ${formatLabelCounts(data.training_counts)} · updated ${data.predicted} · skipped ${data.skipped}`;
-    await switchView("candidates");
-    await loadCandidates({ reset: true });
+    setWorkflowStatus(`trained ${formatLabelCounts(data.training_counts)} · updated ${data.predicted} · skipped ${data.skipped}`);
+    stopTrainingProgressPolling();
+    renderTrainingProgress({ status: "completed", operation: "train-refresh", stage: "Training and candidate refresh complete", percent: 100 });
   } catch (error) {
     renderTrainingProgress({ status: "failed", stage: "Training failed", error: error.message || String(error), percent: 0 });
     throw error;
@@ -788,18 +813,15 @@ async function runBenchmark() {
     return;
   }
   setWorkflowBusy(true);
-  refreshCandidatesStatusEl.textContent = "running benchmark...";
-  startTrainingProgressPolling(activeProfile.classifier_key);
+  setWorkflowStatus("running benchmark...");
+  startTrainingProgressPolling(activeProfile.classifier_key, "benchmark");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/benchmark`, { method: "POST" });
     const data = await parseRefreshResponse(response);
     const winner = data.winner?.feature_set ? ` · winner ${data.winner.feature_set}` : "";
-    refreshCandidatesStatusEl.textContent = `benchmark complete${winner}`;
-    if (activeView === "training") {
-      await loadTrainingView();
-    } else {
-      await loadTrainingReadiness();
-    }
+    setWorkflowStatus(`benchmark complete${winner}`);
+    stopTrainingProgressPolling();
+    renderTrainingProgress({ status: "completed", operation: "benchmark", stage: "Benchmark complete", percent: 100 });
   } catch (error) {
     renderTrainingProgress({ status: "failed", stage: "Benchmark failed", error: error.message || String(error), percent: 0 });
     throw error;
@@ -823,7 +845,8 @@ async function calibrateClassifier() {
     return;
   }
   setWorkflowBusy(true);
-  refreshCandidatesStatusEl.textContent = "calibrating model...";
+  setWorkflowStatus("calibrating model...");
+  startTrainingProgressPolling(activeProfile.classifier_key, "calibrate");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/calibrate`, {
       method: "POST",
@@ -831,10 +854,15 @@ async function calibrateClassifier() {
       body: JSON.stringify({ feature_set: selectedFeatureSet })
     });
     const data = await parseRefreshResponse(response);
-    refreshCandidatesStatusEl.textContent = `calibrated ${data.feature_set} · ${fileName(data.artifact)}`;
+    setWorkflowStatus(`calibrated ${data.feature_set} · ${fileName(data.artifact)}`);
+    stopTrainingProgressPolling();
+    renderTrainingProgress({ status: "completed", operation: "calibrate", stage: "Calibration complete", percent: 100 });
+  } catch (error) {
+    renderTrainingProgress({ status: "failed", operation: "calibrate", stage: "Calibration failed", error: error.message || String(error), percent: 0 });
+    throw error;
   } finally {
-    if (activeView === "training") await loadTrainingView();
-    else await loadTrainingReadiness();
+    stopTrainingProgressPolling();
+    await loadTrainingReadiness();
   }
 }
 
@@ -842,8 +870,8 @@ async function refreshCandidates() {
   if (trainingActionElement("refreshCandidates")?.disabled) return;
   const selectedFeatureSet = selectedArtifactFeatureSet();
   setWorkflowBusy(true);
-  refreshCandidatesStatusEl.textContent = `refreshing ${selectedFeatureSet} candidates...`;
-  startTrainingProgressPolling(activeProfile.classifier_key);
+  setWorkflowStatus(`refreshing ${selectedFeatureSet} candidates...`);
+  startTrainingProgressPolling(activeProfile.classifier_key, "refresh");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, {
       method: "POST",
@@ -851,14 +879,15 @@ async function refreshCandidates() {
       body: JSON.stringify({ feature_set: selectedFeatureSet })
     });
     const data = await parseRefreshResponse(response);
-    refreshCandidatesStatusEl.textContent = `refreshed ${data.feature_set} · updated ${data.predicted} · skipped ${data.skipped}`;
+    setWorkflowStatus(`refreshed ${data.feature_set} · updated ${data.predicted} · skipped ${data.skipped}`);
+    stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "refresh", stage: "Candidate refresh complete", percent: 100 });
   } catch (error) {
     renderTrainingProgress({ status: "failed", operation: "refresh", stage: "Candidate refresh failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
-    await refreshWorkflowData({ candidatesChanged: true });
+    await loadTrainingReadiness();
   }
 }
 
@@ -869,8 +898,8 @@ async function promoteClassifier() {
     return;
   }
   setWorkflowBusy(true);
-  refreshCandidatesStatusEl.textContent = "promoting model...";
-  startTrainingProgressPolling(activeProfile.classifier_key);
+  setWorkflowStatus("promoting model...");
+  startTrainingProgressPolling(activeProfile.classifier_key, "promote");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, {
       method: "POST",
@@ -878,14 +907,15 @@ async function promoteClassifier() {
       body: JSON.stringify({ feature_set: selectedFeatureSet || undefined })
     });
     const data = await parseRefreshResponse(response);
-    refreshCandidatesStatusEl.textContent = `promoted ${fileName(data.model_path)} · metadata ${fileName(data.metadata_path)}`;
+    setWorkflowStatus(`promoted ${fileName(data.model_path)} · metadata ${fileName(data.metadata_path)}`);
+    stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "promote", stage: "Promotion complete", percent: 100 });
   } catch (error) {
     renderTrainingProgress({ status: "failed", operation: "promote", stage: "Promotion failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
-    await refreshWorkflowData();
+    await loadTrainingReadiness();
   }
 }
 
@@ -918,6 +948,7 @@ async function loadTrainingReadiness() {
   selectedTrainingFeatureSet = data.feature_recipe?.feature_set || selectedTrainingFeatureSet;
   updateTrainingFeatureSetOptions(data);
   updatePromoteFeatureSetOptions(data);
+  refreshTrainingInformation(data);
   const hasModel = hasTrainedVariant(data);
   setTrainingActionDisabled("openLibrary", false, "Open Library to label tracks");
   setTrainingActionDisabled(
@@ -986,7 +1017,7 @@ async function loadTrainingView() {
       : `Guided Logistic Regression on ${escapeHtml(labelByKey(activeProfile.positive_label).name)} vs ${escapeHtml(labelByKey(activeProfile.negative_label).name)}. Review-only labels stay out of fitting.`;
     trainingPanelEl.innerHTML = `
       ${renderTrainingWorkflow(data, planText)}
-      ${renderTrainingInformationMetrics(data)}`;
+      <div id="trainingInformation">${renderTrainingInformationMetrics(data)}</div>`;
     promoteFeatureSetEl = document.getElementById("promoteFeatureSet");
     promoteFeatureSetEl?.addEventListener("change", () => loadTrainingReadiness().catch(showError));
     trainingFeatureSetEl = document.getElementById("trainingFeatureSet");
@@ -1057,6 +1088,9 @@ function renderTrainingWorkflow(data, planText) {
         ${trainingInfoLine("Calibration", selectedCalibrated ? `${selected.calibration_method || "Calibrated"} · ready to promote` : selected ? `Not calibrated${selected.calibration_reason ? ` · ${selected.calibration_reason}` : ""}` : "No selected variant")}
         ${trainingInfoLine("Model mix", formatFeatureGroupWeights(selected?.feature_group_weights))}
       </div>
+    </div>
+    <div class="training-workflow-feedback"${workflowStatusText ? "" : " hidden"}>
+      <span id="refreshCandidatesStatus" class="meta source-status-line">${escapeHtml(workflowStatusText)}</span>
     </div>
     <div id="trainingProgress" class="training-progress" role="status" aria-live="polite" hidden>
       <div class="training-progress-header"><span id="trainingProgressStage"></span><b id="trainingProgressPercent">0%</b></div>
@@ -1273,6 +1307,12 @@ function formatFeatureGroupWeights(weights) {
   return entries
     .map(([source, value]) => `${String(source).toUpperCase()} ${Number(value).toFixed(3)}`)
     .join(" · ");
+}
+
+function refreshTrainingInformation(data) {
+  const informationEl = document.getElementById("trainingInformation");
+  if (!informationEl || !data) return;
+  informationEl.innerHTML = renderTrainingInformationMetrics(data);
 }
 
 function renderTrainingInformationMetrics(data) {
@@ -1582,7 +1622,7 @@ async function updateProfile(event) {
   const profile = await parseJsonResponse(response);
   await loadProfiles();
   await setActiveProfile(profile.classifier_key, { skipLoad: true });
-  refreshCandidatesStatusEl.textContent = "profile saved";
+  setWorkflowStatus("profile saved");
 }
 
 async function renameLabel(event) {
@@ -1614,7 +1654,7 @@ async function deleteActiveProfile() {
     body: JSON.stringify({ confirm: confirmation })
   });
   const data = await parseJsonResponse(response);
-  refreshCandidatesStatusEl.textContent = `deleted ${data.name} · artifacts ${data.artifact_cleanup?.deleted_files || 0}`;
+  setWorkflowStatus(`deleted ${data.name} · artifacts ${data.artifact_cleanup?.deleted_files || 0}`);
   activeProfile = null;
   await loadProfiles();
   await loadActive({ reset: true });
@@ -1623,7 +1663,7 @@ async function deleteActiveProfile() {
 async function parseRefreshResponse(response) {
   const data = await response.json();
   if (!response.ok) {
-    refreshCandidatesStatusEl.textContent = data.detail || response.statusText;
+    setWorkflowStatus(data.detail || response.statusText);
     throw new Error(data.detail || response.statusText);
   }
   return data;
@@ -1836,7 +1876,7 @@ function featureStatusBadge(name, value) {
 }
 
 function showError(error) {
-  refreshCandidatesStatusEl.textContent = error.message || String(error);
+  setWorkflowStatus(error.message || String(error));
 }
 
 function escapeHtml(value) {

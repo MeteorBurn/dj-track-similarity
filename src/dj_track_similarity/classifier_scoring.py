@@ -21,7 +21,6 @@ from .analysis_models import (
 )
 from .classifier_manifest import (
     ClassifierManifestSummary,
-    CLASSIFIER_PUBLICATION_POINTER_NAME,
     classifier_manifest_api_fields,
     load_classifier_manifest_summary,
     resolve_classifier_artifact_paths,
@@ -65,7 +64,6 @@ def promoted_classifiers(
             for path in (
                 *models_root.glob("*/model.joblib"),
                 *models_root.glob("*/model.json"),
-                *models_root.glob(f"*/{CLASSIFIER_PUBLICATION_POINTER_NAME}"),
             )
         }
     )
@@ -77,7 +75,7 @@ def promoted_classifiers(
         except ValueError as error:
             summary = ClassifierManifestSummary(
                 classifier_key=artifact_dir.name.replace("-", "_"),
-                metadata_path=artifact_dir / CLASSIFIER_PUBLICATION_POINTER_NAME,
+                metadata_path=artifact_dir / "model.json",
                 model_path=selected_model_path,
                 status="invalid",
                 errors=(str(error),),

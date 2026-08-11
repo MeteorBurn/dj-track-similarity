@@ -128,7 +128,7 @@ def train_feature_set(
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
     created_at = datetime.now(timezone.utc)
-    stamp = created_at.strftime("%Y%m%dT%H%M%S%fZ") + uuid4().hex[:8]
+    stamp = f"{created_at.strftime('%Y-%m-%d-%H-%M-%S')}-{uuid4().hex[:8]}"
     artifact_path = artifact_root / f"{artifact_prefix}-{feature_set}-{stamp}.joblib"
     metrics_path = artifact_root / f"{artifact_prefix}-{feature_set}-{stamp}.metrics.json"
     payload = {

@@ -18,8 +18,6 @@ from dj_track_similarity.analysis_models import (
     ClassifierFeatureRow,
 )
 from dj_track_similarity.classifier_manifest import (
-    CLASSIFIER_PUBLICATION_GENERATIONS_DIR,
-    CLASSIFIER_PUBLICATION_POINTER_NAME,
     require_scoring_compatible_manifest,
 )
 from dj_track_similarity.classifier_scoring import (
@@ -49,8 +47,6 @@ class VerifiedArtifact:
 class PublishedArtifact:
     model_path: Path
     metadata_path: Path
-    pointer_path: Path
-    generation_id: str
     artifact_hash: str
     manifest_hash: str
 
@@ -78,12 +74,10 @@ def publish_promoted_artifact(
     expected_classifier_key: str,
     progress_callback: PublicationProgressCallback | None = None,
 ) -> PublishedArtifact:
-    """Publish one immutable model/manifest generation behind an atomic pointer."""
+    """Replace the promoted root model only after its staged pair is valid."""
 
     target_dir = Path(target)
-    generations_dir = target_dir / CLASSIFIER_PUBLICATION_GENERATIONS_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
-    generations_dir.mkdir(parents=True, exist_ok=True)
     _report_publication_progress(
         progress_callback,
         "Preparing promoted artifact",
@@ -95,9 +89,11 @@ def publish_promoted_artifact(
         raise ArtifactIntegrityError(
             "Promoted metadata artifact_hash does not match exact model bytes"
         )
+    ready_metadata = dict(metadata)
+    ready_metadata["publication_status"] = "ready"
     manifest_bytes = (
         json.dumps(
-            dict(metadata),
+            ready_metadata,
             ensure_ascii=False,
             indent=2,
             sort_keys=True,
@@ -106,12 +102,23 @@ def publish_promoted_artifact(
         + "\n"
     ).encode("utf-8")
     manifest_hash = artifact_sha256(manifest_bytes)
-    generation_id = uuid4().hex
-    staging_dir = generations_dir / f".staging-{generation_id}"
-    generation_dir = generations_dir / generation_id
-    pointer_path = target_dir / CLASSIFIER_PUBLICATION_POINTER_NAME
-    pointer_staging = target_dir / f".current-{uuid4().hex}.tmp"
-    generation_published = False
+    publication_id = uuid4().hex
+    staging_dir = target_dir / f".staging-{publication_id}"
+    publishing_metadata = dict(ready_metadata)
+    publishing_metadata["publication_status"] = "publishing"
+    publishing_bytes = (
+        json.dumps(
+            publishing_metadata,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+    publishing_staging = target_dir / f".model-publishing-{publication_id}.tmp"
+    model_path = target_dir / "model.joblib"
+    metadata_path = target_dir / "model.json"
     try:
         staging_dir.mkdir()
         _report_publication_progress(
@@ -139,50 +146,36 @@ def publish_promoted_artifact(
 
         _report_publication_progress(
             progress_callback,
-            "Publishing immutable generation",
+            "Marking model publication in progress",
             82,
         )
-        os.replace(staging_dir, generation_dir)
-        generation_published = True
-        _fsync_directory(generations_dir)
-
-        pointer_bytes = (
-            json.dumps(
-                {
-                    "artifact_hash": artifact_hash,
-                    "generation_id": generation_id,
-                    "manifest_hash": manifest_hash,
-                },
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-                allow_nan=False,
-            )
-            + "\n"
-        ).encode("utf-8")
+        _write_fsynced(publishing_staging, publishing_bytes)
+        os.replace(publishing_staging, metadata_path)
+        _fsync_directory(target_dir)
+        _report_publication_progress(
+            progress_callback,
+            "Replacing promoted model",
+            94,
+        )
+        os.replace(staging_dir / "model.joblib", model_path)
         _report_publication_progress(
             progress_callback,
             "Activating promoted classifier",
-            94,
+            98,
         )
-        _write_fsynced(pointer_staging, pointer_bytes)
-        os.replace(pointer_staging, pointer_path)
+        os.replace(staging_dir / "model.json", metadata_path)
         _fsync_directory(target_dir)
     except Exception:
-        pointer_staging.unlink(missing_ok=True)
+        publishing_staging.unlink(missing_ok=True)
         if staging_dir.exists():
             (staging_dir / "model.joblib").unlink(missing_ok=True)
             (staging_dir / "model.json").unlink(missing_ok=True)
             staging_dir.rmdir()
         raise
-
-    if not generation_published:  # pragma: no cover - guarded by the flow above.
-        raise RuntimeError("Classifier generation was not published")
+    staging_dir.rmdir()
     return PublishedArtifact(
-        model_path=generation_dir / "model.joblib",
-        metadata_path=generation_dir / "model.json",
-        pointer_path=pointer_path,
-        generation_id=generation_id,
+        model_path=model_path,
+        metadata_path=metadata_path,
         artifact_hash=artifact_hash,
         manifest_hash=manifest_hash,
     )
@@ -317,6 +310,12 @@ def _trusted_expected_hash(
         if artifact.name != "model.joblib":
             raise ArtifactIntegrityError(
                 "Promoted model metadata may bind only model.joblib"
+            )
+        publication_status = raw.get("publication_status")
+        if publication_status is not None and publication_status != "ready":
+            raise ArtifactIntegrityError(
+                "Promoted model publication_status must be 'ready' before "
+                "deserialization"
             )
     else:
         declared_name = raw.get("artifact_filename")

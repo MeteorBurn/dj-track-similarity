@@ -1052,6 +1052,24 @@ def create_app(
                 ),
             )
         try:
+            training_progress.start(
+                profile.classifier_key,
+                operation="calibrate",
+                stage="Preparing calibration",
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+        def report_calibration_progress(
+            stage: str, completed: int, total: int
+        ) -> None:
+            training_progress.update(
+                profile.classifier_key,
+                stage=stage,
+                percent=round(95 * completed / max(1, total)),
+            )
+
+        try:
             training = benchmark_lab_database(
                 source_state.path,
                 labels_path,
@@ -1059,8 +1077,10 @@ def create_app(
                 classifier_key=profile.classifier_key,
                 feature_sets=(selected_feature_set,),
                 calibrate=True,
+                progress_callback=report_calibration_progress,
             )
         except Exception as error:
+            training_progress.fail(profile.classifier_key, error=error)
             LOGGER.exception("%s calibration failed", profile.name)
             raise HTTPException(status_code=500, detail=str(error)) from error
         trained = training.get(selected_feature_set)
@@ -1069,6 +1089,9 @@ def create_app(
                 trained.get("error")
                 if isinstance(trained, dict)
                 else "feature recipe was not calibrated"
+            )
+            training_progress.fail(
+                profile.classifier_key, error=RuntimeError(str(error))
             )
             raise HTTPException(status_code=409, detail=str(error))
         try:
@@ -1079,6 +1102,7 @@ def create_app(
                 selected_feature_set,
             )
         except RuntimeError as error:
+            training_progress.fail(profile.classifier_key, error=error)
             raise HTTPException(
                 status_code=500,
                 detail=str(error),
@@ -1093,18 +1117,31 @@ def create_app(
         calibration_status = _metric_summary(metrics).get("calibration_status")
         if calibration_status != "calibrated":
             reason = _metric_summary(metrics).get("calibration_reason") or "calibration gate was not satisfied"
+            detail = f"Calibration did not produce a calibrated artifact: {reason}"
+            training_progress.fail(
+                profile.classifier_key, error=RuntimeError(detail)
+            )
             raise HTTPException(
                 status_code=409,
-                detail=f"Calibration did not produce a calibrated artifact: {reason}",
+                detail=detail,
             )
         scoped.record_training_checkpoint(
             dict(readiness["current"]),
             model_artifact=artifact,
         )
-        cleanup = cleanup_training_artifacts(
-            Path(profile.artifact_dir),
-            protected_artifact=artifact,
-            artifact_prefix=profile.artifact_prefix,
+        try:
+            cleanup = cleanup_training_artifacts(
+                Path(profile.artifact_dir),
+                protected_artifact=artifact,
+                artifact_prefix=profile.artifact_prefix,
+            )
+        except Exception as error:
+            training_progress.fail(profile.classifier_key, error=error)
+            LOGGER.exception("%s calibration cleanup failed", profile.name)
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        training_progress.complete(
+            profile.classifier_key,
+            stage="Calibration complete",
         )
         return {
             "classifier_key": profile.classifier_key,

@@ -156,7 +156,7 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
                 "harmonic": 0.0,
                 "tempo": 0.0,
             },
-            "modifiers": {"valence": 1.0},
+            "modifiers": {"valence": 1.0, "aggression": 0.0},
         },
     )
 

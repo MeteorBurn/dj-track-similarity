@@ -66,7 +66,9 @@ Use **Mode** first:
 - **Balanced** blends broad vibe, sound, tempo, and light harmonic agreement.
 - **Vibe** emphasizes energy, danceability, valence, acousticness, and broad dynamics.
 - **Sound** emphasizes timbre, MFCC, and spectral texture.
-- **DJ transition** emphasizes BPM, onset density, energy, danceability, and tonal compatibility.
+- **DJ transition** emphasizes BPM, onset density, energy, danceability, and tonal compatibility. When
+  current structure data exists, it also blends a soft directional fit from the outgoing seed outro
+  to the candidate intro. Energy level and the compact energy-curve summary also inform that fit.
 - **Custom mixer** enables the visible mixer weights and directional modifiers.
 
 The mixer weights are:
@@ -82,7 +84,7 @@ Tempo confidence changes the strength of this evidence, not the similarity quest
 neutralization and candidate rules are in the
 [SONARA integration reference](../reference/sonara-integration.md).
 
-Modifiers bias the result direction relative to the seed context: energy, valence, acousticness, brightness, rhythm density, level range, loudness, and SONARA 2.0 vocalness. A modifier value of `0` does not pull in either direction.
+Modifiers bias the result direction relative to the seed context: energy, valence, acousticness, brightness, rhythm density, level range, loudness, SONARA 2.0 vocalness, and aggression. The aggression bias is attenuated by SONARA's evidence confidence. It does not turn weak evidence into a low-aggression verdict. A modifier value of `0` does not pull in either direction.
 
 ## LAB tab
 

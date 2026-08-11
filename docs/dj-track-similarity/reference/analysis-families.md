@@ -42,7 +42,7 @@ Normal analysis jobs skip SONARA rows when Core is already present for the curre
 
 SONARA analysis produces only Core. It stores BPM/key/confidence, loudness, dynamics,
 spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact
-structure/beat-grid values, vocalness, mood, and silence in the Core `sonara` table.
+structure/beat-grid values, vocalness, mood, aggression, and silence in the Core `sonara` table.
 
 Timeline, SONARA embedding, and fingerprint collection are disabled. Their empty Artifacts tables
 remain as layout placeholders only; the project does not fix their payload schema, dimensions,
@@ -77,7 +77,10 @@ does not become a zero-valued feature. Mood, true peak, and ReplayGain remain ou
 scoring.
 
 Storage does not imply scoring. `mood_*` values are retained for inspection and future workflows but
-are not current SONARA similarity or Rhythm Lab classifier inputs. True peak and
+are not current SONARA similarity or Rhythm Lab classifier inputs. `aggression_score` is a
+confidence-aware directional modifier in Custom SONARA search. Its component values remain data-only.
+DJ transition blends a soft, directional structure fit from the seed outro to the candidate intro
+when both rows have usable structure fields. True peak and
 ReplayGain are not direct SONARA similarity dimensions. They are retained for possible
 loudness-management features. Loudness scalars remain available to the `sonara2` classifier
 variant, momentary loudness maximum and loudness range remain available to the existing SONARA

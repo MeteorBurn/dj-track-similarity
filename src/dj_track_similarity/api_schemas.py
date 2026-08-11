@@ -260,6 +260,7 @@ class SonaraModifiers(BaseModel):
     dynamic_range: float = Field(default=0.0, ge=-1.0, le=1.0)
     loudness: float = Field(default=0.0, ge=-1.0, le=1.0)
     vocalness: float = Field(default=0.0, ge=-1.0, le=1.0)
+    aggression: float = Field(default=0.0, ge=-1.0, le=1.0)
 
 
 class SonaraSearchRequest(BaseModel):

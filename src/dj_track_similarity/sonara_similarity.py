@@ -12,6 +12,7 @@ from .analysis_models import (
 from .search import SimilaritySearchResult
 from .sonara_similarity_scoring import (
     ComparableTrack,
+    DJ_TRANSITION_FIT_BLEND,
     centroid,
     clean_mixer_weights,
     clean_modifiers,
@@ -21,6 +22,7 @@ from .sonara_similarity_scoring import (
     score_candidate,
     score_custom_candidate,
     tonal_context,
+    transition_fit,
 )
 
 
@@ -251,6 +253,19 @@ class SonaraSimilaritySearch:
             )
             if score is None:
                 continue
+            breakdown: dict[str, float] | None = None
+            if mode == "dj_transition":
+                fit = transition_fit(item, context)
+                if fit is not None:
+                    base_score = score
+                    score = (
+                        (1.0 - DJ_TRANSITION_FIT_BLEND) * base_score
+                        + DJ_TRANSITION_FIT_BLEND * fit
+                    )
+                    breakdown = {
+                        "dj_similarity": round(base_score, 6),
+                        "transition_fit": round(fit, 6),
+                    }
             if (
                 min_similarity is not None
                 and score < min_similarity
@@ -260,6 +275,7 @@ class SonaraSimilaritySearch:
                 SimilaritySearchResult(
                     target=item.target,
                     score=score,
+                    score_breakdown=breakdown,
                 )
             )
 

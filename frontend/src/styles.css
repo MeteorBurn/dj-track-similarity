@@ -16,6 +16,7 @@
   --accent-active-bg: #c8efdf;
   --accent-active-border: #3d9f7b;
   --accent-active-text: #0f5c4b;
+  --modifier-accent: #8b5ca7;
   --button-bg: #f8f9f4;
   --button-border: #c9cec2;
   --button-text: #252722;
@@ -123,6 +124,7 @@
   --accent-active-bg: #0e3a56;
   --accent-active-border: #38bdf8;
   --accent-active-text: #bae6fd;
+  --modifier-accent: #c4b5fd;
   --button-bg: #0d1320;
   --button-border: #263448;
   --button-text: #e5edf7;
@@ -2738,6 +2740,40 @@ h2 {
 .range-control input[type="range"] {
   min-height: 20px;
   padding: 0;
+}
+
+.sonara-custom-controls .range-control.is-off {
+  opacity: 0.6;
+}
+
+.sonara-custom-controls .range-control.is-off .sonara-control-off {
+  color: var(--text-muted);
+}
+
+.sonara-control-off {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  padding: 0 4px;
+  text-transform: uppercase;
+}
+
+.sonara-modifier-grid .range-control:not(.is-off) strong,
+.sonara-modifier-grid .range-control:not(.is-off) em {
+  color: var(--modifier-accent);
+}
+
+.sonara-modifier-range {
+  accent-color: var(--modifier-accent);
+}
+
+.sonara-modifier-range:focus-visible {
+  outline: 2px solid var(--modifier-accent);
+  outline-offset: 2px;
 }
 
 .text-search-box {

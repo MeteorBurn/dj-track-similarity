@@ -30,6 +30,16 @@ def _text_or_none(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _int_or_none(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
 def _vector_blob(value: object, *, dim: int) -> bytes:
     raw = value if isinstance(value, (list, tuple)) else ()
     values = [float(item) for item in raw[:dim]]
@@ -69,7 +79,7 @@ def _core_row(
                 _feature_value(features, "chord_change_rate")
             ),
             "energy_score": energy,
-            "energy_level": None,
+            "energy_level": _int_or_none(_feature_value(features, "energy_level")),
             "danceability_score": _float_or_none(
                 _feature_value(features, "danceability")
             ),
@@ -109,6 +119,33 @@ def _core_row(
             "loudness_range_lu": _float_or_none(
                 _feature_value(features, "loudness_range_lu")
             ),
+            "analyzed_duration_seconds": _float_or_none(
+                _feature_value(features, "duration_seconds")
+            ),
+            "intro_end_seconds": _float_or_none(
+                _feature_value(features, "intro_end_seconds")
+            ),
+            "outro_start_seconds": _float_or_none(
+                _feature_value(features, "outro_start_seconds")
+            ),
+            "energy_curve_hop_seconds": _float_or_none(
+                _feature_value(features, "energy_curve_hop_seconds")
+            ),
+            "energy_curve_sample_count": _int_or_none(
+                _feature_value(features, "energy_curve_sample_count")
+            ),
+            "energy_curve_min": _float_or_none(
+                _feature_value(features, "energy_curve_min")
+            ),
+            "energy_curve_max": _float_or_none(
+                _feature_value(features, "energy_curve_max")
+            ),
+            "energy_curve_mean": _float_or_none(
+                _feature_value(features, "energy_curve_mean")
+            ),
+            "energy_curve_stddev": _float_or_none(
+                _feature_value(features, "energy_curve_stddev")
+            ),
             "vocal_probability": _float_or_none(_feature_value(features, "vocalness")),
             "mood_happy_score": _float_or_none(_feature_value(features, "mood_happy")),
             "mood_aggressive_score": _float_or_none(
@@ -118,6 +155,10 @@ def _core_row(
                 _feature_value(features, "mood_relaxed")
             ),
             "mood_sad_score": _float_or_none(_feature_value(features, "mood_sad")),
+            "aggression_score": _float_or_none(_feature_value(features, "aggression")),
+            "aggression_confidence": _float_or_none(
+                _feature_value(features, "aggression_confidence")
+            ),
             "mfcc_mean_blob": _vector_blob(
                 _feature_value(features, "mfcc_mean"), dim=13
             ),
@@ -954,6 +995,157 @@ def test_custom_vocalness_modifier_biases_vocal_or_instrumental_tracks(
     )
     assert vocal_results[0].score_breakdown
     assert "modifier_vocalness" in vocal_results[0].score_breakdown
+
+
+def test_custom_aggression_modifier_uses_evidence_confidence(tmp_path: Path) -> None:
+    db = _library(tmp_path)
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {
+            "mfcc_mean": [0.2, 0.4],
+            "aggression": 0.5,
+            "aggression_confidence": 1.0,
+        },
+    )
+    high_confidence = _add_sonara_track(
+        db,
+        "high-confidence.wav",
+        {
+            "mfcc_mean": [0.21, 0.41],
+            "aggression": 0.9,
+            "aggression_confidence": 1.0,
+        },
+    )
+    low_confidence = _add_sonara_track(
+        db,
+        "low-confidence.wav",
+        {
+            "mfcc_mean": [0.21, 0.41],
+            "aggression": 0.9,
+            "aggression_confidence": 0.1,
+        },
+    )
+    low_aggression = _add_sonara_track(
+        db,
+        "low-aggression.wav",
+        {
+            "mfcc_mean": [0.21, 0.41],
+            "aggression": 0.1,
+            "aggression_confidence": 1.0,
+        },
+    )
+
+    results = SonaraSimilaritySearch(db).search(
+        (seed,),
+        mode="custom",
+        mixer_weights={
+            "timbre": 1.0,
+            "rhythm": 0.0,
+            "dynamics": 0.0,
+            "harmonic": 0.0,
+            "tempo": 0.0,
+        },
+        modifiers={"aggression": 1.0},
+        limit=5,
+    )
+
+    assert [result.target.track_id for result in results] == _target_ids(
+        high_confidence,
+        low_confidence,
+        low_aggression,
+    )
+    assert results[0].score_breakdown is not None
+    assert results[0].score_breakdown["modifier_aggression_confidence"] == 1.0
+    assert results[1].score_breakdown is not None
+    assert results[1].score_breakdown["modifier_aggression_confidence"] == 0.1
+    assert results[2].score_breakdown is not None
+    assert (
+        results[0].score_breakdown["modifier_aggression"]
+        > results[1].score_breakdown["modifier_aggression"]
+        > results[2].score_breakdown["modifier_aggression"]
+    )
+
+
+def test_dj_transition_blends_directional_structure_fit_and_explains_it(
+    tmp_path: Path,
+) -> None:
+    db = _library(tmp_path)
+    shared_features = {
+        "bpm": 128.0,
+        "bpm_confidence": 1.0,
+        "onset_density": 5.0,
+        "energy": 0.6,
+        "danceability": 0.8,
+        "chord_change_rate": 0.3,
+        "dissonance": 0.1,
+        "key": "A minor",
+    }
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {
+            **shared_features,
+            "duration_seconds": 300.0,
+            "outro_start_seconds": 284.0,
+            "energy_level": 7.0,
+            "energy_curve_hop_seconds": 0.5,
+            "energy_curve_sample_count": 10,
+            "energy_curve_mean": 0.5,
+            "energy_curve_stddev": 0.1,
+            "energy_curve_min": 0.2,
+            "energy_curve_max": 0.8,
+        },
+    )
+    compatible = _add_sonara_track(
+        db,
+        "compatible.wav",
+        {
+            **shared_features,
+            "intro_end_seconds": 20.0,
+            "energy_level": 7.0,
+            "energy_curve_hop_seconds": 0.5,
+            "energy_curve_sample_count": 10,
+            "energy_curve_mean": 0.5,
+            "energy_curve_stddev": 0.1,
+            "energy_curve_min": 0.2,
+            "energy_curve_max": 0.8,
+        },
+    )
+    abrupt = _add_sonara_track(
+        db,
+        "abrupt.wav",
+        {
+            **shared_features,
+            "intro_end_seconds": 0.0,
+            "energy_level": 2.0,
+            "energy_curve_hop_seconds": 0.5,
+            "energy_curve_sample_count": 10,
+            "energy_curve_mean": 0.1,
+            "energy_curve_stddev": 0.1,
+            "energy_curve_min": 0.1,
+            "energy_curve_max": 0.1,
+        },
+    )
+
+    results = SonaraSimilaritySearch(db).search(
+        (seed,),
+        mode="dj_transition",
+        limit=5,
+    )
+
+    assert [result.target.track_id for result in results] == _target_ids(
+        compatible,
+        abrupt,
+    )
+    assert results[0].score == pytest.approx(1.0)
+    assert results[0].score_breakdown == {
+        "dj_similarity": 1.0,
+        "transition_fit": 1.0,
+    }
+    assert results[1].score_breakdown is not None
+    assert results[1].score_breakdown["dj_similarity"] == 1.0
+    assert results[1].score_breakdown["transition_fit"] == pytest.approx(0.4)
 
 
 def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> None:

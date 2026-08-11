@@ -51,6 +51,7 @@ type SearchHelpText = {
   sonaraModifierDynamicRange: string;
   sonaraModifierLoudness: string;
   sonaraModifierVocalness: string;
+  sonaraModifierAggression: string;
   playlistName: string;
   outputDir: string;
 };
@@ -235,7 +236,8 @@ export function SearchPlaylistPanel({
     { key: "rhythm_density", label: "Density", title: helpText.sonaraModifierRhythmDensity },
     { key: "dynamic_range", label: "Range", title: helpText.sonaraModifierDynamicRange },
     { key: "loudness", label: "LUFS", title: helpText.sonaraModifierLoudness },
-    { key: "vocalness", label: "Vocal", title: helpText.sonaraModifierVocalness }
+    { key: "vocalness", label: "Vocal", title: helpText.sonaraModifierVocalness },
+    { key: "aggression", label: "Aggression", title: helpText.sonaraModifierAggression }
   ];
   const sonaraModeTitle = optionTitle(sonaraModeOptions, filters.sonaraMode);
   const customSonaraDisabled = filters.sonaraMode !== "custom";
@@ -264,7 +266,7 @@ export function SearchPlaylistPanel({
     setFilters((current) => ({
       ...current,
       sonaraMixer: { timbre: 1, rhythm: 1, dynamics: 0.8, harmonic: 0.8, tempo: 0.35 },
-      sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0, vocalness: 0 }
+      sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0, vocalness: 0, aggression: 0 }
     }));
   }
 
@@ -353,47 +355,58 @@ export function SearchPlaylistPanel({
                 <button className="sonara-mixer-reset-button" title="Сбросить SONARA mixer и modifiers" type="button" onClick={resetCustomSonara}>Reset</button>
               </div>
               <div className="range-grid mixer-grid">
-                {mixerControls.map((control) => (
-                  <label className="range-control" key={control.key} title={control.title}>
-                    <span>
-                      <strong>{control.label}</strong>
-                      <em>{filters.sonaraMixer[control.key].toFixed(2)}</em>
-                    </span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={5}
-                      step={0.05}
-                      value={filters.sonaraMixer[control.key]}
-                      title={control.title}
-                      disabled={customSonaraDisabled}
-                      onChange={(event) => setSonaraMixerValue(control.key, Number(event.target.value))}
-                    />
-                  </label>
-                ))}
+                {mixerControls.map((control) => {
+                  const value = filters.sonaraMixer[control.key];
+                  const isOff = value === 0;
+                  return (
+                    <label className={isOff ? "range-control is-off" : "range-control"} key={control.key} title={control.title}>
+                      <span>
+                        <strong>{control.label}</strong>
+                        <em>{value.toFixed(2)}</em>
+                        {isOff ? <small className="sonara-control-off">Off</small> : null}
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={5}
+                        step={0.05}
+                        value={value}
+                        title={control.title}
+                        disabled={customSonaraDisabled}
+                        onChange={(event) => setSonaraMixerValue(control.key, Number(event.target.value))}
+                      />
+                    </label>
+                  );
+                })}
               </div>
               <div className="custom-control-header">
                 <span>Modifiers</span>
               </div>
-              <div className="range-grid modifier-grid">
-                {modifierControls.map((control) => (
-                  <label className="range-control" key={control.key} title={control.title}>
-                    <span>
-                      <strong>{control.label}</strong>
-                      <em>{formatSigned(filters.sonaraModifiers[control.key])}</em>
-                    </span>
-                    <input
-                      type="range"
-                      min={-1}
-                      max={1}
-                      step={0.05}
-                      value={filters.sonaraModifiers[control.key]}
-                      title={control.title}
-                      disabled={customSonaraDisabled}
-                      onChange={(event) => setSonaraModifierValue(control.key, Number(event.target.value))}
-                    />
-                  </label>
-                ))}
+              <div className="range-grid modifier-grid sonara-modifier-grid">
+                {modifierControls.map((control) => {
+                  const value = filters.sonaraModifiers[control.key];
+                  const isOff = value === 0;
+                  return (
+                    <label className={isOff ? "range-control is-off" : "range-control"} key={control.key} title={control.title}>
+                      <span>
+                        <strong>{control.label}</strong>
+                        <em>{formatSigned(value)}</em>
+                        {isOff ? <small className="sonara-control-off">Off</small> : null}
+                      </span>
+                      <input
+                        className="sonara-modifier-range"
+                        type="range"
+                        min={-1}
+                        max={1}
+                        step={0.05}
+                        value={value}
+                        title={control.title}
+                        disabled={customSonaraDisabled}
+                        onChange={(event) => setSonaraModifierValue(control.key, Number(event.target.value))}
+                      />
+                    </label>
+                  );
+                })}
               </div>
             </div>
             <div className="search-filter-grid sonara-search-filter-grid">

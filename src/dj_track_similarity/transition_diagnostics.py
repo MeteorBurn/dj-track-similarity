@@ -161,6 +161,55 @@ def structure_transition_score(
     return None if risk is None else _clamp(1.0 - risk)
 
 
+def structure_transition_fit_from_values(
+    seed_values: Mapping[str, object],
+    candidate_values: Mapping[str, object],
+    *,
+    seed_duration_seconds: float | None = None,
+) -> float | None:
+    """Return directional outro-to-intro compatibility from SONARA Core values.
+
+    The seed contributes its outro window, while the candidate contributes its
+    intro window. Missing optional values are omitted from the mean rather than
+    treated as zero.
+    """
+
+    scores: list[float] = []
+    seed_duration = _finite_float(seed_values.get("analyzed_duration_seconds"))
+    if seed_duration is None:
+        seed_duration = _finite_float(seed_duration_seconds)
+    seed_outro_start = _finite_float(seed_values.get("outro_start_seconds"))
+    candidate_intro_end = _finite_float(candidate_values.get("intro_end_seconds"))
+    if (
+        seed_outro_start is not None
+        and seed_duration is not None
+        and candidate_intro_end is not None
+    ):
+        outro_length = max(0.0, seed_duration - seed_outro_start)
+        intro_length = max(0.0, candidate_intro_end)
+        scores.append(_clamp(min(outro_length, intro_length) / 16.0))
+
+    seed_energy_level = _finite_float(seed_values.get("energy_level"))
+    candidate_energy_level = _finite_float(candidate_values.get("energy_level"))
+    if seed_energy_level is not None and candidate_energy_level is not None:
+        scores.append(
+            _clamp(1.0 - abs(candidate_energy_level - seed_energy_level) / 10.0)
+        )
+
+    seed_curve = _energy_curve_summary_values(seed_values)
+    candidate_curve = _energy_curve_summary_values(candidate_values)
+    if seed_curve and candidate_curve:
+        pair_count = min(len(seed_curve), len(candidate_curve))
+        scores.append(
+            _mean(
+                _numeric_similarity(seed_curve[index], candidate_curve[index])
+                for index in range(pair_count)
+            )
+        )
+
+    return _mean(scores) if scores else None
+
+
 def compute_transition_diagnostics(
     seed_track: TransitionTrack,
     candidate_track: TransitionTrack,
@@ -556,42 +605,27 @@ def _structure_transition_risk(
     if seed_track.sonara is None or candidate_track.sonara is None:
         return None, "missing_structure_features"
 
-    risks: list[float] = []
-    seed_outro_start = _sonara_number(seed_track, "outro_start_seconds")
-    seed_duration = _track_duration(seed_track)
-    candidate_intro_end = _sonara_number(
-        candidate_track,
-        "intro_end_seconds",
+    score = structure_transition_fit_from_values(
+        seed_track.sonara.values,
+        candidate_track.sonara.values,
+        seed_duration_seconds=_track_duration(seed_track),
     )
-    if (
-        seed_outro_start is not None
-        and seed_duration is not None
-        and candidate_intro_end is not None
-    ):
-        outro_length = max(0.0, seed_duration - seed_outro_start)
-        intro_length = max(0.0, candidate_intro_end)
-        shared_mix_window = min(outro_length, intro_length)
-        risks.append(_clamp(1.0 - shared_mix_window / 16.0))
-
-    seed_energy_level = _sonara_number(seed_track, "energy_level")
-    candidate_energy_level = _sonara_number(
-        candidate_track,
-        "energy_level",
-    )
-    if seed_energy_level is not None and candidate_energy_level is not None:
-        risks.append(_clamp(abs(candidate_energy_level - seed_energy_level) / 10.0))
-
-    curve_similarity = _feature_similarity(
-        seed_track,
-        candidate_track,
-        "energy_curve_summary",
-    )
-    if curve_similarity is not None:
-        risks.append(_clamp(1.0 - curve_similarity))
-
-    if not risks:
+    if score is None:
         return None, "missing_structure_features"
-    return _mean(risks), None
+    return _clamp(1.0 - score), None
+
+
+def _energy_curve_summary_values(values: Mapping[str, object]) -> tuple[float, ...]:
+    return tuple(
+        value
+        for name in (
+            "energy_curve_mean",
+            "energy_curve_stddev",
+            "energy_curve_min",
+            "energy_curve_max",
+        )
+        if (value := _finite_float(values.get(name)))
+    )
 
 
 def _confidence_missingness_risk(

@@ -13,6 +13,7 @@ from .tempo_resolution import (
     resolve_tempo_evidence_from_values,
 )
 from .track_resolution import attenuate_harmonic_score, camelot_compatibility
+from .transition_diagnostics import structure_transition_fit_from_values
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,7 @@ CUSTOM_MODIFIER_FIELDS = {
     "dynamic_range": "dynamic_range_db",
     "loudness": "integrated_loudness_lufs",
     "vocalness": "vocal_probability",
+    "aggression": "aggression_score",
 }
 # The custom Harmonic knob should reflect harmonic color (chroma, dissonance, chord movement), not
 # act as an exact-key gate. Standard modes weight exact key/chord text at 4.0/3.0; in the custom
@@ -126,6 +128,7 @@ CUSTOM_HARMONIC_TONAL_WEIGHTS = {
 # felt in the final ranking instead of being averaged away by the mixer-group weights, while still
 # staying bounded so it cannot completely override sonic similarity.
 MODIFIER_GAIN = 2.5
+DJ_TRANSITION_FIT_BLEND = 0.2
 KEY_TONAL_FIELDS = {"detected_key_name", "detected_key_camelot"}
 KEY_CONFIDENCE_CONTEXT = "_key_confidence"
 TonalContext = dict[str, set[str] | float]
@@ -268,6 +271,26 @@ def score_candidate(
     return max(0.0, min(1.0, weighted_score / total_weight))
 
 
+def transition_fit(
+    item: ComparableTrack,
+    context: list[ComparableTrack],
+) -> float | None:
+    """Return the mean directional structural fit from each seed to ``item``."""
+
+    scores = [
+        score
+        for seed in context
+        if (
+            score := structure_transition_fit_from_values(
+                seed.features,
+                item.features,
+            )
+        )
+        is not None
+    ]
+    return float(np.mean(scores)) if scores else None
+
+
 def score_custom_candidate(
     item: ComparableTrack,
     dimensions: list[tuple[str, int | None, float]],
@@ -311,13 +334,25 @@ def score_custom_candidate(
     for modifier_name, direction in modifiers.items():
         if direction == 0:
             continue
-        modifier_score = score_modifier(item, modifier_name, direction, ranges, feature_centroid)
-        if modifier_score is None:
+        scored_modifier = score_modifier(
+            item,
+            modifier_name,
+            direction,
+            ranges,
+            feature_centroid,
+        )
+        if scored_modifier is None:
             continue
+        modifier_score, confidence = scored_modifier
         modifier_weight = abs(direction) * MODIFIER_GAIN
         weighted_score += modifier_score * modifier_weight
         total_weight += modifier_weight
         breakdown[f"modifier_{modifier_name}"] = round(modifier_score, 6)
+        if confidence is not None:
+            breakdown[f"modifier_{modifier_name}_confidence"] = round(
+                confidence,
+                6,
+            )
 
     if total_weight <= 0:
         return None
@@ -392,7 +427,7 @@ def score_modifier(
     direction: float,
     ranges: dict[tuple[str, int | None], tuple[float, float]],
     feature_centroid: dict[tuple[str, int | None], float],
-) -> float | None:
+) -> tuple[float, float | None] | None:
     field = CUSTOM_MODIFIER_FIELDS[modifier_name]
     key = (field, None)
     if key not in ranges or key not in feature_centroid:
@@ -405,7 +440,17 @@ def score_modifier(
         return None
     signed_delta = value - feature_centroid[key]
     desired_delta = signed_delta if direction > 0 else -signed_delta
-    return max(0.0, min(1.0, 0.5 + desired_delta / 2.0))
+    score = max(0.0, min(1.0, 0.5 + desired_delta / 2.0))
+    if modifier_name != "aggression":
+        return score, None
+    confidence = feature_value(item.features, "aggression_confidence", None)
+    if confidence is None:
+        return None
+    bounded_confidence = max(0.0, min(1.0, confidence))
+    # Aggression confidence measures evidence support, not rank certainty. It
+    # therefore shrinks only the directional deviation from neutral rather than
+    # treating an uncertain value as a low aggression score.
+    return 0.5 + bounded_confidence * (score - 0.5), bounded_confidence
 
 
 def clean_mixer_weights(mixer_weights: dict[str, float] | None) -> dict[str, float]:

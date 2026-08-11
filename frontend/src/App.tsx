@@ -203,7 +203,8 @@ export function App() {
       rhythm_density: 0,
       dynamic_range: 0,
       loudness: 0,
-      vocalness: 0
+      vocalness: 0,
+      aggression: 0
     }
   });
   const genericSearchRequestGuard = useRef(createRequestTokenGuard());

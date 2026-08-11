@@ -176,8 +176,11 @@ evidence. At low confidence, they also inspect SONARA candidates and the Mutagen
 instead of earning a similarity bonus or becoming an automatic hard rejection.
 
 SONARA mood values are retained for inspection and possible future audio workflows; they are not
-current similarity or classifier inputs. True peak and ReplayGain are also stored for
-future loudness-management work, not direct SONARA similarity scoring. MAEST/MERT/MuQ/CLAP
+current similarity or classifier inputs. In Custom SONARA search, the optional Aggression modifier
+uses the stored aggression rank and attenuates its directional bias by SONARA's evidence confidence.
+DJ transition mode also adds a soft, directional structural fit when current outro/intro and energy
+summary values are available. True peak and ReplayGain remain stored for future loudness-management
+work, not direct SONARA similarity scoring. MAEST/MERT/MuQ/CLAP
 embeddings live in dedicated tables in the mandatory Artifacts database.
 
 SONARA analysis stores only the current Core fields. Timeline, SONARA embedding, and fingerprint

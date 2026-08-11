@@ -292,6 +292,7 @@ export type SonaraModifiers = {
   dynamic_range: number;
   loudness: number;
   vocalness: number;
+  aggression: number;
 };
 
 export type ScanStats = {

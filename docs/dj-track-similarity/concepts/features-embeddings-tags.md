@@ -39,7 +39,9 @@ and silence fields. Treat these analysis estimates as inspectable evidence. Only
 a scorer affect ranking.
 
 Mood affinities are shown as analysis data and retained for possible future workflows. They are not
-current similarity or classifier inputs. True peak and ReplayGain are also retained
+current similarity or classifier inputs. In Custom SONARA search, aggression is an explicit
+confidence-aware directional modifier. DJ transition adds a soft structure fit only when the seed
+outro and candidate intro data is present. True peak and ReplayGain are also retained
 for possible loudness-management features rather than direct SONARA similarity. Loudness scalars
 can enter the `sonara2` classifier variant. The existing SONARA dynamics comparison uses momentary
 loudness maximum and loudness range. Vocalness is available through an explicit search modifier

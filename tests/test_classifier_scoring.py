@@ -452,6 +452,39 @@ def test_requirements_reject_out_of_range_feature(
         )
 
 
+def test_rhythm_lab_sonara_aliases_are_scoring_ready(
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = AnalysisOutput("sonara", "core")
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    _write_sonara_core(db, target)
+    with db.connect() as connection:
+        connection.execute(
+            "UPDATE sonara SET detected_bpm = ? WHERE track_id = ?",
+            (128.0, target.track_id),
+        )
+
+    model_path = _write_artifact(
+        tmp_path / "artifact",
+        feature_names=("sonara:bpm", "sonara:mfcc_mean:0"),
+        feature_count=2,
+    )
+    requirements = load_classifier_requirements(
+        db,
+        "test_classifier",
+        model_path=model_path,
+    )
+    rows = db.load_classifier_feature_rows(
+        requirements.specification,
+        targets=(target,),
+    )
+
+    assert len(rows) == 1
+    assert rows[0].vector.tolist() == [128.0, 0.0]
+
+
 @pytest.mark.parametrize(
     ("positive_score", "expected_bucket"),
     (

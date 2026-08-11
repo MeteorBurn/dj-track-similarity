@@ -6,7 +6,7 @@ import json
 import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,33 +28,13 @@ from .classifier_manifest import (
     require_scoring_compatible_manifest,
 )
 from .database import LibraryDatabase
-from .db_ddl import ClassifierScoreRecord, SonaraRow
+from .db_ddl import ClassifierScoreRecord
+from .sonara_classifier_features import resolve_sonara_classifier_feature
 from .timestamps import utc_timestamp
 
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _SUPPORTED_FEATURE_FAMILIES = ("sonara", "mert", "maest", "clap", "muq")
-_SONARA_VECTOR_DIMS = {
-    "mfcc_mean_blob": 13,
-    "chroma_mean_blob": 12,
-    "spectral_contrast_mean_blob": 7,
-}
-_SONARA_NON_NUMERIC_FIELDS = {
-    "track_id",
-    "content_generation",
-    "bpm_candidates_json",
-    "detected_key_name",
-    "detected_key_camelot",
-    "predominant_chord",
-    "key_candidates_json",
-    "analyzed_at",
-    *_SONARA_VECTOR_DIMS,
-}
-_SONARA_SCALAR_FEATURES = {
-    field.name for field in fields(SonaraRow)
-} - _SONARA_NON_NUMERIC_FIELDS
-
-
 def classifier_artifact_slug(classifier_key: str) -> str:
     return classifier_key.strip().replace("_", "-")
 
@@ -501,15 +481,7 @@ def _validate_feature_inputs(
 
 
 def _validate_sonara_feature(feature_name: str, key: str) -> None:
-    field_name, separator, index_text = key.rpartition(":")
-    if separator:
-        dim = _SONARA_VECTOR_DIMS.get(field_name)
-        if dim is None or not index_text.isdigit() or not 0 <= int(index_text) < dim:
-            raise ValueError(
-                f"SONARA classifier feature is out of range: {feature_name}"
-            )
-        return
-    if key not in _SONARA_SCALAR_FEATURES:
+    if resolve_sonara_classifier_feature(key) is None:
         raise ValueError(f"unsupported SONARA classifier feature: {feature_name}")
 
 

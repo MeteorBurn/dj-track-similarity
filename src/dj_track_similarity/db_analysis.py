@@ -65,6 +65,7 @@ from .sonara_core_validation import (
     SONARA_CORE_VECTOR_DIMS,
     validate_sonara_core_row,
 )
+from .sonara_classifier_features import resolve_sonara_classifier_feature
 
 
 _CLASSIFIER_SCORE_COLUMNS = tuple(field.name for field in fields(ClassifierScoreRecord))
@@ -466,11 +467,13 @@ def _sonara_feature_value(
     values: Mapping[str, object],
     key: str,
 ) -> float | None:
-    field_name, separator, index_text = key.rpartition(":")
-    if separator and index_text.isdigit():
+    resolved = resolve_sonara_classifier_feature(key)
+    if resolved is None:
+        return None
+    field_name, index = resolved
+    if index is not None:
         raw = values.get(field_name)
         if isinstance(raw, (tuple, list, np.ndarray)):
-            index = int(index_text)
             if 0 <= index < len(raw):
                 try:
                     number = float(raw[index])
@@ -478,7 +481,7 @@ def _sonara_feature_value(
                     return None
                 return number if math.isfinite(number) else None
         return None
-    raw = values.get(key)
+    raw = values.get(field_name)
     if isinstance(raw, bool) or raw is None:
         return None
     try:

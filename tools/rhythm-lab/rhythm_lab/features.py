@@ -9,6 +9,12 @@ from types import MappingProxyType
 
 import numpy as np
 
+from dj_track_similarity.sonara_classifier_features import (
+    SONARA_CLASSIFIER_SCALAR_ALIASES,
+    SONARA_CLASSIFIER_VECTOR_ALIASES,
+    SONARA_CLASSIFIER_VECTOR_DIMS,
+)
+
 from .lab_db import RhythmLabDatabase, TrackIdentity, track_identity
 from .source_db import SourceDatabase, SourceTrack
 
@@ -51,10 +57,16 @@ _SONARA_CORE_SCALAR_FIELDS = (
 )
 _SONARA_CURRENT_EXTRA_SCALAR_FIELDS = (
     "bpm_raw",
+    "bpm_confidence",
+    "tempo_variability",
+    "key_confidence",
     "energy_level",
     "intro_end_sec",
     "outro_start_sec",
-    "energy_curve_hop_sec",
+    "energy_curve_min",
+    "energy_curve_max",
+    "energy_curve_mean",
+    "energy_curve_stddev",
     "true_peak_db",
     "replaygain_db",
     "loudness_momentary_max_db",
@@ -64,15 +76,23 @@ _SONARA_CURRENT_EXTRA_SCALAR_FIELDS = (
     "leading_silence_sec",
     "trailing_silence_sec",
 )
+# These are SONARA's deterministic mood summaries, not bundled model outputs.
+_SONARA_MOOD_SCALAR_FIELDS = (
+    "mood_happy",
+    "mood_aggressive",
+    "mood_relaxed",
+    "mood_sad",
+)
+# Keep the baseline independent of SONARA's bundled learned outputs:
+# vocal_probability and the aggression score family are intentionally excluded.
 SONARA_SCALAR_FIELDS = (
     *_SONARA_CORE_SCALAR_FIELDS,
     *_SONARA_CURRENT_EXTRA_SCALAR_FIELDS,
-    "vocalness",
+    *_SONARA_MOOD_SCALAR_FIELDS,
 )
 SONARA_VECTOR_FIELDS = {
-    "mfcc_mean": 13,
-    "chroma_mean": 12,
-    "spectral_contrast_mean": 7,
+    name: SONARA_CLASSIFIER_VECTOR_DIMS[stored_name]
+    for name, stored_name in SONARA_CLASSIFIER_VECTOR_ALIASES.items()
 }
 SONARA_FEATURE_NAMES = (
     *(f"sonara:{field}" for field in SONARA_SCALAR_FIELDS),
@@ -83,39 +103,8 @@ SONARA_FEATURE_NAMES = (
     ),
 )
 _SONARA_ATTRIBUTES = {
-    "bpm": "detected_bpm",
-    "onset_density": "onset_density_per_second",
-    "n_beats": "beat_count",
-    "rms_mean": "rms_mean",
-    "rms_max": "rms_max",
-    "loudness_lufs": "integrated_loudness_lufs",
-    "dynamic_range_db": "dynamic_range_db",
-    "spectral_centroid_mean": "spectral_centroid_hz",
-    "zero_crossing_rate": "zero_crossing_rate",
-    "duration_sec": "analyzed_duration_seconds",
-    "energy": "energy_score",
-    "danceability": "danceability_score",
-    "valence": "valence_score",
-    "acousticness": "acousticness_score",
-    "chord_change_rate": "chord_changes_per_second",
-    "dissonance": "dissonance_score",
-    "spectral_bandwidth_mean": "spectral_bandwidth_hz",
-    "spectral_rolloff_mean": "spectral_rolloff_hz",
-    "spectral_flatness_mean": "spectral_flatness",
-    "bpm_raw": "raw_bpm",
-    "energy_level": "energy_level",
-    "intro_end_sec": "intro_end_seconds",
-    "outro_start_sec": "outro_start_seconds",
-    "energy_curve_hop_sec": "energy_curve_hop_seconds",
-    "true_peak_db": "true_peak_dbtp",
-    "replaygain_db": "replay_gain_db",
-    "loudness_momentary_max_db": "max_momentary_loudness_lufs",
-    "loudness_range_lu": "loudness_range_lu",
-    "grid_offset_sec": "beat_grid_offset_seconds",
-    "grid_stability": "beat_grid_stability",
-    "leading_silence_sec": "leading_silence_seconds",
-    "trailing_silence_sec": "trailing_silence_seconds",
-    "vocalness": "vocal_probability",
+    field: SONARA_CLASSIFIER_SCALAR_ALIASES.get(field, field)
+    for field in SONARA_SCALAR_FIELDS
 }
 
 

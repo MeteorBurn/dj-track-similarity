@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -23,6 +24,7 @@ TOP_N_VALUES = (1, 5, 10, 25, 50, 100, 250, 500, 1000)
 MIN_CALIBRATION_LABELS = 100
 MIN_CALIBRATION_POSITIVE = 20
 MIN_CALIBRATION_NEGATIVE = 20
+TrainingProgressCallback = Callable[[str, int, int], None]
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,7 @@ def train_feature_set(
     calibrate: bool = False,
     source_catalog_uuid: str | None = None,
     skipped_rows: int = 0,
+    progress_callback: TrainingProgressCallback | None = None,
 ) -> TrainResult:
     from joblib import dump
     from sklearn.calibration import CalibratedClassifierCV
@@ -93,6 +96,7 @@ def train_feature_set(
         random_state=random_state,
         stratify=labels,
     )
+    _report_progress(progress_callback, "Fitting holdout model", 0, 8)
     if calibration_gate["status"] == "ready":
         cv_folds = min(3, *(label_counts[label] for label in ordered_labels))
         evaluation_model = CalibratedClassifierCV(
@@ -119,6 +123,7 @@ def train_feature_set(
     )
     report = classification_report(test_y, predictions, labels=ordered_labels, output_dict=True, zero_division=0)
     confusion = confusion_matrix(test_y, predictions, labels=ordered_labels).tolist()
+    _report_progress(progress_callback, "Scoring holdout", 1, 8)
 
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -144,6 +149,12 @@ def train_feature_set(
         positive_label=positive_label,
         random_state=random_state,
         feature_names=feature_names,
+        progress_callback=lambda completed, total: _report_progress(
+            progress_callback,
+            f"Cross-validation fold {completed}/{total}",
+            1 + completed,
+            8,
+        ),
     )
     production_calibration = _production_calibration_report(
         test_y,
@@ -169,7 +180,9 @@ def train_feature_set(
             random_state,
             feature_names=feature_names,
         )
+    _report_progress(progress_callback, "Fitting production model", 6, 8)
     production_model.fit(matrix, labels)
+    _report_progress(progress_callback, "Writing model artifact", 7, 8)
     payload["model"] = production_model
     payload["production_calibration"] = production_calibration
     payload["source_catalog_uuid"] = clean_source_catalog_uuid
@@ -198,6 +211,7 @@ def train_feature_set(
         "production_calibration": production_calibration,
     }
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    _report_progress(progress_callback, "Model artifact saved", 8, 8)
     return TrainResult(
         feature_set,
         production_model,
@@ -217,19 +231,34 @@ def benchmark_lab_database(
     feature_sets: tuple[str, ...] = (DEFAULT_TRAINING_FEATURE_SET,),
     random_state: int = 42,
     calibrate: bool = False,
+    progress_callback: TrainingProgressCallback | None = None,
 ) -> dict[str, dict[str, object]]:
     profile = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key).get_profile()
     source_catalog_uuid = SourceDatabase(source_db_path).catalog_uuid
     label_order = list(profile.training_label_keys)
     results: dict[str, dict[str, object]] = {}
-    for feature_set in feature_sets:
+    total_progress_steps = max(1, len(feature_sets) * 10)
+    for feature_index, feature_set in enumerate(feature_sets):
+        progress_base = feature_index * 10
         features = None
         try:
+            _report_progress(
+                progress_callback,
+                f"Building {feature_set} feature matrix",
+                progress_base,
+                total_progress_steps,
+            )
             features = build_labeled_feature_matrix(
                 source_db_path,
                 labels_db_path,
                 feature_set,
                 classifier_key=profile.classifier_key,
+            )
+            _report_progress(
+                progress_callback,
+                f"Training {feature_set}",
+                progress_base + 1,
+                total_progress_steps,
             )
             result = train_feature_set(
                 features.matrix,
@@ -245,6 +274,18 @@ def benchmark_lab_database(
                 calibrate=calibrate,
                 source_catalog_uuid=source_catalog_uuid,
                 skipped_rows=len(features.skipped_identities),
+                progress_callback=lambda stage, completed, total: _report_progress(
+                    progress_callback,
+                    f"{feature_set}: {stage}",
+                    progress_base + 1 + round(8 * completed / max(1, total)),
+                    total_progress_steps,
+                ),
+            )
+            _report_progress(
+                progress_callback,
+                f"Saved {feature_set} model",
+                progress_base + 10,
+                total_progress_steps,
             )
             results[feature_set] = {
                 "status": "trained",
@@ -275,6 +316,16 @@ def benchmark_lab_database(
                 ),
             }
     return results
+
+
+def _report_progress(
+    callback: TrainingProgressCallback | None,
+    stage: str,
+    completed: int,
+    total: int,
+) -> None:
+    if callback is not None:
+        callback(str(stage), max(0, int(completed)), max(1, int(total)))
 
 
 def _validate_training_data(matrix: np.ndarray, labels: list[str], *, label_order: list[str]) -> None:
@@ -440,6 +491,7 @@ def _cross_validation_metrics(
     positive_label: str,
     random_state: int,
     feature_names: list[str],
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, object]:
     from sklearn.metrics import accuracy_score, classification_report
     from sklearn.model_selection import StratifiedKFold
@@ -451,7 +503,7 @@ def _cross_validation_metrics(
     positive_precisions: list[float] = []
     macro_f1s: list[float] = []
     accuracies: list[float] = []
-    for train_index, test_index in splitter.split(matrix, labels):
+    for fold_index, (train_index, test_index) in enumerate(splitter.split(matrix, labels), start=1):
         model = _make_model(random_state, feature_names=feature_names)
         train_y = [labels[index] for index in train_index]
         test_y = [labels[index] for index in test_index]
@@ -462,6 +514,8 @@ def _cross_validation_metrics(
         positive_precisions.append(float(report[positive_label]["precision"]))
         macro_f1s.append(float(report["macro avg"]["f1-score"]))
         accuracies.append(float(accuracy_score(test_y, predictions)))
+        if progress_callback is not None:
+            progress_callback(fold_index, fold_count)
     metrics = {
         "fold_count": int(fold_count),
         "positive_recall_mean": _mean(positive_recalls),

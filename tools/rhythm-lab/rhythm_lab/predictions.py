@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import csv
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,6 +19,7 @@ from .source_db import SourceDatabase
 
 
 PREDICTION_BATCH_SIZE = 512
+PredictionProgressCallback = Callable[[int, int], None]
 
 
 def apply_model_to_lab(
@@ -26,6 +28,7 @@ def apply_model_to_lab(
     artifact_path: str | Path,
     *,
     classifier_key: str | None = None,
+    progress_callback: PredictionProgressCallback | None = None,
 ) -> dict[str, int | str]:
     artifact = Path(artifact_path)
     payload = load_verified_artifact(artifact).payload
@@ -49,6 +52,8 @@ def apply_model_to_lab(
     predicted_count = 0
     skipped_count = 0
     track_ids = source.current_track_ids()
+    if progress_callback is not None:
+        progress_callback(0, len(track_ids))
     with TemporaryDirectory(prefix="rhythm-lab-predictions-") as stage_root:
         stage_path = Path(stage_root) / "predictions.sqlite"
         with PredictionStage(stage_path) as stage:
@@ -72,29 +77,30 @@ def apply_model_to_lab(
                     expected_feature_names=payload.get("feature_names"),
                 )
                 skipped_count += len(features.skipped_identities)
-                if features.matrix.shape[0] == 0:
-                    continue
-                predictions = model.predict(features.matrix)
-                probabilities = _predict_probabilities(
-                    model,
-                    features.matrix,
-                    label_order,
-                )
-                prepared_batch = []
-                for index, track in enumerate(features.tracks):
-                    label = str(predictions[index])
-                    row_probabilities = probabilities[index]
-                    confidence = float(row_probabilities.get(label, 0.0))
-                    prepared_batch.append(
-                        prepare_prediction_write(
-                            track,
-                            label=label,
-                            confidence=confidence,
-                            probabilities=row_probabilities,
-                        )
+                if features.matrix.shape[0] > 0:
+                    predictions = model.predict(features.matrix)
+                    probabilities = _predict_probabilities(
+                        model,
+                        features.matrix,
+                        label_order,
                     )
-                stage.append(prepared_batch)
-                predicted_count += len(prepared_batch)
+                    prepared_batch = []
+                    for index, track in enumerate(features.tracks):
+                        label = str(predictions[index])
+                        row_probabilities = probabilities[index]
+                        confidence = float(row_probabilities.get(label, 0.0))
+                        prepared_batch.append(
+                            prepare_prediction_write(
+                                track,
+                                label=label,
+                                confidence=confidence,
+                                probabilities=row_probabilities,
+                            )
+                        )
+                    stage.append(prepared_batch)
+                    predicted_count += len(prepared_batch)
+                if progress_callback is not None:
+                    progress_callback(min(start + len(batch_ids), len(track_ids)), len(track_ids))
         deleted_old_predictions = labels_db.replace_predictions_from_stage(
             stage_path,
             feature_set=feature_set,

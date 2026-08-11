@@ -56,6 +56,8 @@ let latestProfileSummary = null;
 let promoteFeatureSetEl = null;
 let trainingFeatureSetEl = null;
 let selectedTrainingFeatureSet = DEFAULT_TRAINING_FEATURE_SET;
+let trainingProgressPollHandle = null;
+let latestWorkflowProgress = { status: "idle" };
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
@@ -155,6 +157,7 @@ async function setActiveProfile(profileKey, options = {}) {
   promoteFeatureSetEl = null;
   trainingFeatureSetEl = null;
   selectedTrainingFeatureSet = DEFAULT_TRAINING_FEATURE_SET;
+  latestWorkflowProgress = { status: "idle" };
   renderProfileControls();
   offset = 0;
   viewOffsets.library = 0;
@@ -258,6 +261,56 @@ function setWorkflowBusy(disabled) {
   ["openLibrary", "trainRefresh", "openCandidates", "runBenchmark", "calibrateClassifier", "refreshCandidates", "promoteClassifier"].forEach(id => {
     setTrainingActionDisabled(id, disabled);
   });
+}
+
+function renderTrainingProgress(progress) {
+  const container = document.getElementById("trainingProgress");
+  const stageEl = document.getElementById("trainingProgressStage");
+  const percentEl = document.getElementById("trainingProgressPercent");
+  const barEl = document.getElementById("trainingProgressBar");
+  if (!container || !stageEl || !percentEl || !barEl) return;
+  latestWorkflowProgress = { ...progress };
+  const status = String(progress?.status || "idle");
+  if (status === "idle") {
+    container.hidden = true;
+    return;
+  }
+  const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+  stageEl.textContent = String(progress?.error || progress?.stage || "Preparing training data");
+  percentEl.textContent = `${Math.round(percent)}%`;
+  barEl.style.width = `${percent}%`;
+  container.dataset.status = status;
+  container.dataset.operation = String(progress?.operation || "");
+  container.hidden = false;
+}
+
+function stopTrainingProgressPolling() {
+  if (trainingProgressPollHandle !== null) {
+    window.clearInterval(trainingProgressPollHandle);
+    trainingProgressPollHandle = null;
+  }
+}
+
+async function pollTrainingProgress(profileKey) {
+  if (!activeProfile || activeProfile.classifier_key !== profileKey) {
+    stopTrainingProgressPolling();
+    return;
+  }
+  const response = await fetch(`/api/profiles/${profileKey}/training/progress`);
+  if (!response.ok) return;
+  const progress = await response.json();
+  renderTrainingProgress(progress);
+  if (progress.status === "completed" || progress.status === "failed") {
+    stopTrainingProgressPolling();
+  }
+}
+
+function startTrainingProgressPolling(profileKey) {
+  stopTrainingProgressPolling();
+  renderTrainingProgress({ status: "running", stage: "Starting training", percent: 0 });
+  trainingProgressPollHandle = window.setInterval(() => {
+    pollTrainingProgress(profileKey).catch(() => {});
+  }, 350);
 }
 
 async function handleTrainingActionClick(event) {
@@ -709,6 +762,7 @@ async function trainRefresh() {
   }
   setWorkflowBusy(true);
   refreshCandidatesStatusEl.textContent = "training model...";
+  startTrainingProgressPolling(activeProfile.classifier_key);
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, {
       method: "POST",
@@ -719,7 +773,11 @@ async function trainRefresh() {
     refreshCandidatesStatusEl.textContent = `trained ${formatLabelCounts(data.training_counts)} · updated ${data.predicted} · skipped ${data.skipped}`;
     await switchView("candidates");
     await loadCandidates({ reset: true });
+  } catch (error) {
+    renderTrainingProgress({ status: "failed", stage: "Training failed", error: error.message || String(error), percent: 0 });
+    throw error;
   } finally {
+    stopTrainingProgressPolling();
     await loadTrainingReadiness();
   }
 }
@@ -731,6 +789,7 @@ async function runBenchmark() {
   }
   setWorkflowBusy(true);
   refreshCandidatesStatusEl.textContent = "running benchmark...";
+  startTrainingProgressPolling(activeProfile.classifier_key);
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/benchmark`, { method: "POST" });
     const data = await parseRefreshResponse(response);
@@ -741,7 +800,11 @@ async function runBenchmark() {
     } else {
       await loadTrainingReadiness();
     }
+  } catch (error) {
+    renderTrainingProgress({ status: "failed", stage: "Benchmark failed", error: error.message || String(error), percent: 0 });
+    throw error;
   } finally {
+    stopTrainingProgressPolling();
     await loadTrainingReadiness();
   }
 }
@@ -780,6 +843,7 @@ async function refreshCandidates() {
   const selectedFeatureSet = selectedArtifactFeatureSet();
   setWorkflowBusy(true);
   refreshCandidatesStatusEl.textContent = `refreshing ${selectedFeatureSet} candidates...`;
+  startTrainingProgressPolling(activeProfile.classifier_key);
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, {
       method: "POST",
@@ -788,10 +852,13 @@ async function refreshCandidates() {
     });
     const data = await parseRefreshResponse(response);
     refreshCandidatesStatusEl.textContent = `refreshed ${data.feature_set} · updated ${data.predicted} · skipped ${data.skipped}`;
-    await switchView("candidates");
-    await loadCandidates({ reset: true });
+    renderTrainingProgress({ status: "completed", operation: "refresh", stage: "Candidate refresh complete", percent: 100 });
+  } catch (error) {
+    renderTrainingProgress({ status: "failed", operation: "refresh", stage: "Candidate refresh failed", error: error.message || String(error), percent: 0 });
+    throw error;
   } finally {
-    await loadTrainingReadiness();
+    stopTrainingProgressPolling();
+    await refreshWorkflowData({ candidatesChanged: true });
   }
 }
 
@@ -801,8 +868,9 @@ async function promoteClassifier() {
   if (!window.confirm(`Promote the latest ${activeProfile.name} ${selectedFeatureSet} model to the main app?`)) {
     return;
   }
-  setTrainingActionDisabled("promoteClassifier", true);
+  setWorkflowBusy(true);
   refreshCandidatesStatusEl.textContent = "promoting model...";
+  startTrainingProgressPolling(activeProfile.classifier_key);
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, {
       method: "POST",
@@ -811,9 +879,28 @@ async function promoteClassifier() {
     });
     const data = await parseRefreshResponse(response);
     refreshCandidatesStatusEl.textContent = `promoted ${fileName(data.model_path)} · metadata ${fileName(data.metadata_path)}`;
+    renderTrainingProgress({ status: "completed", operation: "promote", stage: "Promotion complete", percent: 100 });
+  } catch (error) {
+    renderTrainingProgress({ status: "failed", operation: "promote", stage: "Promotion failed", error: error.message || String(error), percent: 0 });
+    throw error;
   } finally {
-    await loadTrainingReadiness();
+    stopTrainingProgressPolling();
+    await refreshWorkflowData();
   }
+}
+
+async function refreshWorkflowData({ candidatesChanged = false } = {}) {
+  if (!activeProfile) return;
+  if (activeView === "training") {
+    await loadTrainingView();
+    return;
+  }
+  if (candidatesChanged && activeView === "candidates") {
+    await loadCandidates({ reset: true });
+    return;
+  }
+  await loadSummary();
+  await loadTrainingReadiness();
 }
 
 async function loadTrainingReadiness() {
@@ -909,6 +996,7 @@ async function loadTrainingView() {
     });
     updateTrainingFeatureSetOptions(data);
     updatePromoteFeatureSetOptions(data);
+    renderTrainingProgress(latestWorkflowProgress);
   } catch (error) {
     if (activeProfile?.classifier_key === profileKey && activeView === "training") {
       trainingPanelEl.innerHTML = renderTrainingLoadError(error);
@@ -962,13 +1050,17 @@ function renderTrainingWorkflow(data, planText) {
         <select id="promoteFeatureSet" ${options.some(row => row.source_data_ready === true) ? "" : "disabled"}>${optionMarkup}</select>
       </label>
       <div class="workflow-variant-facts">
-        ${trainingInfoLine("Required sources", (featureRecipe.required_sources || []).map(source => source.toUpperCase()).join(" + ") || "None")}
-        ${trainingInfoLine("Feature readiness", featureRecipe.ready ? "All required source data is current" : recipeBlockingText(featureRecipe))}
-        ${trainingInfoLine("Benchmark winner", winner ? `${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No winner yet")}
-        ${trainingInfoLine("Selected", selected ? `${selected.feature_set} · rank ${selected.rank ?? "-"} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No selected variant yet")}
-        ${trainingInfoLine("Calibration", selectedCalibrated ? `${selected.calibration_method || "calibrated"} · ready for promotion` : selected ? `not calibrated${selected.calibration_reason ? ` · ${selected.calibration_reason}` : ""}` : "No selected variant")}
-        ${trainingInfoLine("Feature block weights", formatFeatureGroupWeights(selected?.feature_group_weights))}
+        ${trainingInfoLine("Sources", (featureRecipe.required_sources || []).map(source => source.toUpperCase()).join(" + ") || "None")}
+        ${trainingInfoLine("Data", featureRecipe.ready ? "Ready to use" : recipeBlockingText(featureRecipe))}
+        ${trainingInfoLine("Benchmark", winner ? `${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "Run benchmark to compare variants")}
+        ${trainingInfoLine("Selection", selected ? `${selected.feature_set} · #${selected.rank ?? "-"} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "Choose a trained variant")}
+        ${trainingInfoLine("Calibration", selectedCalibrated ? `${selected.calibration_method || "Calibrated"} · ready to promote` : selected ? `Not calibrated${selected.calibration_reason ? ` · ${selected.calibration_reason}` : ""}` : "No selected variant")}
+        ${trainingInfoLine("Model mix", formatFeatureGroupWeights(selected?.feature_group_weights))}
       </div>
+    </div>
+    <div id="trainingProgress" class="training-progress" role="status" aria-live="polite" hidden>
+      <div class="training-progress-header"><span id="trainingProgressStage"></span><b id="trainingProgressPercent">0%</b></div>
+      <div class="training-progress-track"><span id="trainingProgressBar"></span></div>
     </div>
     <div class="workflow-steps">
       ${renderWorkflowStep({
@@ -1184,14 +1276,18 @@ function formatFeatureGroupWeights(weights) {
 }
 
 function renderTrainingInformationMetrics(data) {
-  return `<div class="training-info-card"><b>Training Stats</b>
-    <span class="meta training-info-text">
+  return `<section class="training-info-card">
+    <header class="training-info-heading">
+      <b>Training overview</b>
+      <span class="meta">Saved model, validation quality, and change since the previous run.</span>
+    </header>
+    <div class="meta training-info-text">
       ${renderTrainingLastRunLine(data)}
       ${renderTrainingArtifactsLine(data?.artifact_summary)}
       ${renderTrainingMetricsLine(data?.artifact_summary)}
       ${renderTrainingDynamicsLine(data?.metrics_history)}
-    </span>
-  </div>`;
+    </div>
+  </section>`;
 }
 
 function renderTrainingLastRunLine(data) {
@@ -1202,52 +1298,51 @@ function renderTrainingLastRunLine(data) {
   const modelText = current
     ? `${current.feature_set} model ${formatBytes(current.model_bytes)}`
     : fileName(artifact) || "no current model";
-  return trainingInfoLine("Last run", `${formatHumanDate(runDate)} · labels ${formatLabelCounts(data?.last_trained || {})} · ${modelText}`);
+  return trainingInfoLine("Latest model", `${formatHumanDate(runDate)} · trained on ${formatLabelCounts(data?.last_trained || {})} · ${modelText}`);
 }
 
 function renderTrainingArtifactsLine(summary) {
   const features = summary?.by_feature || [];
   const current = featureSummary(summary, selectedTrainingFeatureSet);
-  const header = `${summary?.model_count || 0} models · ${summary?.metrics_count || 0} metrics · ${summary?.artifact_prefix || activeProfile.artifact_prefix || "profile"}`;
-  const featureNames = features.map(row => String(row.feature_set || "").toUpperCase()).join(", ");
+  const header = `${summary?.model_count || 0} saved models · ${summary?.metrics_count || 0} metric reports`;
   const detail = features.length
-    ? `${features.length} feature sets · selected recipe ${current?.created_at ? formatHumanDate(current.created_at) : "not trained"} · ${featureNames}`
-    : "no profile artifacts found";
-  return trainingInfoLine("Artifacts", `${header} · ${detail}`);
+    ? `${features.length} recipes are available. The selected training recipe was saved ${current?.created_at ? formatHumanDate(current.created_at) : "not yet"}.`
+    : "No saved artifacts yet. Train a recipe to create the first model.";
+  return trainingInfoLine("Saved files", `${header} · ${detail}`);
 }
 
 function renderTrainingMetricsLine(summary) {
   const current = featureSummary(summary, selectedTrainingFeatureSet)
     || selectedPromotionOption({ artifact_summary: summary })
     || (summary?.by_feature || [])[0];
-  if (!current) return trainingInfoLine("Metrics", "No metrics JSON has been written for this profile yet.");
+  if (!current) return trainingInfoLine("Quality", "No validation report yet. Train a recipe to measure model quality.");
   const values = [
     `accuracy ${formatMetricPercent(current.accuracy_mean)}`,
-    `F1 ${formatMetricPercent(current.macro_f1_mean)}`,
+    `F1 balance ${formatMetricPercent(current.macro_f1_mean)}`,
     `precision ${formatMetricPercent(current.positive_precision_mean)}`,
     `recall ${formatMetricPercent(current.positive_recall_mean)}`,
-    `${current.trained_rows ?? "-"} rows`,
-    `${current.feature_count ?? "-"} features`,
+    `${current.trained_rows ?? "-"} labeled tracks`,
+    `${current.feature_count ?? "-"} inputs`,
     current.calibration_status === "calibrated" ? `calibrated ${current.calibration_method || ""}`.trim() : "not calibrated"
   ].join(" · ");
-  return trainingInfoLine("Metrics", `${current.feature_set} · ${values}`);
+  return trainingInfoLine("Quality", `${current.feature_set} · ${values}`);
 }
 
 function renderTrainingDynamicsLine(history) {
   const latest = (history || [])[0];
   const previous = (history || [])[1];
-  if (!latest) return trainingInfoLine("Dynamics", `Train ${selectedTrainingFeatureSet} to start the metrics history.`);
+  if (!latest) return trainingInfoLine("Change", `Train ${selectedTrainingFeatureSet} to establish a baseline.`);
   const trend = previous
-    ? `accuracy ${formatMetricDelta(latest.accuracy_mean, previous.accuracy_mean)}, F1 ${formatMetricDelta(latest.macro_f1_mean, previous.macro_f1_mean)} vs previous run`
-    : "first metrics snapshot for this recipe";
+    ? `vs previous run: accuracy ${formatMetricDelta(latest.accuracy_mean, previous.accuracy_mean)} · F1 ${formatMetricDelta(latest.macro_f1_mean, previous.macro_f1_mean)}`
+    : "First recorded model for this recipe.";
   return trainingInfoLine(
-    "Dynamics",
-    `${trend} · latest ${formatHumanDate(latest.created_at)} · ${latest.trained_rows ?? "-"} rows · ${formatMetricPercent(latest.accuracy_mean)} acc · ${formatMetricPercent(latest.macro_f1_mean)} F1`
+    "Change",
+    `${trend} · ${formatHumanDate(latest.created_at)} · ${latest.trained_rows ?? "-"} labeled tracks · accuracy ${formatMetricPercent(latest.accuracy_mean)} · F1 ${formatMetricPercent(latest.macro_f1_mean)}`
   );
 }
 
 function trainingInfoLine(label, text) {
-  return `<span class="training-info-line"><b>${escapeHtml(label)}</b><span>${escapeHtml(text)}</span></span>`;
+  return `<span class="training-info-line"><b class="training-info-label">${escapeHtml(label)}</b><span class="training-info-value">${escapeHtml(text)}</span></span>`;
 }
 
 function featureSummary(summary, featureSet) {

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import hashlib
 import io
@@ -29,6 +29,7 @@ from dj_track_similarity.classifier_scoring import (
 
 
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+PublicationProgressCallback = Callable[[str, int], None]
 
 
 class ArtifactIntegrityError(ValueError):
@@ -75,6 +76,7 @@ def publish_promoted_artifact(
     artifact_bytes: bytes,
     metadata: Mapping[str, object],
     expected_classifier_key: str,
+    progress_callback: PublicationProgressCallback | None = None,
 ) -> PublishedArtifact:
     """Publish one immutable model/manifest generation behind an atomic pointer."""
 
@@ -82,6 +84,11 @@ def publish_promoted_artifact(
     generations_dir = target_dir / CLASSIFIER_PUBLICATION_GENERATIONS_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
     generations_dir.mkdir(parents=True, exist_ok=True)
+    _report_publication_progress(
+        progress_callback,
+        "Preparing promoted artifact",
+        10,
+    )
 
     artifact_hash = artifact_sha256(artifact_bytes)
     if metadata.get("artifact_hash") != artifact_hash:
@@ -107,6 +114,11 @@ def publish_promoted_artifact(
     generation_published = False
     try:
         staging_dir.mkdir()
+        _report_publication_progress(
+            progress_callback,
+            "Staging promoted classifier",
+            45,
+        )
         _write_fsynced(staging_dir / "model.joblib", artifact_bytes)
         _write_fsynced(staging_dir / "model.json", manifest_bytes)
         _fsync_directory(staging_dir)
@@ -115,11 +127,21 @@ def publish_promoted_artifact(
             artifact_hash=artifact_hash,
             manifest_hash=manifest_hash,
         )
+        _report_publication_progress(
+            progress_callback,
+            "Validating staged classifier",
+            65,
+        )
         _validate_staged_classifier(
             staging_dir,
             expected_classifier_key=expected_classifier_key,
         )
 
+        _report_publication_progress(
+            progress_callback,
+            "Publishing immutable generation",
+            82,
+        )
         os.replace(staging_dir, generation_dir)
         generation_published = True
         _fsync_directory(generations_dir)
@@ -138,6 +160,11 @@ def publish_promoted_artifact(
             )
             + "\n"
         ).encode("utf-8")
+        _report_publication_progress(
+            progress_callback,
+            "Activating promoted classifier",
+            94,
+        )
         _write_fsynced(pointer_staging, pointer_bytes)
         os.replace(pointer_staging, pointer_path)
         _fsync_directory(target_dir)
@@ -159,6 +186,15 @@ def publish_promoted_artifact(
         artifact_hash=artifact_hash,
         manifest_hash=manifest_hash,
     )
+
+
+def _report_publication_progress(
+    callback: PublicationProgressCallback | None,
+    stage: str,
+    percent: int,
+) -> None:
+    if callback is not None:
+        callback(stage, percent)
 
 
 def _validate_staged_classifier(

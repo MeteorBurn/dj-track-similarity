@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import csv
 from datetime import datetime, timezone
 import json
@@ -38,6 +39,9 @@ DEFAULT_CLASSIFIER_TARGET_ROOT = PROJECT_ROOT / "models" / "classifiers"
 
 class PromotionError(ValueError):
     pass
+
+
+PromotionProgressCallback = Callable[[str, int], None]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -258,6 +262,7 @@ def promote_profile_model(
     require_calibration: bool = False,
     allow_uncalibrated: bool = False,
     expected_source_catalog_uuid: str | None = None,
+    progress_callback: PromotionProgressCallback | None = None,
 ) -> dict[str, object]:
     labels_db = RhythmLabDatabase(labels_path, classifier_key=profile_key)
     profile = labels_db.get_profile()
@@ -272,11 +277,13 @@ def promote_profile_model(
             feature_set or DEFAULT_TRAINING_FEATURE_SET,
             calibration=calibration_filter,
         )
+    _report_promotion_progress(progress_callback, "Reading model artifact", 5)
     try:
         verified_artifact = load_verified_artifact(artifact)
     except ArtifactIntegrityError as error:
         raise PromotionError(str(error)) from error
     payload = verified_artifact.payload
+    _report_promotion_progress(progress_callback, "Checking model compatibility", 20)
     classifier_key = str(payload.get("classifier_key") or "")
     if classifier_key != profile.classifier_key:
         raise PromotionError(
@@ -309,6 +316,7 @@ def promote_profile_model(
     if not artifact_source_catalog_uuid:
         raise PromotionError("Artifact is not bound to a source catalog UUID")
 
+    _report_promotion_progress(progress_callback, "Preparing production manifest", 35)
     target = Path(target_root) / profile.artifact_prefix
     artifact_hash = verified_artifact.artifact_hash
     promoted_at = datetime.now(timezone.utc)
@@ -341,6 +349,7 @@ def promote_profile_model(
             artifact_bytes=verified_artifact.artifact_bytes,
             metadata=metadata,
             expected_classifier_key=profile.classifier_key,
+            progress_callback=progress_callback,
         )
     except (ArtifactIntegrityError, OSError, TypeError, ValueError) as error:
         raise PromotionError(
@@ -354,6 +363,15 @@ def promote_profile_model(
         "source_artifact": artifact,
         "metadata": metadata,
     }
+
+
+def _report_promotion_progress(
+    callback: PromotionProgressCallback | None,
+    stage: str,
+    percent: int,
+) -> None:
+    if callback is not None:
+        callback(stage, percent)
 
 
 def _promote_profile(args: argparse.Namespace) -> None:

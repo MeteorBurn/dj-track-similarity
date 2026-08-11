@@ -15,7 +15,7 @@ from .features import (
 )
 from .lab_db import ClassifierProfile, RhythmLabDatabase, TrackIdentity
 from .source_db import SourceDatabase, SourceTrack
-from .training import train_feature_set
+from .training import TrainingProgressCallback, train_feature_set
 
 
 SELECTION_METRIC = "cross_validation.macro_f1_mean"
@@ -36,6 +36,7 @@ def run_ablation_benchmark(
     output_path: str | Path | None = None,
     random_state: int = 42,
     calibrate_finalists: bool = False,
+    progress_callback: TrainingProgressCallback | None = None,
 ) -> dict[str, object]:
     labels_path = Path(labels_db_path)
     selected_feature_sets = tuple(_normalize_feature_sets(feature_sets))
@@ -52,7 +53,9 @@ def run_ablation_benchmark(
         "skipped_profiles": skipped_profiles,
         "profiles": [],
     }
-    for profile in profiles:
+    profile_steps = max(1, len(selected_feature_sets) * 10 + (10 if calibrate_finalists else 0))
+    total_progress_steps = max(1, len(profiles) * profile_steps + 1)
+    for profile_index, profile in enumerate(profiles):
         artifact_dir = _profile_artifact_dir(profile, artifacts_root)
         profile_report = benchmark_profile_ablation(
             source_db_path,
@@ -62,13 +65,26 @@ def run_ablation_benchmark(
             feature_sets=selected_feature_sets,
             random_state=random_state,
             calibrate_finalist=calibrate_finalists,
+            progress_callback=lambda stage, completed, total: _report_progress(
+                progress_callback,
+                f"{profile.name}: {stage}",
+                profile_index * profile_steps + completed,
+                total_progress_steps,
+            ),
         )
         report["profiles"].append(profile_report)
 
     output = Path(output_path) if output_path is not None else _default_output_path(generated_at)
+    _report_progress(
+        progress_callback,
+        "Writing benchmark report",
+        total_progress_steps - 1,
+        total_progress_steps,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     report["output_path"] = str(output.expanduser().resolve(strict=False))
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    _report_progress(progress_callback, "Benchmark complete", total_progress_steps, total_progress_steps)
     return report
 
 
@@ -81,6 +97,7 @@ def benchmark_profile_ablation(
     feature_sets: Sequence[str] = ABLATION_FEATURE_SETS,
     random_state: int = 42,
     calibrate_finalist: bool = False,
+    progress_callback: TrainingProgressCallback | None = None,
 ) -> dict[str, object]:
     labels_db = RhythmLabDatabase(labels_db_path, classifier_key=profile_key)
     profile = labels_db.get_profile()
@@ -91,7 +108,8 @@ def benchmark_profile_ablation(
     embedding_cache: dict[str, tuple[int, dict[int, np.ndarray]]] = {}
     result_rows: list[dict[str, object]] = []
     artifact_root = Path(artifact_dir)
-    for feature_set in feature_sets:
+    total_progress_steps = max(1, len(feature_sets) * 10 + (10 if calibrate_finalist else 0))
+    for feature_index, feature_set in enumerate(feature_sets):
         result_rows.append(
             _train_feature_set_row(
                 source,
@@ -103,6 +121,9 @@ def benchmark_profile_ablation(
                 feature_set,
                 random_state=random_state,
                 calibrate=False,
+                progress_callback=progress_callback,
+                progress_completed=feature_index * 10,
+                progress_total=total_progress_steps,
             )
         )
     winner = _select_winner(result_rows)
@@ -118,6 +139,9 @@ def benchmark_profile_ablation(
             str(winner["feature_set"]),
             random_state=random_state,
             calibrate=True,
+            progress_callback=progress_callback,
+            progress_completed=len(feature_sets) * 10,
+            progress_total=total_progress_steps,
         )
     return {
         "classifier_key": profile.classifier_key,
@@ -170,16 +194,31 @@ def _train_feature_set_row(
     *,
     random_state: int,
     calibrate: bool,
+    progress_callback: TrainingProgressCallback | None = None,
+    progress_completed: int = 0,
+    progress_total: int = 1,
 ) -> dict[str, object]:
     started = time.perf_counter()
     features = None
     try:
+        _report_progress(
+            progress_callback,
+            f"Building {feature_set} feature matrix",
+            progress_completed,
+            progress_total,
+        )
         features = build_feature_matrix(
             source,
             feature_set,
             labels_by_identity=labels_by_identity,
             tracks=tracks,
             embedding_cache=embedding_cache,
+        )
+        _report_progress(
+            progress_callback,
+            f"Training {feature_set}",
+            progress_completed + 1,
+            progress_total,
         )
         result = train_feature_set(
             features.matrix,
@@ -195,6 +234,12 @@ def _train_feature_set_row(
             calibrate=calibrate,
             source_catalog_uuid=source.catalog_uuid,
             skipped_rows=len(features.skipped_identities),
+            progress_callback=lambda stage, completed, total: _report_progress(
+                progress_callback,
+                f"{feature_set}: {stage}",
+                progress_completed + 1 + round(8 * completed / max(1, total)),
+                progress_total,
+            ),
         )
     except ValueError as error:
         return {
@@ -208,6 +253,12 @@ def _train_feature_set_row(
             "calibrated": bool(calibrate),
             "elapsed_seconds": _elapsed_seconds(started),
         }
+    _report_progress(
+        progress_callback,
+        f"Saved {feature_set} model",
+        progress_completed + 10,
+        progress_total,
+    )
     metrics = _metrics_summary(result.metrics_path)
     return {
         "feature_set": feature_set,
@@ -222,6 +273,16 @@ def _train_feature_set_row(
         "metrics": metrics,
         "elapsed_seconds": _elapsed_seconds(started),
     }
+
+
+def _report_progress(
+    callback: TrainingProgressCallback | None,
+    stage: str,
+    completed: int,
+    total: int,
+) -> None:
+    if callback is not None:
+        callback(str(stage), max(0, int(completed)), max(1, int(total)))
 
 
 def _metrics_summary(metrics_path: Path) -> dict[str, object]:

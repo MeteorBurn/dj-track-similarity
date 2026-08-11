@@ -185,6 +185,62 @@ class SourceDatabaseState:
             return self.source
 
 
+class TrainingProgress:
+    """Small in-process progress registry for an active profile workflow."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._states: dict[str, dict[str, object]] = {}
+
+    def start(self, profile_key: str, *, operation: str, stage: str) -> None:
+        with self._lock:
+            existing = self._states.get(profile_key)
+            if existing is not None and existing.get("status") == "running":
+                raise RuntimeError("Training is already running for this profile")
+            self._states[profile_key] = {
+                "operation": operation,
+                "status": "running",
+                "stage": stage,
+                "percent": 0,
+                "error": None,
+            }
+
+    def update(self, profile_key: str, *, stage: str, percent: int) -> None:
+        with self._lock:
+            state = self._states.get(profile_key)
+            if state is None or state.get("status") != "running":
+                return
+            state["stage"] = stage
+            state["percent"] = min(99, max(int(state.get("percent", 0)), int(percent)))
+
+    def complete(self, profile_key: str, *, stage: str) -> None:
+        with self._lock:
+            state = self._states.get(profile_key)
+            if state is None:
+                return
+            state.update({"status": "completed", "stage": stage, "percent": 100, "error": None})
+
+    def fail(self, profile_key: str, *, error: Exception) -> None:
+        with self._lock:
+            state = self._states.get(profile_key)
+            if state is None:
+                return
+            state.update({"status": "failed", "stage": "Training failed", "error": str(error)})
+
+    def snapshot(self, profile_key: str) -> dict[str, object]:
+        with self._lock:
+            state = self._states.get(profile_key)
+            if state is None:
+                return {
+                    "operation": None,
+                    "status": "idle",
+                    "stage": None,
+                    "percent": 0,
+                    "error": None,
+                }
+            return dict(state)
+
+
 def open_existing_database_file_dialog() -> Path | None:
     try:
         import tkinter as tk
@@ -223,6 +279,7 @@ def create_app(
         expected_catalog_uuid=source_catalog_uuid,
     )
     target_root = Path(classifier_target_root) if classifier_target_root is not None else DEFAULT_CLASSIFIER_TARGET_ROOT
+    training_progress = TrainingProgress()
     app = FastAPI(title="Rhythm Lab")
     app.router.on_startup.append(install_rhythm_lab_asyncio_exception_logging)
 
@@ -691,16 +748,49 @@ def create_app(
             )
         artifact = Path(str(selected_option["latest_model"]))
         try:
+            training_progress.start(
+                profile.classifier_key,
+                operation="refresh",
+                stage="Preparing candidate refresh",
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+        def report_prediction_progress(completed: int, total: int) -> None:
+            if total <= 0:
+                stage = "Refreshing candidates"
+                percent = 5
+            else:
+                stage = f"Refreshing candidates: {completed:,}/{total:,}"
+                percent = 5 + round(90 * completed / total)
+            training_progress.update(
+                profile.classifier_key,
+                stage=stage,
+                percent=percent,
+            )
+
+        try:
             result = apply_model_to_lab(
                 source_state.path,
                 labels_path,
                 artifact,
                 classifier_key=profile.classifier_key,
+                progress_callback=report_prediction_progress,
+            )
+            training_progress.update(
+                profile.classifier_key,
+                stage="Publishing refreshed candidates",
+                percent=97,
             )
             deleted = int(result.get("deleted_old_predictions", 0))
         except Exception as error:
+            training_progress.fail(profile.classifier_key, error=error)
             LOGGER.exception("%s predictions refresh failed", profile.name)
             raise HTTPException(status_code=500, detail=str(error)) from error
+        training_progress.complete(
+            profile.classifier_key,
+            stage="Candidate refresh complete",
+        )
         return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
 
     @app.get("/api/profiles/{profile_key}/training/readiness")
@@ -719,6 +809,11 @@ def create_app(
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/api/profiles/{profile_key}/training/progress")
+    def profile_training_progress(profile_key: str):
+        profile_or_404(profile_key)
+        return training_progress.snapshot(profile_key)
 
     @app.post("/api/profiles/{profile_key}/training/train-refresh")
     def profile_train_refresh(
@@ -767,12 +862,36 @@ def create_app(
         counts = dict(readiness["current"])
         artifact_dir = Path(profile.artifact_dir)
         try:
+            training_progress.start(
+                profile.classifier_key,
+                operation="train-refresh",
+                stage="Preparing training data",
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+        def report_training_progress(stage: str, completed: int, total: int) -> None:
+            training_progress.update(
+                profile.classifier_key,
+                stage=stage,
+                percent=round(70 * completed / max(1, total)),
+            )
+
+        def report_prediction_progress(completed: int, total: int) -> None:
+            training_progress.update(
+                profile.classifier_key,
+                stage=f"Refreshing candidates: {completed:,}/{total:,}",
+                percent=70 + round(28 * completed / max(1, total)),
+            )
+
+        try:
             training = benchmark_lab_database(
                 source_state.path,
                 labels_path,
                 artifact_dir,
                 classifier_key=profile.classifier_key,
                 feature_sets=(selected_feature_set,),
+                progress_callback=report_training_progress,
             )
             trained = training.get(selected_feature_set)
             if not isinstance(trained, dict) or trained.get("status") != "trained":
@@ -788,11 +907,17 @@ def create_app(
                 profile.artifact_prefix,
                 selected_feature_set,
             )
+            training_progress.update(
+                profile.classifier_key,
+                stage="Refreshing candidate predictions",
+                percent=70,
+            )
             result = apply_model_to_lab(
                 source_state.path,
                 labels_path,
                 artifact,
                 classifier_key=profile.classifier_key,
+                progress_callback=report_prediction_progress,
             )
             deleted = int(result.get("deleted_old_predictions", 0))
             scoped.record_training_checkpoint(counts, model_artifact=artifact)
@@ -802,8 +927,13 @@ def create_app(
                 artifact_prefix=profile.artifact_prefix,
             )
         except Exception as error:
+            training_progress.fail(profile.classifier_key, error=error)
             LOGGER.exception("%s train + refresh failed", profile.name)
             raise HTTPException(status_code=500, detail=str(error)) from error
+        training_progress.complete(
+            profile.classifier_key,
+            stage="Training and candidate refresh complete",
+        )
         return {
             "training": training,
             "feature_set": selected_feature_set,
@@ -820,16 +950,35 @@ def create_app(
         if source_state.path is None:
             raise HTTPException(status_code=400, detail="Source database is not selected")
         try:
+            training_progress.start(
+                profile.classifier_key,
+                operation="benchmark",
+                stage="Preparing benchmark",
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+        def report_benchmark_progress(stage: str, completed: int, total: int) -> None:
+            training_progress.update(
+                profile.classifier_key,
+                stage=stage,
+                percent=round(100 * completed / max(1, total)),
+            )
+
+        try:
             report = run_ablation_benchmark(
                 source_state.path,
                 labels_path,
                 profile_keys=(profile.classifier_key,),
                 feature_sets=ABLATION_FEATURE_SETS,
                 artifacts_root=None,
+                progress_callback=report_benchmark_progress,
             )
         except Exception as error:
+            training_progress.fail(profile.classifier_key, error=error)
             LOGGER.exception("%s benchmark failed", profile.name)
             raise HTTPException(status_code=500, detail=str(error)) from error
+        training_progress.complete(profile.classifier_key, stage="Benchmark complete")
         profile_report = next(
             (
                 row
@@ -1015,6 +1164,22 @@ def create_app(
                 ),
             )
         try:
+            training_progress.start(
+                profile.classifier_key,
+                operation="promote",
+                stage="Preparing promotion",
+            )
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+        def report_promotion_progress(stage: str, percent: int) -> None:
+            training_progress.update(
+                profile.classifier_key,
+                stage=stage,
+                percent=percent,
+            )
+
+        try:
             result = promote_profile_model(
                 labels_path,
                 profile.classifier_key,
@@ -1026,10 +1191,16 @@ def create_app(
                 expected_source_catalog_uuid=(
                     source.catalog_uuid if source is not None else None
                 ),
+                progress_callback=report_promotion_progress,
             )
         except PromotionError as error:
+            training_progress.fail(profile.classifier_key, error=error)
             LOGGER.exception("%s promotion failed", profile.name)
             raise HTTPException(status_code=400, detail=str(error)) from error
+        training_progress.complete(
+            profile.classifier_key,
+            stage="Promotion complete",
+        )
         return {
             "classifier_key": profile.classifier_key,
             "feature_set": selected_feature_set,

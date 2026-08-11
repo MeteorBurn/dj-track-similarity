@@ -18,11 +18,15 @@ if str(LAB_ROOT) not in sys.path:
 
 from dj_track_similarity.analysis_models import current_embedding_spec  # noqa: E402
 from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
+from dj_track_similarity.sonara_classifier_features import (  # noqa: E402
+    resolve_sonara_classifier_feature,
+)
 from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402
     RhythmLabCollections,
     default_rhythm_lab_labels_path,
 )
 from rhythm_lab import cli as cli_module  # noqa: E402
+from rhythm_lab import ablation as ablation_module  # noqa: E402
 from rhythm_lab import features as feature_module  # noqa: E402
 from rhythm_lab import training as training_module  # noqa: E402
 from rhythm_lab.artifact_io import artifact_sha256  # noqa: E402
@@ -53,6 +57,7 @@ from rhythm_lab.source_db import (  # noqa: E402
 )
 from rhythm_lab.training import train_feature_set  # noqa: E402
 from rhythm_lab.web_app import (  # noqa: E402
+    TrainingProgress,
     _artifact_summary,
     _bind_artifact_source_readiness,
     _training_readiness,
@@ -124,6 +129,7 @@ def _train_artifact(
     artifact_dir: Path,
     *,
     classifier_key: str = "focused",
+    progress_callback=None,
 ):
     matrix = np.asarray(
         [[float(index % 2), float((index + 1) % 2)] for index in range(20)],
@@ -140,7 +146,95 @@ def _train_artifact(
         positive_label="yes",
         artifact_prefix=classifier_key.replace("_", "-"),
         classifier_key=classifier_key,
+        progress_callback=progress_callback,
     )
+
+
+def test_training_progress_reports_lifecycle() -> None:
+    progress = TrainingProgress()
+
+    assert progress.snapshot("focused")["status"] == "idle"
+    progress.start("focused", operation="train-refresh", stage="Preparing")
+    progress.update("focused", stage="Cross-validation fold 1/5", percent=31)
+    running = progress.snapshot("focused")
+    assert running == {
+        "operation": "train-refresh",
+        "status": "running",
+        "stage": "Cross-validation fold 1/5",
+        "percent": 31,
+        "error": None,
+    }
+
+    progress.complete("focused", stage="Complete")
+    assert progress.snapshot("focused")["percent"] == 100
+    progress.start("focused", operation="train-refresh", stage="Preparing")
+    progress.fail("focused", error=RuntimeError("source unavailable"))
+    failed = progress.snapshot("focused")
+    assert failed["status"] == "failed"
+    assert failed["error"] == "source unavailable"
+
+
+@pytest.mark.parametrize("operation", ("refresh", "promote"))
+def test_workflow_progress_reports_refresh_and_promotion(operation: str) -> None:
+    progress = TrainingProgress()
+
+    progress.start("focused", operation=operation, stage="Preparing")
+    progress.update("focused", stage="Working", percent=62)
+    progress.complete("focused", stage="Complete")
+
+    assert progress.snapshot("focused") == {
+        "operation": operation,
+        "status": "completed",
+        "stage": "Complete",
+        "percent": 100,
+        "error": None,
+    }
+
+
+def test_training_progress_callback_reports_holdout_cross_validation_and_artifact(
+    tmp_path: Path,
+) -> None:
+    events: list[tuple[str, int, int]] = []
+
+    _train_artifact(
+        tmp_path / "artifacts",
+        progress_callback=lambda stage, completed, total: events.append((stage, completed, total)),
+    )
+
+    assert events[0] == ("Fitting holdout model", 0, 8)
+    assert any(stage == "Cross-validation fold 5/5" for stage, _, _ in events)
+    assert events[-1] == ("Model artifact saved", 8, 8)
+
+
+def test_ablation_benchmark_reports_progress_across_profile_and_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile = SimpleNamespace(
+        classifier_key="focused",
+        name="Focused",
+        artifact_dir=tmp_path / "artifacts",
+    )
+    monkeypatch.setattr(ablation_module, "_selected_profiles", lambda *_args: ([profile], []))
+
+    def fake_profile_benchmark(*_args, **kwargs):
+        kwargs["progress_callback"]("Cross-validation fold 5/5", 10, 10)
+        return {"classifier_key": "focused", "winner": None}
+
+    monkeypatch.setattr(ablation_module, "benchmark_profile_ablation", fake_profile_benchmark)
+    events: list[tuple[str, int, int]] = []
+
+    ablation_module.run_ablation_benchmark(
+        tmp_path / "source.sqlite",
+        tmp_path / "labels.sqlite",
+        profile_keys=("focused",),
+        feature_sets=("mert",),
+        output_path=tmp_path / "benchmark.json",
+        progress_callback=lambda stage, completed, total: events.append((stage, completed, total)),
+    )
+
+    assert events[0] == ("Focused: Cross-validation fold 5/5", 10, 11)
+    assert events[-1] == ("Benchmark complete", 11, 11)
 
 
 class _ConstantClassifier:
@@ -392,6 +486,13 @@ def test_artifact_with_the_previous_sonara_schema_is_not_promotable() -> None:
         "Artifact was trained with an older SONARA recipe; retrain it."
     )
     assert tuple(SONARA_FEATURE_NAMES) != ("sonara:bpm",)
+
+
+def test_current_rhythm_lab_sonara_recipe_is_scoring_supported() -> None:
+    assert all(
+        resolve_sonara_classifier_feature(name.removeprefix("sonara:")) is not None
+        for name in SONARA_FEATURE_NAMES
+    )
 
 
 def test_serve_parser_forwards_expected_source_catalog_uuid(

@@ -596,6 +596,71 @@ main {
   font-size: 13px;
 }
 
+.training-progress {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(240, 184, 74, 0.42);
+  border-radius: 8px;
+  background: rgba(240, 184, 74, 0.08);
+}
+
+.training-progress-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.training-progress-header span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.training-progress-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.training-progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--amber);
+  transition: width 160ms ease;
+}
+
+.training-progress[data-status="failed"] {
+  border-color: rgba(255, 95, 137, 0.6);
+  background: rgba(255, 95, 137, 0.1);
+}
+
+.training-progress[data-status="failed"] .training-progress-track span {
+  background: #ff5f89;
+}
+
+.training-progress[data-operation="refresh"] {
+  border-color: rgba(57, 214, 223, 0.45);
+  background: rgba(57, 214, 223, 0.08);
+}
+
+.training-progress[data-operation="refresh"] .training-progress-track span {
+  background: var(--cyan);
+}
+
+.training-progress[data-operation="promote"] {
+  border-color: rgba(88, 214, 141, 0.5);
+  background: rgba(88, 214, 141, 0.08);
+}
+
+.training-progress[data-operation="promote"] .training-progress-track span {
+  background: #58d68d;
+}
+
 .workflow-variant-select {
   display: grid;
   gap: 4px;
@@ -616,7 +681,35 @@ main {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(38, 49, 61, 0.82);
+  border-radius: 8px;
+  background: rgba(11, 13, 16, 0.3);
+}
+
+.workflow-variant-facts .training-info-line {
+  grid-template-columns: minmax(76px, 92px) minmax(0, 1fr);
+  gap: 7px;
+  padding: 6px 8px;
+  border: 0;
+  font-size: 11px;
+  line-height: 1.32;
+  background: rgba(18, 22, 28, 0.82);
+}
+
+.workflow-variant-facts .training-info-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.workflow-variant-facts .training-info-value {
+  color: #cfd9e2;
+  font-size: 11px;
+  line-height: 1.32;
 }
 
 .workflow-steps {
@@ -719,29 +812,61 @@ main {
 }
 
 .training-info-card {
-  padding: 14px;
+  display: grid;
+  gap: 14px;
+  padding: 18px var(--panel-pad-x);
   border-top: 1px solid var(--line);
+  background: linear-gradient(90deg, rgba(57, 214, 223, 0.035), transparent 38%);
+}
+
+.training-info-heading {
+  display: grid;
+  gap: 4px;
+  max-width: 78ch;
+}
+
+.training-info-heading b {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.training-info-heading .meta {
+  font-size: 13px;
 }
 
 .training-info-card .meta {
   display: grid;
-  gap: 6px;
+  gap: 0;
+}
+
+.training-info-text {
+  width: min(100%, 1120px);
+  border-top: 1px solid rgba(38, 49, 61, 0.78);
 }
 
 .training-info-line {
   display: grid;
-  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(90px, 110px) minmax(0, 1fr);
+  gap: 14px;
   align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(38, 49, 61, 0.58);
 }
 
-.training-info-line b {
+.training-info-label {
   margin: 0;
-  color: var(--text);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
 }
 
-.training-info-line span {
+.training-info-value {
   min-width: 0;
+  color: #d8e1e8;
+  font-size: 14px;
+  line-height: 1.52;
   overflow-wrap: anywhere;
 }
 
@@ -1127,6 +1252,11 @@ menu {
 
   .workflow-variant-facts {
     grid-template-columns: 1fr;
+  }
+
+  .training-info-line {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .workflow-step {

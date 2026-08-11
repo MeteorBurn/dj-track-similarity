@@ -109,4 +109,7 @@ test("metadata keeps MAEST syncopated rhythm on the detailed MAEST payload", () 
   assert.match(source, /const genres = track\.maest\?\.genres \?\? \[\];/);
   assert.match(source, /syncopatedRhythm: hasMaestSyncopatedRhythm\(track\)/);
   assert.match(source, /SYNCOPATED_RHYTHM_LABEL/);
+  assert.match(source, /className="maest-syncopated-rhythm-indicator"/);
+  assert.match(source, /<AudioWaveform size=\{13\} \/>/);
+  assert.doesNotMatch(source, /maest-syncopated-rhythm-pill/);
 });

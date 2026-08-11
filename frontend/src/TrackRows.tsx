@@ -17,27 +17,56 @@ export function TrackList({
   seedSet,
   playlistSet,
   playingTrackId,
+  previewTrackId,
+  previewCurrentTime,
+  previewDuration,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
+  onSeekPreview,
   onDetails
 }: TrackActions & {
   tracks: Track[];
   seedSet: Set<number>;
   playlistSet: Set<number>;
+  previewTrackId: number | null;
+  previewCurrentTime: number;
+  previewDuration: number;
+  onSeekPreview: (track: Track, seconds: number) => void;
 }) {
   return (
     <div className="track-list">
       {tracks.map((track) => {
         const trackPreviewActive = playingTrackId === track.track_id;
+        const trackPreviewSelected = previewTrackId === track.track_id;
         return (
-          <div className="track-row" key={libraryTrackIdentityKey(track)}>
+          <div
+            aria-current={trackPreviewActive ? "true" : undefined}
+            className={`track-row ${trackPreviewActive ? "is-playing" : ""}`}
+            key={libraryTrackIdentityKey(track)}
+          >
             <button className="icon-button track-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)} type="button">
               {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
             </button>
-            <div className="track-title-cell">
+            <div className={`track-title-cell ${trackPreviewSelected ? "with-playback" : ""}`}>
               <strong>{displayTrack(track)}</strong>
+              {trackPreviewSelected ? (
+                <div className="track-row-playback">
+                  <input
+                    aria-label={`Позиция воспроизведения ${displayTrack(track)}`}
+                    disabled={previewDuration <= 0}
+                    max={Math.max(previewDuration, 1)}
+                    min={0}
+                    onChange={(event) => onSeekPreview(track, Number(event.target.value))}
+                    step={0.1}
+                    title="Перемотать preview"
+                    type="range"
+                    value={Math.min(previewCurrentTime, Math.max(previewDuration, 1))}
+                  />
+                  <span>{formatPlaybackTime(previewCurrentTime)} / {formatPlaybackTime(previewDuration)}</span>
+                </div>
+              ) : null}
             </div>
             {onToggleLiked && (
               <button
@@ -67,6 +96,13 @@ export function TrackList({
       })}
     </div>
   );
+}
+
+function formatPlaybackTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
+  const rounded = Math.floor(seconds);
+  const minutes = Math.floor(rounded / 60);
+  return `${minutes}:${String(rounded % 60).padStart(2, "0")}`;
 }
 
 export function ResultRow({

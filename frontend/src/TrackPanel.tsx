@@ -12,7 +12,6 @@ import {
   type LibrarySortDirection
 } from "./libraryView";
 import { TrackList } from "./TrackRows";
-import { displayTrack } from "./trackDisplay";
 
 export function TrackPanel({
   databaseSelected,
@@ -95,6 +94,11 @@ export function TrackPanel({
   const currentPage = libraryCurrentPageNumber(total, offset, libraryPageSize);
   const syncedPageInput = currentPage ? String(currentPage) : "";
   const [pageInput, setPageInput] = useState(syncedPageInput);
+  const [previewPosition, setPreviewPosition] = useState({
+    trackId: null as number | null,
+    currentTime: 0,
+    duration: 0,
+  });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const addVisibleTitle = total === 0
     ? "Нет отфильтрованных треков для добавления"
@@ -106,6 +110,14 @@ export function TrackPanel({
   useEffect(() => {
     setPageInput(syncedPageInput);
   }, [syncedPageInput]);
+
+  useEffect(() => {
+    setPreviewPosition({
+      trackId: preview?.track_id ?? null,
+      currentTime: 0,
+      duration: 0,
+    });
+  }, [preview?.track_id]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -126,6 +138,25 @@ export function TrackPanel({
     const clampedPage = Math.min(Math.max(requestedPage, 1), pageCount);
     setPageInput(String(clampedPage));
     if (clampedPage !== currentPage) onPageJump(clampedPage);
+  }
+
+  function updatePreviewPosition(trackId: number) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
+    setPreviewPosition({
+      trackId,
+      currentTime: Math.min(Math.max(0, audio.currentTime), duration || 0),
+      duration,
+    });
+  }
+
+  function seekPreview(track: Track, seconds: number) {
+    const audio = audioRef.current;
+    if (!audio || preview?.track_id !== track.track_id) return;
+    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
+    audio.currentTime = Math.min(Math.max(0, seconds), duration);
+    updatePreviewPosition(track.track_id);
   }
 
   return (
@@ -264,31 +295,37 @@ export function TrackPanel({
       ) : !loading && tracks.length === 0 ? (
         <div className="library-empty-state">В текущем запросе треков нет.</div>
       ) : null}
-      <div className="library-preview-player">
-        <span>{preview ? displayTrack(preview) : "Preview"}</span>
-        {preview && (
-          <audio
-            ref={audioRef}
-            controls
-            src={`/media/${preview.track_id}`}
-            onPlay={() => {
-              if (playingTrackId === preview.track_id) onPreviewPlaying(preview.track_id);
-            }}
-            onPause={() => onPreviewPaused(preview.track_id)}
-            onEnded={() => onPreviewPaused(preview.track_id)}
-          />
-        )}
-      </div>
+      {preview && (
+        <audio
+          ref={audioRef}
+          hidden
+          src={`/media/${preview.track_id}`}
+          onPlay={() => {
+            if (playingTrackId === preview.track_id) onPreviewPlaying(preview.track_id);
+          }}
+          onPause={() => onPreviewPaused(preview.track_id)}
+          onEnded={() => {
+            updatePreviewPosition(preview.track_id);
+            onPreviewPaused(preview.track_id);
+          }}
+          onDurationChange={() => updatePreviewPosition(preview.track_id)}
+          onTimeUpdate={() => updatePreviewPosition(preview.track_id)}
+        />
+      )}
       {tracks.length ? (
         <TrackList
           tracks={tracks}
           seedSet={seedSet}
           playlistSet={playlistSet}
           playingTrackId={playingTrackId}
+          previewTrackId={preview?.track_id ?? null}
+          previewCurrentTime={previewPosition.trackId === preview?.track_id ? previewPosition.currentTime : 0}
+          previewDuration={previewPosition.trackId === preview?.track_id ? previewPosition.duration : 0}
           onSeed={onSeed}
           onToggleLiked={onToggleLiked}
           onTogglePlaylist={onTogglePlaylist}
           onPreview={onPreview}
+          onSeekPreview={seekPreview}
           onDetails={onDetails}
         />
       ) : null}

@@ -1,4 +1,4 @@
-import { Check, Copy, Pause, Play, X } from "lucide-react";
+import { AudioWaveform, Check, Copy, Pause, Play, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
@@ -229,7 +229,14 @@ export function TrackMetadataDialog({
                 </span>
               ))}
               {view.syncopatedRhythm ? (
-                <span className="maest-genre-pill maest-syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span>
+                <span
+                  aria-label={SYNCOPATED_RHYTHM_LABEL}
+                  className="maest-syncopated-rhythm-indicator"
+                  role="img"
+                  title="MAEST detected syncopated rhythm"
+                >
+                  <AudioWaveform size={13} />
+                </span>
               ) : null}
             </div>
           ) : (

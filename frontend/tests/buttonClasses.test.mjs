@@ -273,7 +273,7 @@ test("ui class names describe responsibility instead of visual priority", () => 
   assert.match(styles, /\.analysis-models-heading\s*{/);
   assert.match(styles, /\.search-workflow-section\s*{/);
   assert.match(styles, /\.playlist-export-section\s*{/);
-  assert.match(styles, /\.library-preview-player\s*{/);
+  assert.doesNotMatch(styles, /\.library-preview-player\s*{/);
   assert.match(styles, /\.export-action-row\s*{/);
   assert.match(styles, /\.similarity-score\s*{/);
 });
@@ -622,16 +622,13 @@ test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
   assert.match(styles, /\.library-search-mode-toggle button\s*{/);
 });
 
-test("track rows do not show analysis availability inside track copy", () => {
+test("track rows keep analysis availability out of track copy", () => {
   const source = readFileSync(join(srcDir, "TrackRows.tsx"), "utf8");
-  const trackTitleBlocks = [...source.matchAll(/<div className="track-title-cell">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+  const trackListSource = source.match(/export function TrackList[\s\S]*?\n}\n\nfunction formatPlaybackTime/)?.[0] || "";
 
-  assert.ok(trackTitleBlocks.length >= 2);
-  for (const block of trackTitleBlocks) {
-    assert.doesNotMatch(block, /trackInfo\(track\)/);
-    assert.doesNotMatch(block, /analysisStatusLabel/);
-    assert.doesNotMatch(block, /<span>/);
-  }
+  assert.doesNotMatch(trackListSource, /trackInfo\(track\)/);
+  assert.doesNotMatch(trackListSource, /analysisStatusLabel/);
+  assert.match(trackListSource, /className="track-row-playback"/);
 });
 
 test("candidate result rows expose the shared liked toggle", () => {
@@ -661,6 +658,18 @@ test("library search mode active state highlights the active mode text", () => {
 
   assert.match(activeRule, /background:\s*transparent;/);
   assert.match(activeRule, /color:\s*var\(--accent-hover\);/);
+});
+
+test("syncopated library preset uses a danger accent only when active", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const defaultRule = styles.match(/\.library-preset-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const activeRule = styles.match(/\.library-preset-button\.active\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(defaultRule, /background:\s*transparent;/);
+  assert.doesNotMatch(defaultRule, /--warning-/);
+  assert.match(activeRule, /background:\s*var\(--danger-muted-bg\);/);
+  assert.match(activeRule, /border-color:\s*var\(--danger-border-hover\);/);
+  assert.match(activeRule, /color:\s*var\(--danger-text\);/);
 });
 
 test("library pagination exposes page count and the current track range", () => {

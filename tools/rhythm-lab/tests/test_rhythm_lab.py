@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import fields, replace
-from itertools import combinations
 from pathlib import Path
 import sqlite3
 import sys
@@ -37,7 +36,7 @@ from rhythm_lab.features import (  # noqa: E402
     ABLATION_FEATURE_SETS,
     DEFAULT_TRAINING_FEATURE_SET,
     FEATURE_RECIPE_OPTIONS,
-    FEATURE_SETS,
+    SONARA_FEATURE_NAMES,
     SONARA_SCALAR_FIELDS,
     SONARA_VECTOR_FIELDS,
     build_feature_matrix,
@@ -272,28 +271,16 @@ def test_muq_feature_sets_extract_current_structural_dimensions(
         )
 
 
-def test_muq_defaults_preserve_legacy_combined_and_ablation_selection() -> None:
-    legacy_ablation = tuple(
-        "combined" if sources == ("sonara", "mert", "maest") else "+".join(sources)
-        for sonara_source in ("", "sonara", "sonara2", "sonara2vocal")
-        for size in range(0, 4)
-        for embedding_sources in combinations(("mert", "maest", "clap"), size)
-        if sonara_source or embedding_sources
-        for sources in (
-            ((sonara_source,) if sonara_source else ()) + embedding_sources,
-        )
-    )
-
-    assert feature_sources("combined") == ("sonara", "mert", "maest")
-    assert FEATURE_SETS == ("sonara", "mert", "maest", "muq", "combined")
-    assert ABLATION_FEATURE_SETS[: len(legacy_ablation)] == legacy_ablation
-    assert ABLATION_FEATURE_SETS[len(legacy_ablation) :] == (
-        "muq",
-        "sonara+muq",
-        "mert+muq",
-        "sonara+mert+maest+clap+muq",
-        "sonara2vocal+mert+maest+clap+muq",
-    )
+def test_ablation_selection_uses_the_single_current_sonara_source() -> None:
+    assert ABLATION_FEATURE_SETS == FEATURE_RECIPE_OPTIONS
+    assert len(ABLATION_FEATURE_SETS) == 31
+    assert all("sonara2" not in feature_set for feature_set in ABLATION_FEATURE_SETS)
+    assert all("sonara2" not in feature_set for feature_set in FEATURE_RECIPE_OPTIONS)
+    assert all(feature_set != "combined" for feature_set in (*ABLATION_FEATURE_SETS, *FEATURE_RECIPE_OPTIONS))
+    with pytest.raises(ValueError, match="Unsupported feature source: sonara2"):
+        feature_sources("sonara2")
+    with pytest.raises(ValueError, match="Unsupported feature source: combined"):
+        feature_sources("combined")
 
 
 def test_recipe_readiness_requires_only_selected_current_sources() -> None:
@@ -309,12 +296,12 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
         reason="MuQ vectors are missing.",
     )
 
-    combined = feature_recipe_readiness("combined", states)
+    sonara_mert_maest = feature_recipe_readiness("sonara+mert+maest", states)
     muq = feature_recipe_readiness("muq", states)
     sonara_muq = feature_recipe_readiness("sonara+muq", states)
 
-    assert combined["required_sources"] == ["sonara", "mert", "maest"]
-    assert combined["ready"] is True
+    assert sonara_mert_maest["required_sources"] == ["sonara", "mert", "maest"]
+    assert sonara_mert_maest["ready"] is True
     assert muq["ready"] is False
     assert muq["blocking"] == [
         {
@@ -324,7 +311,9 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
         }
     ]
     assert sonara_muq["ready"] is False
-    assert FEATURE_RECIPE_OPTIONS[0] == "combined"
+    assert FEATURE_RECIPE_OPTIONS[0] == DEFAULT_TRAINING_FEATURE_SET
+    assert "sonara+mert+maest" in FEATURE_RECIPE_OPTIONS
+    assert "combined" not in FEATURE_RECIPE_OPTIONS
     assert "muq" in FEATURE_RECIPE_OPTIONS
     assert "clap+muq" in FEATURE_RECIPE_OPTIONS
     assert "sonara+mert+maest+clap+muq" in FEATURE_RECIPE_OPTIONS
@@ -373,6 +362,36 @@ def test_artifact_with_missing_muq_data_is_not_promotable() -> None:
     assert current["promotion_options"][0]["source_data_ready"] is True
     assert current["promotion_options"][0]["source_data_reason"] is None
     assert current["latest_promotable"]["feature_set"] == "muq"
+
+
+def test_artifact_with_the_previous_sonara_schema_is_not_promotable() -> None:
+    summary = {
+        "by_feature": [
+            {
+                "feature_set": "sonara+mert",
+                "latest_model": "sonara-mert.joblib",
+                "feature_names": ["sonara:bpm", "mert:0"],
+                "macro_f1_mean": 0.9,
+            }
+        ],
+        "promotion_options": [],
+        "latest_promotable": None,
+    }
+
+    current = _bind_artifact_source_readiness(
+        summary,
+        {
+            "sonara": SourceFeatureState(status="current", reason=None),
+            "mert": SourceFeatureState(status="current", reason=None),
+        },
+    )
+
+    row = current["by_feature"][0]
+    assert row["source_data_ready"] is False
+    assert row["source_data_reason"] == (
+        "Artifact was trained with an older SONARA recipe; retrain it."
+    )
+    assert tuple(SONARA_FEATURE_NAMES) != ("sonara:bpm",)
 
 
 def test_serve_parser_forwards_expected_source_catalog_uuid(
@@ -1037,7 +1056,7 @@ def test_calibration_gate_failure_does_not_write_uncalibrated_artifact(
 
 
 def test_default_training_recipe_uses_current_sonara_and_all_embeddings() -> None:
-    expected = "sonara2vocal+mert+maest+clap+muq"
+    expected = "sonara+mert+maest+clap+muq"
 
     assert getattr(feature_module, "DEFAULT_TRAINING_FEATURE_SET", None) == expected
     assert expected in FEATURE_RECIPE_OPTIONS

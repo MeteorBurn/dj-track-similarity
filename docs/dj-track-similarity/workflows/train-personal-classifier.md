@@ -38,23 +38,21 @@ labels, predictions, queues, and checkpoints in its own labels database.
 
 ## 1. Prepare source analysis
 
-For combined training, run SONARA, MERT, and MAEST first:
+For a recipe that uses SONARA, MERT, and MAEST, run those analyses first:
 
 ```powershell
 dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert --db .\data\library.sqlite
 ```
 
-The legacy `combined` feature set still means exactly `sonara+mert+maest`. If a selected feature set
-contains MuQ, store its current embedding first:
+If a selected feature set contains MuQ, store its current embedding first:
 
 ```powershell
 dj-sim analyze --models muq --db .\data\library.sqlite
 ```
 
-Benchmark variants can also use CLAP when CLAP embeddings already exist. SONARA 2.0 benchmark
-variants still read stored SONARA features. The `sonara2vocal` variant adds `vocalness` to the
-candidate feature set.
+Benchmark variants can also use CLAP when CLAP embeddings already exist. The single current
+`sonara` source includes the current Core fields, including `vocalness`.
 
 The command above uses the current SONARA `core` output, matching the CLI and direct API defaults.
 The `timeline`, `embedding`, and `fingerprint` outputs are not classifier inputs. A
@@ -103,7 +101,7 @@ the active source catalog unless the CLI receives the experimental
 `--allow-uncalibrated` override.
 
 CLI and UI training default to the current full recipe,
-`sonara2vocal+mert+maest+clap+muq`. The **Training recipe** selector also exposes
+`sonara+mert+maest+clap+muq`. The **Training recipe** selector also exposes
 individual sources and supported combinations. Readiness is calculated from
 labels that have every current output required by the selected recipe.
 
@@ -119,11 +117,9 @@ profile:
 python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
 ```
 
-The Training tab shows the benchmark winner and lets you choose a different
-trained variant before promotion. The default benchmark matrix includes
-embedding-only combinations, the original SONARA feature set, `sonara2`, and
-`sonara2vocal`. It preserves the previous matrix and adds `muq`, `sonara+muq`,
-`mert+muq`, and `sonara+mert+maest+clap+muq`.
+The Training tab benchmarks all 31 non-empty combinations of SONARA, MERT,
+MAEST, CLAP, and MuQ, then identifies the best trained variant for the active
+profile before promotion.
 
 For any other combination, repeat the CLI option:
 

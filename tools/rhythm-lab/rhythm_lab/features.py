@@ -13,43 +13,22 @@ from .lab_db import RhythmLabDatabase, TrackIdentity, track_identity
 from .source_db import SourceDatabase, SourceTrack
 
 
-SONARA_SOURCE_VARIANTS = ("sonara", "sonara2", "sonara2vocal")
 EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap", "muq")
 BASE_FEATURE_SOURCES = ("sonara", *EMBEDDING_FEATURE_SOURCES)
-SUPPORTED_FEATURE_SOURCES = (*SONARA_SOURCE_VARIANTS, *EMBEDDING_FEATURE_SOURCES)
-FEATURE_SOURCE_ALIASES = {"sonara2": "sonara", "sonara2vocal": "sonara"}
-MODERN_FULL_FEATURE_SET = "sonara2vocal+mert+maest+clap+muq"
+SUPPORTED_FEATURE_SOURCES = BASE_FEATURE_SOURCES
+MODERN_FULL_FEATURE_SET = "sonara+mert+maest+clap+muq"
 DEFAULT_TRAINING_FEATURE_SET = MODERN_FULL_FEATURE_SET
-FEATURE_SETS = ("sonara", "mert", "maest", "muq", "combined")
 FEATURE_RECIPE_OPTIONS = (
-    "combined",
     DEFAULT_TRAINING_FEATURE_SET,
-    "sonara2vocal",
-    "sonara2",
     *(
         "+".join(sources)
         for size in range(1, len(BASE_FEATURE_SOURCES) + 1)
         for sources in combinations(BASE_FEATURE_SOURCES, size)
+        if "+".join(sources) != DEFAULT_TRAINING_FEATURE_SET
     ),
 )
-_LEGACY_ABLATION_EMBEDDING_SOURCES = ("mert", "maest", "clap")
-_LEGACY_ABLATION_FEATURE_SETS = tuple(
-    "combined" if sources == ("sonara", "mert", "maest") else "+".join(sources)
-    for sonara_source in ("", *SONARA_SOURCE_VARIANTS)
-    for size in range(0, len(_LEGACY_ABLATION_EMBEDDING_SOURCES) + 1)
-    for embedding_sources in combinations(_LEGACY_ABLATION_EMBEDDING_SOURCES, size)
-    if sonara_source or embedding_sources
-    for sources in (((sonara_source,) if sonara_source else ()) + embedding_sources,)
-)
-ABLATION_FEATURE_SETS = (
-    *_LEGACY_ABLATION_FEATURE_SETS,
-    "muq",
-    "sonara+muq",
-    "mert+muq",
-    "sonara+mert+maest+clap+muq",
-    MODERN_FULL_FEATURE_SET,
-)
-SONARA_SCALAR_FIELDS = (
+ABLATION_FEATURE_SETS = FEATURE_RECIPE_OPTIONS
+_SONARA_CORE_SCALAR_FIELDS = (
     "bpm",
     "onset_density",
     "n_beats",
@@ -70,7 +49,7 @@ SONARA_SCALAR_FIELDS = (
     "spectral_rolloff_mean",
     "spectral_flatness_mean",
 )
-SONARA2_EXTRA_SCALAR_FIELDS = (
+_SONARA_CURRENT_EXTRA_SCALAR_FIELDS = (
     "bpm_raw",
     "energy_level",
     "intro_end_sec",
@@ -85,13 +64,24 @@ SONARA2_EXTRA_SCALAR_FIELDS = (
     "leading_silence_sec",
     "trailing_silence_sec",
 )
-SONARA2_SCALAR_FIELDS = (*SONARA_SCALAR_FIELDS, *SONARA2_EXTRA_SCALAR_FIELDS)
-SONARA2VOCAL_SCALAR_FIELDS = (*SONARA2_SCALAR_FIELDS, "vocalness")
+SONARA_SCALAR_FIELDS = (
+    *_SONARA_CORE_SCALAR_FIELDS,
+    *_SONARA_CURRENT_EXTRA_SCALAR_FIELDS,
+    "vocalness",
+)
 SONARA_VECTOR_FIELDS = {
     "mfcc_mean": 13,
     "chroma_mean": 12,
     "spectral_contrast_mean": 7,
 }
+SONARA_FEATURE_NAMES = (
+    *(f"sonara:{field}" for field in SONARA_SCALAR_FIELDS),
+    *(
+        f"sonara:{field}:{index}"
+        for field, length in SONARA_VECTOR_FIELDS.items()
+        for index in range(length)
+    ),
+)
 _SONARA_ATTRIBUTES = {
     "bpm": "detected_bpm",
     "onset_density": "onset_density_per_second",
@@ -179,7 +169,7 @@ def build_feature_matrix(
     expected_feature_names: object | None = None,
 ) -> FeatureMatrix:
     sources = feature_sources(feature_set)
-    scalar_fields = _sonara_scalar_fields(feature_set)
+    scalar_fields = _sonara_scalar_fields()
     current_tracks = tuple(tracks if tracks is not None else source.list_tracks())
     by_identity = {track_identity(track): track for track in current_tracks}
     cache = embedding_cache if embedding_cache is not None else {}
@@ -346,21 +336,18 @@ def _parse_feature_names(value: object) -> list[str] | None:
 
 def feature_sources(feature_set: str) -> tuple[str, ...]:
     clean = str(feature_set or "").strip().lower()
-    if clean == "combined":
-        return ("sonara", "mert", "maest")
     raw = tuple(part.strip() for part in clean.split("+") if part.strip())
     if not raw:
         raise ValueError("Feature set is required")
     unsupported = sorted(set(raw) - set(SUPPORTED_FEATURE_SOURCES))
     if unsupported:
         raise ValueError(f"Unsupported feature source: {', '.join(unsupported)}")
-    normalized = tuple(FEATURE_SOURCE_ALIASES.get(source, source) for source in raw)
     duplicates = sorted(
-        source for source in set(normalized) if normalized.count(source) > 1
+        source for source in set(raw) if raw.count(source) > 1
     )
     if duplicates:
         raise ValueError(f"Duplicate feature source: {', '.join(duplicates)}")
-    return tuple(source for source in BASE_FEATURE_SOURCES if source in normalized)
+    return tuple(source for source in BASE_FEATURE_SOURCES if source in raw)
 
 
 def feature_recipe_readiness(
@@ -402,16 +389,7 @@ def _feature_state_payload(value: object, *, source: str) -> dict[str, object]:
     }
 
 
-def _sonara_scalar_fields(feature_set: str) -> tuple[str, ...]:
-    raw = tuple(
-        part.strip()
-        for part in str(feature_set or "").strip().lower().split("+")
-        if part.strip()
-    )
-    if "sonara2vocal" in raw:
-        return SONARA2VOCAL_SCALAR_FIELDS
-    if "sonara2" in raw:
-        return SONARA2_SCALAR_FIELDS
+def _sonara_scalar_fields() -> tuple[str, ...]:
     return SONARA_SCALAR_FIELDS
 
 
@@ -429,11 +407,9 @@ def _feature_names(
 
 
 def _sonara_feature_names(scalar_fields: tuple[str, ...]) -> list[str]:
-    names: list[str] = []
-    names.extend(f"sonara:{field}" for field in scalar_fields)
-    for field, length in SONARA_VECTOR_FIELDS.items():
-        names.extend(f"sonara:{field}:{index}" for index in range(length))
-    return names
+    if scalar_fields != SONARA_SCALAR_FIELDS:
+        raise ValueError("SONARA feature schema must use the current scalar fields")
+    return list(SONARA_FEATURE_NAMES)
 
 
 def _finite_float(value: object) -> float | None:

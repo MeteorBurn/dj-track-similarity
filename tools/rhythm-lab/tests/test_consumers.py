@@ -616,9 +616,9 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             "/api/profiles/focused/training/readiness",
             params={"feature_set": "mert"},
         ).json()
-        combined_readiness = client.get(
+        sonara_mert_maest_readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "combined"},
+            params={"feature_set": "sonara+mert+maest"},
         ).json()
         muq_readiness = client.get(
             "/api/profiles/focused/training/readiness",
@@ -628,8 +628,8 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert mert_readiness["labels_ready"] is False
         assert mert_readiness["calibration_ready"] is False
         assert "100" in mert_readiness["calibration_readiness"]["reason"]
-        assert combined_readiness["features_ready"] is False
-        assert combined_readiness["feature_recipe"]["required_sources"] == [
+        assert sonara_mert_maest_readiness["features_ready"] is False
+        assert sonara_mert_maest_readiness["feature_recipe"]["required_sources"] == [
             "sonara",
             "mert",
             "maest",
@@ -686,6 +686,10 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         )
         assert incomplete.status_code == 422
 
+        index = client.get("/")
+        assert index.status_code == 200
+        assert "app.js?v=rhythm-lab-20260811-training-recipes" in index.text
+
         static_script = client.get("/static/app.js")
         assert static_script.status_code == 200
         script = static_script.text
@@ -695,13 +699,15 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert "trackFeatureStatus" in script
         assert '"muq"' in script
         assert "source_data_ready" in script
-        assert '"sonara2vocal+mert+maest+clap+muq"' in script
+        assert '"sonara+mert+maest+clap+muq"' in script
         assert "async function calibrateClassifier()" in script
         assert "/training/calibrate" in script
         assert "async function refreshCandidates()" in script
         assert "/predictions/refresh" in script
         assert "feature_group_weights" in script
         assert '["sonara", "mert", "maest", "clap", "muq"]' in script
+        assert "Loading Training" in script
+        assert "Training could not load" in script
         assert "if (!selected) return" in script
         assert "track.id" not in script
         assert "track.path" not in script

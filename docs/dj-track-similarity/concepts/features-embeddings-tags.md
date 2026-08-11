@@ -42,10 +42,10 @@ Mood affinities are shown as analysis data and retained for possible future work
 current similarity or classifier inputs. In Custom SONARA search, aggression is an explicit
 confidence-aware directional modifier. DJ transition adds a soft structure fit only when the seed
 outro and candidate intro data is present. True peak and ReplayGain are also retained
-for possible loudness-management features rather than direct SONARA similarity. Loudness scalars
-can enter the `sonara2` classifier variant. The existing SONARA dynamics comparison uses momentary
-loudness maximum and loudness range. Vocalness is available through an explicit search modifier
-and the optional `sonara2vocal` variant.
+for possible loudness-management features rather than direct SONARA similarity. The current
+`sonara` classifier source includes those loudness scalars and vocalness. The existing SONARA
+dynamics comparison uses momentary loudness maximum and loudness range; vocalness is also an
+explicit search modifier.
 
 SONARA analysis currently stores only compact Core scalars and fixed vectors. Timeline, SONARA
 embedding, and fingerprint collection are disabled. MAEST, MERT, MuQ, and CLAP vectors use

@@ -82,10 +82,9 @@ confidence-aware directional modifier in Custom SONARA search. Its component val
 DJ transition blends a soft, directional structure fit from the seed outro to the candidate intro
 when both rows have usable structure fields. True peak and
 ReplayGain are not direct SONARA similarity dimensions. They are retained for possible
-loudness-management features. Loudness scalars remain available to the `sonara2` classifier
-variant, momentary loudness maximum and loudness range remain available to the existing SONARA
-dynamics comparison, and `vocalness` remains an explicit search modifier and an optional
-`sonara2vocal` variant.
+loudness-management features. The current `sonara` classifier source includes those loudness
+scalars and vocalness; momentary loudness maximum and loudness range remain available to the
+existing SONARA dynamics comparison, and vocalness remains an explicit search modifier.
 
 MAEST, MERT, MuQ, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
 Core features rather than a SONARA embedding.

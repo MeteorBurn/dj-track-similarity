@@ -509,9 +509,7 @@ def _latest_feature_artifact(
     calibration: str = "uncalibrated",
 ) -> Path:
     feature_sources(feature_set)
-    artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-combined-*.joblib"))
-    if feature_set != "combined":
-        artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
+    artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
     artifacts.reverse()
     for artifact in artifacts:
         if _artifact_matches_calibration_filter(artifact, calibration):

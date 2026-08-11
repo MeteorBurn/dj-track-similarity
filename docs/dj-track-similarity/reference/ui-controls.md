@@ -71,8 +71,7 @@ models show a model-specific reason. Verdict writes include `catalog_uuid`, `tra
 The top-bar Rhythm Lab action calls `/api/rhythm-lab/launch` and opens the returned local URL. The
 current set can be saved as a Lab review collection. Standalone Rhythm Lab shows current, missing,
 or stale state for SONARA, MERT, MAEST, CLAP, and MuQ; its page sizes are `50`, `100`, `200`, and
-`500`. The **Training recipe** selector supports MuQ and explicit source combinations. The legacy
-`combined` recipe remains `sonara+mert+maest`.
+`500`. The **Training recipe** selector supports MuQ and explicit source combinations.
 
 For analysis semantics, see [Analyze a library](../user-guide/analyze-library.md). For
 source-file boundaries, see [Local-first safety](../concepts/local-first-safety.md).

@@ -25,12 +25,10 @@ changed recipe is blocked until that profile is retrained and promoted. Missing 
 incompatible rather than zero-filled.
 
 Normal training now includes the `muq` feature set. MuQ can also participate in arbitrary
-source combinations accepted by the backend and CLI. The legacy `combined` alias remains
-`sonara+mert+maest`.
+source combinations accepted by the backend and CLI.
 
-The default `benchmark-ablation` matrix preserves its previous combinations and adds four
-representative MuQ cases: `muq`, `sonara+muq`, `mert+muq`, and
-`sonara+mert+maest+clap+muq`. Repeat `--feature-set` to benchmark other explicit combinations.
+The default `benchmark-ablation` matrix evaluates all 31 non-empty combinations of SONARA, MERT,
+MAEST, CLAP, and MuQ. Repeat `--feature-set` only to narrow the benchmark to an explicit subset.
 Promoted artifacts record exact ordered feature names, and runtime scoring accepts `muq:<index>`
 features when the stored vector has the expected dimension.
 
@@ -54,7 +52,7 @@ source audio.
 The standalone UI reports `current`, `missing`, or `stale` state for SONARA, MERT, MAEST, CLAP, and
 MuQ. Coverage counts do not make a stale source trainable. The **Training recipe** selector exposes
 MuQ alone and every supported source combination; readiness and blocker text are recalculated for
-the selected recipe only. The legacy `combined` option still means `sonara+mert+maest`.
+the selected recipe only.
 
 The training workflow uses the selected recipe to fit a model and refresh candidates. You can then
 benchmark variants before promoting an artifact. Library, Candidates, and

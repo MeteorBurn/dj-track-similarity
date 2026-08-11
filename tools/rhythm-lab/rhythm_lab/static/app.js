@@ -39,7 +39,7 @@ const newProfileTypeEl = document.getElementById("newProfileType");
 const binaryLabelGridEl = document.getElementById("binaryLabelGrid");
 const multiclassLabelEditorEl = document.getElementById("multiclassLabelEditor");
 const multiclassLabelRowsEl = document.getElementById("multiclassLabelRows");
-const DEFAULT_TRAINING_FEATURE_SET = "sonara2vocal+mert+maest+clap+muq";
+const DEFAULT_TRAINING_FEATURE_SET = "sonara+mert+maest+clap+muq";
 
 let profiles = [];
 let activeProfile = null;
@@ -886,25 +886,47 @@ async function loadTrainingReadiness() {
 }
 
 async function loadTrainingView() {
-  const data = await loadTrainingReadiness();
-  if (!activeProfile || !data) return;
-  await loadSummary();
   if (!activeProfile) return;
-  const planText = isMulticlassProfile()
-    ? `Guided Logistic Regression across ${trainingLabels().map(label => escapeHtml(label.name)).join(", ")}. Each track contributes at most one class label.`
-    : `Guided Logistic Regression on ${escapeHtml(labelByKey(activeProfile.positive_label).name)} vs ${escapeHtml(labelByKey(activeProfile.negative_label).name)}. Review-only labels stay out of fitting.`;
-  trainingPanelEl.innerHTML = `
-    ${renderTrainingWorkflow(data, planText)}
-    ${renderTrainingInformationMetrics(data)}`;
-  promoteFeatureSetEl = document.getElementById("promoteFeatureSet");
-  promoteFeatureSetEl?.addEventListener("change", () => loadTrainingReadiness().catch(showError));
-  trainingFeatureSetEl = document.getElementById("trainingFeatureSet");
-  trainingFeatureSetEl?.addEventListener("change", () => {
-    selectedTrainingFeatureSet = trainingFeatureSetEl.value || DEFAULT_TRAINING_FEATURE_SET;
-    loadTrainingView().catch(showError);
-  });
-  updateTrainingFeatureSetOptions(data);
-  updatePromoteFeatureSetOptions(data);
+  const profileKey = activeProfile.classifier_key;
+  trainingPanelEl.innerHTML = renderTrainingLoading(activeProfile.name);
+  try {
+    const data = await loadTrainingReadiness();
+    if (!activeProfile || activeProfile.classifier_key !== profileKey || activeView !== "training" || !data) return;
+    await loadSummary();
+    if (!activeProfile || activeProfile.classifier_key !== profileKey || activeView !== "training") return;
+    const planText = isMulticlassProfile()
+      ? `Guided Logistic Regression across ${trainingLabels().map(label => escapeHtml(label.name)).join(", ")}. Each track contributes at most one class label.`
+      : `Guided Logistic Regression on ${escapeHtml(labelByKey(activeProfile.positive_label).name)} vs ${escapeHtml(labelByKey(activeProfile.negative_label).name)}. Review-only labels stay out of fitting.`;
+    trainingPanelEl.innerHTML = `
+      ${renderTrainingWorkflow(data, planText)}
+      ${renderTrainingInformationMetrics(data)}`;
+    promoteFeatureSetEl = document.getElementById("promoteFeatureSet");
+    promoteFeatureSetEl?.addEventListener("change", () => loadTrainingReadiness().catch(showError));
+    trainingFeatureSetEl = document.getElementById("trainingFeatureSet");
+    trainingFeatureSetEl?.addEventListener("change", () => {
+      selectedTrainingFeatureSet = trainingFeatureSetEl.value || DEFAULT_TRAINING_FEATURE_SET;
+      loadTrainingView().catch(showError);
+    });
+    updateTrainingFeatureSetOptions(data);
+    updatePromoteFeatureSetOptions(data);
+  } catch (error) {
+    if (activeProfile?.classifier_key === profileKey && activeView === "training") {
+      trainingPanelEl.innerHTML = renderTrainingLoadError(error);
+    }
+    throw error;
+  }
+}
+
+function renderTrainingLoading(profileName) {
+  return `<div class="training-info-card"><b>Loading Training</b>
+    <span class="meta training-info-text">Checking labels, feature sources, and saved models for ${escapeHtml(profileName)}...</span>
+  </div>`;
+}
+
+function renderTrainingLoadError(error) {
+  return `<div class="training-info-card"><b>Training could not load</b>
+    <span class="meta training-info-text">${escapeHtml(error?.message || String(error))}</span>
+  </div>`;
 }
 
 function renderTrainingWorkflow(data, planText) {
@@ -1006,7 +1028,6 @@ function renderTrainingWorkflow(data, planText) {
 function hasTrainedVariant(data) {
   return Boolean(
     data?.model_artifact ||
-    data?.artifact_summary?.latest_combined ||
     (data?.artifact_summary?.promotion_options || []).length
   );
 }

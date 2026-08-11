@@ -47,10 +47,9 @@ Rhythm Lab does not create a built-in starter profile. Existing profiles, includ
 
 ## Training inputs
 
-Training uses the feature families declared by the selected profile artifact. Combined training
-requires current SONARA Core features plus MERT and MAEST embeddings; a feature set that includes
-CLAP also requires stored CLAP audio embeddings. The legacy `combined` alias remains exactly
-`sonara+mert+maest`.
+Training uses the feature families declared by the selected profile artifact. A recipe that uses
+SONARA, MERT, and MAEST requires their current outputs; a feature set that includes CLAP also
+requires stored CLAP audio embeddings.
 
 MuQ is a normal embedding feature source. The `muq` set emits ordered `muq:<index>` features from
 the dimension expected by the current feature recipe. It can be combined with other sources, for

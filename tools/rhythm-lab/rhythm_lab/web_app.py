@@ -26,6 +26,7 @@ from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile
 from .features import (
     DEFAULT_TRAINING_FEATURE_SET,
     FEATURE_RECIPE_OPTIONS,
+    SONARA_FEATURE_NAMES,
     build_labeled_feature_matrix_from_sources,
     feature_recipe_readiness,
     feature_sources,
@@ -1149,10 +1150,6 @@ def _collection_payload(collection: object, *, include_tracks: bool = False) -> 
     return payload
 
 
-def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str) -> Path | None:
-    return _latest_feature_artifact(artifact_dir, artifact_prefix, "combined")
-
-
 def _latest_feature_artifact(artifact_dir: Path, artifact_prefix: str, feature_set: str) -> Path | None:
     artifacts = list(artifact_dir.glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
     artifacts.sort(key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
@@ -1488,7 +1485,6 @@ def _training_readiness(
 def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, object]:
     model_groups = _artifact_groups(artifact_dir, suffix=".joblib", artifact_prefix=artifact_prefix)
     metrics_groups = _artifact_groups(artifact_dir, suffix=".metrics.json", artifact_prefix=artifact_prefix)
-    latest_combined = _latest_combined_artifact(artifact_dir, artifact_prefix)
     by_feature = [
         _artifact_feature_summary(
             feature,
@@ -1502,7 +1498,6 @@ def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, obj
     return {
         "artifact_dir": str(artifact_dir),
         "artifact_prefix": artifact_prefix,
-        "latest_combined": str(latest_combined) if latest_combined is not None else None,
         "model_count": sum(len(files) for files in model_groups.values()),
         "metrics_count": sum(len(files) for files in metrics_groups.values()),
         "benchmark_winner": benchmark_winner,
@@ -1583,6 +1578,12 @@ def _artifact_source_data_readiness(
     )
     if actual_sources != required_sources:
         return False, "Artifact feature_names do not match the selected feature recipe."
+    if "sonara" in required_sources:
+        artifact_sonara_features = tuple(
+            name for name in feature_names if name.startswith("sonara:")
+        )
+        if artifact_sonara_features != SONARA_FEATURE_NAMES:
+            return False, "Artifact was trained with an older SONARA recipe; retrain it."
     for source_name in required_sources:
         state = source_states.get(source_name)
         if isinstance(state, Mapping):
@@ -1638,17 +1639,7 @@ def _promotion_options(rows: list[dict[str, object]]) -> list[dict[str, object]]
     ranked_with_ranks: list[dict[str, object]] = []
     for index, row in enumerate(ranked, start=1):
         ranked_with_ranks.append({**row, "rank": index})
-    by_feature = {str(row.get("feature_set")): row for row in ranked_with_ranks}
-    ordered: list[dict[str, object]] = []
-    if ranked_with_ranks:
-        ordered.append(ranked_with_ranks[0])
-    combined = by_feature.get("combined")
-    if combined is not None and combined not in ordered:
-        ordered.append(combined)
-    for row in ranked_with_ranks:
-        if row not in ordered:
-            ordered.append(row)
-    return ordered
+    return ranked_with_ranks
 
 
 def _promotion_sort_key(row: dict[str, object]) -> tuple[float, float, float, str]:

@@ -11,7 +11,7 @@ import numpy as np
 
 from .artifact_io import artifact_sha256
 from .features import (
-    FEATURE_SETS,
+    DEFAULT_TRAINING_FEATURE_SET,
     build_labeled_feature_matrix,
 )
 from .lab_db import RhythmLabDatabase
@@ -214,7 +214,7 @@ def benchmark_lab_database(
     artifact_dir: str | Path,
     *,
     classifier_key: str,
-    feature_sets: tuple[str, ...] = FEATURE_SETS,
+    feature_sets: tuple[str, ...] = (DEFAULT_TRAINING_FEATURE_SET,),
     random_state: int = 42,
     calibrate: bool = False,
 ) -> dict[str, dict[str, object]]:

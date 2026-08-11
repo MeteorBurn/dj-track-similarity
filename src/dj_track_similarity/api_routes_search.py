@@ -8,6 +8,7 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from numpy.typing import NDArray
 
+from .analysis_models import AnalysisTarget
 from .analysis_model_runners import (
     current_embedding_analysis_output,
     embedding_analysis_output,
@@ -15,7 +16,9 @@ from .analysis_model_runners import (
 from .api_schemas import (
     SearchRequest,
     SimilaritySearchResultResponse,
+    SonaraRandomTrackRequest,
     SonaraSearchRequest,
+    TrackSummaryResponse,
     TextSearchRequest,
 )
 from .api_state import AppDatabaseState
@@ -115,6 +118,25 @@ def register_search_routes(
                 limit=request.limit,
             )
             return _hydrate_similarity_results(database, results)
+        except SonaraSearchUnavailable as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/search/sonara/random-track",
+        response_model=TrackSummaryResponse,
+    )
+    def random_sonara_track(request: SonaraRandomTrackRequest):
+        database = state.require_db()
+        try:
+            searcher = SonaraSimilaritySearch(database)
+            target = searcher.random_target(
+                exclude_track_ids=request.exclude_track_ids,
+            )
+            return _hydrate_search_target(database, target)
         except SonaraSearchUnavailable as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
@@ -229,3 +251,22 @@ def _hydrate_similarity_results(
             }
         )
     return hydrated
+
+
+def _hydrate_search_target(
+    database: LibraryDatabase,
+    target: AnalysisTarget,
+) -> object:
+    """Return one current track summary after checking its exact identity."""
+
+    track = database.get_track_summaries([target.track_id])[0]
+    if (
+        track.catalog_uuid != target.catalog_uuid
+        or track.track_uuid != target.track_uuid
+        or track.content_generation != target.content_generation
+    ):
+        raise RuntimeError(
+            "Search target became stale before response assembly: "
+            f"track_id={target.track_id}"
+        )
+    return track

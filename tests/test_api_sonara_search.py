@@ -170,6 +170,43 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
     assert "modifier_valence" in payload[0]["score_breakdown"]
 
 
+def test_random_sonara_track_uses_an_unselected_current_sonara_track(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    db_path = tmp_path / "library.sqlite"
+    db = _sonara_library(db_path)
+    targets = [
+        _add_sonara_track(db, tmp_path, "one.wav", {"energy": 0.2}),
+        _add_sonara_track(db, tmp_path, "two.wav", {"energy": 0.5}),
+        _add_sonara_track(db, tmp_path, "three.wav", {"energy": 0.8}),
+    ]
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search/sonara/random-track",
+        json={"exclude_track_ids": [targets[0].track_id]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["track_id"] in {target.track_id for target in targets[1:]}
+    assert payload["analysis_coverage"]["sonara_core"] is True
+
+
+def test_random_sonara_track_requires_an_available_sonara_track(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+
+    response = TestClient(create_app(tmp_path / "library.sqlite")).post(
+        "/api/search/sonara/random-track",
+        json={},
+    )
+
+    assert response.status_code == 409
+    assert "SONARA Core" in response.json()["detail"]
+
+
 def test_search_endpoints_reject_unknown_context_parameter(
     monkeypatch, tmp_path: Path
 ) -> None:

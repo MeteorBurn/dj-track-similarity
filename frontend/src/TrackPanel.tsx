@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
 import type { Track } from "./api";
 import { libraryPageSize } from "./libraryLoading";
@@ -27,8 +27,10 @@ export function TrackPanel({
   librarySortDirection,
   onToggleLibrarySortDirection,
   loadError,
-  preview,
   playingTrackId,
+  previewTrackId,
+  previewCurrentTime,
+  previewDuration,
   tracks,
   libraryTotalTracks,
   total,
@@ -48,8 +50,7 @@ export function TrackPanel({
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
-  onPreviewPlaying,
-  onPreviewPaused,
+  onSeekPreview,
   onDetails
 }: {
   databaseSelected: boolean;
@@ -65,8 +66,10 @@ export function TrackPanel({
   librarySortDirection: LibrarySortDirection;
   onToggleLibrarySortDirection: () => void;
   loadError: string | null;
-  preview: Track | null;
   playingTrackId: number | null;
+  previewTrackId: number | null;
+  previewCurrentTime: number;
+  previewDuration: number;
   tracks: Track[];
   libraryTotalTracks: number;
   total: number;
@@ -86,20 +89,13 @@ export function TrackPanel({
   onToggleLiked: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
-  onPreviewPlaying: (trackId: number) => void;
-  onPreviewPaused: (trackId: number) => void;
+  onSeekPreview: (track: Track, seconds: number) => void;
   onDetails: (track: Track) => void;
 }) {
   const pageCount = libraryPageCount(total, libraryPageSize);
   const currentPage = libraryCurrentPageNumber(total, offset, libraryPageSize);
   const syncedPageInput = currentPage ? String(currentPage) : "";
   const [pageInput, setPageInput] = useState(syncedPageInput);
-  const [previewPosition, setPreviewPosition] = useState({
-    trackId: null as number | null,
-    currentTime: 0,
-    duration: 0,
-  });
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const addVisibleTitle = total === 0
     ? "Нет отфильтрованных треков для добавления"
     : "Добавить все отфильтрованные треки в сет. Уже добавленные треки будут пропущены.";
@@ -111,24 +107,6 @@ export function TrackPanel({
     setPageInput(syncedPageInput);
   }, [syncedPageInput]);
 
-  useEffect(() => {
-    setPreviewPosition({
-      trackId: preview?.track_id ?? null,
-      currentTime: 0,
-      duration: 0,
-    });
-  }, [preview?.track_id]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !preview) return;
-    if (playingTrackId === preview.track_id) {
-      void audio.play().catch(() => undefined);
-    } else {
-      audio.pause();
-    }
-  }, [preview, playingTrackId]);
-
   function submitPageInput() {
     const requestedPage = Number.parseInt(pageInput, 10);
     if (!Number.isFinite(requestedPage) || pageCount === 0) {
@@ -138,25 +116,6 @@ export function TrackPanel({
     const clampedPage = Math.min(Math.max(requestedPage, 1), pageCount);
     setPageInput(String(clampedPage));
     if (clampedPage !== currentPage) onPageJump(clampedPage);
-  }
-
-  function updatePreviewPosition(trackId: number) {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
-    setPreviewPosition({
-      trackId,
-      currentTime: Math.min(Math.max(0, audio.currentTime), duration || 0),
-      duration,
-    });
-  }
-
-  function seekPreview(track: Track, seconds: number) {
-    const audio = audioRef.current;
-    if (!audio || preview?.track_id !== track.track_id) return;
-    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
-    audio.currentTime = Math.min(Math.max(0, seconds), duration);
-    updatePreviewPosition(track.track_id);
   }
 
   return (
@@ -295,23 +254,6 @@ export function TrackPanel({
       ) : !loading && tracks.length === 0 ? (
         <div className="library-empty-state">В текущем запросе треков нет.</div>
       ) : null}
-      {preview && (
-        <audio
-          ref={audioRef}
-          hidden
-          src={`/media/${preview.track_id}`}
-          onPlay={() => {
-            if (playingTrackId === preview.track_id) onPreviewPlaying(preview.track_id);
-          }}
-          onPause={() => onPreviewPaused(preview.track_id)}
-          onEnded={() => {
-            updatePreviewPosition(preview.track_id);
-            onPreviewPaused(preview.track_id);
-          }}
-          onDurationChange={() => updatePreviewPosition(preview.track_id)}
-          onTimeUpdate={() => updatePreviewPosition(preview.track_id)}
-        />
-      )}
       {tracks.length ? (
         <TrackList
           tracks={tracks}
@@ -319,14 +261,14 @@ export function TrackPanel({
           seedSet={seedSet}
           playlistSet={playlistSet}
           playingTrackId={playingTrackId}
-          previewTrackId={preview?.track_id ?? null}
-          previewCurrentTime={previewPosition.trackId === preview?.track_id ? previewPosition.currentTime : 0}
-          previewDuration={previewPosition.trackId === preview?.track_id ? previewPosition.duration : 0}
+          previewTrackId={previewTrackId}
+          previewCurrentTime={previewCurrentTime}
+          previewDuration={previewDuration}
           onSeed={onSeed}
           onToggleLiked={onToggleLiked}
           onTogglePlaylist={onTogglePlaylist}
           onPreview={onPreview}
-          onSeekPreview={seekPreview}
+          onSeekPreview={onSeekPreview}
           onDetails={onDetails}
         />
       ) : null}

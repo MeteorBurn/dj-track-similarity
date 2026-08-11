@@ -208,7 +208,14 @@ export function App() {
   const genericSearchRequestGuard = useRef(createRequestTokenGuard());
   const genericSearchAbortController = useRef<AbortController | null>(null);
   const [genericSearchPending, setGenericSearchPending] = useState(false);
+  const [randomSonaraTrackPending, setRandomSonaraTrackPending] = useState(false);
   const [genericSearchResultState, setGenericSearchResultState] = useState<GenericSearchResultState | null>(null);
+  const [previewPosition, setPreviewPosition] = useState({
+    trackId: null as number | null,
+    currentTime: 0,
+    duration: 0,
+  });
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const genericSearchInputKey = useMemo(
     () => JSON.stringify({
       database_path: databasePath,
@@ -328,6 +335,24 @@ export function App() {
     genericSearchAbortController.current?.abort();
     trackDetailAbortController.current?.abort();
   }, []);
+
+  useEffect(() => {
+    setPreviewPosition({
+      trackId: preview?.track_id ?? null,
+      currentTime: 0,
+      duration: 0,
+    });
+  }, [preview?.track_id]);
+
+  useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio || !preview) return;
+    if (playingTrackId === preview.track_id) {
+      void audio.play().catch(() => undefined);
+    } else {
+      audio.pause();
+    }
+  }, [preview, playingTrackId]);
 
   useEffect(() => {
     if (!databasePath) return;
@@ -685,6 +710,25 @@ export function App() {
     setMetadataTrack(null);
   }
 
+  function updatePreviewPosition(trackId: number) {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
+    setPreviewPosition({
+      trackId,
+      currentTime: Math.min(Math.max(0, audio.currentTime), duration || 0),
+      duration,
+    });
+  }
+
+  function seekPreview(track: Track, seconds: number) {
+    const audio = previewAudioRef.current;
+    if (!audio || preview?.track_id !== track.track_id) return;
+    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
+    audio.currentTime = Math.min(Math.max(0, seconds), duration);
+    updatePreviewPosition(track.track_id);
+  }
+
   async function handleTrackDetails(track: Track) {
     trackDetailAbortController.current?.abort();
     const controller = new AbortController();
@@ -801,6 +845,27 @@ export function App() {
       appendActivity("error", "SONARA search недоступен", message);
     } finally {
       finishGenericSearchRequest(ticket);
+    }
+  }
+
+  async function handleAddRandomSonaraTrack() {
+    if (randomSonaraTrackPending) return;
+    setRandomSonaraTrackPending(true);
+    appendActivity("info", "Добавление случайного SONARA seed", `Исключено текущих seed: ${seeds.length}`);
+    try {
+      const track = await api.randomSonaraTrack({
+        exclude_track_ids: seeds,
+      });
+      addSeed(track);
+      const selected = displayTrack(track);
+      appendActivity("ok", "Добавлен случайный SONARA seed", selected);
+      setNotice({ kind: "ok", text: `Добавлен seed: ${selected}` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось добавить случайный SONARA seed", message);
+    } finally {
+      setRandomSonaraTrackPending(false);
     }
   }
 
@@ -1628,8 +1693,10 @@ export function App() {
           librarySortDirection={librarySortDirection}
           onToggleLibrarySortDirection={toggleLibrarySortDirection}
           loadError={libraryError}
-          preview={preview}
           playingTrackId={playingTrackId}
+          previewTrackId={preview?.track_id ?? null}
+          previewCurrentTime={previewPosition.trackId === preview?.track_id ? previewPosition.currentTime : 0}
+          previewDuration={previewPosition.trackId === preview?.track_id ? previewPosition.duration : 0}
           tracks={orderedTracks}
           libraryTotalTracks={librarySummary.tracks}
           total={libraryTotal}
@@ -1649,8 +1716,7 @@ export function App() {
           onToggleLiked={(track) => void handleToggleTrackLiked(track)}
           onTogglePlaylist={togglePlaylist}
           onPreview={togglePreview}
-          onPreviewPlaying={markPreviewPlaying}
-          onPreviewPaused={markPreviewPaused}
+          onSeekPreview={seekPreview}
           onDetails={(track) => void handleTrackDetails(track)}
         />
 
@@ -1666,7 +1732,7 @@ export function App() {
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}
           databaseIdentity={databaseCatalogUuid}
-          busy={busy || genericSearchPending || !databasePath}
+          busy={busy || genericSearchPending || randomSonaraTrackPending || !databasePath}
           filters={filters}
           setFilters={setFilters}
           seeds={seeds}
@@ -1700,18 +1766,40 @@ export function App() {
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
+          handleAddRandomSonaraTrack={() => void handleAddRandomSonaraTrack()}
           handleEmbeddingSearch={handleEmbeddingSearch}
           addSeed={addSeed}
           toggleLiked={handleToggleTrackLiked}
           togglePlaylist={togglePlaylist}
           playingTrackId={playingTrackId}
+          previewTrackId={preview?.track_id ?? null}
+          previewCurrentTime={previewPosition.trackId === preview?.track_id ? previewPosition.currentTime : 0}
+          previewDuration={previewPosition.trackId === preview?.track_id ? previewPosition.duration : 0}
           setPreview={togglePreview}
+          onSeekPreview={seekPreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
           removeFromPlaylist={removeFromPlaylist}
           handleSaveToCollection={() => void handleSavePlaylistToRhythmLabCollection()}
           handleExport={(format) => void handleExport(format)}
         />
       </section>
+      {preview ? (
+        <audio
+          ref={previewAudioRef}
+          hidden
+          src={`/media/${preview.track_id}`}
+          onPlay={() => {
+            if (playingTrackId === preview.track_id) markPreviewPlaying(preview.track_id);
+          }}
+          onPause={() => markPreviewPaused(preview.track_id)}
+          onEnded={() => {
+            updatePreviewPosition(preview.track_id);
+            markPreviewPaused(preview.track_id);
+          }}
+          onDurationChange={() => updatePreviewPosition(preview.track_id)}
+          onTimeUpdate={() => updatePreviewPosition(preview.track_id)}
+        />
+      ) : null}
       {metadataTrack && (
         <TrackMetadataDialog
           track={metadataTrack}

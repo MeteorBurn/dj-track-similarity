@@ -628,7 +628,7 @@ test("track rows keep analysis availability out of track copy", () => {
 
   assert.doesNotMatch(trackListSource, /trackInfo\(track\)/);
   assert.doesNotMatch(trackListSource, /analysisStatusLabel/);
-  assert.match(trackListSource, /className="track-row-playback"/);
+  assert.match(trackListSource, /PlaybackSeekControl/);
 });
 
 test("candidate result rows expose the shared liked toggle", () => {

@@ -62,6 +62,10 @@ type SonaraSearchPayload = {
   min_similarity?: number | null;
 };
 
+type SonaraRandomTrackPayload = {
+  exclude_track_ids: number[];
+};
+
 type TextSearchPayload = {
   query: string;
   positive_queries?: string[];
@@ -300,6 +304,12 @@ const searchApi = {
     }),
   sonaraSearch: (payload: SonaraSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search/sonara", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
+  randomSonaraTrack: (payload: SonaraRandomTrackPayload, options?: { signal?: AbortSignal }) =>
+    request<Track>("/api/search/sonara/random-track", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,

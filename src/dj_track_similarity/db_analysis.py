@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import secrets
 import sqlite3
 from collections.abc import Mapping, Sequence
 from contextlib import closing
@@ -73,6 +74,15 @@ _SONARA_IDENTITY_COLUMNS = {
 }
 _CLASSIFIER_PROBABILITY_TOLERANCE = 1e-9
 _SQLITE_IN_CHUNK_SIZE = 800
+
+
+_CURRENT_SONARA_TARGETS_SQL = """
+    FROM sonara
+    JOIN tracks
+      ON tracks.track_id = sonara.track_id
+     AND tracks.content_generation = sonara.content_generation
+    WHERE tracks.missing_since IS NULL
+"""
 
 
 def _classifier_feature_names_json(
@@ -986,6 +996,86 @@ class AnalysisRepository:
                         )
                     )
                 return tuple(result)
+
+    def random_sonara_target(
+        self,
+        output: AnalysisOutput,
+        *,
+        exclude_track_ids: Sequence[int] = (),
+    ) -> AnalysisTarget | None:
+        """Pick one current SONARA target without reading its feature vectors."""
+
+        if output.key != ("sonara", "core"):
+            raise ValueError("SONARA target selection requires a SONARA core output")
+        excluded_ids = tuple(sorted({int(track_id) for track_id in exclude_track_ids}))
+        excluded_json = json.dumps(excluded_ids, separators=(",", ":"))
+        with self._write_lock:
+            with closing(self.connect()) as core_connection:
+                catalog_uuid = _catalog_uuid(core_connection)
+                require_active_analysis_outputs(
+                    core_connection,
+                    (output,),
+                )
+                total_track_count = int(
+                    core_connection.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM tracks
+                        WHERE missing_since IS NULL
+                        """
+                    ).fetchone()[0]
+                )
+                if total_track_count == 0:
+                    return None
+                sonara_track_count = int(
+                    core_connection.execute(
+                        f"SELECT COUNT(*) {_CURRENT_SONARA_TARGETS_SQL}"
+                    ).fetchone()[0]
+                )
+                if sonara_track_count == 0:
+                    return None
+                available_track_count = int(
+                    core_connection.execute(
+                        f"""
+                        SELECT COUNT(*)
+                        {_CURRENT_SONARA_TARGETS_SQL}
+                          AND sonara.track_id NOT IN (
+                              SELECT CAST(value AS INTEGER)
+                              FROM json_each(?)
+                          )
+                        """,
+                        (excluded_json,),
+                    ).fetchone()[0]
+                )
+                if available_track_count == 0:
+                    return None
+                offset = secrets.randbelow(available_track_count)
+                row = core_connection.execute(
+                    f"""
+                    SELECT
+                        tracks.track_id,
+                        tracks.track_uuid,
+                        tracks.content_generation
+                    {_CURRENT_SONARA_TARGETS_SQL}
+                      AND sonara.track_id NOT IN (
+                          SELECT CAST(value AS INTEGER)
+                          FROM json_each(?)
+                      )
+                    ORDER BY sonara.track_id
+                    LIMIT 1 OFFSET ?
+                    """,
+                    (excluded_json, offset),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError(
+                        "current SONARA target selection changed during read"
+                    )
+                return AnalysisTarget(
+                    catalog_uuid=catalog_uuid,
+                    track_id=int(row["track_id"]),
+                    track_uuid=str(row["track_uuid"]),
+                    content_generation=int(row["content_generation"]),
+                )
 
     def prepare_classifier_rescore(
         self,

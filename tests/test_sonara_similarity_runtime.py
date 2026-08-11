@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import dj_track_similarity.db_analysis as db_analysis_module
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -286,3 +287,56 @@ def test_sonara_search_rejects_stale_full_target(
         match="content_generation mismatch",
     ):
         SonaraSimilaritySearch(repository).search((seed,))
+
+
+def test_random_sonara_target_reads_only_selected_row_and_honors_exclusions(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    repository = _Repository(tmp_path)
+    _insert_track(repository, "00000000-0000-4000-8000-000000000201")
+    first = _insert_track(repository, "00000000-0000-4000-8000-000000000202")
+    excluded = _insert_track(
+        repository,
+        "00000000-0000-4000-8000-000000000203",
+    )
+    last = _insert_track(repository, "00000000-0000-4000-8000-000000000204")
+    for target, energy in ((first, 0.2), (excluded, 0.5), (last, 0.8)):
+        _save_core(
+            repository,
+            target,
+            energy=energy,
+            danceability=energy,
+            valence=energy,
+            acousticness=1.0 - energy,
+            bpm=120.0,
+        )
+
+    original_load = repository.load_sonara_feature_rows
+    loaded_targets: list[tuple[AnalysisTarget, ...] | None] = []
+
+    def track_feature_load(
+        output: AnalysisOutput,
+        *,
+        targets: tuple[AnalysisTarget, ...] | None = None,
+    ) -> tuple:
+        loaded_targets.append(targets)
+        return original_load(output, targets=targets)
+
+    monkeypatch.setattr(
+        repository,
+        "load_sonara_feature_rows",
+        track_feature_load,
+    )
+    monkeypatch.setattr(
+        db_analysis_module.secrets,
+        "randbelow",
+        lambda count: count - 1,
+    )
+
+    target = SonaraSimilaritySearch(repository).random_target(
+        exclude_track_ids=(excluded.track_id,),
+    )
+
+    assert target == last
+    assert loaded_targets == [(last,)]

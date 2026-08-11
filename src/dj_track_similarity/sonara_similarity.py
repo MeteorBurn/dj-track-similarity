@@ -58,6 +58,14 @@ class SonaraSearchRepository(Protocol):
     ) -> tuple[SonaraFeatureRow, ...]:
         ...
 
+    def random_sonara_target(
+        self,
+        output: AnalysisOutput,
+        *,
+        exclude_track_ids: Sequence[int] = (),
+    ) -> AnalysisTarget | None:
+        ...
+
 
 class SonaraSearchUnavailable(RuntimeError):
     """Raised when no current SONARA Core data can serve search."""
@@ -133,6 +141,46 @@ class SonaraSimilaritySearch:
                 f"{missing}"
             )
         return tuple(target_by_id[track_id] for track_id in requested)
+
+    def random_target(
+        self,
+        *,
+        exclude_track_ids: Sequence[int] = (),
+    ) -> AnalysisTarget:
+        """Choose one unselected current track with valid SONARA Core features."""
+
+        excluded = _optional_track_ids(exclude_track_ids)
+        output = self.active_output()
+        rejected = set(excluded)
+        while True:
+            target = self.repository.random_sonara_target(
+                output,
+                exclude_track_ids=tuple(sorted(rejected)),
+            )
+            if target is None:
+                raise SonaraSearchUnavailable(
+                    "No unselected tracks have current SONARA Core features"
+                )
+            if target.catalog_uuid != self.repository.catalog_uuid:
+                raise RuntimeError(
+                    "Random SONARA target returned the wrong catalog identity"
+                )
+            if target.track_id in rejected:
+                raise RuntimeError(
+                    "Random SONARA target ignored the excluded track IDs"
+                )
+            rows = self.repository.load_sonara_feature_rows(
+                output,
+                targets=(target,),
+            )
+            _validate_rows(
+                rows,
+                output=output,
+                catalog_uuid=self.repository.catalog_uuid,
+            )
+            if len(rows) == 1 and rows[0].target == target:
+                return target
+            rejected.add(target.track_id)
 
     def search(
         self,
@@ -475,6 +523,20 @@ def _requested_track_ids(
     if len(set(requested)) != len(requested):
         raise ValueError("Track IDs must not contain duplicates")
     return requested
+
+
+def _optional_track_ids(track_ids: Sequence[int]) -> frozenset[int]:
+    requested = tuple(track_ids)
+    if any(
+        isinstance(track_id, bool)
+        or not isinstance(track_id, int)
+        or track_id <= 0
+        for track_id in requested
+    ):
+        raise ValueError("Track IDs must be positive integers")
+    if len(set(requested)) != len(requested):
+        raise ValueError("Track IDs must not contain duplicates")
+    return frozenset(requested)
 
 
 def _result_limit(limit: int) -> int:

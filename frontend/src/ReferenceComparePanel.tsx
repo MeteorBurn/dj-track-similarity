@@ -19,10 +19,14 @@ type ReferenceComparePanelProps = {
   seedSet: Set<number>;
   playlistSet: Set<number>;
   playingTrackId: number | null;
+  previewTrackId: number | null;
+  previewCurrentTime: number;
+  previewDuration: number;
   onSeed: (track: TrackSummary) => void;
   onToggleLiked: (track: TrackSummary) => void;
   onTogglePlaylist: (track: TrackSummary) => void;
   onPreview: (track: TrackSummary) => void;
+  onSeekPreview: (track: TrackSummary, seconds: number) => void;
   onDetails: (track: TrackSummary) => void;
 };
 
@@ -44,10 +48,14 @@ export function ReferenceComparePanel({
   seedSet,
   playlistSet,
   playingTrackId,
+  previewTrackId,
+  previewCurrentTime,
+  previewDuration,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
+  onSeekPreview,
   onDetails,
 }: ReferenceComparePanelProps) {
   const [limit, setLimit] = useState(10);
@@ -215,10 +223,14 @@ export function ReferenceComparePanel({
               seedSet={seedSet}
               playlistSet={playlistSet}
               playingTrackId={playingTrackId}
+              previewTrackId={previewTrackId}
+              previewCurrentTime={previewCurrentTime}
+              previewDuration={previewDuration}
               onSeed={onSeed}
               onToggleLiked={onToggleLiked}
               onTogglePlaylist={onTogglePlaylist}
               onPreview={onPreview}
+              onSeekPreview={onSeekPreview}
               onDetails={onDetails}
               onNotesChange={(result, notes) => {
                 const key = verdictKey(group.model, result.track);
@@ -241,10 +253,14 @@ function ReferenceCompareGroupCard({
   seedSet,
   playlistSet,
   playingTrackId,
+  previewTrackId,
+  previewCurrentTime,
+  previewDuration,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
+  onSeekPreview,
   onDetails,
   onNotesChange,
   onVerdict,
@@ -256,10 +272,14 @@ function ReferenceCompareGroupCard({
   seedSet: Set<number>;
   playlistSet: Set<number>;
   playingTrackId: number | null;
+  previewTrackId: number | null;
+  previewCurrentTime: number;
+  previewDuration: number;
   onSeed: (track: TrackSummary) => void;
   onToggleLiked: (track: TrackSummary) => void;
   onTogglePlaylist: (track: TrackSummary) => void;
   onPreview: (track: TrackSummary) => void;
+  onSeekPreview: (track: TrackSummary, seconds: number) => void;
   onDetails: (track: TrackSummary) => void;
   onNotesChange: (result: SearchResult, notes: string) => void;
   onVerdict: (result: SearchResult, verdict: ReferenceCompareVerdict) => void;
@@ -280,12 +300,16 @@ function ReferenceCompareGroupCard({
               score={result.score}
               scoreBreakdown={result.score_breakdown}
               playingTrackId={playingTrackId}
+              previewTrackId={previewTrackId}
+              previewCurrentTime={previewCurrentTime}
+              previewDuration={previewDuration}
               isSeed={seedSet.has(result.track.track_id)}
               inPlaylist={playlistSet.has(result.track.track_id)}
               onSeed={onSeed}
               onToggleLiked={onToggleLiked}
               onTogglePlaylist={onTogglePlaylist}
               onPreview={onPreview}
+              onSeekPreview={onSeekPreview}
               onDetails={onDetails}
             />
             <label className="reference-compare-notes">

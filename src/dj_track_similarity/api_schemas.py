@@ -276,6 +276,18 @@ class SonaraSearchRequest(BaseModel):
     modifiers: SonaraModifiers | None = None
 
 
+class SonaraRandomTrackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    exclude_track_ids: list[TrackId] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def reject_duplicate_exclusions(self) -> "SonaraRandomTrackRequest":
+        if len(set(self.exclude_track_ids)) != len(self.exclude_track_ids):
+            raise ValueError("exclude_track_ids must be unique")
+        return self
+
+
 class TextSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

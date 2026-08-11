@@ -45,31 +45,23 @@ export function TrackList({
         return (
           <div
             aria-current={trackPreviewActive ? "true" : undefined}
-            className={`track-row ${trackPreviewActive ? "is-playing" : ""}`}
+            className={`track-row ${trackPreviewActive ? "is-playing" : ""} ${trackPreviewSelected ? "has-playback" : ""}`}
             key={libraryTrackIdentityKey(track)}
           >
             <span className="row-index">{startIndex + index + 1}</span>
             <button className="icon-button track-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)} type="button">
               {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
             </button>
-            <div className={`track-title-cell ${trackPreviewSelected ? "with-playback" : ""}`}>
+            {trackPreviewSelected ? (
+              <PlaybackSeekControl
+                track={track}
+                currentTime={previewCurrentTime}
+                duration={previewDuration}
+                onSeek={onSeekPreview}
+              />
+            ) : null}
+            <div className="track-title-cell">
               <strong>{displayTrack(track)}</strong>
-              {trackPreviewSelected ? (
-                <div className="track-row-playback">
-                  <input
-                    aria-label={`Позиция воспроизведения ${displayTrack(track)}`}
-                    disabled={previewDuration <= 0}
-                    max={Math.max(previewDuration, 1)}
-                    min={0}
-                    onChange={(event) => onSeekPreview(track, Number(event.target.value))}
-                    step={0.1}
-                    title="Перемотать preview"
-                    type="range"
-                    value={Math.min(previewCurrentTime, Math.max(previewDuration, 1))}
-                  />
-                  <span>{formatPlaybackTime(previewCurrentTime)} / {formatPlaybackTime(previewDuration)}</span>
-                </div>
-              ) : null}
             </div>
             {onToggleLiked && (
               <button
@@ -108,6 +100,37 @@ function formatPlaybackTime(seconds: number) {
   return `${minutes}:${String(rounded % 60).padStart(2, "0")}`;
 }
 
+function PlaybackSeekControl({
+  track,
+  currentTime,
+  duration,
+  onSeek,
+  className = "",
+}: {
+  track: Track;
+  currentTime: number;
+  duration: number;
+  onSeek: (track: Track, seconds: number) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`track-row-playback ${className}`.trim()}>
+      <input
+        aria-label={`Позиция воспроизведения ${displayTrack(track)}`}
+        disabled={duration <= 0}
+        max={Math.max(duration, 1)}
+        min={0}
+        onChange={(event) => onSeek(track, Number(event.target.value))}
+        step={0.1}
+        title="Перемотать preview"
+        type="range"
+        value={Math.min(currentTime, Math.max(duration, 1))}
+      />
+      <span>{formatPlaybackTime(currentTime)} / {formatPlaybackTime(duration)}</span>
+    </div>
+  );
+}
+
 export function ResultRow({
   track,
   score,
@@ -117,12 +140,16 @@ export function ResultRow({
   classifierScores,
   transition,
   playingTrackId,
+  previewTrackId,
+  previewCurrentTime,
+  previewDuration,
   isSeed,
   inPlaylist,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
+  onSeekPreview,
   onDetails,
   rowIndex,
   selected = false,
@@ -141,15 +168,20 @@ export function ResultRow({
     key_relation?: string;
     confidence: number;
   };
+  previewTrackId: number | null;
+  previewCurrentTime: number;
+  previewDuration: number;
   isSeed: boolean;
   inPlaylist: boolean;
   selected?: boolean;
   onSelect?: (track: Track) => void;
   selectTitle?: string;
   rowIndex?: number;
+  onSeekPreview: (track: Track, seconds: number) => void;
 }) {
   const breakdownTitle = scoreBreakdownTitle(scoreBreakdown, sonaraGroups, classifierScores, transition);
   const trackPreviewActive = playingTrackId === track.track_id;
+  const trackPreviewSelected = previewTrackId === track.track_id;
   const selectableClass = onSelect ? "selectable" : "";
   const selectedClass = selected ? "selected" : "";
   return (
@@ -176,8 +208,20 @@ export function ResultRow({
           <span className="result-reason-chip" title={breakdownTitle}>{reason.replaceAll("_", " ")}</span>
         ) : null}
       </div>
-      <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
-      <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
+      {trackPreviewSelected ? (
+        <PlaybackSeekControl
+          track={track}
+          currentTime={previewCurrentTime}
+          duration={previewDuration}
+          onSeek={onSeekPreview}
+          className="result-row-playback"
+        />
+      ) : (
+        <>
+          <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
+          <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
+        </>
+      )}
       {onToggleLiked && (
         <button
           className={`icon-button track-liked-button ${track.liked ? "active intent-liked" : ""}`}

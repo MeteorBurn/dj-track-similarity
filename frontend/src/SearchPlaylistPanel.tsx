@@ -1,5 +1,5 @@
 import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useState } from "react";
-import { Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Search, Tags, Trash2, X } from "lucide-react";
+import { Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
 import { ClapSearchTab } from "./ClapSearchTab";
 import {
@@ -137,12 +137,17 @@ export function SearchPlaylistPanel({
   removeSeed,
   handleTextSearch,
   handleSonaraSearch,
+  handleAddRandomSonaraTrack,
   handleEmbeddingSearch,
   addSeed,
   toggleLiked,
   togglePlaylist,
   playingTrackId,
+  previewTrackId,
+  previewCurrentTime,
+  previewDuration,
   setPreview,
+  onSeekPreview,
   setMetadataTrack,
   removeFromPlaylist,
   handleSaveToCollection,
@@ -186,12 +191,17 @@ export function SearchPlaylistPanel({
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
+  handleAddRandomSonaraTrack: () => void;
   handleEmbeddingSearch: (analysisFamily: EmbeddingSource) => Promise<void>;
   addSeed: (track: Track) => void;
   toggleLiked: (track: Track) => Promise<Track | null>;
   togglePlaylist: (track: Track) => void;
   playingTrackId: number | null;
+  previewTrackId: number | null;
+  previewCurrentTime: number;
+  previewDuration: number;
   setPreview: (track: Track) => void;
+  onSeekPreview: (track: Track, seconds: number) => void;
   setMetadataTrack: (track: Track) => void;
   removeFromPlaylist: (trackId: number) => void;
   handleSaveToCollection: () => void;
@@ -332,10 +342,14 @@ export function SearchPlaylistPanel({
               seedSet={seedSet}
               playlistSet={playlistSet}
               playingTrackId={playingTrackId}
+              previewTrackId={previewTrackId}
+              previewCurrentTime={previewCurrentTime}
+              previewDuration={previewDuration}
               onSeed={addSeed}
               onToggleLiked={toggleLiked}
               onTogglePlaylist={togglePlaylist}
               onPreview={setPreview}
+              onSeekPreview={onSeekPreview}
               onDetails={setMetadataTrack}
             />
           </div>
@@ -418,6 +432,12 @@ export function SearchPlaylistPanel({
                   );
                 })}
               </div>
+            </div>
+            <div className="sonara-random-track-action">
+              <button className="sonara-random-track-button" title="Добавить случайный SONARA-ready трек из базы в seed" disabled={busy} onClick={handleAddRandomSonaraTrack} type="button">
+                <Shuffle size={15} />
+                Add Random Track
+              </button>
             </div>
             <div className="search-filter-grid sonara-search-filter-grid">
               <label title={helpText.sonaraMode}>
@@ -578,12 +598,16 @@ export function SearchPlaylistPanel({
                   classifierScores={classifier_scores}
                   transition={transition}
                   playingTrackId={playingTrackId}
+                  previewTrackId={previewTrackId}
+                  previewCurrentTime={previewCurrentTime}
+                  previewDuration={previewDuration}
                   isSeed={seedSet.has(track.track_id)}
                   inPlaylist={playlistSet.has(track.track_id)}
                   onSeed={addSeed}
                   onToggleLiked={toggleLiked}
                   onTogglePlaylist={togglePlaylist}
                   onPreview={setPreview}
+                  onSeekPreview={onSeekPreview}
                   onDetails={setMetadataTrack}
                 />
               )) : (

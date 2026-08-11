@@ -52,6 +52,9 @@ export function TrackList({
             <button className="icon-button track-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)} type="button">
               {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
             </button>
+            <div className="track-title-cell">
+              <strong>{displayTrack(track)}</strong>
+            </div>
             {trackPreviewSelected ? (
               <PlaybackSeekControl
                 track={track}
@@ -60,9 +63,6 @@ export function TrackList({
                 onSeek={onSeekPreview}
               />
             ) : null}
-            <div className="track-title-cell">
-              <strong>{displayTrack(track)}</strong>
-            </div>
             {onToggleLiked && (
               <button
                 className={`icon-button track-liked-button ${track.liked ? "active intent-liked" : ""}`}
@@ -113,18 +113,23 @@ function PlaybackSeekControl({
   onSeek: (track: Track, seconds: number) => void;
   className?: string;
 }) {
+  const normalizedDuration = Math.max(duration, 0);
+  const progress = normalizedDuration > 0
+    ? Math.min(Math.max((currentTime / normalizedDuration) * 100, 0), 100)
+    : 0;
+
   return (
     <div className={`track-row-playback ${className}`.trim()}>
       <input
         aria-label={`Позиция воспроизведения ${displayTrack(track)}`}
-        disabled={duration <= 0}
-        max={Math.max(duration, 1)}
+        disabled={normalizedDuration <= 0}
+        max={100}
         min={0}
-        onChange={(event) => onSeek(track, Number(event.target.value))}
-        step={0.1}
+        onChange={(event) => onSeek(track, (Number(event.target.value) / 100) * normalizedDuration)}
+        step={0.01}
         title="Перемотать preview"
         type="range"
-        value={Math.min(currentTime, Math.max(duration, 1))}
+        value={progress}
       />
       <span>{formatPlaybackTime(currentTime)} / {formatPlaybackTime(duration)}</span>
     </div>

@@ -11,6 +11,7 @@ import pytest
 import dj_track_similarity.audio_loader as audio_loader
 from dj_track_similarity.audio_loader import (
     load_audio_mono,
+    load_audio_mono_with_ffmpeg,
     load_decoded_audio,
     torch_compatible_audio,
 )
@@ -158,6 +159,24 @@ def test_load_decoded_audio_uses_native_backend_for_mono_wav(monkeypatch, tmp_pa
     assert result.audio.dtype == np.float32
     assert result.audio.shape == (4,)
     assert "native wave decode" in result.detail
+
+
+def test_load_audio_mono_with_ffmpeg_bypasses_native_wave(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.wav"
+    _write_mono_pcm_wav(audio_path)
+    expected = np.asarray([0.1, -0.2], dtype=np.float32)
+
+    monkeypatch.setattr(
+        audio_loader,
+        "_load_with_ffmpeg",
+        lambda path: (expected, 48_000, "ffmpeg decode"),
+    )
+
+    audio, sample_rate, detail = load_audio_mono_with_ffmpeg(audio_path)
+
+    assert sample_rate == 48_000
+    assert np.array_equal(audio, expected)
+    assert detail == "ffmpeg decode"
 
 
 def test_ffmpeg_decode_pins_first_audio_stream_and_disables_non_audio(monkeypatch, tmp_path: Path) -> None:

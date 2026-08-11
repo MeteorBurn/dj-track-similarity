@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from .audio_loader import load_audio_mono_with_ffmpeg
 from .analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -24,6 +26,9 @@ from .sonara_runtime import (
     sonara_requested_features,
 )
 from .sonara_storage import prepare_sonara_write
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SonaraAnalysisRepository(Protocol):
@@ -44,6 +49,7 @@ class SonaraAnalysisRepository(Protocol):
 class SonaraBatchTrackResult:
     candidate: AnalysisCandidate
     error: Exception | None = None
+    used_ffmpeg_fallback: bool = False
 
     @property
     def target(self) -> AnalysisTarget:
@@ -113,9 +119,16 @@ def analyze_and_store_sonara_batch(
 
     prepare_started = time.perf_counter()
     prepared: list[SonaraWrite | Exception] = []
+    fallback_track_ids: set[int] = set()
     for candidate, raw_result in zip(selected_candidates, raw_results):
         try:
-            analysis = _analysis_mapping(raw_result)
+            analysis, used_ffmpeg_fallback = _analysis_mapping_with_ffmpeg_fallback(
+                sonara,
+                candidate,
+                raw_result,
+            )
+            if used_ffmpeg_fallback:
+                fallback_track_ids.add(candidate.target.track_id)
             prepared.append(
                 prepare_sonara_write(
                     candidate,
@@ -141,6 +154,9 @@ def analyze_and_store_sonara_batch(
                 SonaraBatchTrackResult(
                     candidate=candidate,
                     error=prepared_result,
+                    used_ffmpeg_fallback=(
+                        candidate.target.track_id in fallback_track_ids
+                    ),
                 )
             )
             continue
@@ -150,7 +166,13 @@ def analyze_and_store_sonara_batch(
             if write_result.error is None
             else RuntimeError(f"SONARA storage failure: {write_result.error}")
         )
-        stored.append(SonaraBatchTrackResult(candidate=candidate, error=error))
+        stored.append(
+            SonaraBatchTrackResult(
+                candidate=candidate,
+                error=error,
+                used_ffmpeg_fallback=(candidate.target.track_id in fallback_track_ids),
+            )
+        )
 
     if metrics is not None:
         metrics(
@@ -165,6 +187,67 @@ def analyze_and_store_sonara_batch(
             )
         )
     return stored
+
+
+def _analysis_mapping_with_ffmpeg_fallback(
+    sonara: Any,
+    candidate: AnalysisCandidate,
+    raw_result: object,
+) -> tuple[dict[str, object], bool]:
+    native_error: RuntimeError
+    try:
+        return _analysis_mapping(raw_result), False
+    except RuntimeError as error:
+        if not str(error).startswith("SONARA "):
+            raise
+        native_error = error
+
+    try:
+        audio, source_sample_rate, decode_detail = load_audio_mono_with_ffmpeg(
+            candidate.file_path
+        )
+        if source_sample_rate != SONARA_SAMPLE_RATE:
+            audio = sonara.resample(
+                audio,
+                orig_sr=source_sample_rate,
+                target_sr=SONARA_SAMPLE_RATE,
+            )
+        analysis = _analysis_mapping(
+            sonara.analyze_signal(
+                audio,
+                sr=SONARA_SAMPLE_RATE,
+                mode=SONARA_ANALYSIS_MODE,
+                bpm_min=SONARA_BPM_MIN,
+                bpm_max=SONARA_BPM_MAX,
+                features=list(sonara_requested_features()),
+                vocalness_model=SONARA_VOCALNESS_MODEL_SELECTOR,
+            )
+        )
+    except Exception as fallback_error:
+        LOGGER.warning(
+            "SONARA native analysis and FFmpeg PCM fallback failed path=%s "
+            "native_error=%s fallback_error=%s",
+            candidate.file_path,
+            native_error,
+            fallback_error,
+        )
+        raise RuntimeError(
+            "SONARA native analysis failed and FFmpeg PCM fallback failed: "
+            f"native={native_error}; fallback={fallback_error}"
+        ) from fallback_error
+
+    LOGGER.warning(
+        "SONARA analysis recovered through FFmpeg PCM fallback path=%s "
+        "source_sample_rate=%s target_sample_rate=%s pcm_samples=%s "
+        "decode_detail=%s native_error=%s",
+        candidate.file_path,
+        source_sample_rate,
+        SONARA_SAMPLE_RATE,
+        audio.size,
+        decode_detail,
+        native_error,
+    )
+    return analysis, True
 
 
 def _analysis_mapping(raw_result: object) -> dict[str, object]:

@@ -44,6 +44,7 @@ class AnalysisTrackOutcome:
     target_count: int
     successes: int = 0
     failures: int = 0
+    used_ffmpeg_decode: bool = False
 
 
 @dataclass
@@ -100,7 +101,10 @@ def initial_track_outcomes(
 
 
 def record_track_model_result(
-    outcome: AnalysisTrackOutcome | None, *, failed: bool
+    outcome: AnalysisTrackOutcome | None,
+    *,
+    failed: bool,
+    used_ffmpeg_decode: bool = False,
 ) -> None:
     if outcome is None:
         return
@@ -108,6 +112,7 @@ def record_track_model_result(
         outcome.failures += 1
     else:
         outcome.successes += 1
+        outcome.used_ffmpeg_decode = outcome.used_ffmpeg_decode or used_ffmpeg_decode
 
 
 def record_model_success(status: AnalysisJobStatus, model: str) -> None:

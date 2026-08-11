@@ -313,10 +313,10 @@ button {
   box-shadow: 0 22px 56px var(--shadow-dialog-deeper);
   display: flex;
   flex-direction: column;
-  height: min(760px, calc(100vh - 48px));
+  height: min(900px, calc(100vh - 32px));
   overflow: hidden;
   padding: 14px;
-  width: min(1120px, calc(100vw - 32px));
+  width: min(1440px, calc(100vw - 32px));
 }
 
 .log-frame-title {

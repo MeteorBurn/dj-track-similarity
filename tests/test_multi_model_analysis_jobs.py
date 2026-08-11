@@ -206,3 +206,21 @@ def test_multi_model_preflight_failure_keeps_active_contract_pointer() -> None:
     assert new_maest.key not in repository.active_by_key
     assert repository.events == []
     assert "checkpoint SHA-256 mismatch" in status.events[-1].message
+
+
+def test_sonara_ffmpeg_recovery_is_marked_in_final_track_event() -> None:
+    output = AnalysisOutput("sonara", "core")
+    runner = _Runner("sonara", output)
+    runner.last_ffmpeg_fallback_track_ids = frozenset({1})
+    repository = _Repository([_candidate(1, (output,))])
+
+    status = AnalysisJobManager(
+        repository,
+        model_runners={"sonara": runner},
+    ).run_sync(models=("sonara",), device="cpu")
+
+    assert status.state == "completed"
+    track_events = [event for event in status.events if event.track_id == 1]
+    assert [event.message for event in track_events] == [
+        "Track analyzed [ffmpeg decode]"
+    ]

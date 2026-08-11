@@ -83,6 +83,17 @@ def load_audio_mono(
     raise RuntimeError(f"Unable to decode audio: {audio_path} ({detail})")
 
 
+def load_audio_mono_with_ffmpeg(path: str | Path) -> tuple[np.ndarray, int, str]:
+    """Decode one source through FFmpeg to mono float32 PCM.
+
+    This deliberately bypasses native WAV readers. Callers use it when a
+    decoder-specific fallback must exercise FFmpeg rather than whichever
+    native reader happens to accept the container.
+    """
+
+    return _load_with_ffmpeg(Path(path))
+
+
 def _log_decoder_failure(decoder: str, path: Path, error: Exception) -> None:
     if analysis_diagnostics_enabled():
         LOGGER.warning("Audio decoder failed decoder=%s path=%s error=%s", decoder, path, error)

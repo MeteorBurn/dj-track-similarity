@@ -115,6 +115,7 @@ class SonaraModelRunner:
         self._candidate_outputs = self._active_outputs
         self.progress: Callable[[int, int], None] | None = None
         self.last_metrics: SonaraBatchMetrics | None = None
+        self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
 
     @property
     def model_name(self) -> str:
@@ -137,12 +138,18 @@ class SonaraModelRunner:
         items: Sequence[AnalysisBatchItem],
     ) -> Sequence[Exception | None]:
         self.last_metrics = None
+        self.last_ffmpeg_fallback_track_ids = frozenset()
         results = analyze_and_store_sonara_batch(
             repository,
             [item.candidate for item in items],
             sonara_module=self._sonara_module,
             progress=self.progress,
             metrics=self._capture_metrics,
+        )
+        self.last_ffmpeg_fallback_track_ids = frozenset(
+            result.target.track_id
+            for result in results
+            if result.used_ffmpeg_fallback
         )
         return [result.error for result in results]
 

@@ -88,7 +88,7 @@ test("topbar log and process controls are separate actions", () => {
   assert.match(styles, /\.log-frame-button/);
   assert.match(iconButtonRule, /width:\s*34px/);
   assert.match(processIndicatorRule, /width:\s*34px/);
-  assert.match(dialogRule, /width:\s*min\(1120px,\s*calc\(100vw - 32px\)\)/);
-  assert.match(dialogRule, /height:\s*min\(760px,\s*calc\(100vh - 48px\)\)/);
+  assert.match(dialogRule, /width:\s*min\(1440px,\s*calc\(100vw - 32px\)\)/);
+  assert.match(dialogRule, /height:\s*min\(900px,\s*calc\(100vh - 32px\)\)/);
   assert.match(contentRule, /flex:\s*1 1 auto/);
 });

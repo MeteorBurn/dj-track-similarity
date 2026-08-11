@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import logging
 import struct
 import uuid
 
 import numpy as np
+import dj_track_similarity.sonara_features as sonara_features_module
 
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
@@ -63,6 +65,31 @@ class BoundarySonara(FakeSonara):
             np.float32(np.inf),
         )
         return results
+
+
+class FallbackSonara(FakeSonara):
+    signal_calls: list[dict[str, object]] = []
+    resample_calls: list[dict[str, object]] = []
+
+    @classmethod
+    def analyze_batch(cls, paths, **kwargs):
+        cls.calls.append({"paths": list(paths), **kwargs})
+        return [
+            TrackAnalysis(path=path, error_kind="decode", error="native decoder rejected input")
+            for path in paths
+        ]
+
+    @classmethod
+    def resample(cls, audio, *, orig_sr, target_sr):
+        cls.resample_calls.append(
+            {"audio": audio, "orig_sr": orig_sr, "target_sr": target_sr}
+        )
+        return audio
+
+    @classmethod
+    def analyze_signal(cls, audio, **kwargs):
+        cls.signal_calls.append({"audio": audio, **kwargs})
+        return _raw_analysis("ffmpeg-pcm", features=tuple(kwargs["features"]))
 
 
 class RecordingRepository:
@@ -228,6 +255,43 @@ def test_batch_clamps_float32_boundary_and_isolates_outside_epsilon_error() -> N
     assert len(repository.save_calls[0]) == 1
     assert repository.save_calls[0][0].target.track_id == 1
     assert repository.save_calls[0][0].core.energy_score == 1.0
+
+
+def test_batch_recovers_native_sonara_failure_with_ffmpeg_pcm_and_logs(
+    monkeypatch,
+    caplog,
+) -> None:
+    FallbackSonara.calls.clear()
+    FallbackSonara.signal_calls.clear()
+    FallbackSonara.resample_calls.clear()
+    repository = RecordingRepository()
+    decoded_pcm = np.asarray([0.1, -0.2, 0.3], dtype=np.float32)
+    monkeypatch.setattr(
+        sonara_features_module,
+        "load_audio_mono_with_ffmpeg",
+        lambda path: (decoded_pcm, 44_100, "ffmpeg decode (arithmetic channel mean)"),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.sonara_features"):
+        results = analyze_and_store_sonara_batch(
+            repository,
+            (_candidate(1),),
+            sonara_module=FallbackSonara,
+        )
+
+    assert results[0].error is None
+    assert results[0].used_ffmpeg_fallback
+    assert len(repository.save_calls[0]) == 1
+    assert FallbackSonara.resample_calls == [
+        {"audio": decoded_pcm, "orig_sr": 44_100, "target_sr": 22_050}
+    ]
+    assert len(FallbackSonara.signal_calls) == 1
+    signal_call = FallbackSonara.signal_calls[0]
+    assert signal_call["sr"] == 22_050
+    assert signal_call["mode"] == "playlist"
+    assert tuple(signal_call["features"]) == SONARA_CORE_REQUESTED_FEATURES
+    assert "SONARA analysis recovered through FFmpeg PCM fallback" in caplog.text
+    assert "native decoder rejected input" in caplog.text
 
 
 def test_analysis_output_helper_is_unversioned_and_ignores_runtime_metadata() -> None:

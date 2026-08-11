@@ -12,12 +12,9 @@ export function ClapSearchTab({
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
-  clapMinSimilarity,
-  onClapMinSimilarityChange,
   limit,
   onLimitChange,
   textPromptHelp,
-  clapSimilarityHelp,
   limitHelp,
   hasStoredClapEmbeddings,
   busy,
@@ -33,12 +30,9 @@ export function ClapSearchTab({
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
-  clapMinSimilarity: number;
-  onClapMinSimilarityChange: (value: number) => void;
   limit: number;
   onLimitChange: (value: number) => void;
   textPromptHelp: string;
-  clapSimilarityHelp: string;
   limitHelp: string;
   hasStoredClapEmbeddings: boolean;
   busy: boolean;
@@ -135,8 +129,7 @@ export function ClapSearchTab({
           </label>
         </div>
       </div>
-      <div className="search-filter-grid">
-        <label title={clapSimilarityHelp}>Similarity<input type="number" value={clapMinSimilarity} min={0} max={1} step={0.01} title={clapSimilarityHelp} onChange={(event) => onClapMinSimilarityChange(Number(event.target.value))} /></label>
+      <div className="search-filter-grid clap-search-filter-grid">
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
       <button className="clap-text-search-button" title={clapSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredClapEmbeddings} onClick={handleTextSearch} type="button">

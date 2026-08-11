@@ -6,7 +6,7 @@ import test from "node:test";
 const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf8");
 const panelSource = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
 const clapTabSource = readFileSync(fileURLToPath(new URL("../src/ClapSearchTab.tsx", import.meta.url)), "utf8");
-const helpSource = readFileSync(fileURLToPath(new URL("../src/helpText.ts", import.meta.url)), "utf8");
+const embeddingTabSource = readFileSync(fileURLToPath(new URL("../src/EmbeddingSearchTab.tsx", import.meta.url)), "utf8");
 const dedupDialogSource = readFileSync(fileURLToPath(new URL("../src/AudioDedupDialog.tsx", import.meta.url)), "utf8");
 
 function tabPanelSource(tabName) {
@@ -17,21 +17,11 @@ function tabPanelSource(tabName) {
   return panelSource.slice(start, nextTab === -1 ? undefined : nextTab);
 }
 
-test("CLAP text search uses its own Similarity threshold state", () => {
-  assert.match(appSource, /const\s+\[clapMinSimilarity,\s*setClapMinSimilarity\]\s*=\s*useState\(0\)/);
-  assert.match(appSource, /min_similarity:\s*clapMinSimilarity/);
-  assert.match(clapTabSource, /clapMinSimilarity:\s*number/);
-  assert.match(clapTabSource, /onClapMinSimilarityChange:\s*\(value:\s*number\)\s*=>\s*void/);
-});
-
-test("CLAP UI keeps the Similarity label but documents text-audio score scale", () => {
-  const clapPanel = clapTabSource;
-
-  assert.match(clapPanel, />Similarity<input[^>]+value=\{clapMinSimilarity\}/);
-  assert.match(clapPanel, /title=\{clapSimilarityHelp\}/);
-  assert.match(helpSource, /clapSimilarity:/);
-  assert.match(helpSource, /text-to-audio/i);
-  assert.match(helpSource, /0\.35-0\.55/);
+test("search tabs do not expose or send a minimum similarity threshold", () => {
+  assert.doesNotMatch(appSource, /clapMinSimilarity|filters\.minSimilarity|min_similarity:/);
+  assert.doesNotMatch(panelSource, />Similarity<input/);
+  assert.doesNotMatch(clapTabSource, />Similarity<input|clapMinSimilarity|clapSimilarityHelp/);
+  assert.doesNotMatch(embeddingTabSource, /minSimilarity|similarityHelp|onMinSimilarityChange/);
 });
 
 test("CLAP tab extraction preserves negative prompt visibility and exact copy", () => {
@@ -42,11 +32,11 @@ test("CLAP tab extraction preserves negative prompt visibility and exact copy", 
   assert.match(clapTabSource, /Requires stored CLAP embeddings\. Run CLAP analysis first\./);
 });
 
-test("SONARA UI keeps the general Similarity threshold state", () => {
+test("SONARA UI keeps mode and limit without a Similarity threshold", () => {
   const sonaraPanel = tabPanelSource("sonara");
 
-  assert.match(sonaraPanel, />Similarity<input[^>]+value=\{filters\.minSimilarity\}/);
-  assert.match(sonaraPanel, /title=\{helpText\.similarity\}/);
+  assert.match(sonaraPanel, />Limit<input[^>]+value=\{filters\.limit\}/);
+  assert.doesNotMatch(sonaraPanel, />Similarity<input/);
   assert.doesNotMatch(sonaraPanel, /clapMinSimilarity/);
 });
 

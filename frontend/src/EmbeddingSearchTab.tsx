@@ -7,11 +7,8 @@ export function EmbeddingSearchTab({
   busy,
   pending,
   error,
-  minSimilarity,
   limit,
-  similarityHelp,
   limitHelp,
-  onMinSimilarityChange,
   onLimitChange,
   onSearch
 }: {
@@ -20,11 +17,8 @@ export function EmbeddingSearchTab({
   busy: boolean;
   pending: boolean;
   error: string;
-  minSimilarity: number;
   limit: number;
-  similarityHelp: string;
   limitHelp: string;
-  onMinSimilarityChange: (value: number) => void;
   onLimitChange: (value: number) => void;
   onSearch: (analysisFamily: EmbeddingSource) => Promise<void>;
 }) {
@@ -37,22 +31,6 @@ export function EmbeddingSearchTab({
   return (
     <>
       <div className="search-filter-grid embedding-search-grid">
-        <label title={similarityHelp}>
-          Similarity
-          <input
-            type="number"
-            value={minSimilarity}
-            min={0}
-            max={1}
-            step={0.01}
-            title={similarityHelp}
-            onChange={(event) => {
-              if (Number.isFinite(event.currentTarget.valueAsNumber)) {
-                onMinSimilarityChange(Math.max(0, Math.min(1, event.currentTarget.valueAsNumber)));
-              }
-            }}
-          />
-        </label>
         <label title={limitHelp}>
           Limit
           <input

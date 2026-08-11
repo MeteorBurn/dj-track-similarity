@@ -25,7 +25,6 @@ import { displayTrack } from "./trackDisplay";
 const playlistPageSize = 20;
 
 export type SearchFiltersState = {
-  minSimilarity: number;
   limit: number;
   sonaraMode: SonaraSearchMode;
   sonaraMixer: SonaraMixerWeights;
@@ -34,8 +33,6 @@ export type SearchFiltersState = {
 
 type SearchHelpText = {
   textPrompt: string;
-  similarity: string;
-  clapSimilarity: string;
   limit: string;
   sonaraMode: string;
   sonaraMixerTimbre: string;
@@ -66,27 +63,27 @@ const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
   {
     value: "balanced",
     label: "Balanced",
-    title: "Balanced: mixes vibe, timbre, BPM, and light harmonic agreement without custom directional bias."
+    title: "Balanced: универсальный поиск с балансом настроения, саунда, темпа и гармонии."
   },
   {
     value: "vibe",
     label: "Vibe",
-    title: "Vibe: emphasizes energy, danceability, valence, acousticness, and broad dynamics."
+    title: "Vibe: ищет близкие настроение, энергию, танцевальность и динамику."
   },
   {
     value: "sound",
     label: "Sound",
-    title: "Sound: emphasizes timbre, MFCC, and spectral texture."
+    title: "Sound: ищет похожий характер звука — тембр, текстуру и яркость."
   },
   {
     value: "dj_transition",
     label: "DJ transition",
-    title: "DJ transition: emphasizes BPM, onset density, energy, danceability, and tonal compatibility."
+    title: "DJ transition: ищет следующий трек для сета по темпу, ритму, энергии и тональности. При наличии данных учитывает outro → intro."
   },
   {
     value: "custom",
     label: "Custom mixer",
-    title: "Custom mixer: use the visible mixer weights and directional modifiers."
+    title: "Custom mixer: вручную решает, какая похожесть важна и в какую сторону направлять выдачу."
   }
 ];
 
@@ -112,8 +109,6 @@ export function SearchPlaylistPanel({
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
-  clapMinSimilarity,
-  onClapMinSimilarityChange,
   databaseIdentity,
   busy,
   filters,
@@ -163,8 +158,6 @@ export function SearchPlaylistPanel({
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
-  clapMinSimilarity: number;
-  onClapMinSimilarityChange: (value: number) => void;
   databaseIdentity: string | null;
   busy: boolean;
   filters: SearchFiltersState;
@@ -231,13 +224,13 @@ export function SearchPlaylistPanel({
  const modifierControls: Array<{ key: keyof SonaraModifiers; label: string; title: string }> = [
     { key: "energy", label: "Energy", title: helpText.sonaraModifierEnergy },
     { key: "valence", label: "Valence", title: helpText.sonaraModifierValence },
+    { key: "aggression", label: "Aggression", title: helpText.sonaraModifierAggression },
+    { key: "vocalness", label: "Vocal", title: helpText.sonaraModifierVocalness },
     { key: "acousticness", label: "Acoustic", title: helpText.sonaraModifierAcousticness },
     { key: "brightness", label: "Bright", title: helpText.sonaraModifierBrightness },
     { key: "rhythm_density", label: "Density", title: helpText.sonaraModifierRhythmDensity },
     { key: "dynamic_range", label: "Range", title: helpText.sonaraModifierDynamicRange },
-    { key: "loudness", label: "LUFS", title: helpText.sonaraModifierLoudness },
-    { key: "vocalness", label: "Vocal", title: helpText.sonaraModifierVocalness },
-    { key: "aggression", label: "Aggression", title: helpText.sonaraModifierAggression }
+    { key: "loudness", label: "LUFS", title: helpText.sonaraModifierLoudness }
   ];
   const sonaraModeTitle = optionTitle(sonaraModeOptions, filters.sonaraMode);
   const customSonaraDisabled = filters.sonaraMode !== "custom";
@@ -351,7 +344,10 @@ export function SearchPlaylistPanel({
           <div id="search-panel-sonara" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-sonara">
             <div className={customSonaraDisabled ? "sonara-custom-controls disabled-filter" : "sonara-custom-controls"}>
               <div className="custom-control-header">
-                <span>Mixer</span>
+                <div className="custom-control-copy">
+                  <span>Mixer</span>
+                  <small>— приоритизирует виды сходства.</small>
+                </div>
                 <button className="sonara-mixer-reset-button" title="Сбросить SONARA mixer и modifiers" type="button" onClick={resetCustomSonara}>Reset</button>
               </div>
               <div className="range-grid mixer-grid">
@@ -379,22 +375,36 @@ export function SearchPlaylistPanel({
                   );
                 })}
               </div>
-              <div className="custom-control-header">
-                <span>Modifiers</span>
+              <div className="custom-control-header sonara-modifier-header">
+                <div className="custom-control-copy">
+                  <span>Modifiers</span>
+                  <small>— направляют характер выдачи.</small>
+                </div>
               </div>
               <div className="range-grid modifier-grid sonara-modifier-grid">
                 {modifierControls.map((control) => {
                   const value = filters.sonaraModifiers[control.key];
                   const isOff = value === 0;
+                  const inputId = `sonara-modifier-${control.key}`;
                   return (
-                    <label className={isOff ? "range-control is-off" : "range-control"} key={control.key} title={control.title}>
+                    <div className={isOff ? "range-control is-off" : "range-control"} key={control.key}>
                       <span>
-                        <strong>{control.label}</strong>
-                        <em>{formatSigned(value)}</em>
-                        {isOff ? <small className="sonara-control-off">Off</small> : null}
+                        <label htmlFor={inputId} title={control.title}><strong>{control.label}</strong></label>
+                        <em className="sonara-modifier-score">{formatSigned(value)}</em>
+                        <button
+                          aria-label={`Reset ${control.label} modifier to zero`}
+                          className="sonara-control-off"
+                          disabled={isOff || customSonaraDisabled}
+                          title={`Reset ${control.label} modifier to zero`}
+                          type="button"
+                          onClick={() => setSonaraModifierValue(control.key, 0)}
+                        >
+                          Off
+                        </button>
                       </span>
                       <input
                         className="sonara-modifier-range"
+                        id={inputId}
                         type="range"
                         min={-1}
                         max={1}
@@ -404,13 +414,13 @@ export function SearchPlaylistPanel({
                         disabled={customSonaraDisabled}
                         onChange={(event) => setSonaraModifierValue(control.key, Number(event.target.value))}
                       />
-                    </label>
+                    </div>
                   );
                 })}
               </div>
             </div>
             <div className="search-filter-grid sonara-search-filter-grid">
-              <label title={sonaraModeTitle}>
+              <label title={helpText.sonaraMode}>
                 Mode
                 <select
                   className="sonara-mode-select"
@@ -426,9 +436,6 @@ export function SearchPlaylistPanel({
                   ))}
                 </select>
               </label>
-              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => {
-                if (Number.isFinite(event.currentTarget.valueAsNumber)) setFilters({ ...filters, minSimilarity: clampNumber(event.currentTarget.valueAsNumber, 0, 1) });
-              }} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => {
                 if (Number.isFinite(event.currentTarget.valueAsNumber)) setFilters({ ...filters, limit: Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, 500)) });
               }} /></label>
@@ -447,11 +454,8 @@ export function SearchPlaylistPanel({
               busy={busy || !seeds.length}
               pending={Boolean(embeddingSearchPending[activeSearchTab])}
               error={embeddingSearchErrors[activeSearchTab] || ""}
-              minSimilarity={filters.minSimilarity}
               limit={filters.limit}
-              similarityHelp={helpText.similarity}
               limitHelp={helpText.limit}
-              onMinSimilarityChange={(value) => setFilters({ ...filters, minSimilarity: value })}
               onLimitChange={(value) => setFilters({ ...filters, limit: value })}
               onSearch={runEmbeddingSearch}
             />
@@ -469,12 +473,9 @@ export function SearchPlaylistPanel({
             clapPresetKey={clapPresetKey}
             onClapPresetChange={onClapPresetChange}
             clapPromptPresets={clapPromptPresets}
-            clapMinSimilarity={clapMinSimilarity}
-            onClapMinSimilarityChange={onClapMinSimilarityChange}
             limit={filters.limit}
             onLimitChange={(value) => setFilters({ ...filters, limit: value })}
             textPromptHelp={helpText.textPrompt}
-            clapSimilarityHelp={helpText.clapSimilarity}
             limitHelp={helpText.limit}
             hasStoredClapEmbeddings={hasStoredClapEmbeddings}
             busy={busy}

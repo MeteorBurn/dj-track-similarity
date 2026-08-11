@@ -159,7 +159,6 @@ export function App() {
   const [clapPresetKey, setClapPresetKey] = useState(defaultClapPromptPresetKey);
   const [clapNegativeQuery, setClapNegativeQuery] = useState("");
   const [clapUseNegativePrompt, setClapUseNegativePrompt] = useState(true);
-  const [clapMinSimilarity, setClapMinSimilarity] = useState(0);
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
@@ -185,7 +184,6 @@ export function App() {
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState<SearchFiltersState>({
-    minSimilarity: 0,
     limit: 20,
     sonaraMode: "custom",
     sonaraMixer: {
@@ -225,12 +223,10 @@ export function App() {
       clap_negative_query: clapNegativeQuery,
       clap_use_negative_prompt: clapUseNegativePrompt,
       clap_preset_key: clapPresetKey,
-      clap_min_similarity: clapMinSimilarity,
       clap_device: analysisDevice,
     }),
     [
       analysisDevice,
-      clapMinSimilarity,
       clapNegativeQuery,
       clapPresetKey,
       clapUseNegativePrompt,
@@ -791,7 +787,6 @@ export function App() {
         mode: filters.sonaraMode,
         mixer_weights: customMode ? filters.sonaraMixer : null,
         modifiers: customMode ? filters.sonaraModifiers : null,
-        min_similarity: filters.minSimilarity
       }, {
         signal: ticket.controller.signal,
       });
@@ -878,7 +873,6 @@ export function App() {
         analysis_family: analysisFamily,
         seed_track_ids: seeds,
         limit: filters.limit,
-        min_similarity: filters.minSimilarity,
         epsilon: null,
         noise: 0,
       }, {
@@ -1148,7 +1142,6 @@ export function App() {
         adaptive_contrast: true,
         preset: clapPresetKey,
         limit: filters.limit,
-        min_similarity: clapMinSimilarity,
         device: analysisDevice
       }, {
         signal: ticket.controller.signal,
@@ -1672,8 +1665,6 @@ export function App() {
           clapPresetKey={clapPresetKey}
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}
-          clapMinSimilarity={clapMinSimilarity}
-          onClapMinSimilarityChange={setClapMinSimilarity}
           databaseIdentity={databaseCatalogUuid}
           busy={busy || genericSearchPending || !databasePath}
           filters={filters}

@@ -12,6 +12,16 @@ test("SONARA tab exposes backend modes and custom vocalness and aggression modif
   assert.match(panelSource, /key: "vocalness", label: "Vocal"/);
   assert.match(panelSource, /key: "aggression", label: "Aggression"/);
   assert.match(panelSource, /handleSonaraSearch/);
+  assert.match(panelSource, /title=\{helpText\.sonaraMode\}/);
+  assert.match(panelSource, /Balanced: универсальный поиск/);
+  assert.match(panelSource, /DJ transition: ищет следующий трек для сета/);
+});
+
+test("SONARA modifiers put practical musical directions first and LUFS last", () => {
+  const order = ["energy", "valence", "aggression", "vocalness", "acousticness", "brightness", "rhythm_density", "dynamic_range", "loudness"];
+  const positions = order.map((key) => panelSource.indexOf(`key: "${key}"`));
+  assert.ok(positions.every((position) => position >= 0));
+  assert.deepEqual([...positions].sort((left, right) => left - right), positions);
 });
 
 test("zero-valued SONARA custom controls visibly show that they are off", () => {
@@ -22,6 +32,16 @@ test("zero-valued SONARA custom controls visibly show that they are off", () => 
   assert.match(stylesSource, /\.sonara-control-off\s*\{/);
 });
 
+test("each SONARA modifier has an independent score and an off button that resets it to zero", () => {
+  assert.match(panelSource, /className="sonara-modifier-score">\{formatSigned\(value\)\}<\/em>/);
+  assert.match(panelSource, /aria-label=\{`Reset \$\{control\.label\} modifier to zero`\}/);
+  assert.match(panelSource, /disabled=\{isOff \|\| customSonaraDisabled\}/);
+  assert.match(panelSource, /onClick=\{\(\) => setSonaraModifierValue\(control\.key, 0\)\}/);
+  assert.match(stylesSource, /\.sonara-modifier-grid \.range-control span\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto auto/s);
+  assert.match(stylesSource, /\.sonara-control-off\s*\{[^}]*min-height:\s*0/s);
+  assert.match(stylesSource, /\.sonara-control-off:disabled\s*\{[^}]*opacity:\s*1/s);
+});
+
 test("SONARA modifiers use a softer distinct accent", () => {
   assert.match(panelSource, /className="range-grid modifier-grid sonara-modifier-grid"/);
   assert.match(panelSource, /className="sonara-modifier-range"/);
@@ -30,12 +50,20 @@ test("SONARA modifiers use a softer distinct accent", () => {
   assert.match(stylesSource, /\.sonara-modifier-range\s*\{[^}]*accent-color:\s*var\(--modifier-accent\)/s);
 });
 
-test("SONARA mode, similarity, and limit share one compact styled row", () => {
+test("SONARA mixer and modifiers have short guidance and separated sections", () => {
+  assert.match(panelSource, /<small>— приоритизирует виды сходства\.<\/small>/);
+  assert.match(panelSource, /<small>— направляют характер выдачи\.<\/small>/);
+  assert.match(panelSource, /className="custom-control-header sonara-modifier-header"/);
+  assert.match(stylesSource, /\.custom-control-copy\s*\{[^}]*align-items:\s*baseline[^}]*display:\s*flex/s);
+  assert.match(stylesSource, /\.sonara-modifier-header\s*\{[^}]*margin-top:\s*6px/s);
+});
+
+test("SONARA mode and limit share one compact styled row", () => {
   assert.match(panelSource, /className="search-filter-grid sonara-search-filter-grid"/);
   assert.match(panelSource, /className="sonara-mode-select"/);
   assert.match(
     stylesSource,
-    /\.search-workflow-section \.sonara-search-filter-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.4fr\)\s*repeat\(2,\s*minmax\(0,\s*0\.8fr\)\)/s,
+    /\.search-workflow-section \.sonara-search-filter-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.4fr\)\s*minmax\(0,\s*0\.8fr\)/s,
   );
   assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*appearance:\s*none/s);
   assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*background-color:\s*var\(--accent-strong-bg\)/s);
@@ -63,9 +91,9 @@ test("MUQ remains visible at zero coverage and shows a non-blocking current-data
   assert.match(embeddingTabSource, /\{error \? <span className="embedding-search-requirement error">\{error\}<\/span> : null\}/);
 });
 
-test("embedding search controls clamp finite values without turning empty input into zero", () => {
+test("embedding search keeps a bounded result limit without a similarity threshold", () => {
   assert.match(embeddingTabSource, /Number\.isFinite\(event\.currentTarget\.valueAsNumber\)/);
-  assert.match(embeddingTabSource, /Math\.max\(0, Math\.min\(1,/);
   assert.match(embeddingTabSource, /Math\.round\(Math\.max\(1, Math\.min\(500,/);
+  assert.doesNotMatch(embeddingTabSource, /minSimilarity|similarityHelp|onMinSimilarityChange/);
   assert.doesNotMatch(embeddingTabSource, /Number\(event\.target\.value\)/);
 });

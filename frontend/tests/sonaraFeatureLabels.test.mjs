@@ -11,7 +11,6 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
     ["detected_bpm", "BPM"],
     ["onset_density_per_second", "Onset density"],
     ["detected_key_name", "Key"],
-    ["detected_key_camelot", "Camelot"],
     ["energy_score", "Energy"],
     ["danceability_score", "Danceability"],
     ["spectral_centroid_hz", "Spectral centroid"],
@@ -28,6 +27,7 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
       `${field} should use the current label`,
     );
   }
+  assert.doesNotMatch(source, /feature\("detected_key_camelot"/);
 });
 
 test("metadata descriptions keep model outputs as ranking signals", () => {
@@ -48,6 +48,7 @@ test("metadata header and file block are driven by the current detail", () => {
   assert.match(source, /className="metadata-dialog-close-actions"/);
   assert.doesNotMatch(source, /metadata-dialog-actions/);
   assert.match(source, /<strong>Track Details<\/strong>/);
+  assert.match(source, /<summary>Data<\/summary>/);
   assert.match(source, /\["Audio Length", formatAudioLength\(duration\)\]/);
   assert.match(source, /seconds\.toFixed\(2\)/);
   assert.match(source, /\["Last Scanned", formatTimestamp\(track\.file\.last_scanned_at\)\]/);
@@ -76,7 +77,17 @@ test("metadata renders MAEST genres in a dedicated block instead of analysis bad
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /className="maest-genres-block"/);
-  assert.match(source, /MAEST genre data is not available/);
+  assert.match(source, /title="MAEST-detected genres"/);
+  assert.match(source, /MAEST analysis has not been run for this track/);
+  assert.match(source, /maestAnalyzed: track\.maest !== null/);
+  assert.match(source, /className="metadata-data-details"/);
+  assert.match(source, /className="metadata-scan-analyses-details"/);
+  assert.match(source, /<summary>Scan analyses details<\/summary>/);
+  assert.match(source, /File scan \(Mutagen\)/);
+  assert.match(source, /metadata-scan-analyses-section-title">SONARA/);
+  assert.match(source, /className="metadata-classifier-block"/);
+  assert.doesNotMatch(source, /metadata-(?:scan|embedding)-details/);
+  assert.doesNotMatch(source, /mutagen-(?:block|grid)|tag-grid|metadata-scan-state/);
   assert.doesNotMatch(source, /analysis-badge-row|analysis-badge|readableAnalysisBadges|trackHasAnalysis/);
 });
 

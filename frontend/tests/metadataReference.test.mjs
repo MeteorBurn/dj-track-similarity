@@ -242,6 +242,7 @@ test("App aborts superseded detail requests and commits only the clicked identit
 test("syncopated rhythm reads the detailed MAEST record", () => {
   assert.equal(syncopatedRhythm.hasMaestSyncopatedRhythm(detail()), true);
   assert.equal(syncopatedRhythm.hasMaestSyncopatedRhythm({ ...detail(), maest: null }), false);
+  assert.equal(metadataDialog.metadataDialogModel({ ...detail(), maest: null }).maestAnalyzed, false);
 });
 
 test("metadata model maps detailed file tags MuQ and classifiers", () => {
@@ -270,8 +271,8 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
     ["Comment", "Club mix"],
   ]);
   assert.deepEqual(Array.from(model.audioEntries, ([label, value]) => [label, value]), [
-    ["Audio Length", "247.37"],
     ["Audio Format", "audio/flac"],
+    ["Audio Length", "247.37"],
     ["Sample Rate", "48,000 Hz"],
     ["Bit Rate", "1000 kbps"],
     ["Bit Depth", "24-bit"],
@@ -281,14 +282,22 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
     ["Last Scanned", expectedLocalTimestamp("2026-07-24T10:00:00.123456Z")],
     ["Missing Since", "-"],
   ]);
+  assert.deepEqual(Array.from(model.sonaraAnalysisEntries, ([label, value]) => [label, value]), [
+    ["Analyzed at", expectedLocalTimestamp("2026-07-24T10:01:00Z")],
+  ]);
   assert.equal(model.analysisBadges, undefined);
   assert.equal(model.syncopatedRhythm, true);
+  assert.equal(model.maestAnalyzed, true);
   assert.equal(new Map(model.audioEntries).has("Audio Codec"), false);
   assert.equal(model.embeddings[0].label, "MUQ");
   assert.match(model.embeddings[0].value, /1024D/);
   assert.ok(model.embeddings[0].value.includes(expectedLocalTimestamp("2026-07-24T10:03:00Z")));
   assert.doesNotMatch(model.embeddings[0].value, /legacy-embedding-version/);
   assert.match(model.classifierScores[0].value, /muq/);
+  assert.doesNotMatch(model.classifierScores[0].value, /2026/);
+  assert.deepEqual(Array.from(model.classifierAnalysisEntries, ([label, value]) => [label, value]), [
+    ["Voice Presence", expectedLocalTimestamp("2026-07-24T10:04:00Z")],
+  ]);
   assert.deepEqual(
     model.classifierScores[0].featureNames,
     ["muq:embedding_0", "sonara:energy_score", "muq:embedding_1"]
@@ -383,6 +392,7 @@ test("SONARA model-backed groups precede Vector summaries and use dedicated form
   const track = detail();
   track.sonara_core = {
     ...track.sonara_core,
+    energy_score: 0.7,
     mood_aggressive_score: 0.505047082901001,
     aggression_score: 0.6189124584197998,
     aggression_confidence: 0.9123457074165344,
@@ -397,8 +407,8 @@ test("SONARA model-backed groups precede Vector summaries and use dedicated form
   const titles = Array.from(model.coreGroups, (group) => group.title);
   const vectorSummariesIndex = titles.indexOf("Vector summaries");
   assert.deepEqual(
-    titles.slice(vectorSummariesIndex - 2, vectorSummariesIndex + 1),
-    ["Vocalness", "Aggression", "Vector summaries"],
+    titles.slice(vectorSummariesIndex - 4, vectorSummariesIndex + 1),
+    ["Perceptual", "Mood", "Aggression", "Vocalness", "Vector summaries"],
   );
 
   const mood = model.coreGroups.find((group) => group.title === "Mood");
@@ -471,8 +481,8 @@ test("SONARA tonal and loudness metadata uses meaningful precision", () => {
     loudness_range_lu: 4.79802131652832,
   });
 
-  assert.equal(features.get("detected_key_camelot").value, "8A");
-  assert.equal(features.get("detected_key_name").value, "A minor");
+  assert.equal(features.get("detected_key_camelot"), undefined);
+  assert.equal(features.get("detected_key_name").value, "A minor · 8A");
   assert.equal(features.get("key_confidence").value, "0.15");
   assert.equal(
     features.get("key_candidates").value,
@@ -489,9 +499,23 @@ test("SONARA tonal and loudness metadata uses meaningful precision", () => {
   assert.equal(features.get("replay_gain_db").value, "+0.66 dB");
   assert.equal(features.get("max_momentary_loudness_lufs").value, "-11.3 LUFS");
   assert.equal(features.get("loudness_range_lu").value, "4.8 LU");
+  const loudness = metadataDialog.metadataDialogModel({
+    ...detail(),
+    sonara_core: { ...detail().sonara_core, integrated_loudness_lufs: -14.8, loudness_range_lu: 4.8, dynamic_range_db: 21.8, max_momentary_loudness_lufs: -11.3, true_peak_dbtp: -0.04, rms_mean: 0.205, rms_max: 0.526, replay_gain_db: 0.66 },
+  }).coreGroups.find((group) => group.title === "Loudness");
+  assert.deepEqual(Array.from(loudness.features, (feature) => feature.key), [
+    "integrated_loudness_lufs",
+    "loudness_range_lu",
+    "dynamic_range_db",
+    "max_momentary_loudness_lufs",
+    "true_peak_dbtp",
+    "rms_mean",
+    "rms_max",
+    "replay_gain_db",
+  ]);
 });
 
-test("SONARA structure spectral and analysis metadata uses natural display units", () => {
+test("SONARA structure and spectral metadata uses natural display units", () => {
   const features = sonaraFeatures({
     intro_end_seconds: 3.0650339126586914,
     outro_start_seconds: 447.4949645996094,
@@ -508,7 +532,6 @@ test("SONARA structure spectral and analysis metadata uses natural display units
     spectral_rolloff_hz: 4500.17236328125,
     spectral_flatness: 0.03053215704858303,
     zero_crossing_rate: 0.059822872281074524,
-    analyzed_at: "2026-07-30T09:51:32.510995Z",
   });
 
   assert.equal(features.get("intro_end_seconds").value, "0:03");
@@ -526,7 +549,7 @@ test("SONARA structure spectral and analysis metadata uses natural display units
   assert.equal(features.get("spectral_rolloff_hz").value, "4,500 Hz");
   assert.equal(features.get("spectral_flatness").value, "0.0305");
   assert.equal(features.get("zero_crossing_rate").value, "0.0598");
-  assert.equal(features.get("analyzed_at").value, expectedLocalTimestamp("2026-07-30T09:51:32.510995Z"));
+  assert.equal(features.has("analyzed_at"), false);
 });
 
 test("Reference Compare ordering preserves MuQ or supplies a model-scoped reason", () => {

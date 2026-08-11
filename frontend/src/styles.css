@@ -848,31 +848,6 @@ h2 {
   line-height: 15px;
 }
 
-.analysis-models-heading-with-full {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-}
-
-.analysis-models-heading-with-full small {
-  grid-column: 1 / -1;
-}
-
-.analysis-full-check {
-  align-items: center;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  font-size: 11px;
-  font-weight: 760;
-  gap: 5px;
-}
-
-.analysis-full-check input {
-  height: 14px;
-  margin: 0;
-  width: 14px;
-}
-
 .analysis-model-row {
   align-items: center;
   display: grid;

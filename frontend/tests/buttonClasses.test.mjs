@@ -148,8 +148,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
   assert.match(source, />\s*Analyze\s*<\/button>/);
-  assert.match(source, /analysis-full-check/);
-  assert.match(source, />\s*FULL\s*<\/label>/);
   assert.match(source, /classifiers/);
   assert.match(source, /CLASSIFIERS/);
   assert.match(source, /Считает темп, тональность, ритм, динамику, тембр и структуру трека/);
@@ -175,7 +173,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(appSource, /if \(current\.length === 1 && current\.includes\(model\)\) return current/);
   assert.match(appSource, /if \(model === "sonara" \|\| model === "classifiers"\) \{[\s\S]*?return \[model\]/);
   assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara" && item !== "classifiers"\)/);
-  assert.match(appSource, /function toggleAllAnalysisModels\(\)[\s\S]*?analysisSelectionOrder\.length[\s\S]*?setSelectedAnalysisModels\(\["sonara"\]\)[\s\S]*?\[\.\.\.analysisSelectionOrder\]/);
   assert.doesNotMatch(appSource, /SonaraOutput|sonaraOutputs|toggleSonaraOutput/);
   assert.doesNotMatch(source, /sonara-output|Timeline|Fingerprint/);
   assert.doesNotMatch(styles, /\.sonara-output-/);

@@ -703,14 +703,6 @@ export function App() {
     });
   }
 
-  function toggleAllAnalysisModels() {
-    if (selectedAnalysisModels.length === analysisSelectionOrder.length) {
-      setSelectedAnalysisModels(["sonara"]);
-      return;
-    }
-    setSelectedAnalysisModels([...analysisSelectionOrder]);
-  }
-
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
@@ -1419,7 +1411,6 @@ export function App() {
           analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
-          onToggleAllAnalysisModels={toggleAllAnalysisModels}
           onAnalyzeSelected={() => void handleAnalyzeSelected()}
           onResetAnalysis={(adapter) => requestConfirmation({
             title: `Сбросить ${adapter.toUpperCase()}?`,

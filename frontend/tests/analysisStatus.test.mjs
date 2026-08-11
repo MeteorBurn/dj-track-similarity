@@ -78,7 +78,6 @@ test("pipeline child analysis status is not rendered as a duplicate standalone j
       analysisCounts: {},
       selectedAnalysisModels: ["sonara"],
       onToggleAnalysisModel: noop,
-      onToggleAllAnalysisModels: noop,
       onAnalyzeSelected: noop,
       onResetAnalysis: noop,
       onResetClassifiers: noop,

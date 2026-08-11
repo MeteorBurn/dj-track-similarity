@@ -1,6 +1,6 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, PromotedClassifier } from "./api";
-import { audioAnalysisModelOrder, mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
+import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
 import { classifierIsAvailable } from "./classifierCompatibility";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -72,7 +72,6 @@ export function LibraryPanel({
   analysisCounts,
   selectedAnalysisModels,
   onToggleAnalysisModel,
-  onToggleAllAnalysisModels,
   onAnalyzeSelected,
   onResetAnalysis,
   onResetClassifiers
@@ -116,7 +115,6 @@ export function LibraryPanel({
   analysisCounts: Record<AnalysisSelection, number>;
   selectedAnalysisModels: AnalysisSelection[];
   onToggleAnalysisModel: (model: AnalysisSelection) => void;
-  onToggleAllAnalysisModels: () => void;
   onAnalyzeSelected: () => void;
   onResetAnalysis: (adapter: AnalysisModel) => void;
   onResetClassifiers: () => void;
@@ -124,7 +122,6 @@ export function LibraryPanel({
   const analysisDisabled = busy || stageRunning || !hasTracks;
   const availableClassifierProfiles = classifiers.filter(classifierIsAvailable).length;
   const classifiersSelected = selectedAnalysisModels.includes("classifiers");
-  const fullAnalysisSelected = selectedAnalysisModels.length === audioAnalysisModelOrder.length + 1;
   const pipelineOwnsAnalysisJob = analysisJob != null
     && pipelineJob != null
     && Object.values(pipelineJob.stages).some((stage) => stage.child_job_id === analysisJob.job_id);
@@ -178,12 +175,8 @@ export function LibraryPanel({
         <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title={helpText.clearDatabase} onClick={onClearDatabase} type="button"><Trash2 size={17} /></button>
       </div>
 
-      <div className="analysis-models-heading analysis-models-heading-with-full">
+      <div className="analysis-models-heading">
         <span>Анализ</span>
-        <label className="analysis-full-check" title="Выбрать все стадии анализа">
-          <input type="checkbox" checked={fullAnalysisSelected} disabled={busy || stageRunning} onChange={onToggleAllAnalysisModels} />
-          FULL
-        </label>
         <small>Один запуск обработает выбранные стадии и пропустит уже готовые результаты</small>
       </div>
       <div className="analysis-family-card sonara-analysis-block">

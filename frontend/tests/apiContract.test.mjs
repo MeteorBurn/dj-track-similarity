@@ -320,7 +320,7 @@ test("MuQ search and resets serialize only current field names", async () => {
     noise: 0
   });
   await api.resetAnalysis("muq");
-  await api.resetClassifiers(["voice_presence"]);
+  await api.resetClassifier("voice_presence");
 
   assert.equal(calls[0].path, "/api/search");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
@@ -335,7 +335,7 @@ test("MuQ search and resets serialize only current field names", async () => {
   assert.deepEqual(JSON.parse(calls[1].options.body), { analysis_family: "muq" });
   assert.equal(calls[2].path, "/api/classifiers/reset");
   assert.deepEqual(JSON.parse(calls[2].options.body), {
-    classifier_keys: ["voice_presence"]
+    classifier_key: "voice_presence"
   });
 });
 

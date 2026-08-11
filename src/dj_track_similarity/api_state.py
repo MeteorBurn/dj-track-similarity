@@ -72,7 +72,6 @@ class AppDatabaseState:
             classifier_jobs = ClassifierJobManager(db, stage_queue=analysis_queue)
             analysis_pipeline_jobs = AnalysisPipelineManager(
                 analysis_jobs,
-                classifier_jobs,
                 analysis_queue,
             )
             scan_jobs = ScanJobManager(db)

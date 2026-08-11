@@ -56,12 +56,13 @@ intend to rebuild. Retrain and promote a classifier only when its ordered featur
 
 ## Pipeline and classifiers
 
-The backend pipeline order is always SONARA, then ML, then CLASSIFIERS. Per-file failures are kept
-in job status. A fatal initialization failure or cancellation stops later stages.
+The backend pipeline order is SONARA, then ML. Per-file failures are kept in job status. A fatal
+initialization failure or cancellation stops later stages.
 
-Classifier scoring is database-only and does not decode source audio. It requires ordered feature
-names and inputs that match current stored data. An incompatible artifact is blocked until that
-profile is retrained and promoted. Scores stay scoped to their `classifier_key`.
+Classifier scoring is database-only and does not decode source audio. Start it for one promoted
+profile from the **CLASS** tab. It requires ordered feature names and inputs that match current
+stored data. An incompatible artifact is blocked until that profile is retrained and promoted.
+Scores stay scoped to their `classifier_key`.
 
 ## Reset and interpretation
 

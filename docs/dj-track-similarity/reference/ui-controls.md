@@ -61,8 +61,8 @@ Request failures stay visible in that tab instead of being replaced by an empty 
 ## CLASS, LAB, and Rhythm Lab
 
 The **CLASS** tab filters the library by stored classifier scores. Its per-profile action resets and
-rescans only that `classifier_key`. It does not decode audio. The main analysis panel also exposes
-the separate **CLASSIFIERS** stage and the ordered **FULL** pipeline.
+rescans only that `classifier_key` from stored data, without decoding audio; the main analysis panel
+does not run classifier scoring.
 
 The **LAB** tab compares a reference track across CLAP, MERT, MuQ, MAEST, and SONARA. Unavailable
 models show a model-specific reason. Verdict writes include `catalog_uuid`, `track_uuid`, and

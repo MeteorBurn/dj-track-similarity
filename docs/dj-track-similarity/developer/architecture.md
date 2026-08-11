@@ -29,11 +29,11 @@ flowchart LR
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
 - `analysis_jobs.py` and `sonara_features.py`: separate ML jobs, native batched SONARA capture, and
   phase timing. A SONARA batch is persisted in one transaction with a savepoint per track.
-- `analysis_pipeline.py`: fixed SONARA, ML, CLASSIFIERS parent/child orchestration.
+- `analysis_pipeline.py`: fixed SONARA then ML parent/child orchestration.
 - `sonara_runtime.py`: current SONARA Core feature selection.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.
 - `search.py`, `sonara_similarity*.py`, and `transition_diagnostics.py`: search and transition-risk diagnostics.
-- `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, aggregate progress, and database-only scoring.
+- `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, and database-only scoring for one classifier at a time.
 - `api_routes_*.py`: FastAPI route groups.
 - `frontend/src/`: typed API client, library/search state coordinators, and React UI panels.
 

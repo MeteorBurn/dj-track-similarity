@@ -18,7 +18,6 @@ import {
   analysisSelectionOrder,
   analysisStartBlockedByMissingSonara,
   defaultAnalysisSelections,
-  isAudioAnalysisModel,
   type AnalysisSelection
 } from "./analysisSelection";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
@@ -259,8 +258,7 @@ export function App() {
     maest: librarySummary.maest_analysis,
     mert: librarySummary.mert,
     muq: librarySummary.muq,
-    clap: librarySummary.clap,
-    classifiers: librarySummary.classifiers
+    clap: librarySummary.clap
   };
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisTrackBatchSize = 64;
@@ -381,10 +379,7 @@ export function App() {
         const currentStage = job.current_stage;
         const childJobId = currentStage ? job.stages[currentStage]?.child_job_id : null;
         if (childJobId) {
-          const childJobRequest = currentStage === "classifiers"
-            ? api.aggregateClassifierJob(childJobId)
-            : api.analysisJob(childJobId);
-          void childJobRequest.then(setAnalysisJob).catch((error) => {
+          void api.analysisJob(childJobId).then(setAnalysisJob).catch((error) => {
             setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
           });
         }
@@ -464,9 +459,6 @@ export function App() {
       }).catch(() => undefined),
       api.latestAnalysisPipeline().then((job) => {
         if (job) setAnalysisPipelineJob(job);
-      }).catch(() => undefined),
-      api.latestAggregateClassifierJob().then((job) => {
-        if (job) setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
       }).catch(() => undefined),
       ...promotedClassifiers.map((classifier) =>
         api.latestClassifierJob(classifier.classifier_key).then((job) => {
@@ -690,10 +682,10 @@ export function App() {
   function toggleAnalysisModel(model: AnalysisSelection) {
     setSelectedAnalysisModels((current) => {
       if (current.length === 1 && current.includes(model)) return current;
-      if (model === "sonara" || model === "classifiers") {
+      if (model === "sonara") {
         return [model];
       }
-      const mlSelections = current.filter((item) => item !== "sonara" && item !== "classifiers");
+      const mlSelections = current.filter((item) => item !== "sonara");
       const next: AnalysisSelection[] = mlSelections.includes(model)
         ? mlSelections.filter((item) => item !== model)
         : [...mlSelections, model];
@@ -779,23 +771,6 @@ export function App() {
     }
   }
 
-  async function handleResetClassifiers() {
-    const available = classifiers;
-    if (!available.length) {
-      setNotice({ kind: "error", text: "Нет classifier scores для сброса" });
-      return;
-    }
-    appendActivity("warn", "CLASS reset запущен", "Удаляем только classifier scores из SQLite");
-    await run(
-      () => api.resetClassifiers(available.map((classifier) => classifier.classifier_key)),
-      (result) => {
-        appendActivity("ok", "CLASS reset завершен", `classifier rows ${result.classifier_rows_deleted}`);
-        return `CLASS: удалено classifier rows ${result.classifier_rows_deleted}`;
-      },
-      { refreshLibrary: true, refreshSummary: true }
-    );
-  }
-
   async function handleAnalyzeClassifier(classifier: PromotedClassifier) {
     if (librarySummary.sonara < 1) {
       const message = "Сначала выполните SONARA-анализ хотя бы одного трека";
@@ -819,7 +794,7 @@ export function App() {
         appendActivity("info", "CLASSIFIER пересчет запущен", `${currentClassifier.name} · reset scores + analyze`);
         setProcessLogKind("analysis");
         setAnalysisJob(null);
-        await api.resetClassifiers([currentClassifier.classifier_key]);
+        await api.resetClassifier(currentClassifier.classifier_key);
         return api.analyzeClassifier(currentClassifier.classifier_key);
       },
       (job) => {
@@ -964,22 +939,12 @@ export function App() {
     );
   }
 
-  function compatibleClassifierKeys() {
-    return classifiers
-      .filter(classifierIsAvailable)
-      .map((classifier) => classifier.classifier_key);
-  }
-
   async function handleAnalyzeSelected() {
-    const mlModels = selectedAnalysisModels.filter(
-      (model): model is AnalysisModel => isAudioAnalysisModel(model) && model !== "sonara"
-    );
+    const mlModels = selectedAnalysisModels.filter((model) => model !== "sonara");
     const includeSonara = selectedAnalysisModels.includes("sonara");
-    const includeClassifiers = selectedAnalysisModels.includes("classifiers");
-    const stages: Array<"sonara" | "ml" | "classifiers"> = [];
+    const stages: Array<"sonara" | "ml"> = [];
     if (includeSonara) stages.push("sonara");
     if (mlModels.length) stages.push("ml");
-    if (includeClassifiers) stages.push("classifiers");
     if (!stages.length) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну стадию анализа" });
       return;
@@ -992,12 +957,7 @@ export function App() {
     ) {
       const message = "Сначала выполните SONARA-анализ хотя бы одного трека";
       setNotice({ kind: "error", text: message });
-      appendActivity("error", "ML/CLASSIFIERS недоступны", message);
-      return;
-    }
-    const classifierKeys = compatibleClassifierKeys();
-    if (includeClassifiers && !classifierKeys.length) {
-      setNotice({ kind: "error", text: "Нет совместимых promoted classifiers: сначала переобучите и promote модели" });
+      appendActivity("error", "ML недоступны", message);
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
@@ -1011,7 +971,6 @@ export function App() {
         + `Track batch ${analysisTrackBatchSize} · Inference batch ${analysisInferenceBatchSize}`
       );
     }
-    if (includeClassifiers) settings.push(`CLASSIFIERS · profiles ${classifierKeys.length}`);
     settings.push(`Analyze limit ${limit ?? "all"}`);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
@@ -1025,8 +984,7 @@ export function App() {
           ml: {
             models: mlModels, device: analysisDevice, top_k: 3,
             track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
-          },
-          classifiers: { classifier_keys: classifierKeys }
+          }
         });
       },
       (job) => {
@@ -1395,7 +1353,6 @@ export function App() {
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
           sonaraBatchSize={sonaraBatchSize}
           onSonaraBatchSizeChange={setSonaraBatchSize}
-          classifiers={classifiers}
           analysisJob={analysisJob}
           pipelineJob={analysisPipelineJob}
           helpText={helpText}
@@ -1416,11 +1373,6 @@ export function App() {
             title: `Сбросить ${adapter.toUpperCase()}?`,
             message: `Сбросить результаты ${adapter.toUpperCase()}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,
             onConfirm: () => handleResetAnalysis(adapter)
-          })}
-          onResetClassifiers={() => requestConfirmation({
-            title: "Сбросить CLASSIFIERS?",
-            message: "Удалить сохраненные promoted classifier scores? Аудиофайлы не трогаем.",
-            onConfirm: () => handleResetClassifiers()
           })}
         />
 

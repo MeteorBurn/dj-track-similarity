@@ -45,9 +45,8 @@ from .analysis_model_runners import (
 )
 from .analysis_pipeline import AnalysisPipelineManager
 from .analysis_queue import AnalysisStageQueue
-from .classifier_jobs import ClassifierJobManager
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
-from .classifier_scoring import analyze_classifier as run_classifier_analysis, promoted_classifiers
+from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
 from .db_evaluation import PROMOTED_SCORE_PROFILE_SETTING_KEY
 from .db_migration import (
@@ -1070,39 +1069,10 @@ def analyze(
     typer.echo(result_summary)
 
 
-@app.command("analyze-classifiers")
-def analyze_classifiers(
-    classifiers: str = typer.Option("", "--classifiers", help="Comma-separated promoted classifier keys; empty means all compatible artifacts."),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    limit: Optional[int] = typer.Option(None, "--limit"),
-) -> None:
-    db = _db(db_path)
-    keys = [item.strip() for item in classifiers.split(",") if item.strip()]
-    if not keys:
-        keys = [
-            str(item["classifier_key"])
-            for item in promoted_classifiers()
-            if bool(item.get("is_scoring_compatible", True))
-        ]
-    manager = ClassifierJobManager(db)
-    try:
-        job_id = manager.create_job(classifiers=keys, limit=limit)
-        status = _run_cli_job_with_progress(manager, job_id, label="classifiers")
-    except (FileNotFoundError, RuntimeError, ValueError) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-    typer.echo(
-        f"state={status.state} pairs={status.total} processed={status.processed} "
-        f"scored={status.analyzed} failed={status.failed} not_ready={status.not_ready} "
-        f"classifiers={','.join(status.classifier_keys)}"
-    )
-
-
 @app.command("analyze-pipeline")
 def analyze_pipeline(
-    stages: str = typer.Option("sonara,ml,classifiers", "--stages", help="Selected stages; execution order is always sonara,ml,classifiers."),
+    stages: str = typer.Option("sonara,ml", "--stages", help="Selected stages; execution order is always sonara,ml."),
     ml_models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--ml-models"),
-    classifiers: str = typer.Option("", "--classifiers", help="Comma-separated promoted classifier keys; empty means all compatible artifacts."),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device"),
@@ -1119,18 +1089,10 @@ def analyze_pipeline(
             fg=typer.colors.RED,
         )
         raise typer.Exit(1)
-    classifier_keys = [item.strip() for item in classifiers.split(",") if item.strip()]
-    if "classifiers" in selected_stages and not classifier_keys:
-        classifier_keys = [
-            str(item["classifier_key"])
-            for item in promoted_classifiers()
-            if bool(item.get("is_scoring_compatible", True))
-        ]
     db = _db(db_path)
     stage_queue = AnalysisStageQueue()
     audio_manager = AnalysisJobManager(db, stage_queue=stage_queue)
-    classifier_manager = ClassifierJobManager(db, stage_queue=stage_queue)
-    manager = AnalysisPipelineManager(audio_manager, classifier_manager, stage_queue)
+    manager = AnalysisPipelineManager(audio_manager, stage_queue)
     try:
         job_id = manager.create_job(
             stages=selected_stages,
@@ -1145,7 +1107,6 @@ def analyze_pipeline(
                 "inference_batch_size": inference_batch_size,
                 "top_k": DEFAULT_ANALYSIS_TOP_K,
             },
-            classifiers={"classifier_keys": classifier_keys},
         )
         status = manager.run_job(job_id)
     except (FileNotFoundError, RuntimeError, ValueError) as error:

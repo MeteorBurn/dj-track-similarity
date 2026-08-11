@@ -66,7 +66,6 @@ test("pipeline child analysis status is not rendered as a duplicate standalone j
       onAnalysisInferenceBatchSizeChange: noop,
       sonaraBatchSize: 1,
       onSonaraBatchSizeChange: noop,
-      classifiers: [],
       analysisJob,
       pipelineJob,
       helpText: {},
@@ -80,7 +79,6 @@ test("pipeline child analysis status is not rendered as a duplicate standalone j
       onToggleAnalysisModel: noop,
       onAnalyzeSelected: noop,
       onResetAnalysis: noop,
-      onResetClassifiers: noop,
     }));
 
     assert.equal((markup.match(/class="analysis-muted"/g) || []).length, 1);

@@ -151,33 +151,17 @@ def test_api_defaults_audio_job_to_ml_models_only(
     assert "sonara_outputs" not in calls[0]
 
 
-def test_api_pipeline_preserves_fixed_stage_order(
+def test_api_pipeline_rejects_classifier_stage(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     captured: list[dict[str, object]] = []
 
-    def start(
-        _manager: AnalysisPipelineManager,
-        **kwargs: object,
-    ) -> dict[str, object]:
+    def start(_manager: AnalysisPipelineManager, **kwargs: object) -> dict[str, object]:
         captured.append(dict(kwargs))
-        return {
-            "job_id": "pipeline-job",
-            "state": "queued",
-            "order": [
-                stage
-                for stage in ("sonara", "ml", "classifiers")
-                if stage in kwargs["stages"]
-            ],
-        }
+        return {"job_id": "pipeline-job", "state": "queued"}
 
     monkeypatch.setattr(AnalysisPipelineManager, "start", start)
-    monkeypatch.setattr(
-        api,
-        "promoted_classifiers",
-        lambda: [{"classifier_key": "voice_presence"}],
-    )
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
@@ -194,15 +178,8 @@ def test_api_pipeline_preserves_fixed_stage_order(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["order"] == ["ml", "classifiers"]
-    assert captured[0]["ml"] == {
-        "models": ["mert"],
-        "device": "cpu",
-        "top_k": 3,
-        "track_batch_size": 2,
-        "inference_batch_size": 4,
-    }
+    assert response.status_code == 422
+    assert captured == []
 
 
 def test_api_sonara_job_starts_without_release_preflight(
@@ -266,28 +243,16 @@ def test_api_sonara_status_returns_neutral_coverage(
     }
 
 
-def test_api_classifier_preflight_errors_preserve_manifest_reason(
+def test_api_does_not_register_bulk_classifier_analysis(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        api,
-        "promoted_classifiers",
-        lambda: [
-            {
-                "classifier_key": "voice_presence",
-                "is_scoring_compatible": False,
-                "manifest_errors": ["MERT features are unavailable"],
-            }
-        ],
-    )
     response = _client(monkeypatch, tmp_path).post(
         "/api/classifiers/analyze",
         json={"classifier_keys": ["voice_presence"], "limit": 0},
     )
 
-    assert response.status_code == 400
-    assert "MERT features are unavailable" in response.json()["detail"]
+    assert response.status_code == 405
 
 
 def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(

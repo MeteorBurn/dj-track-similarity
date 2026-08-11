@@ -229,24 +229,19 @@ const analysisApi = {
       method: "POST",
       body: JSON.stringify({ limit: limit || null })
     }),
-  aggregateClassifierJob: (jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/analyze/jobs/${jobId}`),
-  latestAggregateClassifierJob: () => request<AnalysisJobStatus | null>("/api/classifiers/analyze/jobs/latest"),
-  cancelAggregateClassifierJob: (jobId: string) =>
-    request<AnalysisJobStatus>(`/api/classifiers/analyze/jobs/${jobId}/cancel`, { method: "POST" }),
   analysisPipelineStart: (payload: {
-    stages: Array<"sonara" | "ml" | "classifiers">;
+    stages: Array<"sonara" | "ml">;
     limit?: number | null;
     sonara: { batch_size: number };
     ml: { models: AnalysisModel[]; device: "auto" | "cpu" | "cuda"; top_k: number; track_batch_size: number; inference_batch_size: number };
-    classifiers: { classifier_keys: string[] };
   }) => request<AnalysisPipelineStatus>("/api/analysis/pipelines", { method: "POST", body: JSON.stringify(payload) }),
   analysisPipeline: (jobId: string) => request<AnalysisPipelineStatus>(`/api/analysis/pipelines/${jobId}`),
   latestAnalysisPipeline: () => request<AnalysisPipelineStatus | null>("/api/analysis/pipelines/latest"),
   cancelAnalysisPipeline: (jobId: string) => request<AnalysisPipelineStatus>(`/api/analysis/pipelines/${jobId}/cancel`, { method: "POST" }),
-  resetClassifiers: (classifierKeys: string[]) =>
+  resetClassifier: (classifierKey: string) =>
     request<ClassifierResetResult>("/api/classifiers/reset", {
       method: "POST",
-      body: JSON.stringify({ classifier_keys: classifierKeys })
+      body: JSON.stringify({ classifier_key: classifierKey })
     }),
   classifierJob: (classifier: string, jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze/jobs/${jobId}`),
   latestClassifierJob: (classifier: string) => request<AnalysisJobStatus | null>(`/api/classifiers/${classifier}/analyze/jobs/latest`),

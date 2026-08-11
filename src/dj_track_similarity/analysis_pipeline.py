@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import cast
 
 from .analysis_config import (
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
@@ -14,24 +14,7 @@ from .analysis_queue import AnalysisStageQueue
 from .job_runtime import JobStore
 
 
-PIPELINE_STAGE_ORDER = ("sonara", "ml", "classifiers")
-
-
-class _ChildJobStatus(Protocol):
-    state: str
-
-
-class ClassifierJobs(Protocol):
-    def create_job(
-        self,
-        *,
-        classifiers: list[str] | None,
-        limit: int | None,
-    ) -> str: ...
-
-    def run_job(self, job_id: str) -> _ChildJobStatus: ...
-
-    def cancel(self, job_id: str) -> _ChildJobStatus: ...
+PIPELINE_STAGE_ORDER = ("sonara", "ml")
 
 
 @dataclass
@@ -59,18 +42,15 @@ class _PipelinePayload:
     limit: int | None
     sonara: dict[str, object]
     ml: dict[str, object]
-    classifiers: dict[str, object]
 
 
 class AnalysisPipelineManager:
     def __init__(
         self,
         analysis_jobs: AnalysisJobManager,
-        classifier_jobs: ClassifierJobs,
         stage_queue: AnalysisStageQueue,
     ) -> None:
         self.analysis_jobs = analysis_jobs
-        self.classifier_jobs = classifier_jobs
         self.stage_queue = stage_queue
         self._store = JobStore(self._copy_status, unknown_label="analysis pipeline")
 
@@ -81,7 +61,6 @@ class AnalysisPipelineManager:
         limit: int | None,
         sonara: dict[str, object] | None = None,
         ml: dict[str, object] | None = None,
-        classifiers: dict[str, object] | None = None,
     ) -> str:
         selected = [stage for stage in PIPELINE_STAGE_ORDER if stage in stages]
         unknown = sorted(set(stages) - set(PIPELINE_STAGE_ORDER))
@@ -91,11 +70,11 @@ class AnalysisPipelineManager:
             raise ValueError("At least one pipeline stage must be selected")
         if (
             "sonara" not in selected
-            and any(stage in selected for stage in ("ml", "classifiers"))
+            and "ml" in selected
             and self.analysis_jobs.current_sonara_track_count() < 1
         ):
             raise ValueError(
-                "ML and classifier pipeline stages require at least one track "
+                "The ML pipeline stage requires at least one track "
                 "with current SONARA analysis"
             )
         job_id = str(uuid.uuid4())
@@ -112,7 +91,6 @@ class AnalysisPipelineManager:
                 limit=limit,
                 sonara=dict(sonara or {}),
                 ml=dict(ml or {}),
-                classifiers=dict(classifiers or {}),
             ),
         )
         return job_id
@@ -187,15 +165,7 @@ class AnalysisPipelineManager:
                 self.analysis_jobs.cancel(job_id)
                 return job_id, "cancelled"
             return job_id, self.analysis_jobs.run_job(job_id).state
-        job_id = self.classifier_jobs.create_job(
-            classifiers=cast(list[str], payload.classifiers.get("classifier_keys")),
-            limit=payload.limit,
-        )
-        self._set_stage(parent_job_id, stage, state="running", child_job_id=job_id)
-        if self.get(parent_job_id).cancel_requested:
-            self.classifier_jobs.cancel(job_id)
-            return job_id, "cancelled"
-        return job_id, self.classifier_jobs.run_job(job_id).state
+        raise ValueError(f"Unknown pipeline stage: {stage}")
 
     def cancel(self, job_id: str) -> AnalysisPipelineStatus:
         with self._store.locked(job_id) as status:
@@ -213,10 +183,7 @@ class AnalysisPipelineManager:
                 status.stages[current_stage].child_job_id if current_stage else None
             )
         if current_stage and child_id:
-            if current_stage == "classifiers":
-                self.classifier_jobs.cancel(child_id)
-            else:
-                self.analysis_jobs.cancel(child_id)
+            self.analysis_jobs.cancel(child_id)
         return self.get(job_id)
 
     def get(self, job_id: str) -> AnalysisPipelineStatus:

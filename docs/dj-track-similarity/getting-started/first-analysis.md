@@ -46,8 +46,7 @@ Install optional analysis dependencies first. Then run:
 ```powershell
 dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
-dj-sim analyze-classifiers --db .\data\library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml --db .\data\library.sqlite
 ```
 
 Useful options:

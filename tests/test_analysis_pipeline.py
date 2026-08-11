@@ -32,33 +32,28 @@ class FakeJobs:
 
 def test_pipeline_uses_fixed_order_and_continues_after_completed_per_file_failures() -> None:
     audio = FakeJobs(["completed", "completed"], sonara_count=0)
-    classifiers = FakeJobs(["completed"])
-    manager = AnalysisPipelineManager(audio, classifiers, AnalysisStageQueue())
+    manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
     job_id = manager.create_job(
-        stages=["classifiers", "ml", "sonara"],
+        stages=["ml", "sonara"],
         limit=10,
-        sonara={"outputs": ["core"], "batch_size": 16},
+        sonara={"batch_size": 16},
         ml={"models": ["mert"]},
-        classifiers={"classifier_keys": ["demo"]},
     )
 
     status = manager.run_job(job_id)
 
     assert status.state == "completed"
-    assert status.order == ["sonara", "ml", "classifiers"]
-    assert [stage.state for stage in status.stages.values()] == ["completed", "completed", "completed"]
+    assert status.order == ["sonara", "ml"]
+    assert [stage.state for stage in status.stages.values()] == ["completed", "completed"]
     assert len(audio.created) == 2
-    assert len(classifiers.created) == 1
 
 
 def test_pipeline_stops_after_fatal_stage_failure() -> None:
     audio = FakeJobs(["completed", "failed"])
-    classifiers = FakeJobs(["completed"])
-    manager = AnalysisPipelineManager(audio, classifiers, AnalysisStageQueue())
+    manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
     job_id = manager.create_job(
-        stages=["sonara", "ml", "classifiers"],
+        stages=["sonara", "ml"],
         limit=None,
-        classifiers={"classifier_keys": ["demo"]},
     )
 
     status = manager.run_job(job_id)
@@ -66,32 +61,24 @@ def test_pipeline_stops_after_fatal_stage_failure() -> None:
     assert status.state == "failed"
     assert status.stages["sonara"].state == "completed"
     assert status.stages["ml"].state == "failed"
-    assert status.stages["classifiers"].state == "pending"
-    assert classifiers.created == []
 
 
 def test_pipeline_without_sonara_stage_requires_existing_sonara() -> None:
     audio = FakeJobs([], sonara_count=0)
-    classifiers = FakeJobs([])
-    manager = AnalysisPipelineManager(
-        audio,
-        classifiers,
-        AnalysisStageQueue(),
-    )
+    manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
 
     with pytest.raises(
         ValueError,
-        match="pipeline stages require at least one track with current SONARA",
+        match="ML pipeline stage requires at least one track with current SONARA",
     ):
-        manager.create_job(stages=["ml", "classifiers"], limit=None)
+        manager.create_job(stages=["ml"], limit=None)
 
     assert audio.created == []
-    assert classifiers.created == []
 
 
 def test_parent_cancel_before_start_removes_pending_stages() -> None:
-    manager = AnalysisPipelineManager(FakeJobs([]), FakeJobs([]), AnalysisStageQueue())
-    job_id = manager.create_job(stages=["ml", "classifiers"], limit=None)
+    manager = AnalysisPipelineManager(FakeJobs([]), AnalysisStageQueue())
+    job_id = manager.create_job(stages=["ml"], limit=None)
     cancelled = manager.cancel(job_id)
 
     assert cancelled.state == "cancelled"
@@ -112,13 +99,11 @@ def test_parent_cancel_propagates_to_current_child_and_cancels_pending_stages() 
             return SimpleNamespace(state="cancelled")
 
     audio = CancelDuringRun(["cancelled"])
-    classifiers = FakeJobs([])
-    manager = AnalysisPipelineManager(audio, classifiers, AnalysisStageQueue())
+    manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
     parent_id = manager.create_job(
-        stages=["ml", "classifiers"],
+        stages=["sonara", "ml"],
         limit=None,
         ml={"models": ["mert"]},
-        classifiers={"classifier_keys": ["demo"]},
     )
     holder.update(manager=manager, parent_id=parent_id)
 
@@ -126,9 +111,8 @@ def test_parent_cancel_propagates_to_current_child_and_cancels_pending_stages() 
 
     assert status.state == "cancelled"
     assert audio.cancelled == ["child-1"]
+    assert status.stages["sonara"].state == "cancelled"
     assert status.stages["ml"].state == "cancelled"
-    assert status.stages["classifiers"].state == "cancelled"
-    assert classifiers.created == []
 
 
 def test_shared_analysis_queue_runs_callbacks_sequentially() -> None:

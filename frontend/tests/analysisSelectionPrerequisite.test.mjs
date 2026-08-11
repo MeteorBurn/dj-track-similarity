@@ -20,14 +20,10 @@ async function loadAnalysisSelection() {
   return import(pathToFileURL(modulePath));
 }
 
-test("ML and classifiers require existing SONARA unless SONARA is selected", async () => {
+test("ML requires existing SONARA unless SONARA is selected", async () => {
   const { analysisStartBlockedByMissingSonara } = await loadAnalysisSelection();
 
   assert.equal(analysisStartBlockedByMissingSonara(["mert"], 0), true);
-  assert.equal(
-    analysisStartBlockedByMissingSonara(["classifiers"], 0),
-    true,
-  );
   assert.equal(
     analysisStartBlockedByMissingSonara(["sonara", "maest"], 0),
     false,

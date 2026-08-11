@@ -114,13 +114,6 @@ class ClassifierAnalyzeRequest(BaseModel):
     limit: int | None = None
 
 
-class ClassifiersAnalyzeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    classifier_keys: list[str] = Field(default_factory=list)
-    limit: int | None = None
-
-
 class SonaraPipelineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -153,28 +146,19 @@ class MlPipelineSettings(BaseModel):
     )
 
 
-class ClassifierPipelineSettings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    classifier_keys: list[str] = Field(default_factory=list)
-
-
 class AnalysisPipelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    stages: list[Literal["sonara", "ml", "classifiers"]]
+    stages: list[Literal["sonara", "ml"]]
     limit: int | None = None
     sonara: SonaraPipelineSettings = Field(default_factory=SonaraPipelineSettings)
     ml: MlPipelineSettings = Field(default_factory=MlPipelineSettings)
-    classifiers: ClassifierPipelineSettings = Field(
-        default_factory=ClassifierPipelineSettings
-    )
 
 
 class ClassifierResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    classifier_keys: list[str] = Field(min_length=1)
+    classifier_key: str = Field(min_length=1)
 
 
 class AnalysisResetRequest(BaseModel):

@@ -258,7 +258,6 @@ python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite -
 python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
 python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
 dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
-dj-sim analyze-classifiers --db ./data/library.sqlite
 ```
 
 The default Rhythm Lab state is the single stable database at
@@ -336,8 +335,7 @@ Run a small first pass:
 ```powershell
 dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
-dj-sim analyze-classifiers --db ./data/library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --db ./data/library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml --db ./data/library.sqlite
 ```
 
 Normal reruns analyze only missing Core rows. If a SONARA update requires a database layout
@@ -361,9 +359,8 @@ Useful options from the current CLI and API are:
 - `--inference-batch-size 1..128`; default `16`
 - `--diagnostics` to write decoder and batch timing details to the file log
 
-CLI and API pipeline stages share one in-memory queue, so only one SONARA, ML, or CLASSIFIERS stage
-runs at a time. The pipeline fixes
-the order to SONARA, then ML, then CLASSIFIERS. Per-file failures are retained in job status and do
+CLI and API pipeline stages share one in-memory queue, so only one SONARA or ML stage
+runs at a time. The pipeline fixes the order to SONARA, then ML. Per-file failures are retained in job status and do
 not stop the next stage. A fatal initialization error or cancellation does.
 
 The SONARA control limits concurrent native file analysis, including full-file reads, rather than

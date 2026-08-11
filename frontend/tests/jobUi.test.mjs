@@ -5,32 +5,26 @@ import test from "node:test";
 
 const jobUiPath = fileURLToPath(new URL("../src/jobUi.tsx", import.meta.url));
 
-test("analysis progress collapses classifier rows into one CLASSIFIERS row", () => {
+test("analysis progress keeps the active classifier key", () => {
   const source = readFileSync(jobUiPath, "utf8");
   const modelProgressBlock = source.match(/function ModelProgress[\s\S]*?function GenreTagProcessStatus/)?.[0] || "";
 
-  assert.match(modelProgressBlock, /classifierProgressRow/);
-  assert.match(modelProgressBlock, /label:\s*"CLASSIFIERS"/);
-  assert.doesNotMatch(modelProgressBlock, /model\.replace\([^)]*\)\.toUpperCase\(\)/);
+  assert.match(modelProgressBlock, /label: model\.toUpperCase\(\)/);
+  assert.doesNotMatch(modelProgressBlock, /classifierProgressRow/);
 });
 
-test("classifier aggregate advances once after all classifier rows advance", () => {
+test("classifier progress does not aggregate several classifier rows", () => {
   const source = readFileSync(jobUiPath, "utf8");
-  const aggregateBlock = source.match(/function classifierProgressRow[\s\S]*?function [A-Z]/)?.[0] || "";
 
-  assert.match(aggregateBlock, /Math\.min\(\.\.\.items\.map\(\(item\) => item\.processed\)\)/);
-  assert.match(aggregateBlock, /Math\.min\(\.\.\.items\.map\(\(item\) => item\.analyzed\)\)/);
-  assert.match(aggregateBlock, /Math\.max\(\.\.\.items\.map\(\(item\) => item\.failed\)\)/);
-  assert.match(aggregateBlock, /Math\.max\(\.\.\.items\.map\(\(item\) => item\.total\)\)/);
+  assert.doesNotMatch(source, /classifierProgressRow|Math\.min\(\.\.\.items|Math\.max\(\.\.\.items/);
 });
 
-test("analysis runtime label hides active classifier key behind CLASSIFIERS", () => {
+test("analysis runtime label shows the active classifier key", () => {
   const source = readFileSync(jobUiPath, "utf8");
   const runtimeBlock = source.match(/function analysisRuntimeLabel[\s\S]*?function AnalysisProcessStatus/)?.[0] || "";
 
-  assert.match(runtimeBlock, /job\.classifier_keys\?\.length/);
-  assert.match(runtimeBlock, /return "CLASSIFIERS"/);
-  assert.doesNotMatch(runtimeBlock, /job\.current_model.*CLASSIFIERS/);
+  assert.match(runtimeBlock, /job\.classifier_keys\?\.\[0\]/);
+  assert.match(runtimeBlock, /return job\.classifier_keys\[0\]\.toUpperCase\(\)/);
 });
 
 test("analysis status shows only settings that belong to the active stage", () => {
@@ -41,7 +35,7 @@ test("analysis status shows only settings that belong to the active stage", () =
   assert.doesNotMatch(statusBlock, /sonaraOutputs|sonara_outputs/);
   assert.match(statusBlock, /!sonaraJob && !classifierJob \? <span>Track batch/);
   assert.match(statusBlock, /!sonaraJob && !classifierJob && job\.inference_batch_size \? <span>Inference batch/);
-  assert.match(statusBlock, /classifierJob \? <span>profiles/);
+  assert.match(statusBlock, /classifierJob \? <span>classifier/);
 });
 
 test("stage indicator reports active and cancelled core jobs", () => {

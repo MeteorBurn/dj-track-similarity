@@ -97,7 +97,7 @@ When a SONARA update changes a classifier's ordered feature recipe, reuse the pr
 profiles and labels to retrain and promote only that affected classifier. Then run:
 
 ```powershell
-dj-sim analyze-classifiers --db .\data\library.sqlite
+dj-sim analyze-classifier <classifier_key> --db .\data\library.sqlite
 ```
 
 Classifier scoring reads stored inputs and writes database scores. It does not decode or modify

@@ -57,9 +57,8 @@ not part of the response.
 | `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
 | `POST` | `/api/analysis/reset` | reset one family |
 | `GET` | `/api/classifiers` | promoted classifier profiles |
-| `POST` | `/api/classifiers/analyze` | score selected classifiers; empty list means all compatible |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
-| `POST` | `/api/classifiers/reset` | delete selected classifier scores |
+| `POST` | `/api/classifiers/reset` | delete one classifier's scores |
 | `POST` | `/api/analysis/pipelines` | queue selected stages in fixed order |
 | `GET` | `/api/analysis/pipelines/latest` | latest parent pipeline status |
 | `GET` | `/api/analysis/pipelines/{job_id}` | parent and child-stage status |
@@ -72,11 +71,10 @@ SONARA runs alone and passes paths to native `analyze_batch`. ML models continue
 FFmpeg decode. Database migration is intentionally not an API operation: use the local
 `dj-sim migrate-database` CLI after reviewing its dry-run plan.
 
-The aggregate classifier payload is `{ "classifier_keys": [], "limit": null }`. Readiness is
-manifest-specific, totals count ready classifier-track pairs, and not-ready tracks are excluded
-rather than failed. A pipeline payload selects `sonara`, `ml`, and/or `classifiers` plus one shared
-limit and nested stage settings. Execution order is always SONARA, ML, CLASSIFIERS. All manual and
-pipeline stages share one sequential application queue.
+Classifier analysis is always started for one explicit `classifier_key`. Readiness is
+manifest-specific, and not-ready tracks are excluded rather than failed. A pipeline payload selects
+`sonara` and/or `ml` plus one shared limit and nested stage settings. Execution order is always
+SONARA, then ML. All manual and pipeline stages share one sequential application queue.
 
 `GET /api/library/summary` reports current coverage for SONARA Core, MAEST analysis and embedding,
 MERT, MuQ, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage` contains
@@ -84,6 +82,7 @@ MERT, MuQ, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage
 
 Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`, `clap`). The typed
 response returns `core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`.
+Classifier-score reset uses `{ "classifier_key": "live_instrumentation" }`.
 SONARA removes only dependent classifier rows; labels, feedback, and embedding-only results remain.
 
 ## Search and Reference Compare

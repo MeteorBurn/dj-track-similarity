@@ -17,14 +17,10 @@ function loadHelpText() {
   return module.exports.helpText;
 }
 
-test("MuQ help describes current seed search and classifier support", () => {
+test("MuQ help describes current seed search", () => {
   const helpText = loadHelpText();
 
   assert.match(helpText.muqAnalyze, /seed-поиска/);
-  assert.match(helpText.classifiersAnalyze, /MuQ/);
-  assert.match(helpText.classifiersAnalyze, /CLAP/);
-  assert.doesNotMatch(helpText.classifiersAnalyze, /contract|schema|version/i);
-  assert.doesNotMatch(helpText.classifiersAnalyze, /только .*SONARA, MERT и MAEST/);
 });
 
 test("CLAP analysis help keeps text-to-audio separate from stored audio-to-audio evidence", () => {

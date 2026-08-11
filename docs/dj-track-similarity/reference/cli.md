@@ -62,17 +62,10 @@ Score one promoted classifier:
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
-Score selected or all compatible promoted classifiers:
-
-```powershell
-dj-sim analyze-classifiers --classifiers live_instrumentation,voice_presence --db .\data\library.sqlite
-dj-sim analyze-classifiers --db .\data\library.sqlite
-```
-
 Run a fixed-order pipeline:
 
 ```powershell
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml --db .\data\library.sqlite
 ```
 
 Runtime diagnostic:
@@ -123,9 +116,9 @@ disabled and have no CLI selector. Their Artifacts tables remain empty placehold
 define a payload format or version contract. MAEST/MERT/MuQ/CLAP embeddings continue to use their
 dedicated Artifacts tables.
 
-`analyze-classifiers` forms a separate database-only job. An omitted `--classifiers` list means all
-scoring-compatible promoted artifacts. `analyze-pipeline` accepts the same stage-specific settings
-and always executes selected stages as SONARA, ML, CLASSIFIERS; `--ml-models` cannot contain SONARA.
+`analyze-classifier <classifier_key>` forms a separate database-only job for the named promoted
+artifact. `analyze-pipeline` always executes selected stages as SONARA, then ML; `--ml-models`
+cannot contain SONARA.
 
 For structural updates and optional reanalysis, follow
 [Migrate and reanalyze SONARA storage](../workflows/reanalyze-sonara-split-storage.md).

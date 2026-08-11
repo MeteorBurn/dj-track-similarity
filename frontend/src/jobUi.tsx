@@ -111,13 +111,11 @@ function isPerClassifierAnalysisEvent(message: string) {
 
 export function analysisJobRequest(job: AnalysisJobStatus) {
   if (job.adapter_name === "multi" || job.models?.length) return api.analysisJob(job.job_id);
-  if (job.adapter_name === "classifiers") return api.aggregateClassifierJob(job.job_id);
   return api.classifierJob(job.adapter_name, job.job_id);
 }
 
 export function cancelAnalysisJob(job: AnalysisJobStatus) {
   if (job.adapter_name === "multi" || job.models?.length) return api.cancelAnalysisJob(job.job_id);
-  if (job.adapter_name === "classifiers") return api.cancelAggregateClassifierJob(job.job_id);
   return api.cancelClassifierJob(job.adapter_name, job.job_id);
 }
 
@@ -199,8 +197,8 @@ export function stageIndicatorLabel(
 }
 
 function analysisRuntimeLabel(job: AnalysisJobStatus) {
-  if (job.adapter_name === "classifiers" || job.classifier_keys?.length) {
-    return "CLASSIFIERS";
+  if (job.classifier_keys?.[0]) {
+    return job.classifier_keys[0].toUpperCase();
   }
   if (job.adapter_name === "sonara" || (job.models?.length === 1 && job.models[0] === "sonara")) {
     return "SONARA";
@@ -222,7 +220,7 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
   const percent = job.total ? Math.round((job.processed / job.total) * 100) : 100;
   const running = ["queued", "running"].includes(job.state);
   const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_track) : null;
-  const classifierJob = job.adapter_name === "classifiers" || Boolean(job.classifier_keys?.length);
+  const classifierJob = Boolean(job.classifier_keys?.length);
   const sonaraJob = job.adapter_name === "sonara" || (job.models?.length === 1 && job.models[0] === "sonara");
   return (
     <div className="process-box">
@@ -239,7 +237,7 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
         {sonaraJob ? <span>SONARA batch {job.sonara_batch_size || job.workers || 1}</span> : null}
         {!sonaraJob && !classifierJob ? <span>Track batch {job.track_batch_size || job.workers || 1}</span> : null}
         {!sonaraJob && !classifierJob && job.inference_batch_size ? <span>Inference batch {job.inference_batch_size}</span> : null}
-        {classifierJob ? <span>profiles {job.classifier_keys?.length || 0}</span> : null}
+        {classifierJob ? <span>classifier {job.classifier_keys?.[0] || job.adapter_name}</span> : null}
         <span>{percent}%</span>
       </div>
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
@@ -260,14 +258,13 @@ function ModelProgress({ job }: { job: AnalysisJobStatus }) {
     const item = progress?.[model];
     return item ? [{ key: model, label: model.toUpperCase(), item }] : [];
   });
-  const classifierProgressItems = Object.keys(progress || {})
+  const classifierRows: ProgressRow[] = Object.keys(progress || {})
     .filter((model) => !audioModels.includes(model as AnalysisModel))
     .flatMap((model) => {
       const item = progress?.[model];
-      return item ? [item] : [];
+      return item ? [{ key: model, label: model.toUpperCase(), item }] : [];
     });
-  const classifierRow = classifierProgressItems.length ? classifierProgressRow(classifierProgressItems) : null;
-  const rows = classifierRow ? [...audioRows, classifierRow] : audioRows;
+  const rows = [...audioRows, ...classifierRows];
   if (!rows.length) return null;
   return (
     <div className="analysis-model-progress">
@@ -278,20 +275,6 @@ function ModelProgress({ job }: { job: AnalysisJobStatus }) {
       ))}
     </div>
   );
-}
-
-function classifierProgressRow(items: ProgressItem[]): ProgressRow {
-  return {
-    key: "classifiers",
-    label: "CLASSIFIERS",
-    item: {
-      total: Math.max(...items.map((item) => item.total)),
-      processed: Math.min(...items.map((item) => item.processed)),
-      analyzed: Math.min(...items.map((item) => item.analyzed)),
-      failed: Math.max(...items.map((item) => item.failed)),
-      skipped: Math.min(...items.map((item) => item.skipped))
-    }
-  };
 }
 
 function GenreTagProcessStatus({ job }: { job: GenreTagJobStatus | null }) {

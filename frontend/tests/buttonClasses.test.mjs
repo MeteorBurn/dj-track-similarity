@@ -148,8 +148,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
   assert.match(source, />\s*Analyze\s*<\/button>/);
-  assert.match(source, /classifiers/);
-  assert.match(source, /CLASSIFIERS/);
   assert.match(source, /Считает темп, тональность, ритм, динамику, тембр и структуру трека/);
   assert.match(source, /Помогает понять жанровый характер трека/);
   assert.match(source, /Ищет похожее звучание от выбранного seed-трека/);
@@ -162,8 +160,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /analysisLimit >= 100000/);
   assert.doesNotMatch(source, /FFmpeg decode/);
   assert.doesNotMatch(source, /Отдельный анализ по локальным профилям/);
-  assert.match(source, /profiles \{availableClassifierProfiles\}/);
-  assert.match(source, /classifiers\.filter\(classifierIsAvailable\)\.length/);
+  assert.doesNotMatch(source, /classifiers-analysis-card|CLASSIFIERS selected|availableClassifierProfiles/);
   assert.doesNotMatch(source, /readyClassifiers|notReadyClassifiers|blockerCount/);
   assert.doesNotMatch(source, /visibleClassifierBlockers|className="analysis-muted" key=\{item\.key\}/);
   assert.match(source, /selectedAnalysisModels/);
@@ -171,18 +168,18 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.doesNotMatch(source, /onAnalyzeSonara|onAnalyzeMl|onAnalyzeClassifiers/);
   assert.match(selectionSource, /defaultAnalysisSelections: AnalysisSelection\[\] = \["sonara"\]/);
   assert.match(appSource, /if \(current\.length === 1 && current\.includes\(model\)\) return current/);
-  assert.match(appSource, /if \(model === "sonara" \|\| model === "classifiers"\) \{[\s\S]*?return \[model\]/);
-  assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara" && item !== "classifiers"\)/);
+  assert.match(appSource, /if \(model === "sonara"\) \{[\s\S]*?return \[model\]/);
+  assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara"\)/);
   assert.doesNotMatch(appSource, /SonaraOutput|sonaraOutputs|toggleSonaraOutput/);
   assert.doesNotMatch(source, /sonara-output|Timeline|Fingerprint/);
   assert.doesNotMatch(styles, /\.sonara-output-/);
   assert.match(styles, /\.analysis-model-count\s*{[\s\S]*?align-self:\s*center[\s\S]*?height:\s*34px[\s\S]*?min-height:\s*34px/);
   assert.doesNotMatch(source, /Active SONARA release|Prepare release|sonaraAnalysisBlockedReason/);
   assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
-  assert.match(appSource, /currentStage === "classifiers"[\s\S]*?api\.aggregateClassifierJob\(childJobId\)[\s\S]*?api\.analysisJob\(childJobId\)/);
+  assert.doesNotMatch(appSource, /aggregateClassifierJob|currentStage === "classifiers"/);
   assert.match(appSource, /SONARA · Core · SONARA batch \$\{sonaraBatchSize\}/);
   assert.match(appSource, /Track batch \$\{analysisTrackBatchSize\} · Inference batch \$\{analysisInferenceBatchSize\}/);
-  assert.match(appSource, /CLASSIFIERS · profiles \$\{classifierKeys\.length\}/);
+  assert.doesNotMatch(appSource, /CLASSIFIERS · profiles|classifierKeys/);
 
   const modelRowBlock = source.match(/<div className="analysis-model-row"[\s\S]*?<\/div>/)?.[0] || "";
   const modelCheckIndex = modelRowBlock.indexOf("analysis-model-check");
@@ -197,8 +194,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   const sonaraBatchIndex = source.indexOf("SONARA batch");
   const mlRowsIndex = source.indexOf("mlAnalysisModelOrder.map(modelRow)");
   const mlSettingsIndex = source.indexOf('className="analysis-settings-grid ml-analysis-settings"');
-  const clapIndex = source.indexOf('"clap"');
-  const classifiersIndex = source.indexOf('"classifiers"');
 
   assert.notEqual(modelCheckIndex, -1);
   assert.notEqual(modelNameIndex, -1);
@@ -217,14 +212,12 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.ok(mlRowsIndex < mlSettingsIndex);
   assert.match(source, /analysis-family-card sonara-analysis-block/);
   assert.match(source, /analysis-family-card models-analysis-block/);
-  assert.match(source, /analysis-family-card classifiers-analysis-card/);
   assert.doesNotMatch(source, /mlModelsSelected/);
-  assert.match(source, /classifiersSelected/);
+  assert.doesNotMatch(source, /classifiersSelected/);
   assert.doesNotMatch(styles, /\.analysis-family-card\.selected/);
   assert.doesNotMatch(styles, /\.analysis-limit\s*\{[^}]*display:\s*flex/);
   assert.match(styles, /\.ml-analysis-settings \.analysis-device\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/);
   assert.ok(batchSizeIndex < analyzeSelectedIndex);
-  assert.ok(clapIndex < classifiersIndex);
 });
 
 test("ui class names describe responsibility instead of visual priority", () => {
@@ -289,22 +282,19 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /classifier-profile-status-reason/);
   assert.match(searchSource, /classifier\.profile_description/);
   assert.match(searchSource, /classifierManifestFacts\(classifier\)/);
-  assert.match(searchSource, /classifierLabelSummary\(classifier\)/);
   assert.doesNotMatch(searchSource, /database ready|classifier\.ready|classifier\.not_ready/);
   assert.match(searchSource, /available \{availableClassifierCount\} · blocked \{blockedClassifierCount\}/);
   assert.match(searchSource, /empty-state classifier-empty-state/);
   assert.match(searchSource, /No promoted classifier profiles found/);
   assert.match(searchSource, /models\/classifiers\/<profile>\//);
-  assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
-  assert.match(appSource, /compatibleClassifierKeys/);
+  assert.doesNotMatch(appSource, /selectedAnalysisModels\.includes\("classifiers"\)|compatibleClassifierKeys/);
   assert.match(appSource, /analysisPipelineStart/);
   assert.match(appSource, /useState<AnalysisSelection\[]>\(defaultAnalysisSelections\)/);
-  assert.match(appSource, /\.filter\(classifierIsAvailable\)/);
   assert.match(appSource, /tab === "class" && databasePath[\s\S]*refreshClassifierProfilesInBackground/);
   assert.match(appSource, /api\.analyzeClassifier/);
   assert.doesNotMatch(appSource, /classifierRequiredModels/);
   assert.doesNotMatch(appSource, /setPendingClassifierAfterAnalysis/);
-  assert.match(selectionSource, /analysisSelectionOrder[\s\S]*"classifiers"/);
+  assert.doesNotMatch(selectionSource, /"classifiers"/);
   assert.match(appSource, /analysisSelectionOrder/);
   assert.match(librarySource, /mlAnalysisModelOrder/);
   assert.equal(librarySource.includes("classifier" + "Available"), false);
@@ -316,7 +306,7 @@ test("per-classifier analyze button validates that classifier before reset and s
 
   const refreshIndex = handler.indexOf("const promotedClassifiers = await api.classifiers()");
   const compatibilityIndex = handler.indexOf("classifierScoringBlockedReason(currentClassifier)");
-  const resetIndex = handler.indexOf("api.resetClassifiers([currentClassifier.classifier_key])");
+  const resetIndex = handler.indexOf("api.resetClassifier(currentClassifier.classifier_key)");
   const analyzeIndex = handler.indexOf("api.analyzeClassifier(currentClassifier.classifier_key)");
 
   assert.notEqual(refreshIndex, -1);
@@ -521,10 +511,10 @@ test("clap search exposes prompt presets and optional negative contrast fields w
   assert.match(schemaSource, /adaptive_contrast:\s*bool\s*=\s*True/);
 });
 
-test("classifier analysis supports both unified and per-classifier job paths", () => {
+test("classifier analysis uses only the per-classifier job path", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
 
-  assert.match(appSource, /classifier_keys: classifierKeys/);
+  assert.doesNotMatch(appSource, /classifier_keys: classifierKeys|aggregateClassifier/);
   assert.doesNotMatch(appSource, /startClassifierJobs/);
   assert.match(appSource, /api\.analyzeClassifier/);
   assert.doesNotMatch(appSource, /classifierRequiredModels/);

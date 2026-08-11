@@ -37,7 +37,6 @@ def test_root_help_exposes_current_commands() -> None:
     for command in (
         "scan",
         "analyze",
-        "analyze-classifiers",
         "analyze-classifier",
         "analyze-pipeline",
         "text-search",
@@ -49,6 +48,7 @@ def test_root_help_exposes_current_commands() -> None:
         "migrate-database",
     ):
         assert command in result.output
+    assert "analyze-classifiers" not in result.output
 
 
 def test_scan_bootstraps_bound_current_bundle(tmp_path: Path) -> None:

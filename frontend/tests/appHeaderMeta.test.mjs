@@ -39,7 +39,7 @@ test("analysis model rows render summary counts near each model", () => {
   const countRule = styles.match(/\.analysis-model-count\s*{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(appSource, /analysisModelCounts/);
-  assert.match(appSource, /classifiers:\s*librarySummary\.classifiers/);
+  assert.doesNotMatch(appSource, /classifiers:\s*librarySummary\.classifiers/);
   assert.match(librarySource, /analysis-model-count/);
   assert.match(librarySource, /analysis-model-description/);
   assert.match(librarySource, /analysisCounts\[model\]/);

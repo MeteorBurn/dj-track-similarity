@@ -207,51 +207,6 @@ def test_classifier_job_is_unavailable_without_current_sonara(
         manager.create_job(classifier="test_classifier")
 
 
-def test_aggregate_limit_caps_track_classifier_pairs_on_current_rows(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    for _ in range(3):
-        target = _insert_track(db)
-        _write_embedding(db, target, output)
-    requirements = {
-        key: _requirements(key, output) for key in ("classifier_one", "classifier_two")
-    }
-    manager = ClassifierJobManager(
-        db,
-        requirements_loader=requirements.__getitem__,
-        scorer_factory=_FakeScorer,
-    )
-
-    job_id = manager.create_job(
-        classifiers=("classifier_one", "classifier_two"),
-        limit=4,
-    )
-    queued = manager.get(job_id)
-
-    assert queued.total == 4
-    assert queued.required_families == ("mert",)
-    assert not hasattr(queued, "embedding_key")
-    assert queued.readiness["classifier_one"] == {
-        "candidates": 3,
-        "ready": 3,
-        "not_ready": 0,
-        "selected": 3,
-    }
-    assert queued.readiness["classifier_two"]["selected"] == 1
-
-    completed = manager.run_job(job_id)
-
-    assert completed.state == "completed"
-    assert completed.processed == 4
-    assert completed.analyzed == 4
-    assert completed.failed == 0
-    assert _score_count(db, "classifier_one") == 3
-    assert _score_count(db, "classifier_two") == 1
-
-
 def test_not_ready_outputs_are_excluded_before_job_total(
     tmp_path: Path,
 ) -> None:

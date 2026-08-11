@@ -119,21 +119,14 @@ class ClassifierJobManager:
     def create_job(
         self,
         *,
-        classifiers: Sequence[str] | None = None,
-        classifier: str | None = None,
+        classifier: str,
         limit: int | None = None,
         model_path: str | Path | None = None,
     ) -> str:
-        keys = _clean_classifier_keys(
-            [*(classifiers or ()), *([classifier] if classifier else [])]
-        )
-        if not keys:
+        key = classifier.strip()
+        if not key:
             raise ValueError(
-                "At least one scoring-compatible promoted classifier must be selected"
-            )
-        if model_path is not None and len(keys) != 1:
-            raise ValueError(
-                "A custom classifier model path can only be used with one classifier"
+                "A scoring-compatible promoted classifier must be selected"
             )
         if self.db.current_sonara_track_count() < 1:
             raise ValueError(
@@ -141,111 +134,78 @@ class ClassifierJobManager:
                 "SONARA analysis"
             )
 
-        requirements = {
-            key: (
-                load_classifier_requirements(
-                    self.db,
-                    key,
-                    model_path=model_path,
-                )
-                if model_path is not None
-                else self._load_requirements(key)
+        requirement = (
+            load_classifier_requirements(self.db, key, model_path=model_path)
+            if model_path is not None
+            else self._load_requirements(key)
+        )
+        if requirement.specification.classifier_key != key:
+            raise ValueError(
+                "Classifier requirements key mismatch: "
+                f"expected {key!r}, got "
+                f"{requirement.specification.classifier_key!r}"
             )
-            for key in keys
-        }
-        for key, requirement in requirements.items():
-            if requirement.specification.classifier_key != key:
-                raise ValueError(
-                    "Classifier requirements key mismatch: "
-                    f"expected {key!r}, got "
-                    f"{requirement.specification.classifier_key!r}"
-                )
 
         # Construct every scorer before the first cleanup. ClassifierScorer
         # re-verifies the artifact digest and validates the deserialized model,
         # so a bad artifact can never trigger score deletion.
-        scorers = {
-            key: self._make_scorer(requirement)
-            for key, requirement in requirements.items()
-        }
-        for key, scorer in scorers.items():
-            expected = requirements[key].specification
-            if scorer.specification != expected:
-                raise ValueError(
-                    f"{key} scorer specification does not match its manifest"
-                )
+        scorer = self._make_scorer(requirement)
+        if scorer.specification != requirement.specification:
+            raise ValueError(f"{key} scorer specification does not match its manifest")
 
         # Preflight requested source availability before the first mutation.
-        self._require_active_outputs(requirements.values())
-
-        for requirement in requirements.values():
-            self.db.prepare_classifier_rescore(requirement.specification)
-
-        work_by_classifier: dict[str, tuple[_ClassifierWorkItem, ...]] = {}
-        readiness: dict[str, dict[str, int]] = {}
-        progress: dict[str, AnalysisModelProgress] = {}
-        remaining = None if limit is None else max(0, int(limit))
-        for key in keys:
-            specification = requirements[key].specification
-            counts = self.db.classifier_candidate_readiness(specification)
-            candidates = self.db.list_classifier_candidates(specification)
-            rows = self.db.load_classifier_feature_rows(
-                specification,
-                targets=tuple(candidate.target for candidate in candidates),
-            )
-            rows_by_target = {row.target: row for row in rows}
-            complete = tuple(
-                _ClassifierWorkItem(candidate, rows_by_target[candidate.target])
-                for candidate in candidates
-                if candidate.target in rows_by_target
-            )
-            selected = (
-                ()
-                if remaining == 0
-                else complete
-                if remaining is None
-                else complete[:remaining]
-            )
-            if remaining is not None:
-                remaining -= len(selected)
-            feature_not_ready = len(candidates) - len(complete)
-            readiness[key] = _readiness_payload(
+        self._require_active_outputs((requirement,))
+        self.db.prepare_classifier_rescore(requirement.specification)
+        specification = requirement.specification
+        counts = self.db.classifier_candidate_readiness(specification)
+        candidates = self.db.list_classifier_candidates(specification)
+        rows = self.db.load_classifier_feature_rows(
+            specification,
+            targets=tuple(candidate.target for candidate in candidates),
+        )
+        rows_by_target = {row.target: row for row in rows}
+        complete = tuple(
+            _ClassifierWorkItem(candidate, rows_by_target[candidate.target])
+            for candidate in candidates
+            if candidate.target in rows_by_target
+        )
+        selected = complete if limit is None else complete[: max(0, int(limit))]
+        readiness = {
+            key: _readiness_payload(
                 counts,
-                feature_not_ready=feature_not_ready,
+                feature_not_ready=len(candidates) - len(complete),
                 selected=len(selected),
             )
-            work_by_classifier[key] = selected
-            progress[key] = AnalysisModelProgress(total=len(selected))
+        }
+        progress = {key: AnalysisModelProgress(total=len(selected))}
 
         job_id = str(uuid.uuid4())
-        total = sum(len(items) for items in work_by_classifier.values())
         status = ClassifierJobStatus(
             job_id=job_id,
             state="queued",
-            adapter_name=keys[0] if len(keys) == 1 else "classifiers",
+            adapter_name=key,
             required_families=tuple(
                 dict.fromkeys(
                     output.analysis_family
-                    for requirement in requirements.values()
                     for output in requirement.specification.required_outputs
                 )
             ),
-            classifier_keys=list(keys),
+            classifier_keys=[key],
             model_progress=progress,
             readiness=readiness,
-            total=total,
-            not_ready=sum(counts["not_ready"] for counts in readiness.values()),
+            total=len(selected),
+            not_ready=readiness[key]["not_ready"],
         )
         self._store.add(
             job_id,
             status,
             payload=_ClassifierPayload(
-                work_by_classifier=work_by_classifier,
-                requirements=requirements,
-                scorers=scorers,
+                work_by_classifier={key: selected},
+                requirements={key: requirement},
+                scorers={key: scorer},
             ),
         )
-        self._append_event(job_id, "info", f"CLASSIFIERS queued · profiles {len(keys)}")
+        self._append_event(job_id, "info", f"CLASSIFIER queued · {key}")
         return job_id
 
     def start(self, **kwargs: object) -> ClassifierJobStatus:
@@ -499,12 +459,6 @@ class ClassifierJobManager:
             workers=status.workers,
             batch_size=status.batch_size,
         )
-
-
-def _clean_classifier_keys(values: Sequence[str]) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(value.strip() for value in values if value and value.strip())
-    )
 
 
 def _readiness_payload(

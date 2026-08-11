@@ -1,7 +1,6 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, PromotedClassifier } from "./api";
+import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
-import { classifierIsAvailable } from "./classifierCompatibility";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
 
@@ -16,7 +15,6 @@ type LibraryHelpText = {
   mertAnalyze: string;
   muqAnalyze: string;
   clapAnalyze: string;
-  classifiersAnalyze: string;
   writeMaestGenres: string;
   analyzeLimit: string;
   analysisDevice: string;
@@ -60,7 +58,6 @@ export function LibraryPanel({
   onAnalysisInferenceBatchSizeChange,
   sonaraBatchSize,
   onSonaraBatchSizeChange,
-  classifiers,
   analysisJob,
   pipelineJob,
   helpText,
@@ -74,7 +71,6 @@ export function LibraryPanel({
   onToggleAnalysisModel,
   onAnalyzeSelected,
   onResetAnalysis,
-  onResetClassifiers
 }: {
   databasePath: string | null;
   onChooseDatabase: () => void;
@@ -103,7 +99,6 @@ export function LibraryPanel({
   onAnalysisInferenceBatchSizeChange: (value: number) => void;
   sonaraBatchSize: number;
   onSonaraBatchSizeChange: (value: number) => void;
-  classifiers: PromotedClassifier[];
   analysisJob: AnalysisJobStatus | null;
   pipelineJob: AnalysisPipelineStatus | null;
   helpText: LibraryHelpText;
@@ -117,11 +112,8 @@ export function LibraryPanel({
   onToggleAnalysisModel: (model: AnalysisSelection) => void;
   onAnalyzeSelected: () => void;
   onResetAnalysis: (adapter: AnalysisModel) => void;
-  onResetClassifiers: () => void;
 }) {
   const analysisDisabled = busy || stageRunning || !hasTracks;
-  const availableClassifierProfiles = classifiers.filter(classifierIsAvailable).length;
-  const classifiersSelected = selectedAnalysisModels.includes("classifiers");
   const pipelineOwnsAnalysisJob = analysisJob != null
     && pipelineJob != null
     && Object.values(pipelineJob.stages).some((stage) => stage.child_job_id === analysisJob.job_id);
@@ -220,17 +212,6 @@ export function LibraryPanel({
         </div>
       </div>
 
-      <div className="analysis-family-card classifiers-analysis-card">
-        <div className="analysis-actions classifiers-analysis-block">
-          <div className="analysis-model-row">
-            <span className="analysis-model-check"><input className="analysis-model-checkbox" type="checkbox" aria-label="CLASSIFIERS selected" checked={classifiersSelected} disabled={busy || stageRunning} onChange={() => onToggleAnalysisModel("classifiers")} /></span>
-            <span className="analysis-model-name"><span className="analysis-model-title">CLASSIFIERS</span><span className="analysis-model-description">profiles {availableClassifierProfiles}</span></span>
-            <span className="analysis-model-count">{analysisCounts.classifiers || 0}</span>
-            <button className="icon-button stop-button analysis-reset-button classifiers-reset-button" title="Сбросить CLASSIFIERS" disabled={analysisDisabled} onClick={onResetClassifiers} type="button"><Trash2 size={16} /></button>
-          </div>
-        </div>
-      </div>
-
       <div className="worker-control analysis-limit" title={helpText.analyzeLimit}>
         <span>Analyze limit</span>
         <div className="stepper">
@@ -244,7 +225,7 @@ export function LibraryPanel({
       {pipelineJob ? <small className="analysis-muted">Pipeline {pipelineJob.state} · {pipelineJob.order.map((stage) => `${stage}:${pipelineJob.stages[stage]?.state}`).join(" → ")}</small> : null}
       <button
         className="analyze-selected-button analysis-pipeline-button"
-        title="Запустить отмеченные модели в порядке SONARA → ML → CLASSIFIERS"
+        title="Запустить отмеченные модели в порядке SONARA → ML"
         disabled={analysisDisabled || !selectedAnalysisModels.length}
         onClick={onAnalyzeSelected}
         type="button"

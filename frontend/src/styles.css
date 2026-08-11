@@ -823,10 +823,6 @@ h2 {
   margin-bottom: 6px;
 }
 
-.classifiers-analysis-card .analysis-actions {
-  margin-bottom: 0;
-}
-
 .analysis-models-heading {
   border-top: 1px solid var(--border-soft);
   color: var(--text);

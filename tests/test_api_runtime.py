@@ -270,8 +270,8 @@ def test_classifier_preflight_conflict_returns_http_409_before_start(
     client = _client(monkeypatch, tmp_path / "library.sqlite")
 
     response = client.post(
-        "/api/classifiers/analyze",
-        json={"classifier_keys": ["voice_presence"]},
+        "/api/classifiers/voice_presence/analyze",
+        json={"limit": 0},
     )
 
     assert response.status_code == 409

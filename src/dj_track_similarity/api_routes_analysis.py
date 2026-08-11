@@ -15,7 +15,6 @@ from .api_schemas import (
     AnalysisResetResponse,
     ClassifierAnalyzeRequest,
     ClassifierResetRequest,
-    ClassifiersAnalyzeRequest,
     SonaraStatusResponse,
 )
 from .api_state import AppDatabaseState
@@ -98,17 +97,6 @@ def register_analysis_routes(
             for profile in profiles
         ]
 
-    @app.post("/api/classifiers/analyze")
-    def analyze_classifiers(request: ClassifiersAnalyzeRequest):
-        classifier_keys = _validated_classifier_keys(request.classifier_keys, promoted_classifiers, all_when_empty=True)
-        try:
-            with state.job_start():
-                return state.require_classifier_jobs().start(classifiers=classifier_keys, limit=request.limit)
-        except RuntimeError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-        except (FileNotFoundError, ValueError) as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-
     @app.post("/api/classifiers/{classifier_key}/analyze")
     def analyze_classifier(classifier_key: str, request: ClassifierAnalyzeRequest):
         _require_scoring_compatible_classifier(classifier_key, promoted_classifiers)
@@ -151,22 +139,12 @@ def register_analysis_routes(
                     "track_batch_size": ml_config.track_batch_size,
                     "inference_batch_size": ml_config.inference_batch_size,
                 }
-            classifier_keys = (
-                _validated_classifier_keys(
-                    request.classifiers.classifier_keys,
-                    promoted_classifiers,
-                    all_when_empty=True,
-                )
-                if "classifiers" in request.stages
-                else []
-            )
             with state.job_start():
                 return state.require_analysis_pipeline_jobs().start(
                     stages=list(request.stages),
                     limit=request.limit,
                     sonara=sonara_settings,
                     ml=ml_settings,
-                    classifiers={"classifier_keys": classifier_keys},
                 )
         except RuntimeError as error:
             raise HTTPException(
@@ -231,7 +209,7 @@ def register_analysis_routes(
     def reset_classifiers(request: ClassifierResetRequest):
         with state.exclusive_db("reset classifier scores") as database:
             return database.reset_classifier_scores(
-                request.classifier_keys
+                [request.classifier_key]
             )
 
     @app.get("/api/classifiers/{classifier_key}/analyze/jobs/latest")
@@ -242,24 +220,6 @@ def register_analysis_routes(
     def classifier_job(classifier_key: str, job_id: str):
         try:
             return state.require_classifier_jobs().get(job_id, classifier=classifier_key)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.get("/api/classifiers/analyze/jobs/latest")
-    def latest_aggregate_classifier_job():
-        return state.require_classifier_jobs().latest()
-
-    @app.get("/api/classifiers/analyze/jobs/{job_id}")
-    def aggregate_classifier_job(job_id: str):
-        try:
-            return state.require_classifier_jobs().get(job_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.post("/api/classifiers/analyze/jobs/{job_id}/cancel")
-    def cancel_aggregate_classifier_job(job_id: str):
-        try:
-            return state.require_classifier_jobs().cancel(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -297,37 +257,6 @@ def register_analysis_routes(
             return state.require_analysis_jobs().sonara_status()
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
-
-
-def _validated_classifier_keys(
-    requested: list[str],
-    promoted_classifiers: Callable[[], list[dict[str, object]]],
-    *,
-    all_when_empty: bool = False,
-) -> list[str]:
-    cleaned = list(dict.fromkeys(key.strip() for key in requested if key.strip()))
-    if not cleaned:
-        if not all_when_empty:
-            return []
-        cleaned = [
-            str(item.get("classifier_key") or "")
-            for item in promoted_classifiers()
-            if str(item.get("classifier_key") or "").strip() and bool(item.get("is_scoring_compatible", True))
-        ]
-        if not cleaned:
-            raise HTTPException(
-                status_code=400,
-                detail="No scoring-compatible promoted classifiers are available; retrain and promote a compatible artifact",
-            )
-    available = _classifier_info_by_key(promoted_classifiers)
-    unknown = [key for key in cleaned if key not in available]
-    if unknown:
-        raise HTTPException(status_code=400, detail=f"Unknown classifier: {', '.join(unknown)}")
-    incompatible = [key for key in cleaned if not bool(available[key].get("is_scoring_compatible", True))]
-    if incompatible:
-        details = "; ".join(_classifier_manifest_error_text(available[key]) for key in incompatible)
-        raise HTTPException(status_code=400, detail=details)
-    return cleaned
 
 
 def _outputs_for_family(

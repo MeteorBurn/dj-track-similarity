@@ -82,6 +82,8 @@ direct verification.
 - Preserve unrelated dirty work. This repository may be dirty.
 - Do not stage generated or local state unless the user explicitly requests
   it. Respect ignore rules and inspect exact staged paths before delivery.
+- Before every commit, run `npm run build` from `frontend/` to verify the
+  static frontend bundle.
 
 ## Verification Routing
 
@@ -99,8 +101,9 @@ precaution.
   do not call real SONARA, CLAP, MERT, MuQ, MAEST, or the user's music library.
 - **Frontend change:** run `npm run typecheck`. The Windows launcher starts the
   Vite live UI so source changes are visible without rebuilding `frontend/dist`.
-  Run `npm run build` only when explicitly checking the generated static bundle;
-  add `npm test` when touched logic warrants it.
+  The static bundle check is mandatory before every commit; otherwise run
+  `npm run build` only when explicitly checking the generated static bundle.
+  Add `npm test` when touched logic warrants it.
 - **Docs site change:** from `docs/dj-track-similarity/`, run `npm run check`
   only for maintained docs-site content or docs tooling changes.
 - **Real DB maintenance:** use backups/copies, integrity checks, row-count or

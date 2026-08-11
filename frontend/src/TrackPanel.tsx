@@ -315,6 +315,7 @@ export function TrackPanel({
       {tracks.length ? (
         <TrackList
           tracks={tracks}
+          startIndex={offset}
           seedSet={seedSet}
           playlistSet={playlistSet}
           playingTrackId={playingTrackId}

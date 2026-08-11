@@ -552,10 +552,11 @@ export function SearchPlaylistPanel({
               <span>{results.length}</span>
             </div>
             <div className="results-list">
-              {results.length ? results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }) => (
+              {results.length ? results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }, index) => (
                 <ResultRow
                   key={track.track_id}
                   track={track}
+                  rowIndex={index + 1}
                   score={score}
                   scoreBreakdown={score_breakdown}
                   reason={reason}

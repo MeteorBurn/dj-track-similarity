@@ -14,6 +14,7 @@ type TrackActions = {
 
 export function TrackList({
   tracks,
+  startIndex = 0,
   seedSet,
   playlistSet,
   playingTrackId,
@@ -28,6 +29,7 @@ export function TrackList({
   onDetails
 }: TrackActions & {
   tracks: Track[];
+  startIndex?: number;
   seedSet: Set<number>;
   playlistSet: Set<number>;
   previewTrackId: number | null;
@@ -37,7 +39,7 @@ export function TrackList({
 }) {
   return (
     <div className="track-list">
-      {tracks.map((track) => {
+      {tracks.map((track, index) => {
         const trackPreviewActive = playingTrackId === track.track_id;
         const trackPreviewSelected = previewTrackId === track.track_id;
         return (
@@ -46,6 +48,7 @@ export function TrackList({
             className={`track-row ${trackPreviewActive ? "is-playing" : ""}`}
             key={libraryTrackIdentityKey(track)}
           >
+            <span className="row-index">{startIndex + index + 1}</span>
             <button className="icon-button track-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)} type="button">
               {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
             </button>
@@ -121,6 +124,7 @@ export function ResultRow({
   onTogglePlaylist,
   onPreview,
   onDetails,
+  rowIndex,
   selected = false,
   onSelect,
   selectTitle
@@ -142,6 +146,7 @@ export function ResultRow({
   selected?: boolean;
   onSelect?: (track: Track) => void;
   selectTitle?: string;
+  rowIndex?: number;
 }) {
   const breakdownTitle = scoreBreakdownTitle(scoreBreakdown, sonaraGroups, classifierScores, transition);
   const trackPreviewActive = playingTrackId === track.track_id;
@@ -149,7 +154,7 @@ export function ResultRow({
   const selectedClass = selected ? "selected" : "";
   return (
     <div
-      className={`result-row ${selectableClass} ${selectedClass}`}
+      className={`result-row ${rowIndex != null ? "has-row-index" : ""} ${selectableClass} ${selectedClass}`}
       title={selectTitle}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
@@ -161,6 +166,7 @@ export function ResultRow({
         }
       } : undefined}
     >
+      {rowIndex != null ? <span className="row-index">{rowIndex}</span> : null}
       <button className="icon-button result-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={(event) => { event.stopPropagation(); onPreview(track); }} type="button">
         {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
       </button>

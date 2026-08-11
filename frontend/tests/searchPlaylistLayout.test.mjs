@@ -10,6 +10,7 @@ import ts from "typescript";
 
 const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
 const panelSource = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
+const trackPanelSource = readFileSync(fileURLToPath(new URL("../src/TrackPanel.tsx", import.meta.url)), "utf8");
 
 async function loadSearchSurfaceState() {
   const sourcePath = new URL("../src/searchSurfaceState.ts", import.meta.url);
@@ -95,12 +96,25 @@ test("set and export is a closed disclosure with 20-track pagination", () => {
 
 test("candidate result rows reserve stable columns for all icon actions", () => {
   const resultRowRule = cssRule(".result-row");
+  const numberedResultRowRule = cssRule(".result-row.has-row-index");
   const resultMeterRule = cssRule(".result-row meter");
 
   assert.equal(gridColumnCount(resultRowRule), 8);
+  assert.equal(gridColumnCount(numberedResultRowRule), 9);
   assert.match(resultRowRule, /minmax\(56px,\s*0\.46fr\)/);
   assert.match(resultRowRule, /minmax\(42px,\s*max-content\)/);
   assert.match(resultMeterRule, /width:\s*100%/);
+});
+
+test("library and generic search results render visible track numbering", () => {
+  const trackRows = readFileSync(fileURLToPath(new URL("../src/TrackRows.tsx", import.meta.url)), "utf8");
+
+  assert.match(trackRows, /startIndex = 0/);
+  assert.match(trackRows, /tracks\.map\(\(track, index\)/);
+  assert.match(trackRows, /\{startIndex \+ index \+ 1\}/);
+  assert.match(trackRows, /rowIndex != null \? <span className="row-index">\{rowIndex\}<\/span> : null/);
+  assert.match(trackPanelSource, /startIndex=\{offset\}/);
+  assert.match(panelSource, /rowIndex=\{index \+ 1\}/);
 });
 
 test("primary search tabs expose the six maintained workflows with roving ARIA relationships", () => {

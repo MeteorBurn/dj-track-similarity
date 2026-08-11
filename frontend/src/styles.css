@@ -2335,7 +2335,7 @@ h2 {
 }
 
 .track-row {
-  grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px 34px;
+  grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px;
 }
 
 .track-row.is-playing {
@@ -2344,6 +2344,10 @@ h2 {
 
 .result-row {
   grid-template-columns: 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
+}
+
+.result-row.has-row-index {
+  grid-template-columns: 26px 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
 }
 
 .result-row.selectable {
@@ -2431,7 +2435,7 @@ h2 {
   color: var(--text-soft);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
 }
 
 .seed-strip {
@@ -3416,6 +3420,10 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 
   .result-row {
     grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-row-index {
+    grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px;
   }
 
   .result-row meter,

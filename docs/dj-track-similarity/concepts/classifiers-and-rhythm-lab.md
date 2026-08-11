@@ -41,7 +41,7 @@ Rhythm Lab supports two profile types:
 - **binary**: one positive label and one negative label, plus optional review labels,
 - **multiclass**: class labels where one track has one current class label for the active profile.
 
-Labels, predictions, queues, and training checkpoints live in the Rhythm Lab labels database under `tools/rhythm-lab/data/` by default.
+Labels, predictions, queues, and training checkpoints live in `tools/rhythm-lab/database/rhythm_lab.sqlite` by default. Profile training data lives under `tools/rhythm-lab/profiles/<profile-key>/`.
 
 Rhythm Lab does not create a built-in starter profile. Existing profiles, including older Break Energy profiles, remain normal profile rows in the labels database, but new labels databases start empty until you create a profile.
 

@@ -48,7 +48,11 @@ from rhythm_lab.features import (  # noqa: E402
     feature_recipe_readiness,
     feature_sources,
 )
-from rhythm_lab.lab_db import RhythmLabDatabase, TrackIdentity  # noqa: E402
+from rhythm_lab.lab_db import (  # noqa: E402
+    RhythmLabDatabase,
+    TrackIdentity,
+    _default_artifact_dir,
+)
 from rhythm_lab.predictions import _predict_probabilities  # noqa: E402
 from rhythm_lab.source_db import (  # noqa: E402
     SourceEmbeddingMatrix,
@@ -555,6 +559,7 @@ def test_default_labels_path_is_shared_stable_path() -> None:
 
     assert DEFAULT_LABELS_DB == default_rhythm_lab_labels_path()
     assert args.labels == DEFAULT_LABELS_DB
+    assert args.labels.parent.name == "database"
     assert args.labels.name == "rhythm_lab.sqlite"
 
 
@@ -768,6 +773,13 @@ def test_lab_database_starts_without_implicit_profiles(tmp_path: Path) -> None:
     assert database.list_profiles() == []
     with pytest.raises(ValueError, match="profile key is required"):
         database.get_profile()
+
+
+def test_profile_default_artifact_directory_uses_profiles_root() -> None:
+    assert _default_artifact_dir("voice_presence").parts[-2:] == (
+        "profiles",
+        "voice-presence",
+    )
 
 
 def test_lab_database_connections_use_wal_and_runtime_pragmas(tmp_path: Path) -> None:

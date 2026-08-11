@@ -238,6 +238,32 @@ def _create_focused_profile(
     )
 
 
+def test_web_profile_creation_uses_canonical_profiles_directory(
+    tmp_path: Path,
+) -> None:
+    app = create_app(labels_db_path=tmp_path / "lab.sqlite")
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/profiles",
+            json={
+                "classifier_key": "voice_presence",
+                "name": "Voice Presence",
+                "artifact_dir": str(tmp_path / "outside"),
+                "labels": [
+                    {"key": "yes", "name": "Yes", "role": "positive"},
+                    {"key": "no", "name": "No", "role": "negative"},
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    assert Path(response.json()["artifact_dir"]).parts[-2:] == (
+        "profiles",
+        "voice-presence",
+    )
+
+
 def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
     repository = Repository(tmp_path)
     output = _mert_output()

@@ -64,7 +64,7 @@ Choose the database in the main app and click the Rhythm Lab flask in the top ba
 or reuses the local Lab process and opens its URL. You can also start it directly:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite
 ```
 
 Open:
@@ -90,7 +90,7 @@ active profile. New profiles start from Library or Collection labeling. Candidat
 review becomes useful after the first trained artifact exists.
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite
 ```
 
 In the Training tab, `Train` retrains from all current labels and refreshes
@@ -114,7 +114,7 @@ Run a benchmark when you want to compare feature-source variants for the active
 profile:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\profiles\live-instrumentation\ablation.json
 ```
 
 The Training tab benchmarks all 31 non-empty combinations of SONARA, MERT,
@@ -124,7 +124,7 @@ profile before promotion.
 For any other combination, repeat the CLI option:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\artifacts\ablation-muq.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\profiles\live-instrumentation\ablation-muq.json
 ```
 
 ## 6. Optional calibration
@@ -140,13 +140,13 @@ artifact stays uncalibrated and records the reason in its calibration report.
 Calibrate the normal training command:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite --calibrate
 ```
 
 Calibrate benchmark winners after an ablation run:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\profiles\live-instrumentation\ablation-calibrated.json
 ```
 
 Calibrate one selected feature set through the Rhythm Lab API:
@@ -160,19 +160,19 @@ UI and CLI promotion require a calibrated artifact for the active source
 catalog by default. The requirement flag makes that intent explicit:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite
 ```
 
 Use `calibration-report` to inspect the selected artifact before promotion:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\database\rhythm_lab.sqlite
 ```
 
 ## 7. Promote
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite
 ```
 
 Promotion copies the selected runtime artifact into
@@ -208,4 +208,4 @@ ordered feature recipe no longer matches must be retrained and promoted.
 
 ## Safety
 
-Rhythm Lab labels and predictions stay under `tools/rhythm-lab/data/`. Promoted scoring writes only SQLite classifier scores. Source audio is not rewritten.
+Rhythm Lab labels and predictions stay in `tools/rhythm-lab/database/`. Profile training data stays under `tools/rhythm-lab/profiles/<profile-key>/`. Promoted scoring writes only SQLite classifier scores. Source audio is not rewritten.

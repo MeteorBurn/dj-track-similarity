@@ -767,7 +767,7 @@ def test_xlsx_summary_sheet_is_formatted_as_review_dashboard(tmp_path: Path) -> 
             "embedding_coverage": {"mert": 10, "maest": 9, "clap": 4},
         },
         "rhythm_lab": {
-            "database_path": "tools/rhythm-lab/data/rhythm_lab.sqlite",
+            "database_path": "tools/rhythm-lab/database/rhythm_lab.sqlite",
             "database_exists": True,
             "affected_track_count": 1,
             "affected_row_count": 4,

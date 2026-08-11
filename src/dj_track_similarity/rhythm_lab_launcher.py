@@ -222,7 +222,7 @@ def _port_is_open(host: str, port: int) -> bool:
 
 
 def _pid_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "tools" / "rhythm-lab" / "data" / "rhythm_lab.pid"
+    return Path(__file__).resolve().parents[2] / "tools" / "rhythm-lab" / "database" / "rhythm_lab.pid"
 
 
 def _source_binding_path() -> Path:

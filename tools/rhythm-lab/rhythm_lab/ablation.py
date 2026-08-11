@@ -427,7 +427,7 @@ def _default_output_path(
     stamp = generated_at.strftime("%Y-%m-%d-%H-%M-%S")
     if len(profiles) == 1:
         return Path(profiles[0].artifact_dir) / f"ablation-benchmark-{stamp}.json"
-    return LAB_ROOT / "artifacts" / f"ablation-benchmark-{stamp}.json"
+    return LAB_ROOT / "database" / "reports" / f"ablation-benchmark-{stamp}.json"
 
 
 def _optional_float(value: object) -> float | None:

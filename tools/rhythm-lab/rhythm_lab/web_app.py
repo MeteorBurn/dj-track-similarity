@@ -96,7 +96,6 @@ class ProfileRequest(BaseModel):
     profile_type: str = "binary"
     name: str
     description: str = ""
-    artifact_dir: str | None = None
     artifact_prefix: str | None = None
     training_min_added: int = TRAIN_REFRESH_MIN_ADDED
     labels: list[ProfileLabelRequest]
@@ -106,7 +105,6 @@ class ProfilePatchRequest(BaseModel):
     profile_type: str | None = None
     name: str | None = None
     description: str | None = None
-    artifact_dir: str | None = None
     artifact_prefix: str | None = None
     training_min_added: int | None = None
     labels: list[ProfileLabelRequest] | None = None
@@ -459,7 +457,6 @@ def create_app(
                 profile_type=request.profile_type,
                 name=request.name,
                 description=request.description,
-                artifact_dir=request.artifact_dir,
                 artifact_prefix=request.artifact_prefix,
                 training_min_added=request.training_min_added,
                 labels=[label.model_dump() for label in request.labels],
@@ -476,7 +473,6 @@ def create_app(
                 profile_type=request.profile_type,
                 name=request.name,
                 description=request.description,
-                artifact_dir=request.artifact_dir,
                 artifact_prefix=request.artifact_prefix,
                 training_min_added=request.training_min_added,
                 labels=[label.model_dump() for label in request.labels] if request.labels is not None else None,

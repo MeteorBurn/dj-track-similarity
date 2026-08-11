@@ -20,8 +20,8 @@ Tool output directories are local state and are ignored by Git by default:
 
 - `tools/audio-doctor/data/`
 - `tools/audio-dedup/data/reports/`
-- `tools/rhythm-lab/data/`
-- `tools/rhythm-lab/artifacts/`
+- `tools/rhythm-lab/database/`
+- `tools/rhythm-lab/profiles/<profile-key>/`
 - `models/classifiers/`
 - `.dj-track-similarity-indexes/`
 

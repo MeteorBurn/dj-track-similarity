@@ -238,7 +238,7 @@ def default_rhythm_lab_labels_path() -> Path:
         Path(__file__).resolve().parents[2]
         / "tools"
         / "rhythm-lab"
-        / "data"
+        / "database"
         / DEFAULT_RHYTHM_LAB_LABELS_FILENAME
     )
 

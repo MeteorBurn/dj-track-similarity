@@ -9,11 +9,11 @@ artifacts stay under `tools/rhythm-lab/`. It reads the main library mostly read-
 liked-track toggle is the narrow main-database write path. Rhythm Lab does not rewrite source audio.
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite
 ```
 
 The writable default is the single stable database at
-`tools/rhythm-lab/data/rhythm_lab.sqlite`. Normal startup and collection saves use this same file.
+`tools/rhythm-lab/database/rhythm_lab.sqlite`. Normal startup and collection saves use this same file.
 A database with legacy label columns must be migrated before the current Lab can open it.
 
 Create and label a profile, train it from its declared inputs, review its predictions, and promote a

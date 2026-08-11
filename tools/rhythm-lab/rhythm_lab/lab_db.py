@@ -1671,7 +1671,7 @@ def _queue_row_payload(row: sqlite3.Row) -> dict[str, object]:
 
 
 def _default_artifact_dir(classifier_key: str) -> Path:
-    return Path(__file__).resolve().parents[1] / "artifacts" / classifier_key.replace("_", "-")
+    return Path(__file__).resolve().parents[1] / "profiles" / classifier_key.replace("_", "-")
 
 
 def _normalize_artifact_dir(path: str | Path) -> str:

@@ -1,6 +1,4 @@
-data/*
-!data/.gitkeep
-artifacts/*
-!artifacts/**/
-artifacts/**/*
-!artifacts/**/.gitkeep
+database/*
+!database/.gitkeep
+profiles/*
+!profiles/.gitkeep

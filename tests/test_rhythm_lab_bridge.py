@@ -38,7 +38,7 @@ def test_default_rhythm_lab_labels_path_is_stable_current() -> None:
 
     assert labels_path.name == DEFAULT_RHYTHM_LAB_LABELS_FILENAME
     assert labels_path.name == "rhythm_lab.sqlite"
-    assert labels_path.parent.name == "data"
+    assert labels_path.parent.name == "database"
 
 
 def test_collection_repository_rejects_legacy_labels_without_mutation(

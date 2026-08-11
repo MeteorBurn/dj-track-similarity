@@ -23,8 +23,8 @@ If the variable is set but points to a missing file, server startup fails clearl
 | Runtime logs | `logs/` |
 | Audio Doctor reports/state/backups | `tools/audio-doctor/data/` |
 | Audio Dedup reports | `tools/audio-dedup/data/reports/` |
-| Rhythm Lab labels | `tools/rhythm-lab/data/rhythm_lab.sqlite` |
-| Rhythm Lab artifacts | `tools/rhythm-lab/artifacts/` |
+| Rhythm Lab labels | `tools/rhythm-lab/database/rhythm_lab.sqlite` |
+| Rhythm Lab profile data | `tools/rhythm-lab/profiles/<profile-key>/` |
 | Promoted classifier models | `models/classifiers/<artifact-prefix>/` |
 | Persistent ANN sidecars | `.dj-track-similarity-indexes/` beside the selected DB by default |
 

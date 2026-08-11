@@ -190,7 +190,6 @@ function clearActiveProfile() {
   addOption(candidatePredictedEl, "all", "all predictions");
   document.getElementById("profileNameInput").value = "";
   document.getElementById("profileDescriptionInput").value = "";
-  document.getElementById("profileArtifactDirInput").value = "";
   document.getElementById("profileArtifactPrefixInput").value = "";
   document.getElementById("profileTrainingMinAddedInput").value = "50";
   document.getElementById("renameLabelSelect").innerHTML = "";
@@ -238,7 +237,6 @@ function renderProfileControls() {
 
   document.getElementById("profileNameInput").value = activeProfile.name || "";
   document.getElementById("profileDescriptionInput").value = activeProfile.description || "";
-  document.getElementById("profileArtifactDirInput").value = activeProfile.artifact_dir || "";
   document.getElementById("profileArtifactPrefixInput").value = activeProfile.artifact_prefix || "";
   document.getElementById("profileTrainingMinAddedInput").value = activeProfile.training_min_added || 50;
 
@@ -1538,7 +1536,6 @@ async function createProfile(event) {
       profile_type: document.getElementById("newProfileType").value,
       name: document.getElementById("newProfileName").value,
       description: document.getElementById("newProfileDescription").value,
-      artifact_dir: document.getElementById("newProfileArtifactDir").value || null,
       training_min_added: Number(document.getElementById("newProfileTrainingMinAdded").value || 50),
       labels: collectNewProfileLabels()
     })
@@ -1614,7 +1611,6 @@ async function updateProfile(event) {
     body: JSON.stringify({
       name: document.getElementById("profileNameInput").value,
       description: document.getElementById("profileDescriptionInput").value,
-      artifact_dir: document.getElementById("profileArtifactDirInput").value,
       artifact_prefix: document.getElementById("profileArtifactPrefixInput").value,
       training_min_added: Number(document.getElementById("profileTrainingMinAddedInput").value || 50)
     })

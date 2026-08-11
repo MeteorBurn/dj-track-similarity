@@ -14,7 +14,7 @@ Full documentation is in
 Run from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\database\rhythm_lab.sqlite
 ```
 
 Open:
@@ -29,7 +29,7 @@ source database path field, file picker, Load database button, and profile
 creation dialog. Choose or create a classifier profile before loading tracks.
 
 The writable default is the single stable database at
-`tools/rhythm-lab/data/rhythm_lab.sqlite`. Normal startup and collection saves
+`tools/rhythm-lab/database/rhythm_lab.sqlite`. Normal startup and collection saves
 use this same file. A database with legacy label columns must be migrated before
 the current Lab can open it.
 
@@ -43,13 +43,13 @@ runtime models under `models/classifiers/` are left in place.
 Lab state is stored at:
 
 ```text
-tools/rhythm-lab/data/rhythm_lab.sqlite
+tools/rhythm-lab/database/rhythm_lab.sqlite
 ```
 
 Training artifacts stay under:
 
 ```text
-tools/rhythm-lab/artifacts/<artifact-prefix>/
+tools/rhythm-lab/profiles/<profile-key>/
 ```
 
 Promoted runtime models for the main app use an immutable generation selected

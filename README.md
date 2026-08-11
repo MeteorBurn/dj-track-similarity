@@ -254,15 +254,15 @@ Lab labels and feedback remain available for that retraining loop.
 Manual commands are available when you want the CLI workflow:
 
 ```powershell
-python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
-python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
-python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
 dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
 dj-sim analyze-classifiers --db ./data/library.sqlite
 ```
 
 The default Rhythm Lab state is the single stable database at
-`tools/rhythm-lab/data/rhythm_lab.sqlite`. Launching Rhythm Lab from the main app binds that Lab
+`tools/rhythm-lab/database/rhythm_lab.sqlite`. Launching Rhythm Lab from the main app binds that Lab
 database to the currently selected Core database.
 
 See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
@@ -403,7 +403,7 @@ Common maintenance commands:
 python tools/audio-doctor/audio_doctor_cli.py --db ./data/library.sqlite
 python tools/audio-dedup/audio_dedup_cli.py --db ./data/library.sqlite --root D:/Music --preset safe
 python scripts/optimize_database.py --db ./data/library.sqlite
-python scripts/optimize_database.py --db tools/rhythm-lab/data/rhythm_lab.sqlite
+python scripts/optimize_database.py --db tools/rhythm-lab/database/rhythm_lab.sqlite
 ```
 
 ## 🛡️ Safety model

@@ -49,7 +49,6 @@ def register_rhythm_lab_routes(
         [RhythmLabSourceBinding | None],
         dict[str, object],
     ],
-    stop_rhythm_lab: Callable[[], dict[str, object]],
     rhythm_lab_status: Callable[[], dict[str, object]],
 ) -> None:
     @app.get("/api/rhythm-lab/status")
@@ -67,13 +66,6 @@ def register_rhythm_lab_routes(
             )
         try:
             return launch_rhythm_lab(source)
-        except RuntimeError as error:
-            raise HTTPException(status_code=503, detail=str(error)) from error
-
-    @app.post("/api/rhythm-lab/stop")
-    def stop_rhythm_lab_server():
-        try:
-            return stop_rhythm_lab()
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 

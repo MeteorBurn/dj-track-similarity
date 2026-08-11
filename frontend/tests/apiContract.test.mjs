@@ -57,7 +57,7 @@ test("API module keeps public types separate from domain client implementation",
   assert.match(apiSource, /export \{ api \} from "\.\/apiClient";/);
   assert.match(clientSource, /const databaseApi = \{/);
   assert.match(clientSource, /const searchApi = \{/);
-  assert.match(clientSource, /const helperToolsApi = \{/);
+  assert.doesNotMatch(clientSource, /audio-(dedup|doctor)/);
   assert.doesNotMatch(apiSource, /async function request/);
 });
 
@@ -89,7 +89,7 @@ function jsonResponse(value = {}) {
   };
 }
 
-test("rhythm lab client uses explicit status, launch, and stop endpoints", async () => {
+test("rhythm lab client uses status and launch endpoints", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options = {}) => {
     calls.push({ path, options });
@@ -98,14 +98,11 @@ test("rhythm lab client uses explicit status, launch, and stop endpoints", async
 
   await api.rhythmLabStatus();
   await api.launchRhythmLab();
-  await api.stopRhythmLab();
 
   assert.equal(calls[0].path, "/api/rhythm-lab/status");
   assert.equal(calls[0].options.method, undefined);
   assert.equal(calls[1].path, "/api/rhythm-lab/launch");
   assert.equal(calls[1].options.method, "POST");
-  assert.equal(calls[2].path, "/api/rhythm-lab/stop");
-  assert.equal(calls[2].options.method, "POST");
 });
 
 test("tracks client serializes library query controls into the current API query contract", async () => {
@@ -342,58 +339,6 @@ test("MuQ search and resets serialize only current field names", async () => {
   });
 });
 
-test("Audio Dedup preserves MuQ profiles and omits undefined fields", async () => {
-  const calls = [];
-  const { api } = loadApiModule(async (path, options) => {
-    calls.push({ path, options });
-    return jsonResponse({});
-  });
-
-  await api.audioDedupJobStart({
-    root: "D:/Music",
-    sources: ["mert", "maest", "muq", "clap"],
-    weights: {
-      mert: 0.43,
-      maest: 0.32,
-      muq: 0.12,
-      clap: 0.04
-    },
-    apply: false
-  });
-
-  assert.equal(calls[0].path, "/api/audio-dedup/jobs");
-  assert.deepEqual(JSON.parse(calls[0].options.body), {
-    root: "D:/Music",
-    sources: ["mert", "maest", "muq", "clap"],
-    weights: {
-      mert: 0.43,
-      maest: 0.32,
-      muq: 0.12,
-      clap: 0.04
-    },
-    apply: false
-  });
-  for (const call of calls) {
-    assert.equal(Object.values(JSON.parse(call.options.body)).includes(undefined), false);
-  }
-});
-
-test("destructive helper clients pass apply confirmations only through explicit payloads", async () => {
-  const calls = [];
-  const { api } = loadApiModule(async (path, options) => {
-    calls.push({ path, options });
-    return jsonResponse({ job_id: "job-1", state: "queued", errors: [], events: [] });
-  });
-
-  await api.audioDoctorJobStart({ source_mode: "db", apply: true, confirmation: "APPLY REPAIR" });
-  await api.audioDedupJobStart({ root: "D:/Music", apply: true, confirmation: "APPLY DELETE" });
-
-  assert.equal(calls[0].path, "/api/audio-doctor/jobs");
-  assert.deepEqual(JSON.parse(calls[0].options.body), { source_mode: "db", apply: true, confirmation: "APPLY REPAIR" });
-  assert.equal(calls[1].path, "/api/audio-dedup/jobs");
-  assert.deepEqual(JSON.parse(calls[1].options.body), { root: "D:/Music", apply: true, confirmation: "APPLY DELETE" });
-});
-
 test("API client surfaces backend error text for unknown or invalid payload failures", async () => {
   const { api } = loadApiModule(async () => ({
     ok: false,
@@ -403,7 +348,7 @@ test("API client surfaces backend error text for unknown or invalid payload fail
   }));
 
   await assert.rejects(
-    api.audioDedupJobStart({ root: "D:/Music", apply: false }),
+    api.resetAnalysis("mert"),
     /Unknown classifier: break_energy/
   );
 });

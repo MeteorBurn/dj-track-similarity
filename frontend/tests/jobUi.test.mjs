@@ -44,16 +44,13 @@ test("analysis status shows only settings that belong to the active stage", () =
   assert.match(statusBlock, /classifierJob \? <span>profiles/);
 });
 
-test("stage indicator prioritizes running destructive helper jobs and cancelled states", () => {
+test("stage indicator reports active and cancelled core jobs", () => {
   const source = readFileSync(jobUiPath, "utf8");
   const indicatorBlock = source.match(/export function stageIndicatorLabel[\s\S]*?\n}/)?.[0] || "";
 
-  assert.match(indicatorBlock, /audioDedupJob && \["queued", "running"\]\.includes\(audioDedupJob\.state\)/);
-  assert.match(indicatorBlock, /return "Идет поиск дублей"/);
-  assert.match(indicatorBlock, /audioDoctorJob && \["queued", "running"\]\.includes\(audioDoctorJob\.state\)/);
-  assert.match(indicatorBlock, /return "Идет Audio Doctor"/);
-  assert.match(indicatorBlock, /audioDedupJob\?\.state === "cancelled"/);
-  assert.match(indicatorBlock, /audioDoctorJob\?\.state === "cancelled"/);
+  assert.match(indicatorBlock, /genreTagJob && \["queued", "running"\]\.includes\(genreTagJob\.state\)/);
+  assert.match(indicatorBlock, /return "Идет запись жанров"/);
+  assert.doesNotMatch(indicatorBlock, /audio(Dedup|Doctor)/);
   assert.match(indicatorBlock, /return "Этап остановлен"/);
 });
 

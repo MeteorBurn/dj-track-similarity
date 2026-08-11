@@ -8,8 +8,6 @@ from pathlib import Path
 from .analysis_jobs import AnalysisJobManager
 from .analysis_pipeline import AnalysisPipelineManager
 from .analysis_queue import AnalysisStageQueue
-from .audio_dedup_jobs import AudioDedupJobManager
-from .audio_doctor_jobs import AudioDoctorJobManager
 from .classifier_jobs import ClassifierJobManager
 from .database import LibraryDatabase
 from .scan_jobs import ScanJobManager
@@ -36,8 +34,6 @@ class AppDatabaseState:
         self.analysis_jobs: AnalysisJobManager | None = None
         self.analysis_pipeline_jobs: AnalysisPipelineManager | None = None
         self.analysis_queue: AnalysisStageQueue | None = None
-        self.audio_dedup_jobs: AudioDedupJobManager | None = None
-        self.audio_doctor_jobs: AudioDoctorJobManager | None = None
         self.classifier_jobs: ClassifierJobManager | None = None
         self.scan_jobs: ScanJobManager | None = None
         self.genre_tag_jobs: GenreTagJobManager | None = None
@@ -73,8 +69,6 @@ class AppDatabaseState:
             db = LibraryDatabase(selected)
             analysis_queue = AnalysisStageQueue()
             analysis_jobs = AnalysisJobManager(db, stage_queue=analysis_queue)
-            audio_dedup_jobs = AudioDedupJobManager(db)
-            audio_doctor_jobs = AudioDoctorJobManager(db)
             classifier_jobs = ClassifierJobManager(db, stage_queue=analysis_queue)
             analysis_pipeline_jobs = AnalysisPipelineManager(
                 analysis_jobs,
@@ -88,8 +82,6 @@ class AppDatabaseState:
             self.db = db
             self.analysis_queue = analysis_queue
             self.analysis_jobs = analysis_jobs
-            self.audio_dedup_jobs = audio_dedup_jobs
-            self.audio_doctor_jobs = audio_doctor_jobs
             self.classifier_jobs = classifier_jobs
             self.analysis_pipeline_jobs = analysis_pipeline_jobs
             self.scan_jobs = scan_jobs
@@ -171,16 +163,6 @@ class AppDatabaseState:
         assert self.analysis_pipeline_jobs is not None
         return self.analysis_pipeline_jobs
 
-    def require_audio_dedup_jobs(self) -> AudioDedupJobManager:
-        self._require_jobs_available()
-        assert self.audio_dedup_jobs is not None
-        return self.audio_dedup_jobs
-
-    def require_audio_doctor_jobs(self) -> AudioDoctorJobManager:
-        self._require_jobs_available()
-        assert self.audio_doctor_jobs is not None
-        return self.audio_doctor_jobs
-
     def require_scan_jobs(self) -> ScanJobManager:
         self._require_jobs_available()
         assert self.scan_jobs is not None
@@ -195,8 +177,6 @@ class AppDatabaseState:
         managers = [
             self.analysis_jobs,
             self.analysis_pipeline_jobs,
-            self.audio_dedup_jobs,
-            self.audio_doctor_jobs,
             self.classifier_jobs,
             self.scan_jobs,
             self.genre_tag_jobs,

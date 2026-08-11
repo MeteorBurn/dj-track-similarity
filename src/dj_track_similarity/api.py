@@ -7,8 +7,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api_routes_audio_dedup import register_audio_dedup_routes
-from .api_routes_audio_doctor import register_audio_doctor_routes
 from .api_routes_docs import register_docs_routes
 from .api_routes_analysis import register_analysis_routes
 from .api_routes_database import register_database_routes
@@ -117,8 +115,6 @@ def create_app(
     register_database_routes(app, state, open_database_file_dialog=open_database_file_dialog)
     register_library_routes(app, state, ffmpeg_path=ffmpeg_path, promoted_classifiers=promoted_classifiers)
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
-    register_audio_dedup_routes(app, state)
-    register_audio_doctor_routes(app, state)
     register_evaluation_routes(app, state)
     register_reference_compare_routes(app, state)
     register_search_routes(
@@ -132,7 +128,6 @@ def create_app(
         app,
         state,
         launch_rhythm_lab=launch_rhythm_lab,
-        stop_rhythm_lab=stop_rhythm_lab,
         rhythm_lab_status=rhythm_lab_status,
     )
 

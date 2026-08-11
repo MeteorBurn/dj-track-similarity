@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
-import type { AnalysisJobStatus, AudioDedupJobStatus, AudioDoctorJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import type { AnalysisJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import type { ActivityEvent } from "./jobUi";
 import { UnifiedLog } from "./jobUi";
@@ -9,17 +9,13 @@ export function LogFrameDialog({
   processLogKind,
   scanJob,
   analysisJob,
-  audioDedupJob,
-  audioDoctorJob,
   genreTagJob,
   activityLog,
   onClose
 }: {
-  processLogKind: "scan" | "analysis" | "genre_tags" | "audio_dedup" | "audio_doctor";
+  processLogKind: "scan" | "analysis" | "genre_tags";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
-  audioDedupJob: AudioDedupJobStatus | null;
-  audioDoctorJob: AudioDoctorJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
   activityLog: ActivityEvent[];
   onClose: () => void;
@@ -38,7 +34,7 @@ export function LogFrameDialog({
         <div className="dialog-title log-frame-title">
           <div>
             <h2 id="log-frame-title">Лог</h2>
-            <span>События интерфейса, сканирования, анализа, Audio Doctor, Audio Dedup и записи жанров</span>
+            <span>События интерфейса, сканирования, анализа и записи жанров</span>
           </div>
           <button className="icon-button close-log-frame-button" title="Закрыть лог" aria-label="Закрыть лог" onClick={onClose} type="button">
             <X size={16} />
@@ -49,8 +45,6 @@ export function LogFrameDialog({
             processKind={processLogKind}
             scanJob={scanJob}
             analysisJob={analysisJob}
-            audioDedupJob={audioDedupJob}
-            audioDoctorJob={audioDoctorJob}
             genreTagJob={genreTagJob}
             events={activityLog}
             className="log-frame-panel"

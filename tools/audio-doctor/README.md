@@ -26,5 +26,4 @@ Apply only after a dry-run has recorded state:
 
 Apply writes only repairable WAV/AIFF cases, creates full-file backups by
 default, verifies the repaired file, and restores the backup on verification
-failure. UI/API apply mode additionally requires the exact `APPLY REPAIR`
-confirmation.
+failure. The CLI requires the exact `APPLY REPAIR` confirmation.

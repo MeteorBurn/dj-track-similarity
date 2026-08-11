@@ -414,111 +414,6 @@ export type GenreTagJobStatus = {
   cancel_requested: boolean;
 };
 
-export type AudioDedupPreset = "safe" | "balanced" | "aggressive";
-
-export type AudioDedupJobStatus = {
-  job_id: string;
-  state: "queued" | "running" | "completed" | "cancelled" | "failed";
-  root: string;
-  path_contains: string[];
-  sources: EmbeddingSource[];
-  weights: Partial<Record<EmbeddingSource, number>>;
-  preset: AudioDedupPreset;
-  min_score?: number | null;
-  min_similarity?: number | null;
-  limit_groups?: number | null;
-  apply: boolean;
-  total: number;
-  processed: number;
-  groups: number;
-  safe_candidates: number;
-  deleted: number;
-  skipped: number;
-  failed: number;
-  current_path?: string | null;
-  current_step?: string | null;
-  json_path?: string | null;
-  xlsx_path?: string | null;
-  log_path?: string | null;
-  started_at?: number | null;
-  finished_at?: number | null;
-  avg_seconds_per_item?: number | null;
-  errors: Array<{ error: string }>;
-  events: Array<{ timestamp: number; level: string; message: string; path?: string | null }>;
-  cancel_requested: boolean;
-};
-
-export type AudioDedupJobPayload = {
-  root: string;
-  path_contains?: string[];
-  sources?: EmbeddingSource[];
-  weights?: Partial<Record<EmbeddingSource, number>> | null;
-  preset?: AudioDedupPreset;
-  min_score?: number | null;
-  min_similarity?: number | null;
-  limit_groups?: number | null;
-  out_dir?: string | null;
-  apply?: boolean;
-  confirmation?: string | null;
-};
-
-export type AudioDoctorSourceMode = "db" | "folder";
-export type AudioDoctorKeepId3 = "first" | "last" | "none";
-
-export type AudioDoctorJobStatus = {
-  job_id: string;
-  state: "queued" | "running" | "completed" | "cancelled" | "failed";
-  source_mode: AudioDoctorSourceMode;
-  db_path: string;
-  folder?: string | null;
-  db_roots: string[];
-  file_root?: string | null;
-  keep_id3: AudioDoctorKeepId3;
-  limit?: number | null;
-  workers: number;
-  reasons: string[];
-  apply: boolean;
-  total: number;
-  processed: number;
-  ok: number;
-  notice: number;
-  repairable: number;
-  repaired: number;
-  suspicious: number;
-  tag_error: number;
-  failed: number;
-  skipped_state: number;
-  skipped_reason: number;
-  missing_db_files: number;
-  current_path?: string | null;
-  current_step?: string | null;
-  json_path?: string | null;
-  xlsx_path?: string | null;
-  log_path?: string | null;
-  state_path?: string | null;
-  started_at?: number | null;
-  finished_at?: number | null;
-  avg_seconds_per_item?: number | null;
-  errors: Array<{ error: string }>;
-  events: Array<{ timestamp: number; level: string; message: string; path?: string | null }>;
-  cancel_requested: boolean;
-};
-
-export type AudioDoctorJobPayload = {
-  source_mode: AudioDoctorSourceMode;
-  folder?: string | null;
-  db_roots?: string[];
-  file_root?: string | null;
-  keep_id3?: AudioDoctorKeepId3;
-  limit?: number | null;
-  workers?: number;
-  reasons?: string[];
-  out_dir?: string | null;
-  state_path?: string | null;
-  apply?: boolean;
-  confirmation?: string | null;
-};
-
 export type AnalysisResetResult = {
   core_rows_deleted: number;
   artifact_rows_deleted: number;
@@ -558,10 +453,6 @@ export type RhythmLabLaunchResult = RhythmLabStatus & {
   already_running: boolean;
   pid?: number | null;
   source: RhythmLabSourceBinding | null;
-};
-
-export type RhythmLabStopResult = RhythmLabStatus & {
-  stopped: boolean;
 };
 
 export type ServerShutdownResult = {

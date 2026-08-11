@@ -74,15 +74,5 @@ or stale state for SONARA, MERT, MAEST, CLAP, and MuQ; its page sizes are `50`, 
 `500`. The **Training recipe** selector supports MuQ and explicit source combinations. The legacy
 `combined` recipe remains `sonara+mert+maest`.
 
-## Audio Dedup
-
-The Audio Dedup dialog exposes `mert`, `maest`, `muq`, and audio-to-audio `clap` source checkboxes.
-It shows raw defaults `0.43`, `0.32`, `0.12`, and `0.04`, supports **Custom raw weights**, and
-provides **Reset defaults** and **Pre-MuQ legacy** actions. The legacy action selects `mert`,
-`maest`, and `clap` with raw weights `0.43`, `0.32`, and `0.04`.
-
-Report mode is the default. Apply mode still requires the exact `APPLY DELETE` confirmation. MuQ or
-CLAP evidence alone never authorizes deletion.
-
 For analysis semantics, see [Analyze a library](../user-guide/analyze-library.md). For
 source-file boundaries, see [Local-first safety](../concepts/local-first-safety.md).

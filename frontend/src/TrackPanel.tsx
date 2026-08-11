@@ -225,6 +225,13 @@ export function TrackPanel({
           >
             {loading ? "..." : `${rangeStart}–${rangeEnd}`}
           </span>
+          <span
+            className="library-filtered-total-status"
+            title="Общее число треков в текущей выборке"
+            aria-live="polite"
+          >
+            {loading ? "..." : `(${total})`}
+          </span>
         </div>
         <button
           className={`icon-button library-sort-direction-button ${reverseSortActive ? "active" : ""}`}

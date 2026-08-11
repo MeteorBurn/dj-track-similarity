@@ -114,36 +114,12 @@ Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `m
 
 The genre API rejects per-track writes. Current behavior writes all available stored MAEST genres.
 
-## Helper tools
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/audio-doctor/jobs` | start Audio Doctor job |
-| `GET` | `/api/audio-doctor/jobs/latest` | latest Audio Doctor job |
-| `GET` | `/api/audio-doctor/jobs/{job_id}` | job status |
-| `POST` | `/api/audio-doctor/jobs/{job_id}/cancel` | cancel job |
-| `GET` | `/api/audio-doctor/jobs/{job_id}/report/xlsx` | download XLSX |
-| `POST` | `/api/audio-dedup/jobs` | start Audio Dedup job |
-| `GET` | `/api/audio-dedup/jobs/latest` | latest Audio Dedup job |
-| `GET` | `/api/audio-dedup/jobs/{job_id}` | job status |
-| `POST` | `/api/audio-dedup/jobs/{job_id}/cancel` | cancel job |
-| `GET` | `/api/audio-dedup/jobs/{job_id}/report/xlsx` | download XLSX |
-
-Audio Doctor apply requires exact `APPLY REPAIR`. Audio Dedup apply requires exact `APPLY DELETE`.
-
-Audio Dedup requests accept `sources` from `mert`, `maest`, `muq`, and `clap` plus an optional
-exact-key `weights` object. The default raw weights are `mert=0.43`, `maest=0.32`, `muq=0.12`, and
-`clap=0.04`. Enabled available values are normalized during scoring. Omitting `muq` preserves the
-legacy MERT/MAEST/CLAP mix. MERT and MAEST remain mandatory independent safe-delete corroboration,
-so MuQ-only evidence always stays review-only.
-
 ## Rhythm Lab and server
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/rhythm-lab/status` | status |
 | `POST` | `/api/rhythm-lab/launch` | launch or reuse Rhythm Lab |
-| `POST` | `/api/rhythm-lab/stop` | stop managed Rhythm Lab |
 | `POST` | `/api/rhythm-lab/collections` | save main UI set as collection |
 | `POST` | `/api/server/shutdown` | request server shutdown |
 

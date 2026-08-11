@@ -71,16 +71,6 @@ def test_rhythm_lab_launch_endpoint_allows_no_selected_database(monkeypatch) -> 
     assert calls == [None]
 
 
-def test_rhythm_lab_stop_endpoint_uses_managed_launcher(monkeypatch) -> None:
-    monkeypatch.setattr(api, "stop_rhythm_lab", lambda: {"running": False, "stopped": True}, raising=False)
-    client = TestClient(create_app())
-
-    response = client.post("/api/rhythm-lab/stop")
-
-    assert response.status_code == 200
-    assert response.json() == {"running": False, "stopped": True}
-
-
 def test_rhythm_lab_status_endpoint_returns_launcher_status(monkeypatch) -> None:
     monkeypatch.setattr(api, "rhythm_lab_status", lambda: {"running": True, "managed": True, "url": "http://127.0.0.1:8777/"}, raising=False)
     client = TestClient(create_app())

@@ -16,7 +16,7 @@ The `min_similarity` value is an audio-to-audio content gate. It is not the CLAP
 
 ## Sources and weights
 
-The default CLI and API profile enables all four embedding sources:
+The default CLI profile enables all four embedding sources:
 
 | Source | Raw weight |
 | --- | ---: |
@@ -27,7 +27,7 @@ The default CLI and API profile enables all four embedding sources:
 
 Raw weights are configuration coefficients, not percentages. The scorer divides by the total weight of the enabled evidence that is available for a pair. The duplicate score can also include stored SONARA and duration evidence.
 
-The CLI accepts repeatable `--source` and `--weight FAMILY=VALUE` options. The `POST /api/audio-dedup/jobs` API accepts equivalent `sources` and `weights` fields.
+The CLI accepts repeatable `--source` and `--weight FAMILY=VALUE` options.
 
 Validation is fail-closed:
 
@@ -43,35 +43,6 @@ python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:
 ```
 
 This exact profile uses MERT 0.43, MAEST 0.32, and CLAP 0.04. Any other source or weight configuration uses the non-legacy deletion-safety rules below.
-
-## UI flow
-
-Open Audio Dedup from the copy icon in the top bar.
-
-The browser dialog exposes the same `sources` and `weights` payload as the CLI and API:
-
-- checkboxes enable or remove MERT, MAEST, MuQ, and audio-to-audio CLAP;
-- **Custom raw weights** reveals one raw-weight field for every enabled source;
-- **Reset defaults** restores all four sources with raw weights 0.43, 0.32, 0.12, and 0.04;
-- **Pre-MuQ legacy** selects only MERT, MAEST, and CLAP with raw weights 0.43, 0.32, and 0.04.
-
-At least one source must stay enabled. Disabled sources are absent from the payload. The run panel
-shows the actual source and raw-weight profile returned by the job, so the submitted configuration
-remains visible during and after execution.
-
-Controls:
-
-- **Root**: only DB tracks inside this stored path root are considered.
-- **Path contains**: optional case-insensitive path filters, split by line, comma, or semicolon.
-- **Preset**: safe, balanced, or aggressive.
-- **Min score**: optional `0..1` override.
-- **Min similarity**: optional `0..1` audio-to-audio gate over the enabled embedding sources.
-- **Limit groups**: optional maximum number of groups.
-- **Output dir**: report directory.
-
-Click **Start** for report mode. The UI shows progress and opens the XLSX report when complete.
-Enabling **Apply delete safe candidates** reveals the confirmation field; the browser will not send
-apply mode unless it contains the exact `APPLY DELETE` text.
 
 ## CLI report mode
 

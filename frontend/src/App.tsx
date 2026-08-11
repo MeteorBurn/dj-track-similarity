@@ -1,15 +1,11 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
+import { FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import {
   AnalysisJobStatus,
   AnalysisModel,
   AnalysisPipelineStatus,
   api,
-  AudioDedupJobPayload,
-  AudioDedupJobStatus,
-  AudioDoctorJobPayload,
-  AudioDoctorJobStatus,
   EmbeddingSource,
   GenreTagJobStatus,
   PromotedClassifier,
@@ -25,8 +21,6 @@ import {
   isAudioAnalysisModel,
   type AnalysisSelection
 } from "./analysisSelection";
-import { AudioDedupDialog } from "./AudioDedupDialog";
-import { AudioDoctorDialog } from "./AudioDoctorDialog";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
 import { classifierIsAvailable, classifierScoringBlockedReason } from "./classifierCompatibility";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
@@ -163,12 +157,10 @@ export function App() {
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [analysisPipelineJob, setAnalysisPipelineJob] = useState<AnalysisPipelineStatus | null>(null);
-  const [audioDedupJob, setAudioDedupJob] = useState<AudioDedupJobStatus | null>(null);
-  const [audioDoctorJob, setAudioDoctorJob] = useState<AudioDoctorJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
   const [rhythmLabStatus, setRhythmLabStatus] = useState<RhythmLabStatus | null>(null);
-  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "audio_dedup" | "audio_doctor">("scan");
+  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [scanWorkers, setScanWorkers] = useState(8);
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(8);
@@ -178,8 +170,6 @@ export function App() {
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
-  const [audioDedupOpen, setAudioDedupOpen] = useState(false);
-  const [audioDoctorOpen, setAudioDoctorOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   const [busy, setBusy] = useState(false);
@@ -254,23 +244,15 @@ export function App() {
     || (analysisPipelineJob && ["queued", "running"].includes(analysisPipelineJob.state))
   );
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
-  const audioDedupRunning = Boolean(audioDedupJob && ["queued", "running"].includes(audioDedupJob.state));
-  const audioDoctorRunning = Boolean(audioDoctorJob && ["queued", "running"].includes(audioDoctorJob.state));
-  const stageRunning = scanRunning || analysisRunning || genreTagRunning || audioDedupRunning || audioDoctorRunning;
+  const stageRunning = scanRunning || analysisRunning || genreTagRunning;
   const rhythmLabRunning = Boolean(rhythmLabStatus?.running);
-  const rhythmLabManaged = Boolean(rhythmLabStatus?.managed);
-  const rhythmLabStopTitle = rhythmLabRunning && !rhythmLabManaged
-    ? "Rhythm Lab запущен вне управления Core"
-    : "Остановить Rhythm Lab";
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
       || (analysisJob?.events || []).some((event) => event.level === "error")
-      || (audioDedupJob?.events || []).some((event) => event.level === "error")
-      || (audioDoctorJob?.events || []).some((event) => event.level === "error")
       || (genreTagJob?.events || []).some((event) => event.level === "error");
-    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(audioDedupJob?.errors.length) || Boolean(audioDoctorJob?.errors.length) || Boolean(genreTagJob?.errors.length);
-  }, [activityLog, analysisJob, audioDedupJob, audioDoctorJob, genreTagJob, scanJob]);
+    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
+  }, [activityLog, analysisJob, genreTagJob, scanJob]);
   const canStartScan = Boolean(databasePath && musicRoot);
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
@@ -297,28 +279,6 @@ export function App() {
       // Theme persistence is optional; keep the UI usable if storage is blocked.
     }
   }, [theme]);
-
-  useEffect(() => {
-    if (!audioDedupOpen) return;
-    let cancelled = false;
-    void api.latestAudioDedupJob().then((job) => {
-      if (!cancelled && job) setAudioDedupJob(job);
-    }).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [audioDedupOpen]);
-
-  useEffect(() => {
-    if (!audioDoctorOpen) return;
-    let cancelled = false;
-    void api.latestAudioDoctorJob().then((job) => {
-      if (!cancelled && job) setAudioDoctorJob(job);
-    }).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [audioDoctorOpen]);
 
   useEffect(() => {
     genericSearchInputKeyRef.current = genericSearchInputKey;
@@ -460,50 +420,6 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [genreTagJob?.job_id, genreTagJob?.state]);
 
-  useEffect(() => {
-    if (!audioDedupJob || !["queued", "running"].includes(audioDedupJob.state)) return;
-    const timer = window.setInterval(() => {
-      void api.audioDedupJob(audioDedupJob.job_id).then((job) => {
-        setAudioDedupJob(job);
-        if (["completed", "cancelled", "failed"].includes(job.state)) {
-          if (job.apply) void refreshLibrary(0, { refreshSummary: true });
-          if (job.state === "completed") {
-            appendActivity("ok", "Audio Dedup завершен", `groups ${job.groups} · safe ${job.safe_candidates}`);
-            setNotice({ kind: "ok", text: job.xlsx_path ? "Audio Dedup: XLSX готов" : "Audio Dedup завершен" });
-          }
-          if (job.state === "cancelled") {
-            appendActivity("warn", "Audio Dedup остановлен", job.current_step || job.root);
-          }
-        }
-      }).catch((error) => {
-        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-      });
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [audioDedupJob?.job_id, audioDedupJob?.state]);
-
-  useEffect(() => {
-    if (!audioDoctorJob || !["queued", "running"].includes(audioDoctorJob.state)) return;
-    const timer = window.setInterval(() => {
-      void api.audioDoctorJob(audioDoctorJob.job_id).then((job) => {
-        setAudioDoctorJob(job);
-        if (["completed", "cancelled", "failed"].includes(job.state)) {
-          if (job.apply) void refreshLibrary(0, { refreshSummary: true });
-          if (job.state === "completed") {
-            appendActivity("ok", "Audio Doctor завершен", `repairable ${job.repairable} · repaired ${job.repaired}`);
-            setNotice({ kind: "ok", text: job.xlsx_path ? "Audio Doctor: XLSX готов" : "Audio Doctor завершен" });
-          }
-          if (job.state === "cancelled") {
-            appendActivity("warn", "Audio Doctor остановлен", job.current_step || job.folder || job.db_path);
-          }
-        }
-      }).catch((error) => {
-        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-      });
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [audioDoctorJob?.job_id, audioDoctorJob?.state]);
-
   async function initializeDatabase() {
     try {
       const current = await api.currentDatabase();
@@ -614,8 +530,6 @@ export function App() {
     setScanJob(null);
     setAnalysisJob(null);
     setAnalysisPipelineJob(null);
-    setAudioDedupJob(null);
-    setAudioDoctorJob(null);
     setGenreTagJob(null);
     setClassifiers([]);
   }
@@ -1042,23 +956,6 @@ export function App() {
     );
   }
 
-  async function handleChooseAudioDedupFolder() {
-    try {
-      const value = await api.chooseFolder();
-      if (!value.path) {
-        appendActivity("info", "Выбор папки Audio Dedup отменен");
-        return null;
-      }
-      appendActivity("ok", "Папка Audio Dedup выбрана", value.path);
-      return value.path;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setNotice({ kind: "error", text: message });
-      appendActivity("error", "Не удалось выбрать папку Audio Dedup", message);
-      return null;
-    }
-  }
-
   async function handleCancelScan() {
     if (!scanJob?.job_id) return;
     await run(
@@ -1260,75 +1157,6 @@ export function App() {
     );
   }
 
-  async function handleAudioDedupStart(payload: AudioDedupJobPayload) {
-    appendActivity(payload.apply ? "warn" : "info", "Audio Dedup запущен", `${payload.preset || "safe"} · ${payload.root}`);
-    setProcessLogKind("audio_dedup");
-    setAudioDedupJob(null);
-    await run(
-      () => api.audioDedupJobStart(payload),
-      (job) => {
-        setAudioDedupJob(job);
-        appendActivity("ok", "Audio Dedup job создан", `${job.job_id.slice(0, 8)} · ${job.root}`);
-        return `Audio Dedup job ${job.job_id.slice(0, 8)}`;
-      }
-    );
-  }
-
-  async function handleCancelAudioDedup() {
-    if (!audioDedupJob) return;
-    await run(
-      () => api.cancelAudioDedupJob(audioDedupJob.job_id),
-      (job) => {
-        setAudioDedupJob(job);
-        appendActivity("warn", "Audio Dedup cancel requested", job.job_id.slice(0, 8));
-        return `Cancel requested: ${job.job_id.slice(0, 8)}`;
-      }
-    );
-  }
-
-  function handleOpenAudioDedupXlsx() {
-    if (!audioDedupJob?.job_id || !audioDedupJob.xlsx_path) return;
-    const opened = window.open(api.audioDedupXlsxUrl(audioDedupJob.job_id), "_blank", "noopener,noreferrer");
-    if (!opened) {
-      setNotice({ kind: "error", text: "Браузер заблокировал открытие XLSX" });
-    }
-  }
-
-  async function handleAudioDoctorStart(payload: AudioDoctorJobPayload) {
-    const sourceLabel = payload.source_mode === "folder" ? payload.folder || "folder" : databasePath || "selected db";
-    appendActivity(payload.apply ? "warn" : "info", "Audio Doctor запущен", sourceLabel);
-    setProcessLogKind("audio_doctor");
-    setAudioDoctorJob(null);
-    await run(
-      () => api.audioDoctorJobStart(payload),
-      (job) => {
-        setAudioDoctorJob(job);
-        appendActivity("ok", "Audio Doctor job создан", `${job.job_id.slice(0, 8)} · ${job.source_mode}`);
-        return `Audio Doctor job ${job.job_id.slice(0, 8)}`;
-      }
-    );
-  }
-
-  async function handleCancelAudioDoctor() {
-    if (!audioDoctorJob) return;
-    await run(
-      () => api.cancelAudioDoctorJob(audioDoctorJob.job_id),
-      (job) => {
-        setAudioDoctorJob(job);
-        appendActivity("warn", "Audio Doctor cancel requested", job.job_id.slice(0, 8));
-        return `Cancel requested: ${job.job_id.slice(0, 8)}`;
-      }
-    );
-  }
-
-  function handleOpenAudioDoctorXlsx() {
-    if (!audioDoctorJob?.job_id || !audioDoctorJob.xlsx_path) return;
-    const opened = window.open(api.audioDoctorXlsxUrl(audioDoctorJob.job_id), "_blank", "noopener,noreferrer");
-    if (!opened) {
-      setNotice({ kind: "error", text: "Браузер заблокировал открытие XLSX" });
-    }
-  }
-
   async function handleStopActiveStage() {
     if (scanRunning) {
       await handleCancelScan();
@@ -1341,13 +1169,6 @@ export function App() {
     if (genreTagRunning) {
       await handleCancelGenreTags();
       return;
-    }
-    if (audioDedupRunning) {
-      await handleCancelAudioDedup();
-      return;
-    }
-    if (audioDoctorRunning) {
-      await handleCancelAudioDoctor();
     }
   }
 
@@ -1454,16 +1275,6 @@ export function App() {
     setTheme((current) => current === "dark" ? "light" : "dark");
   }
 
-  function openAudioDedupDialog() {
-    setProcessLogKind("audio_dedup");
-    setAudioDedupOpen(true);
-  }
-
-  function openAudioDoctorDialog() {
-    setProcessLogKind("audio_doctor");
-    setAudioDoctorOpen(true);
-  }
-
   async function handleLaunchRhythmLab() {
     const pendingWindow = window.open("about:blank", "_blank");
     if (pendingWindow) pendingWindow.opener = null;
@@ -1485,39 +1296,6 @@ export function App() {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось запустить Rhythm Lab", message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleStopRhythmLab() {
-    setBusy(true);
-    appendActivity("warn", "Остановка Rhythm Lab запрошена");
-    try {
-      const result = await api.stopRhythmLab();
-      setRhythmLabStatus({
-        running: result.running,
-        managed: result.managed,
-        url: result.url,
-        source: result.source ?? null
-      });
-      if (result.stopped) {
-        setNotice({ kind: "ok", text: "Rhythm Lab остановлен" });
-        appendActivity("ok", "Rhythm Lab остановлен", result.url);
-        return;
-      }
-      if (result.running && !result.managed) {
-        setNotice({ kind: "idle", text: "Rhythm Lab запущен вне управления Core" });
-        appendActivity("warn", "Rhythm Lab не остановлен", "Процесс не управляется Core");
-        return;
-      }
-      setNotice({ kind: "idle", text: "Rhythm Lab не запущен" });
-      appendActivity("info", "Rhythm Lab не запущен", result.url);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setNotice({ kind: "error", text: message });
-      appendActivity("error", "Не удалось остановить Rhythm Lab", message);
-      await refreshRhythmLabStatus();
     } finally {
       setBusy(false);
     }
@@ -1566,34 +1344,6 @@ export function App() {
             <FlaskConical size={16} />
           </button>
           <button
-            className="icon-button stop-button rhythm-lab-stop-button"
-            title={rhythmLabStopTitle}
-            aria-label={rhythmLabStopTitle}
-            disabled={busy || !rhythmLabRunning || !rhythmLabManaged}
-            onClick={() => void handleStopRhythmLab()}
-            type="button"
-          >
-            <Square size={15} />
-          </button>
-          <button
-            className="icon-button audio-doctor-launch-button"
-            title="Открыть Audio Doctor"
-            aria-label="Открыть Audio Doctor"
-            onClick={openAudioDoctorDialog}
-            type="button"
-          >
-            <Wrench size={16} />
-          </button>
-          <button
-            className="icon-button audio-dedup-launch-button"
-            title="Открыть Audio Dedup"
-            aria-label="Открыть Audio Dedup"
-            onClick={openAudioDedupDialog}
-            type="button"
-          >
-            <CopyX size={16} />
-          </button>
-          <button
             className="icon-button server-shutdown-button"
             title="Остановить текущий сервер"
             aria-label="Остановить текущий сервер"
@@ -1613,7 +1363,7 @@ export function App() {
           >
             <Square size={15} />
           </button>
-          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, audioDedupJob, audioDoctorJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, audioDedupJob, audioDoctorJob)}>
+          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob)}>
             <RefreshCcw size={17} />
           </span>
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
@@ -1820,35 +1570,9 @@ export function App() {
           processLogKind={processLogKind}
           scanJob={scanJob}
           analysisJob={analysisJob}
-          audioDedupJob={audioDedupJob}
-          audioDoctorJob={audioDoctorJob}
           genreTagJob={genreTagJob}
           activityLog={activityLog}
           onClose={() => setLogFrameOpen(false)}
-        />
-      )}
-      {audioDedupOpen && (
-        <AudioDedupDialog
-          databasePath={databasePath}
-          defaultRoot={musicRoot}
-          job={audioDedupJob}
-          onChooseFolder={handleChooseAudioDedupFolder}
-          onStart={handleAudioDedupStart}
-          onCancelJob={handleCancelAudioDedup}
-          onOpenXlsx={handleOpenAudioDedupXlsx}
-          onClose={() => setAudioDedupOpen(false)}
-        />
-      )}
-      {audioDoctorOpen && (
-        <AudioDoctorDialog
-          databasePath={databasePath}
-          defaultRoot={musicRoot}
-          job={audioDoctorJob}
-          onChooseFolder={handleChooseAudioDedupFolder}
-          onStart={handleAudioDoctorStart}
-          onCancelJob={handleCancelAudioDoctor}
-          onOpenXlsx={handleOpenAudioDoctorXlsx}
-          onClose={() => setAudioDoctorOpen(false)}
         />
       )}
       <TooltipLayer tooltip={tooltip} />

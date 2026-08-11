@@ -17,11 +17,10 @@ function loadHelpText() {
   return module.exports.helpText;
 }
 
-test("MuQ help describes current seed search, Dedup, and classifier support", () => {
+test("MuQ help describes current seed search and classifier support", () => {
   const helpText = loadHelpText();
 
   assert.match(helpText.muqAnalyze, /seed-поиска/);
-  assert.match(helpText.muqAnalyze, /Audio Dedup/);
   assert.match(helpText.classifiersAnalyze, /MuQ/);
   assert.match(helpText.classifiersAnalyze, /CLAP/);
   assert.doesNotMatch(helpText.classifiersAnalyze, /contract|schema|version/i);

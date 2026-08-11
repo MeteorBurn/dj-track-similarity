@@ -6,24 +6,9 @@
 
 Audio Doctor inspects audio files for known metadata/container issues and can repair only known safe repairable states. It is dry-run-first.
 
-## UI source modes
+## Inputs
 
-Open Audio Doctor from the wrench icon in the top bar.
-
-**Selected DB** reads `tracks.file_path` from the selected SQLite database. Optional **DB roots** restrict stored paths, and **File root** remaps matching DB roots before filesystem checks.
-
-**Folder** recursively scans a filesystem folder.
-
-## UI controls
-
-- **keep-id3**: `first`, `last`, or `none` for WAV repair handling.
-- **Workers**: `1..32` for dry-run. Apply always runs sequentially.
-- **Limit**: optional first N pending files.
-- **Reason**: optional reason filters from prior state/report entries.
-- **Output dir**: report bundle directory.
-- **State path**: optional state JSON path for repeat dry-run/apply workflows.
-
-Click **Start** for dry-run mode. Review the XLSX report before any repair.
+Use `--db` to inspect the database's `tracks.file_path` values. `--db-root` limits stored paths, and `--file-root` remaps matching stored roots before filesystem checks. Use `--folder` to scan a filesystem folder recursively.
 
 ## CLI dry-run
 
@@ -47,7 +32,7 @@ python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite --db-ro
 
 ## Apply mode
 
-Apply mode requires exact confirmation in the UI/API:
+Apply mode requires the exact CLI confirmation:
 
 ```text
 APPLY REPAIR

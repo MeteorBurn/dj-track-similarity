@@ -3,10 +3,6 @@ import type {
   AnalysisPipelineStatus,
   AnalysisModel,
   AnalysisResetResult,
-  AudioDedupJobPayload,
-  AudioDedupJobStatus,
-  AudioDoctorJobPayload,
-  AudioDoctorJobStatus,
   ClassifierResetResult,
   DatabaseClearResult,
   DatabaseSelection,
@@ -21,7 +17,6 @@ import type {
   RhythmLabCollectionSaveResult,
   RhythmLabLaunchResult,
   RhythmLabStatus,
-  RhythmLabStopResult,
   ScanStats,
   SearchResult,
   ServerShutdownResult,
@@ -207,44 +202,12 @@ const shellApi = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  stopRhythmLab: () =>
-    request<RhythmLabStopResult>("/api/rhythm-lab/stop", {
-      method: "POST",
-      body: JSON.stringify({})
-    }),
   shutdownServer: () =>
     request<ServerShutdownResult>("/api/server/shutdown", {
       method: "POST",
       headers: { "X-DJ-Track-Similarity-Action": "shutdown-server" },
       body: JSON.stringify({})
     })
-};
-
-const helperToolsApi = {
-  audioDedupJobStart: (payload: AudioDedupJobPayload) =>
-    request<AudioDedupJobStatus>("/api/audio-dedup/jobs", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
-  latestAudioDedupJob: () => request<AudioDedupJobStatus | null>("/api/audio-dedup/jobs/latest"),
-  audioDedupJob: (jobId: string) => request<AudioDedupJobStatus>(`/api/audio-dedup/jobs/${jobId}`),
-  cancelAudioDedupJob: (jobId: string) =>
-    request<AudioDedupJobStatus>(`/api/audio-dedup/jobs/${jobId}/cancel`, {
-      method: "POST"
-    }),
-  audioDedupXlsxUrl: (jobId: string) => `/api/audio-dedup/jobs/${encodeURIComponent(jobId)}/report/xlsx`,
-  audioDoctorJobStart: (payload: AudioDoctorJobPayload) =>
-    request<AudioDoctorJobStatus>("/api/audio-doctor/jobs", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }),
-  latestAudioDoctorJob: () => request<AudioDoctorJobStatus | null>("/api/audio-doctor/jobs/latest"),
-  audioDoctorJob: (jobId: string) => request<AudioDoctorJobStatus>(`/api/audio-doctor/jobs/${jobId}`),
-  cancelAudioDoctorJob: (jobId: string) =>
-    request<AudioDoctorJobStatus>(`/api/audio-doctor/jobs/${jobId}/cancel`, {
-      method: "POST"
-    }),
-  audioDoctorXlsxUrl: (jobId: string) => `/api/audio-doctor/jobs/${encodeURIComponent(jobId)}/report/xlsx`
 };
 
 const analysisApi = {
@@ -376,7 +339,6 @@ export const api = {
   ...databaseApi,
   ...libraryApi,
   ...shellApi,
-  ...helperToolsApi,
   ...analysisApi,
   ...searchApi,
   ...referenceCompareApi,

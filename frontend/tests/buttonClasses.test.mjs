@@ -93,15 +93,9 @@ test("button tooltip text uses compact viewport-level styling", () => {
   assert.match(rule, /overflow-wrap:\s*anywhere/);
 });
 
-test("topbar utility icon buttons use distinct intent colors", () => {
+test("server shutdown button uses the destructive intent color", () => {
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const dedupRule = styles.match(/\.audio-dedup-launch-button\s*{([\s\S]*?)}/)?.[1] || "";
   const shutdownRule = styles.match(/\.server-shutdown-button\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(dedupRule, /background:\s*var\(--blue-bg\)/);
-  assert.match(dedupRule, /border-color:\s*var\(--blue-border\)/);
-  assert.match(dedupRule, /color:\s*var\(--blue-text\)/);
-  assert.doesNotMatch(dedupRule, /warning/);
 
   assert.match(shutdownRule, /background:\s*var\(--danger-bg\)/);
   assert.match(shutdownRule, /border-color:\s*var\(--danger-border\)/);
@@ -543,7 +537,7 @@ test("documentation title click opens the docs in a separate window", () => {
   assert.match(headerLink, /onClick=\{openDocumentationWindow\}/);
 });
 
-test("topbar rhythm lab controls open and stop the lab explicitly", () => {
+test("topbar Rhythm Lab control starts or opens the lab", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
@@ -552,35 +546,28 @@ test("topbar rhythm lab controls open and stop the lab explicitly", () => {
   assert.match(apiSource, /\/api\/rhythm-lab\/status/);
   assert.match(apiSource, /launchRhythmLab:\s*\(\)\s*=>/);
   assert.match(apiSource, /\/api\/rhythm-lab\/launch/);
-  assert.match(apiSource, /stopRhythmLab:\s*\(\)\s*=>/);
-  assert.match(apiSource, /\/api\/rhythm-lab\/stop/);
   assert.match(appSource, /function openRhythmLabWindow/);
   assert.match(appSource, /api\.launchRhythmLab\(\)/);
-  assert.match(appSource, /api\.stopRhythmLab\(\)/);
   assert.match(appSource, /window\.open\("about:blank", "_blank"\)/);
   assert.match(appSource, /pendingWindow\.location\.href = result\.url/);
-  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*rhythm-lab-stop-button[\s\S]*stop-active-stage-button/);
+  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*server-shutdown-button[\s\S]*stop-active-stage-button/);
 });
 
-test("topbar keeps rhythm lab stop separate from active-stage stop", () => {
+test("topbar omits a Rhythm Lab stop control", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
 
-  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*rhythm-lab-stop-button[\s\S]*audio-doctor-launch-button/);
-  assert.match(actionsBlock, /rhythm-lab-stop-button[\s\S]*stop-active-stage-button/);
-  assert.match(appSource, /handleStopRhythmLab/);
+  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*server-shutdown-button[\s\S]*stop-active-stage-button/);
+  assert.doesNotMatch(actionsBlock, /rhythm-lab-stop-button/);
+  assert.doesNotMatch(appSource, /handleStopRhythmLab|api\.stopRhythmLab/);
 });
 
-test("audio helper latest jobs are restored only from their own dialogs", () => {
+test("audio helper tools are absent from the application client", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const loader = appSource.match(/async function loadLatestJobs[\s\S]*?function adoptClassifierProfiles/)?.[0] || "";
-  const dedupEffect = appSource.match(/if \(!audioDedupOpen\) return;[\s\S]*?api\.latestAudioDedupJob\(\)/)?.[0] || "";
-  const doctorEffect = appSource.match(/if \(!audioDoctorOpen\) return;[\s\S]*?api\.latestAudioDoctorJob\(\)/)?.[0] || "";
+  const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
 
-  assert.doesNotMatch(loader, /latestAudioDedupJob/);
-  assert.doesNotMatch(loader, /latestAudioDoctorJob/);
-  assert.match(dedupEffect, /api\.latestAudioDedupJob\(\)/);
-  assert.match(doctorEffect, /api\.latestAudioDoctorJob\(\)/);
+  assert.doesNotMatch(appSource, /Audio(Dedup|Doctor)/);
+  assert.doesNotMatch(apiSource, /audio-(dedup|doctor)/);
 });
 
 test("library controls keep pagination left and actions pinned right", () => {
@@ -600,10 +587,12 @@ test("library controls keep pagination left and actions pinned right", () => {
   assert.equal((pagination.match(/<input\b/g) || []).length, 1);
   assert.match(pagination, /library-page-number-status/);
   assert.match(pagination, /library-range-status/);
+  assert.match(pagination, /library-filtered-total-status/);
   assert.ok(prevIndex < nextIndex);
   assert.ok(nextIndex < inputIndex);
   assert.ok(inputIndex < pagination.indexOf("library-page-number-status"));
   assert.ok(pagination.indexOf("library-page-number-status") < pagination.indexOf("library-range-status"));
+  assert.ok(pagination.indexOf("library-range-status") < pagination.indexOf("library-filtered-total-status"));
   assert.ok(source.indexOf("library-pagination-controls") < source.indexOf("library-sort-direction-button"));
   assert.ok(source.indexOf("library-sort-direction-button") < source.indexOf("add-visible-tracks-button"));
 });
@@ -672,7 +661,7 @@ test("syncopated library preset uses a danger accent only when active", () => {
   assert.match(activeRule, /color:\s*var\(--danger-text\);/);
 });
 
-test("library pagination exposes page count and the current track range", () => {
+test("library pagination exposes page count, range, and current-selection total", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
   const pagination = source.match(
     /<div className="library-pagination-controls"[\s\S]*?<\/div>/
@@ -685,7 +674,9 @@ test("library pagination exposes page count and the current track range", () => 
   assert.match(pagination, /\$\{currentPage\} \/ \$\{pageCount\}/);
   assert.match(pagination, /className="library-range-status"/);
   assert.match(pagination, /\$\{rangeStart\}–\$\{rangeEnd\}/);
-  assert.doesNotMatch(pagination, /\$\{rangeEnd\} \/ \$\{total\}/);
+  assert.match(pagination, /className="library-filtered-total-status"/);
+  assert.match(pagination, /\{loading \? "\.\.\." : `\(\$\{total\}\)`\}/);
+  assert.doesNotMatch(pagination, /Всего:/);
   assert.doesNotMatch(source, /library-load-cancel-button/);
 });
 
@@ -695,7 +686,7 @@ test("library pagination controls share height and keep actions pinned right", (
   const paginationRule = styles.match(/\.library-pagination-controls\s*{([\s\S]*?)}/)?.[1] || "";
   const controlRule = styles.match(/\.library-pagination-controls \.library-page-previous-button,[\s\S]*?\.library-pagination-controls \.library-page-next-button\s*{([\s\S]*?)}/)?.[1] || "";
   const inputRule = styles.match(/\.library-page-index-input\s*{([\s\S]*?)}/)?.[1] || "";
-  const statusRule = styles.match(/\.library-page-number-status,\s*\.library-range-status\s*{([\s\S]*?)}/)?.[1] || "";
+  const statusRule = styles.match(/\.library-page-number-status,\s*\.library-range-status,\s*\.library-filtered-total-status\s*{([\s\S]*?)}/)?.[1] || "";
   const sortRule = styles.match(/\.library-sort-direction-button\s*{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(controlsRule, /gap:\s*6px/);

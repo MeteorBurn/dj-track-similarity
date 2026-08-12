@@ -33,8 +33,8 @@ def test_source_error_does_not_block_next_source() -> None:
     assert results[0].error == "temporary outage"
 
 
-def test_discogs_keeps_genres_and_styles_separate() -> None:
-    """Prevent Discogs styles from being silently merged into genre evidence."""
+def test_discogs_uses_styles_as_genre_evidence() -> None:
+    """Discogs styles are the source's useful genre granularity."""
 
     calls: list[str] = []
 
@@ -57,8 +57,8 @@ def test_discogs_keeps_genres_and_styles_separate() -> None:
 
     assert result.status == "matched"
     assert result.record is not None
-    assert result.record.genres == ("Electronic", "Dance")
-    assert result.record.styles == ("Melodic Techno",)
+    assert result.record.genres == ("Melodic Techno",)
+    assert result.record.styles == ()
     assert len(calls) == 2
 
 

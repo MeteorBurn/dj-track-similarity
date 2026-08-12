@@ -33,7 +33,7 @@ class DiscogsSource:
             album=str(release.get("title") or "") or None,
             year=release.get("year") if isinstance(release.get("year"), int) else None,
             country=str(release.get("country") or "") or None,
-            label=_first_label(release.get("labels")), genres=_strings(release.get("genres")), styles=_strings(release.get("styles")),
+            label=_first_label(release.get("labels")), genres=_strings(release.get("styles")),
             duration_seconds=_track_duration(release.get("tracklist"), track.title), record_type="release", record_id=str(release_id),
             record_url=f"https://www.discogs.com/release/{release_id}",
         )

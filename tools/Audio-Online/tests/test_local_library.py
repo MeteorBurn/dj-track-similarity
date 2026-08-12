@@ -57,3 +57,41 @@ def test_local_reader_accepts_only_the_same_windows_path_with_slash_normalizatio
 
     assert evidence.matched_path == "C:/music/one.flac"
     assert evidence.file_tags == ("House",)
+
+
+def test_local_reader_falls_back_to_one_exact_artist_and_title_match(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript("""
+            CREATE TABLE tracks (track_id INTEGER PRIMARY KEY, file_path TEXT NOT NULL UNIQUE);
+            CREATE TABLE tags (track_id INTEGER PRIMARY KEY, artist TEXT, title TEXT, genres_json TEXT NOT NULL);
+            CREATE TABLE maest_genres (track_id INTEGER PRIMARY KEY, genres_json TEXT NOT NULL);
+        """)
+        connection.execute("INSERT INTO tracks VALUES (1, ?)", ("M:/library/alex.flac",))
+        connection.execute("INSERT INTO tags VALUES (1, ?, ?, ?)", ("Alex Font & Barac", "Healing Through Music", json.dumps(["Techno"])) )
+        connection.execute("INSERT INTO maest_genres VALUES (1, ?)", (json.dumps([{"label": "Progressive House", "score": .42}]),))
+
+    evidence = read_local_evidence(db_path, TrackInput(artist="Alex Font & Barac", title="Healing Through Music"))
+
+    assert evidence.matched_path == "M:/library/alex.flac"
+    assert evidence.file_tags == ("Techno",)
+    assert evidence.maest == (("Progressive House", .42),)
+
+
+def test_local_reader_refuses_ambiguous_artist_and_title_matches(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript("""
+            CREATE TABLE tracks (track_id INTEGER PRIMARY KEY, file_path TEXT NOT NULL UNIQUE);
+            CREATE TABLE tags (track_id INTEGER PRIMARY KEY, artist TEXT, title TEXT, genres_json TEXT NOT NULL);
+            CREATE TABLE maest_genres (track_id INTEGER PRIMARY KEY, genres_json TEXT NOT NULL);
+        """)
+        for track_id, path in ((1, "M:/library/one.flac"), (2, "M:/library/two.flac")):
+            connection.execute("INSERT INTO tracks VALUES (?, ?)", (track_id, path))
+            connection.execute("INSERT INTO tags VALUES (?, ?, ?, ?)", (track_id, "Artist", "Title", json.dumps(["House"])))
+            connection.execute("INSERT INTO maest_genres VALUES (?, ?)", (track_id, json.dumps([])))
+
+    evidence = read_local_evidence(db_path, TrackInput(artist="Artist", title="Title"))
+
+    assert evidence.matched_path is None
+    assert evidence.file_tags == ()

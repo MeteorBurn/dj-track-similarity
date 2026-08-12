@@ -23,6 +23,7 @@ from dj_track_similarity.classifier_manifest import ClassifierManifestSummary
 from dj_track_similarity.classifier_scoring import ClassifierRequirements
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_ddl import ClassifierScoreRecord
+from dj_track_similarity.sonara_features import SonaraGenreBatchResult
 
 
 _NOW = "2026-07-24T11:00:00.000000Z"
@@ -317,3 +318,58 @@ def test_custom_model_path_calls_current_requirements_loader_with_database(
 
     assert calls == [(db, "test_classifier", custom_path)]
     assert manager.get(job_id).total == 0
+
+
+def test_sonara_genre_classifier_job_scores_audio_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _insert_track(db)
+    artifact_dir = tmp_path / "break-energy-sonara48d"
+    artifact_dir.mkdir()
+    model_path = artifact_dir / "model.joblib"
+    model_path.write_bytes(b"rhythm-lab-artifact")
+    (artifact_dir / "sonara-genre-model.json").write_text("{}", encoding="utf-8")
+    (artifact_dir / "model.json").write_text(
+        json.dumps(
+            {
+                "artifact_hash": _ARTIFACT_HASH,
+                "classifier_key": "break_energy_sonara48d",
+                "feature_count": 48,
+                "feature_names": [f"sonara48d:{index}" for index in range(48)],
+                "feature_set": "sonara48d",
+                "label_order": ["broken", "straight"],
+                "model_kind": "sonara_genre",
+                "negative_label": "straight",
+                "positive_label": "broken",
+                "production": {
+                    "score_semantics": "positive_label_probability",
+                    "calibration": {"status": "uncalibrated"},
+                },
+                "sonara_genre_model": "sonara-genre-model.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_analyze(candidates, **_kwargs):
+        return [
+            SonaraGenreBatchResult(candidate=candidate, label="broken", confidence=0.8)
+            for candidate in candidates
+        ]
+
+    monkeypatch.setattr(classifier_jobs_module, "analyze_sonara_genre_batch", fake_analyze)
+    manager = ClassifierJobManager(db)
+    job_id = manager.create_job(
+        classifier="break_energy_sonara48d",
+        model_path=model_path,
+    )
+    completed = manager.run_job(job_id)
+
+    assert (completed.processed, completed.analyzed, completed.failed) == (1, 1, 0)
+    assert _score_count(db, "break_energy_sonara48d") == 1
+    assert any(
+        event.message == "SONARA genre batch started: 1 tracks"
+        for event in completed.events
+    )

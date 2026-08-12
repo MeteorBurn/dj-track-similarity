@@ -1,0 +1,53 @@
+{
+  "calibration": "disabled_for_sonara_json_export",
+  "created_at": "2026-08-12T15:47:25.062095Z",
+  "cross_validation": {
+    "accuracy_mean": 0.6845000386238098,
+    "accuracy_std": 0.015524160116910934,
+    "fold_count": 5,
+    "macro_f1_mean": 0.6842037439346313,
+    "macro_f1_std": 0.015141069889068604,
+    "positive_precision_mean": 0.6790459752082825,
+    "positive_precision_std": 0.006246661301702261,
+    "positive_recall_mean": 0.6990000009536743,
+    "positive_recall_std": 0.04328971356153488
+  },
+  "embedding_version": 2,
+  "feature_count": 48,
+  "feature_set": "sonara48d",
+  "holdout": {
+    "accuracy": 0.674,
+    "broken_f1": 0.6772277227722773,
+    "roc_auc": 0.7341440000000001
+  },
+  "kind": "sonara48d-training-receipt",
+  "label_counts": {
+    "broken": 1000,
+    "straight": 1000
+  },
+  "live_sonara_smoke": {
+    "genre": "broken",
+    "genre_confidence": 0.5228764414787292,
+    "path": "M:/Volumes/Abstracted/00001-10000/(H24004) dot13 - Vai de picioare.wav"
+  },
+  "metrics_artifact": "break_energy-sonara48d-2026-08-12-15-45-39-2a32bfaa.metrics.json",
+  "metrics_artifact_sha256": "sha256:8b99d19a2792287877f83e8fa2eb979920ef7e9fe193feba23d8a74ebfa18561",
+  "parity": {
+    "embedding_rows": 2000,
+    "label_mismatches": 0,
+    "max_winner_probability_error": 3.1086244689504383e-15
+  },
+  "profile": "break_energy",
+  "random_state": 42,
+  "sonara_genre_model": "break-energy-sonara48d-c4adadd1c6c1.json",
+  "sonara_genre_model_id": "break-energy-sonara48d-c4adadd1c6c1",
+  "sonara_genre_model_sha256": "sha256:8b7610a05f5d634f87db3654f36d5a37ff78b5b1fdc6834ee4f21a4240b660ec",
+  "source_artifact": "break_energy_sonara48d.npz",
+  "source_artifact_sha256": "sha256:e788046fc2a537b444dd5d294ac27a888bafdb8b83edc4c6796c7b85c2519184",
+  "source_catalog_uuid": "7315d795-72b2-48e0-97e8-319e0f2fb8e6",
+  "source_identity_drift_rows": 2,
+  "source_receipt": "extraction-receipt.json",
+  "source_receipt_sha256": "sha256:1c9c9ebcc8e25a742f1003f3ec67375fa8f27e68419168261b76ffa874c24589",
+  "training_artifact": "break_energy-sonara48d-2026-08-12-15-45-39-2a32bfaa.joblib",
+  "training_artifact_sha256": "sha256:c4adadd1c6c1864c5a6cc4c99c4183194c283e2f28061d11095097c1faa0837f"
+}

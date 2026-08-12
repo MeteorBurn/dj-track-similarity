@@ -13,6 +13,8 @@ from .analysis_models import current_embedding_spec
 CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap", "muq")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
+MODEL_KIND_JOBLIB = "joblib"
+MODEL_KIND_SONARA_GENRE = "sonara_genre"
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _OUTPUT_KIND_BY_FEATURE_SOURCE = {
     "sonara": "core",
@@ -53,6 +55,8 @@ class ClassifierManifestSummary:
     score_semantics: str = CLASSIFIER_SCORE_SEMANTICS
     calibration_status: str = "uncalibrated"
     calibration: dict[str, Any] | None = None
+    model_kind: str = MODEL_KIND_JOBLIB
+    sonara_genre_model: str | None = None
 
     @property
     def is_scoring_compatible(self) -> bool:
@@ -113,6 +117,8 @@ class ClassifierManifestSummary:
             "calibration": dict(self.calibration or {}),
             "has_calibrated_probability": self.has_calibrated_probability,
             "required_inputs": list(self.required_inputs),
+            "model_kind": self.model_kind,
+            "sonara_genre_model": self.sonara_genre_model,
         }
 
 
@@ -252,6 +258,8 @@ def classifier_manifest_api_fields(
         "calibration": dict(summary.calibration or {}),
         "has_calibrated_probability": summary.has_calibrated_probability,
         "required_inputs": list(summary.required_inputs),
+        "model_kind": summary.model_kind,
+        "sonara_genre_model": summary.sonara_genre_model,
     }
 
 
@@ -285,6 +293,12 @@ def _parse_manifest_payload(
     publication_status = payload.get("publication_status")
     if publication_status is not None and publication_status != "ready":
         errors.append("model.json publication_status must be 'ready' before scoring")
+    model_kind = _optional_text(payload.get("model_kind")) or MODEL_KIND_JOBLIB
+    if model_kind not in {MODEL_KIND_JOBLIB, MODEL_KIND_SONARA_GENRE}:
+        errors.append(f"Unsupported model_kind: {model_kind!r}")
+    sonara_genre_model = _optional_text(payload.get("sonara_genre_model"))
+    if model_kind == MODEL_KIND_SONARA_GENRE and sonara_genre_model is None:
+        errors.append("model.json sonara_genre_model is required for sonara_genre")
     feature_set = _required_text_field(
         payload.get("feature_set"),
         "feature_set",
@@ -364,11 +378,14 @@ def _parse_manifest_payload(
             )
             calibration_payload = dict(calibration)
 
-    _feature_sources(feature_names, errors)
-    _validate_embedding_feature_indices(
-        feature_names=feature_names,
-        errors=errors,
-    )
+    if model_kind == MODEL_KIND_SONARA_GENRE:
+        _validate_sonara_native_feature_names(feature_names, errors)
+    else:
+        _feature_sources(feature_names, errors)
+        _validate_embedding_feature_indices(
+            feature_names=feature_names,
+            errors=errors,
+        )
 
     trained_label_counts = _trained_label_counts(
         payload.get("trained_label_counts"),
@@ -398,6 +415,8 @@ def _parse_manifest_payload(
         score_semantics=score_semantics,
         calibration_status=calibration_status,
         calibration=calibration_payload,
+        model_kind=model_kind,
+        sonara_genre_model=sonara_genre_model,
     )
 
 
@@ -432,7 +451,11 @@ def _validate_embedding_feature_indices(
 ) -> None:
     for feature_name in feature_names:
         source, separator, key = feature_name.partition(":")
-        if not separator or source == "sonara":
+        if (
+            not separator
+            or source == "sonara"
+            or source not in CLASSIFIER_SUPPORTED_INPUTS
+        ):
             continue
         if not key.isdigit() or str(int(key)) != key:
             errors.append(
@@ -447,6 +470,18 @@ def _validate_embedding_feature_indices(
                 f"model.json embedding feature {feature_name!r} is outside "
                 f"the current {source} dimension {dimension}"
             )
+
+
+def _validate_sonara_native_feature_names(
+    feature_names: Sequence[str],
+    errors: list[str],
+) -> None:
+    expected = tuple(f"sonara48d:{index}" for index in range(48))
+    if tuple(feature_names) != expected:
+        errors.append(
+            "sonara_genre model.json feature_names must be canonical "
+            "sonara48d:0 through sonara48d:47"
+        )
 
 
 def _invalid_manifest(

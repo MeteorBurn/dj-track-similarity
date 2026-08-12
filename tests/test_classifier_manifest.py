@@ -113,3 +113,39 @@ def test_manifest_rejects_duplicate_feature_names(tmp_path: Path) -> None:
 
     assert summary.status == "invalid"
     assert "model.json feature_names must not contain duplicates" in summary.errors
+
+
+def test_manifest_rejects_unknown_embedding_source_without_raising(
+    tmp_path: Path,
+) -> None:
+    model_path, manifest_path = _write_manifest(
+        tmp_path,
+        _manifest_payload(feature_names=["sonara48d:0"]),
+    )
+
+    summary = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key="test_classifier",
+        metadata_path=manifest_path,
+    )
+
+    assert summary.status == "invalid"
+    assert any("unsupported feature 'sonara48d:0'" in error for error in summary.errors)
+
+
+def test_manifest_accepts_sonara_native_48d_classifier(tmp_path: Path) -> None:
+    names = [f"sonara48d:{index}" for index in range(48)]
+    payload = _manifest_payload(feature_names=names)
+    payload["model_kind"] = "sonara_genre"
+    payload["sonara_genre_model"] = "sonara-genre-model.json"
+    model_path, manifest_path = _write_manifest(tmp_path, payload)
+
+    summary = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key="test_classifier",
+        metadata_path=manifest_path,
+    )
+
+    assert summary.status == "valid", summary.errors
+    assert summary.model_kind == "sonara_genre"
+    assert summary.sonara_genre_model == "sonara-genre-model.json"

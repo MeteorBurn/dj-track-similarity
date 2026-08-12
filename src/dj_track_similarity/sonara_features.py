@@ -57,6 +57,19 @@ class SonaraBatchTrackResult:
 
 
 @dataclass(frozen=True)
+class SonaraGenreBatchResult:
+    candidate: AnalysisCandidate
+    label: str | None = None
+    confidence: float | None = None
+    error: Exception | None = None
+    used_ffmpeg_fallback: bool = False
+
+    @property
+    def target(self) -> AnalysisTarget:
+        return self.candidate.target
+
+
+@dataclass(frozen=True)
 class SonaraBatchMetrics:
     track_count: int
     source_bytes: int
@@ -189,10 +202,75 @@ def analyze_and_store_sonara_batch(
     return stored
 
 
+def analyze_sonara_genre_batch(
+    candidates: Sequence[AnalysisCandidate],
+    *,
+    genre_model_path: str,
+    sonara_module: Any | None = None,
+) -> list[SonaraGenreBatchResult]:
+    """Classify one native batch through a SONARA ``genre_model`` JSON file."""
+
+    selected_candidates = tuple(candidates)
+    if not selected_candidates:
+        return []
+    if any(not isinstance(candidate, AnalysisCandidate) for candidate in selected_candidates):
+        raise TypeError("candidates must contain only AnalysisCandidate values")
+    clean_model_path = str(genre_model_path).strip()
+    if not clean_model_path:
+        raise ValueError("genre_model_path must be non-empty")
+
+    sonara = sonara_module or _import_sonara()
+    raw_results = sonara.analyze_batch(
+        [candidate.file_path for candidate in selected_candidates],
+        sr=SONARA_SAMPLE_RATE,
+        mode=SONARA_ANALYSIS_MODE,
+        bpm_min=SONARA_BPM_MIN,
+        bpm_max=SONARA_BPM_MAX,
+        features=["embedding"],
+        genre_model=clean_model_path,
+    )
+    if len(raw_results) != len(selected_candidates):
+        raise RuntimeError("SONARA genre batch result count does not match candidate count")
+
+    results: list[SonaraGenreBatchResult] = []
+    for candidate, raw_result in zip(selected_candidates, raw_results):
+        try:
+            analysis, used_ffmpeg_fallback = _analysis_mapping_with_ffmpeg_fallback(
+                sonara,
+                candidate,
+                raw_result,
+                requested_features=("embedding",),
+                genre_model=clean_model_path,
+            )
+            label = analysis.get("genre")
+            confidence = analysis.get("genre_confidence")
+            if not isinstance(label, str) or not label.strip():
+                raise ValueError("SONARA genre_model did not return a genre label")
+            if not isinstance(confidence, (float, int)):
+                raise ValueError("SONARA genre_model did not return a numeric confidence")
+            clean_confidence = float(confidence)
+            if not 0.0 <= clean_confidence <= 1.0:
+                raise ValueError("SONARA genre_model confidence must be within [0, 1]")
+            results.append(
+                SonaraGenreBatchResult(
+                    candidate=candidate,
+                    label=label.strip(),
+                    confidence=clean_confidence,
+                    used_ffmpeg_fallback=used_ffmpeg_fallback,
+                )
+            )
+        except Exception as error:
+            results.append(SonaraGenreBatchResult(candidate=candidate, error=error))
+    return results
+
+
 def _analysis_mapping_with_ffmpeg_fallback(
     sonara: Any,
     candidate: AnalysisCandidate,
     raw_result: object,
+    *,
+    requested_features: Sequence[str] | None = None,
+    genre_model: str | None = None,
 ) -> tuple[dict[str, object], bool]:
     native_error: RuntimeError
     try:
@@ -212,15 +290,20 @@ def _analysis_mapping_with_ffmpeg_fallback(
                 orig_sr=source_sample_rate,
                 target_sr=SONARA_SAMPLE_RATE,
             )
+        signal_kwargs: dict[str, object] = {
+            "sr": SONARA_SAMPLE_RATE,
+            "mode": SONARA_ANALYSIS_MODE,
+            "bpm_min": SONARA_BPM_MIN,
+            "bpm_max": SONARA_BPM_MAX,
+            "features": list(requested_features or sonara_requested_features()),
+            "vocalness_model": SONARA_VOCALNESS_MODEL_SELECTOR,
+        }
+        if genre_model is not None:
+            signal_kwargs["genre_model"] = genre_model
         analysis = _analysis_mapping(
             sonara.analyze_signal(
                 audio,
-                sr=SONARA_SAMPLE_RATE,
-                mode=SONARA_ANALYSIS_MODE,
-                bpm_min=SONARA_BPM_MIN,
-                bpm_max=SONARA_BPM_MAX,
-                features=list(sonara_requested_features()),
-                vocalness_model=SONARA_VOCALNESS_MODEL_SELECTOR,
+                **signal_kwargs,
             )
         )
     except Exception as fallback_error:

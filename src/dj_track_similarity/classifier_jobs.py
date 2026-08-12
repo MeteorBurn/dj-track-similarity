@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import threading
 import time
 import uuid
@@ -11,6 +12,7 @@ from typing import Protocol, cast
 
 from .analysis_job_state import AnalysisModelProgress
 from .analysis_models import (
+    AnalysisOutput,
     ClassifierCandidate,
     ClassifierFeatureRow,
     ClassifierScoreWrite,
@@ -21,11 +23,19 @@ from .classifier_scoring import (
     CLASSIFIER_SCORE_BATCH_SIZE,
     ClassifierRequirements,
     ClassifierScorer,
+    default_classifier_model_path,
     load_classifier_requirements,
 )
+from .classifier_manifest import (
+    MODEL_KIND_SONARA_GENRE,
+    load_classifier_manifest_summary,
+)
 from .database import LibraryDatabase
+from .db_ddl import ClassifierScoreRecord
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure, log_job_event
+from .sonara_features import analyze_sonara_genre_batch
+from .timestamps import utc_timestamp
 
 
 LOGGER = logging.getLogger(__name__)
@@ -95,6 +105,13 @@ class _ClassifierPayload:
     limit: int | None
 
 
+@dataclass(frozen=True)
+class _SonaraGenrePayload:
+    specification: ClassifierSpecification
+    genre_model_path: Path
+    limit: int | None
+
+
 class ClassifierJobManager:
     def __init__(
         self,
@@ -122,6 +139,10 @@ class ClassifierJobManager:
             raise ValueError(
                 "A scoring-compatible promoted classifier must be selected"
             )
+
+        native_payload = self._native_sonara_payload(key, model_path=model_path, limit=limit)
+        if native_payload is not None:
+            return self._create_sonara_genre_job(key, native_payload)
 
         requirement = (
             load_classifier_requirements(self.db, key, model_path=model_path)
@@ -196,12 +217,14 @@ class ClassifierJobManager:
 
     def run_job(self, job_id: str) -> ClassifierJobStatus:
         status = self.get(job_id)
-        payload = cast(_ClassifierPayload, self._store.payload(job_id))
+        payload = cast(_ClassifierPayload | _SonaraGenrePayload, self._store.payload(job_id))
         if status.cancel_requested:
             return self._finish_cancelled(job_id)
         started = time.time()
         self._update(job_id, state="running", started_at=started)
         self._append_event(job_id, "info", "CLASSIFIERS started")
+        if isinstance(payload, _SonaraGenrePayload):
+            return self._run_sonara_genre_job(job_id, payload, started=started)
 
         for key in status.classifier_keys:
             if self.get(job_id).cancel_requested:
@@ -253,6 +276,127 @@ class ClassifierJobManager:
             / max(1, final.processed),
         )
         self._append_event(job_id, "info", "CLASSIFIERS completed")
+        return self.get(job_id)
+
+    def _native_sonara_payload(
+        self,
+        classifier: str,
+        *,
+        model_path: str | Path | None,
+        limit: int | None,
+    ) -> _SonaraGenrePayload | None:
+        artifact_path = Path(model_path) if model_path is not None else default_classifier_model_path(classifier)
+        manifest = load_classifier_manifest_summary(
+            artifact_path,
+            expected_classifier_key=classifier,
+        )
+        if manifest.model_kind != MODEL_KIND_SONARA_GENRE:
+            return None
+        if not manifest.is_scoring_compatible:
+            raise ValueError("; ".join(manifest.errors) or "SONARA genre manifest is invalid")
+        if manifest.sonara_genre_model is None:
+            raise ValueError("SONARA genre manifest does not name its genre model")
+        if not manifest.label_order or manifest.positive_label is None or manifest.feature_set is None:
+            raise ValueError("SONARA genre manifest is missing classifier metadata")
+        genre_model_path = manifest.model_path.parent / manifest.sonara_genre_model
+        if not genre_model_path.is_file():
+            raise FileNotFoundError(f"SONARA genre model is missing: {genre_model_path}")
+        specification = ClassifierSpecification(
+            classifier_key=classifier,
+            feature_set=manifest.feature_set,
+            feature_names=manifest.feature_names,
+            required_outputs=(AnalysisOutput("sonara", "core"),),
+            label_order=manifest.label_order,
+            positive_label=manifest.positive_label,
+        )
+        return _SonaraGenrePayload(
+            specification=specification,
+            genre_model_path=genre_model_path,
+            limit=limit,
+        )
+
+    def _create_sonara_genre_job(
+        self,
+        classifier: str,
+        payload: _SonaraGenrePayload,
+    ) -> str:
+        total = self.db.classifier_audio_work_count(classifier, limit=payload.limit)
+        job_id = str(uuid.uuid4())
+        status = ClassifierJobStatus(
+            job_id=job_id,
+            state="queued",
+            adapter_name=classifier,
+            required_families=("sonara",),
+            classifier_keys=[classifier],
+            model_progress={classifier: AnalysisModelProgress(total=total)},
+            readiness={classifier: {"candidates": total, "ready": total, "not_ready": 0, "selected": total}},
+            total=total,
+            batch_size=8,
+        )
+        self._store.add(job_id, status, payload=payload)
+        self._append_event(job_id, "info", f"SONARA genre classifier queued · {classifier}")
+        return job_id
+
+    def _run_sonara_genre_job(
+        self,
+        job_id: str,
+        payload: _SonaraGenrePayload,
+        *,
+        started: float,
+    ) -> ClassifierJobStatus:
+        classifier = payload.specification.classifier_key
+        self._update(job_id, current_model=classifier, model_name=str(payload.genre_model_path))
+        after_track_id = 0
+        remaining = payload.limit
+        while remaining is None or remaining > 0:
+            if self.get(job_id).cancel_requested:
+                return self._finish_cancelled(job_id)
+            batch_limit = 8 if remaining is None else min(8, remaining)
+            candidates = self.db.load_classifier_audio_work_batch(
+                classifier,
+                after_track_id=after_track_id,
+                limit=batch_limit,
+            )
+            if not candidates:
+                break
+            after_track_id = candidates[-1].target.track_id
+            self._update(job_id, current_path=candidates[0].file_path)
+            self._append_event(
+                job_id,
+                "info",
+                f"SONARA genre batch started: {len(candidates)} tracks",
+                path=candidates[0].file_path,
+                track_id=candidates[0].target.track_id,
+                model=classifier,
+            )
+            results = analyze_sonara_genre_batch(
+                candidates,
+                genre_model_path=str(payload.genre_model_path),
+            )
+            writes: list[tuple[ClassifierCandidate, ClassifierScoreWrite]] = []
+            for result in results:
+                self._update(job_id, current_path=result.candidate.file_path)
+                if result.error is not None:
+                    self._save_failure(job_id, classifier, result.candidate, result.error)
+                    continue
+                try:
+                    writes.append((result.candidate, _sonara_genre_score_write(payload.specification, result.candidate, str(result.label), float(result.confidence))))
+                except Exception as error:
+                    self._save_failure(job_id, classifier, result.candidate, error)
+            if writes:
+                saved = self.db.save_classifier_scores(tuple(write for _candidate, write in writes))
+                for (candidate, _write), result in zip(writes, saved, strict=True):
+                    if result.ok:
+                        self._update_progress(job_id, classifier, analyzed=1)
+                    else:
+                        self._save_failure(job_id, classifier, candidate, RuntimeError(result.error or "classifier score write failed"))
+            self._append_event(job_id, "info", f"SONARA genre batch: {len(candidates)} tracks scored", model=classifier)
+            if remaining is not None:
+                remaining -= len(candidates)
+        finished = time.time()
+        final = self.get(job_id)
+        self._update(job_id, state="completed", finished_at=finished, current_path=None, current_model=None, avg_seconds_per_track=(finished - (final.started_at or started)) / max(1, final.processed))
+        self._append_event(job_id, "info", "SONARA genre classifier completed")
         return self.get(job_id)
 
     def _score_batch(
@@ -470,3 +614,42 @@ class ClassifierJobManager:
             workers=status.workers,
             batch_size=status.batch_size,
         )
+
+
+def _sonara_genre_score_write(
+    specification: ClassifierSpecification,
+    candidate: ClassifierCandidate,
+    label: str,
+    confidence: float,
+) -> ClassifierScoreWrite:
+    if len(specification.label_order) != 2:
+        raise ValueError("SONARA genre classifiers must declare exactly two labels")
+    if label not in specification.label_order:
+        raise ValueError(f"SONARA genre_model returned unknown label: {label!r}")
+    if not 0.0 <= confidence <= 1.0:
+        raise ValueError("SONARA genre_model confidence must be within [0, 1]")
+    probabilities = {
+        item: confidence if item == label else 1.0 - confidence
+        for item in specification.label_order
+    }
+    score = float(probabilities[specification.positive_label])
+    bucket = "high" if score >= 0.7 else "medium" if score >= 0.3 else "low"
+    score_record = ClassifierScoreRecord(
+        track_id=candidate.target.track_id,
+        track_uuid=candidate.target.track_uuid,
+        classifier_key=specification.classifier_key,
+        feature_set=specification.feature_set,
+        feature_names_json=json.dumps(list(specification.feature_names), separators=(",", ":"), ensure_ascii=False),
+        positive_label=specification.positive_label,
+        predicted_class=label,
+        score_bucket=bucket,
+        score=score,
+        confidence=confidence,
+        probabilities_json=json.dumps(probabilities, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+        analyzed_at=utc_timestamp(),
+    )
+    return ClassifierScoreWrite(
+        target=candidate.target,
+        specification=specification,
+        score=score_record,
+    )

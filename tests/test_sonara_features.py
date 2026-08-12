@@ -21,6 +21,7 @@ from dj_track_similarity.sonara_runtime import (
 )
 from dj_track_similarity.sonara_features import (
     SonaraBatchMetrics,
+    analyze_sonara_genre_batch,
     analysis_outputs_for_sonara_runtime,
     analyze_and_store_sonara_batch,
 )
@@ -64,6 +65,16 @@ class BoundarySonara(FakeSonara):
             np.float32(1.001),
             np.float32(np.inf),
         )
+        return results
+
+
+class GenreSonara(FakeSonara):
+    @classmethod
+    def analyze_batch(cls, paths, **kwargs):
+        results = super().analyze_batch(paths, **kwargs)
+        for result in results:
+            result["genre"] = "broken"
+            result["genre_confidence"] = 0.75
         return results
 
 
@@ -235,6 +246,26 @@ def test_default_batch_requests_registers_and_writes_core_only() -> None:
     assert measurement.analyze_seconds >= 0
     assert measurement.prepare_seconds >= 0
     assert measurement.store_seconds >= 0
+
+
+def test_sonara_genre_batch_requests_native_embedding_and_returns_scores() -> None:
+    GenreSonara.calls.clear()
+    candidates = (_candidate(1), _candidate(2))
+
+    results = analyze_sonara_genre_batch(
+        candidates,
+        genre_model_path="C:/models/break-energy.json",
+        sonara_module=GenreSonara,
+    )
+
+    assert [result.target.track_id for result in results] == [1, 2]
+    assert [(result.label, result.confidence) for result in results] == [
+        ("broken", 0.75),
+        ("broken", 0.75),
+    ]
+    call = GenreSonara.calls[-1]
+    assert tuple(call["features"]) == ("embedding",)
+    assert call["genre_model"] == "C:/models/break-energy.json"
 
 
 def test_batch_clamps_float32_boundary_and_isolates_outside_epsilon_error() -> None:

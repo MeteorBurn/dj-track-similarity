@@ -1,0 +1,44 @@
+{
+  "analysis_mode": "playlist",
+  "artifact": "break_energy_sonara48d.npz",
+  "artifact_sha256": "e788046fc2a537b444dd5d294ac27a888bafdb8b83edc4c6796c7b85c2519184",
+  "batch_size": 32,
+  "bpm_max": 180,
+  "bpm_min": 70,
+  "catalog_uuid": "7315d795-72b2-48e0-97e8-319e0f2fb8e6",
+  "created_at": "2026-08-12T15:38:27.461917Z",
+  "elapsed_seconds": 5555.763,
+  "embedding_dimension": 48,
+  "embedding_version": 2,
+  "ffmpeg_fallback_successes": 0,
+  "identity_drift": [
+    {
+      "current_modified_ns": 1786064143005325400,
+      "current_size": 92538180,
+      "label_modified_ns": 1782978598283853400,
+      "label_size": 92539626,
+      "path": "M:/Volumes/Abstracted/30001-40000/CD011 Sergiu - About Hawaians (Original mix).wav",
+      "track_id": 35440
+    },
+    {
+      "current_modified_ns": 1786064143590167900,
+      "current_size": 18875748,
+      "label_modified_ns": 1782973186076478000,
+      "label_size": 18877214,
+      "path": "M:/Volumes/Abstracted/30001-40000/CD06_Sergiu_&_Creanga_Grand_Senorra_Dessert_Original_mix.wav",
+      "track_id": 35442
+    }
+  ],
+  "identity_drift_rows": 2,
+  "input_rows": 2000,
+  "input_sha256": "91c3bfa1dfeebf80c29cfef4a57fb727a0449d9f834068449f6f8d86c9146898",
+  "kind": "sonara48d-extraction-receipt",
+  "label_counts": {
+    "broken": 1000,
+    "straight": 1000
+  },
+  "native_successes": 2000,
+  "profile": "break_energy",
+  "sample_rate": 22050,
+  "sonara_version": "0.3.5+sym06fallback.1"
+}

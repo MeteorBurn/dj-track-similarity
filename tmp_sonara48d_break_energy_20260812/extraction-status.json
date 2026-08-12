@@ -1,0 +1,14 @@
+{
+  "batch_size": 32,
+  "completed_batches": 63,
+  "completed_tracks": 2000,
+  "elapsed_seconds": 5555.556,
+  "ffmpeg_fallback_successes": 0,
+  "input_sha256": "91c3bfa1dfeebf80c29cfef4a57fb727a0449d9f834068449f6f8d86c9146898",
+  "input_tracks": 2000,
+  "kind": "sonara48d-extraction-status",
+  "native_successes": 2000,
+  "profile": "break_energy",
+  "total_batches": 63,
+  "updated_at": "2026-08-12T15:38:27.256532Z"
+}

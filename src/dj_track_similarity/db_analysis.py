@@ -980,6 +980,95 @@ class AnalysisRepository:
                 )
         return count if limit is None else min(count, limit)
 
+    def classifier_audio_work_count(
+        self,
+        classifier_key: str,
+        *,
+        limit: int | None = None,
+    ) -> int:
+        """Count current audio files not yet scored by a native classifier."""
+
+        clean_key = str(classifier_key).strip()
+        if not clean_key:
+            raise ValueError("classifier_key must be non-empty")
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+                raise ValueError("limit must be a non-negative integer or None")
+            if limit == 0:
+                return 0
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM tracks
+                        LEFT JOIN classifier_scores AS scored
+                          ON scored.track_id = tracks.track_id
+                         AND scored.classifier_key = ?
+                        WHERE tracks.missing_since IS NULL
+                          AND scored.track_id IS NULL
+                        """,
+                        (clean_key,),
+                    ).fetchone()[0]
+                )
+        return count if limit is None else min(count, limit)
+
+    def load_classifier_audio_work_batch(
+        self,
+        classifier_key: str,
+        *,
+        after_track_id: int,
+        limit: int,
+    ) -> tuple[ClassifierCandidate, ...]:
+        """Load current unscored audio files for a native audio classifier."""
+
+        clean_key = str(classifier_key).strip()
+        if not clean_key:
+            raise ValueError("classifier_key must be non-empty")
+        if isinstance(after_track_id, bool) or not isinstance(after_track_id, int) or after_track_id < 0:
+            raise ValueError("after_track_id must be a non-negative integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise ValueError("limit must be a non-negative integer")
+        if limit == 0:
+            return ()
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                catalog_uuid = _catalog_uuid(connection)
+                rows = connection.execute(
+                    """
+                    SELECT
+                        tracks.track_id,
+                        tracks.track_uuid,
+                        tracks.file_path,
+                        tracks.file_size_bytes,
+                        tracks.file_modified_ns
+                    FROM tracks
+                    LEFT JOIN classifier_scores AS scored
+                      ON scored.track_id = tracks.track_id
+                     AND scored.classifier_key = ?
+                    WHERE tracks.missing_since IS NULL
+                      AND tracks.track_id > ?
+                      AND scored.track_id IS NULL
+                    ORDER BY tracks.track_id
+                    LIMIT ?
+                    """,
+                    (clean_key, after_track_id, limit),
+                ).fetchall()
+        return tuple(
+            ClassifierCandidate(
+                target=AnalysisTarget(
+                    catalog_uuid=catalog_uuid,
+                    track_id=int(row["track_id"]),
+                    track_uuid=str(row["track_uuid"]),
+                ),
+                file_path=str(row["file_path"]),
+                file_size_bytes=int(row["file_size_bytes"]),
+                file_modified_ns=int(row["file_modified_ns"]),
+            )
+            for row in rows
+        )
+
     def load_classifier_work_batch(
         self,
         specification: ClassifierSpecification,

@@ -481,12 +481,9 @@ function readableClassifierScores(track: TrackDetail) {
   return track.classifier_scores_detail.map((score) => ({
     key: score.classifier_key,
     label: readableClassifierName(score.classifier_key),
-    featureNames: score.feature_names,
     value: [
       `${score.predicted_class} (${score.score_bucket})`,
       `score ${formatScore(score.score)}`,
-      `confidence ${formatScore(score.confidence)}`,
-      score.feature_set,
     ].join(" · "),
   }));
 }

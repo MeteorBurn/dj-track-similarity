@@ -1,5 +1,5 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus } from "./api";
+import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -58,8 +58,6 @@ export function LibraryPanel({
   onAnalysisInferenceBatchSizeChange,
   sonaraBatchSize,
   onSonaraBatchSizeChange,
-  analysisJob,
-  pipelineJob,
   helpText,
   onChooseFolder,
   onScan,
@@ -99,8 +97,6 @@ export function LibraryPanel({
   onAnalysisInferenceBatchSizeChange: (value: number) => void;
   sonaraBatchSize: number;
   onSonaraBatchSizeChange: (value: number) => void;
-  analysisJob: AnalysisJobStatus | null;
-  pipelineJob: AnalysisPipelineStatus | null;
   helpText: LibraryHelpText;
   onChooseFolder: () => void;
   onScan: () => void;
@@ -114,9 +110,6 @@ export function LibraryPanel({
   onResetAnalysis: (adapter: AnalysisModel) => void;
 }) {
   const analysisDisabled = busy || stageRunning || !hasTracks;
-  const pipelineOwnsAnalysisJob = analysisJob != null
-    && pipelineJob != null
-    && Object.values(pipelineJob.stages).some((stage) => stage.child_job_id === analysisJob.job_id);
 
   const modelRow = (model: AnalysisModel) => (
     <div className="analysis-model-row" key={model}>
@@ -221,8 +214,6 @@ export function LibraryPanel({
         </div>
         <small>0 = все треки; ограничивает Scan и каждую стадию анализа</small>
       </div>
-      {analysisJob && !pipelineOwnsAnalysisJob ? <small className="analysis-muted">Job {analysisJob.state} · {analysisJob.processed}/{analysisJob.total} · {analysisJob.current_model || analysisJob.models?.join(", ")}</small> : null}
-      {pipelineJob ? <small className="analysis-muted">Pipeline {pipelineJob.state} · {pipelineJob.order.map((stage) => `${stage}:${pipelineJob.stages[stage]?.state}`).join(" → ")}</small> : null}
       <button
         className="analyze-selected-button analysis-pipeline-button"
         title="Запустить отмеченные модели в порядке SONARA → ML"

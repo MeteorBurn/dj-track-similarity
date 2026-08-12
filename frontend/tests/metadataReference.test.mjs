@@ -288,15 +288,13 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
   assert.match(model.embeddings[0].value, /1024D/);
   assert.ok(model.embeddings[0].value.includes(expectedLocalTimestamp("2026-07-24T10:03:00Z")));
   assert.doesNotMatch(model.embeddings[0].value, /legacy-embedding-version/);
-  assert.match(model.classifierScores[0].value, /muq/);
-  assert.doesNotMatch(model.classifierScores[0].value, /2026/);
+  assert.equal(
+    model.classifierScores[0].value,
+    "present (high) · score 0.700000",
+  );
   assert.deepEqual(Array.from(model.classifierAnalysisEntries, ([label, value]) => [label, value]), [
     ["Voice Presence", expectedLocalTimestamp("2026-07-24T10:04:00Z")],
   ]);
-  assert.deepEqual(
-    model.classifierScores[0].featureNames,
-    ["muq:embedding_0", "sonara:energy_score", "muq:embedding_1"]
-  );
 
   assert.equal(new Map(model.audioEntries).get("Audio Format"), "audio/flac");
 });

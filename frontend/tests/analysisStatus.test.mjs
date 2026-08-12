@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
-test("pipeline child analysis status is not rendered as a duplicate standalone job", async () => {
+test("pipeline status is not rendered above the analysis action", async () => {
   const server = await createServer({
     server: { middlewareMode: true },
     appType: "custom",
@@ -81,9 +81,9 @@ test("pipeline child analysis status is not rendered as a duplicate standalone j
       onResetAnalysis: noop,
     }));
 
-    assert.equal((markup.match(/class="analysis-muted"/g) || []).length, 1);
+    assert.equal((markup.match(/class="analysis-muted"/g) || []).length, 0);
     assert.doesNotMatch(markup, />Job running · 4\/10/);
-    assert.match(markup, />Pipeline running · sonara:running → ml:queued/);
+    assert.doesNotMatch(markup, />Pipeline running · sonara:running → ml:queued/);
   } finally {
     await server.close();
   }

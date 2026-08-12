@@ -1355,8 +1355,6 @@ export function App() {
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
           sonaraBatchSize={sonaraBatchSize}
           onSonaraBatchSizeChange={setSonaraBatchSize}
-          analysisJob={analysisJob}
-          pipelineJob={analysisPipelineJob}
           helpText={helpText}
           onChooseFolder={() => void handleChooseFolder()}
           onScan={() => void handleScan()}

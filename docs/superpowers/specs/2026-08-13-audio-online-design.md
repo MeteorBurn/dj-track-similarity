@@ -25,6 +25,10 @@ Inputs are normalized into records with available `Title`, `Artist`, `Album`,
 embedded metadata. Tabular inputs use recognized column names and retain blank
 values when an input does not supply a field.
 
+`Track Name` is a display field derived as `Artist — Title`. It is shown from
+the local input and independently from every matched source record; it is not a
+new tag written to the database or audio file.
+
 `--db <path>` is optional and read-only. When supplied, the tool associates
 local values only by the exact input file path. It reads file-tag genres from
 `tags.genres_json` and MAEST predictions from `maest_genres.genres_json`.
@@ -76,16 +80,17 @@ The first column is `Field`. The remaining columns are, in order:
 
 The primary rows, in order, are:
 
-1. `Title`
-2. `Artist`
-3. `Album`
-4. `Year`
-5. `Country`
-6. `Label`
-7. `Genre`
-8. `Style`
-9. `Tags`
-10. `Duration`
+1. `Track Name`
+2. `Title`
+3. `Artist`
+4. `Album`
+5. `Year`
+6. `Country`
+7. `Label`
+8. `Genre`
+9. `Style`
+10. `Tags`
+11. `Duration`
 
 All multi-value fields are rendered in one cell, joined with `; `.
 `Genre` in the MAEST column contains exactly the best three stored predictions,

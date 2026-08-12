@@ -242,10 +242,9 @@ def test_relocate_library_cli_applies_typed_current_path_update(
     assert "tracks_updated=1" in result.output
     state = database.get_track_file_state(new_file)
     assert state is not None
-    assert (state.track_id, state.track_uuid, state.content_generation) == (
+    assert (state.track_id, state.track_uuid) == (
         identity.track_id,
         identity.track_uuid,
-        identity.content_generation,
     )
 
 

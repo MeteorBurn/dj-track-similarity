@@ -184,8 +184,6 @@ def _persisted_snapshot_matches(
         == _positive_int_or_none(persisted.get("track_id"))
         and _required_text_or_none(expected.get("track_uuid"))
         == _required_text_or_none(persisted.get("track_uuid"))
-        and _positive_int_or_none(expected.get("content_generation"))
-        == _positive_int_or_none(persisted.get("content_generation"))
     )
 
 
@@ -194,13 +192,9 @@ def _snapshot_matches(
     identities: Mapping[int, TrackIdentity],
 ) -> bool:
     track_id = _positive_int_or_none(snapshot.get("track_id"))
-    content_generation = _positive_int_or_none(
-        snapshot.get("content_generation")
-    )
     track_uuid = _required_text_or_none(snapshot.get("track_uuid"))
     if (
         track_id is None
-        or content_generation is None
         or track_uuid is None
     ):
         return False
@@ -208,7 +202,6 @@ def _snapshot_matches(
     return (
         identity is not None
         and identity.track_uuid == track_uuid
-        and identity.content_generation == content_generation
     )
 
 

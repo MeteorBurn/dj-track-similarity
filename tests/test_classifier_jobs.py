@@ -40,8 +40,8 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
             """
             INSERT INTO tracks (
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
-                content_generation, last_scanned_at, created_at, updated_at
-            ) VALUES (?, ?, 1024, 123456789, 1, ?, ?, ?)
+                last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, 123456789, ?, ?, ?)
             """,
             (
                 track_uuid,
@@ -55,10 +55,9 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
         connection.execute(
             """
             INSERT INTO sonara_features(
-                track_id, content_generation,
-                mfcc_mean_blob, chroma_mean_blob,
+                track_id, mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, 1, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             (
                 track_id,
@@ -72,7 +71,6 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
         catalog_uuid=db.catalog_uuid,
         track_id=track_id,
         track_uuid=track_uuid,
-        content_generation=1,
     )
 
 
@@ -108,8 +106,8 @@ def _insert_present_classifier_inputs(db: LibraryDatabase, count: int) -> None:
                 """
                 INSERT INTO tracks (
                     track_uuid, file_path, file_size_bytes, file_modified_ns,
-                    content_generation, last_scanned_at, created_at, updated_at
-                ) VALUES (?, ?, 1024, 123456789, 1, ?, ?, ?)
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, 1024, 123456789, ?, ?, ?)
                 """,
                 (
                     track_uuid,
@@ -123,10 +121,9 @@ def _insert_present_classifier_inputs(db: LibraryDatabase, count: int) -> None:
             connection.execute(
                 """
                 INSERT INTO sonara_features(
-                    track_id, content_generation,
-                    mfcc_mean_blob, chroma_mean_blob,
+                    track_id, mfcc_mean_blob, chroma_mean_blob,
                     spectral_contrast_mean_blob, analyzed_at
-                ) VALUES (?, 1, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     track_id,
@@ -144,9 +141,8 @@ def _insert_present_classifier_inputs(db: LibraryDatabase, count: int) -> None:
             connection.execute(
                 """
                 INSERT INTO mert_embeddings(
-                    track_id, track_uuid, content_generation,
-                    dim, normalization, embedding_blob, analyzed_at
-                ) VALUES (?, ?, 1, ?, 'l2', ?, ?)
+                    track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at
+                ) VALUES (?, ?, ?, 'l2', ?, ?)
                 """,
                 (
                     track_id,
@@ -212,7 +208,6 @@ class _FakeScorer:
                 track_id=row.target.track_id,
                 track_uuid=row.target.track_uuid,
                 classifier_key=self.specification.classifier_key,
-                content_generation=row.target.content_generation,
                 feature_set=self.specification.feature_set,
                 feature_names_json=json.dumps(list(self.specification.feature_names)),
                 positive_label="positive",

@@ -17,7 +17,7 @@ from dj_track_similarity.rhythm_lab_collections import (
 
 def _selection(
     catalog_uuid: str,
-    *tracks: tuple[str, int, str],
+    *tracks: tuple[str, str],
 ) -> RhythmLabCollectionSelection:
     return RhythmLabCollectionSelection(
         catalog_uuid=catalog_uuid,
@@ -25,10 +25,9 @@ def _selection(
             RhythmLabTrackSelection(
                 catalog_uuid=catalog_uuid,
                 track_uuid=track_uuid,
-                content_generation=generation,
                 selected_path=selected_path,
             )
-            for track_uuid, generation, selected_path in tracks
+            for track_uuid, selected_path in tracks
         ),
     )
 
@@ -98,7 +97,6 @@ def test_collection_repository_rejects_partial_current_labels_before_ddl(
                 classifier_key TEXT NOT NULL,
                 catalog_uuid TEXT NOT NULL,
                 track_uuid TEXT NOT NULL,
-                content_generation INTEGER NOT NULL,
                 selected_path TEXT NOT NULL,
                 label TEXT NOT NULL
             )
@@ -213,8 +211,8 @@ def test_collection_append_never_rebinds_and_replace_is_explicit(
     collections = RhythmLabCollections(labels_path)
     first = _selection(
         "catalog-a",
-        ("uuid-a", 1, "C:/Music/A.wav"),
-        ("uuid-b", 2, "C:/Music/B.wav"),
+        ("uuid-a", "C:/Music/A.wav"),
+        ("uuid-b", "C:/Music/B.wav"),
     )
 
     saved = collections.save_collection(
@@ -228,37 +226,35 @@ def test_collection_append_never_rebinds_and_replace_is_explicit(
 
     append = _selection(
         "catalog-a",
-        ("uuid-a", 3, "D:/Relocated/A.wav"),
-        ("uuid-c", 1, "C:/Music/C.wav"),
+        ("uuid-a", "D:/Relocated/A.wav"),
+        ("uuid-c", "C:/Music/C.wav"),
     )
     appended = collections.append_tracks(saved.id, append)
     assert [
         (
             track.track_uuid,
-            track.content_generation,
             track.selected_path,
             track.position,
         )
         for track in appended.tracks
     ] == [
-        ("uuid-a", 1, "C:/Music/A.wav", 1),
-        ("uuid-b", 2, "C:/Music/B.wav", 2),
-        ("uuid-c", 1, "C:/Music/C.wav", 3),
+        ("uuid-a", "C:/Music/A.wav", 1),
+        ("uuid-b", "C:/Music/B.wav", 2),
+        ("uuid-c", "C:/Music/C.wav", 3),
     ]
 
     replacement = _selection(
         "catalog-a",
-        ("uuid-a", 3, "D:/Relocated/A.wav"),
+        ("uuid-a", "D:/Relocated/A.wav"),
     )
     replaced = collections.replace_tracks(saved.id, replacement)
     assert [
         (
             track.track_uuid,
-            track.content_generation,
             track.selected_path,
         )
         for track in replaced.tracks
-    ] == [("uuid-a", 3, "D:/Relocated/A.wav")]
+    ] == [("uuid-a", "D:/Relocated/A.wav")]
 
     with sqlite3.connect(labels_path) as connection:
         columns = {
@@ -271,7 +267,6 @@ def test_collection_append_never_rebinds_and_replace_is_explicit(
     assert {
         "catalog_uuid",
         "track_uuid",
-        "content_generation",
         "selected_path",
     } <= columns
 
@@ -284,7 +279,7 @@ def test_collection_catalog_mismatch_is_fail_closed(
         "Bound set",
         _selection(
             "catalog-a",
-            ("uuid-a", 1, "C:/Music/A.wav"),
+            ("uuid-a", "C:/Music/A.wav"),
         ),
         mode="replace",
     )
@@ -294,7 +289,7 @@ def test_collection_catalog_mismatch_is_fail_closed(
             "Bound set",
             _selection(
                 "catalog-b",
-                ("uuid-b", 1, "C:/Music/B.wav"),
+                ("uuid-b", "C:/Music/B.wav"),
             ),
             mode="append",
         )

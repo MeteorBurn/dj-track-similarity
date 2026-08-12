@@ -130,7 +130,6 @@ def register_library_routes(
                     catalog_uuid=request.catalog_uuid,
                     track_id=track_id,
                     track_uuid=request.track_uuid,
-                    content_generation=request.expected_content_generation,
                 ),
                 liked=request.liked,
                 classifier_specifications=classifier_specifications,

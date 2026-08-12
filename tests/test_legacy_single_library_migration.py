@@ -64,8 +64,8 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
             """
             INSERT INTO tracks(
                 track_id, track_uuid, file_path, file_size_bytes, file_modified_ns,
-                content_generation, last_scanned_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 7,
@@ -73,7 +73,6 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
                 "D:/Music/House/track-7.flac",
                 123,
                 456,
-                2,
                 _TIMESTAMP,
                 _TIMESTAMP,
                 _TIMESTAMP,
@@ -89,33 +88,32 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
         connection.execute(
             """
             INSERT INTO sonara(
-                track_id, content_generation, mfcc_mean_blob, chroma_mean_blob,
+                track_id, mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            (7, 2, bytes(13 * 4), bytes(12 * 4), bytes(7 * 4), _TIMESTAMP),
+            (7, bytes(13 * 4), bytes(12 * 4), bytes(7 * 4), _TIMESTAMP),
         )
         connection.execute(
             """
             INSERT INTO maest_genres(
-                track_id, content_generation, syncopated_rhythm, genres_json, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?)
+                track_id, syncopated_rhythm, genres_json, analyzed_at
+            ) VALUES (?, ?, ?, ?)
             """,
-            (7, 2, 1, '[{"genre_name":"electronic"}]', _TIMESTAMP),
+            (7, 1, '[{"genre_name":"electronic"}]', _TIMESTAMP),
         )
         connection.execute(
             """
             INSERT INTO classifier_scores(
-                track_id, track_uuid, classifier_key, content_generation, feature_set,
+                track_id, track_uuid, classifier_key, feature_set,
                 feature_names_json, positive_label, predicted_class, score_bucket,
                 score, confidence, probabilities_json, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 7,
                 "track-7",
                 "voice_presence",
-                2,
                 "sonara",
                 '["energy"]',
                 "voice",
@@ -191,7 +189,6 @@ def _create_legacy_artifacts(path: Path, *, catalog_uuid: str) -> None:
                 CREATE TABLE {table} (
                     track_id INTEGER PRIMARY KEY,
                     track_uuid TEXT NOT NULL,
-                    content_generation INTEGER NOT NULL,
                     dim INTEGER NOT NULL,
                     normalization TEXT NOT NULL,
                     embedding_blob BLOB NOT NULL,
@@ -202,11 +199,10 @@ def _create_legacy_artifacts(path: Path, *, catalog_uuid: str) -> None:
             connection.execute(
                 f"""
                 INSERT INTO {table}(
-                    track_id, track_uuid, content_generation, dim, normalization,
-                    embedding_blob, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (7, "track-7", 2, 1, "none", b"\x00\x00\x80?", _TIMESTAMP),
+                (7, "track-7", 1, "none", b"\x00\x00\x80?", _TIMESTAMP),
             )
 
 

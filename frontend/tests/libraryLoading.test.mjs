@@ -26,12 +26,11 @@ async function loadLibraryLoadingModule() {
   return import(pathToFileURL(modulePath).href);
 }
 
-function track(trackId, generation = 1, catalogUuid = "catalog-a") {
+function track(trackId, catalogUuid = "catalog-a") {
   return {
     track_id: trackId,
     catalog_uuid: catalogUuid,
     track_uuid: `track-${trackId}`,
-    content_generation: generation,
     file_path: `D:/Music/${trackId}.wav`,
     title: `Track ${trackId}`,
     artist: null,
@@ -61,28 +60,26 @@ test("library uses one fixed 200-track page per API request", async () => {
   assert.doesNotMatch(libraryStateSource, /LibraryLoadSize|libraryChunkPlan|loadSize/);
 });
 
-test("chunk aggregation is catalog-aware and replaces only same-identity newer generations", async () => {
+test("chunk aggregation is catalog-aware and replaces a repeated identity", async () => {
   const { libraryTracksBelongToCatalog, mergeLibraryTracks } = await loadLibraryLoadingModule();
-  const oldTrack = track(1, 1);
+  const oldTrack = track(1);
   const unrelatedCatalogTrack = {
-    ...track(1, 1, "catalog-b"),
+    ...track(1, "catalog-b"),
     track_uuid: oldTrack.track_uuid
   };
-  const current = [oldTrack, track(2, 3)];
+  const current = [oldTrack, track(2)];
   const incoming = [
-    { ...track(1, 2), liked: true },
-    track(2, 2),
+    { ...track(1), liked: true },
+    track(2),
     unrelatedCatalogTrack,
-    track(3, 1),
-    track(3, 1)
+    track(3),
+    track(3)
   ];
 
   const merged = mergeLibraryTracks(current, incoming);
 
   assert.equal(merged.length, 4);
-  assert.equal(merged[0].content_generation, 2);
   assert.equal(merged[0].liked, true);
-  assert.equal(merged[1].content_generation, 3);
   assert.equal(merged[2].catalog_uuid, "catalog-b");
   assert.equal(merged[3].track_id, 3);
   assert.equal(libraryTracksBelongToCatalog(merged, "catalog-a"), false);

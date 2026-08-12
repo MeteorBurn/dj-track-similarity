@@ -188,12 +188,11 @@ class SourceSonaraFeatures:
 
 @dataclass(frozen=True)
 class SourceTrack:
-    """One current Core track and its exact catalog/content identity."""
+    """One current Core track and its stable catalog identity."""
 
     catalog_uuid: str
     track_id: int
     track_uuid: str
-    content_generation: int
     file_path: str
     file_size_bytes: int
     file_modified_ns: int
@@ -211,13 +210,12 @@ class SourceTrack:
 class TrackIdentityLike(Protocol):
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     file_path: str
 
 
 @dataclass(frozen=True)
 class SourceEmbeddingMatrix:
-    """One ordered, structurally valid current-generation embedding matrix."""
+    """One ordered, structurally valid embedding matrix."""
 
     family: EmbeddingFamily
     dimension: int
@@ -285,7 +283,7 @@ class SourceDatabase:
             raise
 
     def feature_states(self) -> Mapping[str, SourceFeatureState]:
-        """Return current-generation availability for all feature sources."""
+        """Return availability for all feature sources."""
 
         _, states = self.feature_inventory()
         return states
@@ -343,7 +341,7 @@ class SourceDatabase:
             return _count_sonara_features(connection)
 
     def feature_counts(self) -> Mapping[str, int]:
-        """Count structurally valid current-generation feature rows."""
+        """Count structurally valid feature rows."""
 
         counts, _ = self.feature_inventory()
         return counts
@@ -396,7 +394,6 @@ class SourceDatabase:
                 (
                     str(identity.catalog_uuid),
                     str(identity.track_uuid),
-                    int(identity.content_generation),
                     str(identity.file_path),
                 )
                 for identity in identities
@@ -407,14 +404,14 @@ class SourceDatabase:
             return []
         requested_set = set(requested)
         requested_uuids = list(dict.fromkeys(key[1] for key in requested))
-        track_ids_by_identity: dict[tuple[str, str, int, str], int] = {}
+        track_ids_by_identity: dict[tuple[str, str, str], int] = {}
         with closing(self.connect()) as connection:
             for start in range(0, len(requested_uuids), _READ_CHUNK_SIZE):
                 chunk = requested_uuids[start : start + _READ_CHUNK_SIZE]
                 placeholders = ", ".join("?" for _ in chunk)
                 rows = connection.execute(
                     f"""
-                    SELECT track_id, track_uuid, content_generation, file_path
+                    SELECT track_id, track_uuid, file_path
                     FROM tracks
                     WHERE missing_since IS NULL
                       AND track_uuid IN ({placeholders})
@@ -425,7 +422,6 @@ class SourceDatabase:
                     key = (
                         self.catalog_uuid,
                         str(row["track_uuid"]),
-                        int(row["content_generation"]),
                         str(row["file_path"]),
                     )
                     if key in requested_set:
@@ -518,14 +514,12 @@ class SourceDatabase:
         *,
         track_id: int,
         track_uuid: str,
-        content_generation: int,
         liked: bool,
     ) -> SourceTrack:
         """Apply the sole narrow Core write after checking exact current identity."""
 
         clean_track_id = _positive_track_id(track_id)
         clean_uuid = _non_empty_text(track_uuid, "track_uuid")
-        clean_generation = _positive_generation(content_generation)
         if not isinstance(liked, bool):
             raise TypeError("liked must be a bool")
 
@@ -544,14 +538,13 @@ class SourceDatabase:
                         FROM tracks
                         WHERE track_id = ?
                           AND track_uuid = ?
-                          AND content_generation = ?
                           AND missing_since IS NULL
                         """,
-                        (clean_track_id, clean_uuid, clean_generation),
+                        (clean_track_id, clean_uuid),
                     ).fetchone()
                     if row is None:
                         raise SourceTrackNotCurrentError(
-                            "Like target is not the current track ID/UUID/generation"
+                            "Like target is not the current track ID/UUID"
                         )
                     track_id = int(row[0])
                     if liked:
@@ -629,7 +622,6 @@ class SourceDatabase:
                       ON rct.collection_id = :collection_id
                      AND rct.catalog_uuid = :catalog_uuid
                      AND rct.track_uuid = t.track_uuid
-                     AND rct.content_generation = t.content_generation
                     JOIN labels.review_collections AS rc
                       ON rc.id = rct.collection_id
                      AND rc.catalog_uuid = rct.catalog_uuid
@@ -910,7 +902,6 @@ def _base_track_query(id_clause: str) -> str:
         SELECT
             t.track_id,
             t.track_uuid,
-            t.content_generation,
             t.file_path,
             t.file_size_bytes,
             t.file_modified_ns,
@@ -937,10 +928,8 @@ def _base_track_query(id_clause: str) -> str:
         LEFT JOIN likes AS l ON l.track_id = t.track_id
         LEFT JOIN sonara_features AS s
           ON s.track_id = t.track_id
-         AND s.content_generation = t.content_generation
         LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
-         AND ms.content_generation = t.content_generation
         WHERE t.missing_since IS NULL
           {id_clause}
         ORDER BY COALESCE(ft.artist, ''), COALESCE(ft.title, ''), t.file_path,
@@ -1024,7 +1013,6 @@ def _source_track_from_row(
         catalog_uuid=catalog_uuid,
         track_id=track_id,
         track_uuid=str(row["track_uuid"]),
-        content_generation=int(row["content_generation"]),
         file_path=str(row["file_path"]),
         file_size_bytes=int(row["file_size_bytes"]),
         file_modified_ns=int(row["file_modified_ns"]),
@@ -1222,7 +1210,6 @@ def _ready_embedding_vectors(
     base_clauses = [
         "t.missing_since IS NULL",
         "a.track_uuid = t.track_uuid",
-        "a.content_generation = t.content_generation",
     ]
     chunks: list[list[int] | None]
     if track_ids is not None:
@@ -1245,7 +1232,7 @@ def _ready_embedding_vectors(
             params.extend(chunk)
         rows = connection.execute(
             f"""
-            SELECT a.track_id, a.track_uuid, a.content_generation,
+            SELECT a.track_id, a.track_uuid,
                    a.dim, a.normalization, a.embedding_blob
             FROM {table} AS a
             JOIN tracks AS t ON t.track_id = a.track_id
@@ -1301,16 +1288,13 @@ def _track_page_joins(collection_join: str) -> str:
         LEFT JOIN likes AS l ON l.track_id = t.track_id
         LEFT JOIN sonara_features AS s
           ON s.track_id = t.track_id
-         AND s.content_generation = t.content_generation
         LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
-         AND ms.content_generation = t.content_generation
         {collection_join}
         LEFT JOIN labels.classifier_labels AS rl
           ON rl.classifier_key = :classifier_key
          AND rl.catalog_uuid = :catalog_uuid
          AND rl.track_uuid = t.track_uuid
-         AND rl.content_generation = t.content_generation
          AND rl.selected_path = t.file_path
     """
 
@@ -1409,7 +1393,6 @@ def _track_page_item(
         "catalog_uuid": track.catalog_uuid,
         "track_id": track.track_id,
         "track_uuid": track.track_uuid,
-        "content_generation": track.content_generation,
         "file_path": track.file_path,
         "artist": tags.artist if tags is not None else None,
         "title": tags.title if tags is not None else None,
@@ -1444,7 +1427,6 @@ def _prediction_page_cte(trained_members: str) -> str:
                 p.rowid AS prediction_rowid,
                 p.catalog_uuid,
                 p.track_uuid,
-                p.content_generation,
                 p.selected_path,
                 p.artist AS prediction_artist,
                 p.title AS prediction_title,
@@ -1467,8 +1449,7 @@ def _prediction_page_cte(trained_members: str) -> str:
                     ) AS REAL
                 ) AS negative_probability,
                 ROW_NUMBER() OVER (
-                    PARTITION BY p.catalog_uuid, p.track_uuid,
-                                 p.content_generation, p.selected_path
+                    PARTITION BY p.catalog_uuid, p.track_uuid, p.selected_path
                     ORDER BY COALESCE(p.updated_at, '') DESC,
                              p.rowid DESC,
                              p.model_artifact DESC
@@ -1487,7 +1468,6 @@ def _prediction_page_cte(trained_members: str) -> str:
                 p.*,
                 t.track_id AS current_track_id,
                 t.track_uuid AS current_track_uuid,
-                t.content_generation AS current_content_generation,
                 t.file_path AS current_file_path,
                 ft.artist AS current_artist,
                 ft.title AS current_title,
@@ -1503,21 +1483,17 @@ def _prediction_page_cte(trained_members: str) -> str:
             LEFT JOIN tracks AS t
               ON p.catalog_uuid = :catalog_uuid
              AND t.track_uuid = p.track_uuid
-             AND t.content_generation = p.content_generation
              AND t.file_path = p.selected_path
              AND t.missing_since IS NULL
             LEFT JOIN tags AS ft ON ft.track_id = t.track_id
             LEFT JOIN sonara_features AS s
               ON s.track_id = t.track_id
-             AND s.content_generation = t.content_generation
             LEFT JOIN maest_genres AS ms
               ON ms.track_id = t.track_id
-             AND ms.content_generation = t.content_generation
             LEFT JOIN labels.classifier_labels AS rl
-              ON rl.classifier_key = :classifier_key
+             ON rl.classifier_key = :classifier_key
              AND rl.catalog_uuid = p.catalog_uuid
              AND rl.track_uuid = p.track_uuid
-             AND rl.content_generation = p.content_generation
              AND rl.selected_path = p.selected_path
             LEFT JOIN labels.classifier_training_checkpoints AS cp
               ON cp.classifier_key = :classifier_key
@@ -1652,7 +1628,6 @@ def _prediction_page_item(
         "catalog_uuid": str(row["catalog_uuid"]),
         "track_id": track.track_id if track is not None else None,
         "track_uuid": str(row["track_uuid"]),
-        "content_generation": int(row["content_generation"]),
         "selected_path": (
             track.file_path if track is not None else str(row["selected_path"])
         ),
@@ -1811,7 +1786,6 @@ _COLLECTION_COLUMNS = {
     "collection_id",
     "catalog_uuid",
     "track_uuid",
-    "content_generation",
     "selected_path",
     "position",
     "score",
@@ -1925,7 +1899,6 @@ def _count_sonara_features(
         FROM sonara_features AS s
         JOIN tracks AS t
           ON t.track_id = s.track_id
-         AND t.content_generation = s.content_generation
         WHERE t.missing_since IS NULL
         """
     ).fetchall()
@@ -2053,20 +2026,6 @@ def _positive_track_id(value: object) -> int:
         raise ValueError("track_id must be a positive integer") from error
     if clean <= 0:
         raise ValueError("track_id must be a positive integer")
-    return clean
-
-
-def _positive_generation(value: object) -> int:
-    if isinstance(value, bool):
-        raise ValueError("content_generation must be a positive integer")
-    try:
-        clean = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            "content_generation must be a positive integer"
-        ) from error
-    if clean <= 0:
-        raise ValueError("content_generation must be a positive integer")
     return clean
 
 

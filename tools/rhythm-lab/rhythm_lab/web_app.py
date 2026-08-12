@@ -64,7 +64,6 @@ class LabelRequest(BaseModel):
 class TrackLikedRequest(BaseModel):
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     liked: bool
 
 
@@ -316,7 +315,6 @@ def create_app(
                 RhythmLabTrackSelection(
                     catalog_uuid=track.catalog_uuid,
                     track_uuid=track.track_uuid,
-                    content_generation=track.content_generation,
                     selected_path=track.file_path,
                 )
                 for track_id in track_ids
@@ -620,7 +618,6 @@ def create_app(
             updated = source.set_track_liked(
                 track_id=track_id,
                 track_uuid=request.track_uuid,
-                content_generation=request.content_generation,
                 liked=request.liked,
             )
         except SourceTrackNotCurrentError as error:
@@ -633,7 +630,6 @@ def create_app(
             "catalog_uuid": updated.catalog_uuid,
             "track_id": updated.track_id,
             "track_uuid": updated.track_uuid,
-            "content_generation": updated.content_generation,
             "file_path": updated.file_path,
             "liked": updated.liked,
         }
@@ -1347,7 +1343,6 @@ def _collection_payload(collection: object, *, include_tracks: bool = False) -> 
             {
                 "catalog_uuid": track.catalog_uuid,
                 "track_uuid": track.track_uuid,
-                "content_generation": track.content_generation,
                 "selected_path": track.selected_path,
                 "position": track.position,
                 "score": track.score,

@@ -81,7 +81,6 @@ def _track_search_row(
           ON ft.track_id = t.track_id
         LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
-         AND ms.content_generation = t.content_generation
         WHERE t.track_id = ?
         """,
         (int(track_id),),

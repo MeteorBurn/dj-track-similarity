@@ -85,7 +85,7 @@ Apply mode is destructive. It requires exact confirmation:
 APPLY DELETE
 ```
 
-The tool deletes only safe duplicate candidates inside the selected `--root`. Before deletion it rechecks the report identity fields `catalog_uuid`, `track_uuid`, and `content_generation`, the stored path, and the reported `size` and `file_modified_ns`. Stale or mismatched candidates are skipped.
+The tool deletes only safe duplicate candidates inside the selected `--root`. Before deletion it rechecks the report identity fields `catalog_uuid` and `track_uuid`, the stored path, and the reported `size` and `file_modified_ns`. Stale or mismatched candidates are skipped.
 
 SQLite rows are removed only for tracks whose files were deleted.
 

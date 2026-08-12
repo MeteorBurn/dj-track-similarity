@@ -88,13 +88,12 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
                 """
                 INSERT INTO tracks(
                     track_uuid, file_path, file_size_bytes, file_modified_ns,
-                    content_generation, last_scanned_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "track-a",
                     (tmp_path / "track-a.wav").as_posix(),
-                    1,
                     1,
                     1,
                     "2026-08-12T00:00:00.000000Z",
@@ -109,7 +108,6 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
         catalog_uuid=database.catalog_uuid,
         track_id=track_id,
         track_uuid="track-a",
-        content_generation=1,
     )
 
     database.write_embedding(
@@ -141,13 +139,12 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
                 """
                 INSERT INTO tracks(
                     track_uuid, file_path, file_size_bytes, file_modified_ns,
-                    content_generation, last_scanned_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "track-b",
                     (tmp_path / "track-b.wav").as_posix(),
-                    1,
                     1,
                     1,
                     "2026-08-12T00:00:00.000000Z",
@@ -156,7 +153,7 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
                 ),
             ).lastrowid
         )
-    target = TrackIdentity(database.catalog_uuid, track_id, "track-b", 1)
+    target = TrackIdentity(database.catalog_uuid, track_id, "track-b")
     output = AnalysisOutput("mert", "embedding")
     assert [
         candidate.target for candidate in database.list_analysis_candidates((output,))
@@ -165,7 +162,6 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
             catalog_uuid=target.catalog_uuid,
             track_id=target.track_id,
             track_uuid=target.track_uuid,
-            content_generation=target.content_generation,
         )
     ]
     vector = np.zeros(768, dtype=np.float32)
@@ -192,13 +188,12 @@ def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:
                 """
                 INSERT INTO tracks(
                     track_uuid, file_path, file_size_bytes, file_modified_ns,
-                    content_generation, last_scanned_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "track-summary",
                     (tmp_path / "track-summary.wav").as_posix(),
-                    1,
                     1,
                     1,
                     "2026-08-12T00:00:00.000000Z",
@@ -210,14 +205,12 @@ def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:
         connection.execute(
             """
             INSERT INTO mert_embeddings(
-                track_id, track_uuid, content_generation,
-                dim, normalization, embedding_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 track_id,
                 "track-summary",
-                1,
                 768,
                 "l2",
                 vector.tobytes(),
@@ -248,13 +241,12 @@ def test_rhythm_lab_reads_embeddings_from_the_library_database(
                 """
                 INSERT INTO tracks(
                     track_uuid, file_path, file_size_bytes, file_modified_ns,
-                    content_generation, last_scanned_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "track-c",
                     (tmp_path / "track-c.wav").as_posix(),
-                    1,
                     1,
                     1,
                     "2026-08-12T00:00:00.000000Z",
@@ -266,7 +258,7 @@ def test_rhythm_lab_reads_embeddings_from_the_library_database(
     vector = np.zeros(768, dtype=np.float32)
     vector[0] = 1.0
     database.write_embedding(
-        track=TrackIdentity(database.catalog_uuid, track_id, "track-c", 1),
+        track=TrackIdentity(database.catalog_uuid, track_id, "track-c"),
         output=EmbeddingOutput(
             family="mert",
             vector=vector,

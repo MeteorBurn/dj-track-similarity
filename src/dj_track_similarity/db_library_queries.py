@@ -88,13 +88,11 @@ def _json_ids(track_ids: Iterable[int]) -> str:
     )
 
 
-def _json_identity_rows(identities: Mapping[int, tuple[str, int]]) -> str:
+def _json_identity_rows(identities: Mapping[int, str]) -> str:
     return json.dumps(
         [
-            [track_id, track_uuid, content_generation]
-            for track_id, (track_uuid, content_generation) in sorted(
-                identities.items()
-            )
+            [track_id, track_uuid]
+            for track_id, track_uuid in sorted(identities.items())
         ],
         separators=(",", ":"),
     )
@@ -255,7 +253,6 @@ def _base_select_fields() -> str:
     return """
         t.track_id,
         t.track_uuid,
-        t.content_generation,
         t.file_path,
         t.file_size_bytes,
         t.file_modified_ns,
@@ -353,7 +350,6 @@ def _filter_sql(
                     SELECT 1
                     FROM maest_genres ms
                     WHERE ms.track_id = t.track_id
-                      AND ms.content_generation = t.content_generation
                       AND ms.syncopated_rhythm = 1
                 )
                 """
@@ -504,12 +500,9 @@ def _query_base_rows(
 
 def _identity_map(
     rows: Sequence[sqlite3.Row],
-) -> dict[int, tuple[str, int]]:
+) -> dict[int, str]:
     return {
-        int(row["track_id"]): (
-            str(row["track_uuid"]),
-            int(row["content_generation"]),
-        )
+        int(row["track_id"]): str(row["track_uuid"])
         for row in rows
     }
 
@@ -518,7 +511,7 @@ def _valid_sonara_core_ids(
     connection: sqlite3.Connection,
     *,
     output: AnalysisOutput | None,
-    identities: Mapping[int, tuple[str, int]],
+    identities: Mapping[int, str],
     drive_from_requested: bool,
 ) -> set[int]:
     if output is None or not identities:
@@ -548,14 +541,11 @@ def _valid_sonara_core_ids(
     valid_ids: set[int] = set()
     for row in rows:
         track_id = int(row["track_id"])
-        expected_identity = identities.get(track_id)
-        if expected_identity is None:
+        if track_id not in identities:
             continue
-        _track_uuid, content_generation = expected_identity
         valid, _reason = validate_sonara_core_row(
             row,
             expected_track_id=track_id,
-            expected_content_generation=content_generation,
         )
         if valid:
             valid_ids.add(track_id)
@@ -566,7 +556,7 @@ def _valid_maest_analysis_ids(
     connection: sqlite3.Connection,
     *,
     output: AnalysisOutput | None,
-    identities: Mapping[int, tuple[str, int]],
+    identities: Mapping[int, str],
     drive_from_requested: bool,
 ) -> set[int]:
     if output is None or not identities:
@@ -596,14 +586,11 @@ def _valid_maest_analysis_ids(
     valid_ids: set[int] = set()
     for row in rows:
         track_id = int(row["track_id"])
-        expected_identity = identities.get(track_id)
-        if expected_identity is None:
+        if track_id not in identities:
             continue
-        _track_uuid, content_generation = expected_identity
         valid, _reason = validate_maest_analysis_row(
             row,
             expected_track_id=track_id,
-            expected_content_generation=content_generation,
         )
         if valid:
             valid_ids.add(track_id)
@@ -615,7 +602,7 @@ def _current_analysis_row_count(
     *,
     table: str,
     output: AnalysisOutput | None,
-    identities: Mapping[int, tuple[str, int]],
+    identities: Mapping[int, str],
 ) -> int:
     if output is None or not identities:
         return 0
@@ -624,15 +611,13 @@ def _current_analysis_row_count(
             f"""
             WITH requested AS (
                 SELECT
-                    CAST(json_extract(value, '$[0]') AS INTEGER) AS track_id,
-                    CAST(json_extract(value, '$[2]') AS INTEGER) AS content_generation
+                    CAST(json_extract(value, '$[0]') AS INTEGER) AS track_id
                 FROM json_each(?)
             )
             SELECT COUNT(*)
             FROM {table} stored
             JOIN requested
               ON requested.track_id = stored.track_id
-             AND requested.content_generation = stored.content_generation
             """,
             (_json_identity_rows(identities),),
         ).fetchone()[0]
@@ -644,7 +629,7 @@ def _valid_embedding_rows(
     *,
     table: str,
     output: AnalysisOutput | None,
-    identities: Mapping[int, tuple[str, int]],
+    identities: Mapping[int, str],
     catalog_uuid: str,
     embedding: bool,
     drive_from_requested: bool,
@@ -660,7 +645,7 @@ def _valid_embedding_rows(
     if drive_from_requested:
         rows = connection.execute(
             f"""
-            SELECT stored.track_id, stored.track_uuid, stored.content_generation,
+            SELECT stored.track_id, stored.track_uuid,
                    stored.analyzed_at
                    {embedding_fields}
             FROM json_each(?) requested
@@ -672,7 +657,7 @@ def _valid_embedding_rows(
     else:
         rows = connection.execute(
             f"""
-            SELECT track_id, track_uuid, content_generation,
+            SELECT track_id, track_uuid,
                    analyzed_at
                    {embedding_fields}
             FROM {table}
@@ -691,8 +676,7 @@ def _valid_embedding_rows(
             continue
         if (
             row["track_id"] != track_id
-            or str(row["track_uuid"]) != expected[0]
-            or int(row["content_generation"]) != expected[1]
+            or str(row["track_uuid"]) != expected
         ):
             continue
         if embedding:
@@ -702,8 +686,7 @@ def _valid_embedding_rows(
                 expected_track=EmbeddingTrackIdentity(
                     catalog_uuid=catalog_uuid,
                     track_id=track_id,
-                    track_uuid=expected[0],
-                    content_generation=expected[1],
+                    track_uuid=expected,
                 ),
             )
             if not valid_embedding:
@@ -711,7 +694,6 @@ def _valid_embedding_rows(
         valid[track_id] = {
             "track_id": row["track_id"],
             "track_uuid": row["track_uuid"],
-            "content_generation": row["content_generation"],
             "analyzed_at": row["analyzed_at"],
         }
         if embedding:
@@ -725,7 +707,7 @@ def _current_artifact_row_count(
     *,
     table: str,
     output: AnalysisOutput | None,
-    identities: Mapping[int, tuple[str, int]],
+    identities: Mapping[int, str],
 ) -> int:
     if output is None or not identities:
         return 0
@@ -739,8 +721,7 @@ def _current_artifact_row_count(
             WITH requested AS (
                 SELECT
                     CAST(json_extract(value, '$[0]') AS INTEGER) AS track_id,
-                    CAST(json_extract(value, '$[1]') AS TEXT) AS track_uuid,
-                    CAST(json_extract(value, '$[2]') AS INTEGER) AS content_generation
+                    CAST(json_extract(value, '$[1]') AS TEXT) AS track_uuid
                 FROM json_each(?)
             )
             SELECT COUNT(*)
@@ -748,7 +729,6 @@ def _current_artifact_row_count(
             JOIN requested
               ON requested.track_id = stored.track_id
              AND requested.track_uuid = stored.track_uuid
-             AND requested.content_generation = stored.content_generation
             WHERE stored.dim = ?
               AND stored.normalization = ?
             """,
@@ -764,7 +744,7 @@ def _current_artifact_row_count(
 def _current_classifier_details(
     connection: sqlite3.Connection,
     *,
-    identities: Mapping[int, tuple[str, int]],
+    identities: Mapping[int, str],
     drive_from_requested: bool,
     classifier_specifications: Mapping[str, ClassifierSpecification],
 ) -> dict[int, tuple[ClassifierScoreDetail, ...]]:
@@ -926,7 +906,6 @@ def _track_summary(
         track_id=int(row["track_id"]),
         catalog_uuid=catalog_uuid,
         track_uuid=str(row["track_uuid"]),
-        content_generation=int(row["content_generation"]),
         file_path=str(row["file_path"]),
         title=_optional_text(row["title"]),
         artist=_optional_text(row["artist"]),
@@ -987,7 +966,6 @@ def _sonara_core(
     connection: sqlite3.Connection,
     *,
     track_id: int,
-    generation: int,
     output: AnalysisOutput | None,
 ) -> SonaraCore | None:
     if output is None:
@@ -997,16 +975,14 @@ def _sonara_core(
         SELECT {", ".join(SONARA_CORE_COLUMNS)}
         FROM sonara_features
         WHERE track_id = ?
-          AND content_generation = ?
         """,
-        (track_id, generation),
+        (track_id,),
     ).fetchone()
     if row is None:
         return None
     valid, _reason = validate_sonara_core_row(
         row,
         expected_track_id=track_id,
-        expected_content_generation=generation,
     )
     if not valid:
         return None
@@ -1086,7 +1062,6 @@ def _maest_analysis(
     connection: sqlite3.Connection,
     *,
     track_id: int,
-    generation: int,
     output: AnalysisOutput | None,
 ) -> MaestAnalysis | None:
     if output is None:
@@ -1096,16 +1071,14 @@ def _maest_analysis(
         SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
         FROM maest_genres
         WHERE track_id = ?
-          AND content_generation = ?
         """,
-        (track_id, generation),
+        (track_id,),
     ).fetchone()
     if row is None:
         return None
     valid, _reason = validate_maest_analysis_row(
         row,
         expected_track_id=track_id,
-        expected_content_generation=generation,
     )
     if not valid:
         return None
@@ -1370,13 +1343,11 @@ class LibraryQueryRepository:
             sonara = _sonara_core(
                 connection,
                 track_id=numeric_id,
-                generation=int(row["content_generation"]),
                 output=context.outputs.get(("sonara", "core")),
             )
             maest = _maest_analysis(
                 connection,
                 track_id=numeric_id,
-                generation=int(row["content_generation"]),
                 output=context.outputs.get(("maest", "analysis")),
             )
             embeddings = tuple(
@@ -1460,23 +1431,20 @@ class LibraryQueryRepository:
             try:
                 row = connection.execute(
                     """
-                    SELECT track_id, track_uuid, content_generation
+                    SELECT track_id, track_uuid
                     FROM tracks
                     WHERE track_id = ?
                       AND track_uuid = ?
-                      AND content_generation = ?
                       AND missing_since IS NULL
                     """,
                     (
                         expected.track_id,
                         expected.track_uuid,
-                        expected.content_generation,
                     ),
                 ).fetchone()
                 if row is None:
                     raise RuntimeError(
-                        "Track identity or content generation changed before "
-                        "the liked-state mutation"
+                        "Track identity changed before the liked-state mutation"
                     )
                 if liked:
                     connection.execute(
@@ -1552,7 +1520,6 @@ class LibraryQueryRepository:
                     t.track_id,
                     t.track_uuid,
                     t.file_path,
-                    t.content_generation,
                     t.file_size_bytes,
                     t.file_modified_ns,
                     ms.syncopated_rhythm,
@@ -1561,7 +1528,6 @@ class LibraryQueryRepository:
                 FROM tracks t
                 JOIN maest_genres ms
                  ON ms.track_id = t.track_id
-                 AND ms.content_generation = t.content_generation
                 WHERE 1 = 1
                 {missing_sql}
                 ORDER BY t.file_path COLLATE NOCASE, t.track_id
@@ -1572,7 +1538,6 @@ class LibraryQueryRepository:
                 valid, _reason = validate_maest_analysis_row(
                     row,
                     expected_track_id=int(row["track_id"]),
-                    expected_content_generation=int(row["content_generation"]),
                 )
                 if not valid:
                     continue
@@ -1588,7 +1553,6 @@ class LibraryQueryRepository:
                         track_id=int(row["track_id"]),
                         track_uuid=str(row["track_uuid"]),
                         file_path=str(row["file_path"]),
-                        content_generation=int(row["content_generation"]),
                         expected_file_size_bytes=int(row["file_size_bytes"]),
                         expected_file_modified_ns=int(row["file_modified_ns"]),
                         genres=genres,
@@ -1613,7 +1577,6 @@ class LibraryQueryRepository:
                 SELECT
                     t.track_id,
                     t.track_uuid,
-                    t.content_generation,
                     t.file_path,
                     ft.artist,
                     ft.title,
@@ -1641,7 +1604,6 @@ class LibraryQueryRepository:
                 track_id: _sonara_core(
                     connection,
                     track_id=track_id,
-                    generation=int(row["content_generation"]),
                     output=context.outputs.get(("sonara", "core")),
                 )
                 for track_id, row in by_id.items()

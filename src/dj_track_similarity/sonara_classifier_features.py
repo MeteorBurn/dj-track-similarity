@@ -58,7 +58,6 @@ SONARA_CLASSIFIER_SCALAR_ALIASES = MappingProxyType(
 _NON_NUMERIC_SONARA_FIELDS = frozenset(
     {
         "track_id",
-        "content_generation",
         "bpm_candidates_json",
         "detected_key_name",
         "detected_key_camelot",

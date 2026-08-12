@@ -226,7 +226,6 @@ def _add_track(
         identity.catalog_uuid,
         identity.track_id,
         identity.track_uuid,
-        identity.content_generation,
     )
     result = db.save_embedding_results(
         (

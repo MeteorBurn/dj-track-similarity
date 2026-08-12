@@ -146,7 +146,6 @@ def _sonara_core_row(
 
     return SonaraRow(
         track_id=candidate.target.track_id,
-        content_generation=candidate.target.content_generation,
         detected_bpm=detected_bpm,
         raw_bpm=raw_bpm,
         bpm_confidence=bpm_confidence,

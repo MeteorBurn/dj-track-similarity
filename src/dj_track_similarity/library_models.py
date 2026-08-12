@@ -174,7 +174,6 @@ class TrackSummary:
     track_id: int
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     file_path: str
     title: str | None
     artist: str | None
@@ -231,7 +230,6 @@ class GenreTagCandidate:
     track_id: int
     track_uuid: str
     file_path: str
-    content_generation: int
     expected_file_size_bytes: int
     expected_file_modified_ns: int
     genres: tuple[str, ...]

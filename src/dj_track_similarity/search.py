@@ -782,8 +782,7 @@ def _ranking_score(
     if noise <= 0.0:
         return score
     identity = (
-        f"{target.catalog_uuid}\0{target.track_uuid}\0"
-        f"{target.content_generation}"
+        f"{target.catalog_uuid}\0{target.track_uuid}"
     ).encode("utf-8")
     digest = hashlib.sha256(identity).digest()
     fraction = int.from_bytes(digest[:8], "big") / float(2**64 - 1)

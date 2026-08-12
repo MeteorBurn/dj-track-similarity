@@ -173,7 +173,6 @@ def test_database_switch_reads_existing_current_bundle_and_identity(
     assert tracks["items"][0]["track_id"] == identity.track_id
     assert tracks["items"][0]["catalog_uuid"] == identity.catalog_uuid
     assert tracks["items"][0]["track_uuid"] == identity.track_uuid
-    assert tracks["items"][0]["content_generation"] == 1
     assert tracks["items"][0]["title"] == "Stored Track"
 
 

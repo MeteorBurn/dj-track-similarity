@@ -332,7 +332,6 @@ def identity_payload(identity: TrackIdentity) -> dict[str, object]:
         "catalog_uuid": identity.catalog_uuid,
         "track_id": identity.track_id,
         "track_uuid": identity.track_uuid,
-        "content_generation": identity.content_generation,
     }
 
 
@@ -347,7 +346,6 @@ def _identity(track_id: int) -> TrackIdentity:
         catalog_uuid=CATALOG_UUID,
         track_id=track_id,
         track_uuid=f"00000000-0000-4000-8000-{track_id:012d}",
-        content_generation=1,
     )
 
 
@@ -356,7 +354,6 @@ def _target(identity: TrackIdentity) -> AnalysisTarget:
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )
 
 
@@ -365,7 +362,6 @@ def _summary(identity: TrackIdentity, coverage: AnalysisCoverage) -> TrackSummar
         track_id=identity.track_id,
         catalog_uuid=identity.catalog_uuid,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
         file_path=f"C:/music/track-{identity.track_id}.wav",
         title=f"Track {identity.track_id}",
         artist="Fixture",

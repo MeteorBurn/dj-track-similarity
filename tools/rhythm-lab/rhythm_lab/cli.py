@@ -468,7 +468,6 @@ def _collection_save(args: argparse.Namespace) -> None:
             RhythmLabTrackSelection(
                 catalog_uuid=track.catalog_uuid,
                 track_uuid=track.track_uuid,
-                content_generation=track.content_generation,
                 selected_path=track.file_path,
             )
             for track_id in track_ids
@@ -636,7 +635,6 @@ def _queue_items_from_suggestions(suggestions: object) -> list[dict[str, object]
             {
                 "catalog_uuid": track.get("catalog_uuid"),
                 "track_uuid": track.get("track_uuid"),
-                "content_generation": track.get("content_generation"),
                 "selected_path": track.get("file_path"),
                 "score": suggestion.get("score"),
                 "priority": float(total - rank + 1),
@@ -657,7 +655,6 @@ def _write_queue_csv(path: Path, rows: list[dict[str, object]]) -> None:
         "classifier_key",
         "catalog_uuid",
         "track_uuid",
-        "content_generation",
         "selected_path",
         "mode",
         "score",
@@ -677,7 +674,6 @@ def _write_queue_csv(path: Path, rows: list[dict[str, object]]) -> None:
                     "classifier_key": row["classifier_key"],
                     "catalog_uuid": row["catalog_uuid"],
                     "track_uuid": row["track_uuid"],
-                    "content_generation": row["content_generation"],
                     "selected_path": row["selected_path"],
                     "mode": row["mode"],
                     "score": row["score"],

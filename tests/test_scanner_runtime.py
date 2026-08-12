@@ -77,7 +77,6 @@ def test_scan_library_uses_canonical_absolute_path_and_marks_missing(
                 file_path,
                 file_size_bytes,
                 file_modified_ns,
-                content_generation,
                 last_scanned_at,
                 missing_since
             FROM tracks
@@ -93,7 +92,6 @@ def test_scan_library_uses_canonical_absolute_path_and_marks_missing(
     assert Path(row["file_path"]).is_absolute()
     assert int(row["file_size_bytes"]) == audio_path.stat().st_size
     assert int(row["file_modified_ns"]) == audio_path.stat().st_mtime_ns
-    assert int(row["content_generation"]) == 1
     assert _TIMESTAMP_PATTERN.fullmatch(str(row["last_scanned_at"]))
     assert row["missing_since"] is None
 
@@ -132,7 +130,6 @@ def test_scan_library_reads_typed_file_tags_through_runtime_repository(
         row = connection.execute(
             """
             SELECT
-                t.content_generation,
                 ft.title,
                 ft.artist,
                 ft.album,
@@ -143,7 +140,6 @@ def test_scan_library_reads_typed_file_tags_through_runtime_repository(
             JOIN tags AS ft ON ft.track_id = t.track_id
             """
         ).fetchone()
-    assert int(row["content_generation"]) == 1
     assert row["title"] == "Runtime Title"
     assert row["artist"] == "Runtime Artist"
     assert row["album"] == "Runtime Album"
@@ -152,7 +148,7 @@ def test_scan_library_reads_typed_file_tags_through_runtime_repository(
     assert json.loads(row["genres_json"]) == ["Melodic Techno"]
 
 
-def test_scan_library_content_change_increments_generation(
+def test_scan_library_content_change_updates_file_facts_without_replacing_identity(
     tmp_path: Path,
 ) -> None:
     music_root = tmp_path / "changed"
@@ -164,7 +160,7 @@ def test_scan_library_content_change_increments_generation(
     with database.connect() as connection:
         before = connection.execute(
             """
-            SELECT track_id, track_uuid, content_generation
+            SELECT track_id, track_uuid, file_size_bytes, file_modified_ns
             FROM tracks
             """
         ).fetchone()
@@ -176,7 +172,7 @@ def test_scan_library_content_change_increments_generation(
     with database.connect() as connection:
         after = connection.execute(
             """
-            SELECT track_id, track_uuid, content_generation
+            SELECT track_id, track_uuid, file_size_bytes, file_modified_ns
             FROM tracks
             """
         ).fetchone()
@@ -186,8 +182,8 @@ def test_scan_library_content_change_increments_generation(
     assert changed.unchanged == 0
     assert int(after["track_id"]) == int(before["track_id"])
     assert after["track_uuid"] == before["track_uuid"]
-    assert int(before["content_generation"]) == 1
-    assert int(after["content_generation"]) == 2
+    assert int(after["file_size_bytes"]) == audio_path.stat().st_size
+    assert int(after["file_modified_ns"]) == audio_path.stat().st_mtime_ns
 
 
 def test_scan_audio_file_retries_until_metadata_and_file_facts_are_stable(
@@ -334,7 +330,6 @@ def test_parallel_tag_refresh_updates_tags_and_fts_without_generation_change(
     with database.connect() as connection:
         before = {
             int(row["track_id"]): (
-                int(row["content_generation"]),
                 int(row["file_size_bytes"]),
                 int(row["file_modified_ns"]),
             )
@@ -342,7 +337,6 @@ def test_parallel_tag_refresh_updates_tags_and_fts_without_generation_change(
                 """
                 SELECT
                     track_id,
-                    content_generation,
                     file_size_bytes,
                     file_modified_ns
                 FROM tracks
@@ -376,7 +370,6 @@ def test_parallel_tag_refresh_updates_tags_and_fts_without_generation_change(
     with database.connect() as connection:
         after = {
             int(row["track_id"]): (
-                int(row["content_generation"]),
                 int(row["file_size_bytes"]),
                 int(row["file_modified_ns"]),
             )
@@ -384,7 +377,6 @@ def test_parallel_tag_refresh_updates_tags_and_fts_without_generation_change(
                 """
                 SELECT
                     track_id,
-                    content_generation,
                     file_size_bytes,
                     file_modified_ns
                 FROM tracks

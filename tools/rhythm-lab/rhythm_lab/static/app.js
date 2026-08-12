@@ -1505,7 +1505,6 @@ async function toggleLike(track) {
     body: JSON.stringify({
       catalog_uuid: track.catalog_uuid,
       track_uuid: track.track_uuid,
-      content_generation: track.content_generation,
       liked: !track.liked
     })
   });

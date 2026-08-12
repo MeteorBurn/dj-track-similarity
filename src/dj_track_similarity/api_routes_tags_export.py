@@ -47,9 +47,6 @@ def register_tags_export_routes(
                 "catalog_uuid": candidate_by_id[result.track_id].catalog_uuid,
                 "track_id": result.track_id,
                 "track_uuid": candidate_by_id[result.track_id].track_uuid,
-                "content_generation": candidate_by_id[
-                    result.track_id
-                ].content_generation,
                 "file_path": result.path,
                 "tags": result.tags,
                 "status": result.status,

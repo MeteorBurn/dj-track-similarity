@@ -364,7 +364,6 @@ class ClassifierScorer:
             track_id=row.target.track_id,
             track_uuid=row.target.track_uuid,
             classifier_key=self.classifier_key,
-            content_generation=row.target.content_generation,
             feature_set=self.feature_set,
             feature_names_json=json.dumps(
                 list(self.feature_names),

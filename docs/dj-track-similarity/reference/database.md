@@ -43,8 +43,8 @@ cache values and are not carried into the current schema.
 - `track_search_fts`: the FTS5 search index. SQLite owns its
   `track_search_fts_*` internal tables.
 
-`catalog_uuid`, `track_uuid`, and `content_generation` are used when an
-operation must identify the exact current track. The stored path is
+`catalog_uuid` and `track_uuid` are used when an operation must identify the
+exact current track. The stored path is
 `tracks.file_path`.
 
 ## Evaluation tables

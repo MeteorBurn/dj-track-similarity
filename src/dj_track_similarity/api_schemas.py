@@ -47,7 +47,6 @@ EvaluationPairReasonTag = Literal[
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
 TrackId = Annotated[int, Field(ge=1)]
-ContentGeneration = Annotated[int, Field(ge=1)]
 ClassifierPreference = Annotated[float, Field(ge=-1.0, le=1.0)]
 ClassifierRiskWeight = Annotated[float, Field(ge=0.0, le=1.0)]
 
@@ -249,7 +248,6 @@ class TrackIdentityRequest(BaseModel):
     track_id: TrackId
     catalog_uuid: str = Field(min_length=1)
     track_uuid: str = Field(min_length=1)
-    content_generation: ContentGeneration
 
 
 class ReferenceCompareRequest(BaseModel):
@@ -293,7 +291,6 @@ class TrackMutationIdentity(BaseModel):
 
     catalog_uuid: str = Field(min_length=1)
     track_uuid: str = Field(min_length=1)
-    expected_content_generation: ContentGeneration
 
 
 class TrackLikedRequest(TrackMutationIdentity):
@@ -564,7 +561,6 @@ class TrackSummaryResponse(_ResponseModel):
     track_id: int
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     file_path: str
     title: str | None
     artist: str | None
@@ -622,7 +618,6 @@ class GenreTagApplyResultResponse(_ResponseModel):
     catalog_uuid: str
     track_id: int
     track_uuid: str
-    content_generation: int
     file_path: str
     tags: dict[str, str]
     status: Literal["applied", "skipped", "failed"]

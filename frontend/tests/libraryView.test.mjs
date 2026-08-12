@@ -71,11 +71,11 @@ function transpile(source) {
 
 test("visible track add skips duplicates and preserves visible order", async () => {
   const { appendVisibleTracksToPlaylist } = await loadLibraryViewModule();
-  const playlist = [{ track_id: 3, catalog_uuid: "catalog-a", track_uuid: "track-3", content_generation: 1 }];
+  const playlist = [{ track_id: 3, catalog_uuid: "catalog-a", track_uuid: "track-3" }];
   const visible = [
-    { track_id: 2, catalog_uuid: "catalog-a", track_uuid: "track-2", content_generation: 1 },
-    { track_id: 3, catalog_uuid: "catalog-a", track_uuid: "track-3", content_generation: 2 },
-    { track_id: 4, catalog_uuid: "catalog-a", track_uuid: "track-4", content_generation: 1 }
+    { track_id: 2, catalog_uuid: "catalog-a", track_uuid: "track-2" },
+    { track_id: 3, catalog_uuid: "catalog-a", track_uuid: "track-3" },
+    { track_id: 4, catalog_uuid: "catalog-a", track_uuid: "track-4" }
   ];
 
   const next = appendVisibleTracksToPlaylist(playlist, visible);

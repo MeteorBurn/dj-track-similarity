@@ -1,8 +1,4 @@
-"""Analysis persistence in the single library database.
-
-All writes are fenced by catalog UUID, track UUID, and content generation, and
-each batch is committed atomically in one SQLite transaction.
-"""
+"""Analysis persistence in the single library database."""
 
 from __future__ import annotations
 
@@ -66,7 +62,6 @@ from .sonara_classifier_features import resolve_sonara_classifier_feature
 _CLASSIFIER_SCORE_COLUMNS = tuple(field.name for field in fields(ClassifierScoreRecord))
 _SONARA_IDENTITY_COLUMNS = {
     "track_id",
-    "content_generation",
 }
 _CLASSIFIER_PROBABILITY_TOLERANCE = 1e-9
 _SQLITE_IN_CHUNK_SIZE = 800
@@ -76,7 +71,6 @@ _CURRENT_SONARA_TARGETS_SQL = """
     FROM sonara_features AS sonara
     JOIN tracks
       ON tracks.track_id = sonara.track_id
-     AND tracks.content_generation = sonara.content_generation
     WHERE tracks.missing_since IS NULL
 """
 
@@ -93,7 +87,6 @@ def _classifier_input_query_parts(
     select_columns = [
         "tracks.track_id",
         "tracks.track_uuid",
-        "tracks.content_generation",
         "tracks.file_path",
         "tracks.file_size_bytes",
         "tracks.file_modified_ns",
@@ -170,7 +163,6 @@ def _classifier_work_item_from_row(
         catalog_uuid=catalog_uuid,
         track_id=int(row["track_id"]),
         track_uuid=str(row["track_uuid"]),
-        content_generation=int(row["content_generation"]),
     )
     candidate = ClassifierCandidate(
         target=target,
@@ -207,7 +199,6 @@ def _embedding_track(target: AnalysisTarget) -> EmbeddingTrackIdentity:
         catalog_uuid=target.catalog_uuid,
         track_id=target.track_id,
         track_uuid=target.track_uuid,
-        content_generation=target.content_generation,
     )
 
 
@@ -223,7 +214,7 @@ def _require_current_target(
         )
     row = core_connection.execute(
         """
-        SELECT track_uuid, content_generation, missing_since
+        SELECT track_uuid, missing_since
         FROM tracks
         WHERE track_id = ?
         """,
@@ -237,31 +228,10 @@ def _require_current_target(
         raise StaleAnalysisTargetError(
             "stale analysis target rejected: track_uuid mismatch"
         )
-    if int(row[1]) != target.content_generation:
-        raise StaleAnalysisTargetError(
-            "stale analysis target rejected: content_generation mismatch"
-        )
-    if row[2] is not None:
+    if row[1] is not None:
         raise StaleAnalysisTargetError(
             "stale analysis target rejected: track is missing"
         )
-
-
-def _delete_stale_embedding_generation(
-    connection: sqlite3.Connection,
-    *,
-    table: str,
-    target: AnalysisTarget,
-) -> int:
-    cursor = connection.execute(
-        f"""
-        DELETE FROM {table}
-        WHERE track_id = ?
-          AND content_generation <> ?
-        """,
-        (target.track_id, target.content_generation),
-    )
-    return max(0, int(cursor.rowcount))
 
 
 def _savepoint(connection: sqlite3.Connection, index: int) -> str:
@@ -298,7 +268,6 @@ def _upsert_sonara_core(
     valid, reason = validate_sonara_core_row(
         row,
         expected_track_id=write.target.track_id,
-        expected_content_generation=write.target.content_generation,
     )
     if not valid:
         raise ValueError(f"invalid SONARA Core row: {reason}")
@@ -325,7 +294,6 @@ def _upsert_maest_analysis(
 ) -> None:
     row = {
         "track_id": write.target.track_id,
-        "content_generation": write.target.content_generation,
         "syncopated_rhythm": (
             None if write.syncopated_rhythm is None else int(write.syncopated_rhythm)
         ),
@@ -335,18 +303,15 @@ def _upsert_maest_analysis(
     valid, reason = validate_maest_analysis_row(
         row,
         expected_track_id=write.target.track_id,
-        expected_content_generation=write.target.content_generation,
     )
     if not valid:
         raise ValueError(f"invalid MAEST analysis row: {reason}")
     core_connection.execute(
         """
         INSERT INTO maest_genres (
-            track_id, content_generation,
-            syncopated_rhythm, genres_json, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?)
+            track_id, syncopated_rhythm, genres_json, analyzed_at
+        ) VALUES (?, ?, ?, ?)
         ON CONFLICT(track_id) DO UPDATE SET
-            content_generation = excluded.content_generation,
             syncopated_rhythm = excluded.syncopated_rhythm,
             genres_json = excluded.genres_json,
             analyzed_at = excluded.analyzed_at
@@ -355,7 +320,6 @@ def _upsert_maest_analysis(
             row[column]
             for column in (
                 "track_id",
-                "content_generation",
                 "syncopated_rhythm",
                 "genres_json",
                 "analyzed_at",
@@ -692,11 +656,6 @@ class AnalysisRepository:
                                 write=write,
                             )
                             if write.embedding is not None:
-                                _delete_stale_embedding_generation(
-                                    connection,
-                                    table="maest_embeddings",
-                                    target=write.target,
-                                )
                                 write_valid_embedding_in_transaction(
                                     connection=connection,
                                     track=_embedding_track(write.target),
@@ -753,16 +712,10 @@ class AnalysisRepository:
                                 write.target,
                                 catalog_uuid=catalog_uuid,
                             )
-                            table = table_for_output(output)
-                            if table is None:
+                            if table_for_output(output) is None:
                                 raise ValueError(
                                     "embedding output has no library table"
                                 )
-                            _delete_stale_embedding_generation(
-                                connection,
-                                table=table,
-                                target=write.target,
-                            )
                             write_valid_embedding_in_transaction(
                                 connection=connection,
                                 track=_embedding_track(write.target),
@@ -883,7 +836,6 @@ class AnalysisRepository:
                     valid, _reason = validate_sonara_core_row(
                         row,
                         expected_track_id=target.track_id,
-                        expected_content_generation=target.content_generation,
                     )
                     if not valid:
                         continue
@@ -967,8 +919,7 @@ class AnalysisRepository:
                     f"""
                     SELECT
                         tracks.track_id,
-                        tracks.track_uuid,
-                        tracks.content_generation
+                        tracks.track_uuid
                     {_CURRENT_SONARA_TARGETS_SQL}
                       AND sonara.track_id NOT IN (
                           SELECT CAST(value AS INTEGER)
@@ -987,7 +938,6 @@ class AnalysisRepository:
                     catalog_uuid=catalog_uuid,
                     track_id=int(row["track_id"]),
                     track_uuid=str(row["track_uuid"]),
-                    content_generation=int(row["content_generation"]),
                 )
 
     def classifier_work_count(

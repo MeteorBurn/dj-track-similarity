@@ -32,13 +32,11 @@ def _track(
         catalog_uuid="fixture-catalog",
         track_id=track_id,
         track_uuid=f"fixture-track-{track_id}",
-        content_generation=1,
     )
     summary = TrackSummary(
         track_id=identity.track_id,
         catalog_uuid=identity.catalog_uuid,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
         file_path=f"C:/fixture/{track_id}.wav",
         title=f"Track {track_id}",
         artist="Fixture Artist",
@@ -57,7 +55,6 @@ def _track(
                 catalog_uuid=identity.catalog_uuid,
                 track_id=identity.track_id,
                 track_uuid=identity.track_uuid,
-                content_generation=identity.content_generation,
             ),
             output=_CORE_OUTPUT,
             values=sonara_values,

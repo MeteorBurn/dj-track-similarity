@@ -59,8 +59,7 @@ class EvaluationRepository:
                     session_id,
                     position,
                     track_id,
-                    track_uuid,
-                    content_generation
+                    track_uuid
                 FROM search_session_seeds
                 ORDER BY session_id, position
                 """
@@ -73,7 +72,6 @@ class EvaluationRepository:
                     rank,
                     track_id,
                     track_uuid,
-                    content_generation,
                     total_score,
                     score_breakdown_json,
                     created_at
@@ -90,7 +88,6 @@ class EvaluationRepository:
                     "position": int(row["position"]),
                     "track_id": int(row["track_id"]),
                     "track_uuid": str(row["track_uuid"]),
-                    "content_generation": int(row["content_generation"]),
                 }
             )
 
@@ -103,7 +100,6 @@ class EvaluationRepository:
                     "session_id": session_id,
                     "track_id": int(row["track_id"]),
                     "track_uuid": str(row["track_uuid"]),
-                    "content_generation": int(row["content_generation"]),
                     "rank": int(row["rank"]),
                     "total_score": float(row["total_score"]),
                     "score_breakdown": _json_load(
@@ -309,10 +305,9 @@ class EvaluationRepository:
                         session_id,
                         position,
                         track_id,
-                        track_uuid,
-                        content_generation
+                        track_uuid
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?)
                     """,
                     (
                         (
@@ -320,7 +315,6 @@ class EvaluationRepository:
                             position,
                             snapshot["track_id"],
                             snapshot["track_uuid"],
-                            snapshot["content_generation"],
                         )
                         for position, snapshot in enumerate(snapshots)
                     ),
@@ -363,19 +357,17 @@ class EvaluationRepository:
                         rank,
                         track_id,
                         track_uuid,
-                        content_generation,
                         total_score,
                         score_breakdown_json,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         clean_session_id,
                         clean_rank,
                         snapshot["track_id"],
                         snapshot["track_uuid"],
-                        snapshot["content_generation"],
                         clean_total_score,
                         score_breakdown_json,
                         timestamp,
@@ -457,7 +449,6 @@ class EvaluationRepository:
                         FROM tracks
                         WHERE track_id = ?
                           AND track_uuid = ?
-                          AND content_generation = ?
                           AND missing_since IS NULL
                     )
                       AND EXISTS (
@@ -465,7 +456,6 @@ class EvaluationRepository:
                         FROM tracks
                         WHERE track_id = ?
                           AND track_uuid = ?
-                          AND content_generation = ?
                           AND missing_since IS NULL
                     )
                     ON CONFLICT(seed_track_id, candidate_track_id, source)
@@ -486,10 +476,8 @@ class EvaluationRepository:
                         timestamp,
                         seed.track_id,
                         seed.track_uuid,
-                        seed.content_generation,
                         candidate.track_id,
                         candidate.track_uuid,
-                        candidate.content_generation,
                     ),
                 )
                 if cursor.rowcount != 1:
@@ -723,7 +711,7 @@ def _load_track_snapshots(
 ) -> tuple[dict[str, Any], ...]:
     rows = connection.execute(
         f"""
-        SELECT track_id, track_uuid, content_generation
+        SELECT track_id, track_uuid
         FROM tracks
         WHERE track_id IN ({",".join("?" for _ in track_ids)})
         """,
@@ -733,7 +721,6 @@ def _load_track_snapshots(
         int(row["track_id"]): {
             "track_id": int(row["track_id"]),
             "track_uuid": str(row["track_uuid"]),
-            "content_generation": int(row["content_generation"]),
         }
         for row in rows
     }
@@ -751,10 +738,6 @@ def _load_track_snapshots(
     for snapshot in snapshots:
         if not snapshot["track_uuid"].strip():
             raise RuntimeError("Track snapshot has an empty track_uuid")
-        if snapshot["content_generation"] <= 0:
-            raise RuntimeError(
-                "Track snapshot has an invalid content_generation"
-            )
     return snapshots
 
 

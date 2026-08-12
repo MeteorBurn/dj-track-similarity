@@ -85,8 +85,7 @@ CREATE TABLE tracks (
     track_uuid TEXT NOT NULL UNIQUE,
     file_path TEXT NOT NULL UNIQUE,
     file_size_bytes INTEGER NOT NULL,
-    file_modified_ns INTEGER NOT NULL,
-    content_generation INTEGER NOT NULL
+    file_modified_ns INTEGER NOT NULL
 );
 """
 
@@ -231,7 +230,7 @@ def _reseal(bundle: dict[str, object]) -> dict[str, object]:
 
 def _create_core(
     path: Path,
-    tracks: list[tuple[int, str, str, int, int, int]],
+    tracks: list[tuple[int, str, str, int, int]],
     *,
     catalog_uuid: str = "catalog-test",
 ) -> None:
@@ -248,9 +247,8 @@ def _create_core(
     connection.executemany(
         """
         INSERT INTO tracks(
-            track_id, track_uuid, file_path, file_size_bytes,
-            file_modified_ns, content_generation
-        ) VALUES (?, ?, ?, ?, ?, ?)
+            track_id, track_uuid, file_path, file_size_bytes, file_modified_ns
+        ) VALUES (?, ?, ?, ?, ?)
         """,
         tracks,
     )
@@ -373,8 +371,8 @@ def test_preview_rebind_uses_canonical_path_not_shuffled_numeric_ids(
     _create_core(
         core_db,
         [
-            (71, "uuid-b", "c:\\music\\b.wav", 200, 20_000_000_000, 4),
-            (3, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 7),
+            (71, "uuid-b", "c:\\music\\b.wav", 200, 20_000_000_000),
+            (3, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000),
         ],
     )
 
@@ -397,7 +395,6 @@ def test_preview_rebind_uses_canonical_path_not_shuffled_numeric_ids(
     assert alpha_a["status"] == "strong_match"
     assert alpha_a["target"] == {
         "catalog_uuid": "catalog-test",
-        "content_generation": 7,
         "file_modified_ns": 10_000_000_000,
         "file_path": "C:/Music/A.wav",
         "file_size_bytes": 100,
@@ -407,7 +404,6 @@ def test_preview_rebind_uses_canonical_path_not_shuffled_numeric_ids(
     beta_b = by_key[("beta", canonical_path_key("C:/Music/B.wav"))]
     assert beta_b["target"]["track_id"] == 71
     assert beta_b["target"]["track_uuid"] == "uuid-b"
-    assert beta_b["target"]["content_generation"] == 4
 
 
 def test_export_recovers_ordered_feature_names_from_promoted_artifact(
@@ -463,11 +459,11 @@ def test_preview_reports_missing_ambiguity_and_metadata_mismatch_without_loss(
     _create_core(
         core_db,
         [
-            (4, "uuid-ok", "C:/Music/ok.wav", 10, 1_000_000_000, 1),
-            (5, "uuid-case-1", "C:/Music/case.wav", 30, 3_000_000_000, 1),
-            (6, "uuid-case-2", "c:/music/CASE.wav", 30, 3_000_000_000, 1),
-            (7, "uuid-changed", "C:/Music/changed.wav", 41, 4_000_000_000, 2),
-            (8, "uuid-weak", "C:/Music/weak.wav", 50, 5_000_000_000, 3),
+            (4, "uuid-ok", "C:/Music/ok.wav", 10, 1_000_000_000),
+            (5, "uuid-case-1", "C:/Music/case.wav", 30, 3_000_000_000),
+            (6, "uuid-case-2", "c:/music/CASE.wav", 30, 3_000_000_000),
+            (7, "uuid-changed", "C:/Music/changed.wav", 41, 4_000_000_000),
+            (8, "uuid-weak", "C:/Music/weak.wav", 50, 5_000_000_000),
         ],
     )
 
@@ -521,8 +517,8 @@ def test_rebound_bundle_bytes_and_hash_are_deterministic(tmp_path: Path) -> None
     _create_core(
         core_db,
         [
-            (20, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 9),
-            (10, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000, 8),
+            (20, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000),
+            (10, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000),
         ],
     )
     preview = preview_rebind_bundle(bundle, core_db)
@@ -540,7 +536,6 @@ def test_rebound_bundle_bytes_and_hash_are_deterministic(tmp_path: Path) -> None
         assert row["binding"]["catalog_uuid"] == "catalog-test"
         assert isinstance(row["binding"]["track_id"], int)
         assert isinstance(row["binding"]["track_uuid"], str)
-        assert isinstance(row["binding"]["content_generation"], int)
 
 
 def test_tampered_export_bundle_is_rejected(tmp_path: Path) -> None:
@@ -616,12 +611,11 @@ def test_core_preview_reads_committed_wal_frames_and_closes_snapshot(
     writer.execute("PRAGMA wal_autocheckpoint = 0")
     writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     writer.execute(
-        """
-        INSERT INTO tracks(
-            track_id, track_uuid, file_path, file_size_bytes,
-            file_modified_ns, content_generation
-        ) VALUES (77, 'uuid-wal', 'C:/Music/WAL.wav', 300, 30000000000, 6)
-        """
+            """
+            INSERT INTO tracks(
+                track_id, track_uuid, file_path, file_size_bytes, file_modified_ns
+            ) VALUES (77, 'uuid-wal', 'C:/Music/WAL.wav', 300, 30000000000)
+            """
     )
     writer.commit()
     assert Path(str(core_db) + "-wal").stat().st_size > 0
@@ -630,7 +624,6 @@ def test_core_preview_reads_committed_wal_frames_and_closes_snapshot(
 
     assert preview["summary"]["strong_match"] == 1
     assert preview["outcomes"][0]["target"]["track_id"] == 77
-    assert preview["outcomes"][0]["target"]["content_generation"] == 6
     assert preview["target_database"]["wal_file_sha256"].startswith("sha256:")
     writer.close()
     renamed = tmp_path / "library.closed.sqlite"
@@ -721,8 +714,8 @@ def test_resealed_semantically_invalid_bundles_are_rejected(
     _create_core(
         core_db,
         [
-            (1, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 1),
-            (2, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000, 1),
+            (1, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000),
+            (2, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000),
         ],
     )
 
@@ -837,7 +830,7 @@ def test_lossless_recovery_restore_smoke(tmp_path: Path) -> None:
     core_db = tmp_path / "core.sqlite"
     _create_core(
         core_db,
-        [(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4)],
+        [(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000)],
     )
     rebound = build_rebound_bundle(
         exported,
@@ -892,22 +885,6 @@ def test_lossless_recovery_restore_smoke(tmp_path: Path) -> None:
     )
     connection.close()
 
-    connection = sqlite3.connect(core_db)
-    connection.execute(
-        "UPDATE tracks SET content_generation = 5 WHERE track_uuid = 'uuid-a'"
-    )
-    connection.commit()
-    connection.close()
-    stale_preview = restore_label_bundle(
-        rebound,
-        tmp_path / "never-created.sqlite",
-        core_db_path=core_db,
-    )
-    assert stale_preview["summary"]["bound"] == 0
-    assert stale_preview["summary"]["recovered"] == 3
-    assert not (tmp_path / "never-created.sqlite").exists()
-
-
 def test_restore_conflict_winner_is_deterministic_and_loser_is_recovered(
     tmp_path: Path,
 ) -> None:
@@ -935,7 +912,7 @@ def test_restore_conflict_winner_is_deterministic_and_loser_is_recovered(
                 "2026-02-01T00:00:00Z",
             ),
         ],
-        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4)],
+        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000)],
     )
     target = tmp_path / "target.sqlite"
     strong_rows = [row for row in rebound["labels"] if row["status"] == "strong_match"]
@@ -996,8 +973,8 @@ def test_restore_weak_match_requires_explicit_record_acceptance(tmp_path: Path) 
             ),
         ],
         tracks=[
-            (7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4),
-            (8, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000, 4),
+            (7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000),
+            (8, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000),
         ],
     )
     weak_record_id = next(
@@ -1123,7 +1100,6 @@ def test_restore_backs_up_existing_main_wal_and_shm_before_apply(
     ("column", "replacement"),
     [
         ("track_uuid", "uuid-changed"),
-        ("content_generation", 5),
         ("file_path", "C:/Music/renamed.wav"),
         ("file_size_bytes", 101),
         ("file_modified_ns", 10_000_000_001),
@@ -1148,7 +1124,7 @@ def test_restore_apply_revalidates_current_core_target_identity_and_file_facts(
                 "2026-02-01T00:00:00Z",
             )
         ],
-        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4)],
+        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000)],
     )
     connection = sqlite3.connect(core_db)
     connection.execute(
@@ -1189,7 +1165,7 @@ def test_restore_apply_revalidates_catalog_and_preserves_core_bytes(
                 "2026-02-01T00:00:00Z",
             )
         ],
-        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4)],
+        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000)],
     )
     connection = sqlite3.connect(core_db)
     connection.execute("UPDATE library SET catalog_uuid = 'catalog-changed'")
@@ -1233,7 +1209,7 @@ def test_restore_counts_profiles_definitions_manual_recovery_and_is_idempotent(
             ),
             ("alpha", 2, None, None, None, "no", None, "2026-02-02T00:00:00Z"),
         ],
-        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4)],
+        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000)],
     )
     target = tmp_path / "target.sqlite"
 
@@ -1275,7 +1251,7 @@ def _restore_fixture(
     labels: list[
         tuple[str, int, str | None, int | None, float | None, str, str | None, str]
     ],
-    tracks: list[tuple[int, str, str, int, int, int]] | None = None,
+    tracks: list[tuple[int, str, str, int, int]] | None = None,
 ) -> tuple[dict[str, object], Path]:
     source = tmp_path / "source.sqlite"
     _create_lab_db(source, labels=labels)
@@ -1284,8 +1260,8 @@ def _restore_fixture(
         core_db,
         tracks
         or [
-            (7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4),
-            (8, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000, 4),
+            (7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000),
+            (8, "uuid-b", "C:/Music/B.wav", 200, 20_000_000_000),
         ],
     )
     exported = export_label_bundle(source, promoted_models_root=tmp_path / "none")

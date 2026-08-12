@@ -191,7 +191,7 @@ def _recorded_session_fixture(
 
 
 @pytest.mark.parametrize("source", ("mert", "muq"))
-def test_recorded_session_reader_requires_current_identity_without_hashes(
+def test_recorded_session_reader_requires_current_track_identity_without_hashes(
     source: str,
 ) -> None:
     repository = _Repository()
@@ -204,7 +204,7 @@ def test_recorded_session_reader_requires_current_identity_without_hashes(
     assert current[0]["seed_track_ids"] == [1]
     repository.identities[2] = replace(
         candidate,
-        content_generation=candidate.content_generation + 1,
+        track_uuid="replaced-track-uuid",
     )
     current_after_candidate_change = load_current_evaluation_sessions(repository)
     assert len(current_after_candidate_change) == 1
@@ -455,7 +455,6 @@ def _identity(track_id: int) -> TrackIdentity:
         catalog_uuid=_CATALOG_UUID,
         track_id=track_id,
         track_uuid=f"00000000-0000-4000-8000-{track_id:012d}",
-        content_generation=1,
     )
 
 
@@ -474,7 +473,6 @@ def _target(identity: TrackIdentity) -> AnalysisTarget:
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )
 
 
@@ -487,7 +485,6 @@ def _summary(
         track_id=identity.track_id,
         catalog_uuid=identity.catalog_uuid,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
         file_path=f"C:/music/track-{identity.track_id}.wav",
         title=f"Track {identity.track_id}",
         artist=f"Artist {identity.track_id}",
@@ -510,7 +507,6 @@ def _identity_payload(identity: TrackIdentity) -> dict[str, object]:
         "catalog_uuid": identity.catalog_uuid,
         "track_id": identity.track_id,
         "track_uuid": identity.track_uuid,
-        "content_generation": identity.content_generation,
     }
 
 

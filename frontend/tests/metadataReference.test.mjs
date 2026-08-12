@@ -79,7 +79,6 @@ function summary(overrides = {}) {
     track_id: 11,
     catalog_uuid: "catalog-a",
     track_uuid: "track-a",
-    content_generation: 3,
     file_path: "D:/Music/Artist - Track.flac",
     title: "Track",
     artist: "Artist",
@@ -206,7 +205,7 @@ test("track display uses the file path stem instead of tags", () => {
   assert.equal(trackDisplay.trackHasAnalysis(track, "clap"), false);
 });
 
-test("track detail identity matching rejects numeric-id rebinding and generation drift", () => {
+test("track detail identity matching rejects numeric-id and UUID rebinding", () => {
   const track = summary();
 
   assert.equal(trackDisplay.sameTrackIdentity(track, summary()), true);
@@ -220,10 +219,6 @@ test("track detail identity matching rejects numeric-id rebinding and generation
   );
   assert.equal(
     trackDisplay.sameTrackIdentity(track, summary({ track_uuid: "track-b" })),
-    false
-  );
-  assert.equal(
-    trackDisplay.sameTrackIdentity(track, summary({ content_generation: 4 })),
     false
   );
 });
@@ -577,13 +572,13 @@ test("Reference Compare ordering preserves MuQ or supplies a model-scoped reason
   assert.equal(withMuq.find((group) => group.model === "muq"), returnedMuq);
 });
 
-test("Reference Compare freshness includes catalog UUID track UUID generation and response seed", () => {
+test("Reference Compare freshness includes catalog UUID track UUID and response seed", () => {
   const identity = referenceCompare.referenceTrackIdentityKey(summary());
   const otherCatalog = referenceCompare.referenceTrackIdentityKey(summary({ catalog_uuid: "catalog-b" }));
-  const otherGeneration = referenceCompare.referenceTrackIdentityKey(summary({ content_generation: 4 }));
+  const otherTrack = referenceCompare.referenceTrackIdentityKey(summary({ track_uuid: "track-b" }));
 
   assert.notEqual(identity, otherCatalog);
-  assert.notEqual(identity, otherGeneration);
+  assert.notEqual(identity, otherTrack);
   assert.equal(referenceCompare.referenceCompareRequestIsCurrent(2, 2, identity, identity), true);
   assert.equal(referenceCompare.referenceCompareRequestIsCurrent(1, 2, identity, identity), false);
   assert.equal(referenceCompare.referenceCompareRequestIsCurrent(2, 2, identity, otherCatalog), false);

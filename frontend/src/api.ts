@@ -33,7 +33,6 @@ export type Track = {
   track_id: number;
   catalog_uuid: string;
   track_uuid: string;
-  content_generation: number;
   file_path: string;
   title: string | null;
   artist: string | null;
@@ -49,12 +48,11 @@ export type Track = {
 export type TrackMutationIdentity = {
   catalog_uuid: string;
   track_uuid: string;
-  expected_content_generation: number;
 };
 
 export type TrackIdentity = Pick<
   Track,
-  "track_id" | "catalog_uuid" | "track_uuid" | "content_generation"
+  "track_id" | "catalog_uuid" | "track_uuid"
 >;
 
 export interface FileTechnical {
@@ -253,7 +251,6 @@ export type GenreTagApplyResult = {
   catalog_uuid: string;
   track_id: number;
   track_uuid: string;
-  content_generation: number;
   file_path: string;
   tags: Record<string, string>;
   status: "applied" | "skipped" | "failed";

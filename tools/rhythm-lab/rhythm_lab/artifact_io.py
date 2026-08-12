@@ -216,7 +216,6 @@ def _validate_staged_classifier(
                     catalog_uuid="promotion-validation",
                     track_id=1,
                     track_uuid="promotion-validation",
-                    content_generation=1,
                 ),
                 specification=requirements.specification,
                 vector=np.zeros(len(requirements.feature_names), dtype=np.float32),

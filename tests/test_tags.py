@@ -76,7 +76,6 @@ def _save_maest_genres(
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )
     result = database.save_maest_results(
         (

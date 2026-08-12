@@ -151,7 +151,6 @@ def test_weighted_candidate_preview_uses_typed_targets_without_sidecar_write(
                         catalog_uuid=identity.catalog_uuid,
                         track_id=identity.track_id,
                         track_uuid=identity.track_uuid,
-                        content_generation=identity.content_generation,
                     ),
                     output=EmbeddingOutput(
                         family=output.analysis_family,
@@ -211,7 +210,6 @@ def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
                         catalog_uuid=identity.catalog_uuid,
                         track_id=identity.track_id,
                         track_uuid=identity.track_uuid,
-                        content_generation=identity.content_generation,
                     ),
                     output=EmbeddingOutput(
                         family=output.analysis_family,

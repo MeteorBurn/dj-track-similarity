@@ -60,7 +60,6 @@ def _liked_payload(identity: TrackIdentity, liked: bool) -> dict[str, object]:
     return {
         "catalog_uuid": identity.catalog_uuid,
         "track_uuid": identity.track_uuid,
-        "expected_content_generation": identity.content_generation,
         "liked": liked,
     }
 
@@ -106,7 +105,6 @@ def test_tracks_endpoint_returns_paginated_typed_current_summaries(
         gamma.track_id,
     ]
     assert all(item["catalog_uuid"] == beta.catalog_uuid for item in payload["items"])
-    assert all(item["content_generation"] == 1 for item in payload["items"])
     assert all("metadata" not in item and "id" not in item for item in payload["items"])
 
 
@@ -188,7 +186,7 @@ def test_tracks_endpoint_liked_mutation_uses_composite_cas(
         url,
         json={
             **_liked_payload(identity, True),
-            "expected_content_generation": identity.content_generation + 1,
+            "track_uuid": "stale-track-uuid",
         },
     )
     liked = client.post(url, json=_liked_payload(identity, True))
@@ -228,7 +226,6 @@ def test_track_detail_endpoint_returns_full_typed_tags(
     assert payload["track_id"] == identity.track_id
     assert payload["catalog_uuid"] == identity.catalog_uuid
     assert payload["track_uuid"] == identity.track_uuid
-    assert payload["content_generation"] == identity.content_generation
     assert payload["file_tags"]["comment"] == "stored comment"
     assert "audio_codec" not in payload["file"]
     assert payload["file"]["bit_depth"] is None
@@ -262,7 +259,6 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
             track_id=identity.track_id,
             catalog_uuid=identity.catalog_uuid,
             track_uuid=identity.track_uuid,
-            content_generation=identity.content_generation,
             file_path=str(tmp_path / "alpha.wav"),
             title="Alpha",
             artist="Artist",

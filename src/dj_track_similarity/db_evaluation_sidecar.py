@@ -42,11 +42,10 @@ CREATE TABLE search_session_seeds (
     position           INTEGER NOT NULL CHECK(position >= 0),
     track_id           INTEGER NOT NULL,
     track_uuid         TEXT    NOT NULL,
-    content_generation INTEGER NOT NULL CHECK(content_generation >= 1),
     PRIMARY KEY(session_id, position)
 );
 CREATE INDEX idx_search_seeds_identity
-    ON search_session_seeds(track_uuid, content_generation, session_id);
+    ON search_session_seeds(track_uuid, session_id);
 """
 
 _DDL_SEARCH_RESULT_EVENTS = """
@@ -56,14 +55,13 @@ CREATE TABLE search_result_events (
     rank                   INTEGER NOT NULL CHECK(rank >= 0),
     track_id               INTEGER NOT NULL,
     track_uuid             TEXT    NOT NULL,
-    content_generation     INTEGER NOT NULL CHECK(content_generation >= 1),
     total_score            REAL    NOT NULL,
     score_breakdown_json   TEXT    NOT NULL CHECK(json_valid(score_breakdown_json)),
     created_at             TEXT    NOT NULL,
     UNIQUE(session_id, rank)
 );
 CREATE INDEX idx_search_events_identity
-    ON search_result_events(track_uuid, content_generation, session_id);
+    ON search_result_events(track_uuid, session_id);
 """
 
 _DDL_CALIBRATION_RUNS = """

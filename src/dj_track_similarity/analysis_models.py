@@ -707,7 +707,6 @@ class AnalysisTarget:
     catalog_uuid: str
     track_id: int
     track_uuid: str
-    content_generation: int
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -724,11 +723,6 @@ class AnalysisTarget:
             self,
             "track_uuid",
             _required_text(self.track_uuid, "track_uuid"),
-        )
-        object.__setattr__(
-            self,
-            "content_generation",
-            _positive_int(self.content_generation, "content_generation"),
         )
 
 
@@ -827,8 +821,6 @@ class SonaraWrite:
     def __post_init__(self) -> None:
         if self.core.track_id != self.target.track_id:
             raise ValueError("SONARA Core track_id does not match target")
-        if self.core.content_generation != self.target.content_generation:
-            raise ValueError("SONARA Core generation does not match target")
         _required_text(self.core.analyzed_at, "core.analyzed_at")
         _validate_short_float_blob(
             self.core.mfcc_mean_blob,
@@ -1017,8 +1009,6 @@ class ClassifierScoreWrite:
             raise ValueError("classifier score track_id does not match target")
         if self.score.track_uuid != self.target.track_uuid:
             raise ValueError("classifier score track_uuid does not match target")
-        if self.score.content_generation != self.target.content_generation:
-            raise ValueError("classifier score generation does not match target")
         expected_identity = (
             self.specification.classifier_key,
             self.specification.feature_set,

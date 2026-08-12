@@ -1230,8 +1230,6 @@ def text_search(
             if (
                 track.catalog_uuid != result.target.catalog_uuid
                 or track.track_uuid != result.target.track_uuid
-                or track.content_generation
-                != result.target.content_generation
             ):
                 raise RuntimeError(
                     "Search result became stale before output: "
@@ -1239,8 +1237,7 @@ def text_search(
                 )
             typer.echo(
                 f"{result.score:.3f}\t{track.track_id}\t"
-                f"{track.track_uuid}\t{track.content_generation}\t"
-                f"{track.file_path}"
+                f"{track.track_uuid}\t{track.file_path}"
             )
     except (RuntimeError, ValueError, VectorIndexUnavailable) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)

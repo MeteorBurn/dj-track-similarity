@@ -49,7 +49,6 @@ def load_transition_tracks_for_targets(
             catalog_uuid=target.catalog_uuid,
             track_id=target.track_id,
             track_uuid=target.track_uuid,
-            content_generation=target.content_generation,
         )
         existing = identities.get(identity.track_id)
         if existing is not None and existing != identity:
@@ -86,7 +85,6 @@ def _load_transition_tracks(
             (summary := summaries.get(track_id)) is not None
             and summary.catalog_uuid == identity.catalog_uuid
             and summary.track_uuid == identity.track_uuid
-            and summary.content_generation == identity.content_generation
         )
     }
     if not stable_identities:
@@ -129,5 +127,4 @@ def _analysis_target(identity: TrackIdentity) -> AnalysisTarget:
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )

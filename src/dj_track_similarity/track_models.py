@@ -55,18 +55,16 @@ class ScannedFile:
 
 @dataclass(frozen=True)
 class TrackIdentity:
-    """Stable track identity and the generation of its current file content."""
+    """Stable identity of one library track."""
 
     catalog_uuid: str
     track_id: int
     track_uuid: str
-    content_generation: int
 
     def __post_init__(self) -> None:
         _required_text(self.catalog_uuid, "catalog_uuid")
         _positive_int(self.track_id, "track_id")
         _required_text(self.track_uuid, "track_uuid")
-        _positive_int(self.content_generation, "content_generation")
 
 
 @dataclass(frozen=True)
@@ -79,7 +77,6 @@ class TrackFileState:
     file_path: str
     file_size_bytes: int
     file_modified_ns: int
-    content_generation: int
     missing_since: str | None
 
     def __post_init__(self) -> None:
@@ -99,7 +96,6 @@ class TrackFileState:
             or self.file_modified_ns < 0
         ):
             raise ValueError("file_modified_ns must be a non-negative integer")
-        _positive_int(self.content_generation, "content_generation")
 
 
 @dataclass(frozen=True)
@@ -162,7 +158,6 @@ class ScanStats:
 class RelocationChange(TypedDict):
     track_id: int
     track_uuid: str
-    content_generation: int
     old_path: str
     new_path: str
 

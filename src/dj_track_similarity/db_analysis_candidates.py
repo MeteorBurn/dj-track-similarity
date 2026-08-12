@@ -1,4 +1,4 @@
-"""Current-generation candidate readiness in one library connection."""
+"""Analysis candidate readiness in one library connection."""
 
 from __future__ import annotations
 
@@ -54,7 +54,6 @@ def read_current_track_rows(connection: sqlite3.Connection) -> list[sqlite3.Row]
         SELECT
             tracks.track_id, tracks.track_uuid, tracks.file_path,
             tracks.file_size_bytes, tracks.file_modified_ns,
-            tracks.content_generation,
             sonara.leading_silence_seconds,
             sonara.trailing_silence_seconds,
             sonara.intro_end_seconds,
@@ -62,7 +61,6 @@ def read_current_track_rows(connection: sqlite3.Connection) -> list[sqlite3.Row]
         FROM tracks
         LEFT JOIN sonara_features AS sonara
           ON sonara.track_id = tracks.track_id
-         AND sonara.content_generation = tracks.content_generation
         WHERE tracks.missing_since IS NULL
         ORDER BY tracks.file_path COLLATE NOCASE, tracks.track_id
         """
@@ -78,7 +76,6 @@ def target_from_track_row(
         catalog_uuid=catalog_uuid,
         track_id=int(row["track_id"]),
         track_uuid=str(row["track_uuid"]),
-        content_generation=int(row["content_generation"]),
     )
 
 
@@ -109,7 +106,6 @@ def _current_tracks(
             catalog_uuid=catalog_uuid,
             track_id=int(row["track_id"]),
             track_uuid=str(row["track_uuid"]),
-            content_generation=int(row["content_generation"]),
         )
         for row in read_current_track_rows(connection)
     }
@@ -119,7 +115,7 @@ def current_sonara_target_keys(
     connection: sqlite3.Connection,
     *,
     catalog_uuid: str,
-) -> set[tuple[int, str, int]]:
+) -> set[tuple[int, str]]:
     return set(
         _valid_sonara_rows(
             connection,
@@ -133,10 +129,10 @@ def ready_target_keys_by_output(
     connection: sqlite3.Connection,
     catalog_uuid: str,
     outputs: Sequence[AnalysisOutput],
-) -> dict[tuple[str, str], set[tuple[int, str, int]]]:
+) -> dict[tuple[str, str], set[tuple[int, str]]]:
     normalized = require_active_analysis_outputs(connection, outputs)
     current_tracks = _current_tracks(connection, catalog_uuid=catalog_uuid)
-    ready: dict[tuple[str, str], set[tuple[int, str, int]]] = {}
+    ready: dict[tuple[str, str], set[tuple[int, str]]] = {}
     for output in normalized:
         if output.key == ("sonara", "core"):
             rows = _valid_sonara_rows(connection, current_tracks=current_tracks)
@@ -168,11 +164,11 @@ def _valid_sonara_rows(
     connection: sqlite3.Connection,
     *,
     current_tracks: dict[int, EmbeddingTrackIdentity],
-) -> tuple[tuple[int, str, int], ...]:
+) -> tuple[tuple[int, str], ...]:
     rows = connection.execute(
         f"SELECT {', '.join(SONARA_CORE_COLUMNS)} FROM sonara_features"
     ).fetchall()
-    valid: list[tuple[int, str, int]] = []
+    valid: list[tuple[int, str]] = []
     for row in rows:
         expected = current_tracks.get(int(row["track_id"]))
         if expected is None:
@@ -180,12 +176,9 @@ def _valid_sonara_rows(
         is_valid, _reason = validate_sonara_core_row(
             row,
             expected_track_id=expected.track_id,
-            expected_content_generation=expected.content_generation,
         )
         if is_valid:
-            valid.append(
-                (expected.track_id, expected.track_uuid, expected.content_generation)
-            )
+            valid.append((expected.track_id, expected.track_uuid))
     return tuple(valid)
 
 
@@ -193,11 +186,11 @@ def _valid_maest_rows(
     connection: sqlite3.Connection,
     *,
     current_tracks: dict[int, EmbeddingTrackIdentity],
-) -> tuple[tuple[int, str, int], ...]:
+) -> tuple[tuple[int, str], ...]:
     rows = connection.execute(
         f"SELECT {', '.join(MAEST_ANALYSIS_COLUMNS)} FROM maest_genres"
     ).fetchall()
-    valid: list[tuple[int, str, int]] = []
+    valid: list[tuple[int, str]] = []
     for row in rows:
         expected = current_tracks.get(int(row["track_id"]))
         if expected is None:
@@ -205,12 +198,9 @@ def _valid_maest_rows(
         is_valid, _reason = validate_maest_analysis_row(
             row,
             expected_track_id=expected.track_id,
-            expected_content_generation=expected.content_generation,
         )
         if is_valid:
-            valid.append(
-                (expected.track_id, expected.track_uuid, expected.content_generation)
-            )
+            valid.append((expected.track_id, expected.track_uuid))
     return tuple(valid)
 
 
@@ -220,15 +210,15 @@ def _valid_embedding_rows(
     table: str,
     output: AnalysisOutput,
     current_tracks: dict[int, EmbeddingTrackIdentity],
-) -> tuple[tuple[int, str, int], ...]:
+) -> tuple[tuple[int, str], ...]:
     rows = connection.execute(
         f"""
-        SELECT track_id, track_uuid, content_generation,
+        SELECT track_id, track_uuid,
                dim, normalization, embedding_blob
         FROM {table}
         """
     ).fetchall()
-    valid: list[tuple[int, str, int]] = []
+    valid: list[tuple[int, str]] = []
     for row in rows:
         expected = current_tracks.get(int(row["track_id"]))
         if expected is None:
@@ -239,18 +229,16 @@ def _valid_embedding_rows(
             expected_track=expected,
         )
         if is_valid:
-            valid.append(
-                (expected.track_id, expected.track_uuid, expected.content_generation)
-            )
+            valid.append((expected.track_id, expected.track_uuid))
     return tuple(valid)
 
 
 def missing_outputs_for_target(
     target: AnalysisTarget,
     outputs: Sequence[AnalysisOutput],
-    ready: dict[tuple[str, str], set[tuple[int, str, int]]],
+    ready: dict[tuple[str, str], set[tuple[int, str]]],
 ) -> tuple[AnalysisOutput, ...]:
-    target_key = (target.track_id, target.track_uuid, target.content_generation)
+    target_key = (target.track_id, target.track_uuid)
     return tuple(output for output in outputs if target_key not in ready.get(output.key, set()))
 
 
@@ -288,7 +276,7 @@ def collect_analysis_candidates(
     candidates: list[AnalysisCandidate] = []
     for row in read_current_track_rows(connection):
         target = target_from_track_row(row, catalog_uuid=catalog_uuid)
-        target_key = (target.track_id, target.track_uuid, target.content_generation)
+        target_key = (target.track_id, target.track_uuid)
         if require_current_sonara and target_key not in sonara_ready:
             continue
         missing = missing_outputs_for_target(target, normalized, ready)

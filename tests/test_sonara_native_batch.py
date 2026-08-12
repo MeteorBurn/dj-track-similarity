@@ -103,7 +103,6 @@ class RecordingRepository:
                 catalog_uuid=results[0].target.catalog_uuid,
                 track_id=999,
                 track_uuid=results[0].target.track_uuid,
-                content_generation=results[0].target.content_generation,
             )
             results[0] = AnalysisWriteResult(target=wrong)
         if self.truncate_results and results:
@@ -117,7 +116,6 @@ def _candidate(track_id: int, name: str) -> AnalysisCandidate:
             catalog_uuid=str(uuid.UUID(int=1)),
             track_id=track_id,
             track_uuid=str(uuid.UUID(int=100 + track_id)),
-            content_generation=1,
         ),
         file_path=f"/music/{name}.wav",
         file_size_bytes=1_000,

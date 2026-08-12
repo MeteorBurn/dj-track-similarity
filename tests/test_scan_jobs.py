@@ -164,5 +164,4 @@ def test_tag_refresh_job_rejects_stale_missing_snapshot_as_file_failure(
     assert status.skipped == 0
     current = database.get_track_file_state(audio_path)
     assert current is not None
-    assert current.content_generation == 2
     assert current.missing_since is None

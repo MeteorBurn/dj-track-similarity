@@ -69,7 +69,6 @@ SQLITE_CACHE_SIZE_KIB = -32_768
 class TrackIdentity:
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     file_path: str
 
     def __post_init__(self) -> None:
@@ -83,12 +82,6 @@ class TrackIdentity:
             "track_uuid",
             _required_identity_text(self.track_uuid, "track_uuid"),
         )
-        if (
-            isinstance(self.content_generation, bool)
-            or not isinstance(self.content_generation, int)
-            or self.content_generation <= 0
-        ):
-            raise ValueError("content_generation must be a positive integer")
         object.__setattr__(
             self,
             "file_path",
@@ -109,7 +102,6 @@ class ClassifierLabel:
 class ClassifierPredictionWrite:
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     selected_path: str
     artist: str | None
     title: str | None
@@ -134,7 +126,6 @@ class PredictionStage:
             CREATE TABLE staged_predictions(
                 catalog_uuid TEXT NOT NULL,
                 track_uuid TEXT NOT NULL,
-                content_generation INTEGER NOT NULL,
                 selected_path TEXT NOT NULL,
                 artist TEXT,
                 title TEXT,
@@ -144,7 +135,6 @@ class PredictionStage:
                 PRIMARY KEY(
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path
                 )
             ) WITHOUT ROWID
@@ -163,7 +153,6 @@ class PredictionStage:
             (
                 prediction.catalog_uuid,
                 prediction.track_uuid,
-                prediction.content_generation,
                 prediction.selected_path,
                 prediction.artist,
                 prediction.title,
@@ -179,14 +168,13 @@ class PredictionStage:
                 INSERT INTO staged_predictions(
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     artist,
                     title,
                     label,
                     confidence,
                     probabilities_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 values,
             )
@@ -287,7 +275,6 @@ class RhythmLabDatabase:
                     label,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path
                 );
 
@@ -298,7 +285,6 @@ class RhythmLabDatabase:
                     confidence,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path
                 );
 
@@ -307,7 +293,6 @@ class RhythmLabDatabase:
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     updated_at DESC,
                     model_artifact DESC
@@ -328,7 +313,6 @@ class RhythmLabDatabase:
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     mode
                 );
@@ -624,14 +608,12 @@ class RhythmLabDatabase:
                     WHERE classifier_key = ?
                       AND catalog_uuid = ?
                       AND track_uuid = ?
-                      AND content_generation = ?
                       AND selected_path = ?
                     """,
                     (
                         profile_key,
                         identity.catalog_uuid,
                         identity.track_uuid,
-                        identity.content_generation,
                         identity.file_path,
                     ),
                 )
@@ -647,19 +629,17 @@ class RhythmLabDatabase:
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     file_size_bytes,
                     file_modified_ns,
                     label,
                     note
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path
                 ) DO UPDATE SET
                     file_size_bytes = excluded.file_size_bytes,
@@ -672,7 +652,6 @@ class RhythmLabDatabase:
                     profile_key,
                     identity.catalog_uuid,
                     identity.track_uuid,
-                    identity.content_generation,
                     identity.file_path,
                     track.file_size_bytes,
                     track.file_modified_ns,
@@ -688,20 +667,17 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT catalog_uuid, track_uuid, content_generation,
-                       selected_path, label, note, updated_at
+                SELECT catalog_uuid, track_uuid, selected_path, label, note, updated_at
                 FROM classifier_labels
                 WHERE classifier_key = ?
                   AND catalog_uuid = ?
                   AND track_uuid = ?
-                  AND content_generation = ?
                   AND selected_path = ?
                 """,
                 (
                     profile_key,
                     clean_identity.catalog_uuid,
                     clean_identity.track_uuid,
-                    clean_identity.content_generation,
                     clean_identity.file_path,
                 ),
             ).fetchone()
@@ -714,8 +690,7 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT catalog_uuid, track_uuid, content_generation,
-                       selected_path, label, note, updated_at
+                SELECT catalog_uuid, track_uuid, selected_path, label, note, updated_at
                 FROM classifier_labels
                 WHERE classifier_key = ?
                 """,
@@ -756,7 +731,6 @@ class RhythmLabDatabase:
                     profile_key,
                     identity.catalog_uuid,
                     identity.track_uuid,
-                    identity.content_generation,
                     identity.file_path,
                     clean_mode,
                     score,
@@ -773,19 +747,17 @@ class RhythmLabDatabase:
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     mode,
                     score,
                     priority,
                     reason_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     mode
                 ) DO UPDATE SET
@@ -809,13 +781,13 @@ class RhythmLabDatabase:
             rows = connection.execute(
                 f"""
                 SELECT id, classifier_key, catalog_uuid, track_uuid,
-                       content_generation, selected_path, mode, score, priority,
+                       selected_path, mode, score, priority,
                        reason_json, state, created_at, updated_at
                 FROM classifier_label_queue
                 WHERE classifier_key = ?
                   {state_clause}
                 ORDER BY priority DESC, updated_at DESC,
-                         catalog_uuid, track_uuid, content_generation
+                         catalog_uuid, track_uuid
                 """,
                 tuple(params),
             ).fetchall()
@@ -841,7 +813,7 @@ class RhythmLabDatabase:
             row = connection.execute(
                 """
                 SELECT id, classifier_key, catalog_uuid, track_uuid,
-                       content_generation, selected_path, mode, score, priority,
+                       selected_path, mode, score, priority,
                        reason_json, state, created_at, updated_at
                 FROM classifier_label_queue
                 WHERE id = ? AND classifier_key = ?
@@ -870,11 +842,10 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT catalog_uuid, track_uuid, content_generation,
-                       selected_path, label
+                SELECT catalog_uuid, track_uuid, selected_path, label
                 FROM classifier_labels
                 WHERE classifier_key = ? AND label IN ({placeholders})
-                ORDER BY catalog_uuid, track_uuid, content_generation
+                ORDER BY catalog_uuid, track_uuid
                 """,
                 (profile_key, *training_keys),
             ).fetchall()
@@ -882,7 +853,6 @@ class RhythmLabDatabase:
             TrackIdentity(
                 catalog_uuid=str(row["catalog_uuid"]),
                 track_uuid=str(row["track_uuid"]),
-                content_generation=int(row["content_generation"]),
                 file_path=str(row["selected_path"]),
             ): str(row["label"])
             for row in rows
@@ -982,7 +952,6 @@ class RhythmLabDatabase:
                         classifier_key,
                         catalog_uuid,
                         track_uuid,
-                        content_generation,
                         selected_path,
                         artist,
                         title,
@@ -992,7 +961,7 @@ class RhythmLabDatabase:
                         confidence,
                         probabilities_json
                     )
-                    SELECT ?, catalog_uuid, track_uuid, content_generation,
+                    SELECT ?, catalog_uuid, track_uuid,
                            selected_path, artist, title, ?, ?, label,
                            confidence, probabilities_json
                     FROM prediction_stage.staged_predictions
@@ -1035,7 +1004,6 @@ class RhythmLabDatabase:
                 profile_key,
                 prediction.catalog_uuid,
                 prediction.track_uuid,
-                prediction.content_generation,
                 prediction.selected_path,
                 prediction.artist,
                 prediction.title,
@@ -1056,7 +1024,6 @@ class RhythmLabDatabase:
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     artist,
                     title,
@@ -1066,12 +1033,11 @@ class RhythmLabDatabase:
                     confidence,
                     probabilities_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     classifier_key,
                     catalog_uuid,
                     track_uuid,
-                    content_generation,
                     selected_path,
                     feature_set,
                     model_artifact
@@ -1092,7 +1058,7 @@ class RhythmLabDatabase:
             rows = connection.execute(
                 """
                 SELECT rowid AS prediction_rowid, catalog_uuid, track_uuid,
-                       content_generation, selected_path, feature_set,
+                       selected_path, feature_set,
                        model_artifact, label, confidence, probabilities_json,
                        artist, title, updated_at
                 FROM classifier_predictions
@@ -1112,7 +1078,6 @@ class RhythmLabDatabase:
                     "prediction_rowid": int(row["prediction_rowid"]),
                     "catalog_uuid": str(row["catalog_uuid"]),
                     "track_uuid": str(row["track_uuid"]),
-                    "content_generation": int(row["content_generation"]),
                     "feature_set": str(row["feature_set"]),
                     "model_artifact": str(row["model_artifact"]),
                     "label": str(row["label"]),
@@ -1193,7 +1158,6 @@ def track_identity(track: SourceTrack) -> TrackIdentity:
     return TrackIdentity(
         catalog_uuid=track.catalog_uuid,
         track_uuid=track.track_uuid,
-        content_generation=track.content_generation,
         file_path=track.file_path,
     )
 
@@ -1215,7 +1179,6 @@ def prepare_prediction_write(
     return ClassifierPredictionWrite(
         catalog_uuid=identity.catalog_uuid,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
         selected_path=identity.file_path,
         artist=tags.artist if tags is not None else None,
         title=tags.title if tags is not None else None,
@@ -1500,7 +1463,7 @@ def _rename_prediction_probability_key(
 ) -> None:
     rows = connection.execute(
         """
-        SELECT classifier_key, catalog_uuid, track_uuid, content_generation,
+        SELECT classifier_key, catalog_uuid, track_uuid,
                selected_path, feature_set, model_artifact, probabilities_json
         FROM classifier_predictions
         WHERE classifier_key = ?
@@ -1523,7 +1486,6 @@ def _rename_prediction_probability_key(
             WHERE classifier_key = ?
               AND catalog_uuid = ?
               AND track_uuid = ?
-              AND content_generation = ?
               AND selected_path = ?
               AND feature_set = ?
               AND model_artifact = ?
@@ -1533,7 +1495,6 @@ def _rename_prediction_probability_key(
                 row["classifier_key"],
                 row["catalog_uuid"],
                 row["track_uuid"],
-                row["content_generation"],
                 row["selected_path"],
                 row["feature_set"],
                 row["model_artifact"],
@@ -1658,7 +1619,6 @@ def _queue_row_payload(row: sqlite3.Row) -> dict[str, object]:
         "classifier_key": str(row["classifier_key"]),
         "catalog_uuid": str(row["catalog_uuid"]),
         "track_uuid": str(row["track_uuid"]),
-        "content_generation": int(row["content_generation"]),
         "selected_path": str(row["selected_path"]),
         "mode": str(row["mode"]),
         "score": float(row["score"]) if row["score"] is not None else None,
@@ -1718,17 +1678,9 @@ def _require_track_identity(identity: TrackIdentity) -> TrackIdentity:
 def _identity_from_mapping(item: Mapping[str, object]) -> TrackIdentity:
     if not isinstance(item, Mapping):
         raise TypeError("queue item must be a mapping")
-    generation = item.get("content_generation")
-    if isinstance(generation, bool):
-        raise ValueError("content_generation must be a positive integer")
-    try:
-        clean_generation = int(generation)
-    except (TypeError, ValueError) as error:
-        raise ValueError("content_generation must be a positive integer") from error
     return TrackIdentity(
         catalog_uuid=_required_identity_text(item.get("catalog_uuid"), "catalog_uuid"),
         track_uuid=_required_identity_text(item.get("track_uuid"), "track_uuid"),
-        content_generation=clean_generation,
         file_path=_required_identity_text(
             item.get("selected_path", item.get("file_path")),
             "file_path",
@@ -1741,7 +1693,6 @@ def _classifier_label_from_row(row: sqlite3.Row) -> ClassifierLabel:
         identity=TrackIdentity(
             catalog_uuid=str(row["catalog_uuid"]),
             track_uuid=str(row["track_uuid"]),
-            content_generation=int(row["content_generation"]),
             file_path=str(row["selected_path"]),
         ),
         selected_path=str(row["selected_path"]),
@@ -1792,7 +1743,6 @@ def _classifier_labels_table_sql(table: str) -> str:
             classifier_key TEXT NOT NULL,
             catalog_uuid TEXT NOT NULL,
             track_uuid TEXT NOT NULL,
-            content_generation INTEGER NOT NULL CHECK(content_generation > 0),
             selected_path TEXT NOT NULL,
             file_size_bytes INTEGER NOT NULL CHECK(file_size_bytes >= 0),
             file_modified_ns INTEGER NOT NULL CHECK(file_modified_ns >= 0),
@@ -1800,8 +1750,7 @@ def _classifier_labels_table_sql(table: str) -> str:
             note TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(
-                classifier_key, catalog_uuid, track_uuid, content_generation,
-                selected_path
+                classifier_key, catalog_uuid, track_uuid, selected_path
             ),
             FOREIGN KEY(classifier_key)
                 REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
@@ -1818,7 +1767,6 @@ def _classifier_label_queue_table_sql(table: str) -> str:
             classifier_key TEXT NOT NULL,
             catalog_uuid TEXT NOT NULL,
             track_uuid TEXT NOT NULL,
-            content_generation INTEGER NOT NULL CHECK(content_generation > 0),
             selected_path TEXT NOT NULL,
             mode TEXT NOT NULL CHECK(mode IN ('{modes}')),
             score REAL,
@@ -1828,8 +1776,7 @@ def _classifier_label_queue_table_sql(table: str) -> str:
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(
-                classifier_key, catalog_uuid, track_uuid, content_generation,
-                selected_path, mode
+                classifier_key, catalog_uuid, track_uuid, selected_path, mode
             ),
             FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
@@ -1842,7 +1789,6 @@ def _classifier_predictions_table_sql(table: str) -> str:
             classifier_key TEXT NOT NULL,
             catalog_uuid TEXT NOT NULL,
             track_uuid TEXT NOT NULL,
-            content_generation INTEGER NOT NULL CHECK(content_generation > 0),
             selected_path TEXT NOT NULL,
             artist TEXT,
             title TEXT,
@@ -1853,8 +1799,8 @@ def _classifier_predictions_table_sql(table: str) -> str:
             probabilities_json TEXT NOT NULL CHECK(json_valid(probabilities_json)),
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(
-                classifier_key, catalog_uuid, track_uuid, content_generation,
-                selected_path, feature_set, model_artifact
+                classifier_key, catalog_uuid, track_uuid, selected_path,
+                feature_set, model_artifact
             ),
             FOREIGN KEY(classifier_key)
                 REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE

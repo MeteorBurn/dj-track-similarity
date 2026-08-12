@@ -233,7 +233,6 @@ def _hydrate_similarity_results(
         if (
             track.catalog_uuid != result.target.catalog_uuid
             or track.track_uuid != result.target.track_uuid
-            or track.content_generation != result.target.content_generation
         ):
             raise RuntimeError(
                 "Search result became stale before response assembly: "
@@ -263,7 +262,6 @@ def _hydrate_search_target(
     if (
         track.catalog_uuid != target.catalog_uuid
         or track.track_uuid != target.track_uuid
-        or track.content_generation != target.content_generation
     ):
         raise RuntimeError(
             "Search target became stale before response assembly: "

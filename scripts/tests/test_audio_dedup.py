@@ -37,14 +37,12 @@ def _create_rhythm_lab_db(path: Path) -> None:
                 classifier_key TEXT NOT NULL,
                 catalog_uuid TEXT NOT NULL,
                 track_uuid TEXT NOT NULL,
-                content_generation INTEGER NOT NULL,
                 selected_path TEXT NOT NULL,
                 label TEXT NOT NULL,
                 note TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY(
-                    classifier_key, catalog_uuid, track_uuid,
-                    content_generation
+                    classifier_key, catalog_uuid, track_uuid
                 )
             );
 
@@ -52,7 +50,6 @@ def _create_rhythm_lab_db(path: Path) -> None:
                 classifier_key TEXT NOT NULL,
                 catalog_uuid TEXT NOT NULL,
                 track_uuid TEXT NOT NULL,
-                content_generation INTEGER NOT NULL,
                 selected_path TEXT NOT NULL,
                 artist TEXT,
                 title TEXT,
@@ -63,8 +60,7 @@ def _create_rhythm_lab_db(path: Path) -> None:
                 probabilities_json TEXT NOT NULL DEFAULT '{}',
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY(
-                    classifier_key, catalog_uuid, track_uuid,
-                    content_generation, feature_set, model_artifact
+                    classifier_key, catalog_uuid, track_uuid
                 )
             );
 
@@ -136,22 +132,20 @@ def _insert_track(
             connection.execute(
                 """
                 INSERT INTO sonara_features(
-                    track_id, content_generation,
-                    detected_bpm, onset_density_per_second,
+                    track_id, detected_bpm, onset_density_per_second,
                     energy_score, danceability_score, valence_score,
                     acousticness_score, spectral_centroid_hz,
                     integrated_loudness_lufs, dynamic_range_db,
                     mfcc_mean_blob, chroma_mean_blob,
                     spectral_contrast_mean_blob, analyzed_at
                 ) VALUES(
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     zeroblob(52), zeroblob(48), zeroblob(28),
                     '2026-07-24T00:00:00.000000Z'
                 )
                 """,
                 (
                     identity.track_id,
-                    identity.content_generation,
                     sonara.get("bpm"),
                     sonara.get("onset_density"),
                     sonara.get("energy"),
@@ -171,18 +165,16 @@ def _insert_track(
             connection.execute(
                 f"""
                 INSERT INTO {key}_embeddings(
-                    track_id, track_uuid, content_generation,
-                    dim, normalization,
+                    track_id, track_uuid, dim, normalization,
                     embedding_blob, analyzed_at
                 ) VALUES(
-                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     '2026-07-24T00:00:00.000000Z'
                 )
                 """,
                 (
                     identity.track_id,
                     identity.track_uuid,
-                    identity.content_generation,
                     dimension,
                     "l2",
                     vector.tobytes(),
@@ -200,7 +192,6 @@ def _identity_tuple(
     return (
         identity.catalog_uuid,
         identity.track_uuid,
-        identity.content_generation,
     )
 
 
@@ -1102,9 +1093,8 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
         connection.executemany(
             """
             INSERT INTO classifier_labels(
-                classifier_key, catalog_uuid, track_uuid,
-                content_generation, selected_path, label
-            ) VALUES ('break_energy', ?, ?, ?, ?, ?)
+                classifier_key, catalog_uuid, track_uuid, selected_path, label
+            ) VALUES ('break_energy', ?, ?, ?, ?)
             """,
             [
                 (*keeper_identity, str(keeper_path), "keep_label"),
@@ -1113,14 +1103,13 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
         )
         connection.execute(
             """
-            INSERT INTO classifier_predictions(
-                classifier_key, catalog_uuid, track_uuid,
-                content_generation, selected_path, feature_set,
-                model_artifact, label, confidence, probabilities_json
-            )
-            VALUES (
-                'break_energy', ?, ?, ?, ?, 'combined',
-                'model.joblib', 'delete_prediction', 0.9, '{}'
+                INSERT INTO classifier_predictions(
+                    classifier_key, catalog_uuid, track_uuid, selected_path,
+                    feature_set, model_artifact, label, confidence, probabilities_json
+                )
+                VALUES (
+                    'break_energy', ?, ?, ?,
+                    'combined', 'model.joblib', 'delete_prediction', 0.9, '{}'
             )
             """,
             (*duplicate_identity, str(duplicate_path)),
@@ -1154,7 +1143,6 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
         (
             row["catalog_uuid"],
             row["track_uuid"],
-            row["content_generation"],
         )
         for row in impact["affected_rows"]
     } == {duplicate_identity}
@@ -1194,10 +1182,9 @@ def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: 
         connection.execute(
             """
             INSERT INTO classifier_labels(
-                classifier_key, catalog_uuid, track_uuid,
-                content_generation, selected_path, label
+                classifier_key, catalog_uuid, track_uuid, selected_path, label
             ) VALUES (
-                'break_energy', ?, ?, ?, ?, 'delete_label'
+                'break_energy', ?, ?, ?, 'delete_label'
             )
             """,
             (*duplicate_identity, str(duplicate_path)),
@@ -1335,9 +1322,8 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
         connection.executemany(
             """
             INSERT INTO classifier_labels(
-                classifier_key, catalog_uuid, track_uuid,
-                content_generation, selected_path, label
-            ) VALUES ('break_energy', ?, ?, ?, ?, 'broken')
+                classifier_key, catalog_uuid, track_uuid, selected_path, label
+            ) VALUES ('break_energy', ?, ?, ?, 'broken')
             """,
             [
                 (*keeper_identity, str(keeper_path)),
@@ -1346,14 +1332,13 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
         )
         connection.executemany(
             """
-            INSERT INTO classifier_predictions(
-                classifier_key, catalog_uuid, track_uuid,
-                content_generation, selected_path, feature_set,
-                model_artifact, label, confidence, probabilities_json
-            )
-            VALUES(
-                'break_energy', ?, ?, ?, ?, 'combined',
-                'model.joblib', 'broken', 0.9, '{}'
+                INSERT INTO classifier_predictions(
+                    classifier_key, catalog_uuid, track_uuid, selected_path,
+                    feature_set, model_artifact, label, confidence, probabilities_json
+                )
+                VALUES(
+                    'break_energy', ?, ?, ?,
+                    'combined', 'model.joblib', 'broken', 0.9, '{}'
             )
             """,
             [

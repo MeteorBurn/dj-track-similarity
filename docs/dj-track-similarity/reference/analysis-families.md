@@ -91,8 +91,7 @@ Core features rather than a SONARA embedding.
 
 ## ML prerequisite and MAEST windows
 
-Project ML jobs select only tracks with a valid SONARA Core result for the same
-current `content_generation`. ML and promoted-classifier jobs cannot start
+Project ML jobs select only tracks with a valid SONARA Core result. ML and promoted-classifier jobs cannot start
 until the catalog contains at least one such track. A pipeline that includes
 SONARA can establish this prerequisite before its ML and classifier stages run.
 

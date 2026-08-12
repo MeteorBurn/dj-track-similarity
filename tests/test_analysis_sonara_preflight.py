@@ -30,7 +30,6 @@ def _candidate(
             catalog_uuid="catalog-test",
             track_id=track_id,
             track_uuid=f"track-{track_id}",
-            content_generation=1,
         ),
         file_path=f"C:/music/{track_id}.wav",
         file_size_bytes=100,

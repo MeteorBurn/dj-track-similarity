@@ -3,7 +3,7 @@
 Core track ids are accepted only at the main-app boundary and are resolved
 through :class:`TrackRepository` into stable current identities. Persisted
 collection membership is keyed by catalog UUID and track UUID, with the
-content generation and selected path retained as an immutable audit snapshot.
+selected path retained as an immutable audit snapshot.
 """
 
 from __future__ import annotations
@@ -57,7 +57,6 @@ RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
             "classifier_key",
             "catalog_uuid",
             "track_uuid",
-            "content_generation",
             "selected_path",
             "file_size_bytes",
             "file_modified_ns",
@@ -72,7 +71,6 @@ RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
             "classifier_key",
             "catalog_uuid",
             "track_uuid",
-            "content_generation",
             "selected_path",
             "mode",
             "score",
@@ -88,7 +86,6 @@ RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
             "classifier_key",
             "catalog_uuid",
             "track_uuid",
-            "content_generation",
             "selected_path",
             "artist",
             "title",
@@ -123,7 +120,6 @@ _COLLECTION_TRACK_COLUMNS = {
     "collection_id",
     "catalog_uuid",
     "track_uuid",
-    "content_generation",
     "selected_path",
     "position",
     "score",
@@ -137,7 +133,6 @@ class _TrackFileState(Protocol):
     track_id: int
     track_uuid: str
     file_path: str
-    content_generation: int
 
 
 class RhythmLabTrackRepository(Protocol):
@@ -159,7 +154,6 @@ class RhythmLabTrackSelection:
 
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     selected_path: str
 
     def __post_init__(self) -> None:
@@ -172,10 +166,6 @@ class RhythmLabTrackSelection:
             self,
             "track_uuid",
             _required_text(self.track_uuid, field="track_uuid"),
-        )
-        _positive_int(
-            self.content_generation,
-            field="content_generation",
         )
         _nonempty_path(self.selected_path)
 
@@ -212,7 +202,6 @@ class ReviewCollectionTrack:
     collection_id: int
     catalog_uuid: str
     track_uuid: str
-    content_generation: int
     selected_path: str
     position: int
     score: float | None
@@ -290,7 +279,6 @@ def build_rhythm_lab_collection_selection_exact(
             state is None
             or state.catalog_uuid != identity.catalog_uuid
             or state.track_uuid != identity.track_uuid
-            or state.content_generation != identity.content_generation
         ):
             raise RuntimeError(
                 "Track identity is stale; refresh the current catalog"
@@ -299,7 +287,6 @@ def build_rhythm_lab_collection_selection_exact(
             RhythmLabTrackSelection(
                 catalog_uuid=identity.catalog_uuid,
                 track_uuid=identity.track_uuid,
-                content_generation=identity.content_generation,
                 selected_path=str(state.file_path),
             )
         )
@@ -336,8 +323,6 @@ def ensure_review_collection_schema(connection: sqlite3.Connection) -> None:
             collection_id INTEGER NOT NULL,
             catalog_uuid TEXT NOT NULL,
             track_uuid TEXT NOT NULL,
-            content_generation INTEGER NOT NULL
-                CHECK(content_generation >= 1),
             selected_path TEXT NOT NULL,
             position INTEGER NOT NULL CHECK(position >= 1),
             score REAL,
@@ -683,7 +668,6 @@ def _collection_tracks(
             collection_id,
             catalog_uuid,
             track_uuid,
-            content_generation,
             selected_path,
             position,
             score,
@@ -700,7 +684,6 @@ def _collection_tracks(
             collection_id=int(row["collection_id"]),
             catalog_uuid=str(row["catalog_uuid"]),
             track_uuid=str(row["track_uuid"]),
-            content_generation=int(row["content_generation"]),
             selected_path=str(row["selected_path"]),
             position=int(row["position"]),
             score=(
@@ -727,7 +710,6 @@ def _insert_collection_tracks(
             collection_id,
             track.catalog_uuid,
             track.track_uuid,
-            track.content_generation,
             track.selected_path,
             position,
         )
@@ -742,11 +724,10 @@ def _insert_collection_tracks(
             collection_id,
             catalog_uuid,
             track_uuid,
-            content_generation,
             selected_path,
             position
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -891,7 +872,6 @@ def _reject_noncanonical_table(
         required_identity = {
             "catalog_uuid",
             "track_uuid",
-            "content_generation",
             "selected_path",
         }
         if (

@@ -80,7 +80,6 @@ _CORE_TRACK_COLUMNS = (
     "file_path",
     "file_size_bytes",
     "file_modified_ns",
-    "content_generation",
 )
 
 
@@ -211,7 +210,7 @@ def preview_rebind_bundle(
         track_rows = connection.execute(
             """
             SELECT track_id, track_uuid, file_path, file_size_bytes,
-                   file_modified_ns, content_generation
+                   file_modified_ns
             FROM tracks
             ORDER BY track_id, track_uuid
             """
@@ -321,7 +320,6 @@ def build_rebound_bundle(
                 raise ValueError("Matched preview outcome is missing its target")
             binding = {
                 "catalog_uuid": str(target["catalog_uuid"]),
-                "content_generation": int(target["content_generation"]),
                 "selected_path": str(target["file_path"]),
                 "track_id": int(target["track_id"]),
                 "track_uuid": str(target["track_uuid"]),
@@ -459,12 +457,12 @@ def restore_label_bundle(
                 """
                 INSERT INTO classifier_labels(
                     classifier_key, catalog_uuid, track_uuid,
-                    content_generation, selected_path, file_size_bytes,
+                    selected_path, file_size_bytes,
                     file_modified_ns, label, note, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     classifier_key, catalog_uuid, track_uuid,
-                    content_generation, selected_path
+                    selected_path
                 ) DO UPDATE SET
                     file_size_bytes = excluded.file_size_bytes,
                     file_modified_ns = excluded.file_modified_ns,
@@ -476,7 +474,6 @@ def restore_label_bundle(
                     source_row["classifier_key"],
                     target_row["catalog_uuid"],
                     target_row["track_uuid"],
-                    target_row["content_generation"],
                     target_row["selected_path"],
                     target_row["file_size_bytes"],
                     target_row["file_modified_ns"],
@@ -555,10 +552,6 @@ def _build_restore_plan(
             )
             target = {
                 "catalog_uuid": _required_text(binding, "catalog_uuid"),
-                "content_generation": _required_int(
-                    binding,
-                    "content_generation",
-                ),
                 "file_modified_ns": _required_int(
                     snapshot,
                     "file_modified_ns",
@@ -576,7 +569,6 @@ def _build_restore_plan(
             current_identity = (
                 target["catalog_uuid"],
                 target["track_uuid"],
-                target["content_generation"],
                 target["selected_path"],
                 target["file_size_bytes"],
                 target["file_modified_ns"],
@@ -626,7 +618,6 @@ def _build_restore_plan(
             item["source"]["classifier_key"],
             target["catalog_uuid"],
             target["track_uuid"],
-            target["content_generation"],
             target["selected_path"],
         )
         groups.setdefault(identity, []).append(item)
@@ -716,7 +707,7 @@ def _read_current_core_targets(
                 for row in connection.execute(
                     """
                     SELECT track_id, track_uuid, file_path, file_size_bytes,
-                           file_modified_ns, content_generation
+                           file_modified_ns
                     FROM tracks
                     ORDER BY track_id, track_uuid
                     """
@@ -736,7 +727,6 @@ def _read_current_core_targets(
         (
             row["catalog_uuid"],
             row["track_uuid"],
-            row["content_generation"],
             row["file_path"],
             row["file_size_bytes"],
             row["file_modified_ns"],
@@ -1382,7 +1372,6 @@ def _core_track_payload(
 ) -> dict[str, Any]:
     return {
         "catalog_uuid": catalog_uuid,
-        "content_generation": int(row["content_generation"]),
         "file_modified_ns": int(row["file_modified_ns"]),
         "file_path": str(row["file_path"]),
         "file_size_bytes": int(row["file_size_bytes"]),
@@ -1646,7 +1635,6 @@ def _validate_rebound_bundle(bundle: Mapping[str, Any]) -> None:
             )
             expected_binding = {
                 "catalog_uuid": str(target["catalog_uuid"]),
-                "content_generation": int(target["content_generation"]),
                 "selected_path": str(target["file_path"]),
                 "track_id": int(target["track_id"]),
                 "track_uuid": str(target["track_uuid"]),
@@ -1888,11 +1876,8 @@ def _validate_target(
     if canonical_path_key(_required_text(target, "file_path")) != expected_path_key:
         raise ValueError("Target path does not match source canonical path")
     track_id = _required_int(target, "track_id")
-    generation = _required_int(target, "content_generation")
     if track_id <= 0:
         raise ValueError("Target track_id must be positive")
-    if generation <= 0:
-        raise ValueError("Target content_generation must be positive")
     _required_text(target, "track_uuid")
     if _required_int(target, "file_size_bytes") < 0:
         raise ValueError("Target file_size_bytes must be non-negative")

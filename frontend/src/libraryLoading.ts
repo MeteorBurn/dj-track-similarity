@@ -61,9 +61,7 @@ export function mergeLibraryTracks(current: Track[], incoming: Track[]) {
       merged.push(track);
       continue;
     }
-    if (track.content_generation >= merged[existingIndex].content_generation) {
-      merged[existingIndex] = track;
-    }
+    merged[existingIndex] = track;
   }
   return merged;
 }

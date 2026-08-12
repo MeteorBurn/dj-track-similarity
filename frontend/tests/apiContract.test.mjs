@@ -274,7 +274,6 @@ test("liked mutation serializes the exact optimistic track identity", async () =
     track_id: 41,
     catalog_uuid: "catalog-current",
     track_uuid: "track-current",
-    content_generation: 7,
     file_path: "D:/Music/example.wav",
     title: "Example",
     artist: "Artist",
@@ -299,7 +298,6 @@ test("liked mutation serializes the exact optimistic track identity", async () =
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     catalog_uuid: "catalog-current",
     track_uuid: "track-current",
-    expected_content_generation: 7,
     liked: true
   });
 });

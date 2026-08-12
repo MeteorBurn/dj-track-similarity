@@ -396,12 +396,11 @@ function trackIdentityPayload(track: TrackSummary): TrackIdentity {
     track_id: track.track_id,
     catalog_uuid: track.catalog_uuid,
     track_uuid: track.track_uuid,
-    content_generation: track.content_generation,
   };
 }
 
 function trackIdentityKey(track: TrackSummary) {
-  return `${track.catalog_uuid}:${track.track_uuid}:${track.content_generation}:${track.track_id}`;
+  return `${track.catalog_uuid}:${track.track_uuid}:${track.track_id}`;
 }
 
 function verdictKey(model: ReferenceCompareModel, track: TrackSummary) {

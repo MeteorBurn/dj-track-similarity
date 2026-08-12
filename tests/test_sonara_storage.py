@@ -26,7 +26,6 @@ def _candidate() -> AnalysisCandidate:
             catalog_uuid=str(uuid.UUID(int=1)),
             track_id=7,
             track_uuid=str(uuid.UUID(int=2)),
-            content_generation=3,
         ),
         file_path="/music/track.wav",
         file_size_bytes=123_456,
@@ -97,7 +96,6 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     write = _prepare(analysis)
 
     assert write.target.track_id == 7
-    assert write.target.content_generation == 3
     assert write.core.detected_bpm == 128.0
     assert write.core.beat_count == 3
     assert not hasattr(write, "timeline")
@@ -223,14 +221,11 @@ def test_non_core_values_are_ignored() -> None:
 def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -> None:
     analysis = _analysis()
     analysis["track_id"] = 999
-    analysis["content_generation"] = 999
 
     write = _prepare(analysis)
 
     assert write.target.track_id == 7
-    assert write.target.content_generation == 3
     assert write.core.track_id == 7
-    assert write.core.content_generation == 3
 
 
 @pytest.mark.parametrize(

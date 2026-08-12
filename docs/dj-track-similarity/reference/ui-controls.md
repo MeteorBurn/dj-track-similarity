@@ -21,12 +21,10 @@ separate Timeline or Representations database controls.
 - Library text search can use **LIKE** or **FTS**. Preset, liked-only, classifier-score, and sort
   controls remain server-backed filters.
 - Preview streams `/media/{track_id}`. Metadata is fetched on demand from
-  `/api/tracks/{track_id}`. A liked-track write carries `catalog_uuid`, `track_uuid`, and
-  `expected_content_generation`.
+  `/api/tracks/{track_id}`. A liked-track write carries `catalog_uuid` and `track_uuid`.
 
 Changing the database cancels or invalidates older library and search requests. Track rows are
-deduplicated by `catalog_uuid` plus `track_uuid`; when duplicate responses race, the greatest
-`content_generation` wins.
+deduplicated by `catalog_uuid` plus `track_uuid`.
 
 ## Analysis
 
@@ -64,8 +62,7 @@ rescans only that `classifier_key` from stored data, without decoding audio; the
 does not run classifier scoring.
 
 The **LAB** tab compares a reference track across CLAP, MERT, MuQ, MAEST, and SONARA. Unavailable
-models show a model-specific reason. Verdict writes include `catalog_uuid`, `track_uuid`, and
-`content_generation`, and the MuQ action sends `model="muq"`.
+models show a model-specific reason. Verdict writes include `catalog_uuid` and `track_uuid`, and the MuQ action sends `model="muq"`.
 
 The top-bar Rhythm Lab action calls `/api/rhythm-lab/launch` and opens the returned local URL. The
 current set can be saved as a Lab review collection. Standalone Rhythm Lab shows current, missing,

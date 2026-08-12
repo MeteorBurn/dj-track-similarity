@@ -12,7 +12,6 @@ MaestAnalysisRow: TypeAlias = Mapping[str, object] | sqlite3.Row
 
 MAEST_ANALYSIS_COLUMNS = (
     "track_id",
-    "content_generation",
     "syncopated_rhythm",
     "genres_json",
     "analyzed_at",
@@ -52,7 +51,6 @@ def validate_maest_analysis_row(
     row: MaestAnalysisRow,
     *,
     expected_track_id: int,
-    expected_content_generation: int,
 ) -> tuple[bool, str | None]:
     """Validate one complete MAEST analysis row against writer semantics."""
 
@@ -61,13 +59,6 @@ def validate_maest_analysis_row(
         track_id = _required_int(values["track_id"], "track_id", minimum=1)
         if track_id != expected_track_id:
             raise ValueError("track_id does not match the expected track")
-        generation = _required_int(
-            values["content_generation"],
-            "content_generation",
-            minimum=1,
-        )
-        if generation != expected_content_generation:
-            raise ValueError("content_generation does not match the expected track")
         syncopated = values["syncopated_rhythm"]
         if syncopated is not None:
             _required_int(

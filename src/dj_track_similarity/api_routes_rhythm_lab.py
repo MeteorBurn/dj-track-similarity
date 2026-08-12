@@ -32,7 +32,6 @@ class RhythmLabCollectionSaveRequest(BaseModel):
             (
                 track.catalog_uuid,
                 track.track_uuid,
-                track.content_generation,
             )
             for track in self.tracks
         }
@@ -78,7 +77,6 @@ def register_rhythm_lab_routes(
                     catalog_uuid=track.catalog_uuid,
                     track_id=track.track_id,
                     track_uuid=track.track_uuid,
-                    content_generation=track.content_generation,
                 )
                 for track in request.tracks
             ]

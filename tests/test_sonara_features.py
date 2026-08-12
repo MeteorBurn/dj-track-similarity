@@ -123,7 +123,6 @@ def _candidate(index: int) -> AnalysisCandidate:
             catalog_uuid=str(uuid.UUID(int=1)),
             track_id=index,
             track_uuid=str(uuid.UUID(int=100 + index)),
-            content_generation=1,
         ),
         file_path=f"/music/track-{index}.wav",
         file_size_bytes=1_000 * index,

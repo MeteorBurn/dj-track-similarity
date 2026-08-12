@@ -215,7 +215,6 @@ def test_build_manifest_binds_current_identity_without_versioned_contracts(
             "catalog_uuid": target.catalog_uuid,
             "track_id": target.track_id,
             "track_uuid": target.track_uuid,
-            "content_generation": target.content_generation,
         }
         for target in snapshot.targets
     ]
@@ -246,71 +245,6 @@ def test_build_manifest_binds_current_identity_without_versioned_contracts(
         for target in (hit.target for hit in hits)
     )
     assert repository.calls
-
-
-def test_generation_change_makes_index_stale_without_exact_fallback(
-    tmp_path: Path,
-    fake_hnsw: FakeHnswModule,
-) -> None:
-    del fake_hnsw
-    repository = _repository(tmp_path)
-    index_dir = tmp_path / "indexes"
-    build_persistent_index(
-        repository,
-        "mert",
-        analysis_output=repository.output,
-        index_dir=index_dir,
-    )
-    changed = repository.rows[1]
-    changed_target = AnalysisTarget(
-        catalog_uuid=changed.target.catalog_uuid,
-        track_id=changed.target.track_id,
-        track_uuid=changed.target.track_uuid,
-        content_generation=changed.target.content_generation + 1,
-    )
-    repository.rows = (
-        repository.rows[0],
-        AnalysisVectorRow(
-            target=changed_target,
-            output=changed.output,
-            vector=changed.vector,
-        ),
-        repository.rows[2],
-    )
-    current = load_embedding_index_snapshot(
-        repository,
-        "mert",
-        repository.output,
-    )
-
-    verification = verify_persistent_index(
-        repository,
-        "mert",
-        analysis_output=repository.output,
-        index_dir=index_dir,
-    )
-    backend = PersistentAnnVectorSearchBackend(
-        repository,
-        analysis_family="mert",
-        analysis_output=repository.output,
-        index_dir=index_dir,
-    )
-
-    assert verification.status == "stale"
-    assert "targets" in verification.reasons
-    assert "target_identity_hash" in verification.reasons
-    with pytest.raises(
-        VectorIndexUnavailable,
-        match="not usable|stale",
-    ):
-        backend.search(
-            current.matrix,
-            current.targets,
-            current.matrix[0],
-            2,
-        )
-    assert not hasattr(backend, "allow_exact_fallback")
-    assert not hasattr(backend, "fallback_backend")
 
 
 def test_artifact_and_target_identity_tampering_are_rejected(
@@ -349,7 +283,7 @@ def test_artifact_and_target_identity_tampering_are_rejected(
     manifest: dict[str, Any] = json.loads(
         build.manifest_path.read_text(encoding="utf-8")
     )
-    manifest["targets"][0]["content_generation"] += 1
+    manifest["targets"][0]["track_uuid"] = "tampered-track-uuid"
     build.manifest_path.write_text(
         json.dumps(manifest),
         encoding="utf-8",
@@ -395,7 +329,6 @@ def test_search_rejects_noncurrent_input_target_or_vector_snapshot(
         catalog_uuid=snapshot.catalog_uuid,
         track_id=snapshot.targets[1].track_id,
         track_uuid="different-track-uuid",
-        content_generation=snapshot.targets[1].content_generation,
     )
     wrong_targets = (
         snapshot.targets[0],
@@ -498,7 +431,6 @@ def _repository(tmp_path: Path) -> FakeAnalysisRepository:
             catalog_uuid=catalog_uuid,
             track_id=index,
             track_uuid=f"track-uuid-{index}",
-            content_generation=1,
         )
         for index in (1, 2, 3)
     )

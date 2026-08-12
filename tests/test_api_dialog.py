@@ -133,7 +133,6 @@ def test_relocate_library_endpoint_returns_composite_dry_run_preview(
         {
             "track_id": identity.track_id,
             "track_uuid": identity.track_uuid,
-            "content_generation": identity.content_generation,
             "old_path": resolved_file_path(old_file),
             "new_path": resolved_file_path(
                 new_root / "Artist" / "track.wav"
@@ -184,12 +183,10 @@ def test_relocate_library_apply_updates_only_database_path_and_keeps_identity(
         after.catalog_uuid,
         after.track_id,
         after.track_uuid,
-        after.content_generation,
     ) == (
         identity.catalog_uuid,
         identity.track_id,
         identity.track_uuid,
-        identity.content_generation,
     )
     assert old_file.read_bytes() == old_bytes
     assert new_file.read_bytes() == new_bytes

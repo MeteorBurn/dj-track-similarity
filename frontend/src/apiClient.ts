@@ -166,7 +166,6 @@ const libraryApi = {
       body: JSON.stringify({
         catalog_uuid: track.catalog_uuid,
         track_uuid: track.track_uuid,
-        expected_content_generation: track.content_generation,
         liked,
       })
     }),
@@ -308,7 +307,6 @@ const playlistApi = {
           track_id: track.track_id,
           catalog_uuid: track.catalog_uuid,
           track_uuid: track.track_uuid,
-          content_generation: track.content_generation,
         })),
         source: "main_ui_playlist",
         mode,

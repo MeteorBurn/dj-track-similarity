@@ -284,7 +284,6 @@ def _apply_genre_tag_to_candidate(
             file_path=candidate.file_path,
             file_size_bytes=candidate.expected_file_size_bytes,
             file_modified_ns=candidate.expected_file_modified_ns,
-            content_generation=candidate.content_generation,
             missing_since=None,
         )
         repository.apply_self_tag_write(

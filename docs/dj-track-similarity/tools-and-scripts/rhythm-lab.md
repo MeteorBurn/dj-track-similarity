@@ -43,7 +43,7 @@ returned local URL. The launch response is bound to the selected library catalog
 numeric track ID alone.
 
 The main set panel can also save its current ordered tracks as a Lab collection. That write carries
-`catalog_uuid`, `track_uuid`, and `content_generation` for every item. It does not change labels or
+`catalog_uuid` and `track_uuid` for every item. It does not change labels or
 source audio.
 
 ## MuQ-aware standalone UI
@@ -88,7 +88,7 @@ and pass its stable ID through `--accept-record-id`. Repeat the option to accept
 
 Immediately before planning either a preview or an apply, restore reopens the current library
 database read-only. It requires the rebound target to still match the exact `catalog_uuid`,
-`track_uuid`, `content_generation`, selected path, file size, and mtime. A changed binding becomes an
+`track_uuid`, selected path, file size, and mtime. A changed binding becomes an
 unresolved recovery record instead of being written as a label.
 
 Apply writes unresolved rows to `classifier_label_recovery`, including unaccepted weak matches,

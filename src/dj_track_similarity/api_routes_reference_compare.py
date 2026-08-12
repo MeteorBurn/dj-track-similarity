@@ -37,13 +37,11 @@ def register_reference_compare_routes(app: FastAPI, state: AppDatabaseState) -> 
                 catalog_uuid=request.seed.catalog_uuid,
                 track_id=request.seed.track_id,
                 track_uuid=request.seed.track_uuid,
-                content_generation=request.seed.content_generation,
             )
             candidate = TrackIdentity(
                 catalog_uuid=request.candidate.catalog_uuid,
                 track_id=request.candidate.track_id,
                 track_uuid=request.candidate.track_uuid,
-                content_generation=request.candidate.content_generation,
             )
             return record_reference_compare_verdict_exact(
                 database,

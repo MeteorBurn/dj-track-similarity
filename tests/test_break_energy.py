@@ -57,8 +57,8 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
             """
             INSERT INTO tracks (
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
-                content_generation, last_scanned_at, created_at, updated_at
-            ) VALUES (?, ?, 1024, 123456789, 1, ?, ?, ?)
+                last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, 123456789, ?, ?, ?)
             """,
             (
                 track_uuid,
@@ -73,7 +73,6 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
         catalog_uuid=db.catalog_uuid,
         track_id=track_id,
         track_uuid=track_uuid,
-        content_generation=1,
     )
 
 
@@ -107,7 +106,6 @@ def _write_sonara_core(
     values.update(
         {
             "track_id": target.track_id,
-            "content_generation": target.content_generation,
             "detected_bpm": 128.0,
             "bpm_confidence": 0.95,
             "detected_key_name": "A minor",

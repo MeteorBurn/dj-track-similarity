@@ -290,7 +290,6 @@ def _identity_from_row(
         catalog_uuid=catalog_uuid,
         track_id=int(row[0]),
         track_uuid=str(row[1]),
-        content_generation=int(row[2]),
     )
 
 
@@ -339,7 +338,7 @@ def _plan_relocation(
 ]:
     provisional: list[RelocationChange] = []
     for row in rows:
-        old_path = str(row[3])
+        old_path = str(row[2])
         new_path = _relocated_path(
             old_path,
             old_root=old_root,
@@ -351,7 +350,6 @@ def _plan_relocation(
             RelocationChange(
                 track_id=int(row[0]),
                 track_uuid=str(row[1]),
-                content_generation=int(row[2]),
                 old_path=old_path,
                 new_path=new_path,
             )
@@ -359,7 +357,7 @@ def _plan_relocation(
 
     moving_ids = {change["track_id"] for change in provisional}
     existing_by_path = {
-        ordinal_path_key(str(row[3])): int(row[0])
+        ordinal_path_key(str(row[2])): int(row[0])
         for row in rows
     }
     planned_by_path: dict[str, int] = {}
@@ -463,7 +461,7 @@ class TrackRepository:
                     where_missing = "" if include_missing else "AND missing_since IS NULL"
                     rows = connection.execute(
                         f"""
-                        SELECT track_id, track_uuid, content_generation
+                        SELECT track_id, track_uuid
                         FROM tracks
                         WHERE track_id IN ({placeholders})
                           {where_missing}
@@ -513,7 +511,6 @@ class TrackRepository:
                             file_path,
                             file_size_bytes,
                             file_modified_ns,
-                            content_generation,
                             missing_since
                         FROM tracks
                         WHERE track_id IN ({placeholders})
@@ -531,7 +528,7 @@ class TrackRepository:
         missing = [
             track_id
             for track_id in ordered_ids
-            if rows_by_id[track_id][6] is not None
+            if rows_by_id[track_id][5] is not None
         ]
         if missing and not include_missing:
             raise KeyError(f"Missing track ids are not selectable: {missing}")
@@ -543,10 +540,9 @@ class TrackRepository:
                 file_path=str(row[2]),
                 file_size_bytes=int(row[3]),
                 file_modified_ns=int(row[4]),
-                content_generation=int(row[5]),
                 missing_since=(
-                    str(row[6])
-                    if row[6] is not None
+                    str(row[5])
+                    if row[5] is not None
                     else None
                 ),
             )
@@ -570,7 +566,6 @@ class TrackRepository:
                     file_path,
                     file_size_bytes,
                     file_modified_ns,
-                    content_generation,
                     missing_since
                 FROM tracks
                 WHERE track_id = ?
@@ -586,8 +581,7 @@ class TrackRepository:
             file_path=str(row[2]),
             file_size_bytes=int(row[3]),
             file_modified_ns=int(row[4]),
-            content_generation=int(row[5]),
-            missing_since=str(row[6]) if row[6] is not None else None,
+            missing_since=str(row[5]) if row[5] is not None else None,
         )
 
     def upsert_scanned_track(
@@ -617,7 +611,6 @@ class TrackRepository:
                         SELECT
                             track_id,
                             track_uuid,
-                            content_generation,
                             file_size_bytes,
                             file_modified_ns
                         FROM tracks
@@ -641,12 +634,11 @@ class TrackRepository:
                                 bit_rate_bps,
                                 bit_depth,
                                 audio_duration_seconds,
-                                content_generation,
                                 last_scanned_at,
                                 missing_since,
                                 created_at,
                                 updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NULL, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                             """,
                             (
                                 track_uuid,
@@ -668,7 +660,6 @@ class TrackRepository:
                             catalog_uuid=self.catalog_uuid,
                             track_id=int(cursor.lastrowid),
                             track_uuid=track_uuid,
-                            content_generation=1,
                         )
                         action = "added"
                         _upsert_file_tags(
@@ -680,8 +671,8 @@ class TrackRepository:
                         upsert_track_search_fts(connection, identity.track_id)
                     else:
                         unchanged = (
-                            int(row[3]) == int(file.file_size_bytes)
-                            and int(row[4]) == int(file.file_modified_ns)
+                            int(row[2]) == int(file.file_size_bytes)
+                            and int(row[3]) == int(file.file_modified_ns)
                         )
                         if unchanged:
                             identity = _identity_from_row(
@@ -708,12 +699,10 @@ class TrackRepository:
                                 identity.track_id,
                             )
                         else:
-                            next_generation = int(row[2]) + 1
                             identity = TrackIdentity(
                                 catalog_uuid=self.catalog_uuid,
                                 track_id=int(row[0]),
                                 track_uuid=str(row[1]),
-                                content_generation=next_generation,
                             )
                             action = "updated"
                             connection.execute(
@@ -728,7 +717,6 @@ class TrackRepository:
                                     bit_rate_bps = ?,
                                     bit_depth = ?,
                                     audio_duration_seconds = ?,
-                                    content_generation = ?,
                                     last_scanned_at = ?,
                                     missing_since = NULL,
                                     updated_at = ?
@@ -744,17 +732,11 @@ class TrackRepository:
                                     file.bit_rate_bps,
                                     file.bit_depth,
                                     audio_duration_seconds,
-                                    next_generation,
                                     timestamp,
                                     timestamp,
                                     identity.track_id,
                                 ),
                             )
-                            for table in _DERIVED_TRACK_TABLES:
-                                connection.execute(
-                                    f"DELETE FROM {table} WHERE track_id = ?",
-                                    (identity.track_id,),
-                                )
                             _upsert_file_tags(
                                 connection,
                                 track_id=identity.track_id,
@@ -865,7 +847,6 @@ class TrackRepository:
                         catalog_uuid=self.catalog_uuid,
                         track_id=expected.track_id,
                         track_uuid=expected.track_uuid,
-                        content_generation=expected.content_generation,
                     )
                 except BaseException:
                     if connection.in_transaction:
@@ -980,7 +961,6 @@ class TrackRepository:
                 updated_at = ?
             WHERE track_id = ?
               AND track_uuid = ?
-              AND content_generation = ?
               AND file_path = ?
               AND file_size_bytes = ?
               AND file_modified_ns = ?
@@ -992,7 +972,6 @@ class TrackRepository:
                 tags_read_at,
                 expected.track_id,
                 expected.track_uuid,
-                expected.content_generation,
                 expected.file_path,
                 expected.file_size_bytes,
                 expected.file_modified_ns,
@@ -1013,7 +992,6 @@ class TrackRepository:
             catalog_uuid=self.catalog_uuid,
             track_id=expected.track_id,
             track_uuid=expected.track_uuid,
-            content_generation=expected.content_generation,
         )
 
     def _require_expected_file_state(
@@ -1035,7 +1013,6 @@ class TrackRepository:
                 file_path,
                 file_size_bytes,
                 file_modified_ns,
-                content_generation,
                 missing_since
             FROM tracks
             WHERE track_id = ?
@@ -1049,12 +1026,11 @@ class TrackRepository:
             or canonical_file_path(str(row[2])) != stored_path_key
             or int(row[3]) != expected.file_size_bytes
             or int(row[4]) != expected.file_modified_ns
-            or int(row[5]) != expected.content_generation
-            or row[6] is not None
+            or row[5] is not None
         ):
             raise RuntimeError(
-                "Track identity or path changed, content generation changed, "
-                "or stored file facts changed after candidate selection"
+                "Track identity, path, or stored file facts changed after "
+                "candidate selection"
             )
 
     def list_track_paths(
@@ -1121,8 +1097,8 @@ class TrackRepository:
 
         Apply never moves, copies, deletes, or retags audio. It changes only
         ``tracks.file_path``, its FTS projection, and matching paths in
-        ``library.roots_json``. Stable UUIDs, generations, and all analysis
-        rows are preserved.
+        ``library.roots_json``. Stable UUIDs and all analysis rows are
+        preserved.
         """
 
         old_root_text = resolved_file_path(old_root).rstrip("/")
@@ -1141,7 +1117,6 @@ class TrackRepository:
                         SELECT
                             track_id,
                             track_uuid,
-                            content_generation,
                             file_path
                         FROM tracks
                         ORDER BY track_id
@@ -1165,7 +1140,7 @@ class TrackRepository:
                             )
                         timestamp = utc_now_text()
                         occupied_paths = {
-                            str(row[3])
+                            str(row[2])
                             for row in rows
                         } | {
                             change["new_path"]
@@ -1186,7 +1161,6 @@ class TrackRepository:
                                     updated_at = ?
                                 WHERE track_id = ?
                                   AND track_uuid = ?
-                                  AND content_generation = ?
                                   AND file_path = ?
                                 """,
                                 (
@@ -1194,7 +1168,6 @@ class TrackRepository:
                                     timestamp,
                                     change["track_id"],
                                     change["track_uuid"],
-                                    change["content_generation"],
                                     change["old_path"],
                                 ),
                             )
@@ -1211,7 +1184,6 @@ class TrackRepository:
                                     updated_at = ?
                                 WHERE track_id = ?
                                   AND track_uuid = ?
-                                  AND content_generation = ?
                                   AND file_path = ?
                                 """,
                                 (
@@ -1219,7 +1191,6 @@ class TrackRepository:
                                     timestamp,
                                     change["track_id"],
                                     change["track_uuid"],
-                                    change["content_generation"],
                                     temporary_paths[change["track_id"]],
                                 ),
                             )
@@ -1342,7 +1313,7 @@ class TrackRepository:
         """Remove one exact track after its source path was already deleted.
 
         This method never deletes or moves audio. A present filesystem entry or
-        any catalog/UUID/generation/path mismatch fails closed. Retrying after a
+        any catalog/UUID/path mismatch fails closed. Retrying after a
         successful removal is idempotent when both the exact row and path are
         already absent.
         """
@@ -1374,7 +1345,6 @@ class TrackRepository:
                         SELECT
                             track_id,
                             track_uuid,
-                            content_generation,
                             file_path
                         FROM tracks
                         WHERE track_id = ?
@@ -1385,12 +1355,11 @@ class TrackRepository:
                     if row_present and (
                         path_track_id != expected.track_id
                         or str(row[1]) != expected.track_uuid
-                        or int(row[2]) != expected.content_generation
-                        or canonical_file_path(str(row[3]))
+                        or canonical_file_path(str(row[2]))
                         != requested_path_key
                     ):
                         raise RuntimeError(
-                            "Track identity, generation, or path changed "
+                            "Track identity or path changed "
                             "before database removal"
                         )
                     if not row_present and path_track_id is not None:
@@ -1398,7 +1367,7 @@ class TrackRepository:
                             "Track path now belongs to a different identity"
                         )
                     stored_path = (
-                        str(row[3])
+                        str(row[2])
                         if row_present
                         else requested_path
                     )
@@ -1430,13 +1399,11 @@ class TrackRepository:
                             DELETE FROM tracks
                             WHERE track_id = ?
                               AND track_uuid = ?
-                              AND content_generation = ?
                               AND file_path = ?
                             """,
                             (
                                 expected.track_id,
                                 expected.track_uuid,
-                                expected.content_generation,
                                 stored_path,
                             ),
                         )
@@ -1489,7 +1456,6 @@ class TrackRepository:
                             updated_at = ?
                         WHERE track_id = ?
                           AND track_uuid = ?
-                          AND content_generation = ?
                           AND file_path = ?
                           AND file_size_bytes = ?
                           AND file_modified_ns = ?
@@ -1500,7 +1466,6 @@ class TrackRepository:
                             timestamp,
                             expected.track_id,
                             expected.track_uuid,
-                            expected.content_generation,
                             expected.file_path,
                             expected.file_size_bytes,
                             expected.file_modified_ns,
@@ -1527,7 +1492,7 @@ class TrackRepository:
         *,
         missing_at: str | None = None,
     ) -> bool:
-        """Mark one track missing without changing its content generation."""
+        """Mark one track missing without changing its stored analysis."""
 
         timestamp = _timestamp_or_now(missing_at)
         with self._write_lock:

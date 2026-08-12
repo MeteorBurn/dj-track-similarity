@@ -91,7 +91,7 @@ def test_seed_sample_complete_analysis_filter_can_be_relaxed(
     }
 
 
-def test_seed_sample_rejects_stale_sonara_and_does_not_export_derived_columns(
+def test_seed_sample_keeps_saved_analysis_after_track_scan_update(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
@@ -119,7 +119,6 @@ def test_seed_sample_rejects_stale_sonara_and_does_not_export_derived_columns(
         ),
         scanned_at=_NOW,
     ).identity
-    assert current.content_generation == original.content_generation + 1
     _save_ml_embeddings(db, current, axis=1)
 
     complete = export_seed_sample(
@@ -133,13 +132,12 @@ def test_seed_sample_rejects_stale_sonara_and_does_not_export_derived_columns(
         require_complete_analysis=False,
     )
 
-    assert complete.eligible_count == 0
+    assert complete.eligible_count == 1
     assert relaxed.eligible_count == 1
-    row = relaxed.rows[0]
-    assert row.sonara_core is False
-    assert row.bpm == 123.0
-    assert row.musical_key == "D minor"
-    assert row.energy is None
+    row = complete.rows[0]
+    assert row.sonara_core is True
+    assert row.bpm == 90.0
+    assert row.energy == 0.9
 
 
 def test_seed_sample_does_not_reuse_old_columns_after_empty_reanalysis(
@@ -279,7 +277,6 @@ def _target(identity: TrackIdentity) -> AnalysisTarget:
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )
 
 
@@ -376,7 +373,6 @@ def _save_sonara_core(
     values.update(
         {
             "track_id": target.track_id,
-            "content_generation": target.content_generation,
             "detected_bpm": bpm,
             "detected_key_camelot": musical_key,
             "energy_score": energy,

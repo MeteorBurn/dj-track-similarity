@@ -107,8 +107,6 @@ def _write_artifact(
 
 def _insert_track(
     db: LibraryDatabase,
-    *,
-    content_generation: int = 1,
 ) -> AnalysisTarget:
     track_uuid = str(uuid.uuid4())
     with db.connect() as connection:
@@ -116,13 +114,12 @@ def _insert_track(
             """
             INSERT INTO tracks (
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
-                content_generation, last_scanned_at, created_at, updated_at
-            ) VALUES (?, ?, 1024, 123456789, ?, ?, ?, ?)
+                last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, 123456789, ?, ?, ?)
             """,
             (
                 track_uuid,
                 f"C:/music/{track_uuid}.wav",
-                content_generation,
                 _NOW,
                 _NOW,
                 _NOW,
@@ -133,7 +130,6 @@ def _insert_track(
         catalog_uuid=db.catalog_uuid,
         track_id=track_id,
         track_uuid=track_uuid,
-        content_generation=content_generation,
     )
 
 
@@ -175,14 +171,12 @@ def _write_sonara_core(
         connection.execute(
             """
             INSERT INTO sonara_features(
-                track_id, content_generation,
-                mfcc_mean_blob, chroma_mean_blob,
+                track_id, mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             (
                 target.track_id,
-                target.content_generation,
                 np.zeros(13, dtype="<f4").tobytes(),
                 np.zeros(12, dtype="<f4").tobytes(),
                 np.zeros(7, dtype="<f4").tobytes(),
@@ -217,7 +211,6 @@ def _score_write(
             track_id=target.track_id,
             track_uuid=target.track_uuid,
             classifier_key=classifier_key,
-            content_generation=target.content_generation,
             feature_set="mert-features",
             feature_names_json=json.dumps(list(specification.feature_names)),
             positive_label="positive",

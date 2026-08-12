@@ -554,7 +554,6 @@ def _identity_payload(track: TransitionTrack) -> dict[str, object]:
         "catalog_uuid": identity.catalog_uuid,
         "track_id": identity.track_id,
         "track_uuid": identity.track_uuid,
-        "content_generation": identity.content_generation,
     }
 
 

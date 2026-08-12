@@ -137,7 +137,6 @@ def export_predictions_csv(
     fields = [
         "catalog_uuid",
         "track_uuid",
-        "content_generation",
         "label",
         "confidence",
         *[f"probability_{label}" for label in probability_labels],
@@ -156,7 +155,6 @@ def export_predictions_csv(
                 {
                     "catalog_uuid": row["catalog_uuid"],
                     "track_uuid": row["track_uuid"],
-                    "content_generation": row["content_generation"],
                     "label": row["label"],
                     "confidence": row["confidence"],
                     **{f"probability_{label}": _probability(row, label) for label in probability_labels},
@@ -172,12 +170,11 @@ def export_predictions_csv(
 
 
 def latest_predictions_by_track(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    latest: dict[tuple[str, str, int], dict[str, object]] = {}
+    latest: dict[tuple[str, str], dict[str, object]] = {}
     for row in rows:
         identity = (
             str(row["catalog_uuid"]),
             str(row["track_uuid"]),
-            int(row["content_generation"]),
         )
         current = latest.get(identity)
         if current is None or _prediction_sort_key(row) > _prediction_sort_key(current):

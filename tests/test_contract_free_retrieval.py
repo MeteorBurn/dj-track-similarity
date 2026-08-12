@@ -15,7 +15,7 @@ class _Repository:
 
     def __init__(self) -> None:
         self.output = AnalysisOutput("mert", "embedding")
-        self.target = AnalysisTarget("catalog-test", 1, "track-1", 1)
+        self.target = AnalysisTarget("catalog-test", 1, "track-1")
 
     def active_analysis_output(self, analysis_family: str, output_kind: str):
         assert (analysis_family, output_kind) == ("mert", "embedding")

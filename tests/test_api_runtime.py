@@ -51,7 +51,6 @@ def test_track_responses_expose_current_identity_and_split_coverage(
     assert item["track_id"] == identity.track_id
     assert item["catalog_uuid"] == identity.catalog_uuid
     assert item["track_uuid"] == identity.track_uuid
-    assert item["content_generation"] == identity.content_generation
     assert item["analysis_coverage"] == {
         "sonara_core": False,
         "maest_analysis": False,
@@ -62,7 +61,7 @@ def test_track_responses_expose_current_identity_and_split_coverage(
     }
 
 
-def test_tag_refresh_job_rejects_stale_snapshot_after_generation_race(
+def test_tag_refresh_job_rejects_stale_file_snapshot(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -80,9 +79,9 @@ def test_tag_refresh_job_rejects_stale_snapshot_after_generation_race(
         job_id = manager.create_tag_refresh_job(workers=workers)
         return manager.run_tag_refresh_job(job_id)
 
-    def advance_generation_then_return_stale_read(path: Path, **_kwargs):
+    def update_file_then_return_stale_read(path: Path, **_kwargs):
         assert path == audio_path.resolve()
-        path.write_bytes(b"generation-two-audio")
+        path.write_bytes(b"newer-audio")
         current_stat = path.stat()
         mutation = database.upsert_scanned_track(
             file=ScannedFile(
@@ -91,12 +90,11 @@ def test_tag_refresh_job_rejects_stale_snapshot_after_generation_race(
                 file_modified_ns=current_stat.st_mtime_ns,
                 audio_format="wav",
             ),
-            tags=FileTags(title="Generation 2"),
+            tags=FileTags(title="New metadata"),
         )
         assert mutation.action == "updated"
         assert mutation.identity.track_id == identity.track_id
-        assert mutation.identity.content_generation == 2
-        return {"title": "Stale generation 1"}, queued_stat
+        return {"title": "Stale metadata"}, queued_stat
 
     monkeypatch.setattr(
         ScanJobManager,
@@ -105,7 +103,7 @@ def test_tag_refresh_job_rejects_stale_snapshot_after_generation_race(
     )
     monkeypatch.setattr(
         "dj_track_similarity.scan_jobs.read_audio_metadata_stable",
-        advance_generation_then_return_stale_read,
+        update_file_then_return_stale_read,
     )
 
     response = _client(monkeypatch, db_path).post(
@@ -122,15 +120,14 @@ def test_tag_refresh_job_rejects_stale_snapshot_after_generation_race(
     with database.connect() as connection:
         row = connection.execute(
             """
-            SELECT t.content_generation, ft.title
+            SELECT ft.title
             FROM tracks AS t
             JOIN tags AS ft ON ft.track_id = t.track_id
             WHERE t.track_id = ?
             """,
             (identity.track_id,),
         ).fetchone()
-    assert int(row["content_generation"]) == 2
-    assert row["title"] == "Generation 2"
+    assert row["title"] == "New metadata"
 
 
 def test_database_switch_bootstraps_clean_selected_current_bundle(
@@ -178,18 +175,20 @@ def test_liked_mutation_requires_current_composite_identity(
     payload = {
         "catalog_uuid": identity.catalog_uuid,
         "track_uuid": identity.track_uuid,
-        "expected_content_generation": identity.content_generation,
         "liked": True,
     }
 
     stale = client.post(
         url,
-        json={**payload, "expected_content_generation": 2},
+        json={
+            **payload,
+            "track_uuid": "stale-track-uuid",
+        },
     )
     current = client.post(url, json=payload)
 
     assert stale.status_code == 409
-    assert "content generation changed" in stale.json()["detail"]
+    assert "identity changed" in stale.json()["detail"]
     assert current.status_code == 200
     assert current.json()["liked"] is True
     assert current.json()["track_uuid"] == identity.track_uuid

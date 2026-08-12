@@ -265,7 +265,6 @@ def _add_sonara_track(
     values.update(
         {
             "track_id": target.track_id,
-            "content_generation": target.content_generation,
             "energy_score": energy,
             "danceability_score": _float(features.get("danceability")),
             "valence_score": _float(features.get("valence")),
@@ -334,7 +333,6 @@ def _track(db: LibraryDatabase, root: Path, name: str) -> AnalysisTarget:
         identity.catalog_uuid,
         identity.track_id,
         identity.track_uuid,
-        identity.content_generation,
     )
 
 

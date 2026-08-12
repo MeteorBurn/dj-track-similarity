@@ -97,7 +97,7 @@ Common controls:
 - **Verdict buttons**: save listening notes for a candidate and model as `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`.
 
 Verdicts are stored as local pair feedback with a `reference_compare:<model>` source. They are listening notes for later review and calibration. They do not retag audio files or change the ranked results immediately.
-Each write carries the current `catalog_uuid`, `track_uuid`, and `content_generation`. An unavailable
+Each write carries the current `catalog_uuid` and `track_uuid`. An unavailable
 model stays in the comparison with its own reason instead of silently disappearing.
 
 ## Review results

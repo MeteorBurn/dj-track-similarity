@@ -27,7 +27,6 @@ class EmbeddingTrackIdentity:
     catalog_uuid: str
     track_id: int
     track_uuid: str
-    content_generation: int
 
     def __post_init__(self) -> None:
         if not isinstance(self.catalog_uuid, str) or not self.catalog_uuid.strip():
@@ -40,12 +39,6 @@ class EmbeddingTrackIdentity:
             raise ValueError("track_id must be a positive integer")
         if not isinstance(self.track_uuid, str) or not self.track_uuid.strip():
             raise ValueError("track_uuid must be a non-empty string")
-        if (
-            isinstance(self.content_generation, bool)
-            or not isinstance(self.content_generation, int)
-            or self.content_generation <= 0
-        ):
-            raise ValueError("content_generation must be a positive integer")
 
 
 def _positive_int(value: object) -> int | None:
@@ -70,7 +63,6 @@ def _validate_embedding_row_identity(
     required_fields = {
         "track_id",
         "track_uuid",
-        "content_generation",
         "dim",
         "normalization",
         "embedding_blob",
@@ -86,11 +78,6 @@ def _validate_embedding_row_identity(
         return None, "invalid track_uuid"
     if values["track_uuid"] != expected_track.track_uuid:
         return None, "track_uuid mismatch"
-    row_generation = _positive_int(values["content_generation"])
-    if row_generation is None:
-        return None, "invalid content_generation"
-    if row_generation != expected_track.content_generation:
-        return None, "content_generation mismatch"
     return values, None
 
 
@@ -146,7 +133,7 @@ def current_track_identity(
     catalog_uuid = validate_library_schema(connection)
     row = connection.execute(
         """
-        SELECT track_id, track_uuid, content_generation
+        SELECT track_id, track_uuid
         FROM tracks
         WHERE track_id = ?
         """,
@@ -158,7 +145,6 @@ def current_track_identity(
         catalog_uuid=catalog_uuid,
         track_id=int(row[0]),
         track_uuid=str(row[1]),
-        content_generation=int(row[2]),
     )
 
 
@@ -173,8 +159,6 @@ def _validate_current_track_identity(
         return False, "catalog_uuid mismatch"
     if current.track_uuid != expected.track_uuid:
         return False, "track_uuid mismatch"
-    if current.content_generation != expected.content_generation:
-        return False, "content_generation mismatch"
     return True, None
 
 
@@ -192,7 +176,7 @@ def read_valid_embedding(
         return None
     row = connection.execute(
         f"""
-        SELECT track_id, track_uuid, content_generation,
+        SELECT track_id, track_uuid,
                dim, normalization, embedding_blob
         FROM {table}
         WHERE track_id = ?
@@ -251,12 +235,11 @@ def write_valid_embedding_in_transaction(
     connection.execute(
         f"""
         INSERT INTO {table}(
-            track_id, track_uuid, content_generation,
+            track_id, track_uuid,
             dim, normalization, embedding_blob, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(track_id) DO UPDATE SET
             track_uuid = excluded.track_uuid,
-            content_generation = excluded.content_generation,
             dim = excluded.dim,
             normalization = excluded.normalization,
             embedding_blob = excluded.embedding_blob,
@@ -265,7 +248,6 @@ def write_valid_embedding_in_transaction(
         (
             track.track_id,
             track.track_uuid,
-            track.content_generation,
             spec.dimension,
             spec.normalization,
             vector.tobytes(order="C"),

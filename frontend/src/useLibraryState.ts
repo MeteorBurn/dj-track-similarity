@@ -293,7 +293,7 @@ export function useLibraryState({
   function updateTrackLiked(updated: Track) {
     const updatedKey = libraryTrackIdentityKey(updated);
     const previous = tracks.find((track) => libraryTrackIdentityKey(track) === updatedKey);
-    if (!previous || updated.content_generation < previous.content_generation) return;
+    if (!previous) return;
 
     setTracks((current) => {
       if (likedOnly && !updated.liked) {

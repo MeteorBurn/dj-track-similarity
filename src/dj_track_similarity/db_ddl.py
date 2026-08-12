@@ -62,7 +62,6 @@ CREATE TABLE tracks (
             AND audio_duration_seconds = round(audio_duration_seconds, 2)
         )
     ),
-    content_generation      INTEGER NOT NULL CHECK(content_generation >= 1),
     last_scanned_at         TEXT    NOT NULL,
     missing_since           TEXT,
     created_at              TEXT    NOT NULL,
@@ -93,7 +92,6 @@ CREATE INDEX idx_tags_sort ON tags(COALESCE(artist,''), COALESCE(title,''), trac
 _DDL_SONARA_FEATURES = """
 CREATE TABLE sonara_features (
     track_id                       INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
-    content_generation             INTEGER NOT NULL,
     -- Tempo
     detected_bpm                   REAL    CHECK(detected_bpm IS NULL OR detected_bpm > 0),
     raw_bpm                        REAL    CHECK(raw_bpm      IS NULL OR raw_bpm      > 0),
@@ -168,31 +166,26 @@ CREATE TABLE sonara_features (
     -- Ordering constraint
     CHECK(energy_curve_min IS NULL OR energy_curve_mean IS NULL OR energy_curve_max IS NULL OR (energy_curve_min <= energy_curve_mean AND energy_curve_mean <= energy_curve_max))
 );
-CREATE INDEX idx_sonara_features_generation ON sonara_features(content_generation, track_id);
 """
 
 _DDL_MAEST_GENRES = """
 CREATE TABLE maest_genres (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
-    content_generation INTEGER NOT NULL,
     syncopated_rhythm  INTEGER CHECK(syncopated_rhythm IS NULL OR syncopated_rhythm IN (0,1)),
     genres_json        TEXT    NOT NULL CHECK(json_valid(genres_json) AND json_type(genres_json)='array'),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_maest_genres_generation ON maest_genres(content_generation, track_id);
 """
 
 _DDL_MAEST_EMBEDDINGS = """
 CREATE TABLE maest_embeddings (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
     track_uuid         TEXT    NOT NULL,
-    content_generation INTEGER NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_maest_embeddings_generation ON maest_embeddings(content_generation, track_id);
 CREATE INDEX idx_maest_embeddings_track_uuid ON maest_embeddings(track_uuid);
 """
 
@@ -200,13 +193,11 @@ _DDL_MERT_EMBEDDINGS = """
 CREATE TABLE mert_embeddings (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
     track_uuid         TEXT    NOT NULL,
-    content_generation INTEGER NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_mert_embeddings_generation ON mert_embeddings(content_generation, track_id);
 CREATE INDEX idx_mert_embeddings_track_uuid ON mert_embeddings(track_uuid);
 """
 
@@ -214,13 +205,11 @@ _DDL_MUQ_EMBEDDINGS = """
 CREATE TABLE muq_embeddings (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
     track_uuid         TEXT    NOT NULL,
-    content_generation INTEGER NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_muq_embeddings_generation ON muq_embeddings(content_generation, track_id);
 CREATE INDEX idx_muq_embeddings_track_uuid ON muq_embeddings(track_uuid);
 """
 
@@ -228,13 +217,11 @@ _DDL_CLAP_EMBEDDINGS = """
 CREATE TABLE clap_embeddings (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
     track_uuid         TEXT    NOT NULL,
-    content_generation INTEGER NOT NULL,
     dim                INTEGER NOT NULL CHECK(dim > 0),
     normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
     embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
     analyzed_at        TEXT    NOT NULL
 );
-CREATE INDEX idx_clap_embeddings_generation ON clap_embeddings(content_generation, track_id);
 CREATE INDEX idx_clap_embeddings_track_uuid ON clap_embeddings(track_uuid);
 """
 
@@ -243,7 +230,6 @@ CREATE TABLE classifier_scores (
     track_id               INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
     track_uuid             TEXT    NOT NULL,
     classifier_key         TEXT    NOT NULL,
-    content_generation     INTEGER NOT NULL,
     feature_set            TEXT    NOT NULL,
     feature_names_json     TEXT    NOT NULL CHECK(json_valid(feature_names_json) AND json_type(feature_names_json)='array'),
     positive_label         TEXT    NOT NULL,
@@ -392,7 +378,6 @@ class SonaraRow:
     """
 
     track_id: int
-    content_generation: int
     # Tempo
     detected_bpm: Optional[float]
     raw_bpm: Optional[float]
@@ -474,7 +459,6 @@ class ClassifierScoreRecord:
     track_id: int
     track_uuid: str
     classifier_key: str
-    content_generation: int
     feature_set: str
     feature_names_json: str
     positive_label: str

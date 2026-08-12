@@ -41,7 +41,6 @@ def resolve_tempo_evidence(
         identity.catalog_uuid != track.catalog_uuid
         or identity.track_id != track.track_id
         or identity.track_uuid != track.track_uuid
-        or identity.content_generation != track.content_generation
     ):
         raise ValueError("track identity does not match the current track summary")
     if sonara is not None:
@@ -50,7 +49,6 @@ def resolve_tempo_evidence(
             target.catalog_uuid != identity.catalog_uuid
             or target.track_id != identity.track_id
             or target.track_uuid != identity.track_uuid
-            or target.content_generation != identity.content_generation
         ):
             raise ValueError(
                 "SONARA row identity does not match the current track summary"

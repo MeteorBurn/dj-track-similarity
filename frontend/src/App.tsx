@@ -213,7 +213,6 @@ export function App() {
       seed_identities: seedTracks.map((track) => ({
         track_id: track.track_id,
         track_uuid: track.track_uuid,
-        content_generation: track.content_generation,
       })),
       filters,
       text_query: textQuery,

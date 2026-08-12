@@ -257,10 +257,9 @@ def test_relocate_library_apply_updates_only_database_paths_and_identity(
     assert result["missing_files"] == []
     assert database.get_track_file_state(old_file) is None
     after = _scanned_state(database, new_file)
-    assert (after.track_id, after.track_uuid, after.content_generation) == (
+    assert (after.track_id, after.track_uuid) == (
         before.track_id,
         before.track_uuid,
-        before.content_generation,
     )
     assert _library_roots(database) == (new_root.resolve().as_posix(),)
     assert old_file.read_bytes() == old_bytes

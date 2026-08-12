@@ -71,12 +71,11 @@ from rhythm_lab.web_app import (  # noqa: E402
 )
 
 
-def _track(index: int, *, generation: int = 1) -> SourceTrack:
+def _track(index: int) -> SourceTrack:
     return SourceTrack(
         catalog_uuid="catalog-current",
         track_id=index,
         track_uuid=f"track-{index}",
-        content_generation=generation,
         file_path=f"C:/music/{index}.wav",
         file_size_bytes=1_000 + index,
         file_modified_ns=2_000 + index,
@@ -93,7 +92,6 @@ def _identity(track: SourceTrack) -> TrackIdentity:
     return TrackIdentity(
         catalog_uuid=track.catalog_uuid,
         track_uuid=track.track_uuid,
-        content_generation=track.content_generation,
         file_path=track.file_path,
     )
 
@@ -102,7 +100,6 @@ def _queue_item(track: SourceTrack, *, priority: float) -> dict[str, object]:
     return {
         "catalog_uuid": track.catalog_uuid,
         "track_uuid": track.track_uuid,
-        "content_generation": track.content_generation,
         "selected_path": track.file_path,
         "score": 0.5,
         "priority": priority,
@@ -762,7 +759,6 @@ def test_web_app_creates_current_schema_at_stable_labels_path(
     assert {
         "catalog_uuid",
         "track_uuid",
-        "content_generation",
         "selected_path",
     }.issubset(columns)
 
@@ -833,10 +829,11 @@ def test_lab_database_ensures_prediction_hot_path_indexes(tmp_path: Path) -> Non
                 FROM classifier_predictions
                 WHERE classifier_key = ?
                   AND catalog_uuid = ?
-                ORDER BY track_uuid, content_generation, selected_path,
-                         updated_at DESC, model_artifact DESC
+                  AND track_uuid = ?
+                  AND selected_path = ?
+                ORDER BY updated_at DESC, model_artifact DESC
                 """,
-                ("focused", "catalog-a"),
+                ("focused", "catalog-a", "track-a", "C:/music/a.wav"),
             ).fetchall()
         ]
         assert any("idx_classifier_predictions_latest" in detail for detail in latest_plan)
@@ -950,10 +947,6 @@ def test_labels_use_current_track_identity_and_remain_profile_scoped(
 
     assert focused.label_for_track(_identity(track)).label == "yes"
     assert other.label_for_track(_identity(track)).label == "no"
-    assert focused.label_for_track(
-        _identity(_track(1, generation=2))
-    ) is None
-
     focused.set_label(track, "no")
     assert focused.label_counts() == {"no": 1}
     focused.set_label(track, None)

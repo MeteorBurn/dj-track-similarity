@@ -51,7 +51,7 @@ artist,title,bpm,key,energy,path
 ## Save to Rhythm Lab collection
 
 The UI can also save the current set into a Rhythm Lab collection. Each item carries
-`catalog_uuid`, `track_uuid`, and `content_generation`. This writes to the Rhythm Lab labels
+`catalog_uuid` and `track_uuid`. This writes to the Rhythm Lab labels
 database, not to the source audio files.
 
 ## Privacy

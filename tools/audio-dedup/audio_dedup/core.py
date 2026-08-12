@@ -138,7 +138,6 @@ class TrackRecord:
     embeddings: dict[str, np.ndarray]
     catalog_uuid: str = ""
     track_uuid: str = ""
-    content_generation: int = 1
     file_modified_ns: int = 0
 
 
@@ -535,7 +534,6 @@ def load_tracks(
             SELECT
                 t.track_id,
                 t.track_uuid,
-                t.content_generation,
                 t.file_path,
                 t.file_size_bytes,
                 t.file_modified_ns,
@@ -560,7 +558,6 @@ def load_tracks(
               ON ft.track_id = t.track_id
             LEFT JOIN sonara_features AS s
               ON s.track_id = t.track_id
-             AND s.content_generation = t.content_generation
             WHERE t.missing_since IS NULL
             ORDER BY t.track_id
             """,
@@ -898,7 +895,6 @@ def build_report(
                     "track_id": track.track_id,
                     "catalog_uuid": track.catalog_uuid,
                     "track_uuid": track.track_uuid,
-                    "content_generation": track.content_generation,
                     "path": track.path,
                     "size": track.size,
                     "file_modified_ns": track.file_modified_ns,
@@ -1253,7 +1249,6 @@ def _rhythm_lab_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "action",
             "catalog_uuid",
             "track_uuid",
-            "content_generation",
             "table_name",
             "classifier_key",
             "label",
@@ -1274,7 +1269,6 @@ def _rhythm_lab_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                 row.get("action", ""),
                 row.get("catalog_uuid", ""),
                 row.get("track_uuid", ""),
-                row.get("content_generation", ""),
                 row.get("table_name", ""),
                 row.get("classifier_key", ""),
                 row.get("label", ""),
@@ -1611,7 +1605,6 @@ def rhythm_lab_impact_payload(
         wanted_columns = (
             "catalog_uuid",
             "track_uuid",
-            "content_generation",
             "classifier_key",
             "label",
             "selected_path",
@@ -1633,7 +1626,7 @@ def rhythm_lab_impact_payload(
                     SELECT {select_sql}
                     FROM {quoted_table}
                     WHERE {identity_sql}
-                    ORDER BY catalog_uuid, track_uuid, content_generation
+                    ORDER BY catalog_uuid, track_uuid
                     """,
                     parameters,
                 ).fetchall()
@@ -1644,9 +1637,6 @@ def rhythm_lab_impact_payload(
                             "table_name": table_name,
                             "catalog_uuid": str(row["catalog_uuid"]),
                             "track_uuid": str(row["track_uuid"]),
-                            "content_generation": int(
-                                row["content_generation"]
-                            ),
                             "classifier_key": row["classifier_key"] if "classifier_key" in row.keys() else None,
                             "label": row["label"] if "label" in row.keys() else None,
                             "path": row["selected_path"] if "selected_path" in row.keys() else None,
@@ -1662,7 +1652,6 @@ def rhythm_lab_impact_payload(
         key=lambda row: (
             str(row["catalog_uuid"]),
             str(row["track_uuid"]),
-            int(row["content_generation"]),
             str(row["table_name"]),
             str(row.get("classifier_key") or ""),
             str(row.get("feature_set") or ""),
@@ -1675,7 +1664,6 @@ def rhythm_lab_impact_payload(
             (
                 str(row["catalog_uuid"]),
                 str(row["track_uuid"]),
-                int(row["content_generation"]),
             )
             for row in affected_rows
         }
@@ -1790,7 +1778,6 @@ def apply_duplicate_deletions(
         if (
             current.catalog_uuid != expected.catalog_uuid
             or current.track_uuid != expected.track_uuid
-            or current.content_generation != expected.content_generation
             or canonical_file_path(current.file_path)
             != canonical_file_path(path_text)
         ):
@@ -1941,7 +1928,6 @@ def _candidate_identity(candidate: dict[str, object]) -> TrackIdentity:
         catalog_uuid=_candidate_text(candidate, "catalog_uuid"),
         track_id=int(candidate["track_id"]),
         track_uuid=_candidate_text(candidate, "track_uuid"),
-        content_generation=int(candidate["content_generation"]),
     )
 
 
@@ -1964,7 +1950,6 @@ def _unique_identities(
             key=lambda identity: (
                 identity.catalog_uuid,
                 identity.track_uuid,
-                identity.content_generation,
                 identity.track_id,
             ),
         )
@@ -1975,7 +1960,6 @@ def _has_identity_columns(columns: Iterable[str]) -> bool:
     return {
         "catalog_uuid",
         "track_uuid",
-        "content_generation",
     }.issubset(set(columns))
 
 
@@ -1988,14 +1972,12 @@ def _identity_predicate(
     parameters: list[object] = []
     for identity in identities:
         predicates.append(
-            "(catalog_uuid = ? AND track_uuid = ? "
-            "AND content_generation = ?)"
+            "(catalog_uuid = ? AND track_uuid = ?)"
         )
         parameters.extend(
             (
                 identity.catalog_uuid,
                 identity.track_uuid,
-                identity.content_generation,
             )
         )
     return " OR ".join(predicates), tuple(parameters)
@@ -2051,7 +2033,6 @@ def track_payload(
         "track_id": track.track_id,
         "catalog_uuid": track.catalog_uuid,
         "track_uuid": track.track_uuid,
-        "content_generation": track.content_generation,
         "path": track.path,
         "artist": track.artist,
         "title": track.title,
@@ -2209,7 +2190,6 @@ def _track_from_row(
         embeddings={},
         catalog_uuid=catalog_uuid,
         track_uuid=str(row["track_uuid"]),
-        content_generation=int(row["content_generation"]),
         file_modified_ns=modified_ns,
     )
 
@@ -2222,10 +2202,7 @@ def _attach_embeddings(
         return
     embeddings_by_track = {track.track_id: {} for track in tracks}
     identity_by_track = {
-        track.track_id: (
-            track.track_uuid,
-            track.content_generation,
-        )
+        track.track_id: track.track_uuid
         for track in tracks
     }
     track_ids = [track.track_id for track in tracks]
@@ -2239,7 +2216,6 @@ def _attach_embeddings(
                 SELECT
                     track_id,
                     track_uuid,
-                    content_generation,
                     dim,
                     normalization,
                     embedding_blob
@@ -2252,10 +2228,7 @@ def _attach_embeddings(
             for row in rows:
                 track_id = int(row["track_id"])
                 expected_identity = identity_by_track.get(track_id)
-                if expected_identity != (
-                    str(row["track_uuid"]),
-                    int(row["content_generation"]),
-                ):
+                if expected_identity != str(row["track_uuid"]):
                     continue
                 dim = int(row["dim"])
                 if (
@@ -2304,7 +2277,6 @@ def _attach_embeddings(
             embeddings=embeddings_by_track[track.track_id],
             catalog_uuid=track.catalog_uuid,
             track_uuid=track.track_uuid,
-            content_generation=track.content_generation,
             file_modified_ns=track.file_modified_ns,
         )
 

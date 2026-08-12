@@ -120,7 +120,6 @@ class TransitionTrack:
             self.identity.catalog_uuid != self.summary.catalog_uuid
             or self.identity.track_id != self.summary.track_id
             or self.identity.track_uuid != self.summary.track_uuid
-            or self.identity.content_generation != self.summary.content_generation
         ):
             raise ValueError("track identity does not match the current track summary")
         if self.sonara is None:
@@ -130,7 +129,6 @@ class TransitionTrack:
             target.catalog_uuid != self.identity.catalog_uuid
             or target.track_id != self.identity.track_id
             or target.track_uuid != self.identity.track_uuid
-            or target.content_generation != self.identity.content_generation
         ):
             raise ValueError(
                 "SONARA row identity does not match the current track summary"

@@ -25,7 +25,7 @@ page-number field request one `/api/tracks` page at a time. All returned rows re
 scrollable list. There is no second row-window paginator.
 
 Database changes and newer loads invalidate older responses. Duplicate rows are reconciled by
-`catalog_uuid` and `track_uuid`, keeping the greatest `content_generation`.
+their stable `catalog_uuid` and `track_uuid` identity.
 
 ## Main controls
 
@@ -65,8 +65,7 @@ If the file is missing, preview returns an error instead of hiding the problem.
 
 ## Likes
 
-The like button writes a local SQLite row with `catalog_uuid`, `track_uuid`, and
-`expected_content_generation`. It does not edit audio tags. Likes can be used for browsing and
+The like button writes a local SQLite row with `catalog_uuid` and `track_uuid`. It does not edit audio tags. Likes can be used for browsing and
 filtering.
 
 ## Seeds and the current set

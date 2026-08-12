@@ -52,11 +52,10 @@ def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM library").fetchone()[0] == 1
         assert connection.execute(
-            "SELECT track_uuid, content_generation FROM tracks WHERE track_id = ?",
+            "SELECT track_uuid FROM tracks WHERE track_id = ?",
             (mutation.identity.track_id,),
         ).fetchone() == (
             mutation.identity.track_uuid,
-            mutation.identity.content_generation,
         )
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     with sqlite3.connect(evaluation_path) as connection:

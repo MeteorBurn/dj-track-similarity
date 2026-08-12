@@ -12,7 +12,6 @@ export function sameTrackIdentity(
     left.track_id === right.track_id
     && left.catalog_uuid === right.catalog_uuid
     && left.track_uuid === right.track_uuid
-    && left.content_generation === right.content_generation
   );
 }
 

@@ -41,8 +41,8 @@ incompatible or incomplete bundles are rejected rather than migrated during norm
 
 Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|fts`, and `preset=all|syncopated`.
 
-Regular track rows use `TrackSummaryResponse`: composite identity (`catalog_uuid`,
-`track_id`, `track_uuid`, `content_generation`), `file_path`, compact tags, `analysis_coverage`, and
+Regular track rows use `TrackSummaryResponse`: stable identity (`catalog_uuid`,
+`track_id`, `track_uuid`), `file_path`, compact tags, `analysis_coverage`, and
 classifier-score summaries. Detailed rows expose SONARA Core, MAEST, embedding summaries for the
 active ML families, and classifier details. Timeline, SONARA embedding, and fingerprint fields are
 not part of the response.

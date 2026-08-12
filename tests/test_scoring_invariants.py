@@ -108,8 +108,8 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
             """
             INSERT INTO tracks (
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
-                content_generation, last_scanned_at, created_at, updated_at
-            ) VALUES (?, ?, 1024, 123456789, 1, ?, ?, ?)
+                last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, 123456789, ?, ?, ?)
             """,
             (
                 track_uuid,
@@ -124,7 +124,6 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
         catalog_uuid=db.catalog_uuid,
         track_id=track_id,
         track_uuid=track_uuid,
-        content_generation=1,
     )
     vector = np.zeros(current_embedding_spec("mert").dimension, dtype=np.float32)
     vector[:3] = (1.0, 2.0, 3.0)

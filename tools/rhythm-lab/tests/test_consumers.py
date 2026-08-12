@@ -101,8 +101,8 @@ def _insert_track(
             """
             INSERT INTO tracks(
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
-                content_generation, last_scanned_at, created_at, updated_at
-            ) VALUES (?, ?, 1024, ?, 1, ?, ?, ?)
+                last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, ?, ?, ?, ?)
             """,
             (track_uuid, f"C:/music/{index}.wav", index + 1, NOW, NOW, NOW),
         )
@@ -114,7 +114,6 @@ def _insert_track(
         catalog_uuid=repository.catalog_uuid,
         track_id=track_id,
         track_uuid=track_uuid,
-        content_generation=1,
     )
     result = repository.save_embedding_results(
         (
@@ -141,8 +140,8 @@ def _insert_track_without_embedding(
             """
             INSERT INTO tracks(
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
-                content_generation, last_scanned_at, created_at, updated_at
-            ) VALUES (?, ?, 1024, ?, 1, ?, ?, ?)
+                last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, ?, ?, ?, ?)
             """,
             (str(uuid.uuid4()), f"C:/music/{index}.wav", index + 1, NOW, NOW, NOW),
         )
@@ -277,12 +276,12 @@ def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
         core.execute(
             """
             INSERT INTO maest_genres(
-                track_id, content_generation, syncopated_rhythm,
-                genres_json, analyzed_at
-            ) VALUES (?, 1, 0, ?, ?)
+                track_id, syncopated_rhythm, genres_json, analyzed_at
+            ) VALUES (?, ?, ?, ?)
             """,
             (
                 track_id,
+                0,
                 json.dumps(
                     [
                         {"label": "MAEST Minimal", "score": 0.93},
@@ -404,7 +403,6 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
     assert prediction_page["total"] == 1
     prediction = prediction_page["items"][0]
     assert prediction["track_uuid"] == tracks[0].track_uuid
-    assert prediction["content_generation"] == 1
     assert prediction["selected_path"] == tracks[0].file_path
     assert prediction["track_id"] == tracks[0].track_id
     empty_prediction_page = source.list_predictions_page(
@@ -473,41 +471,6 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
         classifier_key="focused",
     )
     assert promoted_predictions["predicted"] == 4
-
-    with repository.connect() as core:
-        core.execute(
-            "UPDATE tracks SET content_generation = 2 WHERE track_id = ?",
-            (tracks[0].track_id,),
-        )
-    changed = build_labeled_feature_matrix(
-        repository.path,
-        lab_path,
-        "mert",
-        classifier_key="focused",
-    )
-    assert tracks[0].track_uuid not in {
-        track.track_uuid for track in changed.tracks
-    }
-    stale_prediction_page = source.list_predictions_page(
-        labels_db_path=lab_path,
-        classifier_key="focused",
-        profile_type="binary",
-        positive_label="yes",
-        negative_label="no",
-        label_keys=("yes", "no"),
-        training_label_keys=("yes", "no"),
-        label="all",
-    )
-    stale_prediction = next(
-        item
-        for item in stale_prediction_page["items"]
-        if item["track_uuid"] == tracks[0].track_uuid
-    )
-    assert stale_prediction["track_id"] is None
-    assert stale_prediction["track_uuid"] == tracks[0].track_uuid
-    assert stale_prediction["content_generation"] == 1
-    assert stale_prediction["selected_path"] == tracks[0].file_path
-
 
 def test_source_feature_states_distinguish_current_and_missing(
     tmp_path: Path,
@@ -663,7 +626,6 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         liked_payload = {
             "catalog_uuid": first["catalog_uuid"],
             "track_uuid": first["track_uuid"],
-            "content_generation": first["content_generation"],
             "liked": True,
         }
         liked = client.post(
@@ -675,7 +637,6 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             "catalog_uuid": first["catalog_uuid"],
             "track_id": first["track_id"],
             "track_uuid": first["track_uuid"],
-            "content_generation": first["content_generation"],
             "file_path": first["file_path"],
             "liked": True,
         }
@@ -685,19 +646,10 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             json={
                 "catalog_uuid": second["catalog_uuid"],
                 "track_uuid": second["track_uuid"],
-                "content_generation": second["content_generation"],
                 "liked": True,
             },
         )
         assert wrong_identity.status_code == 409
-        stale_generation = client.post(
-            f"/api/tracks/{first['track_id']}/liked",
-            json={
-                **liked_payload,
-                "content_generation": first["content_generation"] + 1,
-            },
-        )
-        assert stale_generation.status_code == 409
         wrong_catalog = client.post(
             f"/api/tracks/{first['track_id']}/liked",
             json={**liked_payload, "catalog_uuid": "other-catalog"},

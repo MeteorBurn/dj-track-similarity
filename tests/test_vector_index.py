@@ -232,7 +232,6 @@ def _targets(*track_ids: int) -> tuple[AnalysisTarget, ...]:
                 "00000000-0000-4000-8000-"
                 f"{track_id:012d}"
             ),
-            content_generation=1,
         )
         for track_id in track_ids
     )
@@ -284,7 +283,6 @@ def _target(identity: TrackIdentity) -> AnalysisTarget:
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )
 
 

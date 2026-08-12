@@ -89,7 +89,6 @@ def validate_sonara_core_row(
     row: SonaraCoreRow,
     *,
     expected_track_id: int,
-    expected_content_generation: int,
 ) -> tuple[bool, str | None]:
     """Validate one complete SONARA Core row against writer semantics."""
 
@@ -98,7 +97,6 @@ def validate_sonara_core_row(
         _validate_identity(
             values,
             expected_track_id=expected_track_id,
-            expected_content_generation=expected_content_generation,
         )
         _validate_scalars(values)
         _validate_candidate_json(values)
@@ -129,18 +127,10 @@ def _validate_identity(
     values: Mapping[str, object],
     *,
     expected_track_id: int,
-    expected_content_generation: int,
 ) -> None:
     track_id = _required_int(values["track_id"], "track_id", minimum=1)
     if track_id != expected_track_id:
         raise ValueError("track_id does not match the expected track")
-    generation = _required_int(
-        values["content_generation"],
-        "content_generation",
-        minimum=1,
-    )
-    if generation != expected_content_generation:
-        raise ValueError("content_generation does not match the expected track")
     _required_text(values["analyzed_at"], "analyzed_at")
 
 

@@ -110,7 +110,6 @@ def _track(
         track_id=track_id,
         catalog_uuid="catalog-current",
         track_uuid=f"track-{track_id}",
-        content_generation=1,
         file_path=f"C:/music/{track_id}.wav",
         title=f"Track {track_id}",
         artist="Artist",

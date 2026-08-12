@@ -45,7 +45,7 @@ def _make_tagged_wave(path: Path) -> None:
 
 def _library_with_maest_candidate(
     tmp_path: Path,
-) -> tuple[LibraryDatabase, Path, int, int]:
+) -> tuple[LibraryDatabase, Path, int]:
     path = tmp_path / "track.wav"
     _make_tagged_wave(path)
     database = LibraryDatabase(tmp_path / "library.sqlite")
@@ -64,7 +64,6 @@ def _library_with_maest_candidate(
                     catalog_uuid=database.catalog_uuid,
                     track_id=identity.track_id,
                     track_uuid=identity.track_uuid,
-                    content_generation=identity.content_generation,
                 ),
                 genres=(
                     MaestGenreScore(
@@ -83,14 +82,13 @@ def _library_with_maest_candidate(
         database,
         path,
         identity.track_id,
-        identity.content_generation,
     )
 
 
-def test_genre_tag_job_uses_current_candidate_and_preserves_generation_and_tags(
+def test_genre_tag_job_uses_current_candidate_and_preserves_tags(
     tmp_path: Path,
 ) -> None:
-    database, path, track_id, generation = _library_with_maest_candidate(
+    database, path, track_id = _library_with_maest_candidate(
         tmp_path
     )
 
@@ -114,7 +112,6 @@ def test_genre_tag_job_uses_current_candidate_and_preserves_generation_and_tags(
     current = database.get_track_file_state(path)
     assert current is not None
     assert current.track_id == track_id
-    assert current.content_generation == generation
     assert current.file_size_bytes == path.stat().st_size
     assert current.file_modified_ns == path.stat().st_mtime_ns
     detail = database.get_track_detail(track_id)
@@ -135,7 +132,7 @@ def test_genre_tag_apply_rejects_stale_files_before_source_write(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    database, path, _track_id, generation = _library_with_maest_candidate(
+    database, path, _track_id = _library_with_maest_candidate(
         tmp_path
     )
     candidates = database.list_genre_tag_candidates()
@@ -158,44 +155,14 @@ def test_genre_tag_apply_rejects_stale_files_before_source_write(
     assert "Source file changed" in (results[0].error or "")
     current = database.get_track_file_state(path)
     assert current is not None
-    assert current.content_generation == generation
     assert current.file_modified_ns == candidates[0].expected_file_modified_ns
-
-
-def test_genre_tag_apply_rejects_stale_content_generation(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    database, path, _track_id, generation = _library_with_maest_candidate(
-        tmp_path
-    )
-    candidates = database.list_genre_tag_candidates()
-    original = path.stat()
-    os.utime(
-        path,
-        ns=(original.st_atime_ns, original.st_mtime_ns + 1_000_000),
-    )
-    rescanned = scan_audio_file(database, path)
-    assert rescanned.identity.content_generation == generation + 1
-    writes: list[tuple[Path, str]] = []
-    monkeypatch.setattr(
-        tags,
-        "_write_genre_tag",
-        lambda audio_path, genre: writes.append((audio_path, genre)),
-    )
-
-    results = apply_genre_tags_to_tracks(database, candidates)
-
-    assert writes == []
-    assert [result.status for result in results] == ["failed"]
-    assert "content generation changed" in (results[0].error or "")
 
 
 def test_genre_tag_apply_requires_readback_before_recording_self_write(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    database, path, _track_id, generation = _library_with_maest_candidate(
+    database, path, _track_id = _library_with_maest_candidate(
         tmp_path
     )
     candidates = database.list_genre_tag_candidates()
@@ -209,14 +176,13 @@ def test_genre_tag_apply_requires_readback_before_recording_self_write(
     assert saved.tags["TCON"].text == ["Old Genre"]
     current = database.get_track_file_state(path)
     assert current is not None
-    assert current.content_generation == generation
 
 
 def test_genre_tag_apply_rejects_cross_catalog_candidate_before_source_write(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    database, _path, _track_id, _generation = (
+    database, _path, _track_id = (
         _library_with_maest_candidate(tmp_path)
     )
     candidate = replace(

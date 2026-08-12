@@ -56,7 +56,6 @@ def _insert_track(
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )
 
 
@@ -81,7 +80,6 @@ def _sonara_row(
     values.update(
         {
             "track_id": target.track_id,
-            "content_generation": target.content_generation,
             "detected_bpm": 128.0,
             "bpm_confidence": 0.95,
             "beat_grid_stability": 0.95,

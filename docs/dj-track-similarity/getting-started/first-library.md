@@ -95,6 +95,5 @@ The library panel reads one server-backed page of up to `200` tracks at a time. 
 request with `limit=200`. The final page can contain fewer rows. All rows from the current page
 render in one scrollable list.
 
-The browser deduplicates each loaded result by `catalog_uuid` and `track_uuid`, keeping the highest
-`content_generation`. Metadata opens from the detail endpoint only when requested; preview and
+The browser deduplicates each loaded result by `catalog_uuid` and `track_uuid`. Metadata opens from the detail endpoint only when requested; preview and
 liked-track changes use the same exact track identity.

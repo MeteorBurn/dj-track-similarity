@@ -55,7 +55,6 @@ def _candidate(
             catalog_uuid="catalog-test",
             track_id=track_id,
             track_uuid=f"track-{track_id}",
-            content_generation=1,
         ),
         file_path=f"C:/Music/{track_id}.wav",
         file_size_bytes=100 + track_id,
@@ -491,14 +490,12 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
         connection.execute(
             """
                 INSERT INTO sonara_features(
-                track_id, content_generation,
-                mfcc_mean_blob, chroma_mean_blob,
+                track_id, mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
             (
                 mutation.identity.track_id,
-                mutation.identity.content_generation,
                 np.zeros(13, dtype="<f4").tobytes(),
                 np.zeros(12, dtype="<f4").tobytes(),
                 np.zeros(7, dtype="<f4").tobytes(),

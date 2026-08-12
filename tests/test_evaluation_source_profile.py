@@ -187,13 +187,11 @@ def _track(track_id: int) -> TransitionTrack:
         catalog_uuid="source-profile-fixture",
         track_id=track_id,
         track_uuid=f"track-{track_id}",
-        content_generation=1,
     )
     summary = TrackSummary(
         track_id=track_id,
         catalog_uuid=identity.catalog_uuid,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
         file_path=f"{track_id}.wav",
         title=f"Track {track_id}",
         artist=None,

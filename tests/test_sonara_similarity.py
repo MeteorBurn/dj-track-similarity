@@ -56,7 +56,6 @@ def _core_row(
     values.update(
         {
             "track_id": target.track_id,
-            "content_generation": target.content_generation,
             "detected_bpm": _float_or_none(_feature_value(features, "bpm")),
             "bpm_confidence": _float_or_none(
                 _feature_value(features, "bpm_confidence")
@@ -195,7 +194,6 @@ def _add_sonara_track(
         catalog_uuid=mutation.identity.catalog_uuid,
         track_id=mutation.identity.track_id,
         track_uuid=mutation.identity.track_uuid,
-        content_generation=mutation.identity.content_generation,
     )
     result = database.save_sonara_results(
         (
@@ -229,7 +227,6 @@ def _add_track_without_sonara(
         catalog_uuid=mutation.identity.catalog_uuid,
         track_id=mutation.identity.track_id,
         track_uuid=mutation.identity.track_uuid,
-        content_generation=mutation.identity.content_generation,
     )
 
 
@@ -1361,7 +1358,6 @@ def test_sonara_feature_rows_handle_full_library_and_chunked_queries(
                 catalog_uuid=targets[0].catalog_uuid,
                 track_id=track_id,
                 track_uuid=f"synthetic-{track_id}",
-                content_generation=1,
             )
             for track_id in range(7, 33_001)
         ),

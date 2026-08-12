@@ -72,7 +72,6 @@ _TARGET_MANIFEST_KEYS = frozenset(
         "catalog_uuid",
         "track_id",
         "track_uuid",
-        "content_generation",
     }
 )
 _SETTINGS_MANIFEST_KEYS = frozenset(
@@ -358,7 +357,6 @@ def load_embedding_index_snapshot(
             key=lambda row: (
                 row.target.track_id,
                 row.target.track_uuid,
-                row.target.content_generation,
             ),
         )
     )
@@ -1110,10 +1108,6 @@ def _parse_target_manifests(
                 item["track_uuid"],
                 "target.track_uuid",
             ),
-            content_generation=_positive_int(
-                item["content_generation"],
-                "target.content_generation",
-            ),
         )
         if target.catalog_uuid != catalog_uuid:
             raise ValueError(
@@ -1241,7 +1235,6 @@ def _target_manifest(
         "catalog_uuid": target.catalog_uuid,
         "track_id": target.track_id,
         "track_uuid": target.track_uuid,
-        "content_generation": target.content_generation,
     }
 
 

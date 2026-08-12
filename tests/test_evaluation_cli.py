@@ -1171,7 +1171,6 @@ def _target(identity: TrackIdentity) -> AnalysisTarget:
         catalog_uuid=identity.catalog_uuid,
         track_id=identity.track_id,
         track_uuid=identity.track_uuid,
-        content_generation=identity.content_generation,
     )
 
 
@@ -1180,7 +1179,6 @@ def _identity_payload(identity: TrackIdentity) -> dict[str, object]:
         "catalog_uuid": identity.catalog_uuid,
         "track_id": identity.track_id,
         "track_uuid": identity.track_uuid,
-        "content_generation": identity.content_generation,
     }
 
 
@@ -1275,7 +1273,6 @@ def _sonara_row(
     values.update(
         {
             "track_id": target.track_id,
-            "content_generation": target.content_generation,
             "detected_bpm": bpm,
             "detected_key_camelot": "1A",
             "key_confidence": 0.9,

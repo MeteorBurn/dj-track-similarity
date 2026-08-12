@@ -263,6 +263,13 @@ def test_classifier_job_streams_inputs_in_200_track_batches(
 
     assert (completed.processed, completed.analyzed, completed.failed) == (201, 201, 0)
     assert _score_count(db, "test_classifier") == 201
+    assert [event.message for event in completed.events] == [
+        "CLASSIFIER queued · test_classifier",
+        "CLASSIFIERS started",
+        "CLASSIFIERS batch: 200 tracks scored",
+        "CLASSIFIERS batch: 1 tracks scored",
+        "CLASSIFIERS completed",
+    ]
 
 
 def test_custom_model_path_calls_current_requirements_loader_with_database(

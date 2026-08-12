@@ -232,6 +232,12 @@ class ClassifierJobManager:
                     break
                 after_track_id = batch[-1][0].target.track_id
                 self._score_batch(job_id, key, payload.scorer, batch)
+                self._append_event(
+                    job_id,
+                    "info",
+                    f"CLASSIFIERS batch: {len(batch)} tracks scored",
+                    model=key,
+                )
                 if remaining is not None:
                     remaining -= len(batch)
 

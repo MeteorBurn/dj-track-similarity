@@ -22,7 +22,7 @@ from .maest_windows import MaestWindowContext
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "sonara": frozenset({"core"}),
+        "sonara": frozenset({"core", "embedding"}),
         "maest": frozenset({"analysis", "embedding"}),
         "mert": frozenset({"embedding"}),
         "muq": frozenset({"embedding"}),
@@ -122,6 +122,7 @@ MAEST_EMBEDDING_DIM = 768
 MERT_EMBEDDING_DIM = 768
 MUQ_EMBEDDING_DIM = 1024
 CLAP_EMBEDDING_DIM = 512
+SONARA_EMBEDDING_DIM = 48
 
 
 EmbeddingNormalization = Literal["l2", "none"]
@@ -139,6 +140,7 @@ CURRENT_EMBEDDING_SPECS: Mapping[str, EmbeddingFamilySpec] = MappingProxyType(
         "mert": EmbeddingFamilySpec(MERT_EMBEDDING_DIM, "l2"),
         "muq": EmbeddingFamilySpec(MUQ_EMBEDDING_DIM, "l2"),
         "clap": EmbeddingFamilySpec(CLAP_EMBEDDING_DIM, "l2"),
+        "sonara": EmbeddingFamilySpec(SONARA_EMBEDDING_DIM, "none"),
     }
 )
 
@@ -280,7 +282,6 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
 _EMBEDDING_DIM_BY_FAMILY = {
     family: spec.dimension
     for family, spec in CURRENT_EMBEDDING_SPECS.items()
-    if family != "sonara"
 }
 _REQUIRED_PARAMETER_KEYS = {
     ("maest", "analysis"): frozenset(
@@ -817,6 +818,7 @@ class EmbeddingOutput:
 class SonaraWrite:
     target: AnalysisTarget
     core: SonaraRow
+    embedding: EmbeddingOutput | None = None
 
     def __post_init__(self) -> None:
         if self.core.track_id != self.target.track_id:
@@ -837,9 +839,15 @@ class SonaraWrite:
             dim=7,
             field_name="core.spectral_contrast_mean_blob",
         )
+        if self.embedding is not None and self.embedding.family != "sonara":
+            raise ValueError("embedding must use family='sonara'")
+
     @property
     def outputs(self) -> tuple[AnalysisOutput, ...]:
-        return (AnalysisOutput("sonara", "core"),)
+        outputs = [AnalysisOutput("sonara", "core")]
+        if self.embedding is not None:
+            outputs.append(AnalysisOutput("sonara", "embedding"))
+        return tuple(outputs)
 
 
 @dataclass(frozen=True)

@@ -378,10 +378,10 @@ def test_cancelled_queued_job_performs_no_repository_work() -> None:
     assert repository.events == []
 
 
-def test_sonara_runner_exposes_only_core_output(
+def test_sonara_runner_exposes_default_core_and_embedding_outputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    outputs = (_sonara_output("core"),)
+    outputs = (_sonara_output("core"), _sonara_output("embedding"))
     monkeypatch.setattr(
         runner_module,
         "analysis_outputs_for_sonara_runtime",
@@ -390,8 +390,14 @@ def test_sonara_runner_exposes_only_core_output(
 
     runner = SonaraModelRunner(sonara_module=object())
 
-    assert [output.key for output in runner.active_outputs] == [("sonara", "core")]
-    assert [output.key for output in runner.candidate_outputs] == [("sonara", "core")]
+    assert [output.key for output in runner.active_outputs] == [
+        ("sonara", "core"),
+        ("sonara", "embedding"),
+    ]
+    assert [output.key for output in runner.candidate_outputs] == [
+        ("sonara", "core"),
+        ("sonara", "embedding"),
+    ]
     assert not hasattr(build_analysis_job_config(models=["sonara"]), "sonara_outputs")
 
 

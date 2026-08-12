@@ -14,6 +14,7 @@ from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_ro
 
 _TABLE_BY_OUTPUT = {
     ("sonara", "core"): "sonara_features",
+    ("sonara", "embedding"): "sonara_embeddings",
     ("maest", "analysis"): "maest_genres",
     ("maest", "embedding"): "maest_embeddings",
     ("mert", "embedding"): "mert_embeddings",

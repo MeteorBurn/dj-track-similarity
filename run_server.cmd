@@ -4,7 +4,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 set "PROJECT_ROOT=%~dp0."
 set "PORT=8765"
 set "FRONTEND_PORT=5173"
-set "DEFAULT_DB_PATH=%~dp0database\volumes.sqlite"
+set "DEFAULT_DB_PATH=%~dp0database\volumes_exp.sqlite"
 set "DB_PATH="
 set "MODE="
 set "FRONTEND_HOST="

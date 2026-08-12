@@ -13,6 +13,7 @@ from .db_schema import validate_library_schema
 
 
 _EMBEDDING_TABLES: Mapping[str, str] = {
+    "sonara": "sonara_embeddings",
     "maest": "maest_embeddings",
     "mert": "mert_embeddings",
     "muq": "muq_embeddings",

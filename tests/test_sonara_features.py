@@ -199,7 +199,7 @@ def _raw_analysis(path: str, *, features: tuple[str, ...]) -> TrackAnalysis:
     return result
 
 
-def test_default_batch_requests_registers_and_writes_core_only() -> None:
+def test_default_batch_requests_registers_and_writes_core_with_embedding() -> None:
     FakeSonara.calls.clear()
     repository = RecordingRepository()
     candidates = (_candidate(1), _candidate(2))
@@ -215,14 +215,15 @@ def test_default_batch_requests_registers_and_writes_core_only() -> None:
     assert [result.target.track_id for result in results] == [1, 2]
     assert all(result.error is None for result in results)
     assert len(repository.register_calls) == 1
-    assert [output.output_kind for output in repository.register_calls[0]] == ["core"]
+    assert [output.output_kind for output in repository.register_calls[0]] == [
+        "core",
+        "embedding",
+    ]
     assert len(repository.save_calls) == 1
     assert len(repository.save_calls[0]) == 2
     assert all(not hasattr(write, "timeline") for write in repository.save_calls[0])
-    assert all(
-        not hasattr(write, "similarity_embedding")
-        for write in repository.save_calls[0]
-    )
+    assert all(write.embedding is not None for write in repository.save_calls[0])
+    assert all(write.embedding.vector.shape == (48,) for write in repository.save_calls[0])
     assert all(not hasattr(write, "fingerprint") for write in repository.save_calls[0])
 
     call = FakeSonara.calls[-1]
@@ -231,11 +232,11 @@ def test_default_batch_requests_registers_and_writes_core_only() -> None:
     assert call["mode"] == "playlist"
     assert (call["bpm_min"], call["bpm_max"]) == (70, 180)
     assert call["vocalness_model"] == "bundled"
-    assert tuple(call["features"]) == SONARA_CORE_REQUESTED_FEATURES
+    assert tuple(call["features"]) == (*SONARA_CORE_REQUESTED_FEATURES, "embedding")
     assert tuple(call["features"]) == sonara_requested_features()
     assert "vocalness" in call["features"]
     assert "aggression" in call["features"]
-    assert "embedding" not in call["features"]
+    assert "embedding" in call["features"]
     assert "fingerprint" not in call["features"]
     assert "instrumentalness" not in call["features"]
 
@@ -319,7 +320,10 @@ def test_batch_recovers_native_sonara_failure_with_ffmpeg_pcm_and_logs(
     signal_call = FallbackSonara.signal_calls[0]
     assert signal_call["sr"] == 22_050
     assert signal_call["mode"] == "playlist"
-    assert tuple(signal_call["features"]) == SONARA_CORE_REQUESTED_FEATURES
+    assert tuple(signal_call["features"]) == (
+        *SONARA_CORE_REQUESTED_FEATURES,
+        "embedding",
+    )
     assert "SONARA analysis recovered through FFmpeg PCM fallback" in caplog.text
     assert "native decoder rejected input" in caplog.text
 
@@ -327,7 +331,10 @@ def test_batch_recovers_native_sonara_failure_with_ffmpeg_pcm_and_logs(
 def test_analysis_output_helper_is_unversioned_and_ignores_runtime_metadata() -> None:
     outputs = analysis_outputs_for_sonara_runtime(FakeSonara)
 
-    assert tuple(output.key for output in outputs) == (("sonara", "core"),)
+    assert tuple(output.key for output in outputs) == (
+        ("sonara", "core"),
+        ("sonara", "embedding"),
+    )
 
 
 def test_empty_batch_performs_no_runtime_or_repository_work() -> None:

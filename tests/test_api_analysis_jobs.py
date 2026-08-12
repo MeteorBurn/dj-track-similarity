@@ -92,7 +92,7 @@ def test_api_rejects_classifier_scoring_inside_audio_job(
     assert response.status_code == 422
 
 
-def test_api_sonara_job_is_core_only_and_keeps_native_batch_size(
+def test_api_sonara_job_uses_default_outputs_and_keeps_native_batch_size(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:

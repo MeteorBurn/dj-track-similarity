@@ -168,6 +168,18 @@ CREATE TABLE sonara_features (
 );
 """
 
+_DDL_SONARA_EMBEDDINGS = """
+CREATE TABLE sonara_embeddings (
+    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid         TEXT    NOT NULL,
+    dim                INTEGER NOT NULL CHECK(dim = 48),
+    normalization      TEXT    NOT NULL CHECK(normalization = 'none'),
+    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = 48 * 4),
+    analyzed_at        TEXT    NOT NULL
+);
+CREATE INDEX idx_sonara_embeddings_track_uuid ON sonara_embeddings(track_uuid);
+"""
+
 _DDL_MAEST_GENRES = """
 CREATE TABLE maest_genres (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
@@ -308,6 +320,7 @@ _ALL_DDL: list[str] = [
     _DDL_TRACKS,
     _DDL_TAGS,
     _DDL_SONARA_FEATURES,
+    _DDL_SONARA_EMBEDDINGS,
     _DDL_MAEST_GENRES,
     _DDL_MAEST_EMBEDDINGS,
     _DDL_MERT_EMBEDDINGS,

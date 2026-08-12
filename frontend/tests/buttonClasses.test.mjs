@@ -282,6 +282,14 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /classifier-profile-status-reason/);
   assert.match(searchSource, /classifier\.profile_description/);
   assert.match(searchSource, /classifierManifestFacts\(classifier\)/);
+  assert.match(searchSource, /className="custom-classifier-profile-title"/);
+  assert.match(searchSource, /classifier-profile-facts[\s\S]*classifier-profile-actions/);
+  assert.match(searchSource, /classifier-profile-primary-facts/);
+  assert.match(searchSource, /classifier-profile-secondary-facts/);
+  assert.match(searchSource, /\["Status", "Type", "Models", "Calibrated"\]/);
+  assert.doesNotMatch(searchSource, /classifier-profile-labels/);
+  assert.match(searchSource, /label: "Status"/);
+  assert.match(searchSource, /formatPromotedDate\(promotedAt\)/);
   assert.doesNotMatch(searchSource, /database ready|classifier\.ready|classifier\.not_ready/);
   assert.match(searchSource, /available \{availableClassifierCount\} · blocked \{blockedClassifierCount\}/);
   assert.match(searchSource, /empty-state classifier-empty-state/);

@@ -541,40 +541,53 @@ export function SearchPlaylistPanel({
                     ? title
                     : `${classifier.name} has no current calculated scores. Run classifier scoring first.`;
                   const manifestFacts = classifierManifestFacts(classifier);
-                  const labelBadges = classifierLabelBadges(classifier);
+                  const primaryManifestFacts = manifestFacts.filter(({ label }) => ["Status", "Type", "Models", "Calibrated"].includes(label));
+                  const secondaryManifestFacts = manifestFacts.filter(({ label }) => !["Status", "Type", "Models", "Calibrated"].includes(label));
                   return (
                     <div className="classifier-profile available" key={classifier.classifier_key}>
                       <div className="custom-control-header" title={title}>
-                        <div className="custom-control-copy classifier-profile-title">
+                        <div className="custom-classifier-profile-title">
                           <strong>{classifier.name}</strong>
-                          <small>— {classifier.profile_description || "No description in model.json."}</small>
-                        </div>
-                        <div className="classifier-profile-actions">
-                          <span className="classifier-profile-status-badge available">available</span>
-                          <button
-                            className="icon-button classifier-analyze-button"
-                            title={rescoreTitle}
-                            aria-label={rescoreTitle}
-                            disabled={busy}
-                            onClick={() => onAnalyzeClassifier(classifier)}
-                            type="button"
-                          >
-                            <Play size={15} />
-                          </button>
+                          <small> - {classifier.profile_description || "No description in model.json."}</small>
                         </div>
                       </div>
-                      {labelBadges.length ? (
-                        <div className="classifier-profile-labels">
-                          {labelBadges.map(({ label, count }) => (
-                            <span key={label}><b>{label}</b> {count.toLocaleString("en-US")}</span>
-                          ))}
-                        </div>
-                      ) : null}
                       {manifestFacts.length ? (
                         <div className="classifier-profile-meta">
-                          {manifestFacts.map((fact) => (
-                            <span key={fact.label}><b>{fact.label}:</b><i>{fact.value}</i></span>
-                          ))}
+                          <div className="classifier-profile-facts">
+                            <div className="classifier-profile-fact-row classifier-profile-primary-facts">
+                              {primaryManifestFacts.map((fact) => (
+                                <span
+                                  className={fact.label === "Models" ? "classifier-profile-models" : undefined}
+                                  key={fact.label}
+                                  title={`${fact.label}: ${fact.value}`}
+                                >
+                                  <b>{fact.label}:</b>
+                                  {fact.status ? (
+                                    <span className={`classifier-profile-status-badge ${fact.value === "available" ? "available" : ""}`.trim()}>{fact.value}</span>
+                                  ) : <i>{fact.value}</i>}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="classifier-profile-fact-row classifier-profile-secondary-facts">
+                              {secondaryManifestFacts.map((fact) => (
+                                <span key={fact.label} title={`${fact.label}: ${fact.value}`}>
+                                  <b>{fact.label}:</b><i>{fact.value}</i>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="classifier-profile-actions">
+                            <button
+                              className="icon-button classifier-analyze-button"
+                              title={rescoreTitle}
+                              aria-label={rescoreTitle}
+                              disabled={busy}
+                              onClick={() => onAnalyzeClassifier(classifier)}
+                              type="button"
+                            >
+                              <Play size={15} />
+                            </button>
+                          </div>
                         </div>
                       ) : null}
                       <label className="range-control" title={sliderTitle}>
@@ -726,8 +739,10 @@ function classifierHelp(classifier: PromotedClassifier) {
   return `${description}Minimum ${classifier.name}. Type: number 0.00-1.00. Filters tracks by stored promoted classifier score.${label}`;
 }
 
-function classifierManifestFacts(classifier: PromotedClassifier): Array<{ label: string; value: string }> {
-  const facts: Array<{ label: string; value: string }> = [];
+function classifierManifestFacts(classifier: PromotedClassifier): Array<{ label: string; value: string; status?: boolean }> {
+  const facts: Array<{ label: string; value: string; status?: boolean }> = [
+    { label: "Status", value: classifierProfileStatus(classifier), status: true },
+  ];
   if (classifier.profile_type) {
     facts.push({
       label: "Type",
@@ -756,20 +771,15 @@ function classifierManifestFacts(classifier: PromotedClassifier): Array<{ label:
   }
   const promotedAt = classifier.promoted_at ? new Date(classifier.promoted_at) : null;
   if (promotedAt && Number.isFinite(promotedAt.getTime())) {
-    facts.push({ label: "Promoted", value: promotedAt.toLocaleDateString("en-GB") });
+    facts.push({ label: "Promoted", value: formatPromotedDate(promotedAt) });
   }
   return facts;
 }
 
-function classifierLabelBadges(classifier: PromotedClassifier) {
-  const counts = classifier.trained_label_counts || {};
-  const orderedLabels = [
-    ...(classifier.label_order || []),
-    ...Object.keys(counts).filter((label) => !(classifier.label_order || []).includes(label)),
-  ];
-  return orderedLabels
-    .filter((label, index) => orderedLabels.indexOf(label) === index && typeof counts[label] === "number")
-    .map((label) => ({ label: label.replaceAll("_", " "), count: counts[label] }));
+function formatPromotedDate(value: Date): string {
+  const day = String(value.getDate()).padStart(2, "0");
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  return `${day}.${month}.${value.getFullYear()}`;
 }
 
 function optionTitle<T extends string>(options: Array<SelectOption<T>>, value: T) {

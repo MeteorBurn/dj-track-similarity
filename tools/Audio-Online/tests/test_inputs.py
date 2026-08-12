@@ -4,6 +4,7 @@ from pathlib import Path
 
 from metadata_enrichment import inputs
 from metadata_enrichment.inputs import load_tracks
+from metadata_enrichment.models import TrackInput
 
 
 def test_text_reader_accepts_hyphen_and_em_dash(tmp_path: Path) -> None:
@@ -56,3 +57,17 @@ def test_directory_reader_reads_tags_without_writing_audio(tmp_path: Path, monke
     track = load_tracks(tmp_path)[0]
 
     assert (track.artist, track.title, track.album, track.file_path) == ("Artist", "Title", "Release", audio_path)
+
+
+def test_single_audio_file_is_a_supported_input(tmp_path: Path, monkeypatch) -> None:
+    """A user-selected track must not require scanning its whole parent folder."""
+
+    audio_path = tmp_path / "Artist - Title.wav"
+    audio_path.touch()
+
+    class Metadata:
+        tags = {"artist": ["Artist"], "title": ["Title"]}
+
+    monkeypatch.setattr(inputs, "MutagenFile", lambda *_args, **_kwargs: Metadata())
+
+    assert load_tracks(audio_path) == [TrackInput(artist="Artist", title="Title", file_path=audio_path)]

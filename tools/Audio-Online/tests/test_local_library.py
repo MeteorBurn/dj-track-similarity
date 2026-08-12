@@ -37,3 +37,23 @@ def test_local_reader_uses_exact_file_path_and_keeps_top_three_maest(tmp_path: P
 
     assert evidence.file_tags == ("Electronic", "Dance")
     assert evidence.maest == (("House", 0.81), ("Techno", 0.64), ("Electronic", 0.52))
+
+
+def test_local_reader_accepts_only_the_same_windows_path_with_slash_normalization(tmp_path: Path) -> None:
+    """Path separators may differ between an indexed Windows path and CLI input."""
+
+    db_path = tmp_path / "library.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript("""
+            CREATE TABLE tracks (track_id INTEGER PRIMARY KEY, file_path TEXT NOT NULL UNIQUE);
+            CREATE TABLE tags (track_id INTEGER PRIMARY KEY, genres_json TEXT NOT NULL);
+            CREATE TABLE maest_genres (track_id INTEGER PRIMARY KEY, genres_json TEXT NOT NULL);
+        """)
+        connection.execute("INSERT INTO tracks VALUES (1, ?)", ("C:/music/one.flac",))
+        connection.execute("INSERT INTO tags VALUES (1, ?)", (json.dumps(["House"]),))
+        connection.execute("INSERT INTO maest_genres VALUES (1, ?)", (json.dumps([]),))
+
+    evidence = read_local_evidence(db_path, TrackInput(file_path=Path(r"C:\music\one.flac")))
+
+    assert evidence.matched_path == "C:/music/one.flac"
+    assert evidence.file_tags == ("House",)

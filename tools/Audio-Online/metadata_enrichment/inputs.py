@@ -14,12 +14,17 @@ from mutagen import File as MutagenFile
 from .models import TrackInput
 
 
+AUDIO_SUFFIXES = {".mp3", ".flac", ".m4a", ".aiff", ".aif", ".wav", ".ogg"}
+
+
 def load_tracks(path: Path, *, node_executable: Path | None = None, node_modules: Path | None = None) -> list[TrackInput]:
     """Read supported track lists and local metadata without external requests."""
 
     suffix = path.suffix.lower()
     if path.is_dir():
         return _load_directory(path)
+    if path.is_file() and suffix in AUDIO_SUFFIXES:
+        return [_load_audio_file(path)]
     if suffix == ".csv":
         return _load_csv(path)
     if suffix == ".xlsx":
@@ -82,24 +87,24 @@ def _load_m3u(path: Path) -> list[TrackInput]:
 
 
 def _load_directory(path: Path) -> list[TrackInput]:
-    suffixes = {".mp3", ".flac", ".m4a", ".aiff", ".aif", ".wav", ".ogg"}
-    tracks: list[TrackInput] = []
-    for audio_path in sorted(item for item in path.rglob("*") if item.is_file() and item.suffix.lower() in suffixes):
-        try:
-            metadata = MutagenFile(audio_path, easy=True)
-        except Exception:
-            metadata = None
-        tags = metadata.tags if metadata and metadata.tags else {}
-        value = lambda name: tags.get(name, [None])[0] if isinstance(tags.get(name), list) else None
-        fallback_artist, fallback_title = _split_track_line(audio_path.stem)
-        duration = getattr(getattr(metadata, "info", None), "length", None)
-        tracks.append(TrackInput(
-            title=value("title") or fallback_title or audio_path.stem,
-            artist=value("artist") or fallback_artist or None,
-            album=value("album"), duration_seconds=float(duration) if isinstance(duration, (int, float)) else None,
-            file_path=audio_path,
-        ))
-    return tracks
+    return [_load_audio_file(audio_path) for audio_path in sorted(item for item in path.rglob("*") if item.is_file() and item.suffix.lower() in AUDIO_SUFFIXES)]
+
+
+def _load_audio_file(audio_path: Path) -> TrackInput:
+    try:
+        metadata = MutagenFile(audio_path, easy=True)
+    except Exception:
+        metadata = None
+    tags = metadata.tags if metadata and metadata.tags else {}
+    value = lambda name: tags.get(name, [None])[0] if isinstance(tags.get(name), list) else None
+    fallback_artist, fallback_title = _split_track_line(audio_path.stem)
+    duration = getattr(getattr(metadata, "info", None), "length", None)
+    return TrackInput(
+        title=value("title") or fallback_title or audio_path.stem,
+        artist=value("artist") or fallback_artist or None,
+        album=value("album"), duration_seconds=float(duration) if isinstance(duration, (int, float)) else None,
+        file_path=audio_path,
+    )
 
 
 def _load_xlsx(path: Path, *, node_executable: Path | None, node_modules: Path | None) -> list[TrackInput]:

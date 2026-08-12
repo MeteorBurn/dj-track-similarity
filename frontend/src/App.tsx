@@ -808,6 +808,24 @@ export function App() {
     );
   }
 
+  async function handleResetClassifier(classifier: PromotedClassifier) {
+    appendActivity("warn", "CLASSIFIER очистка запущена", classifier.name);
+    await run(
+      () => api.resetClassifier(classifier.classifier_key),
+      (result) => {
+        setClassifierMinScores((current) => {
+          const next = { ...current };
+          delete next[classifier.classifier_key];
+          return next;
+        });
+        const detail = `${classifier.name} · удалено ${result.classifier_rows_deleted} score`;
+        appendActivity("ok", "CLASSIFIER данные удалены", detail);
+        return detail;
+      },
+      { refreshLibrary: true, refreshSummary: true }
+    );
+  }
+
   async function handleEmbeddingSearch(analysisFamily: EmbeddingSource) {
     if (!seeds.length) {
       const error = new Error("Выберите от 1 до 5 уникальных seed-треков");
@@ -1459,6 +1477,11 @@ export function App() {
             setClassifierMinScores((current) => ({ ...current, [classifier]: value }))
           }
           onAnalyzeClassifier={handleAnalyzeClassifier}
+          onResetClassifier={(classifier) => requestConfirmation({
+            title: `Удалить результаты ${classifier.name}?`,
+            message: "Будут удалены только рассчитанные score этого классификатора. Аудиофайлы и результаты других классификаторов останутся.",
+            onConfirm: () => handleResetClassifier(classifier)
+          })}
           classifierJob={classifiers.some((classifier) => classifier.classifier_key === analysisJob?.adapter_name) ? analysisJob : null}
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}

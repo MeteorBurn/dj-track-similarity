@@ -133,6 +133,7 @@ export function SearchPlaylistPanel({
   classifierMinScores,
   onClassifierMinScoreChange,
   onAnalyzeClassifier,
+  onResetClassifier,
   classifierJob,
   removeSeed,
   handleTextSearch,
@@ -187,6 +188,7 @@ export function SearchPlaylistPanel({
   classifierMinScores: Record<string, number>;
   onClassifierMinScoreChange: (classifier: string, value: number) => void;
   onAnalyzeClassifier: (classifier: PromotedClassifier) => void;
+  onResetClassifier: (classifier: PromotedClassifier) => void;
   classifierJob: AnalysisJobStatus | null;
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
@@ -586,6 +588,16 @@ export function SearchPlaylistPanel({
                               type="button"
                             >
                               <Play size={15} />
+                            </button>
+                            <button
+                              className="icon-button intent-remove classifier-reset-button"
+                              title={`Удалить рассчитанные данные ${classifier.name}`}
+                              aria-label={`Удалить рассчитанные данные ${classifier.name}`}
+                              disabled={busy}
+                              onClick={() => onResetClassifier(classifier)}
+                              type="button"
+                            >
+                              <Trash2 size={15} />
                             </button>
                           </div>
                         </div>

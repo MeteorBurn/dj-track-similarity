@@ -275,6 +275,8 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /onClassifierMinScoreChange/);
   assert.match(searchSource, /classifier-analyze-button/);
   assert.match(searchSource, /onAnalyzeClassifier/);
+  assert.match(searchSource, /classifier-reset-button/);
+  assert.match(searchSource, /onResetClassifier/);
   assert.match(searchSource, /orderedClassifierProfiles\.length \? \(/);
   assert.match(searchSource, /orderPromotedClassifiers\(classifiers\)/);
   assert.match(searchSource, /classifierScoringBlockedReason\(classifier\)/);
@@ -300,6 +302,7 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(appSource, /useState<AnalysisSelection\[]>\(defaultAnalysisSelections\)/);
   assert.match(appSource, /tab === "class" && databasePath[\s\S]*refreshClassifierProfilesInBackground/);
   assert.match(appSource, /api\.analyzeClassifier/);
+  assert.match(appSource, /api\.resetClassifier/);
   assert.doesNotMatch(appSource, /classifierRequiredModels/);
   assert.doesNotMatch(appSource, /setPendingClassifierAfterAnalysis/);
   assert.doesNotMatch(selectionSource, /"classifiers"/);

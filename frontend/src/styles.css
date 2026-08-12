@@ -2172,9 +2172,23 @@ h2 {
 }
 
 .classifier-profile-meta .classifier-profile-actions {
-  flex: 0 0 28px;
+  flex: 0 0 auto;
+  gap: 4px;
   justify-content: flex-end;
   margin-left: auto;
+}
+
+.classifier-profile-meta .classifier-reset-button {
+  background: transparent;
+  border-color: rgb(226 72 61 / 75%);
+  color: var(--danger-text-hover);
+  margin-left: 2px;
+}
+
+.classifier-profile-meta .classifier-reset-button:hover:not(:disabled) {
+  background: transparent;
+  border-color: rgb(255 105 91 / 90%);
+  color: var(--danger-text-hover);
 }
 
 .classifier-profile .range-control {

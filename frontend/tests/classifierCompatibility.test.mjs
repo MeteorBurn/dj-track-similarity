@@ -84,3 +84,10 @@ test("classifier profiles keep promotion creation order with stable fallback", a
     ["newer", "missing-time", "older", "invalid-time"],
   );
 });
+
+test("classifier score count is shown as one tracks value", async () => {
+  const { formatClassifierScoredTracks } = await loadClassifierCompatibility();
+
+  assert.equal(formatClassifierScoredTracks(37), "37 tracks");
+  assert.equal(formatClassifierScoredTracks(undefined), "0 tracks");
+});

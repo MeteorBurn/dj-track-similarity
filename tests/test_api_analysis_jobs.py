@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import dj_track_similarity.api as api
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
+from dj_track_similarity.database import LibraryDatabase
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
@@ -27,7 +28,7 @@ def _analysis_start(calls: list[dict[str, object]]):
     return start
 
 
-def test_api_lists_classifier_manifests_without_database_readiness(
+def test_api_lists_classifier_manifests_with_direct_score_counts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -40,10 +41,19 @@ def test_api_lists_classifier_manifests_without_database_readiness(
     ]
     monkeypatch.setattr(api, "promoted_classifiers", lambda: classifiers)
 
+    def score_counts(
+        _database: LibraryDatabase,
+        classifier_keys: tuple[str, ...],
+    ) -> dict[str, int]:
+        assert classifier_keys == ("voice_presence",)
+        return {"voice_presence": 1}
+
+    monkeypatch.setattr(LibraryDatabase, "classifier_score_counts", score_counts)
+
     response = _client(monkeypatch, tmp_path).get("/api/classifiers")
 
     assert response.status_code == 200
-    assert response.json() == [{**classifiers[0], "scored_tracks": 0}]
+    assert response.json() == [{**classifiers[0], "scored_tracks": 1}]
 
 
 def test_api_starts_selected_ml_job_without_classifier_fields(

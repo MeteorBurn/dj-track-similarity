@@ -22,6 +22,11 @@ export function classifierProfileStatus(classifier: PromotedClassifier): string 
   return classifier.production_status || classifier.manifest_status || "blocked";
 }
 
+export function formatClassifierScoredTracks(value: number | undefined): string {
+  const count = Math.max(0, Math.trunc(Number(value || 0)));
+  return `${count} tracks`;
+}
+
 export function filterAvailableClassifierValues<T>(
   classifiers: PromotedClassifier[],
   values: Record<string, T>,

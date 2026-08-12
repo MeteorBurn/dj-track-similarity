@@ -50,6 +50,11 @@ This exact profile uses MERT 0.43, MAEST 0.32, and CLAP 0.04. Any other source o
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
 ```
 
+The CLI updates one console line while it runs. It loads track records and only
+the selected embedding families in SQLite chunks of 200 tracks, showing the
+phase, percentage, and processed items as `N/M`. During pair scoring, `N/M`
+refers to candidate pairs.
+
 Optional examples:
 
 ```powershell

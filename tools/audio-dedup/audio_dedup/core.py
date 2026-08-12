@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 import sqlite3
 import sys
+import time
 from typing import Callable, Iterable, Mapping, TypeVar
 from xml.sax.saxutils import escape
 import zipfile
@@ -27,6 +28,8 @@ DEFAULT_DB = Path(r"C:\db\abstracted.sqlite")
 DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "database" / "rhythm_lab.sqlite"
 DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
 SUPPORTED_EMBEDDINGS = ("mert", "maest", "muq", "clap")
+TRACK_LOAD_CHUNK_SIZE = 200
+EMBEDDING_LOAD_CHUNK_SIZE = 200
 DEFAULT_SOURCE_WEIGHTS = {
     "mert": 0.43,
     "maest": 0.32,
@@ -103,6 +106,41 @@ SONARA_FIELDS = (
     "dynamic_range_db",
     "loudness_lufs",
 )
+
+
+class ConsoleProgressReporter:
+    def __init__(self, *, refresh_seconds: float = 1.0) -> None:
+        self.refresh_seconds = max(0.0, float(refresh_seconds))
+        self._last_message: str | None = None
+        self._last_rendered_at: float | None = None
+        self._has_active_line = False
+
+    def __call__(self, processed: int, total: int, message: str) -> None:
+        now = time.monotonic()
+        completed = total > 0 and processed >= total
+        phase_changed = message != self._last_message
+        due = (
+            self._last_rendered_at is None
+            or now - self._last_rendered_at >= self.refresh_seconds
+        )
+        if not (phase_changed or completed or due):
+            return
+        if total > 0:
+            percent = max(0.0, min(100.0, (processed / total) * 100.0))
+            rendered = f"{message}: {percent:.1f}% ({processed}/{total})"
+        else:
+            rendered = f"{message}..."
+        sys.stdout.write(f"\r{rendered}")
+        sys.stdout.flush()
+        self._last_message = message
+        self._last_rendered_at = now
+        self._has_active_line = True
+
+    def finish(self) -> None:
+        if self._has_active_line:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._has_active_line = False
 
 
 @dataclass(frozen=True)
@@ -189,6 +227,7 @@ class AudioDedupCancelled(RuntimeError):
 def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     args = parse_args(argv)
+    progress_reporter = ConsoleProgressReporter()
     try:
         result = run_report(
             db_path=args.db,
@@ -201,7 +240,9 @@ def main(argv: list[str] | None = None) -> int:
             out_dir=args.out_dir,
             sources=args.sources,
             weights=parse_weight_arguments(args.weights),
+            progress_callback=progress_reporter,
         )
+        progress_reporter.finish()
         apply_result = None
         if args.apply:
             candidates = safe_delete_candidates(result.payload)
@@ -220,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print("Apply cancelled; reports were written but no files or database rows were deleted.")
     except (FileNotFoundError, OSError, ValueError, sqlite3.Error) as error:
+        progress_reporter.finish()
         print(f"audio_dedup failed: {error}", file=sys.stderr)
         return 2
     if args.apply and apply_result is not None:
@@ -425,7 +467,13 @@ def run_report(
     _raise_if_cancelled(should_cancel)
     database_track_count = count_database_tracks(selected_database)
     _report_progress(progress_callback, 0, database_track_count, "Loading scoped tracks")
-    tracks = load_tracks(selected_database, root=root, path_contains=path_contains)
+    tracks = load_tracks(
+        selected_database,
+        root=root,
+        path_contains=path_contains,
+        sources=source_config.sources,
+        progress_callback=progress_callback,
+    )
     _raise_if_cancelled(should_cancel)
     _report_progress(progress_callback, 0, max(1, len(tracks)), f"Loaded {len(tracks)} scoped tracks")
     groups = find_duplicate_groups(
@@ -519,6 +567,8 @@ def load_tracks(
     *,
     root: Path,
     path_contains: list[str],
+    sources: Iterable[str] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[TrackRecord]:
     selected_database = (
         database
@@ -527,9 +577,27 @@ def load_tracks(
     )
     root_text = canonical_file_path(root)
     contains = [item.casefold() for item in path_contains if item.strip()]
+    selected_sources = tuple(SUPPORTED_EMBEDDINGS if sources is None else sources)
+    unsupported_sources = set(selected_sources) - set(SUPPORTED_EMBEDDINGS)
+    if unsupported_sources:
+        raise ValueError(
+            "Unsupported embedding source(s): "
+            + ", ".join(sorted(unsupported_sources))
+        )
     connection = selected_database.connect()
     try:
-        rows = connection.execute(
+        active_track_count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM tracks WHERE missing_since IS NULL"
+            ).fetchone()[0]
+        )
+        _report_progress(
+            progress_callback,
+            0,
+            active_track_count,
+            "Loading scoped tracks",
+        )
+        cursor = connection.execute(
             """
             SELECT
                 t.track_id,
@@ -561,15 +629,30 @@ def load_tracks(
             WHERE t.missing_since IS NULL
             ORDER BY t.track_id
             """,
-        ).fetchall()
-        tracks = [
-            _track_from_row(row, catalog_uuid=selected_database.catalog_uuid)
-            for row in rows
-            if _path_matches(row["file_path"], root_text, contains)
-        ]
+        )
+        tracks: list[TrackRecord] = []
+        processed = 0
+        while rows := cursor.fetchmany(TRACK_LOAD_CHUNK_SIZE):
+            for row in rows:
+                if _path_matches(row["file_path"], root_text, contains):
+                    tracks.append(
+                        _track_from_row(
+                            row,
+                            catalog_uuid=selected_database.catalog_uuid,
+                        )
+                    )
+            processed += len(rows)
+            _report_progress(
+                progress_callback,
+                processed,
+                active_track_count,
+                "Loading scoped tracks",
+            )
         _attach_embeddings(
             connection,
             tracks,
+            sources=selected_sources,
+            progress_callback=progress_callback,
         )
     finally:
         connection.close()
@@ -2197,6 +2280,9 @@ def _track_from_row(
 def _attach_embeddings(
     connection: sqlite3.Connection,
     tracks: list[TrackRecord],
+    *,
+    sources: Iterable[str] = SUPPORTED_EMBEDDINGS,
+    progress_callback: ProgressCallback | None = None,
 ) -> None:
     if not tracks:
         return
@@ -2206,10 +2292,15 @@ def _attach_embeddings(
         for track in tracks
     }
     track_ids = [track.track_id for track in tracks]
-    for family in SUPPORTED_EMBEDDINGS:
+    for family in sources:
+        if family not in SUPPORTED_EMBEDDINGS:
+            raise ValueError(f"Unsupported embedding source: {family}")
         specification = current_embedding_spec(family)
         table = f"{family}_embeddings"
-        for chunk in _chunks(track_ids, 800):
+        message = f"Loading {family.upper()} embeddings"
+        _report_progress(progress_callback, 0, len(track_ids), message)
+        processed = 0
+        for chunk in _chunks(track_ids, EMBEDDING_LOAD_CHUNK_SIZE):
             placeholders = ",".join("?" for _ in chunk)
             rows = connection.execute(
                 f"""
@@ -2261,6 +2352,8 @@ def _attach_embeddings(
                 embeddings_by_track[track_id][family] = (
                     vector / norm
                 ).astype(np.float32)
+            processed += len(chunk)
+            _report_progress(progress_callback, processed, len(track_ids), message)
     for index, track in enumerate(tracks):
         tracks[index] = TrackRecord(
             track_id=track.track_id,

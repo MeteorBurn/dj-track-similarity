@@ -100,6 +100,35 @@ def test_musicbrainz_waits_between_requests() -> None:
 def test_beatport_without_official_endpoint_is_unavailable() -> None:
     """Prevent an undocumented storefront scraping fallback."""
 
-    result = BeatportSource(access_token=None, search_url=None, get_json=lambda *_args, **_kwargs: {}).fetch(TrackInput(artist="Artist", title="Title"))
+    result = BeatportSource(access_token=None, get_json=lambda *_args, **_kwargs: {}).fetch(TrackInput(artist="Artist", title="Title"))
 
     assert result.status == "unavailable"
+
+
+def test_beatport_maps_catalog_track_and_keeps_genre_separate_from_subgenre() -> None:
+    """Beatport v4 Catalog Search must become independent source evidence."""
+
+    calls: list[dict[str, object]] = []
+
+    def get_json(url: str, **kwargs: object) -> dict[str, object]:
+        calls.append({"url": url, **kwargs})
+        return {"results": [{
+            "id": 123,
+            "name": "Title",
+            "artists": [{"name": "Artist"}],
+            "release": {"name": "Release", "label": {"name": "Label"}, "publish_date": "2024-04-30"},
+            "genre": {"name": "Techno"},
+            "subgenre": {"name": "Peak Time / Driving"},
+            "length_ms": 402000,
+            "url": "https://www.beatport.com/track/title/123",
+        }]}
+
+    result = BeatportSource(access_token="token", get_json=get_json).fetch(TrackInput(artist="Artist", title="Title"))
+
+    assert result.status == "matched"
+    assert result.record is not None
+    assert result.record.genres == ("Techno",)
+    assert result.record.styles == ("Peak Time / Driving",)
+    assert result.record.record_id == "123"
+    assert result.record.duration_seconds == 402
+    assert calls == [{"url": "https://api.beatport.com/v4/catalog/search/", "headers": {"Authorization": "Bearer token"}, "params": {"q": "Artist — Title", "type": "tracks", "artist_name": "Artist", "per_page": "5"}}]

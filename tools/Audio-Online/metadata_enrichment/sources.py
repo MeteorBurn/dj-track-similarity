@@ -42,11 +42,12 @@ def source_registry(config: ToolConfig) -> tuple[MetadataSource, ...]:
     musicbrainz = values.get("musicbrainz", {})
     lastfm = values.get("lastfm", {})
     beatport = values.get("beatport", {})
+    beatport_auth = beatport.get("auth", {}) if isinstance(beatport, dict) else {}
     return (
         DiscogsSource(token=_text(discogs, "token"), get_json=get_json),
         MusicBrainzSource(user_agent=_text(musicbrainz, "user_agent"), get_json=get_json),
         LastFmSource(api_key=_text(lastfm, "api_key"), get_json=get_json),
-        BeatportSource(access_token=_text(beatport, "access_token"), search_url=_text(beatport, "search_url"), get_json=get_json),
+        BeatportSource(access_token=_text(beatport_auth, "access_token"), get_json=get_json),
     )
 
 

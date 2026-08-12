@@ -813,6 +813,7 @@ export function App() {
     await run(
       () => api.resetClassifier(classifier.classifier_key),
       (result) => {
+        setClassifiers((current) => current.map((candidate) => candidate.classifier_key === classifier.classifier_key ? { ...candidate, scored_tracks: 0 } : candidate));
         setClassifierMinScores((current) => {
           const next = { ...current };
           delete next[classifier.classifier_key];

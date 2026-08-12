@@ -209,7 +209,6 @@ function invalidateActiveLoads() {
 function renderProfileControls() {
   deleteProfileEl.disabled = false;
   setTrainingActionDisabled("openLibrary", false);
-  setTrainingActionDisabled("openCandidates", true);
   setTrainingActionDisabled("runBenchmark", true);
   setTrainingActionDisabled("calibrateClassifier", true);
   setTrainingActionDisabled("refreshCandidates", true);
@@ -262,7 +261,7 @@ function setTrainingActionDisabled(id, disabled, title = null) {
 }
 
 function setWorkflowBusy(disabled) {
-  ["openLibrary", "trainRefresh", "openCandidates", "runBenchmark", "calibrateClassifier", "refreshCandidates", "promoteClassifier"].forEach(id => {
+  ["openLibrary", "trainRefresh", "runBenchmark", "calibrateClassifier", "refreshCandidates", "promoteClassifier"].forEach(id => {
     setTrainingActionDisabled(id, disabled);
   });
 }
@@ -346,7 +345,6 @@ async function handleTrainingActionClick(event) {
   const action = button.dataset.trainingAction;
   if (action === "library") return openLibraryForLabels();
   if (action === "train") return trainRefresh();
-  if (action === "candidates") return openCandidatesForReview();
   if (action === "benchmark") return runBenchmark();
   if (action === "calibrate") return calibrateClassifier();
   if (action === "refresh") return refreshCandidates();
@@ -771,12 +769,6 @@ async function openLibraryForLabels() {
   await loadActive({ reset: true });
 }
 
-async function openCandidatesForReview() {
-  if (trainingActionElement("openCandidates")?.disabled) return;
-  await switchView("candidates");
-  await loadCandidates({ reset: true });
-}
-
 async function trainRefresh() {
   if (trainingActionElement("trainRefresh")?.disabled) return;
   if (!window.confirm(`Train a new ${activeProfile.name} ${selectedTrainingFeatureSet} model, then refresh candidates?`)) {
@@ -946,7 +938,6 @@ async function loadTrainingReadiness() {
   updateTrainingFeatureSetOptions(data);
   updatePromoteFeatureSetOptions(data);
   refreshTrainingInformation(data);
-  const hasModel = hasTrainedVariant(data);
   setTrainingActionDisabled("openLibrary", false, "Open Library to label tracks");
   setTrainingActionDisabled(
     "trainRefresh",
@@ -954,11 +945,6 @@ async function loadTrainingReadiness() {
     data.ready
       ? `Train ${selectedTrainingFeatureSet} from all current labels and refresh candidates`
       : readinessBlockedTitle(data)
-  );
-  setTrainingActionDisabled(
-    "openCandidates",
-    !hasModel,
-    hasModel ? "Open model candidates for review" : "Train a model before reviewing candidates"
   );
   setTrainingActionDisabled(
     "runBenchmark",
@@ -1050,7 +1036,6 @@ function renderTrainingWorkflow(data, planText) {
   const selected = selectedPromotionOption(data);
   const winner = data?.artifact_summary?.benchmark_winner;
   const optionMarkup = renderPromotionOptions(options);
-  const hasModel = hasTrainedVariant(data);
   const selectedReady = selected?.source_data_ready === true;
   const selectedCalibrated = selected?.calibration_status === "calibrated";
   const canCalibrate = Boolean(data?.calibration_ready && selectedReady && !selectedCalibrated);
@@ -1135,7 +1120,7 @@ function renderTrainingWorkflow(data, planText) {
         title: "Refresh and review candidates",
         status: selectedReady ? "ready" : "blocked",
         body: selectedReady ? `Refresh predictions with ${selected.feature_set}, then review uncertain and high-confidence candidates.` : "Train a source-ready variant before candidate review is available.",
-        action: `${workflowButton("refreshCandidates", "refresh", "Refresh", "refresh-candidates", !selectedReady, selectedReady ? `Refresh candidates with ${selected.feature_set}` : "Select a source-ready model")}${workflowButton("openCandidates", "candidates", "Open", "open-candidates", !hasModel, hasModel ? "Open existing candidates" : "Train a model before reviewing candidates")}`
+        action: workflowButton("refreshCandidates", "refresh", "Refresh", "refresh-candidates", !selectedReady, selectedReady ? `Refresh candidates with ${selected.feature_set}` : "Select a source-ready model")
       })}
       ${renderWorkflowStep({
         number: 6,

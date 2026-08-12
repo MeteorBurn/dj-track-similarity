@@ -330,6 +330,16 @@ test("per-classifier analyze button validates that classifier before reset and s
   assert.doesNotMatch(handler, /analysisLimit/);
 });
 
+test("classifier score reset immediately disables its slider", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const handler = appSource.match(/async function handleResetClassifier[\s\S]*?async function handleEmbeddingSearch/)?.[0] || "";
+
+  assert.match(handler, /setClassifierMinScores/);
+  assert.match(handler, /delete next\[classifier\.classifier_key\]/);
+  assert.match(handler, /setClassifiers\(\(current\) => current\.map/);
+  assert.match(handler, /scored_tracks: 0/);
+});
+
 test("initial database load does not wait for classifier readiness before library tracks", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const handler = appSource.match(/async function initializeDatabase[\s\S]*?async function loadLatestJobs/)?.[0] || "";

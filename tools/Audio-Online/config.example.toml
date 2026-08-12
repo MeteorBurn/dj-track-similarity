@@ -10,5 +10,11 @@ api_key = ""
 shared_secret = ""
 
 [sources.beatport]
-search_url = ""
+client_id = ""
+client_secret = ""
+
+[sources.beatport.auth]
 access_token = ""
+refresh_token = ""
+expires_at = ""
+scope = ""

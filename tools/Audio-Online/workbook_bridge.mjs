@@ -13,7 +13,7 @@ export async function buildWorkbook(contract) {
   const sheet = workbook.worksheets.add(contract.sheet || "Metadata");
   sheet.showGridLines = false;
   const columns = contract.columns;
-  const fields = [...contract.primary_fields, ...contract.provenance_fields];
+  const fields = contract.primary_fields;
   let row = 0;
   for (const block of contract.tracks) {
     sheet.getRangeByIndexes(row, 0, 1, columns.length).merge();
@@ -26,14 +26,7 @@ export async function buildWorkbook(contract) {
     for (const field of fields) {
       const values = [field, ...columns.slice(1).map((name) => block.rows[field]?.[name] ?? "")];
       sheet.getRangeByIndexes(row, 0, 1, columns.length).values = [values];
-      if (field === "URL") {
-        for (let column = 1; column < columns.length; column += 1) {
-          const url = values[column];
-          if (url) sheet.getCell(row, column).formulas = [[`=HYPERLINK("${String(url).replaceAll('"', '""')}","${String(url).replaceAll('"', '""')}")`]];
-        }
-      }
       if (["Genre", "Style", "Tags"].includes(field)) sheet.getRangeByIndexes(row, 0, 1, columns.length).format = { fill: "#E8F4ED" };
-      if (field === "Queried at") sheet.getRangeByIndexes(row, 1, 1, columns.length - 1).format.numberFormat = "yyyy-mm-dd hh:mm:ss";
       row += 1;
     }
     row += 1;

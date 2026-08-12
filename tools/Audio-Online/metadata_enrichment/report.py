@@ -9,11 +9,7 @@ from pathlib import Path
 import subprocess
 
 from .models import LocalEvidence, SourceResult, TrackInput
-from .matching import score_candidate
-
-
 PRIMARY_FIELDS = ("Track Name", "Title", "Artist", "Album", "Year", "Country", "Label", "Genre", "Style", "Tags", "Duration")
-PROVENANCE_FIELDS = ("Record", "Record ID", "URL", "Status", "Match confidence", "Match evidence", "Queried at")
 
 
 def build_report_contract(
@@ -25,23 +21,18 @@ def build_report_contract(
     blocks: list[dict[str, object]] = []
     for track, local, results in tracks:
         by_name = {result.name: result for result in results}
-        rows = {field: {column: "" for column in columns[1:]} for field in (*PRIMARY_FIELDS, *PROVENANCE_FIELDS)}
+        rows = {field: {column: "" for column in columns[1:]} for field in PRIMARY_FIELDS}
         local_values = {"Track Name": track.track_name, "Title": track.title or "", "Artist": track.artist or "", "Album": track.album or "", "Year": str(track.year or ""), "Country": track.country or "", "Label": track.label or "", "Genre": _join(local.file_tags), "Duration": _duration(track.duration_seconds)}
         for field, value in local_values.items(): rows[field]["Local tags"] = value
         rows["Genre"]["MAEST"] = _maest(local.maest)
         for name in source_names:
             result = by_name.get(name)
-            if result is None: continue
-            rows["Status"][name] = result.status
-            rows["Queried at"][name] = result.queried_at or ""
-            if result.error: rows["Match evidence"][name] = result.error
+            if result is None or result.record is None: continue
             record = result.record
-            if record is None: continue
-            assessment = score_candidate(track, record)
-            values = {"Track Name": _track_name(record.artist, record.title), "Title": record.title or "", "Artist": record.artist or "", "Album": record.album or "", "Year": str(record.year or ""), "Country": record.country or "", "Label": record.label or "", "Genre": _join(record.genres), "Style": _join(record.styles), "Tags": _join(record.tags), "Duration": _duration(record.duration_seconds), "Record": record.record_type or "", "Record ID": record.record_id or "", "URL": record.record_url or "", "Match confidence": assessment.confidence or "", "Match evidence": "; ".join(assessment.evidence)}
+            values = {"Track Name": _track_name(record.artist, record.title), "Title": record.title or "", "Artist": record.artist or "", "Album": record.album or "", "Year": str(record.year or ""), "Country": record.country or "", "Label": record.label or "", "Genre": _join(record.genres), "Style": _join(record.styles), "Tags": _join(record.tags), "Duration": _duration(record.duration_seconds)}
             for field, value in values.items(): rows[field][name] = value
         blocks.append({"track_name": track.track_name, "rows": rows})
-    return {"sheet": "Metadata", "columns": columns, "primary_fields": list(PRIMARY_FIELDS), "provenance_fields": list(PROVENANCE_FIELDS), "tracks": blocks}
+    return {"sheet": "Metadata", "columns": columns, "primary_fields": list(PRIMARY_FIELDS), "tracks": blocks}
 
 
 def _join(values: Sequence[str]) -> str: return "; ".join(values)

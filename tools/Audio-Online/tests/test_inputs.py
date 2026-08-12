@@ -71,3 +71,17 @@ def test_single_audio_file_is_a_supported_input(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(inputs, "MutagenFile", lambda *_args, **_kwargs: Metadata())
 
     assert load_tracks(audio_path) == [TrackInput(artist="Artist", title="Title", file_path=audio_path)]
+
+
+def test_audio_reader_uses_filename_title_when_tag_repeats_the_artist(tmp_path: Path, monkeypatch) -> None:
+    audio_path = tmp_path / "02 Bodj - Third Base.flac"
+    audio_path.touch()
+
+    class Metadata:
+        tags = {"artist": ["Bodj"], "title": ["Bodj - Third Base"]}
+
+    monkeypatch.setattr(inputs, "MutagenFile", lambda *_args, **_kwargs: Metadata())
+
+    track = load_tracks(audio_path)[0]
+
+    assert (track.artist, track.title) == ("Bodj", "Third Base")

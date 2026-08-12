@@ -1,0 +1,14 @@
+# Copy to config.toml and fill only sources you intend to enable.
+[sources.discogs]
+token = ""
+
+[sources.musicbrainz]
+user_agent = "AudioOnline/0.1 (your-contact@example.invalid)"
+
+[sources.lastfm]
+api_key = ""
+shared_secret = ""
+
+[sources.beatport]
+search_url = ""
+access_token = ""

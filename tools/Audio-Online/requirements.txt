@@ -1,0 +1,2 @@
+# Python 3.10 does not include tomllib.
+tomli>=2.0,<3

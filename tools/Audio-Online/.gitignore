@@ -1,0 +1,4 @@
+config.toml
+auth*.toml
+data/*.xlsx
+data/*.json

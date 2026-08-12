@@ -29,9 +29,10 @@ are ignored by Git. Do not put them in a project-wide `.env` file.
 - **Last.fm:** create an API application, set `api_key` and `shared_secret`,
   then authorize once with the command below. The returned session key is saved
   under `sources.lastfm.auth` in this local `config.toml`.
-- **Beatport:** remains `unavailable` until you have an official catalog access
-  token *and* an approved documented response schema. The tool intentionally
-  does not scrape the storefront.
+- **Beatport:** create an OAuth application in the Beatport Developer portal,
+  then set its `client_id` and `client_secret`. Do not use your Beatport
+  password and do not share these values. The CLI obtains and renews its
+  catalog token locally; it never scrapes the storefront.
 
 The XLSX writer uses the bundled Artifact Tool Node runtime. Set the following
 only for the terminal session in which you run the CLI:
@@ -51,6 +52,31 @@ python .\metadata_enrichment_cli.py authorize lastfm --config .\config.toml
 The command opens the Last.fm consent page, asks you to paste the returned
 token, exchanges it for a session key, and saves it locally. No key or secret
 is printed.
+
+## Beatport authorization
+
+For catalog metadata, Audio Online uses Beatport v4's `client_credentials`
+OAuth grant. Enter the Client ID and Client Secret from your Beatport OAuth
+application in the ignored local config:
+
+```toml
+[sources.beatport]
+client_id = "..."
+client_secret = "..."
+```
+
+Then obtain and validate the local token:
+
+```powershell
+python .\metadata_enrichment_cli.py authorize beatport --config .\config.toml
+python .\metadata_enrichment_cli.py check-auth beatport --config .\config.toml
+```
+
+The token response, refresh token, scope, and calculated expiry are stored
+under `[sources.beatport.auth]` in the same ignored file. A normal `enrich`
+run proactively renews a token that has five minutes or less remaining. The
+actual expiry is taken from Beatport's `expires_in` response field; do not copy
+or print the token values.
 
 ## Create a workbook
 
@@ -88,4 +114,6 @@ The adapters use documented APIs only. MusicBrainz is configured with a
 meaningful User-Agent and its request interval is kept at no more than one
 request per second. Last.fm uses `track.getTopTags`, which requires an API key;
 the optional saved Last.fm session is provenance/configuration only for future
-authenticated endpoints.
+authenticated endpoints. Beatport uses v4 Catalog Search with a bearer token;
+its top-level genre and subgenre are reported separately as `Genre` and
+`Style` when the API returns them.

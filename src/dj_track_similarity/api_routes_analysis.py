@@ -18,7 +18,6 @@ from .api_schemas import (
     SonaraStatusResponse,
 )
 from .api_state import AppDatabaseState
-from .api_route_utils import current_classifier_specifications
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
 
 
@@ -84,7 +83,7 @@ def register_analysis_routes(
         if state.db is None:
             return profiles
         score_counts = state.require_db().classifier_score_counts(
-            current_classifier_specifications(profiles)
+            tuple(str(profile.get("classifier_key") or "") for profile in profiles)
         )
         return [
             {

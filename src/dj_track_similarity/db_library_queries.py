@@ -1101,12 +1101,9 @@ class LibraryQueryRepository:
 
     def classifier_score_counts(
         self,
-        classifier_specifications: Sequence[ClassifierSpecification],
+        classifier_keys: Sequence[str],
     ) -> dict[str, int]:
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
-        counts = {key: 0 for key in specifications_by_key}
+        counts = dict.fromkeys(classifier_keys, 0)
         if not counts:
             return counts
         placeholders = ", ".join("?" for _ in counts)

@@ -88,6 +88,51 @@ def test_public_library_order_is_deterministic_by_artist_title_and_path(
     ]
 
 
+def test_classifier_score_counts_use_keys_and_count_rows_only(
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    first = _add_track(
+        database,
+        tmp_path / "first.wav",
+        title="First",
+        artist="Artist",
+    )
+    second = _add_track(
+        database,
+        tmp_path / "second.wav",
+        title="Second",
+        artist="Artist",
+    )
+    with database.connect() as connection:
+        connection.executemany(
+            """
+            INSERT INTO classifier_scores (
+                track_id, track_uuid, classifier_key, feature_set,
+                feature_names_json, positive_label, predicted_class,
+                score_bucket, score, confidence, probabilities_json,
+                analyzed_at
+            ) VALUES (?, ?, ?, 'fixture', '["feature"]', 'positive',
+                      'positive', 'high', 0.9, 0.9,
+                      '{"negative": 0.1, "positive": 0.9}',
+                      '2026-08-12T00:00:00Z')
+            """,
+            (
+                (first.track_id, first.track_uuid, "voice_presence"),
+                (second.track_id, second.track_uuid, "voice_presence"),
+                (first.track_id, first.track_uuid, "energy"),
+            ),
+        )
+
+    assert database.classifier_score_counts(
+        ("voice_presence", "energy", "missing"),
+    ) == {
+        "voice_presence": 2,
+        "energy": 1,
+        "missing": 0,
+    }
+
+
 def _add_track(
     database: LibraryDatabase,
     path: Path,

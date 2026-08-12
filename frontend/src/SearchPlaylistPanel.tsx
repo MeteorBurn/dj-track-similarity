@@ -6,6 +6,7 @@ import {
   classifierIsAvailable,
   classifierProfileStatus,
   classifierScoringBlockedReason,
+  formatClassifierScoredTracks,
   orderPromotedClassifiers,
 } from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
@@ -605,6 +606,7 @@ export function SearchPlaylistPanel({
                       <label className="range-control" title={sliderTitle}>
                         <span>
                           <em>{value.toFixed(2)}</em>
+                          <em>{formatClassifierScoredTracks(scoredTracks)}</em>
                         </span>
                         <input
                           type="range"

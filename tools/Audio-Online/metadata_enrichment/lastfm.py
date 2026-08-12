@@ -19,4 +19,4 @@ class LastFmSource:
         payload = self.get_json("https://ws.audioscrobbler.com/2.0/", params={"method": "track.getTopTags", "artist": track.artist, "track": track.title, "api_key": self.api_key, "format": "json"}, headers={})
         rows = payload.get("toptags", {}).get("tag", []) if isinstance(payload.get("toptags"), Mapping) else []
         tags = tuple(row["name"] for row in rows if isinstance(row, Mapping) and isinstance(row.get("name"), str)) if isinstance(rows, list) else ()
-        return SourceResult(self.name, "matched" if tags else "no_match", SourceRecord(title=track.title, artist=track.artist, tags=tags, record_url=f"https://www.last.fm/music/{track.artist}/_/{track.title}"))
+        return SourceResult(self.name, "matched" if tags else "no_match", SourceRecord(title=track.title, artist=track.artist, tags=tags, record_type="track", record_id=f"{track.artist} - {track.title}", record_url=f"https://www.last.fm/music/{track.artist}/_/{track.title}"))

@@ -44,6 +44,7 @@ class SourceRecord:
     genres: tuple[str, ...] = ()
     styles: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
+    record_type: str | None = None
     record_id: str | None = None
     record_url: str | None = None
 
@@ -54,6 +55,7 @@ class SourceResult:
     status: Literal["matched", "no_match", "not_configured", "unavailable", "error"]
     record: SourceRecord | None = None
     error: str | None = None
+    queried_at: str | None = None
 
 
 @dataclass(frozen=True)

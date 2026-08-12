@@ -29,11 +29,12 @@ class DiscogsSource:
             return SourceResult(self.name, "no_match")
         release = self.get_json(f"https://api.discogs.com/releases/{release_id}", headers=headers, params={})
         record = SourceRecord(
-            title=str(release.get("title") or ""), artist=track.artist, album=str(release.get("title") or "") or None,
+            title=_track_title(release.get("tracklist"), track.title) or track.title, artist=track.artist,
+            album=str(release.get("title") or "") or None,
             year=release.get("year") if isinstance(release.get("year"), int) else None,
             country=str(release.get("country") or "") or None,
             label=_first_label(release.get("labels")), genres=_strings(release.get("genres")), styles=_strings(release.get("styles")),
-            duration_seconds=_track_duration(release.get("tracklist"), track.title), record_id=str(release_id),
+            duration_seconds=_track_duration(release.get("tracklist"), track.title), record_type="release", record_id=str(release_id),
             record_url=f"https://www.discogs.com/release/{release_id}",
         )
         return SourceResult(self.name, "matched", record=record)
@@ -55,4 +56,12 @@ def _track_duration(value: object, title: str) -> float | None:
         if isinstance(item, Mapping) and item.get("title") == title and isinstance(item.get("duration"), str):
             parts = item["duration"].split(":")
             if len(parts) == 2 and all(part.isdigit() for part in parts): return int(parts[0]) * 60 + int(parts[1])
+    return None
+
+
+def _track_title(value: object, title: str) -> str | None:
+    if not isinstance(value, list): return None
+    for item in value:
+        if isinstance(item, Mapping) and item.get("title") == title:
+            return item["title"] if isinstance(item["title"], str) else None
     return None

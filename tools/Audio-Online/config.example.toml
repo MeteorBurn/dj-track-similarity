@@ -3,7 +3,7 @@
 token = ""
 
 [sources.musicbrainz]
-user_agent = "AudioOnline/0.1 (your-contact@example.invalid)"
+user_agent = ""
 
 [sources.lastfm]
 api_key = ""

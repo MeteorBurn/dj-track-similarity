@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from metadata_enrichment.discogs import DiscogsSource
 from metadata_enrichment.lastfm import LastFmSource
 from metadata_enrichment.beatport import BeatportSource
@@ -76,6 +78,23 @@ def test_musicbrainz_requires_meaningful_user_agent() -> None:
     result = MusicBrainzSource(user_agent=None, get_json=lambda *_args, **_kwargs: {}).fetch(TrackInput(artist="Artist", title="Title"))
 
     assert result.status == "not_configured"
+
+
+def test_musicbrainz_waits_between_requests() -> None:
+    """Respect MusicBrainz's one-request-per-second public API limit."""
+
+    clock_values = iter((10.0, 10.4, 11.0))
+    waits: list[float] = []
+    source = MusicBrainzSource(
+        user_agent="Audio Online/0.1 (contact@example.test)",
+        get_json=lambda *_args, **_kwargs: {"recordings": []},
+        clock=lambda: next(clock_values), sleeper=waits.append,
+    )
+
+    source.fetch(TrackInput(artist="Artist", title="One"))
+    source.fetch(TrackInput(artist="Artist", title="Two"))
+
+    assert waits == pytest.approx([0.6])
 
 
 def test_beatport_without_official_endpoint_is_unavailable() -> None:

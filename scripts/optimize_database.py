@@ -1,3 +1,7 @@
+"""Back up and optimize one SQLite database without imposing a schema contract."""
+
+from __future__ import annotations
+
 import argparse
 from contextlib import closing
 from dataclasses import dataclass
@@ -5,34 +9,8 @@ from datetime import datetime
 from pathlib import Path
 import sqlite3
 
-from dj_track_similarity.db_structure import DatabaseRole, require_current_structure
-
-
-CORE_DATABASE_MARKERS = {
-    "library_catalog",
-    "tracks",
-    "tags",
-    "sonara",
-    "maest_genres",
-    "classifier_scores",
-    "likes",
-}
-CORE_IDENTITY_COLUMNS = {
-    "library_catalog": {"singleton_id", "catalog_uuid"},
-    "tracks": {"track_id", "track_uuid", "content_generation"},
-}
-RHYTHM_LAB_DATABASE_MARKERS = {
-    "classifier_profiles",
-    "classifier_profile_labels",
-    "classifier_labels",
-    "classifier_predictions",
-    "classifier_training_checkpoints",
-}
-RHYTHM_LAB_IDENTITY_COLUMNS = {
-    "catalog_uuid",
-    "track_uuid",
-    "content_generation",
-}
+from dj_track_similarity.db_schema import validate_library_schema
+from dj_track_similarity.db_storage import storage_database_paths
 
 
 @dataclass(frozen=True)
@@ -70,28 +48,43 @@ class OptimizationSummary:
 
     @property
     def integrity_before(self) -> str:
-        return "ok" if all(item.integrity_before.lower() == "ok" for item in self.files) else "failed"
+        return (
+            "ok"
+            if all(item.integrity_before.lower() == "ok" for item in self.files)
+            else "failed"
+        )
 
     @property
     def integrity_after(self) -> str:
-        return "ok" if all(item.integrity_after.lower() == "ok" for item in self.files) else "failed"
+        return (
+            "ok"
+            if all(item.integrity_after.lower() == "ok" for item in self.files)
+            else "failed"
+        )
 
 
 def optimize_database(db_path: str | Path) -> OptimizationSummary:
+    """Back up, vacuum, analyze, and verify a SQLite database set.
+
+    A database with a valid ``library`` singleton is optimized together with
+    its optional Evaluation sidecar. Other SQLite files are optimized as a
+    single generic file. This tool deliberately does not enforce a fixed list
+    of application tables, columns, or indexes.
+    """
+
     path = Path(db_path).expanduser().resolve(strict=False)
     if not path.is_file():
         raise FileNotFoundError(path)
 
-    with closing(sqlite3.connect(path)) as connection:
-        connection.row_factory = sqlite3.Row
-        database_kind = _detect_supported_database(connection)
-
+    database_kind = _detect_database_kind(path)
     database_files = _database_files(path, database_kind)
-    before = []
+    before: list[tuple[str, Path, int, str]] = []
     for role, selected_path in database_files:
         integrity = _integrity_check(selected_path)
         if integrity.lower() != "ok":
-            raise RuntimeError(f"Integrity check failed before optimization for {role}: {integrity}")
+            raise RuntimeError(
+                f"Integrity check failed before optimization for {role}: {integrity}"
+            )
         before.append((role, selected_path, selected_path.stat().st_size, integrity))
 
     backups = {
@@ -101,11 +94,13 @@ def optimize_database(db_path: str | Path) -> OptimizationSummary:
     for _role, selected_path, _size, _integrity in before:
         _optimize_one_database(selected_path)
 
-    files = []
+    files: list[OptimizedDatabaseFile] = []
     for role, selected_path, size_before, integrity_before in before:
         integrity_after = _integrity_check(selected_path)
         if integrity_after.lower() != "ok":
-            raise RuntimeError(f"Integrity check failed after optimization for {role}: {integrity_after}")
+            raise RuntimeError(
+                f"Integrity check failed after optimization for {role}: {integrity_after}"
+            )
         files.append(
             OptimizedDatabaseFile(
                 role=role,
@@ -125,60 +120,28 @@ def optimize_database(db_path: str | Path) -> OptimizationSummary:
     )
 
 
+def _detect_database_kind(path: Path) -> str:
+    with closing(sqlite3.connect(path)) as connection:
+        try:
+            validate_library_schema(connection, database_path=str(path))
+        except RuntimeError:
+            return "sqlite"
+    return "library"
+
+
 def _database_files(path: Path, database_kind: str) -> tuple[tuple[str, Path], ...]:
     if database_kind != "library":
-        return ((database_kind, path),)
+        return (("sqlite", path),)
 
-    artifacts_path, evaluation_path = _sidecar_database_paths(path)
-    if not artifacts_path.is_file():
-        raise FileNotFoundError(f"Artifacts database does not exist: {artifacts_path}")
-
-    _require_current_project_structure(path, "core")
-    _require_current_project_structure(artifacts_path, "artifacts")
-    selected = [("core", path), ("artifacts", artifacts_path)]
-    if evaluation_path.is_file():
-        _require_current_project_structure(evaluation_path, "evaluation")
+    selected: list[tuple[str, Path]] = [("library", path)]
+    evaluation_path = storage_database_paths(path).evaluation
+    if evaluation_path.exists():
+        if not evaluation_path.is_file():
+            raise ValueError(
+                f"Evaluation database path must be a file: {evaluation_path}"
+            )
         selected.append(("evaluation", evaluation_path))
-    _validate_catalog_uuids(path, *(selected_path for _role, selected_path in selected[1:]))
     return tuple(selected)
-
-
-def _sidecar_database_paths(path: Path) -> tuple[Path, Path]:
-    stem = path.stem if path.suffix else path.name
-    return (
-        path.with_name(f"{stem}.artifacts.sqlite"),
-        path.with_name(f"{stem}.evaluation.sqlite"),
-    )
-
-
-def _require_current_project_structure(path: Path, role: DatabaseRole) -> None:
-    with closing(
-        sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
-    ) as connection:
-        require_current_structure(connection, role, path)
-
-
-def _validate_catalog_uuids(core: Path, *sidecars: Path) -> None:
-    catalog_uuids = {"Core": _catalog_uuid(core, table="library_catalog")}
-    for sidecar in sidecars:
-        catalog_uuids[sidecar.name] = _catalog_uuid(sidecar, table="storage_metadata")
-    if any(value is None for value in catalog_uuids.values()) or len(set(catalog_uuids.values())) != 1:
-        details = ", ".join(
-            f"{label}={value or 'missing'}"
-            for label, value in catalog_uuids.items()
-        )
-        raise RuntimeError(f"SQLite bundle catalog UUIDs do not match: {details}")
-
-
-def _catalog_uuid(path: Path, *, table: str) -> str | None:
-    with closing(sqlite3.connect(path)) as connection:
-        row = connection.execute(
-            f"SELECT catalog_uuid FROM {table} WHERE singleton_id = 1",
-        ).fetchone()
-    if row is None:
-        return None
-    value = str(row[0]).strip()
-    return value or None
 
 
 def _optimize_one_database(path: Path) -> None:
@@ -216,66 +179,13 @@ def _integrity_check(path: Path) -> str:
         return str(connection.execute("PRAGMA integrity_check").fetchone()[0])
 
 
-def _detect_supported_database(connection: sqlite3.Connection) -> str:
-    tables = _user_tables(connection)
-    if CORE_DATABASE_MARKERS.issubset(tables) and not _missing_required_columns(
-        connection,
-        CORE_IDENTITY_COLUMNS,
-    ):
-        return "library"
-    if RHYTHM_LAB_DATABASE_MARKERS.issubset(tables):
-        label_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(classifier_labels)")
-        }
-        if RHYTHM_LAB_IDENTITY_COLUMNS.issubset(label_columns):
-            return "rhythm_lab"
-    markers = (
-        "Core table role: "
-        f"{', '.join(sorted(CORE_DATABASE_MARKERS))}; "
-        "Rhythm Lab identity tables: "
-        f"{', '.join(sorted(RHYTHM_LAB_DATABASE_MARKERS))}"
-    )
-    actual = ", ".join(sorted(tables)) or "none"
-    raise RuntimeError(f"Unsupported SQLite database: found tables [{actual}], expected markers [{markers}]")
-
-
-def _user_tables(connection: sqlite3.Connection) -> set[str]:
-    rows = connection.execute(
-        """
-        SELECT name
-        FROM sqlite_master
-        WHERE type = 'table'
-          AND name NOT LIKE 'sqlite_%'
-        """
-    ).fetchall()
-    return {str(row[0]) for row in rows}
-
-
-def _missing_required_columns(
-    connection: sqlite3.Connection,
-    required_columns: dict[str, set[str]],
-) -> list[str]:
-    tables = _user_tables(connection)
-    errors = []
-    for table, required in required_columns.items():
-        if table not in tables:
-            continue
-        actual = {
-            str(row[1])
-            for row in connection.execute(f'PRAGMA table_info("{table}")')
-        }
-        missing = required - actual
-        if missing:
-            errors.append(
-                f"{table} is missing columns [{', '.join(sorted(missing))}]"
-            )
-    return errors
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Optimize a dj-track-similarity SQLite database.")
-    parser.add_argument("--db", required=True, type=Path, help="Path to the SQLite database file")
+    parser = argparse.ArgumentParser(
+        description="Back up and optimize a dj-track-similarity SQLite database."
+    )
+    parser.add_argument(
+        "--db", required=True, type=Path, help="Path to the SQLite database file"
+    )
     args = parser.parse_args()
 
     summary = optimize_database(args.db)

@@ -490,7 +490,7 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     with database.connect() as connection:
         connection.execute(
             """
-            INSERT INTO sonara(
+                INSERT INTO sonara_features(
                 track_id, content_generation,
                 mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
@@ -522,7 +522,7 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     assert status.total == 1
     assert status.analyzed == 1
     assert database.list_analysis_candidates(runner.candidate_outputs) == []
-    vector = database.read_artifact_embedding(
+    vector = database.read_embedding(
         family="mert",
         track_id=mutation.identity.track_id,
     )

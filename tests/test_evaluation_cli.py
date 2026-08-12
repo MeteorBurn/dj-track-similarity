@@ -428,7 +428,12 @@ def test_eval_optimize_score_profile_cli_writes_report_without_recording_by_defa
     assert report["source"] == "judged_feedback"
     assert report["weights"]["mert"] > report["weights"]["maest"]
     assert LibraryDatabase(db_path).count_evaluation_rows() == before_counts
-    assert LibraryDatabase(db_path).get_promoted_score_profile() is None
+    assert (
+        LibraryDatabase(db_path).get_evaluation_profile(
+            "weighted_candidates_judged_v1"
+        )
+        is None
+    )
 
 
 def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(
@@ -467,7 +472,12 @@ def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(
     assert after_counts["search_sessions"] == before_counts["search_sessions"]
     assert after_counts["search_result_events"] == before_counts["search_result_events"]
     assert after_counts["pair_feedback"] == before_counts["pair_feedback"]
-    assert LibraryDatabase(db_path).get_promoted_score_profile() is None
+    assert (
+        LibraryDatabase(db_path).get_evaluation_profile(
+            "weighted_candidates_judged_v1"
+        )
+        is None
+    )
     report = json.loads(output_path.read_text(encoding="utf-8"))
     assert report["recorded"] is True
     connection = LibraryDatabase(db_path).connect_evaluation(create=False)
@@ -481,7 +491,7 @@ def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(
     assert json.loads(row["metrics_json"])["status"] == "ok"
 
 
-def test_eval_optimize_score_profile_cli_promote_writes_library_setting_only(
+def test_eval_optimize_score_profile_cli_save_profile_appends_evaluation_profile(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -506,27 +516,34 @@ def test_eval_optimize_score_profile_cli_promote_writes_library_setting_only(
             "0",
             "--min-judged-pairs",
             "4",
-            "--promote",
+            "--save-profile",
         ],
     )
 
     assert result.exit_code == 0
-    assert "promoted=True" in result.output
+    assert "saved_profile=True" in result.output
     after_counts = LibraryDatabase(db_path).count_evaluation_rows()
-    assert after_counts == before_counts
-    promoted_profile = LibraryDatabase(db_path).get_promoted_score_profile()
-    assert promoted_profile is not None
-    assert promoted_profile["profile_name"] == "weighted_candidates_judged_v1"
-    assert promoted_profile["source"] == "judged_feedback"
-    assert promoted_profile["promotion_source"] == "score_profile_optimizer"
-    assert promoted_profile["can_apply_as_default"] is True
-    assert promoted_profile["judged_pairs"] == 8
-    assert promoted_profile["weights"]["mert"] > promoted_profile["weights"]["maest"]
+    assert after_counts["evaluation_profiles"] == before_counts["evaluation_profiles"] + 1
+    for table, before_count in before_counts.items():
+        if table != "evaluation_profiles":
+            assert after_counts[table] == before_count
+    saved_profile = LibraryDatabase(db_path).get_evaluation_profile(
+        "weighted_candidates_judged_v1"
+    )
+    assert saved_profile is not None
+    assert saved_profile["profile_name"] == "weighted_candidates_judged_v1"
+    payload = saved_profile["profile"]
+    assert payload["source"] == "judged_feedback"
+    assert payload["profile_source"] == "score_profile_optimizer"
+    assert payload["can_apply_as_default"] is True
+    assert payload["judged_pairs"] == 8
+    assert payload["weights"]["mert"] > payload["weights"]["maest"]
     report = json.loads(output_path.read_text(encoding="utf-8"))
-    assert report["promoted"] is True
+    assert report["saved_profile"] is True
+    assert report["evaluation_profile_id"] == saved_profile["profile_id"]
 
 
-def test_eval_optimize_score_profile_cli_promote_rejects_candidate_only_gate(
+def test_eval_optimize_score_profile_cli_save_profile_requires_review_gate(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -550,13 +567,18 @@ def test_eval_optimize_score_profile_cli_promote_rejects_candidate_only_gate(
             "0",
             "--min-judged-pairs",
             "4",
-            "--promote",
+            "--save-profile",
         ],
     )
 
     assert result.exit_code == 1
-    assert "500 matched judged-pair" in result.output
-    assert LibraryDatabase(db_path).get_promoted_score_profile() is None
+    assert "Cannot save score profile until the 500 matched judged-pair" in result.output
+    assert (
+        LibraryDatabase(db_path).get_evaluation_profile(
+            "weighted_candidates_judged_v1"
+        )
+        is None
+    )
     assert not output_path.exists()
 
 

@@ -1,16 +1,4 @@
-"""Thread-safe track repository.
-
-Track identity lives in Core. Large derived payloads live in the mandatory
-Artifacts database. A content change is therefore reconciled in two ordered,
-idempotent phases:
-
-1. reserve and commit the Core generation change with ``BEGIN IMMEDIATE``;
-2. delete Artifacts rows whose identity is not the exact committed identity.
-
-The same Core-first lock order is used by artifact writers, so a stale writer
-cannot publish after the cleanup and a concurrent current-generation writer is
-never removed.
-"""
+"""Thread-safe track repository for the single library database."""
 
 from __future__ import annotations
 
@@ -43,38 +31,24 @@ from .track_models import (
 )
 
 
-_CORE_DERIVED_TABLES = (
-    "sonara",
+_DERIVED_TRACK_TABLES = (
+    "sonara_features",
     "maest_genres",
     "classifier_scores",
-)
-_ARTIFACT_TABLES = (
     "maest_embeddings",
     "mert_embeddings",
     "muq_embeddings",
     "clap_embeddings",
-    "sonara_similarity_embeddings",
-    "sonara_timeline",
-    "sonara_fingerprints",
 )
-_EMBEDDING_ARTIFACT_TABLES = (
+_EMBEDDING_TABLES = (
     "maest_embeddings",
     "mert_embeddings",
     "muq_embeddings",
     "clap_embeddings",
-    "sonara_similarity_embeddings",
-)
-_EVALUATION_DATA_TABLES = (
-    "search_session_seeds",
-    "search_result_events",
-    "search_sessions",
-    "calibration_runs",
-    "evaluation_settings",
 )
 _UTC_MICROSECOND_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z"
 )
-_LIBRARY_ROOT_SETTING_KEY = "library_root"
 _SQLITE_IN_CHUNK_SIZE = 800
 
 
@@ -104,6 +78,22 @@ def _timestamp_or_now(value: str | None) -> str:
             "timestamp must be a valid UTC RFC 3339 microsecond value"
         ) from error
     return timestamp
+
+
+def _library_roots_from_json(value: object) -> list[str]:
+    try:
+        payload = json.loads(str(value))
+    except (TypeError, json.JSONDecodeError) as error:
+        raise RuntimeError("library.roots_json must contain a JSON array") from error
+    if not isinstance(payload, list) or any(
+        not isinstance(root, str) or not root.strip() for root in payload
+    ):
+        raise RuntimeError("library.roots_json must contain non-empty path strings")
+    return list(payload)
+
+
+def _library_roots_json(roots: Sequence[str]) -> str:
+    return json.dumps(list(roots), ensure_ascii=False, separators=(",", ":"))
 
 
 def ordinal_path_key(
@@ -424,8 +414,8 @@ def _temporary_relocation_path(
 class TrackRepository:
     """Track repository mixed into :class:`LibraryDatabase`.
 
-    The host must expose ``connect()``, ``connect_artifacts()``, and one
-    path-scoped re-entrant ``_write_lock``.
+    The host must expose ``connect()`` and one path-scoped re-entrant
+    ``_write_lock``.
     """
 
     _write_lock: threading.RLock
@@ -434,23 +424,13 @@ class TrackRepository:
     def connect(self) -> sqlite3.Connection:
         raise NotImplementedError
 
-    def connect_artifacts(self) -> sqlite3.Connection:
-        raise NotImplementedError
-
-    def connect_evaluation(
-        self,
-        *,
-        create: bool = False,
-    ) -> sqlite3.Connection | None:
-        raise NotImplementedError
-
     def get_track_identity(
         self,
         track_id: int,
         *,
         include_missing: bool = False,
     ) -> TrackIdentity | None:
-        """Return one current Core identity or ``None`` when it is unavailable."""
+        """Return one current library identity or ``None`` when unavailable."""
 
         identities = self.get_track_identities(
             (track_id,),
@@ -770,7 +750,7 @@ class TrackRepository:
                                     identity.track_id,
                                 ),
                             )
-                            for table in _CORE_DERIVED_TABLES:
+                            for table in _DERIVED_TRACK_TABLES:
                                 connection.execute(
                                     f"DELETE FROM {table} WHERE track_id = ?",
                                     (identity.track_id,),
@@ -791,7 +771,6 @@ class TrackRepository:
                         connection.rollback()
                     raise
 
-            self._delete_identity_mismatched_artifacts(identity.track_id)
             return TrackMutation(action=action, identity=identity)
 
     def refresh_file_tags(
@@ -904,7 +883,7 @@ class TrackRepository:
     ) -> TrackIdentity:
         """Run one identity-bound source-tag write and record it atomically.
 
-        The path-scoped repository lock and a Core ``BEGIN IMMEDIATE`` span the
+        The path-scoped repository lock and a library ``BEGIN IMMEDIATE`` span the
         candidate compare-and-swap, source callback, readback, final stat, and
         database update. Scanner writes therefore cannot interleave inside this
         process, while another process is serialized by SQLite. The callbacks
@@ -1098,22 +1077,8 @@ class TrackRepository:
             for row in rows
         ]
 
-    def get_library_root(self) -> str | None:
-        """Return the selected canonical library root, when configured."""
-
-        with closing(self.connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT setting_value
-                FROM library_settings
-                WHERE setting_key = ?
-                """,
-                (_LIBRARY_ROOT_SETTING_KEY,),
-            ).fetchone()
-        return None if row is None else str(row[0])
-
-    def set_library_root(self, root: str | Path) -> str:
-        """Persist one canonical library root in the settings table."""
+    def record_library_root(self, root: str | Path) -> tuple[str, ...]:
+        """Record a scan root in ``library.roots_json`` without duplicates."""
 
         canonical_root = resolved_file_path(root).rstrip("/")
         timestamp = utc_now_text()
@@ -1121,29 +1086,29 @@ class TrackRepository:
             with closing(self.connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
-                    connection.execute(
-                        """
-                        INSERT INTO library_settings(
-                            setting_key,
-                            setting_value,
-                            updated_at
-                        ) VALUES (?, ?, ?)
-                        ON CONFLICT(setting_key) DO UPDATE SET
-                            setting_value = excluded.setting_value,
-                            updated_at = excluded.updated_at
-                        """,
-                        (
-                            _LIBRARY_ROOT_SETTING_KEY,
-                            canonical_root,
-                            timestamp,
-                        ),
-                    )
+                    row = connection.execute(
+                        "SELECT roots_json FROM library WHERE singleton_id = 1"
+                    ).fetchone()
+                    if row is None:
+                        raise RuntimeError("library metadata row is missing")
+                    roots = _library_roots_from_json(row[0])
+                    root_keys = {ordinal_path_key(value) for value in roots}
+                    if ordinal_path_key(canonical_root) not in root_keys:
+                        roots.append(canonical_root)
+                        connection.execute(
+                            """
+                            UPDATE library
+                            SET roots_json = ?, updated_at = ?
+                            WHERE singleton_id = 1
+                            """,
+                            (_library_roots_json(roots), timestamp),
+                        )
                     connection.commit()
                 except BaseException:
                     if connection.in_transaction:
                         connection.rollback()
                     raise
-        return canonical_root
+        return tuple(roots)
 
     def relocate_library(
         self,
@@ -1155,8 +1120,9 @@ class TrackRepository:
         """Preview or apply a database-only canonical path relocation.
 
         Apply never moves, copies, deletes, or retags audio. It changes only
-        ``tracks.file_path``, its FTS projection, and a matching library-root
-        setting. Stable UUIDs, generations, and all analysis rows are preserved.
+        ``tracks.file_path``, its FTS projection, and matching paths in
+        ``library.roots_json``. Stable UUIDs, generations, and all analysis
+        rows are preserved.
         """
 
         old_root_text = resolved_file_path(old_root).rstrip("/")
@@ -1267,29 +1233,27 @@ class TrackRepository:
                                 change["track_id"],
                             )
                         root_row = connection.execute(
-                            """
-                            SELECT setting_value
-                            FROM library_settings
-                            WHERE setting_key = ?
-                            """,
-                            (_LIBRARY_ROOT_SETTING_KEY,),
+                            "SELECT roots_json FROM library WHERE singleton_id = 1"
                         ).fetchone()
-                        if (
-                            root_row is not None
-                            and canonical_file_path(str(root_row[0])).rstrip("/")
-                            == canonical_file_path(old_root_text).rstrip("/")
-                        ):
+                        if root_row is None:
+                            raise RuntimeError("library metadata row is missing")
+                        roots = _library_roots_from_json(root_row[0])
+                        relocated_roots = [
+                            new_root_text
+                            if ordinal_path_key(root) == ordinal_path_key(old_root_text)
+                            else root
+                            for root in roots
+                        ]
+                        if relocated_roots != roots:
                             connection.execute(
                                 """
-                                UPDATE library_settings
-                                SET setting_value = ?,
-                                    updated_at = ?
-                                WHERE setting_key = ?
+                                UPDATE library
+                                SET roots_json = ?, updated_at = ?
+                                WHERE singleton_id = 1
                                 """,
                                 (
-                                    new_root_text,
+                                    _library_roots_json(relocated_roots),
                                     timestamp,
-                                    _LIBRARY_ROOT_SETTING_KEY,
                                 ),
                             )
                         connection.commit()
@@ -1310,95 +1274,63 @@ class TrackRepository:
         )
 
     def clear_library(self) -> ClearLibraryResult:
-        """Clear database-owned library state without touching source audio.
+        """Clear library-owned data without touching source audio.
 
-        Core is locked first, followed by the mandatory Artifacts database and
-        the optional Evaluation database when it already exists. Sidecar
-        commits complete before the Core track deletion is published. Merely
-        clearing a library never creates the optional Evaluation sidecar.
+        Evaluation data remains in its optional, independent database. This
+        operation never creates that database.
         """
 
         tracks_deleted = 0
-        embeddings_deleted = 0
-        artifacts_deleted = 0
-        evaluation_rows_deleted = 0
-        evaluation_connection: sqlite3.Connection | None = None
+        feature_rows_deleted = 0
+        embedding_rows_deleted = 0
+        classifier_rows_deleted = 0
         with self._write_lock:
-            with closing(self.connect()) as core_connection, closing(
-                self.connect_artifacts()
-            ) as artifacts_connection:
-                core_connection.execute("BEGIN IMMEDIATE")
-                artifacts_connection.execute("BEGIN IMMEDIATE")
+            with closing(self.connect()) as connection:
                 try:
-                    evaluation_connection = self.connect_evaluation(
-                        create=False,
-                    )
-                    if evaluation_connection is not None:
-                        evaluation_connection.execute("BEGIN IMMEDIATE")
-
+                    connection.execute("BEGIN IMMEDIATE")
                     tracks_deleted = int(
-                        core_connection.execute(
+                        connection.execute(
                             "SELECT COUNT(*) FROM tracks"
                         ).fetchone()[0]
                     )
-                    artifact_counts = {
+                    derived_counts = {
                         table: int(
-                            artifacts_connection.execute(
+                            connection.execute(
                                 f"SELECT COUNT(*) FROM {table}"
                             ).fetchone()[0]
                         )
-                        for table in _ARTIFACT_TABLES
+                        for table in _DERIVED_TRACK_TABLES
                     }
-                    embeddings_deleted = sum(
-                        artifact_counts[table]
-                        for table in _EMBEDDING_ARTIFACT_TABLES
+                    embedding_rows_deleted = sum(
+                        derived_counts[table]
+                        for table in _EMBEDDING_TABLES
                     )
-                    artifacts_deleted = sum(artifact_counts.values())
-
-                    if evaluation_connection is not None:
-                        evaluation_rows_deleted = sum(
-                            int(
-                                evaluation_connection.execute(
-                                    f"SELECT COUNT(*) FROM {table}"
-                                ).fetchone()[0]
-                            )
-                            for table in _EVALUATION_DATA_TABLES
-                        )
-
-                    for table in _ARTIFACT_TABLES:
-                        artifacts_connection.execute(
-                            f"DELETE FROM {table}"
-                        )
-                    if evaluation_connection is not None:
-                        for table in _EVALUATION_DATA_TABLES:
-                            evaluation_connection.execute(
-                                f"DELETE FROM {table}"
-                            )
-                    core_connection.execute("DELETE FROM track_search_fts")
-                    core_connection.execute("DELETE FROM tracks")
-
-                    artifacts_connection.commit()
-                    if evaluation_connection is not None:
-                        evaluation_connection.commit()
-                    core_connection.commit()
+                    feature_rows_deleted = sum(
+                        derived_counts[table]
+                        for table in ("sonara_features", "maest_genres")
+                    )
+                    classifier_rows_deleted = derived_counts["classifier_scores"]
+                    connection.execute("DELETE FROM track_search_fts")
+                    connection.execute("DELETE FROM tracks")
+                    connection.execute(
+                        """
+                        UPDATE library
+                        SET roots_json = '[]', updated_at = ?
+                        WHERE singleton_id = 1
+                        """,
+                        (utc_now_text(),),
+                    )
+                    connection.commit()
                 except BaseException:
-                    if evaluation_connection is not None:
-                        if evaluation_connection.in_transaction:
-                            evaluation_connection.rollback()
-                    if artifacts_connection.in_transaction:
-                        artifacts_connection.rollback()
-                    if core_connection.in_transaction:
-                        core_connection.rollback()
+                    if connection.in_transaction:
+                        connection.rollback()
                     raise
-                finally:
-                    if evaluation_connection is not None:
-                        evaluation_connection.close()
 
         return ClearLibraryResult(
             tracks_deleted=tracks_deleted,
-            embeddings_deleted=embeddings_deleted,
-            artifacts_deleted=artifacts_deleted,
-            evaluation_rows_deleted=evaluation_rows_deleted,
+            feature_rows_deleted=feature_rows_deleted,
+            embedding_rows_deleted=embedding_rows_deleted,
+            classifier_rows_deleted=classifier_rows_deleted,
         )
 
     def remove_deleted_track(
@@ -1422,22 +1354,22 @@ class TrackRepository:
         requested_path = resolved_file_path(file_path)
         requested_path_key = canonical_file_path(requested_path)
         source_path = Path(requested_path)
+        track_rows_deleted = 0
+        derived_rows_deleted = 0
 
         with self._write_lock:
-            with closing(self.connect()) as core_connection, closing(
-                self.connect_artifacts()
-            ) as artifacts_connection:
-                core_connection.execute("BEGIN IMMEDIATE")
+            with closing(self.connect()) as connection:
                 try:
+                    connection.execute("BEGIN IMMEDIATE")
                     if source_path.exists() or source_path.is_symlink():
                         raise RuntimeError(
                             "Source path still exists; refusing database removal"
                         )
                     path_track_id = _track_id_for_path(
-                        core_connection,
+                        connection,
                         requested_path,
                     )
-                    row = core_connection.execute(
+                    row = connection.execute(
                         """
                         SELECT
                             track_id,
@@ -1476,16 +1408,24 @@ class TrackRepository:
                             "Source path reappeared; refusing database "
                             "removal"
                         )
-                    core_rows_deleted = 0
                     if row_present:
-                        core_connection.execute(
+                        derived_rows_deleted = sum(
+                            int(
+                                connection.execute(
+                                    f"SELECT COUNT(*) FROM {table} WHERE track_id = ?",
+                                    (expected.track_id,),
+                                ).fetchone()[0]
+                            )
+                            for table in _DERIVED_TRACK_TABLES
+                        )
+                        connection.execute(
                             """
                             DELETE FROM track_search_fts
                             WHERE track_id = ?
                             """,
                             (expected.track_id,),
                         )
-                        cursor = core_connection.execute(
+                        cursor = connection.execute(
                             """
                             DELETE FROM tracks
                             WHERE track_id = ?
@@ -1505,34 +1445,11 @@ class TrackRepository:
                                 "Track state changed before database "
                                 "removal"
                             )
-                        core_rows_deleted = 1
-
-                    artifacts_connection.execute("BEGIN IMMEDIATE")
-                    artifact_rows_deleted = 0
-                    try:
-                        for table in _ARTIFACT_TABLES:
-                            cursor = artifacts_connection.execute(
-                                f"""
-                                DELETE FROM {table}
-                                WHERE track_id = ?
-                                   OR track_uuid = ?
-                                """,
-                                (
-                                    expected.track_id,
-                                    expected.track_uuid,
-                                ),
-                            )
-                            artifact_rows_deleted += cursor.rowcount
-
-                        artifacts_connection.commit()
-                        core_connection.commit()
-                    except BaseException:
-                        if artifacts_connection.in_transaction:
-                            artifacts_connection.rollback()
-                        raise
+                        track_rows_deleted = 1
+                    connection.commit()
                 except BaseException:
-                    if core_connection.in_transaction:
-                        core_connection.rollback()
+                    if connection.in_transaction:
+                        connection.rollback()
                     raise
 
         return TrackRemovalResult(
@@ -1540,8 +1457,8 @@ class TrackRepository:
             file_path=stored_path,
             removed=row_present,
             already_absent=not row_present,
-            core_rows_deleted=core_rows_deleted,
-            artifact_rows_deleted=artifact_rows_deleted,
+            track_rows_deleted=track_rows_deleted,
+            derived_rows_deleted=derived_rows_deleted,
         )
 
     def mark_missing_if_current(
@@ -1692,54 +1609,3 @@ class TrackRepository:
                     if connection.in_transaction:
                         connection.rollback()
                     raise
-
-    def _delete_identity_mismatched_artifacts(
-        self,
-        track_id: int,
-    ) -> None:
-        with closing(self.connect()) as core_connection:
-            core_connection.execute("BEGIN IMMEDIATE")
-            try:
-                row = core_connection.execute(
-                    """
-                    SELECT track_uuid, content_generation
-                    FROM tracks
-                    WHERE track_id = ?
-                    """,
-                    (int(track_id),),
-                ).fetchone()
-                with closing(self.connect_artifacts()) as artifacts_connection:
-                    artifacts_connection.execute("BEGIN IMMEDIATE")
-                    try:
-                        for table in _ARTIFACT_TABLES:
-                            if row is None:
-                                artifacts_connection.execute(
-                                    f"DELETE FROM {table} WHERE track_id = ?",
-                                    (int(track_id),),
-                                )
-                            else:
-                                artifacts_connection.execute(
-                                    f"""
-                                    DELETE FROM {table}
-                                    WHERE track_id = ?
-                                      AND (
-                                          track_uuid <> ?
-                                          OR content_generation <> ?
-                                      )
-                                    """,
-                                    (
-                                        int(track_id),
-                                        str(row[0]),
-                                        int(row[1]),
-                                    ),
-                                )
-                        artifacts_connection.commit()
-                    except BaseException:
-                        if artifacts_connection.in_transaction:
-                            artifacts_connection.rollback()
-                        raise
-                core_connection.commit()
-            except BaseException:
-                if core_connection.in_transaction:
-                    core_connection.rollback()
-                raise

@@ -1,4 +1,4 @@
-"""Library queries over one validated Core/Artifacts bundle."""
+"""Library queries over one validated SQLite library."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .analysis_models import (
     OUTPUT_KINDS_BY_FAMILY,
     current_embedding_spec,
 )
-from .db_artifacts import ArtifactTrackIdentity, validate_embedding_row_payload
+from .db_embeddings import EmbeddingTrackIdentity, validate_embedding_row_payload
 from .db_tracks import utc_now_text
 from .library_models import (
     AnalysisCoverage,
@@ -55,15 +55,6 @@ _EMBEDDING_TABLES: tuple[tuple[str, str, str], ...] = (
     ("mert", "embedding", "mert_embeddings"),
     ("muq", "embedding", "muq_embeddings"),
     ("clap", "embedding", "clap_embeddings"),
-)
-ANALYSIS_COUNT_SETTING_PREFIX = "analysis.count."
-_ANALYSIS_COUNT_FIELDS = (
-    "tracks",
-    "sonara",
-    "maest",
-    "mert",
-    "muq",
-    "clap",
 )
 _SONARA_VECTOR_SUMMARIES = (
     VectorSummary("mfcc_mean", 13),
@@ -119,32 +110,6 @@ def _optional_int(value: object) -> int | None:
 
 def _optional_float(value: object) -> float | None:
     return None if value is None else float(value)
-
-
-def _stored_analysis_counts(
-    connection: sqlite3.Connection,
-) -> dict[str, int] | None:
-    setting_keys = tuple(
-        f"{ANALYSIS_COUNT_SETTING_PREFIX}{field}"
-        for field in _ANALYSIS_COUNT_FIELDS
-    )
-    placeholders = ", ".join("?" for _ in setting_keys)
-    rows = connection.execute(
-        f"""
-        SELECT setting_key, setting_value
-        FROM library_settings
-        WHERE setting_key IN ({placeholders})
-        """,
-        setting_keys,
-    ).fetchall()
-    raw_counts = {str(row["setting_key"]): row["setting_value"] for row in rows}
-    counts: dict[str, int] = {}
-    for field in _ANALYSIS_COUNT_FIELDS:
-        raw_value = raw_counts.get(f"{ANALYSIS_COUNT_SETTING_PREFIX}{field}")
-        if not isinstance(raw_value, str) or not raw_value.isdecimal():
-            return None
-        counts[field] = int(raw_value)
-    return counts
 
 
 def _json_array(raw: object, field_name: str) -> list[object]:
@@ -245,16 +210,6 @@ def _classifier_specifications_by_key(
     return result
 
 
-def _classifier_feature_names_json(
-    specification: ClassifierSpecification,
-) -> str:
-    return json.dumps(
-        list(specification.feature_names),
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
-
-
 def _fts_query(raw: str) -> str:
     terms = [term for term in raw.split() if term]
     if not terms:
@@ -270,32 +225,20 @@ def _like_pattern(raw: str) -> str:
 
 
 def _read_context(
-    core_connection: sqlite3.Connection,
-    artifacts_connection: sqlite3.Connection,
+    connection: sqlite3.Connection,
     *,
     expected_catalog_uuid: str,
 ) -> _ReadContext:
-    core_catalog = core_connection.execute(
+    library = connection.execute(
         """
         SELECT catalog_uuid
-        FROM library_catalog
+        FROM library
         WHERE singleton_id = 1
         """
     ).fetchone()
-    artifacts_catalog = artifacts_connection.execute(
-        """
-        SELECT catalog_uuid
-        FROM storage_metadata
-        WHERE singleton_id = 1
-        """
-    ).fetchone()
-    actual_core = None if core_catalog is None else str(core_catalog[0])
-    actual_artifacts = None if artifacts_catalog is None else str(artifacts_catalog[0])
-    if (
-        actual_core != expected_catalog_uuid
-        or actual_artifacts != expected_catalog_uuid
-    ):
-        raise RuntimeError("Core and Artifacts do not belong to the selected catalog")
+    actual_catalog_uuid = None if library is None else str(library[0])
+    if actual_catalog_uuid != expected_catalog_uuid:
+        raise RuntimeError("library does not belong to the selected catalog")
 
     outputs = {
         (family, kind): AnalysisOutput(family, kind)
@@ -355,6 +298,7 @@ def _filter_sql(
     classifier_specifications: Mapping[str, ClassifierSpecification],
     include_missing: bool,
 ) -> tuple[str, list[object]]:
+    del classifier_specifications
     conditions: list[str] = []
     params: list[object] = []
     if not include_missing:
@@ -417,30 +361,16 @@ def _filter_sql(
 
     if primary_classifier is not None:
         classifier_key, score = primary_classifier
-        specification = classifier_specifications.get(classifier_key)
-        feature_condition = "AND primary_cs.feature_names_json = ?"
-        if specification is None:
-            conditions.append("0")
-            feature_condition = ""
         conditions.append(
-            f"""
+            """
             primary_cs.classifier_key = ?
             AND primary_cs.score >= ?
-            AND primary_cs.track_uuid = t.track_uuid
-            AND primary_cs.content_generation = t.content_generation
-            {feature_condition}
             """
         )
         params.extend([classifier_key, score])
-        if specification is not None:
-            params.append(_classifier_feature_names_json(specification))
 
     for classifier_key, score in classifier_filters:
         if primary_classifier is not None and classifier_key == primary_classifier[0]:
-            continue
-        specification = classifier_specifications.get(classifier_key)
-        if specification is None:
-            conditions.append("0")
             continue
         conditions.append(
             """
@@ -450,19 +380,10 @@ def _filter_sql(
                 WHERE cs.track_id = t.track_id
                   AND cs.classifier_key = ?
                   AND cs.score >= ?
-                  AND cs.track_uuid = t.track_uuid
-                  AND cs.content_generation = t.content_generation
-                  AND cs.feature_names_json = ?
             )
             """
         )
-        params.extend(
-            [
-                classifier_key,
-                score,
-                _classifier_feature_names_json(specification),
-            ]
-        )
+        params.extend([classifier_key, score])
 
     return (
         "" if not conditions else "WHERE " + " AND ".join(conditions),
@@ -607,7 +528,7 @@ def _valid_sonara_core_ids(
             f"""
             SELECT {", ".join(f"stored.{column}" for column in SONARA_CORE_COLUMNS)}
             FROM json_each(?) requested
-            CROSS JOIN sonara stored
+            CROSS JOIN sonara_features stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
             """,
             (_json_ids(identities),),
@@ -616,7 +537,7 @@ def _valid_sonara_core_ids(
         rows = connection.execute(
             f"""
             SELECT {", ".join(SONARA_CORE_COLUMNS)}
-            FROM sonara
+            FROM sonara_features
             WHERE track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
@@ -718,7 +639,7 @@ def _current_analysis_row_count(
     )
 
 
-def _valid_artifact_rows(
+def _valid_embedding_rows(
     connection: sqlite3.Connection,
     *,
     table: str,
@@ -778,7 +699,7 @@ def _valid_artifact_rows(
             valid_embedding, _reason = validate_embedding_row_payload(
                 family=output.analysis_family,
                 row=row,
-                expected_track=ArtifactTrackIdentity(
+                expected_track=EmbeddingTrackIdentity(
                     catalog_uuid=catalog_uuid,
                     track_id=track_id,
                     track_uuid=expected[0],
@@ -847,6 +768,7 @@ def _current_classifier_details(
     drive_from_requested: bool,
     classifier_specifications: Mapping[str, ClassifierSpecification],
 ) -> dict[int, tuple[ClassifierScoreDetail, ...]]:
+    del classifier_specifications
     if not identities:
         return {}
     select_fields = """
@@ -871,12 +793,8 @@ def _current_classifier_details(
             select_fields
             + """
             FROM json_each(?) requested
-            CROSS JOIN tracks t
             CROSS JOIN classifier_scores cs
-            WHERE t.track_id = CAST(requested.value AS INTEGER)
-              AND cs.track_id = t.track_id
-              AND cs.track_uuid = t.track_uuid
-              AND cs.content_generation = t.content_generation
+            WHERE cs.track_id = CAST(requested.value AS INTEGER)
             """
             + current_sql,
             params,
@@ -886,10 +804,7 @@ def _current_classifier_details(
             select_fields
             + """
             FROM classifier_scores cs
-            JOIN tracks t ON t.track_id = cs.track_id
-            WHERE cs.content_generation = t.content_generation
-              AND cs.track_uuid = t.track_uuid
-              AND cs.track_id IN (
+            WHERE cs.track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
               )
@@ -903,9 +818,6 @@ def _current_classifier_details(
         if feature_names is None:
             continue
         classifier_key = str(row["classifier_key"])
-        specification = classifier_specifications.get(classifier_key)
-        if specification is None or feature_names != specification.feature_names:
-            continue
         probabilities = _parse_probabilities(row["probabilities_json"])
         if probabilities is None:
             continue
@@ -930,8 +842,7 @@ def _current_classifier_details(
 
 
 def _coverage_and_classifiers(
-    core_connection: sqlite3.Connection,
-    artifacts_connection: sqlite3.Connection,
+    connection: sqlite3.Connection,
     *,
     context: _ReadContext,
     rows: Sequence[sqlite3.Row],
@@ -944,24 +855,24 @@ def _coverage_and_classifiers(
     identities = _identity_map(rows)
     drive_from_requested = len(identities) <= 500
     sonara_core = _valid_sonara_core_ids(
-        core_connection,
+        connection,
         output=context.outputs.get(("sonara", "core")),
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
     maest_analysis = _valid_maest_analysis_ids(
-        core_connection,
+        connection,
         output=context.outputs.get(("maest", "analysis")),
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
-    artifact_rows: dict[
+    embedding_rows: dict[
         tuple[str, str],
         dict[int, Mapping[str, object]],
     ] = {}
     for family, output_kind, table in _EMBEDDING_TABLES:
-        artifact_rows[(family, output_kind)] = _valid_artifact_rows(
-            artifacts_connection,
+        embedding_rows[(family, output_kind)] = _valid_embedding_rows(
+            connection,
             table=table,
             output=context.outputs.get((family, output_kind)),
             identities=identities,
@@ -973,20 +884,20 @@ def _coverage_and_classifiers(
         track_id: AnalysisCoverage(
             sonara_core=track_id in sonara_core,
             maest_analysis=track_id in maest_analysis,
-            maest_embedding=track_id in artifact_rows[("maest", "embedding")],
-            mert=track_id in artifact_rows[("mert", "embedding")],
-            muq=track_id in artifact_rows[("muq", "embedding")],
-            clap=track_id in artifact_rows[("clap", "embedding")],
+            maest_embedding=track_id in embedding_rows[("maest", "embedding")],
+            mert=track_id in embedding_rows[("mert", "embedding")],
+            muq=track_id in embedding_rows[("muq", "embedding")],
+            clap=track_id in embedding_rows[("clap", "embedding")],
         )
         for track_id in identities
     }
     classifiers = _current_classifier_details(
-        core_connection,
+        connection,
         identities=identities,
         drive_from_requested=drive_from_requested,
         classifier_specifications=classifier_specifications or {},
     )
-    return coverage, classifiers, artifact_rows
+    return coverage, classifiers, embedding_rows
 
 
 def _classifier_summaries(
@@ -1030,16 +941,14 @@ def _track_summary(
 
 
 def _assemble_summaries(
-    core_connection: sqlite3.Connection,
-    artifacts_connection: sqlite3.Connection,
+    connection: sqlite3.Connection,
     *,
     context: _ReadContext,
     rows: Sequence[sqlite3.Row],
     classifier_specifications: Mapping[str, ClassifierSpecification] | None = None,
 ) -> tuple[TrackSummary, ...]:
-    coverage, classifiers, _artifact_rows = _coverage_and_classifiers(
-        core_connection,
-        artifacts_connection,
+    coverage, classifiers, _embedding_rows = _coverage_and_classifiers(
+        connection,
         context=context,
         rows=rows,
         classifier_specifications=classifier_specifications,
@@ -1086,7 +995,7 @@ def _sonara_core(
     row = connection.execute(
         f"""
         SELECT {", ".join(SONARA_CORE_COLUMNS)}
-        FROM sonara
+        FROM sonara_features
         WHERE track_id = ?
           AND content_generation = ?
         """,
@@ -1209,15 +1118,12 @@ def _maest_analysis(
 
 
 class LibraryQueryRepository:
-    """Read-model mixin for the Core and mandatory Artifacts databases."""
+    """Read-model mixin for the single library database."""
 
     catalog_uuid: str
     _write_lock: threading.RLock
 
     def connect(self) -> sqlite3.Connection:
-        raise NotImplementedError
-
-    def connect_artifacts(self) -> sqlite3.Connection:
         raise NotImplementedError
 
     def classifier_score_counts(
@@ -1234,43 +1140,29 @@ class LibraryQueryRepository:
         with closing(self.connect()) as core_connection:
             rows = core_connection.execute(
                 f"""
-                SELECT cs.classifier_key, cs.feature_names_json, COUNT(*) AS score_count
+                SELECT classifier_key, COUNT(*) AS score_count
                 FROM classifier_scores AS cs
-                JOIN tracks AS t ON t.track_id = cs.track_id
-                WHERE cs.classifier_key IN ({placeholders})
-                  AND cs.track_uuid = t.track_uuid
-                  AND cs.content_generation = t.content_generation
-                  AND t.missing_since IS NULL
-                GROUP BY cs.classifier_key, cs.feature_names_json
+                WHERE classifier_key IN ({placeholders})
+                GROUP BY classifier_key
                 """,
                 tuple(counts),
             ).fetchall()
         for row in rows:
             classifier_key = str(row["classifier_key"])
-            specification = specifications_by_key.get(classifier_key)
-            if specification is None:
-                continue
-            if str(row["feature_names_json"]) != _classifier_feature_names_json(
-                specification
-            ):
-                continue
-            counts[classifier_key] = int(row["score_count"])
+            if classifier_key in counts:
+                counts[classifier_key] = int(row["score_count"])
         return counts
 
     @contextmanager
-    def _open_library_bundle(
+    def _open_library(
         self,
-    ) -> Iterator[tuple[sqlite3.Connection, sqlite3.Connection, _ReadContext]]:
-        with (
-            closing(self.connect()) as core_connection,
-            closing(self.connect_artifacts()) as artifacts_connection,
-        ):
+    ) -> Iterator[tuple[sqlite3.Connection, _ReadContext]]:
+        with closing(self.connect()) as connection:
             context = _read_context(
-                core_connection,
-                artifacts_connection,
+                connection,
                 expected_catalog_uuid=self.catalog_uuid,
             )
-            yield core_connection, artifacts_connection, context
+            yield connection, context
 
     def list_track_summaries(
         self,
@@ -1281,13 +1173,9 @@ class LibraryQueryRepository:
         specifications_by_key = _classifier_specifications_by_key(
             classifier_specifications
         )
-        with self._open_library_bundle() as (
-            core_connection,
-            artifacts_connection,
-            context,
-        ):
+        with self._open_library() as (connection, context):
             rows, _total = _query_base_rows(
-                core_connection,
+                connection,
                 context=context,
                 query="",
                 search_mode="like",
@@ -1299,8 +1187,7 @@ class LibraryQueryRepository:
                 offset=0,
             )
             return _assemble_summaries(
-                core_connection,
-                artifacts_connection,
+                connection,
                 context=context,
                 rows=rows,
                 classifier_specifications=specifications_by_key,
@@ -1330,13 +1217,9 @@ class LibraryQueryRepository:
             classifier_specifications
         )
 
-        with self._open_library_bundle() as (
-            core_connection,
-            artifacts_connection,
-            context,
-        ):
+        with self._open_library() as (connection, context):
             missing_sql = "" if include_missing else "AND t.missing_since IS NULL"
-            rows = core_connection.execute(
+            rows = connection.execute(
                 f"""
                 SELECT {_base_select_fields()}
                 FROM tracks t
@@ -1350,8 +1233,7 @@ class LibraryQueryRepository:
                 (_json_ids(requested),),
             ).fetchall()
             summaries = _assemble_summaries(
-                core_connection,
-                artifacts_connection,
+                connection,
                 context=context,
                 rows=rows,
                 classifier_specifications=specifications_by_key,
@@ -1384,13 +1266,9 @@ class LibraryQueryRepository:
         specifications_by_key = _classifier_specifications_by_key(
             classifier_specifications
         )
-        with self._open_library_bundle() as (
-            core_connection,
-            artifacts_connection,
-            context,
-        ):
+        with self._open_library() as (connection, context):
             rows, total = _query_base_rows(
-                core_connection,
+                connection,
                 context=context,
                 query=query,
                 search_mode=search_mode,
@@ -1403,8 +1281,7 @@ class LibraryQueryRepository:
                 classifier_specifications=specifications_by_key,
             )
             items = _assemble_summaries(
-                core_connection,
-                artifacts_connection,
+                connection,
                 context=context,
                 rows=rows,
                 classifier_specifications=specifications_by_key,
@@ -1431,13 +1308,9 @@ class LibraryQueryRepository:
         specifications_by_key = _classifier_specifications_by_key(
             classifier_specifications
         )
-        with self._open_library_bundle() as (
-            core_connection,
-            artifacts_connection,
-            context,
-        ):
+        with self._open_library() as (connection, context):
             rows, _total = _query_base_rows(
-                core_connection,
+                connection,
                 context=context,
                 query=query,
                 search_mode=search_mode,
@@ -1450,8 +1323,7 @@ class LibraryQueryRepository:
                 classifier_specifications=specifications_by_key,
             )
             return _assemble_summaries(
-                core_connection,
-                artifacts_connection,
+                connection,
                 context=context,
                 rows=rows,
                 classifier_specifications=specifications_by_key,
@@ -1467,13 +1339,9 @@ class LibraryQueryRepository:
         specifications_by_key = _classifier_specifications_by_key(
             classifier_specifications
         )
-        with self._open_library_bundle() as (
-            core_connection,
-            artifacts_connection,
-            context,
-        ):
+        with self._open_library() as (connection, context):
             missing_sql = "" if include_missing else "AND t.missing_since IS NULL"
-            row = core_connection.execute(
+            row = connection.execute(
                 f"""
                 SELECT {_base_select_fields()}
                 FROM tracks t
@@ -1485,9 +1353,8 @@ class LibraryQueryRepository:
             ).fetchone()
             if row is None:
                 raise KeyError(f"Unknown current track id: {track_id}")
-            coverage, classifiers, artifact_rows = _coverage_and_classifiers(
-                core_connection,
-                artifacts_connection,
+            coverage, classifiers, embedding_rows = _coverage_and_classifiers(
+                connection,
                 context=context,
                 rows=[row],
                 classifier_specifications=specifications_by_key,
@@ -1501,13 +1368,13 @@ class LibraryQueryRepository:
                 classifiers=classifier_details,
             )
             sonara = _sonara_core(
-                core_connection,
+                connection,
                 track_id=numeric_id,
                 generation=int(row["content_generation"]),
                 output=context.outputs.get(("sonara", "core")),
             )
             maest = _maest_analysis(
-                core_connection,
+                connection,
                 track_id=numeric_id,
                 generation=int(row["content_generation"]),
                 output=context.outputs.get(("maest", "analysis")),
@@ -1515,15 +1382,15 @@ class LibraryQueryRepository:
             embeddings = tuple(
                 EmbeddingSummary(
                     analysis_family=family,
-                    dim=int(artifact_row["dim"]),
-                    normalization=str(artifact_row["normalization"]),
-                    analyzed_at=str(artifact_row["analyzed_at"]),
+                    dim=int(embedding_row["dim"]),
+                    normalization=str(embedding_row["normalization"]),
+                    analyzed_at=str(embedding_row["analyzed_at"]),
                 )
                 for family, output_kind, _table in _EMBEDDING_TABLES
                 if context.outputs.get((family, output_kind))
                 is not None
                 and (
-                    artifact_row := artifact_rows[(family, output_kind)].get(numeric_id)
+                    embedding_row := embedding_rows[(family, output_kind)].get(numeric_id)
                 )
                 is not None
             )
@@ -1556,13 +1423,9 @@ class LibraryQueryRepository:
         *,
         include_missing: bool = False,
     ) -> Path:
-        with self._open_library_bundle() as (
-            core_connection,
-            _artifacts_connection,
-            _context,
-        ):
+        with self._open_library() as (connection, _context):
             missing_sql = "" if include_missing else "AND missing_since IS NULL"
-            row = core_connection.execute(
+            row = connection.execute(
                 f"""
                 SELECT file_path
                 FROM tracks
@@ -1591,15 +1454,11 @@ class LibraryQueryRepository:
         )
         with (
             self._write_lock,
-            self._open_library_bundle() as (
-                core_connection,
-                artifacts_connection,
-                context,
-            ),
+            self._open_library() as (connection, context),
         ):
-            core_connection.execute("BEGIN IMMEDIATE")
+            connection.execute("BEGIN IMMEDIATE")
             try:
-                row = core_connection.execute(
+                row = connection.execute(
                     """
                     SELECT track_id, track_uuid, content_generation
                     FROM tracks
@@ -1620,7 +1479,7 @@ class LibraryQueryRepository:
                         "the liked-state mutation"
                     )
                 if liked:
-                    core_connection.execute(
+                    connection.execute(
                         """
                         INSERT INTO likes(track_id, liked_at)
                         VALUES (?, ?)
@@ -1630,11 +1489,11 @@ class LibraryQueryRepository:
                         (expected.track_id, utc_now_text()),
                     )
                 else:
-                    core_connection.execute(
+                    connection.execute(
                         "DELETE FROM likes WHERE track_id = ?",
                         (expected.track_id,),
                     )
-                base_row = core_connection.execute(
+                base_row = connection.execute(
                     f"""
                     SELECT {_base_select_fields()}
                     FROM tracks t
@@ -1645,17 +1504,16 @@ class LibraryQueryRepository:
                 ).fetchone()
                 assert base_row is not None
                 summary = _assemble_summaries(
-                    core_connection,
-                    artifacts_connection,
+                    connection,
                     context=context,
                     rows=[base_row],
                     classifier_specifications=specifications_by_key,
                 )[0]
-                core_connection.commit()
+                connection.commit()
                 return summary
             except BaseException:
-                if core_connection.in_transaction:
-                    core_connection.rollback()
+                if connection.in_transaction:
+                    connection.rollback()
                 raise
 
     def list_liked_track_ids(
@@ -1663,13 +1521,9 @@ class LibraryQueryRepository:
         *,
         include_missing: bool = False,
     ) -> tuple[int, ...]:
-        with self._open_library_bundle() as (
-            core_connection,
-            _artifacts_connection,
-            _context,
-        ):
+        with self._open_library() as (connection, _context):
             missing_sql = "" if include_missing else "WHERE t.missing_since IS NULL"
-            rows = core_connection.execute(
+            rows = connection.execute(
                 f"""
                 SELECT l.track_id
                 FROM likes l
@@ -1687,16 +1541,12 @@ class LibraryQueryRepository:
     ) -> tuple[GenreTagCandidate, ...]:
         """Return present tracks with current, non-empty MAEST genre scores."""
 
-        with self._open_library_bundle() as (
-            core_connection,
-            _artifacts_connection,
-            context,
-        ):
+        with self._open_library() as (connection, context):
             output = context.outputs.get(("maest", "analysis"))
             if output is None:
                 return ()
             missing_sql = "" if include_missing else "AND t.missing_since IS NULL"
-            rows = core_connection.execute(
+            rows = connection.execute(
                 f"""
                 SELECT
                     t.track_id,
@@ -1756,13 +1606,9 @@ class LibraryQueryRepository:
         requested = tuple(int(track_id) for track_id in track_ids)
         if not requested:
             return ()
-        with self._open_library_bundle() as (
-            core_connection,
-            _artifacts_connection,
-            context,
-        ):
+        with self._open_library() as (connection, context):
             missing_sql = "" if include_missing else "AND t.missing_since IS NULL"
-            rows = core_connection.execute(
+            rows = connection.execute(
                 f"""
                 SELECT
                     t.track_id,
@@ -1793,7 +1639,7 @@ class LibraryQueryRepository:
                 )
             sonara_by_id: dict[int, SonaraCore | None] = {
                 track_id: _sonara_core(
-                    core_connection,
+                    connection,
                     track_id=track_id,
                     generation=int(row["content_generation"]),
                     output=context.outputs.get(("sonara", "core")),
@@ -1830,18 +1676,15 @@ class LibraryQueryRepository:
         def count_rows(connection: sqlite3.Connection, table: str) -> int:
             return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
-        with (
-            closing(self.connect()) as core_connection,
-            closing(self.connect_artifacts()) as artifacts_connection,
-        ):
+        with closing(self.connect()) as connection:
             return LibrarySummary(
-                tracks=count_rows(core_connection, "tracks"),
-                sonara=count_rows(core_connection, "sonara"),
-                maest_analysis=count_rows(core_connection, "maest_genres"),
-                maest_embedding=count_rows(artifacts_connection, "maest_embeddings"),
-                mert=count_rows(artifacts_connection, "mert_embeddings"),
-                muq=count_rows(artifacts_connection, "muq_embeddings"),
-                clap=count_rows(artifacts_connection, "clap_embeddings"),
-                liked=count_rows(core_connection, "likes"),
-                classifiers=count_rows(core_connection, "classifier_scores"),
+                tracks=count_rows(connection, "tracks"),
+                sonara=count_rows(connection, "sonara_features"),
+                maest_analysis=count_rows(connection, "maest_genres"),
+                maest_embedding=count_rows(connection, "maest_embeddings"),
+                mert=count_rows(connection, "mert_embeddings"),
+                muq=count_rows(connection, "muq_embeddings"),
+                clap=count_rows(connection, "clap_embeddings"),
+                liked=count_rows(connection, "likes"),
+                classifiers=count_rows(connection, "classifier_scores"),
             )

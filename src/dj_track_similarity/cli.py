@@ -48,13 +48,10 @@ from .analysis_queue import AnalysisStageQueue
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
-from .db_evaluation import PROMOTED_SCORE_PROFILE_SETTING_KEY
 from .db_migration import (
-    apply_database_migration,
-    default_backup_dir,
-    plan_database_migration,
-    render_migration_plan,
-    render_migration_receipt,
+    MIGRATION_CONFIRMATION,
+    LegacyLibraryMigrationError,
+    migrate_legacy_library_database,
 )
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
@@ -65,7 +62,7 @@ from .evaluation.labels import load_pair_feedback_labels, load_transition_feedba
 from .evaluation.reports import build_search_evaluation_report
 from .evaluation.risk_sweep import build_risk_penalty_sweep_report
 from .evaluation.score_profile_optimizer import (
-    build_promoted_score_profile_payload,
+    build_saved_score_profile_payload,
     build_score_profile_optimizer_report,
     optimizer_record_config,
     optimizer_record_metrics,
@@ -712,10 +709,10 @@ def evaluation_optimize_score_profile(
     grid_step: float = typer.Option(0.25, "--grid-step", min=0.01, max=1.0, help="Bounded source-weight grid step."),
     bootstrap_samples: int = typer.Option(30, "--bootstrap-samples", min=0, help="Deterministic validation bootstrap samples; 0 disables the stability check."),
     record: bool = typer.Option(False, "--record/--no-record", help="Record an ok diagnostic optimizer summary to calibration_runs."),
-    promote: bool = typer.Option(
+    save_profile: bool = typer.Option(
         False,
-        "--promote/--no-promote",
-        help="Explicitly promote an ok 500+ judged-pair optimizer profile into library_settings.",
+        "--save-profile/--no-save-profile",
+        help="Save an ok 500+ judged-pair optimizer profile in optional Evaluation storage.",
     ),
 ) -> None:
     try:
@@ -733,8 +730,10 @@ def evaluation_optimize_score_profile(
             bootstrap_samples=bootstrap_samples,
         )
         report["recorded"] = False
-        report["promoted"] = False
-        promotion_payload = build_promoted_score_profile_payload(report) if promote else None
+        report["saved_profile"] = False
+        profile_payload = (
+            build_saved_score_profile_payload(report) if save_profile else None
+        )
         if record and report["status"] == "ok":
             report["calibration_run_id"] = db.record_calibration_run(
                 str(report["profile_name"]),
@@ -745,10 +744,12 @@ def evaluation_optimize_score_profile(
             report["recorded"] = True
         elif record:
             report["record_note"] = "Optimizer summaries are recorded only when status is ok."
-        if promotion_payload is not None:
-            db.set_promoted_score_profile(promotion_payload)
-            report["promoted"] = True
-            report["promoted_setting_key"] = PROMOTED_SCORE_PROFILE_SETTING_KEY
+        if profile_payload is not None:
+            report["evaluation_profile_id"] = db.save_evaluation_profile(
+                str(report["profile_name"]),
+                profile_payload,
+            )
+            report["saved_profile"] = True
         if output_path is not None:
             _write_json_report(output_path, report)
     except (ValueError, sqlite3.IntegrityError) as error:
@@ -766,7 +767,7 @@ def evaluation_optimize_score_profile(
     typer.echo(
         f"status={report['status']} decision={report['decision']} label_status={report['label_status']} output={output_text} "
         f"judged_pairs={report['judged_pairs']} validation_ndcg_at_{metric_cutoff}={validation_ndcg} "
-        f"baseline_validation_ndcg_at_{metric_cutoff}={baseline_ndcg} weights={weights_text} recorded={report['recorded']} promoted={report['promoted']}"
+        f"baseline_validation_ndcg_at_{metric_cutoff}={baseline_ndcg} weights={weights_text} recorded={report['recorded']} saved_profile={report['saved_profile']}"
     )
 
 
@@ -940,28 +941,41 @@ def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db"))
 
 @app.command("migrate-database")
 def migrate_database_command(
-    db: Path = typer.Option(..., "--db"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    backup_dir: Optional[Path] = typer.Option(None, "--backup-dir"),
-    confirm: Optional[str] = typer.Option(None, "--confirm"),
+    db_path: Path = typer.Option(..., "--db", help="Legacy Core database path."),
+    backup_root: Optional[Path] = typer.Option(
+        None,
+        "--backup-root",
+        help="Parent directory for the timestamped migration backup.",
+    ),
+    confirm: Optional[str] = typer.Option(
+        None,
+        "--confirm",
+        help=f"Required exact phrase: {MIGRATION_CONFIRMATION}",
+    ),
 ) -> None:
-    """Explicitly rebuild one legacy Core/Artifacts pair after verified backups."""
+    """Explicitly merge a legacy Core/Artifacts pair into one library database."""
 
     try:
-        plan = plan_database_migration(db)
-        typer.echo(render_migration_plan(plan))
-        if dry_run:
-            return
-        phrase = confirm or typer.prompt("Type MIGRATE DATABASE to continue")
-        receipt = apply_database_migration(
-            plan,
-            backup_dir or default_backup_dir(db),
-            phrase,
+        phrase = confirm or typer.prompt(
+            f"Type {MIGRATION_CONFIRMATION} to continue"
         )
-    except (OSError, sqlite3.Error, RuntimeError, ValueError) as error:
+        result = migrate_legacy_library_database(
+            db_path,
+            confirm=phrase,
+            backup_root=backup_root,
+        )
+    except (OSError, sqlite3.Error, LegacyLibraryMigrationError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
-    typer.echo(render_migration_receipt(receipt))
+    typer.echo(
+        f"library={result.library_path}\n"
+        f"backup={result.backup_dir}\n"
+        f"catalog_uuid={result.catalog_uuid}\n"
+        f"roots={','.join(result.roots)}\n"
+        f"fts_rows={result.fts_rows}\n"
+        f"integrity_check={result.integrity_check} "
+        f"foreign_key_violations={result.foreign_key_violations}"
+    )
 
 
 @app.command("relocate-library")
@@ -1241,7 +1255,7 @@ def serve(
         None,
         "--db",
         help=(
-            "Open an existing Core database or create a new bundle at this "
+            "Open an existing library database or create a new one at this "
             "path. Omit to start with no database selected."
         ),
     ),

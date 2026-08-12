@@ -38,21 +38,19 @@ MuQ, and CLAP. SONARA uses its native CPU path.
 
 ## SONARA storage
 
-SONARA writes Core feature rows to Core. Timeline, SONARA embedding, and fingerprint collection are
-disabled. Their empty tables remain in the mandatory `*.artifacts.sqlite` companion as layout
-placeholders only. MAEST, MERT, MuQ, and CLAP embeddings also live in Artifacts. Core and Artifacts
-must share one `catalog_uuid`.
+SONARA writes feature rows to `sonara_features`. Timeline, SONARA embedding, and fingerprint
+collection are disabled and have no placeholder tables. MAEST, MERT, MuQ, and CLAP embeddings live
+in dedicated tables in the same library database.
 
-`*.evaluation.sqlite` is optional evaluation state. Normal startup refuses an incompatible
-Core/Artifacts layout rather than adapting it automatically.
+`*.evaluation.sqlite` is optional evaluation state. Normal startup refuses a legacy split layout
+rather than adapting it automatically.
 
 ## Reanalyze after a SONARA change
 
 Adopting a new SONARA release does not require a versioned project contract. Adapt the fields and
-storage that the project should use. If database structure changes, inspect
-`dj-sim migrate-database --db <path> --dry-run`, then apply only after reviewing the backup-first
-plan. Reanalysis is a separate choice: use **Reset SONARA**, then **Analyze**, only for outputs you
-intend to rebuild. Retrain and promote a classifier only when its ordered feature recipe changed.
+storage that the project should use. Reanalysis is a separate choice: use **Reset SONARA**, then
+**Analyze**, only for outputs you intend to rebuild. Retrain and promote a classifier only when its
+ordered feature recipe changed.
 
 ## Pipeline and classifiers
 

@@ -72,11 +72,13 @@ CREATE TABLE classifier_labels (
 """
 
 CORE_SCHEMA = """
-CREATE TABLE library_catalog (
+CREATE TABLE library (
     singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
     catalog_uuid TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    schema_version INTEGER NOT NULL DEFAULT 1,
+    roots_json TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE tracks (
     track_id INTEGER PRIMARY KEY,
@@ -237,8 +239,9 @@ def _create_core(
     connection.executescript(CORE_SCHEMA)
     connection.execute(
         """
-        INSERT INTO library_catalog(singleton_id, catalog_uuid, created_at, updated_at)
-        VALUES (1, ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+        INSERT INTO library(
+            singleton_id, catalog_uuid, created_at, updated_at, schema_version, roots_json
+        ) VALUES (1, ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1, '[]')
         """,
         (catalog_uuid,),
     )
@@ -1189,7 +1192,7 @@ def test_restore_apply_revalidates_catalog_and_preserves_core_bytes(
         tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000, 4)],
     )
     connection = sqlite3.connect(core_db)
-    connection.execute("UPDATE library_catalog SET catalog_uuid = 'catalog-changed'")
+    connection.execute("UPDATE library SET catalog_uuid = 'catalog-changed'")
     connection.commit()
     connection.close()
     before = core_db.read_bytes()

@@ -266,8 +266,8 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
 
     assert reset.status_code == 200
     assert reset.json() == {
-        "core_rows_deleted": 0,
-        "artifact_rows_deleted": 0,
+        "feature_rows_deleted": 0,
+        "embedding_rows_deleted": 0,
         "classifier_rows_deleted": 0,
     }
     assert legacy.status_code == 422

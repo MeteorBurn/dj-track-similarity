@@ -7,14 +7,12 @@ import numpy as np
 
 from .analysis_models import EmbeddingOutput
 from .db_analysis import AnalysisRepository
-from .db_artifacts import (
-    ArtifactTrackIdentity,
+from .db_embeddings import (
+    EmbeddingTrackIdentity,
     read_valid_embedding,
     write_valid_embedding,
 )
 from .db_connection import (
-    BundleValidationState,
-    connect_artifacts_database,
     connect_database,
     ensure_database_schema,
     resolve_database_path,
@@ -25,6 +23,7 @@ from .db_evaluation_sidecar import connect_evaluation_sidecar
 from .db_storage import storage_database_paths
 from .db_summary import SummaryRepository
 from .db_tracks import TrackRepository
+from .track_models import TrackIdentity
 
 
 __all__ = ["LibraryDatabase"]
@@ -36,27 +35,14 @@ class LibraryDatabase(
     def __init__(self, path: str | Path) -> None:
         self.path = resolve_database_path(path)
         storage_paths = storage_database_paths(self.path)
-        self.artifacts_path = storage_paths.artifacts
         self.evaluation_path = storage_paths.evaluation
         self._write_lock = write_lock_for_path(self.path)
-        self._validation_state = BundleValidationState(
-            self.path,
-            self.artifacts_path,
-        )
         self.catalog_uuid = self._ensure_schema()
 
     def connect(self) -> sqlite3.Connection:
         return connect_database(
             self.path,
             expected_catalog_uuid=self.catalog_uuid,
-            validation_state=self._validation_state,
-        )
-
-    def connect_artifacts(self) -> sqlite3.Connection:
-        return connect_artifacts_database(
-            self.artifacts_path,
-            expected_catalog_uuid=self.catalog_uuid,
-            validation_state=self._validation_state,
         )
 
     def connect_evaluation(
@@ -68,12 +54,10 @@ class LibraryDatabase(
             with self._write_lock:
                 return connect_evaluation_sidecar(
                     self.evaluation_path,
-                    expected_catalog_uuid=self.catalog_uuid,
                     create=True,
                 )
         return connect_evaluation_sidecar(
             self.evaluation_path,
-            expected_catalog_uuid=self.catalog_uuid,
             create=False,
         )
 
@@ -81,41 +65,32 @@ class LibraryDatabase(
         return ensure_database_schema(
             self.path,
             self._write_lock,
-            validation_state=self._validation_state,
         )
 
-    def read_artifact_embedding(
+    def read_embedding(
         self,
         *,
         family: str,
         track_id: int,
     ) -> np.ndarray | None:
         with self._write_lock:
-            with (
-                closing(self.connect()) as core_connection,
-                closing(self.connect_artifacts()) as artifacts_connection,
-            ):
+            with closing(self.connect()) as connection:
                 return read_valid_embedding(
                     family=family,
                     track_id=track_id,
-                    core_connection=core_connection,
-                    artifacts_connection=artifacts_connection,
+                    connection=connection,
                 )
 
-    def write_artifact_embedding(
+    def write_embedding(
         self,
         *,
-        track: ArtifactTrackIdentity,
+        track: TrackIdentity | EmbeddingTrackIdentity,
         output: EmbeddingOutput,
     ) -> None:
         with self._write_lock:
-            with (
-                closing(self.connect()) as core_connection,
-                closing(self.connect_artifacts()) as artifacts_connection,
-            ):
+            with closing(self.connect()) as connection:
                 write_valid_embedding(
-                    core_connection=core_connection,
-                    artifacts_connection=artifacts_connection,
+                    connection=connection,
                     track=track,
                     family=output.family,
                     embedding=output.vector,

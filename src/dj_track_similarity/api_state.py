@@ -45,7 +45,6 @@ class AppDatabaseState:
             db = self.db
             return {
                 "path": str(self.db_path) if self.db_path is not None else None,
-                "artifacts_path": str(db.artifacts_path) if db is not None else None,
                 "evaluation_path": str(db.evaluation_path) if db is not None else None,
                 "catalog_uuid": db.catalog_uuid if db is not None else None,
                 "selected": db is not None,

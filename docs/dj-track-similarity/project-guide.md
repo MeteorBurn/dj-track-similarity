@@ -11,9 +11,8 @@ app turns that starting point into a smaller list worth listening to.
 It does not decide which tracks are good or guarantee that two tracks will mix. Its job is to reduce
 the search space, show why a candidate appeared, and leave the musical decision to you.
 
-The backend, CLI, and React client use a structurally validated Core plus mandatory Artifacts
-bundle, with Evaluation only when needed. Normal startup refuses incompatible layouts and points to
-the explicit database migration command. The browser adds typed library, analysis, search, current
+The backend, CLI, and React client use one library database, with Evaluation only when needed.
+Normal startup refuses a legacy split layout and never rewrites it. The browser adds typed library, analysis, search, current
 set, classifier, and Lab workflows on top of the same API.
 
 ## What you can get from it
@@ -54,7 +53,7 @@ CLI, API, storage, and model details remain available in the reference section.
 ## If you are maintaining a library
 
 - [Maintain library](./workflows/maintain-library.md) gives a safe routine.
-- [Migrate and reanalyze SONARA storage](./workflows/reanalyze-sonara-split-storage.md) gives the preview, backup, migration, and optional reanalysis order.
+- [Analyze library](./user-guide/analyze-library.md) explains reset and intentional reanalysis.
 - [Tags and audio writes](./user-guide/tags-and-audio-writes.md) lists the exact file-writing paths.
 - [Audio Doctor](./tools-and-scripts/audio-doctor.md) covers dry-run-first repair.
 - [Audio Dedup](./tools-and-scripts/audio-dedup.md) covers report-first duplicate checks.
@@ -65,7 +64,7 @@ CLI, API, storage, and model details remain available in the reference section.
 - [CLI reference](./reference/cli.md) lists `dj-sim` commands and standalone tool commands.
 - [API reference](./reference/api.md) lists endpoint families and important payloads.
 - [Configuration reference](./reference/configuration.md) lists environment variables, ports, local artifacts, and build commands.
-- [SONARA integration](./reference/sonara-integration.md) describes Core-only collection, updates, and the Core/Artifacts boundary.
+- [SONARA integration](./reference/sonara-integration.md) describes collection, updates, and storage boundaries.
 - [UI controls reference](./reference/ui-controls.md) lists ranges and defaults for common controls.
 - [Model citations and licenses](./reference/model-citations.md) lists the current upstream model and SONARA sources.
 

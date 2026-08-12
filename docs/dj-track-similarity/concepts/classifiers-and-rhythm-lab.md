@@ -79,8 +79,9 @@ are never executed.
 
 Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring. Reanalyzing a track with SONARA invalidates that track's SONARA-dependent scores. A full SONARA reset invalidates all such scores but preserves labels and feedback.
 
-When a SONARA update changes stored structure, use the explicit backup-first database migration.
-Reanalysis, retraining, promotion, and rescoring remain separate choices for affected profiles.
+The one-time `dj-sim migrate-database` command only converts the former split Core/Artifacts layout;
+it is not a general SONARA-schema migration. For a SONARA update, reanalysis, retraining, promotion,
+and rescoring remain separate deliberate choices for affected profiles.
 Labels, feedback, and unrelated artifacts remain available.
 
 ## Current UI status

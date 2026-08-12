@@ -1022,7 +1022,7 @@ export function App() {
         resetSearchPlaylistState();
         setScanJob(null);
         setAnalysisJob(null);
-        const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} Core embeddings · ${value.artifacts_deleted} Artifacts rows · ${value.evaluation_rows_deleted} Evaluation rows`;
+        const detail = `${value.tracks_deleted} треков · ${value.feature_rows_deleted} features · ${value.embedding_rows_deleted} embeddings · ${value.classifier_rows_deleted} classifiers`;
         appendActivity("ok", "База очищена", detail);
         return detail;
       }
@@ -1035,8 +1035,8 @@ export function App() {
     await run(
       () => api.resetAnalysis(adapter),
       (result) => {
-        appendActivity("ok", `${label} reset завершен`, `Core ${result.core_rows_deleted} · Artifacts ${result.artifact_rows_deleted} · classifiers ${result.classifier_rows_deleted}`);
-        return `${label}: Core ${result.core_rows_deleted}, Artifacts ${result.artifact_rows_deleted}, classifiers ${result.classifier_rows_deleted}`;
+        appendActivity("ok", `${label} reset завершен`, `features ${result.feature_rows_deleted} · embeddings ${result.embedding_rows_deleted} · classifiers ${result.classifier_rows_deleted}`);
+        return `${label}: features ${result.feature_rows_deleted}, embeddings ${result.embedding_rows_deleted}, classifiers ${result.classifier_rows_deleted}`;
       },
       { refreshLibrary: true, refreshSummary: true }
     );

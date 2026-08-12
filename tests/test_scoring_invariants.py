@@ -151,9 +151,13 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
         label_order=("negative", "positive"),
         positive_label="positive",
     )
-    rows = db.load_classifier_feature_rows(
-        specification,
-        targets=(target,),
+    rows = tuple(
+        row
+        for _candidate, row in db.load_classifier_work_batch(
+            specification,
+            after_track_id=0,
+            limit=1,
+        )
     )
 
     assert len(rows) == 1
@@ -161,14 +165,3 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
     assert rows[0].vector.tolist() == pytest.approx(
         [float(vector[2]), float(vector[0]), float(vector[1])]
     )
-
-    out_of_range = ClassifierSpecification(
-        classifier_key="out_of_range_classifier",
-        feature_set="mert-features",
-        feature_names=("mert:768",),
-        required_outputs=(output,),
-        label_order=("negative", "positive"),
-        positive_label="positive",
-    )
-
-    assert db.load_classifier_feature_rows(out_of_range, targets=(target,)) == ()

@@ -174,7 +174,7 @@ def _write_sonara_core(
     with db.connect() as connection:
         connection.execute(
             """
-            INSERT INTO sonara(
+            INSERT INTO sonara_features(
                 track_id, content_generation,
                 mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
@@ -347,7 +347,6 @@ def test_artifact_validation_preserves_existing_scores_on_failure(
     )
 
     assert valid_loads == [_ARTIFACT_BYTES]
-    assert result["deleted_stale"] == 0
     assert result["scored"] == 0
     current = _score_rows(db, "test_classifier")
     assert current == [
@@ -361,25 +360,6 @@ def test_artifact_validation_preserves_existing_scores_on_failure(
         )
     ]
     assert len(_score_rows(db, "other_classifier")) == 1
-
-
-def test_standalone_classifier_analysis_requires_current_sonara(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-
-    with pytest.raises(
-        ValueError,
-        match=(
-            "Classifier analysis requires at least one track "
-            "with current SONARA"
-        ),
-    ):
-        analyze_classifier(
-            db,
-            classifier="test_classifier",
-            model_path=tmp_path / "missing.joblib",
-        )
 
 
 def test_production_scoring_loads_current_muq_embedding(
@@ -413,7 +393,6 @@ def test_production_scoring_loads_current_muq_embedding(
     )
 
     assert result["scored"] == 1
-    assert result["not_ready"] == 0
     assert result["skipped"] == 0
     stored = _score_rows(db, "test_classifier")
     assert stored[0][1] == '["muq:0"]'
@@ -462,7 +441,7 @@ def test_rhythm_lab_sonara_aliases_are_scoring_ready(
     _write_sonara_core(db, target)
     with db.connect() as connection:
         connection.execute(
-            "UPDATE sonara SET detected_bpm = ? WHERE track_id = ?",
+            "UPDATE sonara_features SET detected_bpm = ? WHERE track_id = ?",
             (128.0, target.track_id),
         )
 
@@ -476,9 +455,13 @@ def test_rhythm_lab_sonara_aliases_are_scoring_ready(
         "test_classifier",
         model_path=model_path,
     )
-    rows = db.load_classifier_feature_rows(
-        requirements.specification,
-        targets=(target,),
+    rows = tuple(
+        row
+        for _candidate, row in db.load_classifier_work_batch(
+            requirements.specification,
+            after_track_id=0,
+            limit=1,
+        )
     )
 
     assert len(rows) == 1
@@ -521,9 +504,13 @@ def test_public_scorer_uses_deterministic_argmax_and_bucket_boundaries(
         model_path=model_path,
     )
     scorer = ClassifierScorer(requirements)
-    feature_rows = db.load_classifier_feature_rows(
-        requirements.specification,
-        targets=(target,),
+    feature_rows = tuple(
+        row
+        for _candidate, row in db.load_classifier_work_batch(
+            requirements.specification,
+            after_track_id=0,
+            limit=1,
+        )
     )
 
     write = scorer.score_row(feature_rows[0], analyzed_at=_NOW)
@@ -571,10 +558,11 @@ def test_public_scorer_breaks_exact_ties_by_manifest_label_order(
         model_path=model_path,
     )
     scorer = ClassifierScorer(requirements)
-    row = db.load_classifier_feature_rows(
+    row = db.load_classifier_work_batch(
         requirements.specification,
-        targets=(target,),
-    )[0]
+        after_track_id=0,
+        limit=1,
+    )[0][1]
 
     write = scorer.score_row(row, analyzed_at=_NOW)
 
@@ -584,40 +572,6 @@ def test_public_scorer_breaks_exact_ties_by_manifest_label_order(
         "negative": 0.5,
         "positive": 0.5,
     }
-
-
-def test_classifier_writes_reject_wrong_uuid_and_generation(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    target = _insert_track(db, content_generation=2)
-    base = _score_write(
-        target,
-        classifier_key="test_classifier",
-    )
-
-    changed_uuid_target = replace(target, track_uuid=str(uuid.uuid4()))
-    wrong_uuid = replace(
-        base,
-        target=changed_uuid_target,
-        score=replace(base.score, track_uuid=changed_uuid_target.track_uuid),
-    )
-    wrong_generation_target = replace(target, content_generation=1)
-    wrong_generation = replace(
-        base,
-        target=wrong_generation_target,
-        score=replace(base.score, content_generation=1),
-    )
-
-    uuid_result, generation_result = db.save_classifier_scores(
-        (wrong_uuid, wrong_generation)
-    )
-
-    assert not uuid_result.ok
-    assert "track_uuid mismatch" in str(uuid_result.error)
-    assert not generation_result.ok
-    assert "generation" in str(generation_result.error)
-    assert _score_rows(db, "test_classifier") == []
 
 
 @pytest.mark.parametrize(

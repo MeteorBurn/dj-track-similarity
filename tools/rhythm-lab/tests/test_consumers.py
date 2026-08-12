@@ -30,10 +30,8 @@ from dj_track_similarity.classifier_manifest import (  # noqa: E402
 )
 from dj_track_similarity.classifier_scoring import promoted_classifiers  # noqa: E402
 from dj_track_similarity.db_analysis import AnalysisRepository  # noqa: E402
-from dj_track_similarity.db_artifacts import (  # noqa: E402
-    create_artifacts_sidecar_schema,
-)
-from dj_track_similarity.db_ddl import create_core_schema  # noqa: E402
+from dj_track_similarity.db_ddl import create_library_schema  # noqa: E402
+from dj_track_similarity.db_schema import insert_library  # noqa: E402
 from dj_track_similarity.db_summary import SummaryRepository  # noqa: E402
 from rhythm_lab.cli import promote_profile_model  # noqa: E402
 from rhythm_lab.artifact_io import (  # noqa: E402
@@ -75,37 +73,17 @@ class _ReadyClassifier:
 class Repository(AnalysisRepository, SummaryRepository):
     def __init__(self, root: Path) -> None:
         self.path = root / "library.sqlite"
-        self.artifacts_path = root / "library.artifacts.sqlite"
         self.catalog_uuid = str(uuid.uuid4())
         self._write_lock = threading.RLock()
-        with sqlite3.connect(self.path) as core:
-            create_core_schema(core)
-            core.execute(
-                """
-                INSERT INTO library_catalog(
-                    singleton_id, catalog_uuid, created_at, updated_at
-                ) VALUES (1, ?, ?, ?)
-                """,
-                (self.catalog_uuid, NOW, NOW),
-            )
-        with sqlite3.connect(self.artifacts_path) as artifacts:
-            create_artifacts_sidecar_schema(
-                artifacts,
-                catalog_uuid=self.catalog_uuid,
-            )
+        with sqlite3.connect(self.path) as connection:
+            create_library_schema(connection)
+            insert_library(connection, self.catalog_uuid, created_at=NOW)
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
-
-    def connect_artifacts(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.artifacts_path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
-
 
 def _mert_output() -> AnalysisOutput:
     return AnalysisOutput("mert", "embedding")
@@ -1021,8 +999,8 @@ def test_web_promotion_rejects_artifact_when_muq_vectors_are_invalid(
     current_muq = AnalysisOutput("muq", "embedding")
     repository.register_analysis_outputs((current_muq,))
     _insert_track(repository, current_muq, index=0)
-    with repository.connect_artifacts() as artifacts:
-        artifacts.execute(
+    with repository.connect() as connection:
+        connection.execute(
             "UPDATE muq_embeddings SET normalization = 'none'"
         )
 

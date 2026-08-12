@@ -12,15 +12,12 @@ from typing import Any
 from .track_models import TrackIdentity
 
 
-PROMOTED_SCORE_PROFILE_SETTING_KEY = "evaluation.promoted_score_profile"
-
-
 class EvaluationRepository:
     """Evaluation persistence mixin.
 
     The concrete database gateway must provide:
 
-    * ``connect()`` for the Core database;
+    * ``connect()`` for the library database;
     * ``connect_evaluation(create=False)`` for the optional Evaluation sidecar,
       returning ``None`` when it is absent and creation was not requested;
     * ``_write_lock`` shared with the other repository mixins.
@@ -194,6 +191,7 @@ class EvaluationRepository:
             }
 
         sidecar_tables = (
+            "evaluation_profiles",
             "search_sessions",
             "search_session_seeds",
             "search_result_events",
@@ -216,97 +214,61 @@ class EvaluationRepository:
             )
         return counts
 
-    def get_promoted_score_profile(self) -> dict[str, Any] | None:
-        with closing(self.connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT setting_value
-                FROM library_settings
-                WHERE setting_key = ?
-                """,
-                (PROMOTED_SCORE_PROFILE_SETTING_KEY,),
-            ).fetchone()
-        if row is None:
-            return None
-        payload = _json_load(row["setting_value"], "Promoted score profile")
-        if not isinstance(payload, dict):
-            raise RuntimeError("Promoted score profile setting must be a JSON object")
-        return payload
-
-    def set_promoted_score_profile(
+    def save_evaluation_profile(
         self,
+        profile_name: str,
         profile: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        clean_profile = _json_object(profile, "Promoted score profile")
-        timestamp = _utc_timestamp()
-        with (
-            self._write_lock,
-            closing(self.connect()) as connection,
-            connection,
-        ):
-            connection.execute(
-                """
-                INSERT INTO library_settings(
-                    setting_key,
-                    setting_value,
-                    updated_at
-                )
-                VALUES (?, ?, ?)
-                ON CONFLICT(setting_key) DO UPDATE SET
-                    setting_value = excluded.setting_value,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    PROMOTED_SCORE_PROFILE_SETTING_KEY,
-                    _json_text(clean_profile),
-                    timestamp,
-                ),
-            )
-        promoted_profile = self.get_promoted_score_profile()
-        if promoted_profile is None:
-            raise RuntimeError("Failed to persist promoted score profile")
-        return promoted_profile
+    ) -> int:
+        """Append an explicit score profile to optional Evaluation storage."""
 
-    def get_evaluation_setting(self, setting_key: str) -> Any | None:
-        clean_key = _required_text(setting_key, "Evaluation setting key")
+        clean_name = _required_text(profile_name, "Evaluation profile name")
+        profile_json = _json_text(_json_object(profile, "Evaluation profile"))
+        with self._write_lock:
+            connection = _required_evaluation_connection(self, create=True)
+            with closing(connection), connection:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO evaluation_profiles(
+                        profile_name, profile_json, created_at
+                    )
+                    VALUES (?, ?, ?)
+                    """,
+                    (clean_name, profile_json, _utc_timestamp()),
+                )
+                return int(cursor.lastrowid)
+
+    def get_evaluation_profile(
+        self,
+        profile_name: str,
+    ) -> dict[str, Any] | None:
+        """Read the newest saved profile with an exact user-provided name."""
+
+        clean_name = _required_text(profile_name, "Evaluation profile name")
         connection = self.connect_evaluation(create=False)
         if connection is None:
             return None
         with closing(connection):
             row = connection.execute(
                 """
-                SELECT value_json
-                FROM evaluation_settings
-                WHERE setting_key = ?
+                SELECT profile_id, profile_name, profile_json, created_at
+                FROM evaluation_profiles
+                WHERE profile_name = ?
+                ORDER BY profile_id DESC
+                LIMIT 1
                 """,
-                (clean_key,),
+                (clean_name,),
             ).fetchone()
         if row is None:
             return None
-        return _json_load(row["value_json"], "Evaluation setting")
-
-    def set_evaluation_setting(self, setting_key: str, value: object) -> Any:
-        clean_key = _required_text(setting_key, "Evaluation setting key")
-        value_json = _json_text(value)
-        timestamp = _utc_timestamp()
-        with self._write_lock:
-            connection = _required_evaluation_connection(self, create=True)
-            with closing(connection), connection:
-                connection.execute(
-                    """
-                    INSERT INTO evaluation_settings(
-                        setting_key,
-                        value_json,
-                        updated_at
-                    )
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(setting_key) DO UPDATE SET
-                        value_json = excluded.value_json,
-                        updated_at = excluded.updated_at
-                    """,
-                    (clean_key, value_json, timestamp),
-                )
-        return _json_load(value_json, "Evaluation setting")
+        payload = _json_load(row["profile_json"], "Evaluation profile")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Evaluation profile must contain a JSON object")
+        return {
+            "profile_id": int(row["profile_id"]),
+            "profile_name": str(row["profile_name"]),
+            "profile": payload,
+            "created_at": str(row["created_at"]),
+        }
 
     def create_search_session(
         self,

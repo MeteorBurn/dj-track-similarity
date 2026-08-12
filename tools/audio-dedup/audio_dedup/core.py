@@ -529,7 +529,6 @@ def load_tracks(
     root_text = canonical_file_path(root)
     contains = [item.casefold() for item in path_contains if item.strip()]
     connection = selected_database.connect()
-    artifacts_connection = selected_database.connect_artifacts()
     try:
         rows = connection.execute(
             """
@@ -557,9 +556,9 @@ def load_tracks(
                 s.dynamic_range_db,
                 s.integrated_loudness_lufs
             FROM tracks AS t
-            LEFT JOIN file_tags AS ft
+            LEFT JOIN tags AS ft
               ON ft.track_id = t.track_id
-            LEFT JOIN sonara AS s
+            LEFT JOIN sonara_features AS s
               ON s.track_id = t.track_id
              AND s.content_generation = t.content_generation
             WHERE t.missing_since IS NULL
@@ -573,11 +572,9 @@ def load_tracks(
         ]
         _attach_embeddings(
             connection,
-            artifacts_connection,
             tracks,
         )
     finally:
-        artifacts_connection.close()
         connection.close()
     return tracks
 
@@ -2218,8 +2215,7 @@ def _track_from_row(
 
 
 def _attach_embeddings(
-    core_connection: sqlite3.Connection,
-    artifacts_connection: sqlite3.Connection,
+    connection: sqlite3.Connection,
     tracks: list[TrackRecord],
 ) -> None:
     if not tracks:
@@ -2238,7 +2234,7 @@ def _attach_embeddings(
         table = f"{family}_embeddings"
         for chunk in _chunks(track_ids, 800):
             placeholders = ",".join("?" for _ in chunk)
-            rows = artifacts_connection.execute(
+            rows = connection.execute(
                 f"""
                 SELECT
                     track_id,

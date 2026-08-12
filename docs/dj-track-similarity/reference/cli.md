@@ -74,27 +74,23 @@ Runtime diagnostic:
 dj-sim doctor
 ```
 
-## Bundle maintenance
+## Library maintenance
 
-Normal runtime validates the required Core and adjacent Artifacts structures. It refuses an
-incompatible pair and points to the dedicated migration command.
+Normal runtime opens one library database and does not rewrite a legacy split layout. Use a verified
+backup and explicit reanalysis for deliberate data changes.
 
-Preview without writing:
+### Migrate a legacy Core/Artifacts pair
 
-```powershell
-dj-sim migrate-database --db .\data\library.sqlite --dry-run
-```
-
-Apply only after review:
+Stop `dj-sim serve`, Rhythm Lab, DB Browser, and every other SQLite user first. Then run:
 
 ```powershell
-dj-sim migrate-database --db .\data\library.sqlite
+dj-sim migrate-database --db .\data\library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'
 ```
 
-Apply requires the exact `MIGRATE DATABASE` confirmation. `--backup-dir` can override the default
-backup location. Before replacing either database, the command verifies self-contained Core and
-Artifacts backups. It then checks database integrity together with foreign keys and cross-database
-orphans. It never starts reanalysis.
+Use `--backup-root PATH` only to choose the parent directory for the timestamped backup. The command
+first copies legacy rows into a staged single-library file. It rebuilds FTS, compares row counts, and
+checks SQLite integrity and foreign keys before publishing `library.sqlite`. The original Core and
+Artifacts files move into that backup directory. It does not run analysis, reanalysis, or classifier jobs.
 
 ## Analysis options
 

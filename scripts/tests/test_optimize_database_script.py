@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-import hashlib
 import sqlite3
+import sys
 from pathlib import Path
-
-import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_storage import storage_database_paths
@@ -19,11 +17,12 @@ def _load_script():
     spec = importlib.util.spec_from_file_location("optimize_database", SCRIPT_PATH)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-def test_optimize_database_script_optimizes_current_structural_bundle(
+def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
     tmp_path: Path,
 ) -> None:
     module = _load_script()
@@ -41,210 +40,64 @@ def test_optimize_database_script_optimizes_current_structural_bundle(
     evaluation = db.connect_evaluation(create=True)
     assert evaluation is not None
     evaluation.close()
-    sidecars = storage_database_paths(db_path)
+    evaluation_path = storage_database_paths(db_path).evaluation
 
     summary = module.optimize_database(db_path)
 
+    assert [item.role for item in summary.files] == ["library", "evaluation"]
     assert all(path.exists() for path in summary.backup_paths)
-    assert [item.role for item in summary.files] == ["core", "artifacts", "evaluation"]
     assert summary.database_kind == "library"
     assert summary.integrity_before == "ok"
     assert summary.integrity_after == "ok"
     with sqlite3.connect(db_path) as connection:
-        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        stored_track = connection.execute(
+        assert connection.execute("SELECT COUNT(*) FROM library").fetchone()[0] == 1
+        assert connection.execute(
             "SELECT track_uuid, content_generation FROM tracks WHERE track_id = ?",
             (mutation.identity.track_id,),
-        ).fetchone()
-        core_catalog_uuid = connection.execute(
-            "SELECT catalog_uuid FROM library_catalog WHERE singleton_id = 1"
-        ).fetchone()[0]
-        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-
-    with sqlite3.connect(sidecars.artifacts) as connection:
-        artifacts_tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
-        }
-        artifacts_catalog_uuid = connection.execute(
-            "SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1"
-        ).fetchone()[0]
-        artifacts_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-    with sqlite3.connect(sidecars.evaluation) as connection:
-        evaluation_catalog_uuid = connection.execute(
-            "SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1"
-        ).fetchone()[0]
-        evaluation_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-
-    assert stored_track == (
-        mutation.identity.track_uuid,
-        mutation.identity.content_generation,
-    )
-    assert "library_settings" in tables
-    assert "classifier_scores" in tables
-    assert "mert_embeddings" in artifacts_tables
-    assert "sonara_timeline" in artifacts_tables
-    assert core_catalog_uuid == artifacts_catalog_uuid == evaluation_catalog_uuid
-    assert integrity == "ok"
-    assert artifacts_integrity == "ok"
-    assert evaluation_integrity == "ok"
+        ).fetchone() == (
+            mutation.identity.track_uuid,
+            mutation.identity.content_generation,
+        )
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+    with sqlite3.connect(evaluation_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM evaluation_profiles"
+        ).fetchone()[0] == 0
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
 
 
-def test_optimize_database_script_rejects_near_current_legacy_bundle_without_mutation(
+def test_optimize_database_does_not_reject_future_library_tables(
     tmp_path: Path,
 ) -> None:
     module = _load_script()
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
-    sidecars = storage_database_paths(db_path)
     with sqlite3.connect(db_path) as connection:
-        connection.execute("ALTER TABLE tracks ADD COLUMN schema_version INTEGER")
-
-    before = {
-        path: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (db_path, sidecars.artifacts)
-    }
-
-    with pytest.raises(RuntimeError, match="structure is not current"):
-        module.optimize_database(db_path)
-
-    after = {
-        path: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (db_path, sidecars.artifacts)
-    }
-    assert after == before
-    assert not list(tmp_path.glob("*.bak-*"))
-
-
-def test_optimize_database_script_optimizes_rhythm_lab_database(tmp_path: Path) -> None:
-    module = _load_script()
-    db_path = tmp_path / "rhythm_lab.sqlite"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE classifier_profiles (
-                classifier_key TEXT PRIMARY KEY,
-                name TEXT NOT NULL
-            );
-            CREATE TABLE classifier_profile_labels (
-                classifier_key TEXT NOT NULL,
-                label_key TEXT NOT NULL,
-                PRIMARY KEY(classifier_key, label_key)
-            );
-            CREATE TABLE classifier_labels (
-                classifier_key TEXT NOT NULL,
-                catalog_uuid TEXT NOT NULL,
-                track_uuid TEXT NOT NULL,
-                content_generation INTEGER NOT NULL,
-                label TEXT NOT NULL,
-                PRIMARY KEY(
-                    classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    content_generation
-                )
-            );
-            CREATE TABLE classifier_predictions (
-                classifier_key TEXT NOT NULL,
-                catalog_uuid TEXT NOT NULL,
-                track_uuid TEXT NOT NULL,
-                content_generation INTEGER NOT NULL,
-                feature_set TEXT NOT NULL,
-                model_artifact TEXT NOT NULL,
-                label TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                probabilities_json TEXT NOT NULL,
-                PRIMARY KEY(
-                    classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    content_generation,
-                    feature_set,
-                    model_artifact
-                )
-            );
-            CREATE TABLE classifier_training_checkpoints (
-                classifier_key TEXT PRIMARY KEY,
-                counts_json TEXT NOT NULL
-            );
-            INSERT INTO classifier_profiles(classifier_key, name) VALUES ('break_energy', 'Break Energy');
-            INSERT INTO classifier_labels(
-                classifier_key,
-                catalog_uuid,
-                track_uuid,
-                content_generation,
-                label
-            )
-            VALUES ('break_energy', 'catalog-1', 'track-1', 1, 'broken');
-            """
-        )
+        connection.execute("CREATE TABLE future_feature_values (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO future_feature_values(value) VALUES ('kept')")
 
     summary = module.optimize_database(db_path)
 
-    assert summary.database_kind == "rhythm_lab"
-    assert summary.backup_path.exists()
-    assert summary.integrity_before == "ok"
-    assert summary.integrity_after == "ok"
+    assert summary.database_kind == "library"
+    assert [item.role for item in summary.files] == ["library"]
     with sqlite3.connect(db_path) as connection:
-        labels = connection.execute("SELECT label FROM classifier_labels").fetchall()
-        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-
-    assert labels == [("broken",)]
-    assert integrity == "ok"
+        assert connection.execute(
+            "SELECT value FROM future_feature_values"
+        ).fetchone()[0] == "kept"
 
 
-def test_optimize_database_script_rejects_removed_single_file_library_schema(tmp_path: Path) -> None:
-    module = _load_script()
-    db_path = tmp_path / "library.sqlite"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE tracks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL UNIQUE,
-                size INTEGER NOT NULL,
-                mtime REAL NOT NULL,
-                artist TEXT,
-                title TEXT,
-                album TEXT,
-                bpm REAL,
-                musical_key TEXT,
-                energy REAL,
-                duration REAL,
-                metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE embeddings (
-                track_id INTEGER NOT NULL,
-                embedding_key TEXT NOT NULL DEFAULT 'mert',
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(track_id, embedding_key),
-                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-            );
-            INSERT INTO tracks (path, size, mtime, title, metadata_json)
-            VALUES ('track.wav', 10, 1, 'Track', '{}');
-            """
-        )
-
-    with pytest.raises(RuntimeError, match="Unsupported SQLite database"):
-        module.optimize_database(db_path)
-
-    assert not list(tmp_path.glob("library.sqlite.bak-*"))
-
-
-def test_optimize_database_script_rejects_unknown_sqlite_database(tmp_path: Path) -> None:
+def test_optimize_database_handles_generic_sqlite_file(tmp_path: Path) -> None:
     module = _load_script()
     db_path = tmp_path / "other.sqlite"
     with sqlite3.connect(db_path) as connection:
-        connection.execute("CREATE TABLE unrelated(id INTEGER PRIMARY KEY)")
+        connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
+        connection.execute("INSERT INTO values_table(value) VALUES ('kept')")
 
-    with pytest.raises(RuntimeError, match="Unsupported SQLite database"):
-        module.optimize_database(db_path)
+    summary = module.optimize_database(db_path)
 
-    assert not list(tmp_path.glob("other.sqlite.bak-*"))
+    assert summary.database_kind == "sqlite"
+    assert [item.role for item in summary.files] == ["sqlite"]
+    assert summary.backup_path.exists()
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT value FROM values_table").fetchone()[0] == "kept"
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"

@@ -105,7 +105,7 @@ This is not a commercial recommendation service and it is not a benchmark. It is
 
 The current application already supports the practical parts of that vision:
 
-- Create a compatible Core/Artifacts SQLite bundle and scan local audio files with Mutagen metadata.
+- Create one compatible SQLite library and scan local audio files with Mutagen metadata.
 - Browse large libraries through paginated API responses.
 - Read typed metadata, analysis coverage, likes, audio preview, search state, and the current set.
 - Run SONARA, MAEST, MERT, MuQ, and CLAP analysis jobs.
@@ -116,13 +116,13 @@ The current application already supports the practical parts of that vision:
 - Run optional Evaluation API and CLI workflows for feedback, profiles, calibration, and transition diagnostics.
 - Export the current set as M3U or CSV.
 - Run report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
-- Preview and explicitly migrate an incompatible Core/Artifacts pair with verified backups when its structure changes.
+- Explicitly merge a legacy Core/Artifacts pair into one library database with a backup-first CLI command.
 
-The Python backend and CLI require a structurally compatible bundle. They create a selected Core
-database plus a mandatory adjacent `*.artifacts.sqlite` database; the optional
-`*.evaluation.sqlite` database is created only when an evaluation workflow needs it. Normal startup
-does not rewrite an incompatible layout. It refuses the database with a clear message so you
-can inspect the explicit migration plan first.
+The Python backend and CLI create one selected library database. The optional adjacent
+`*.evaluation.sqlite` file is created only when an Evaluation workflow writes data. Normal startup
+does not rewrite an incompatible legacy layout. After stopping every database user, migrate a former
+Core/Artifacts pair explicitly with `dj-sim migrate-database --db ./data/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`; it creates a timestamped backup, verifies the staged one-file database,
+and does not start analysis or reanalysis.
 
 The React frontend consumes the current database, track, analysis, search, Current Set, CLASS, LAB,
 Rhythm Lab, Audio Dedup, metadata, media, and exact-identity mutation responses. Large-library loading
@@ -180,12 +180,11 @@ current similarity or classifier inputs. In Custom SONARA search, the optional A
 uses the stored aggression rank and attenuates its directional bias by SONARA's evidence confidence.
 DJ transition mode also adds a soft, directional structural fit when current outro/intro and energy
 summary values are available. True peak and ReplayGain remain stored for future loudness-management
-work, not direct SONARA similarity scoring. MAEST/MERT/MuQ/CLAP
-embeddings live in dedicated tables in the mandatory Artifacts database.
+work, not direct SONARA similarity scoring. MAEST/MERT/MuQ/CLAP embeddings live in dedicated
+tables in the library database.
 
-SONARA analysis stores only the current Core fields. Timeline, SONARA embedding, and fingerprint
-collection are disabled. Empty tables for those outputs remain as layout placeholders without
-fixing a payload schema, dimension, version, or future contract.
+SONARA analysis stores only the current feature fields. Timeline, SONARA embedding, and fingerprint
+collection are disabled and have no placeholder tables.
 
 Promoted classifier artifacts must describe the feature names and inputs they actually use. If an
 analysis update changes that recipe, retrain and promote the affected profile before scoring it
@@ -262,7 +261,7 @@ dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
 
 The default Rhythm Lab state is the single stable database at
 `tools/rhythm-lab/database/rhythm_lab.sqlite`. Launching Rhythm Lab from the main app binds that Lab
-database to the currently selected Core database.
+database to the currently selected library database.
 
 See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
 
@@ -303,8 +302,8 @@ path or type a replacement. The next prompt selects local or LAN mode. The launc
 backend plus the Vite live UI. Open the printed `5173` UI URL; frontend source changes are visible
 without rebuilding `frontend/dist`.
 
-Supplying `--db` opens an existing compatible bundle or creates a new Core plus Artifacts pair at
-that path. If you omit `--db`, the server starts without a selected database and does not create any
+Supplying `--db` opens an existing compatible library or creates one new library database at that
+path. If you omit `--db`, the server starts without a selected database and does not create any
 SQLite file. You can then choose an existing database or create a new one with the database picker.
 
 For non-interactive use, specify the mode and database explicitly:
@@ -338,16 +337,9 @@ dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlit
 dj-sim analyze-pipeline --stages sonara,ml --db ./data/library.sqlite
 ```
 
-Normal reruns analyze only missing Core rows. If a SONARA update requires a database layout
-change, inspect the explicit migration first:
-
-```powershell
-dj-sim migrate-database --db .\data\library.sqlite --dry-run
-```
-
-Apply it only after reviewing the plan. The command requires the exact confirmation
-`MIGRATE DATABASE`, creates and validates Core and Artifacts backups, rebuilds the pair, and finishes
-with integrity, foreign-key, and orphan checks. Reanalysis remains a separate user decision.
+Normal reruns analyze only missing SONARA or embedding rows. A legacy split database is never
+rewritten at startup. Its one-time, backup-first migration is explicit with `dj-sim migrate-database`;
+it does not start analysis. Reanalysis remains a separate user decision.
 
 Useful options from the current CLI and API are:
 
@@ -364,7 +356,7 @@ runs at a time. The pipeline fixes the order to SONARA, then ML. Per-file failur
 not stop the next stage. A fatal initialization error or cancellation does.
 
 The SONARA control limits concurrent native file analysis, including full-file reads, rather than
-neural-network inference. Each returned batch writes only the Core result through the current
+neural-network inference. Each returned batch writes only the SONARA result through the current
 repository with a per-track savepoint. The process log
 reports separate native analysis, result preparation, and database storage times plus source MiB/s.
 SONARA-only jobs traverse candidates in path order to keep adjacent HDD reads in the same folders.

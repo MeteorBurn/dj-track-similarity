@@ -32,16 +32,15 @@ MAEST, CLAP, and MuQ. Repeat `--feature-set` only to narrow the benchmark to an 
 Promoted artifacts record exact ordered feature names, and runtime scoring accepts `muq:<index>`
 features when the stored vector has the expected dimension.
 
-When a SONARA update changes Core/Artifacts structure, use the explicit backup-first
-`migrate-database` CLI. Reanalysis, retraining, promotion, and rescoring remain separate choices for
-affected profiles.
+When a SONARA update changes data you want to replace, reset and reanalyze intentionally.
+Retraining, promotion, and rescoring remain separate choices for affected profiles.
 
 ## Open Rhythm Lab from the main app
 
 Choose a database in the main app, then click the Rhythm Lab flask in the top bar. The browser
 calls `/api/rhythm-lab/launch`, reuses an existing matching process when possible, and opens the
-returned local URL. The launch response is bound to the selected Core + Artifacts catalog rather
-than to a numeric track ID alone.
+returned local URL. The launch response is bound to the selected library catalog rather than to a
+numeric track ID alone.
 
 The main set panel can also save its current ordered tracks as a Lab collection. That write carries
 `catalog_uuid`, `track_uuid`, and `content_generation` for every item. It does not change labels or
@@ -72,14 +71,14 @@ path remain separate records:
 
 ```powershell
 python -m rhythm_lab.label_transfer export --lab-db <legacy-lab.sqlite> --output <export.json>
-python -m rhythm_lab.label_transfer preview --bundle <export.json> --core-db <current-core.sqlite> --output <preview.json>
+python -m rhythm_lab.label_transfer preview --bundle <export.json> --library-db <current-library.sqlite> --output <preview.json>
 python -m rhythm_lab.label_transfer rebound --bundle <export.json> --preview <preview.json> --output <rebound.json>
 ```
 
 Restore has this command shape:
 
 ```powershell
-python -m rhythm_lab.label_transfer restore --bundle <rebound.json> --core-db <current-core.sqlite> --lab-db <target-lab.sqlite> --report <report.json> [--accept-record-id sha256:...] [--apply] [--force]
+python -m rhythm_lab.label_transfer restore --bundle <rebound.json> --library-db <current-library.sqlite> --lab-db <target-lab.sqlite> --report <report.json> [--accept-record-id sha256:...] [--apply] [--force]
 ```
 
 The square brackets mark optional flags and are not literal command text. Run without `--apply`
@@ -87,7 +86,7 @@ first. That default writes a report only and does not create or modify the targe
 Strong matches are eligible automatically. A weak match remains a recovery row unless you review it
 and pass its stable ID through `--accept-record-id`. Repeat the option to accept more than one.
 
-Immediately before planning either a preview or an apply, restore reopens the current Core
+Immediately before planning either a preview or an apply, restore reopens the current library
 database read-only. It requires the rebound target to still match the exact `catalog_uuid`,
 `track_uuid`, `content_generation`, selected path, file size, and mtime. A changed binding becomes an
 unresolved recovery record instead of being written as a label.
@@ -100,9 +99,9 @@ lexicographically smallest `record_id`. No source label record is silently disca
 Before changing an existing target, apply copies the target Lab database and any existing `-wal`
 and `-shm` companions into a timestamped backup directory. Applying the same rebound bundle again
 is data-idempotent because bound labels and recovery rows are upserted. `--force` only allows the
-JSON report to replace an existing file. It does not override matching, conflict, or Core
+JSON report to replace an existing file. It does not override matching, conflict, or library
 revalidation.
 
-Export, preview, rebound, and restore do not write the Core database, source audio, or promoted
+Export, preview, rebound, and restore do not write the library database, source audio, or promoted
 model files. Only `--apply` writes the target Lab database; the commands also create their requested
 JSON files and the apply-time target backup.

@@ -21,22 +21,18 @@ LAB comparison, Audio Dedup, and classifiers.
 
 ## How the catalog is stored
 
-The selected Core file stores track
-identity, paths, tags, small analysis rows, likes, and classifier scores. Its required companion is
-`*.artifacts.sqlite`, which holds active ML embeddings and reserved SONARA artifact tables. The
-two files must carry the same `catalog_uuid`. The runtime validates that binding before use.
+The selected library file stores track identity, paths, tags, analysis rows, embeddings, likes, and
+classifier scores. Its one `library` row carries the `catalog_uuid` and selected scan roots.
 
 `*.evaluation.sqlite` is an optional adjacent database for evaluation data. It is not created just
-by resolving its path. Normal startup refuses structurally incompatible layouts instead of adapting
-them automatically.
+by resolving its path. Normal startup refuses a legacy split layout instead of adapting it.
 
 ## Choose or create a database
 
-In the browser, click the database button beside the read-only path field and select the Core
-SQLite file. Selecting a new path creates the Core + Artifacts bundle; selecting an existing path
-loads it only after the runtime validates required tables, columns, indexes, the mandatory Artifacts
-companion, and the shared `catalog_uuid`. Switching the database also clears old library/search state so a
-late response cannot leak rows from the previous catalog.
+In the browser, click the database button beside the read-only path field and select the library
+SQLite file. Selecting a new path creates the current library schema; an existing path loads only
+after the runtime validates its `library` identity. Switching the database also clears old
+library/search state so a late response cannot leak rows from the previous catalog.
 
 From the CLI, pass `--db`:
 
@@ -62,8 +58,8 @@ The equivalent CLI command is:
 dj-sim scan D:\Music --db .\data\library.sqlite
 ```
 
-Both surfaces create a fresh, bound Core + Artifacts pair when neither file exists. An incompatible
-existing pair must use the explicit `migrate-database` command after a dry-run review.
+Both surfaces create a fresh library database when the selected file does not exist. A legacy split
+database remains unchanged until you explicitly stop its users and run `dj-sim migrate-database`.
 
 Scan supports these extensions:
 
@@ -81,7 +77,7 @@ If a tag cannot be read, scan still creates a minimal metadata row with the file
 
 ## What scan writes
 
-Scan writes Core track and tag rows only. It updates a track when file size or modification time
+Scan writes library track and tag rows only. It updates a track when file size or modification time
 changes and does not write audio tags.
 
 The CLI prints added, updated, unchanged, and skipped counts.

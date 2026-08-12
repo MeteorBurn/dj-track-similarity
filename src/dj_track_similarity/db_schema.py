@@ -1,247 +1,88 @@
-"""Current Core schema bootstrap helpers and structural validation."""
+"""Bootstrap and minimal identity checks for a single library database."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime, timezone
-
-from .db_structure import require_current_structure
 
 
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
-
-
-_CORE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "library_catalog": ("singleton_id", "catalog_uuid", "created_at", "updated_at"),
-    "library_settings": ("setting_key", "setting_value", "updated_at"),
-    "tracks": (
-        "track_id",
-        "track_uuid",
-        "file_path",
-        "file_size_bytes",
-        "file_modified_ns",
-        "audio_format",
-        "sample_rate_hz",
-        "channel_count",
-        "bit_rate_bps",
-        "bit_depth",
-        "audio_duration_seconds",
-        "content_generation",
-        "last_scanned_at",
-        "missing_since",
-        "created_at",
-        "updated_at",
-    ),
-    "tags": (
-        "track_id",
-        "title",
-        "artist",
-        "album",
-        "track_number",
-        "label",
-        "country",
-        "year",
-        "tag_key",
-        "tag_bpm",
-        "comment",
-        "genres_json",
-        "tags_read_at",
-    ),
-    "sonara": (
-        "track_id",
-        "content_generation",
-        "detected_bpm",
-        "raw_bpm",
-        "bpm_confidence",
-        "bpm_candidates_json",
-        "onset_density_per_second",
-        "beat_count",
-        "tempo_variability",
-        "beat_grid_offset_seconds",
-        "beat_grid_stability",
-        "analyzed_duration_seconds",
-        "detected_key_name",
-        "detected_key_camelot",
-        "key_confidence",
-        "key_candidates_json",
-        "predominant_chord",
-        "chord_changes_per_second",
-        "dissonance_score",
-        "integrated_loudness_lufs",
-        "loudness_range_lu",
-        "dynamic_range_db",
-        "max_momentary_loudness_lufs",
-        "true_peak_dbtp",
-        "rms_mean",
-        "rms_max",
-        "replay_gain_db",
-        "intro_end_seconds",
-        "outro_start_seconds",
-        "leading_silence_seconds",
-        "trailing_silence_seconds",
-        "energy_curve_hop_seconds",
-        "energy_curve_sample_count",
-        "energy_curve_min",
-        "energy_curve_max",
-        "energy_curve_mean",
-        "energy_curve_stddev",
-        "spectral_centroid_hz",
-        "spectral_bandwidth_hz",
-        "spectral_rolloff_hz",
-        "spectral_flatness",
-        "zero_crossing_rate",
-        "energy_level",
-        "energy_score",
-        "danceability_score",
-        "valence_score",
-        "acousticness_score",
-        "mood_happy_score",
-        "mood_aggressive_score",
-        "mood_relaxed_score",
-        "mood_sad_score",
-        "aggression_score",
-        "aggression_confidence",
-        "aggression_forcefulness",
-        "aggression_harshness",
-        "aggression_tension",
-        "aggression_rhythm",
-        "vocal_probability",
-        "mfcc_mean_blob",
-        "chroma_mean_blob",
-        "spectral_contrast_mean_blob",
-        "analyzed_at",
-    ),
-    "maest_genres": (
-        "track_id",
-        "content_generation",
-        "syncopated_rhythm",
-        "genres_json",
-        "analyzed_at",
-    ),
-    "classifier_scores": (
-        "track_id",
-        "track_uuid",
-        "classifier_key",
-        "content_generation",
-        "feature_set",
-        "feature_names_json",
-        "positive_label",
-        "predicted_class",
-        "score_bucket",
-        "score",
-        "confidence",
-        "probabilities_json",
-        "analyzed_at",
-    ),
-    "likes": ("track_id", "liked_at"),
-    "pair_feedback": (
-        "feedback_id",
-        "seed_track_id",
-        "candidate_track_id",
-        "rating",
-        "reason_tags_json",
-        "notes",
-        "source",
-        "created_at",
-        "updated_at",
-    ),
-    "transition_feedback": (
-        "transition_feedback_id",
-        "outgoing_track_id",
-        "incoming_track_id",
-        "rating",
-        "risk_tags_json",
-        "notes",
-        "source",
-        "created_at",
-    ),
-    "track_search_fts": (
-        "track_id",
-        "file_path",
-        "title",
-        "artist",
-        "album",
-        "comment",
-        "label",
-        "country",
-        "year",
-        "track_number",
-        "file_genres",
-        "maest_genres",
-    ),
-}
-
-_FTS_SHADOW_TABLES = {
-    "track_search_fts_config",
-    "track_search_fts_content",
-    "track_search_fts_data",
-    "track_search_fts_docsize",
-    "track_search_fts_idx",
-}
-_CORE_INDEXES = {
-    "idx_classifier_scores_lookup",
-    "idx_tags_sort",
-    "idx_likes_liked_at",
-    "idx_maest_genres_generation",
-    "idx_pair_feedback_candidate",
-    "idx_pair_feedback_seed_rating",
-    "idx_sonara_generation",
-    "idx_tracks_missing",
-    "idx_transition_feedback_incoming",
-    "idx_transition_feedback_outgoing",
-}
-_CORE_TRIGGERS = {
-    "library_catalog_immutable_insert",
-    "library_catalog_immutable_update",
-    "library_catalog_immutable_delete",
-}
 
 
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-def insert_library_catalog(
+def insert_library(
     connection: sqlite3.Connection,
     catalog_uuid: str,
     *,
+    roots: Iterable[str] = (),
     created_at: str | None = None,
 ) -> str:
+    """Initialize the one metadata row of a freshly created library."""
+
     if not isinstance(catalog_uuid, str):
         raise ValueError("catalog_uuid must be a string")
     clean_uuid = catalog_uuid.strip()
     if not clean_uuid:
         raise ValueError("catalog_uuid must be a non-empty string")
-    if connection.execute("SELECT COUNT(*) FROM library_catalog").fetchone()[0] != 0:
-        raise RuntimeError("library_catalog is already initialized")
+    clean_roots = _roots_json(roots)
+    if connection.execute("SELECT COUNT(*) FROM library").fetchone()[0] != 0:
+        raise RuntimeError("library is already initialized")
     timestamp = created_at or _utc_timestamp()
     connection.execute(
         """
-        INSERT INTO library_catalog(singleton_id, catalog_uuid, created_at, updated_at)
-        VALUES (1, ?, ?, ?)
+        INSERT INTO library(
+            singleton_id, catalog_uuid, created_at, updated_at, schema_version, roots_json
+        )
+        VALUES (1, ?, ?, ?, 1, ?)
         """,
-        (clean_uuid, timestamp, timestamp),
+        (clean_uuid, timestamp, timestamp, clean_roots),
     )
     return clean_uuid
 
 
-def validate_core_schema(
+def validate_library_schema(
     connection: sqlite3.Connection,
     *,
     expected_catalog_uuid: str | None = None,
-    database_path: str = "<connected Core database>",
+    database_path: str = "<connected library database>",
 ) -> str:
-    catalog_uuid = require_current_structure(
-        connection,
-        "core",
-        database_path,
-    )
-    if expected_catalog_uuid is not None and catalog_uuid != expected_catalog_uuid:
-        raise RuntimeError("Core database belongs to another library catalog")
+    """Validate only the library identity needed to bind the open database.
 
-    foreign_key_errors = connection.execute("PRAGMA foreign_key_check").fetchall()
-    if foreign_key_errors:
+    The application intentionally does not maintain an allow-list of tables,
+    columns, indexes, or triggers.  New database capabilities may add schema
+    without making existing libraries fail this open-time check.
+    """
+
+    try:
+        rows = connection.execute(
+            "SELECT singleton_id, catalog_uuid FROM library"
+        ).fetchall()
+    except sqlite3.Error as error:
         raise RuntimeError(
-            f"SQLite Core foreign-key violations: {foreign_key_errors[:5]}"
-        )
+            f"Library metadata is unavailable in {database_path}: {error}"
+        ) from error
+    if len(rows) != 1 or int(rows[0][0]) != 1:
+        raise RuntimeError("library must contain exactly singleton_id=1")
+    catalog_uuid = str(rows[0][1]).strip()
+    if not catalog_uuid:
+        raise RuntimeError("library.catalog_uuid must be non-empty")
+    if expected_catalog_uuid is not None and catalog_uuid != expected_catalog_uuid:
+        raise RuntimeError("Library database belongs to another library catalog")
     return catalog_uuid
+
+
+def _roots_json(roots: Iterable[str]) -> str:
+    clean_roots: list[str] = []
+    for root in roots:
+        if not isinstance(root, str):
+            raise ValueError("Library roots must be strings")
+        clean_root = root.strip()
+        if not clean_root:
+            raise ValueError("Library roots must be non-empty strings")
+        clean_roots.append(clean_root)
+    return json.dumps(clean_roots, separators=(",", ":"), ensure_ascii=False)

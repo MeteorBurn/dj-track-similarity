@@ -8,14 +8,13 @@
 python scripts\optimize_database.py --db .\data\library.sqlite
 ```
 
-For a library bundle, the script works with Core and the mandatory adjacent
-`*.artifacts.sqlite` database. It validates their schemas and shared `catalog_uuid`, checks integrity,
-creates verified backups, and then runs SQLite maintenance on each selected file. It reports the
-paths, backup paths, integrity results, and size before/after.
+For a library database, the script checks integrity, creates a verified backup, and then runs SQLite
+maintenance. When an adjacent `*.evaluation.sqlite` file exists, it backs up and maintains that file
+too. It reports paths, backup paths, integrity results, and size before/after. It does not impose a
+fixed table or column list, so a future library addition does not make optimization fail.
 
-`*.evaluation.sqlite` is optional evaluation state and is included only when present and selected by
-the script's current policy. The script does not accept a v5/v6 layout, a `*.timeline.sqlite`, or a
-`*.representations.sqlite` substitute.
+`*.evaluation.sqlite` is optional evaluation state and is included only when present. The script can
+also maintain another SQLite file, such as the Rhythm Lab labels database.
 
-Stop the main app when practical. Keep Core and Artifacts together for backup and recovery; neither
-maintenance nor backup changes source audio files.
+Stop the main app when practical. Keep the optional Evaluation sidecar with the library backup when
+it exists. Neither maintenance nor backup changes source audio files.

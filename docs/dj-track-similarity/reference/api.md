@@ -68,8 +68,8 @@ Audio analysis payload fields include `models` and `limit`. ML requests add `dev
 `track_batch_size`, and `inference_batch_size`. SONARA requests add `sonara_batch_size`;
 there is no output selector. `classifier_keys` is not accepted.
 SONARA runs alone and passes paths to native `analyze_batch`. ML models continue to use shared
-FFmpeg decode. Database migration is intentionally not an API operation: use the local
-`dj-sim migrate-database` CLI after reviewing its dry-run plan.
+FFmpeg decode. Database migration is intentionally not an API operation; use the explicit
+`dj-sim migrate-database` CLI command after stopping every SQLite user.
 
 Classifier analysis is always started for one explicit `classifier_key`. Readiness is
 manifest-specific, and not-ready tracks are excluded rather than failed. A pipeline payload selects

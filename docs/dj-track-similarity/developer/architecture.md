@@ -24,7 +24,7 @@ flowchart LR
 
 ## Code map
 
-- `database.py`, `db_connection.py`, `db_schema.py`, `db_structure.py`, `db_artifacts.py`, `db_evaluation_sidecar.py`, `db_storage.py`, and `db_analysis*.py` cover Core, required Artifacts, and optional Evaluation. These modules also handle structural validation, analysis persistence, resets, and clear.
+- `database.py`, `db_connection.py`, `db_schema.py`, `db_embeddings.py`, `db_evaluation_sidecar.py`, `db_storage.py`, and `db_analysis*.py` cover the library and optional Evaluation sidecar. These modules also handle identity validation, analysis persistence, resets, and clear.
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
 - `analysis_jobs.py` and `sonara_features.py`: separate ML jobs, native batched SONARA capture, and
@@ -37,10 +37,9 @@ flowchart LR
 - `api_routes_*.py`: FastAPI route groups.
 - `frontend/src/`: typed API client, library/search state coordinators, and React UI panels.
 
-Selecting a fresh `library.sqlite` path creates Core and mandatory `library.artifacts.sqlite`, bound
-by one `catalog_uuid`. Optional
-`library.evaluation.sqlite` is created only by evaluation workflows. Core stores catalog, track,
-tags, compact analysis rows, scores, likes, feedback, and FTS. Artifacts stores dedicated
-MAEST/MERT/MuQ/CLAP embeddings plus empty reserved SONARA artifact tables. A
-structurally incompatible or incomplete bundle fails closed. Normal startup never migrates it;
-`dj-sim migrate-database` is the explicit backup-first maintenance path.
+Selecting a fresh `library.sqlite` path creates the one library schema, including catalog, tracks,
+tags, analysis rows, MAEST/MERT/MuQ/CLAP embeddings, scores, likes, feedback, and FTS. Optional
+`library.evaluation.sqlite` is created only by Evaluation workflows. A legacy split layout fails
+closed. Normal startup never migrates it. The only migration path is the confirmation-gated
+`dj-sim migrate-database` command, which stages and verifies one replacement file while preserving
+the original pair in a timestamped backup directory.

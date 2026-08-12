@@ -4,10 +4,9 @@
 > Goal: Describe the current UI that is backed by the active API.
 > Type: reference
 
-The browser works with one catalog bundle. The database picker selects the Core SQLite
-file; the runtime resolves the mandatory `*.artifacts.sqlite` companion and validates the shared
-`catalog_uuid`. The optional `*.evaluation.sqlite` companion is opened only by evaluation
-workflows. There are no separate Timeline or Representations database controls.
+The browser works with one library database. The database picker selects the library SQLite file;
+the optional `*.evaluation.sqlite` companion is opened only by Evaluation workflows. There are no
+separate Timeline or Representations database controls.
 
 ## Database and library
 

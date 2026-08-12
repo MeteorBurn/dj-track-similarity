@@ -168,7 +168,7 @@ def rebuild_track_search_fts(connection: sqlite3.Connection) -> int:
     """Rebuild the human-text FTS index atomically.
 
     If the caller already owns a transaction, the rebuild participates in that
-    transaction. Otherwise it obtains a Core write reservation itself.
+    transaction. Otherwise it obtains a library write reservation itself.
     """
 
     owns_transaction = not connection.in_transaction

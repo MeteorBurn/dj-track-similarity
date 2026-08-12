@@ -11,9 +11,10 @@ Set `DJ_TRACK_SIMILARITY_FFMPEG` to an FFmpeg executable or put FFmpeg on `PATH`
 
 ## The selected library will not open
 
-A library needs its Core `.sqlite` and mandatory `*.artifacts.sqlite` companion with the same
-`catalog_uuid`. If the message reports an incompatible structure, do not edit either file by hand.
-Run `dj-sim migrate-database --db <path> --dry-run` and review the plan.
+A library needs one `.sqlite` file with a valid `library` identity row. If the message reports an
+incompatible legacy layout, do not edit the old files by hand. Stop the server and every database
+tool, then run `dj-sim migrate-database --db .\data\library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`.
+It keeps the original files in a timestamped backup directory and does not start analysis.
 
 ## A model adapter cannot load its dependencies
 
@@ -30,7 +31,7 @@ Restart `dj-sim serve` and any running Rhythm Lab process after changing the env
 ## Timeline, SONARA embedding, or fingerprint data is unavailable
 
 This is expected: their collection and public read surfaces are disabled. SONARA analysis stores
-Core only. The reserved Artifacts tables are empty layout placeholders, not active output formats.
+only current feature values. There are no placeholder tables for those outputs.
 
 ## A classifier is incompatible
 

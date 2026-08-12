@@ -27,7 +27,7 @@ def test_evaluation_source_profile_defaults_include_muq() -> None:
     assert request.sources == ["mert", "maest", "muq", "sonara", "clap"]
 
 
-def test_evaluation_summary_keeps_feedback_in_core_and_sessions_in_sidecar(
+def test_evaluation_summary_keeps_feedback_in_library_and_sessions_in_sidecar(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -67,6 +67,7 @@ def test_evaluation_summary_keeps_feedback_in_core_and_sessions_in_sidecar(
         "counts": {
             "pair_feedback": 1,
             "transition_feedback": 1,
+            "evaluation_profiles": 0,
             "search_sessions": 1,
             "search_session_seeds": 1,
             "search_result_events": 1,
@@ -241,7 +242,7 @@ def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
     assert payload["rows_returned"] == 1
 
 
-def test_evaluation_api_rejects_unselected_and_legacy_core(
+def test_evaluation_api_rejects_unselected_and_legacy_database(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -261,8 +262,7 @@ def test_evaluation_api_rejects_unselected_and_legacy_core(
     assert unselected.json()["detail"] == "Database is not selected"
     assert legacy.status_code == 409
     detail = legacy.json()["detail"]
-    assert "SQLite Core structure is not current" in detail
-    assert "dj-sim migrate-database --db" in detail
+    assert "Library metadata is unavailable" in detail
 
 
 def test_evaluation_feedback_does_not_touch_audio_path(

@@ -147,13 +147,11 @@ def test_database_switch_bootstraps_clean_selected_current_bundle(
     assert current.status_code == 200
     assert current.json() == {
         "path": None,
-        "artifacts_path": None,
         "evaluation_path": None,
         "catalog_uuid": None,
         "selected": False,
     }
     assert not (tmp_path / "dj-track-similarity.sqlite").exists()
-    assert not (tmp_path / "dj-track-similarity.artifacts.sqlite").exists()
 
     response = client.post(
         "/api/database/switch",
@@ -163,13 +161,9 @@ def test_database_switch_bootstraps_clean_selected_current_bundle(
     assert response.status_code == 200
     payload = response.json()
     assert payload["path"] == str(core_path.resolve())
-    assert payload["artifacts_path"] == str(
-        core_path.with_suffix(".artifacts.sqlite").resolve()
-    )
     assert payload["catalog_uuid"]
     assert payload["selected"] is True
     assert core_path.is_file()
-    assert core_path.with_suffix(".artifacts.sqlite").is_file()
 
 
 def test_liked_mutation_requires_current_composite_identity(
@@ -235,8 +229,8 @@ def test_reset_and_summary_use_analysis_family_names(
 
     assert reset.status_code == 200
     assert reset.json() == {
-        "core_rows_deleted": 0,
-        "artifact_rows_deleted": 0,
+        "feature_rows_deleted": 0,
+        "embedding_rows_deleted": 0,
         "classifier_rows_deleted": 0,
     }
     assert legacy.status_code == 422

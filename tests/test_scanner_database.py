@@ -19,6 +19,15 @@ def _scanned_state(database: LibraryDatabase, path: Path):
     return state
 
 
+def _library_roots(database: LibraryDatabase) -> tuple[str, ...]:
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT roots_json FROM library WHERE singleton_id = 1"
+        ).fetchone()
+    assert row is not None
+    return tuple(json.loads(str(row[0])))
+
+
 def _mert_output():
     return current_embedding_analysis_output("mert")
 
@@ -203,7 +212,9 @@ def test_relocate_library_dry_run_preserves_track_and_reports_missing_file(
     database = LibraryDatabase(tmp_path / "library.sqlite")
     assert scan_library(database, old_root).added == 1
     before = _scanned_state(database, old_file)
-    assert database.set_library_root(old_root) == old_root.resolve().as_posix()
+    assert database.record_library_root(old_root) == (
+        old_root.resolve().as_posix(),
+    )
 
     result = database.relocate_library(old_root, new_root, apply=False)
 
@@ -217,7 +228,7 @@ def test_relocate_library_dry_run_preserves_track_and_reports_missing_file(
         }
     ]
     assert _scanned_state(database, old_file) == before
-    assert database.get_library_root() == old_root.resolve().as_posix()
+    assert _library_roots(database) == (old_root.resolve().as_posix(),)
 
 
 def test_relocate_library_apply_updates_only_database_paths_and_identity(
@@ -236,7 +247,7 @@ def test_relocate_library_apply_updates_only_database_paths_and_identity(
     database = LibraryDatabase(tmp_path / "library.sqlite")
     assert scan_library(database, old_root).added == 1
     before = _scanned_state(database, old_file)
-    database.set_library_root(old_root)
+    database.record_library_root(old_root)
 
     result = database.relocate_library(old_root, new_root, apply=True)
 
@@ -251,7 +262,7 @@ def test_relocate_library_apply_updates_only_database_paths_and_identity(
         before.track_uuid,
         before.content_generation,
     )
-    assert database.get_library_root() == new_root.resolve().as_posix()
+    assert _library_roots(database) == (new_root.resolve().as_posix(),)
     assert old_file.read_bytes() == old_bytes
     assert new_file.read_bytes() == new_bytes
 

@@ -10,7 +10,6 @@ import sys
 import pytest
 
 from dj_track_similarity.db_storage import storage_database_paths
-from dj_track_similarity.db_structure import inspect_database_structure
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "benchmark_search.py"
@@ -34,7 +33,6 @@ def test_benchmark_search_runs_and_deletes_temporary_bundle(tmp_path: Path) -> N
     report = json.loads(output_path.read_text(encoding="utf-8"))
     run = report["runs"][0]
     db_path = Path(run["db_path"])
-    artifacts_path = Path(run["artifacts_path"])
 
     assert report["benchmark"] == "embedding_search_benchmark"
     assert "schema_version" not in report
@@ -45,8 +43,7 @@ def test_benchmark_search_runs_and_deletes_temporary_bundle(tmp_path: Path) -> N
     assert run["track_count"] == 20
     assert run["kept_db"] is False
     assert db_path.exists() is False
-    assert artifacts_path.exists() is False
-    assert run["data"]["storage"] == "core-artifacts"
+    assert run["data"]["storage"] == "library"
     assert run["data"]["synthetic_audio_files_created"] is False
     assert run["load_embedding_matrix"]["mert"]["tracks"] == 20
     assert run["load_embedding_matrix"]["maest"]["dim"] == 768
@@ -120,20 +117,15 @@ def test_benchmark_search_keep_db_preserves_current_bundle(tmp_path: Path) -> No
 
     assert run["kept_db"] is True
     assert Path(run["db_path"]) == keep_db_path.resolve(strict=False)
-    assert Path(run["artifacts_path"]) == storage_paths.artifacts
     assert keep_db_path.exists()
-    assert storage_paths.artifacts.exists()
     assert storage_paths.evaluation.exists() is False
-    with sqlite3.connect(keep_db_path) as core:
-        assert inspect_database_structure(core, "core").is_current
-        assert core.execute("SELECT COUNT(*) FROM tracks").fetchone()[0] == 20
-        assert core.execute(
+    with sqlite3.connect(keep_db_path) as library:
+        assert library.execute("SELECT COUNT(*) FROM tracks").fetchone()[0] == 20
+        assert library.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE name = 'contracts'"
         ).fetchone()[0] == 0
-    with sqlite3.connect(storage_paths.artifacts) as artifacts:
-        assert inspect_database_structure(artifacts, "artifacts").is_current
-        assert artifacts.execute("SELECT COUNT(*) FROM mert_embeddings").fetchone()[0] == 20
-        assert artifacts.execute("SELECT COUNT(*) FROM maest_embeddings").fetchone()[0] == 20
+        assert library.execute("SELECT COUNT(*) FROM mert_embeddings").fetchone()[0] == 20
+        assert library.execute("SELECT COUNT(*) FROM maest_embeddings").fetchone()[0] == 20
 
 
 @pytest.mark.parametrize(

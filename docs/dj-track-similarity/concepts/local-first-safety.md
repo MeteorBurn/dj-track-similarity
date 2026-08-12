@@ -10,7 +10,7 @@
 
 The app can create or update local artifacts:
 
-- A structurally validated SQLite bundle with a selected Core `.sqlite`, required `*.artifacts.sqlite`, and optional `*.evaluation.sqlite`.
+- One selected library `.sqlite` database and an optional `*.evaluation.sqlite` sidecar.
 - Runtime logs under `logs/`.
 - Exported M3U and CSV files.
 - Audio Doctor and Audio Dedup JSON/XLSX/log reports.
@@ -29,10 +29,10 @@ These operations do not modify source audio files:
 | --- | --- |
 | Scan | SQLite track rows and metadata |
 | Refresh Tags | SQLite metadata for existing tracks |
-| Analysis | Core rows plus active ML embedding rows in the mandatory Artifacts database |
+| Analysis | library analysis and embedding rows |
 | Search and Evaluation | Usually no data writes, except explicit feedback and evaluation rows |
 | Browser preview | Temporary WAV only when transcoding is needed |
-| Reset | Core and Artifacts records only; optional Evaluation data is handled separately when present |
+| Reset | library analysis records only; Evaluation data remains separate when present |
 | Database clear | database records only; it does not touch source audio |
 | Relocation preview | no data writes |
 | Relocation apply | stored SQLite paths only |
@@ -50,15 +50,16 @@ Only these workflows can write or delete source audio files:
 
 ## Relocation is not a file mover
 
-Relocation apply updates stored `tracks.file_path` in Core after it verifies the target files exist
+Relocation apply updates stored `tracks.file_path` in the library after it verifies the target files exist
 and no conflicts are detected. It does not move, copy, delete, or retag files.
 
-## Bundle boundary
+## Database boundary
 
-Core and the mandatory Artifacts database are bound by one `catalog_uuid`. Keep them together for
-backup, copy, or maintenance. `*.evaluation.sqlite`, when present, is optional evaluation state.
-Normal runtime does not rewrite incompatible databases or reconstruct older sidecar layouts. Use
-`dj-sim migrate-database --db <path> --dry-run` to inspect the explicit backup-first migration.
+The library database owns one `catalog_uuid`. Keep its optional `*.evaluation.sqlite` sidecar with
+the backup when it exists. Normal runtime does not rewrite a legacy split database or reconstruct
+older layouts. The only supported legacy conversion is the confirmation-gated `dj-sim
+migrate-database` command after all database users stop; it retains the original pair in a
+timestamped backup and verifies the staged replacement before publishing it.
 
 ## Server binding
 

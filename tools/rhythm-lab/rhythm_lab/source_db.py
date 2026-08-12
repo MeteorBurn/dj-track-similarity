@@ -17,10 +17,8 @@ import numpy as np
 from dj_track_similarity.analysis_models import (
     current_embedding_spec,
 )
-from dj_track_similarity.db_artifacts import validate_artifacts_sidecar_schema
 from dj_track_similarity.db_connection import connect_database, write_lock_for_path
-from dj_track_similarity.db_schema import validate_core_schema
-from dj_track_similarity.db_storage import storage_database_paths
+from dj_track_similarity.db_schema import validate_library_schema
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
     FileTags,
@@ -230,7 +228,7 @@ class SourceEmbeddingMatrix:
 
 
 class SourceDatabase:
-    """Mostly read-only Rhythm Lab view over one bound storage pair."""
+    """Mostly read-only Rhythm Lab view over one library database."""
 
     def __init__(
         self,
@@ -246,16 +244,11 @@ class SourceDatabase:
         if not selected.is_file():
             raise ValueError("Source database path must be an existing file")
         self.path = selected.resolve(strict=True)
-        self.artifacts_path = storage_database_paths(self.path).artifacts
-        if not self.artifacts_path.is_file():
-            raise FileNotFoundError(
-                f"Required Artifacts database does not exist: {self.artifacts_path}"
-            )
         clean_expected = _optional_non_empty_text(
             expected_catalog_uuid,
             "expected_catalog_uuid",
         )
-        self.catalog_uuid = self._validate_storage_set(
+        self.catalog_uuid = self._validate_library(
             expected_catalog_uuid=clean_expected
         )
         self._write_lock = write_lock_for_path(self.path)
@@ -263,50 +256,22 @@ class SourceDatabase:
         self._feature_inventory_signature: tuple[tuple[int, int], ...] | None = None
         self._feature_inventory_counts: Mapping[str, int] | None = None
 
-    def _validate_storage_set(self, *, expected_catalog_uuid: str | None) -> str:
-        with closing(_readonly_connection(self.path)) as core_connection:
-            catalog_uuid = validate_core_schema(
-                core_connection,
+    def _validate_library(self, *, expected_catalog_uuid: str | None) -> str:
+        with closing(_readonly_connection(self.path)) as connection:
+            return validate_library_schema(
+                connection,
                 expected_catalog_uuid=expected_catalog_uuid,
             )
-        with closing(_readonly_connection(self.artifacts_path)) as artifacts_connection:
-            validate_artifacts_sidecar_schema(
-                artifacts_connection,
-                expected_catalog_uuid=catalog_uuid,
-            )
-        return catalog_uuid
 
     def connect(self) -> sqlite3.Connection:
-        """Open an exactly validated, query-only Core connection with Artifacts attached."""
+        """Open a validated, query-only connection to the library."""
 
         connection = _readonly_connection(self.path)
         try:
-            validate_core_schema(
+            validate_library_schema(
                 connection,
                 expected_catalog_uuid=self.catalog_uuid,
             )
-            with closing(
-                _readonly_connection(self.artifacts_path)
-            ) as artifacts_connection:
-                validate_artifacts_sidecar_schema(
-                    artifacts_connection,
-                    expected_catalog_uuid=self.catalog_uuid,
-                )
-            connection.execute(
-                "ATTACH DATABASE ? AS artifacts",
-                (_readonly_uri(self.artifacts_path),),
-            )
-            attached = connection.execute(
-                """
-                SELECT catalog_uuid
-                FROM artifacts.storage_metadata
-                WHERE singleton_id = 1
-                """
-            ).fetchone()
-            if attached is None or str(attached[0]) != self.catalog_uuid:
-                raise SourceDatabaseIntegrityError(
-                    "Core and Artifacts catalog binding changed while opening Rhythm Lab"
-                )
             connection.create_function(
                 "rhythm_lab_random_rank",
                 2,
@@ -331,7 +296,7 @@ class SourceDatabase:
         """Return validated counts and states, cached until storage changes."""
 
         with self._feature_inventory_lock:
-            before = _storage_change_signature(self.path, self.artifacts_path)
+            before = _storage_change_signature(self.path)
             if (
                 self._feature_inventory_counts is not None
                 and before == self._feature_inventory_signature
@@ -341,7 +306,7 @@ class SourceDatabase:
             with closing(self.connect()) as connection:
                 loaded = _feature_counts(connection)
             counts = MappingProxyType(dict(loaded))
-            after = _storage_change_signature(self.path, self.artifacts_path)
+            after = _storage_change_signature(self.path)
             if before == after:
                 self._feature_inventory_signature = after
                 self._feature_inventory_counts = counts
@@ -565,13 +530,6 @@ class SourceDatabase:
             raise TypeError("liked must be a bool")
 
         with self._write_lock:
-            with closing(
-                _readonly_connection(self.artifacts_path)
-            ) as artifacts_connection:
-                validate_artifacts_sidecar_schema(
-                    artifacts_connection,
-                    expected_catalog_uuid=self.catalog_uuid,
-                )
             with closing(
                 connect_database(
                     self.path,
@@ -977,7 +935,7 @@ def _base_track_query(id_clause: str) -> str:
         FROM tracks AS t
         LEFT JOIN tags AS ft ON ft.track_id = t.track_id
         LEFT JOIN likes AS l ON l.track_id = t.track_id
-        LEFT JOIN sonara AS s
+        LEFT JOIN sonara_features AS s
           ON s.track_id = t.track_id
          AND s.content_generation = t.content_generation
         LEFT JOIN maest_genres AS ms
@@ -1289,7 +1247,7 @@ def _ready_embedding_vectors(
             f"""
             SELECT a.track_id, a.track_uuid, a.content_generation,
                    a.dim, a.normalization, a.embedding_blob
-            FROM artifacts.{table} AS a
+            FROM {table} AS a
             JOIN tracks AS t ON t.track_id = a.track_id
             WHERE {' AND '.join(clauses)}
             ORDER BY a.track_id
@@ -1341,7 +1299,7 @@ def _track_page_joins(collection_join: str) -> str:
     return f"""
         LEFT JOIN tags AS ft ON ft.track_id = t.track_id
         LEFT JOIN likes AS l ON l.track_id = t.track_id
-        LEFT JOIN sonara AS s
+        LEFT JOIN sonara_features AS s
           ON s.track_id = t.track_id
          AND s.content_generation = t.content_generation
         LEFT JOIN maest_genres AS ms
@@ -1549,7 +1507,7 @@ def _prediction_page_cte(trained_members: str) -> str:
              AND t.file_path = p.selected_path
              AND t.missing_since IS NULL
             LEFT JOIN tags AS ft ON ft.track_id = t.track_id
-            LEFT JOIN sonara AS s
+            LEFT JOIN sonara_features AS s
               ON s.track_id = t.track_id
              AND s.content_generation = t.content_generation
             LEFT JOIN maest_genres AS ms
@@ -1964,7 +1922,7 @@ def _count_sonara_features(
         """
         SELECT s.mfcc_mean_blob, s.chroma_mean_blob,
                s.spectral_contrast_mean_blob
-        FROM sonara AS s
+        FROM sonara_features AS s
         JOIN tracks AS t
           ON t.track_id = s.track_id
          AND t.content_generation = s.content_generation
@@ -1991,15 +1949,10 @@ def _float_tuple(payload: object, dim: int) -> tuple[float, ...] | None:
     return tuple(float(value) for value in vector)
 
 
-def _storage_change_signature(
-    core_path: Path,
-    artifacts_path: Path,
-) -> tuple[tuple[int, int], ...]:
+def _storage_change_signature(path: Path) -> tuple[tuple[int, int], ...]:
     paths = (
-        core_path,
-        core_path.with_name(f"{core_path.name}-wal"),
-        artifacts_path,
-        artifacts_path.with_name(f"{artifacts_path.name}-wal"),
+        path,
+        path.with_name(f"{path.name}-wal"),
     )
     signature: list[tuple[int, int]] = []
     for path in paths:

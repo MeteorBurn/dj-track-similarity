@@ -24,7 +24,7 @@ _LOG_MIRROR_THREADS: dict[Path, threading.Thread] = {}
 
 @dataclass(frozen=True, slots=True)
 class RhythmLabSourceBinding:
-    """Exact Core source selected for a Rhythm Lab process."""
+    """Exact library source selected for a Rhythm Lab process."""
 
     source_db: Path
     catalog_uuid: str

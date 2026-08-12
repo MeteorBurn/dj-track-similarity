@@ -13,12 +13,12 @@ from .analysis_job_state import AnalysisModelProgress
 from .analysis_models import (
     ClassifierCandidate,
     ClassifierFeatureRow,
-    ClassifierReadiness,
     ClassifierScoreWrite,
     ClassifierSpecification,
 )
 from .analysis_queue import AnalysisStageQueue
 from .classifier_scoring import (
+    CLASSIFIER_SCORE_BATCH_SIZE,
     ClassifierRequirements,
     ClassifierScorer,
     load_classifier_requirements,
@@ -89,16 +89,10 @@ class ClassifierJobStatus:
 
 
 @dataclass(frozen=True)
-class _ClassifierWorkItem:
-    candidate: ClassifierCandidate
-    row: ClassifierFeatureRow
-
-
-@dataclass(frozen=True)
 class _ClassifierPayload:
-    work_by_classifier: dict[str, tuple[_ClassifierWorkItem, ...]]
-    requirements: dict[str, ClassifierRequirements]
-    scorers: dict[str, _Scorer]
+    requirement: ClassifierRequirements
+    scorer: _Scorer
+    limit: int | None
 
 
 class ClassifierJobManager:
@@ -128,11 +122,6 @@ class ClassifierJobManager:
             raise ValueError(
                 "A scoring-compatible promoted classifier must be selected"
             )
-        if self.db.current_sonara_track_count() < 1:
-            raise ValueError(
-                "Classifier analysis requires at least one track with current "
-                "SONARA analysis"
-            )
 
         requirement = (
             load_classifier_requirements(self.db, key, model_path=model_path)
@@ -155,29 +144,17 @@ class ClassifierJobManager:
 
         # Preflight requested source availability before the first mutation.
         self._require_active_outputs((requirement,))
-        self.db.prepare_classifier_rescore(requirement.specification)
         specification = requirement.specification
-        counts = self.db.classifier_candidate_readiness(specification)
-        candidates = self.db.list_classifier_candidates(specification)
-        rows = self.db.load_classifier_feature_rows(
-            specification,
-            targets=tuple(candidate.target for candidate in candidates),
-        )
-        rows_by_target = {row.target: row for row in rows}
-        complete = tuple(
-            _ClassifierWorkItem(candidate, rows_by_target[candidate.target])
-            for candidate in candidates
-            if candidate.target in rows_by_target
-        )
-        selected = complete if limit is None else complete[: max(0, int(limit))]
+        total = self.db.classifier_work_count(specification, limit=limit)
         readiness = {
-            key: _readiness_payload(
-                counts,
-                feature_not_ready=len(candidates) - len(complete),
-                selected=len(selected),
-            )
+            key: {
+                "candidates": total,
+                "ready": total,
+                "not_ready": 0,
+                "selected": total,
+            }
         }
-        progress = {key: AnalysisModelProgress(total=len(selected))}
+        progress = {key: AnalysisModelProgress(total=total)}
 
         job_id = str(uuid.uuid4())
         status = ClassifierJobStatus(
@@ -193,16 +170,17 @@ class ClassifierJobManager:
             classifier_keys=[key],
             model_progress=progress,
             readiness=readiness,
-            total=len(selected),
+            total=total,
             not_ready=readiness[key]["not_ready"],
+            batch_size=CLASSIFIER_SCORE_BATCH_SIZE,
         )
         self._store.add(
             job_id,
             status,
             payload=_ClassifierPayload(
-                work_by_classifier={key: selected},
-                requirements={key: requirement},
-                scorers={key: scorer},
+                requirement=requirement,
+                scorer=scorer,
+                limit=limit,
             ),
         )
         self._append_event(job_id, "info", f"CLASSIFIER queued · {key}")
@@ -228,19 +206,34 @@ class ClassifierJobManager:
         for key in status.classifier_keys:
             if self.get(job_id).cancel_requested:
                 return self._finish_cancelled(job_id)
-            if not payload.work_by_classifier[key]:
-                continue
-            requirement = payload.requirements[key]
             self._update(
-                job_id, current_model=key, model_name=str(requirement.model_path)
+                job_id,
+                current_model=key,
+                model_name=str(payload.requirement.model_path),
             )
-            scorer = payload.scorers[key]
-            for warning in getattr(scorer, "manifest_warnings", ()):
+            for warning in getattr(payload.scorer, "manifest_warnings", ()):
                 self._append_event(job_id, "warn", str(warning), model=key)
-            for item in payload.work_by_classifier[key]:
+            after_track_id = 0
+            remaining = payload.limit
+            while remaining is None or remaining > 0:
                 if self.get(job_id).cancel_requested:
                     return self._finish_cancelled(job_id)
-                self._score_one(job_id, key, scorer, item)
+                batch_limit = (
+                    CLASSIFIER_SCORE_BATCH_SIZE
+                    if remaining is None
+                    else min(CLASSIFIER_SCORE_BATCH_SIZE, remaining)
+                )
+                batch = self.db.load_classifier_work_batch(
+                    payload.requirement.specification,
+                    after_track_id=after_track_id,
+                    limit=batch_limit,
+                )
+                if not batch:
+                    break
+                after_track_id = batch[-1][0].target.track_id
+                self._score_batch(job_id, key, payload.scorer, batch)
+                if remaining is not None:
+                    remaining -= len(batch)
 
         finished = time.time()
         final = self.get(job_id)
@@ -256,28 +249,40 @@ class ClassifierJobManager:
         self._append_event(job_id, "info", "CLASSIFIERS completed")
         return self.get(job_id)
 
-    def _score_one(
+    def _score_batch(
         self,
         job_id: str,
         classifier: str,
         scorer: _Scorer,
-        item: _ClassifierWorkItem,
+        items: Sequence[tuple[ClassifierCandidate, ClassifierFeatureRow]],
     ) -> None:
-        candidate = item.candidate
-        self._update(job_id, current_path=candidate.file_path)
-        try:
-            write = scorer.score_row(item.row)
-            if write.target != candidate.target:
-                raise ValueError(
-                    "classifier scorer returned a different analysis target"
+        writes: list[tuple[ClassifierCandidate, ClassifierScoreWrite]] = []
+        for candidate, row in items:
+            self._update(job_id, current_path=candidate.file_path)
+            try:
+                write = scorer.score_row(row)
+                if write.target != candidate.target:
+                    raise ValueError(
+                        "classifier scorer returned a different analysis target"
+                    )
+                writes.append((candidate, write))
+            except Exception as error:
+                self._save_failure(job_id, classifier, candidate, error)
+        if not writes:
+            return
+        results = self.db.save_classifier_scores(
+            tuple(write for _candidate, write in writes)
+        )
+        for (candidate, _write), result in zip(writes, results, strict=True):
+            if result.ok:
+                self._update_progress(job_id, classifier, analyzed=1)
+            else:
+                self._save_failure(
+                    job_id,
+                    classifier,
+                    candidate,
+                    RuntimeError(result.error or "classifier score write failed"),
                 )
-            results = self.db.save_classifier_scores((write,))
-            if len(results) != 1 or not results[0].ok:
-                error = results[0].error if results else None
-                raise RuntimeError(error or "classifier score write failed")
-            self._update_progress(job_id, classifier, analyzed=1)
-        except Exception as error:
-            self._save_failure(job_id, classifier, candidate, error)
 
     def _update_progress(
         self, job_id: str, classifier: str, *, analyzed: int = 0, skipped: int = 0
@@ -459,20 +464,3 @@ class ClassifierJobManager:
             workers=status.workers,
             batch_size=status.batch_size,
         )
-
-
-def _readiness_payload(
-    readiness: ClassifierReadiness,
-    *,
-    feature_not_ready: int = 0,
-    selected: int | None = None,
-) -> dict[str, int]:
-    feature_missing = max(0, int(feature_not_ready))
-    payload = {
-        "candidates": readiness.total_tracks,
-        "ready": max(0, readiness.ready_tracks - feature_missing),
-        "not_ready": readiness.missing_input_tracks + feature_missing,
-    }
-    if selected is not None:
-        payload["selected"] = selected
-    return payload

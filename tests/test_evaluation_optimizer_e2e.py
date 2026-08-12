@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 
 from dj_track_similarity.evaluation.score_profile_optimizer import (
-    build_promoted_score_profile_payload,
+    build_saved_score_profile_payload,
     build_score_profile_optimizer_report,
 )
 from evaluation_fixtures import EvaluationRepository
 
 
-def test_weighted_feedback_optimizer_promotion_e2e_fixture() -> None:
+def test_weighted_feedback_optimizer_profile_save_e2e_fixture() -> None:
     rejected_db = _build_weighted_feedback_fixture(seed_count=50)
     rejected = build_score_profile_optimizer_report(
         rejected_db,
@@ -43,22 +43,22 @@ def test_weighted_feedback_optimizer_promotion_e2e_fixture() -> None:
         == 100
     )
     with pytest.raises(ValueError, match="500 matched judged-pair"):
-        build_promoted_score_profile_payload(candidate)
+        build_saved_score_profile_payload(candidate)
 
     promotable_db = _build_weighted_feedback_fixture(seed_count=250)
-    promotable = build_score_profile_optimizer_report(
+    saveable = build_score_profile_optimizer_report(
         promotable_db,
         grid_step=0.5,
         bootstrap_samples=0,
     )
-    promoted_payload = build_promoted_score_profile_payload(promotable)
+    saved_payload = build_saved_score_profile_payload(saveable)
 
-    assert promotable["status"] == "ok"
-    assert promotable["judged_pairs"] == 500
-    assert promotable["can_update_defaults"] is True
-    assert promoted_payload["weights"] == promotable["weights"]
-    assert promoted_payload["sources"] == promotable["sources"]
-    assert promoted_payload["can_apply_as_default"] is True
+    assert saveable["status"] == "ok"
+    assert saveable["judged_pairs"] == 500
+    assert saveable["can_update_defaults"] is True
+    assert saved_payload["weights"] == saveable["weights"]
+    assert saved_payload["sources"] == saveable["sources"]
+    assert saved_payload["can_apply_as_default"] is True
 
 
 def _build_weighted_feedback_fixture(

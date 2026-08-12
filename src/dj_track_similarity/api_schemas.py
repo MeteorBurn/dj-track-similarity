@@ -76,7 +76,6 @@ class DatabaseStateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str | None
-    artifacts_path: str | None
     evaluation_path: str | None
     catalog_uuid: str | None
     selected: bool
@@ -607,16 +606,16 @@ class LibrarySummaryResponse(_ResponseModel):
 
 
 class AnalysisResetResponse(_ResponseModel):
-    core_rows_deleted: int
-    artifact_rows_deleted: int
+    feature_rows_deleted: int
+    embedding_rows_deleted: int
     classifier_rows_deleted: int
 
 
 class ClearLibraryResponse(_ResponseModel):
     tracks_deleted: int
-    embeddings_deleted: int
-    artifacts_deleted: int
-    evaluation_rows_deleted: int
+    feature_rows_deleted: int
+    embedding_rows_deleted: int
+    classifier_rows_deleted: int
 
 
 class GenreTagApplyResultResponse(_ResponseModel):

@@ -15,14 +15,14 @@ files; each is confirmation-gated and separate from normal scan, search, and ana
 
 ## Can the app migrate an incompatible database?
 
-Yes, but never during normal startup. The runtime refuses an incompatible Core/Artifacts pair.
-Inspect `dj-sim migrate-database --db <path> --dry-run`, then apply only after reviewing the plan.
-Apply requires `MIGRATE DATABASE`, creates and verifies both backups, and checks the rebuilt pair.
+Normal startup refuses an incompatible legacy split database and never rewrites it. After stopping
+the server and database tools, use `dj-sim migrate-database --db .\data\library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`. It creates a timestamped backup, builds and verifies the replacement,
+and does not run analysis or reanalysis.
 
 ## What follows a SONARA change?
 
-Adapt the project to the SONARA fields you want. If stored structure changes, use the explicit
-backup-first database migration. Reanalyze only the affected outputs when you choose. Retrain,
+Adapt the project to the SONARA fields you want. Reanalyze only the affected outputs when you
+choose. Retrain,
 promote, and rescore a SONARA-dependent classifier only when its feature recipe changed.
 
 ## Why are classifier artifacts blocked?

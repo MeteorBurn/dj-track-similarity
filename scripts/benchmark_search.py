@@ -125,14 +125,13 @@ def _benchmark_database_path(
     return {
         "track_count": track_count,
         "db_path": str(db_path),
-        "artifacts_path": str(db.artifacts_path),
         "kept_db": kept_db,
         "setup": {"seconds": setup_seconds},
         "seed_track_ids": seed_track_ids,
         "data": {
             "embedding_sources": list(EMBEDDING_SOURCES),
             "embedding_dim": EMBEDDING_DIM,
-            "storage": "core-artifacts",
+            "storage": "library",
             "synthetic_audio_files_created": False,
         },
         "load_embedding_matrix": load_metrics,
@@ -469,7 +468,7 @@ def _prepare_kept_database_path(path: Path) -> None:
     storage_paths = storage_database_paths(path)
     existing = [
         candidate
-        for candidate in (path, storage_paths.artifacts, storage_paths.evaluation)
+        for candidate in (path, storage_paths.evaluation)
         if candidate.exists()
     ]
     if existing:
@@ -480,7 +479,7 @@ def _prepare_kept_database_path(path: Path) -> None:
 def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(
         description=(
-            "Create a synthetic greenfield Core+Artifacts bundle and benchmark "
+            "Create a synthetic greenfield library database and benchmark "
             "MERT/MAEST vector search operations."
         ),
     )
@@ -504,7 +503,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
         default="exact",
         help="Vector backend for direct similarity timing: exact or hnsw. Defaults to exact.",
     )
-    parser.add_argument("--keep-db", type=Path, help="Optional path for keeping the synthetic Core+Artifacts bundle for debugging.")
+    parser.add_argument("--keep-db", type=Path, help="Optional path for keeping the synthetic library database for debugging.")
     args = parser.parse_args(argv)
     config = BenchmarkConfig(
         output=args.output.expanduser().resolve(strict=False),

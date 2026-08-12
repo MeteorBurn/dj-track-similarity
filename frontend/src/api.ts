@@ -415,8 +415,8 @@ export type GenreTagJobStatus = {
 };
 
 export type AnalysisResetResult = {
-  core_rows_deleted: number;
-  artifact_rows_deleted: number;
+  feature_rows_deleted: number;
+  embedding_rows_deleted: number;
   classifier_rows_deleted: number;
 };
 
@@ -424,14 +424,13 @@ export type ClassifierResetResult = AnalysisResetResult;
 
 export type DatabaseClearResult = {
   tracks_deleted: number;
-  embeddings_deleted: number;
-  artifacts_deleted: number;
-  evaluation_rows_deleted: number;
+  feature_rows_deleted: number;
+  embedding_rows_deleted: number;
+  classifier_rows_deleted: number;
 };
 
 export type DatabaseSelection = {
   path: string | null;
-  artifacts_path: string | null;
   evaluation_path: string | null;
   catalog_uuid: string | null;
   selected: boolean;

@@ -1,6 +1,6 @@
 """Deterministic, lossless transfer of Rhythm Lab manual labels.
 
-Export and Core matching are read-only. Restore is dry-run by default and can
+Export and library matching are read-only. Restore is dry-run by default and can
 write a fresh canonical Lab database only when explicitly applied. Unresolved
 records remain losslessly available in the recovery table and report.
 """
@@ -29,6 +29,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 from dj_track_similarity.classifier_manifest import (
     resolve_classifier_artifact_paths,
 )
+from dj_track_similarity.db_schema import validate_library_schema
 
 
 EXPORT_KIND = "rhythm_lab_label_export"
@@ -198,7 +199,7 @@ def preview_rebind_bundle(
     export_bundle: Mapping[str, Any],
     core_db_path: str | Path,
 ) -> dict[str, Any]:
-    """Resolve exported labels against the current Core by canonical path only.
+    """Resolve exported labels against the current library by canonical path only.
 
     Rows with no match, multiple canonical matches, or file metadata changes
     remain unresolved.  No data is written and no fallback matching is used.
@@ -206,16 +207,7 @@ def preview_rebind_bundle(
 
     source = _verified_bundle(export_bundle, expected_kind=EXPORT_KIND)
     with _read_snapshot(core_db_path) as (connection, selected_core_db):
-        _require_columns(connection, "library_catalog", ("catalog_uuid",))
-        _require_columns(connection, "tracks", _CORE_TRACK_COLUMNS)
-        catalog_rows = connection.execute(
-            "SELECT catalog_uuid FROM library_catalog"
-        ).fetchall()
-        if len(catalog_rows) != 1:
-            raise ValueError(
-                "Expected exactly one library_catalog row in the Core database"
-            )
-        catalog_uuid = str(catalog_rows[0]["catalog_uuid"])
+        catalog_uuid = validate_library_schema(connection)
         track_rows = connection.execute(
             """
             SELECT track_id, track_uuid, file_path, file_size_bytes,
@@ -435,7 +427,7 @@ def restore_label_bundle(
 
     backup = _backup_restore_target(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    # Import lazily so export and Core preview remain independent read-only tools.
+    # Import lazily so export and library preview remain independent read-only tools.
     from rhythm_lab.lab_db import RhythmLabDatabase
 
     lab_database = RhythmLabDatabase(target)
@@ -717,16 +709,7 @@ def _read_current_core_targets(
     core_db_path: str | Path,
 ) -> tuple[set[tuple[Any, ...]], dict[str, Any]]:
     with _read_snapshot(core_db_path) as (connection, selected_core_db):
-        _require_columns(connection, "library_catalog", ("catalog_uuid",))
-        _require_columns(connection, "tracks", _CORE_TRACK_COLUMNS)
-        catalog_rows = connection.execute(
-            "SELECT catalog_uuid FROM library_catalog"
-        ).fetchall()
-        if len(catalog_rows) != 1:
-            raise ValueError(
-                "Expected exactly one library_catalog row in the Core database"
-            )
-        catalog_uuid = str(catalog_rows[0]["catalog_uuid"])
+        catalog_uuid = validate_library_schema(connection)
         track_payloads = _sort_records(
             [
                 _core_track_payload(row, catalog_uuid=catalog_uuid)
@@ -2099,7 +2082,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     preview_parser = subparsers.add_parser("preview")
     preview_parser.add_argument("--bundle", type=Path, required=True)
-    preview_parser.add_argument("--core-db", type=Path, required=True)
+    preview_parser.add_argument("--library-db", type=Path, required=True)
     preview_parser.add_argument("--output", type=Path, required=True)
     preview_parser.add_argument("--force", action="store_true")
 
@@ -2111,7 +2094,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     restore_parser = subparsers.add_parser("restore")
     restore_parser.add_argument("--bundle", type=Path, required=True)
-    restore_parser.add_argument("--core-db", type=Path, required=True)
+    restore_parser.add_argument("--library-db", type=Path, required=True)
     restore_parser.add_argument("--lab-db", type=Path, required=True)
     restore_parser.add_argument("--report", type=Path, required=True)
     restore_parser.add_argument(
@@ -2145,9 +2128,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     elif args.command == "preview":
         bundle = preview_rebind_bundle(
             read_bundle(args.bundle),
-            args.core_db,
+            args.library_db,
         )
-        protected_paths = [args.bundle, args.core_db]
+        protected_paths = [args.bundle, args.library_db]
     elif args.command == "rebound":
         bundle = build_rebound_bundle(
             read_bundle(args.bundle),
@@ -2158,7 +2141,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         report = restore_label_bundle(
             read_bundle(args.bundle),
             args.lab_db,
-            core_db_path=args.core_db,
+            core_db_path=args.library_db,
             apply=bool(args.apply),
             accepted_record_ids=args.accept_record_id,
         )
@@ -2166,7 +2149,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             report,
             args.report,
             force=bool(args.force),
-            protected_paths=[args.bundle, args.core_db, args.lab_db],
+            protected_paths=[args.bundle, args.library_db, args.lab_db],
         )
         print(
             json.dumps(

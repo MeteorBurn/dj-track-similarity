@@ -85,7 +85,7 @@ occupied. Run later CLI jobs in a second activated terminal.
 
 Without `--db`, the server starts with no selected database and creates no SQLite files. Use the
 database picker to select an existing compatible bundle or choose a new `.sqlite` path. Selecting
-a new path creates the Core database and its mandatory adjacent Artifacts database.
+a new path creates one library database in the current schema.
 
 Open the printed live UI URL. The browser uses the current typed database, track, analysis, search,
 set, classifier, Lab, and exact-identity mutation responses.

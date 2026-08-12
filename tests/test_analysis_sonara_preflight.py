@@ -144,7 +144,6 @@ class _UnusedClassifierJobs:
 def test_pipeline_job_creation_does_not_run_release_preflight() -> None:
     manager = AnalysisPipelineManager(
         _PreflightTrapAnalysisJobs(),  # type: ignore[arg-type]
-        _UnusedClassifierJobs(),  # type: ignore[arg-type]
         AnalysisStageQueue(),
     )
 

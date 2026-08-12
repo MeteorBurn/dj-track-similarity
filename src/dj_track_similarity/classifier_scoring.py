@@ -34,6 +34,9 @@ from .timestamps import utc_timestamp
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _SUPPORTED_FEATURE_FAMILIES = ("sonara", "mert", "maest", "clap", "muq")
+CLASSIFIER_SCORE_BATCH_SIZE = 200
+
+
 def classifier_artifact_slug(classifier_key: str) -> str:
     return classifier_key.strip().replace("_", "-")
 
@@ -222,74 +225,78 @@ def analyze_classifier(
     model_path: str | Path | None = None,
     limit: int | None = None,
 ) -> dict[str, object]:
-    """Score the current ready population through the repository boundary."""
+    """Score persisted classifier inputs in bounded SQL batches."""
 
-    if db.current_sonara_track_count() < 1:
-        raise ValueError(
-            "Classifier analysis requires at least one track with current "
-            "SONARA analysis"
-        )
     requirements = load_classifier_requirements(
         db,
         classifier,
         model_path=model_path,
     )
     # This performs a second SHA check over the exact bytes passed to joblib and
-    # validates the loaded model.  No score deletion may precede this line.
+    # validates the loaded model before scoring begins.
     scorer = ClassifierScorer(requirements)
     specification = requirements.specification
-
-    deleted_stale = db.prepare_classifier_rescore(specification)
-    readiness = db.classifier_candidate_readiness(specification)
-    candidates = db.list_classifier_candidates(specification, limit=limit)
-    rows = db.load_classifier_feature_rows(
-        specification,
-        targets=tuple(candidate.target for candidate in candidates),
-    )
-    feature_not_ready = len(candidates) - len(rows)
-
-    writes: list[ClassifierScoreWrite] = []
     scoring_errors: list[dict[str, object]] = []
-    for row in rows:
-        try:
-            writes.append(scorer.score_row(row))
-        except Exception as error:
-            scoring_errors.append(
-                {
-                    "track_id": row.target.track_id,
-                    "error": str(error),
-                }
-            )
-
-    results = db.save_classifier_scores(writes)
-    write_errors = [
-        {
-            "track_id": result.target.track_id,
-            "error": result.error,
-        }
-        for result in results
-        if not result.ok
-    ]
-    errors = [*scoring_errors, *write_errors]
+    scored = 0
+    after_track_id = 0
+    remaining = limit
+    while remaining is None or remaining > 0:
+        batch_limit = (
+            CLASSIFIER_SCORE_BATCH_SIZE
+            if remaining is None
+            else min(CLASSIFIER_SCORE_BATCH_SIZE, remaining)
+        )
+        batch = db.load_classifier_work_batch(
+            specification,
+            after_track_id=after_track_id,
+            limit=batch_limit,
+        )
+        if not batch:
+            break
+        after_track_id = batch[-1][0].target.track_id
+        writes: list[ClassifierScoreWrite] = []
+        for _candidate, row in batch:
+            try:
+                writes.append(scorer.score_row(row))
+            except Exception as error:
+                scoring_errors.append(
+                    {
+                        "track_id": row.target.track_id,
+                        "error": str(error),
+                    }
+                )
+        results = db.save_classifier_scores(writes)
+        for result in results:
+            if result.ok:
+                scored += 1
+            else:
+                scoring_errors.append(
+                    {
+                        "track_id": result.target.track_id,
+                        "error": result.error,
+                    }
+                )
+        if remaining is not None:
+            remaining -= len(batch)
     output: dict[str, object] = {
         "classifier": requirements.classifier_key,
-        "scored": sum(result.ok for result in results),
-        "skipped": len(candidates) - len(rows),
-        "failed": len(errors),
-        "deleted_stale": deleted_stale,
-        "not_ready": readiness.missing_input_tracks + feature_not_ready,
-        "already_scored": readiness.already_scored_tracks,
+        "scored": scored,
+        "skipped": 0,
+        "failed": len(scoring_errors),
+        "deleted_stale": 0,
+        "not_ready": 0,
+        "already_scored": 0,
         "model": str(requirements.model_path),
     }
-    if errors:
-        output["errors"] = errors
+    if scoring_errors:
+        output["errors"] = scoring_errors
     if requirements.manifest_warnings:
         output["warnings"] = list(requirements.manifest_warnings)
     return output
 
 
 class ClassifierScorer:
-    """Loaded classifier whose inputs and model identity are already fenced."""
+    """Loaded classifier for persisted classifier inputs."""
 
     def __init__(self, requirements: ClassifierRequirements) -> None:
         if not isinstance(requirements, ClassifierRequirements):

@@ -46,7 +46,6 @@ def _add_track(
 def _selected_state(database: LibraryDatabase) -> dict[str, object]:
     return {
         "path": str(database.path),
-        "artifacts_path": str(database.artifacts_path),
         "evaluation_path": str(database.evaluation_path),
         "catalog_uuid": database.catalog_uuid,
         "selected": True,
@@ -62,7 +61,6 @@ def test_app_without_db_starts_unselected_and_blocks_database_endpoints() -> Non
     assert current.status_code == 200
     assert current.json() == {
         "path": None,
-        "artifacts_path": None,
         "evaluation_path": None,
         "catalog_uuid": None,
         "selected": False,
@@ -137,7 +135,6 @@ def test_database_switch_creates_selected_current_bundle(tmp_path: Path) -> None
     database = LibraryDatabase(db_path)
     assert response.json() == _selected_state(database)
     assert database.path.is_file()
-    assert database.artifacts_path.is_file()
     assert not database.evaluation_path.exists()
     assert client.get("/api/library/summary").json() == {
         "tracks": 0,
@@ -198,7 +195,6 @@ def test_database_file_dialog_switches_to_selected_current_bundle(
     database = LibraryDatabase(selected)
     assert response.json() == _selected_state(database)
     assert database.path.is_file()
-    assert database.artifacts_path.is_file()
 
 
 def test_database_file_dialog_cancel_preserves_unselected_state(

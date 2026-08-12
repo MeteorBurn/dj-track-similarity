@@ -5,7 +5,7 @@ import random
 import pytest
 
 from dj_track_similarity.evaluation.score_profile_optimizer import (
-    build_promoted_score_profile_payload,
+    build_saved_score_profile_payload,
     build_score_profile_optimizer_report,
 )
 from dj_track_similarity.evaluation.score_profile_optimizer import _ranked_relevances as ranked_relevances_for_optimizer_test
@@ -177,7 +177,7 @@ def test_optimizer_does_not_write_database_rows_by_default() -> None:
     assert after_counts == before_counts
 
 
-def test_optimizer_promotion_payload_requires_default_review_gate() -> None:
+def test_optimizer_saved_profile_requires_default_review_gate() -> None:
     db = _build_two_candidate_optimizer_library(
         seed_count=100,
         positive_source="mert",
@@ -191,7 +191,7 @@ def test_optimizer_promotion_payload_requires_default_review_gate() -> None:
     assert report["status"] == "ok"
     assert report["can_update_defaults"] is False
     with pytest.raises(ValueError, match="500 matched judged-pair"):
-        build_promoted_score_profile_payload(report)
+        build_saved_score_profile_payload(report)
 
 
 def _build_two_candidate_optimizer_library(

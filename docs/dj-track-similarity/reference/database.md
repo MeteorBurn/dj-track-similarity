@@ -4,84 +4,77 @@
 > Goal: Explain the database as local state, not a full schema dump.
 > Type: reference
 
-Selecting `library.sqlite` opens one catalog bundle:
+Selecting `library.sqlite` opens one library database. A fresh selected path is
+created directly in the current schema.
 
 | Store | File | Creation | Contents |
 | --- | --- | --- | --- |
-| Core | `library.sqlite` | required | catalog identity, tracks, file tags, SONARA scalars, MAEST scores, classifier scores, likes, feedback, FTS, and settings |
-| Artifacts | `library.artifacts.sqlite` | required | active MAEST/MERT/MuQ/CLAP embeddings plus reserved SONARA artifact tables |
-| Evaluation | `library.evaluation.sqlite` | optional | search sessions, result events, calibration runs, and evaluation settings |
+| Library | `library.sqlite` | required | library identity, tracks, metadata, analysis, embeddings, classifier scores, feedback, and FTS |
+| Evaluation | `library.evaluation.sqlite` | optional | saved evaluation profiles, search sessions, result events, and calibration runs |
 
-Core and Artifacts are created together for a fresh path and are bound by one generated
-`catalog_uuid`. Opening requires both files to use the expected schema and catalog identity. The
-Evaluation path can be resolved without creating its database. An evaluation workflow creates that
-database when needed and validates the same catalog identity.
+The Evaluation file is absent until an Evaluation API or CLI path writes to it.
+Opening a library never creates it.
 
-Normal runtime validates required tables, columns, indexes, foreign keys, and the shared catalog
-identity. It refuses an incompatible layout rather than adapting it during startup. Preview the
-dedicated migration with `dj-sim migrate-database --db <path> --dry-run`.
+Normal startup does not alter an existing database. It checks the singleton
+`library` identity row, rather than maintaining a fixed allow-list of every
+table, column, index, or trigger. That keeps future additions from blocking a
+library that has the same identity. A legacy split database is converted only by
+`dj-sim migrate-database --db PATH --confirm 'MIGRATE SINGLE LIBRARY'`, never at
+startup. With all SQLite users stopped, the command first retains the old Core
+and Artifacts files in a timestamped backup. It builds a staged current schema,
+rebuilds FTS, verifies counts/integrity/foreign keys, then publishes the
+one-file library. The old `library_settings` analysis counters are derived
+cache values and are not carried into the current schema.
 
-## Core state
+## Library tables
 
-Core contains:
+- `library`: one row with `catalog_uuid`, creation/update times,
+  `schema_version = 1`, and `roots_json` for selected scan roots.
+- `tracks`: stable track identity and file path, plus technical facts, scan
+  state, and current content generation.
+- `tags`: mutagen metadata for a track.
+- `likes`: explicit liked state for a track.
+- `sonara_features`: current SONARA scalar data and short fixed-size vectors.
+- `maest_genres`: current MAEST genre labels and syncopation data.
+- `maest_embeddings`, `mert_embeddings`, `clap_embeddings`, and
+  `muq_embeddings`: the current audio embedding for each model family.
+- `classifier_scores`: current promoted Rhythm Lab classifier scores.
+- `pair_feedback` and `transition_feedback`: explicit evaluation feedback.
+- `track_search_fts`: the FTS5 search index. SQLite owns its
+  `track_search_fts_*` internal tables.
 
-- `library_catalog` for catalog identity;
-- `tracks` and `file_tags` for file identity, paths, technical facts, and Mutagen metadata;
-- current SONARA scalar and fixed-vector values in `sonara`;
-- MAEST labels and syncopation data in `maest_scores`;
-- promoted classifier results in `classifier_scores`;
-- likes, pair feedback, transition feedback, FTS, and library settings.
+`catalog_uuid`, `track_uuid`, and `content_generation` are used when an
+operation must identify the exact current track. The stored path is
+`tracks.file_path`.
 
-Track identity is composite: `catalog_uuid`, `track_id`, `track_uuid`, and
-`content_generation`. Mutation requests use the expected identity so a stale client cannot silently
-write against a replaced or re-scanned track. The stored path column is `tracks.file_path`.
+## Evaluation tables
 
-## Artifacts state
+The optional Evaluation database contains:
 
-The mandatory Artifacts database contains dedicated tables:
+- `evaluation_profiles`: appended named JSON profiles (`profile_id`,
+  `profile_name`, `profile_json`, `created_at`);
+- `search_sessions`, `search_session_seeds`, and `search_result_events`;
+- `calibration_runs`.
 
-- `maest_embeddings`;
-- `mert_embeddings`;
-- `muq_embeddings`;
-- `clap_embeddings`;
-- `sonara_similarity_embeddings`;
-- `sonara_timeline`;
-- `sonara_fingerprints`.
+Saving an optimizer result with `dj-sim eval optimize-score-profile
+--save-profile` records a profile only in this optional database. It does not
+change search defaults or promote a Rhythm Lab classifier.
 
-The three SONARA artifact tables are empty layout placeholders while collection is disabled. Their
-columns do not fix a payload schema, embedding dimension, fingerprint version, or future contract.
-Normal track responses do not expose them.
+## Counts and write boundaries
 
-## Structural migration
+`GET /api/library/summary` uses direct `COUNT(*)` queries against the library
+tables. It does not cache counters or revalidate analysis payloads.
 
-Inspect an incompatible Core/Artifacts pair before changing it:
-
-```powershell
-dj-sim migrate-database --db .\data\library.sqlite --dry-run
-```
-
-Apply only after reviewing that plan. Rerun without `--dry-run` and type the exact confirmation
-`MIGRATE DATABASE`. The command creates and validates self-contained backups of both databases,
-rebuilds the required tables, and checks integrity, foreign keys, and cross-database orphans before
-success. It does not rewrite Evaluation or start reanalysis.
-
-## Classifier state
-
-Promoted classifiers record their ordered feature names and required inputs. A changed or incomplete
-recipe is blocked with a retrain-and-promote message instead of reusing incompatible scores. Reset
-and scoring remain scoped by classifier key. Unrelated classifier scores are preserved.
-
-## Write boundaries
-
-- Scan, Refresh Tags, analysis, reset, clear, liked toggle, classifier scoring, feedback, and relocation apply write SQLite.
-- Relocation apply changes only `tracks.file_path`. It does not move or modify audio.
-- Database clear removes Core rows, matching Artifacts rows, and existing Evaluation payload rows. It does not delete audio.
-- Reset removes only the active outputs for the requested analysis family and dependent SONARA classifier scores.
+- Scan, tag refresh, analysis, reset, likes, classifier scoring, feedback, and
+  relocation apply write library data.
+- Clear removes library rows and scan roots; it does not delete source audio or
+  the independent Evaluation database.
 - Audio Dedup apply removes database rows only for files it actually deleted.
-- Destructive work on `C:\db\volumes.sqlite` or another real library requires explicit approval and a verified backup first.
+- Relocation apply changes only `tracks.file_path`; it does not move or modify
+  audio.
 
 ## Backup habit
 
-Keep Core and Artifacts together. Include Evaluation when it exists. Before destructive SQLite
-maintenance on a real library, back up the complete existing bundle or work on a copy, then verify
-the backup and final database integrity.
+Before destructive maintenance on a real library, back up `library.sqlite` and
+include `library.evaluation.sqlite` when it exists. Verify backup and final
+SQLite integrity before continuing.

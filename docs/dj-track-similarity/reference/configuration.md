@@ -29,7 +29,7 @@ If the variable is set but points to a missing file, server startup fails clearl
 | Persistent ANN sidecars | `.dj-track-similarity-indexes/` beside the selected DB by default |
 
 Rhythm Lab uses `rhythm_lab.sqlite` as its single writable state database. When launched from the
-main app, it reads tracks and analysis from the currently selected Core/Artifacts bundle while
+main app, it reads tracks and analysis from the currently selected library database while
 keeping profiles, labels, predictions, queues, and checkpoints in this Lab database.
 
 Generated local artifacts are ignored by Git unless explicitly tracked by policy.

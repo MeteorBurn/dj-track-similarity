@@ -1,7 +1,7 @@
 """Typed analysis repository records.
 
-The models in this module deliberately carry the complete Core/Artifacts track
-identity.  A numeric ``track_id`` alone is not a safe write target because it
+The models in this module deliberately carry the complete library track
+identity. A numeric ``track_id`` alone is not a safe write target because it
 does not distinguish another library catalog, a replaced track UUID, or a
 newer content generation.
 """
@@ -990,16 +990,6 @@ class ClassifierSpecification:
         object.__setattr__(self, "label_order", labels)
 
 @dataclass(frozen=True)
-class ClassifierReadiness:
-    total_tracks: int
-    ready_tracks: int
-    missing_input_tracks: int
-    already_scored_tracks: int
-    candidate_tracks: int
-    missing_by_output: Mapping[str, int] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
 class ClassifierCandidate:
     target: AnalysisTarget
     file_path: str
@@ -1056,6 +1046,6 @@ class ClassifierScoreWrite:
 
 @dataclass(frozen=True)
 class AnalysisResetResult:
-    core_rows_deleted: int = 0
-    artifact_rows_deleted: int = 0
+    feature_rows_deleted: int = 0
+    embedding_rows_deleted: int = 0
     classifier_rows_deleted: int = 0

@@ -128,7 +128,6 @@ def test_serve_without_database_starts_unselected_and_creates_no_bundle(
         "log_track_events": False,
     }
     assert not (tmp_path / "dj-track-similarity.sqlite").exists()
-    assert not (tmp_path / "dj-track-similarity.artifacts.sqlite").exists()
     assert captured["uvicorn_kwargs"]["port"] == 8877
 
 
@@ -171,7 +170,6 @@ def test_serve_creates_selected_current_database_and_passes_log_config(
 
     assert result.exit_code == 0
     assert db_path.is_file()
-    assert db_path.with_suffix(".artifacts.sqlite").is_file()
     assert captured["db_path"] == db_path.resolve()
     kwargs = captured["kwargs"]
     assert kwargs["port"] == 8877

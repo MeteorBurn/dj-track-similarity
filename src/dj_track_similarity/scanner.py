@@ -91,6 +91,7 @@ def scan_library(
     """Scan one root through the sole TrackRepository write path."""
 
     root_path = _resolved_directory(root)
+    repository.record_library_root(root_path)
     stats = ScanStats()
     seen_paths: list[Path] = []
     for path in iter_audio_files(root_path):

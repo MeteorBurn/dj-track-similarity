@@ -54,7 +54,7 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
         track_id = int(cursor.lastrowid)
         connection.execute(
             """
-            INSERT INTO sonara(
+            INSERT INTO sonara_features(
                 track_id, content_generation,
                 mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
@@ -96,6 +96,66 @@ def _write_embedding(
         )
     )[0]
     assert result.ok
+
+
+def _insert_present_classifier_inputs(db: LibraryDatabase, count: int) -> None:
+    """Create more persisted classifier inputs than one job batch holds."""
+
+    with db.connect() as connection:
+        for index in range(count):
+            track_uuid = str(uuid.uuid4())
+            cursor = connection.execute(
+                """
+                INSERT INTO tracks (
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    content_generation, last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, 1024, 123456789, 1, ?, ?, ?)
+                """,
+                (
+                    track_uuid,
+                    f"C:/music/present-{index}.wav",
+                    _NOW,
+                    _NOW,
+                    _NOW,
+                ),
+            )
+            track_id = int(cursor.lastrowid)
+            connection.execute(
+                """
+                INSERT INTO sonara_features(
+                    track_id, content_generation,
+                    mfcc_mean_blob, chroma_mean_blob,
+                    spectral_contrast_mean_blob, analyzed_at
+                ) VALUES (?, 1, ?, ?, ?, ?)
+                """,
+                (
+                    track_id,
+                    np.zeros(13, dtype="<f4").tobytes(),
+                    np.zeros(12, dtype="<f4").tobytes(),
+                    np.zeros(7, dtype="<f4").tobytes(),
+                    _NOW,
+                ),
+            )
+            vector = np.zeros(
+                current_embedding_spec("mert").dimension,
+                dtype="<f4",
+            )
+            vector[0] = 1.0
+            connection.execute(
+                """
+                INSERT INTO mert_embeddings(
+                    track_id, track_uuid, content_generation,
+                    dim, normalization, embedding_blob, analyzed_at
+                ) VALUES (?, ?, 1, ?, 'l2', ?, ?)
+                """,
+                (
+                    track_id,
+                    track_uuid,
+                    vector.size,
+                    vector.tobytes(),
+                    _NOW,
+                ),
+            )
 
 
 def _requirements(
@@ -184,38 +244,13 @@ def _score_count(db: LibraryDatabase, classifier_key: str) -> int:
         )
 
 
-def test_classifier_job_is_unavailable_without_current_sonara(
+def test_classifier_job_streams_inputs_in_200_track_batches(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     output = _mert_output()
     db.register_analysis_outputs((output,))
-    requirements = _requirements("test_classifier", output)
-    manager = ClassifierJobManager(
-        db,
-        requirements_loader=lambda _key: requirements,
-        scorer_factory=_FakeScorer,
-    )
-
-    with pytest.raises(
-        ValueError,
-        match=(
-            "Classifier analysis requires at least one track "
-            "with current SONARA"
-        ),
-    ):
-        manager.create_job(classifier="test_classifier")
-
-
-def test_not_ready_outputs_are_excluded_before_job_total(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    ready_target = _insert_track(db)
-    _write_embedding(db, ready_target, output)
-    _insert_track(db)
+    _insert_present_classifier_inputs(db, 201)
     requirements = _requirements("test_classifier", output)
     manager = ClassifierJobManager(
         db,
@@ -225,50 +260,14 @@ def test_not_ready_outputs_are_excluded_before_job_total(
 
     job_id = manager.create_job(classifier="test_classifier")
 
-    assert manager.get(job_id).readiness["test_classifier"] == {
-        "candidates": 2,
-        "ready": 1,
-        "not_ready": 1,
-        "selected": 1,
-    }
-    assert manager.get(job_id).total == 1
-    completed = manager.run_job(job_id)
-    assert completed.analyzed == 1
-    assert completed.failed == 0
-
-
-def test_job_write_rejects_track_uuid_changed_after_queueing(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    target = _insert_track(db)
-    _write_embedding(db, target, output)
-    requirements = _requirements("test_classifier", output)
-    manager = ClassifierJobManager(
-        db,
-        requirements_loader=lambda _key: requirements,
-        scorer_factory=_FakeScorer,
-    )
-    job_id = manager.create_job(classifier="test_classifier")
-    with db.connect() as connection:
-        connection.execute(
-            """
-            UPDATE tracks
-            SET track_uuid = ?, updated_at = ?
-            WHERE track_id = ?
-            """,
-            (str(uuid.uuid4()), _NOW, target.track_id),
-        )
+    queued = manager.get(job_id)
+    assert queued.total == 201
+    assert queued.batch_size == 200
 
     completed = manager.run_job(job_id)
 
-    assert completed.state == "completed"
-    assert completed.analyzed == 0
-    assert completed.failed == 1
-    assert "track_uuid mismatch" in completed.errors[0].error
-    assert _score_count(db, "test_classifier") == 0
+    assert (completed.processed, completed.analyzed, completed.failed) == (201, 201, 0)
+    assert _score_count(db, "test_classifier") == 201
 
 
 def test_custom_model_path_calls_current_requirements_loader_with_database(

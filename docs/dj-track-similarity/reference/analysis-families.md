@@ -106,17 +106,16 @@ scores are averaged before the top-K genres are selected.
 
 ## Dedicated storage tables
 
-The required Artifacts database stores embeddings in dedicated tables:
+The library database stores embeddings in dedicated tables:
 
 - `maest_embeddings`
 - `mert_embeddings`
 - `muq_embeddings`
 - `clap_embeddings`
-- `sonara_similarity_embeddings` (reserved empty layout placeholder)
 
-There is no generic runtime `embeddings` table. A fresh selected path creates the Core plus
-mandatory Artifacts bundle. An incompatible database is rejected during normal startup and can be
-inspected with `dj-sim migrate-database --db <path> --dry-run`.
+There is no generic runtime `embeddings` table. A fresh selected path creates one library database.
+A legacy split database is rejected during normal startup and remains unchanged until the explicit
+`dj-sim migrate-database` command is run after stopping its SQLite users.
 
 ## Batch and label ranges
 

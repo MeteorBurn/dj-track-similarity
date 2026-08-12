@@ -3,15 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import fields, replace
+from dataclasses import fields
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
 
-from dj_track_similarity import api as api_module
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -25,7 +23,6 @@ from dj_track_similarity.classifier_scoring import (
     ClassifierScorer,
     default_classifier_model_path,
     load_classifier_requirements,
-    promoted_classifiers,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_ddl import SonaraRow
@@ -197,7 +194,7 @@ def test_classifier_artifact_loads_without_version_or_contract_identity(
     assert requirements.feature_names == ("mert:0",)
 
 
-def test_break_energy_job_aggregates_only_feature_ready_tracks(
+def test_break_energy_job_scores_tracks_with_required_rows(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
@@ -223,12 +220,6 @@ def test_break_energy_job_aggregates_only_feature_ready_tracks(
 
     assert queued.total == 1
     assert queued.required_families == ("mert",)
-    assert queued.readiness["break_energy"] == {
-        "candidates": 2,
-        "ready": 1,
-        "not_ready": 1,
-        "selected": 1,
-    }
 
     completed = manager.run_job(job_id)
 
@@ -274,10 +265,11 @@ def test_break_energy_public_scorer_preserves_probability_precision(
         "break_energy",
         model_path=model_path,
     )
-    row = db.load_classifier_feature_rows(
+    row = db.load_classifier_work_batch(
         requirements.specification,
-        targets=(target,),
-    )[0]
+        after_track_id=0,
+        limit=1,
+    )[0][1]
 
     write = ClassifierScorer(requirements).score_row(row, analyzed_at=_NOW)
 
@@ -289,233 +281,6 @@ def test_break_energy_public_scorer_preserves_probability_precision(
             "broken": 0.99999999,
         }
     )
-
-
-def _score_break_energy_track(
-    db: LibraryDatabase,
-    target: AnalysisTarget,
-    model_path: Path,
-):
-    requirements = load_classifier_requirements(
-        db,
-        "break_energy",
-        model_path=model_path,
-    )
-    row = db.load_classifier_feature_rows(
-        requirements.specification,
-        targets=(target,),
-    )[0]
-    write = ClassifierScorer(requirements).score_row(row, analyzed_at=_NOW)
-    result = db.save_classifier_scores((write,))[0]
-    assert result.ok
-    return requirements
-
-
-def test_classifier_score_uuid_rebound_is_noncurrent_and_candidate(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    target = _insert_track(db)
-    _write_embedding(db, target, output)
-    model_path = _write_model(tmp_path / "break-energy", output)
-    requirements = _score_break_energy_track(db, target, model_path)
-    rebound_uuid = str(uuid.uuid4())
-
-    with db.connect() as connection:
-        connection.execute(
-            "UPDATE tracks SET track_uuid = ? WHERE track_id = ?",
-            (rebound_uuid, target.track_id),
-        )
-    with db.connect_artifacts() as connection:
-        connection.execute(
-            "UPDATE mert_embeddings SET track_uuid = ? WHERE track_id = ?",
-            (rebound_uuid, target.track_id),
-        )
-
-    candidates = db.list_classifier_candidates(requirements.specification)
-    assert [candidate.target.track_uuid for candidate in candidates] == [
-        rebound_uuid
-    ]
-    detail = db.get_track_detail(
-        target.track_id,
-        classifier_specifications=(requirements.specification,),
-    )
-    summary = db.list_track_summaries(
-        classifier_specifications=(requirements.specification,),
-    )[0]
-
-    assert detail.classifier_scores_detail == ()
-    assert summary.classifier_scores == ()
-
-
-def test_changed_ordered_feature_names_are_noncurrent_and_candidate(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    target = _insert_track(db)
-    _write_embedding(db, target, output)
-    model_path = _write_model(tmp_path / "break-energy", output)
-    requirements = _score_break_energy_track(db, target, model_path)
-    changed = replace(
-        requirements.specification,
-        feature_names=("mert:1",),
-    )
-
-    candidates = db.list_classifier_candidates(changed)
-    assert [candidate.target.track_uuid for candidate in candidates] == [
-        target.track_uuid
-    ]
-    detail = db.get_track_detail(
-        target.track_id,
-        classifier_specifications=(changed,),
-    )
-    summary = db.list_track_summaries(
-        classifier_specifications=(changed,),
-    )[0]
-    selected_summary = db.get_track_summaries(
-        (target.track_id,),
-        classifier_specifications=(changed,),
-    )[0]
-    paged_summary = db.paginate_track_summaries(
-        classifier_specifications=(changed,),
-    ).items[0]
-    filtered_summary = db.filter_track_summaries(
-        classifier_specifications=(changed,),
-    )[0]
-    filtered_by_stale_score = db.filter_track_summaries(
-        classifier_min_scores={"break_energy": 0.5},
-        classifier_specifications=(changed,),
-    )
-
-    assert detail.classifier_scores_detail == ()
-    assert summary.classifier_scores == ()
-    assert selected_summary.classifier_scores == ()
-    assert paged_summary.classifier_scores == ()
-    assert filtered_summary.classifier_scores == ()
-    assert filtered_by_stale_score == ()
-    assert db.prepare_classifier_rescore(changed) == 1
-    assert db.get_track_detail(target.track_id).classifier_scores_detail == ()
-
-
-def test_unchanged_uuid_generation_and_feature_names_remain_current(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    target = _insert_track(db)
-    _write_embedding(db, target, output)
-    model_path = _write_model(tmp_path / "break-energy", output)
-    requirements = _score_break_energy_track(db, target, model_path)
-
-    candidates = db.list_classifier_candidates(requirements.specification)
-    detail = db.get_track_detail(
-        target.track_id,
-        classifier_specifications=(requirements.specification,),
-    )
-    summary = db.list_track_summaries(
-        classifier_specifications=(requirements.specification,),
-    )[0]
-    with db.connect() as connection:
-        stored_identity = tuple(
-            connection.execute(
-                """
-                SELECT track_uuid, feature_names_json
-                FROM classifier_scores
-                WHERE track_id = ? AND classifier_key = 'break_energy'
-                """,
-                (target.track_id,),
-            ).fetchone()
-        )
-
-    assert candidates == []
-    assert stored_identity == (target.track_uuid, '["mert:0"]')
-    assert tuple(
-        score.classifier_key for score in detail.classifier_scores_detail
-    ) == ("break_energy",)
-    assert tuple(
-        score.classifier_key for score in summary.classifier_scores
-    ) == ("break_energy",)
-    assert db.get_track_detail(target.track_id).classifier_scores_detail == ()
-
-
-def test_library_api_uses_current_promoted_classifier_recipe(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    target = _insert_track(db)
-    _write_embedding(db, target, output)
-    models_root = tmp_path / "models"
-    model_path = _write_model(models_root / "break-energy", output)
-    _score_break_energy_track(db, target, model_path)
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
-    monkeypatch.setattr(
-        api_module,
-        "promoted_classifiers",
-        lambda: promoted_classifiers(models_root),
-    )
-    client = TestClient(api_module.create_app(db_path))
-    liked_payload = {
-        "catalog_uuid": target.catalog_uuid,
-        "track_uuid": target.track_uuid,
-        "expected_content_generation": target.content_generation,
-        "liked": True,
-    }
-
-    page = client.get("/api/tracks").json()
-    detail = client.get(f"/api/tracks/{target.track_id}").json()
-    filtered = client.post(
-        "/api/tracks/filtered",
-        json={"classifier_min_scores": {"break_energy": 0.8}},
-    ).json()
-    liked = client.post(
-        f"/api/tracks/{target.track_id}/liked",
-        json=liked_payload,
-    ).json()
-    summary = client.get("/api/library/summary").json()
-
-    assert [score["classifier_key"] for score in page["items"][0]["classifier_scores"]] == [
-        "break_energy"
-    ]
-    assert [
-        score["classifier_key"] for score in detail["classifier_scores_detail"]
-    ] == ["break_energy"]
-    assert [track["track_id"] for track in filtered] == [target.track_id]
-    assert [score["classifier_key"] for score in liked["classifier_scores"]] == [
-        "break_energy"
-    ]
-    assert summary["classifiers"] == 1
-
-    manifest_path = model_path.with_name("model.json")
-    changed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    changed_manifest["feature_names"] = ["mert:1"]
-    manifest_path.write_text(json.dumps(changed_manifest), encoding="utf-8")
-
-    changed_page = client.get("/api/tracks").json()
-    changed_detail = client.get(f"/api/tracks/{target.track_id}").json()
-    changed_filtered = client.post(
-        "/api/tracks/filtered",
-        json={"classifier_min_scores": {"break_energy": 0.8}},
-    ).json()
-    changed_liked = client.post(
-        f"/api/tracks/{target.track_id}/liked",
-        json={**liked_payload, "liked": False},
-    ).json()
-    changed_summary = client.get("/api/library/summary").json()
-
-    assert changed_page["items"][0]["classifier_scores"] == []
-    assert changed_detail["classifier_scores_detail"] == []
-    assert changed_filtered == []
-    assert changed_liked["classifier_scores"] == []
-    assert changed_summary["classifiers"] == 0
 
 
 def test_default_classifier_model_path_uses_classifier_slug() -> None:

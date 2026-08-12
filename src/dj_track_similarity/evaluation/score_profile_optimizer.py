@@ -45,7 +45,7 @@ PROPOSAL_NOTES = (
     "RRF, adjusted scores, and raw source scores are ranking diagnostics, not confidence or probability.",
     "Default review is manual-only even when the PR-23 500+ judged-pair gate is reached.",
 )
-PROMOTED_PROFILE_SOURCE = "score_profile_optimizer"
+SAVED_PROFILE_SOURCE = "score_profile_optimizer"
 
 
 @dataclass(frozen=True)
@@ -251,18 +251,18 @@ def optimizer_record_metrics(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_promoted_score_profile_payload(report: Mapping[str, Any]) -> dict[str, Any]:
-    _require_promotable_optimizer_report(report)
+def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, Any]:
+    _require_saveable_optimizer_report(report)
     weights = _report_weights(report)
     risk_weights = _report_risk_weights(report)
     guardrails = _required_mapping(report.get("guardrails"), "guardrails")
     payload = {
         "profile_name": _required_text(report.get("profile_name"), "profile_name"),
         "source": SOURCE,
-        "promotion_source": PROMOTED_PROFILE_SOURCE,
+        "profile_source": SAVED_PROFILE_SOURCE,
         "label_status": _required_text(report.get("label_status"), "label_status"),
         "created_at": _required_text(report.get("created_at"), "created_at"),
-        "promoted_at": _utc_timestamp(),
+        "saved_at": _utc_timestamp(),
         "objective": _objective(str(report.get("objective", DEFAULT_OBJECTIVE))),
         "split_by": _split_by(str(report.get("split_by", DEFAULT_SPLIT_BY))),
         "judged_pairs": _non_negative_int(report.get("judged_pairs"), "judged_pairs"),
@@ -292,26 +292,26 @@ def build_promoted_score_profile_payload(report: Mapping[str, Any]) -> dict[str,
         "decision": _required_text(report.get("decision"), "decision"),
         "default_update_policy": _required_text(report.get("default_update_policy"), "default_update_policy"),
     }
-    _validate_promoted_score_profile_payload(payload)
+    _validate_saved_score_profile_payload(payload)
     return payload
 
 
-def _require_promotable_optimizer_report(report: Mapping[str, Any]) -> None:
+def _require_saveable_optimizer_report(report: Mapping[str, Any]) -> None:
     if not isinstance(report, Mapping):
         raise ValueError("Optimizer report must be a JSON object")
     if report.get("source") != SOURCE:
-        raise ValueError("Only judged-feedback optimizer reports can be promoted")
+        raise ValueError("Only judged-feedback optimizer reports can be saved")
     if report.get("status") != "ok":
-        raise ValueError("Only optimizer reports with status=ok can be promoted")
+        raise ValueError("Only optimizer reports with status=ok can be saved")
     if not bool(report.get("can_update_defaults")):
         raise ValueError(
-            "Cannot promote score profile until the PR-23 500 matched judged-pair default-review gate is met",
+            "Cannot save score profile until the 500 matched judged-pair review gate is met",
         )
     guardrails = _required_mapping(report.get("guardrails"), "guardrails")
     checks = _required_mapping(guardrails.get("checks"), "guardrails.checks")
     failed_checks = sorted(name for name, passed in checks.items() if not bool(passed))
     if failed_checks:
-        raise ValueError("Cannot promote score profile because guardrails failed: " + ", ".join(failed_checks))
+        raise ValueError("Cannot save score profile because guardrails failed: " + ", ".join(failed_checks))
 
 
 def _report_weights(report: Mapping[str, Any]) -> dict[str, float]:
@@ -322,7 +322,7 @@ def _report_weights(report: Mapping[str, Any]) -> dict[str, float]:
         for source, weight in raw_weights.items()
     }
     if set(weights) != set(sources):
-        raise ValueError("Promoted score profile weights must match optimizer sources exactly")
+        raise ValueError("Saved score profile weights must match optimizer sources exactly")
     _assert_normalized_weights(weights)
     return weights
 
@@ -334,24 +334,24 @@ def _report_risk_weights(report: Mapping[str, Any]) -> dict[str, float]:
         for name, weight in raw_risk_weights.items()
     }
     if not risk_weights:
-        raise ValueError("Promoted score profile requires at least one risk weight")
+        raise ValueError("Saved score profile requires at least one risk weight")
     return risk_weights
 
 
-def _validate_promoted_score_profile_payload(payload: Mapping[str, Any]) -> None:
+def _validate_saved_score_profile_payload(payload: Mapping[str, Any]) -> None:
     _report_weights(payload)
     _report_risk_weights(payload)
     if payload.get("source") != SOURCE:
-        raise ValueError("Promoted score profile source must be judged_feedback")
-    if payload.get("promotion_source") != PROMOTED_PROFILE_SOURCE:
-        raise ValueError("Promoted score profile promotion_source must be score_profile_optimizer")
+        raise ValueError("Saved score profile source must be judged_feedback")
+    if payload.get("profile_source") != SAVED_PROFILE_SOURCE:
+        raise ValueError("Saved score profile profile_source must be score_profile_optimizer")
     if not bool(payload.get("can_apply_as_default")):
-        raise ValueError("Promoted score profile must be marked can_apply_as_default")
+        raise ValueError("Saved score profile must be marked can_apply_as_default")
     guardrails = _required_mapping(payload.get("guardrails"), "guardrails")
     required_true_guardrails = ("bad_rate_did_not_increase", "validation_ndcg_improved", "bootstrap_stability_passed")
     failed_guardrails = [name for name in required_true_guardrails if guardrails.get(name) is not True]
     if failed_guardrails:
-        raise ValueError("Promoted score profile guardrails must all pass: " + ", ".join(failed_guardrails))
+        raise ValueError("Saved score profile guardrails must all pass: " + ", ".join(failed_guardrails))
     validation_metrics = _required_mapping(payload.get("validation_metrics"), "validation_metrics")
     baseline_metrics = _required_mapping(payload.get("baseline_validation_metrics"), "baseline_validation_metrics")
     metric_cutoff = GUARDRAIL_METRIC_CUTOFF

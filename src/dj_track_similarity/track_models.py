@@ -120,14 +120,14 @@ class TrackMutation:
 
 @dataclass(frozen=True)
 class TrackRemovalResult:
-    """Result of removing a source-deleted track from the storage bundle."""
+    """Result of removing a source-deleted track from the library."""
 
     identity: TrackIdentity
     file_path: str
     removed: bool
     already_absent: bool
-    core_rows_deleted: int
-    artifact_rows_deleted: int
+    track_rows_deleted: int
+    derived_rows_deleted: int
 
     def __post_init__(self) -> None:
         _required_text(self.file_path, "file_path")
@@ -136,8 +136,8 @@ class TrackRemovalResult:
                 "exactly one of removed and already_absent must be true"
             )
         for field_name, value in (
-            ("core_rows_deleted", self.core_rows_deleted),
-            ("artifact_rows_deleted", self.artifact_rows_deleted),
+            ("track_rows_deleted", self.track_rows_deleted),
+            ("derived_rows_deleted", self.derived_rows_deleted),
         ):
             if (
                 isinstance(value, bool)
@@ -189,6 +189,6 @@ class RelocationResult(TypedDict):
 
 class ClearLibraryResult(TypedDict):
     tracks_deleted: int
-    embeddings_deleted: int
-    artifacts_deleted: int
-    evaluation_rows_deleted: int
+    feature_rows_deleted: int
+    embedding_rows_deleted: int
+    classifier_rows_deleted: int

@@ -135,7 +135,7 @@ def _insert_track(
         with database.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO sonara(
+                INSERT INTO sonara_features(
                     track_id, content_generation,
                     detected_bpm, onset_density_per_second,
                     energy_score, danceability_score, valence_score,
@@ -167,7 +167,7 @@ def _insert_track(
 
     for key, values in (vectors or {}).items():
         dimension, vector = _current_embedding_fixture(key, values)
-        with database.connect_artifacts() as connection:
+        with database.connect() as connection:
             connection.execute(
                 f"""
                 INSERT INTO {key}_embeddings(
@@ -248,7 +248,7 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
     malformed = np.zeros(mert_specification.dimension, dtype="<f4")
     malformed[0] = 2.0
     database = LibraryDatabase(db_path)
-    with database.connect_artifacts() as connection:
+    with database.connect() as connection:
         connection.execute(
             """
             UPDATE mert_embeddings
@@ -307,7 +307,7 @@ def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
     )
 
     database = LibraryDatabase(db_path)
-    with database.connect_artifacts() as connection:
+    with database.connect() as connection:
         connection.execute(
             """
             UPDATE muq_embeddings
@@ -1233,44 +1233,6 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
-    database = LibraryDatabase(db_path)
-    duplicate_identity = database.get_track_identity(2)
-    assert duplicate_identity is not None
-    with database.connect_artifacts() as connection:
-        connection.execute(
-            """
-            INSERT INTO sonara_timeline (
-                track_id, track_uuid, content_generation,
-                payload_json, analyzed_at
-            ) VALUES (?, ?, ?, '{}', ?)
-            """,
-            (
-                duplicate_identity.track_id,
-                duplicate_identity.track_uuid,
-                duplicate_identity.content_generation,
-                "2026-07-24T00:00:00.000000Z",
-            ),
-        )
-        connection.execute(
-            """
-            INSERT INTO sonara_fingerprints(
-                track_id, track_uuid, content_generation,
-                fingerprint_version, word_count,
-                byte_order, fingerprint_blob, analyzed_at
-            ) VALUES(
-                ?, ?, ?, '1', 1,
-                'little', ?, ?
-            )
-            """,
-            (
-                duplicate_identity.track_id,
-                duplicate_identity.track_uuid,
-                duplicate_identity.content_generation,
-                np.asarray([1], dtype="<u4").tobytes(),
-                "2026-07-24T00:00:00.000000Z",
-            ),
-        )
-        connection.commit()
     result = dedup.run_report(
         db_path=db_path,
         root=audio_dir,
@@ -1287,31 +1249,23 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     assert not duplicate_path.exists()
     assert apply_result.deleted_track_ids == (2,)
     connection = sqlite3.connect(db_path)
-    artifacts = database.connect_artifacts()
     try:
         assert connection.execute(
             "SELECT track_id FROM tracks ORDER BY track_id"
         ).fetchall() == [(1,)]
         assert [
             int(row[0])
-            for row in artifacts.execute(
+            for row in connection.execute(
                 "SELECT track_id FROM mert_embeddings ORDER BY track_id"
             )
         ] == [1]
         assert [
             int(row[0])
-            for row in artifacts.execute(
+            for row in connection.execute(
                 "SELECT track_id FROM maest_embeddings ORDER BY track_id"
             )
         ] == [1]
-        assert list(
-            artifacts.execute("SELECT track_id FROM sonara_timeline")
-        ) == []
-        assert list(
-            artifacts.execute("SELECT track_id FROM sonara_fingerprints")
-        ) == []
     finally:
-        artifacts.close()
         connection.close()
 
 

@@ -1318,7 +1318,7 @@ def _repository_path(
 ) -> Path:
     raw_path = getattr(repository, "path", None)
     if raw_path is None:
-        raise TypeError("Analysis repository must expose its Core database path")
+        raise TypeError("Analysis repository must expose its library database path")
     return Path(raw_path).expanduser().resolve(strict=False)
 
 

@@ -220,6 +220,74 @@ def test_path_contains_additionally_filters_inside_root(tmp_path: Path) -> None:
     assert [track.track_id for track in tracks] == [1]
 
 
+def test_load_tracks_reports_progress_after_each_200_row_chunk(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    for track_id in range(1, 202):
+        _insert_track(
+            db_path,
+            track_id=track_id,
+            path=f"M:/Volumes/Abstracted/{track_id:03d}.flac",
+        )
+    progress: list[tuple[int, int, str]] = []
+
+    tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+        sources=(),
+        progress_callback=lambda processed, total, message: progress.append(
+            (processed, total, message)
+        ),
+    )
+
+    assert dedup.TRACK_LOAD_CHUNK_SIZE == 200
+    assert len(tracks) == 201
+    assert (0, 201, "Loading scoped tracks") in progress
+    assert (200, 201, "Loading scoped tracks") in progress
+    assert (201, 201, "Loading scoped tracks") in progress
+
+
+def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
+    tmp_path: Path,
+) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    vectors = {
+        "mert": [1.0, 0.0, 0.0],
+        "maest": [0.0, 1.0, 0.0],
+        "muq": [0.0, 0.0, 1.0],
+        "clap": [0.5, 0.5, 0.0],
+    }
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        vectors=vectors,
+    )
+    progress: list[tuple[int, int, str]] = []
+
+    tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+        sources=("mert", "maest"),
+        progress_callback=lambda processed, total, message: progress.append(
+            (processed, total, message)
+        ),
+    )
+
+    assert dedup.EMBEDDING_LOAD_CHUNK_SIZE == 200
+    assert set(tracks[0].embeddings) == {"mert", "maest"}
+    assert (0, 1, "Loading MERT embeddings") in progress
+    assert (1, 1, "Loading MERT embeddings") in progress
+    assert (0, 1, "Loading MAEST embeddings") in progress
+    assert (1, 1, "Loading MAEST embeddings") in progress
+    assert all("MUQ" not in message and "CLAP" not in message for _, _, message in progress)
+
+
 def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
@@ -1194,8 +1262,27 @@ def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: 
 
     assert exit_code == 0
     stdout = capsys.readouterr().out
+    assert "Searching duplicate pairs: 100.0% (1/1)" in stdout
     assert "Report-only run complete. groups=1 safe_candidates=1" in stdout
     assert "Rhythm Lab: safe_candidates=1 database_exists=true affected_tracks=1 affected_rows=1" in stdout
+
+
+def test_console_progress_reporter_prints_phase_percent_and_final_newline(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dedup = _load_dedup_module()
+    reporter = dedup.ConsoleProgressReporter(refresh_seconds=0.0)
+
+    reporter(0, 0, "Reading database")
+    reporter(50, 200, "Searching duplicate pairs")
+    reporter(200, 200, "Searching duplicate pairs")
+    reporter.finish()
+
+    stdout = capsys.readouterr().out
+    assert "Reading database..." in stdout
+    assert "Searching duplicate pairs: 25.0% (50/200)" in stdout
+    assert "Searching duplicate pairs: 100.0% (200/200)" in stdout
+    assert stdout.endswith("\n")
 
 
 def test_cli_does_not_accept_rhythm_lab_db_argument() -> None:

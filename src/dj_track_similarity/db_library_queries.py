@@ -1826,133 +1826,22 @@ class LibraryQueryRepository:
                 )
             return tuple(result)
 
-    def library_summary(
-        self,
-        classifier_keys: Iterable[str] | None = None,
-        *,
-        include_missing: bool = False,
-        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
-    ) -> LibrarySummary:
-        requested_classifiers = tuple(
-            sorted({key.strip() for key in (classifier_keys or ()) if key.strip()})
-        )
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
-        with self._open_library_bundle() as (
-            core_connection,
-            artifacts_connection,
-            context,
+    def library_summary(self) -> LibrarySummary:
+        def count_rows(connection: sqlite3.Connection, table: str) -> int:
+            return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+        with (
+            closing(self.connect()) as core_connection,
+            closing(self.connect_artifacts()) as artifacts_connection,
         ):
-            cached_counts = (
-                None if include_missing else _stored_analysis_counts(core_connection)
-            )
-            missing_sql = "" if include_missing else "WHERE t.missing_since IS NULL"
-            if cached_counts is not None:
-                liked = int(
-                    core_connection.execute(
-                        """
-                        SELECT COUNT(*)
-                        FROM likes l
-                        JOIN tracks t ON t.track_id = l.track_id
-                        WHERE t.missing_since IS NULL
-                        """
-                    ).fetchone()[0]
-                )
-                classifier_count = 0
-                if specifications_by_key:
-                    classifier_rows = core_connection.execute(
-                        """
-                        SELECT t.track_id, t.track_uuid, t.content_generation
-                        FROM tracks t
-                        WHERE t.missing_since IS NULL
-                        """
-                    ).fetchall()
-                    classifier_details = _current_classifier_details(
-                        core_connection,
-                        identities=_identity_map(classifier_rows),
-                        drive_from_requested=False,
-                        classifier_specifications=specifications_by_key,
-                    )
-                    if requested_classifiers:
-                        expected = set(requested_classifiers)
-                        classifier_count = sum(
-                            expected.issubset(
-                                {score.classifier_key for score in scores}
-                            )
-                            for scores in classifier_details.values()
-                        )
-                    else:
-                        classifier_count = len(classifier_details)
-                return LibrarySummary(
-                    tracks=cached_counts["tracks"],
-                    sonara=cached_counts["sonara"],
-                    maest_analysis=cached_counts["maest"],
-                    maest_embedding=cached_counts["maest"],
-                    mert=cached_counts["mert"],
-                    muq=cached_counts["muq"],
-                    clap=cached_counts["clap"],
-                    liked=liked,
-                    classifiers=classifier_count,
-                )
-            rows = core_connection.execute(
-                f"""
-                SELECT
-                    t.track_id,
-                    t.track_uuid,
-                    t.content_generation,
-                    EXISTS(
-                        SELECT 1 FROM likes l
-                        WHERE l.track_id = t.track_id
-                    ) AS liked
-                FROM tracks t
-                {missing_sql}
-                """
-            ).fetchall()
-            identities = _identity_map(rows)
-            sonara_count = _current_analysis_row_count(
-                core_connection,
-                table="sonara",
-                output=context.outputs.get(("sonara", "core")),
-                identities=identities,
-            )
-            maest_analysis_count = _current_analysis_row_count(
-                core_connection,
-                table="maest_genres",
-                output=context.outputs.get(("maest", "analysis")),
-                identities=identities,
-            )
-            artifact_counts: dict[str, int] = {}
-            for family in ("maest", "mert", "muq", "clap"):
-                count = _current_artifact_row_count(
-                    artifacts_connection,
-                    table=f"{family}_embeddings",
-                    output=context.outputs.get((family, "embedding")),
-                    identities=identities,
-                )
-                artifact_counts[family] = count
-            classifier_rows = _current_classifier_details(
-                core_connection,
-                identities=identities,
-                drive_from_requested=False,
-                classifier_specifications=specifications_by_key,
-            )
-            if requested_classifiers:
-                expected = set(requested_classifiers)
-                classifier_count = sum(
-                    expected.issubset({score.classifier_key for score in scores})
-                    for scores in classifier_rows.values()
-                )
-            else:
-                classifier_count = len(classifier_rows)
             return LibrarySummary(
-                tracks=len(rows),
-                sonara=sonara_count,
-                maest_analysis=maest_analysis_count,
-                maest_embedding=artifact_counts["maest"],
-                mert=artifact_counts["mert"],
-                muq=artifact_counts["muq"],
-                clap=artifact_counts["clap"],
-                liked=sum(bool(row["liked"]) for row in rows),
-                classifiers=classifier_count,
+                tracks=count_rows(core_connection, "tracks"),
+                sonara=count_rows(core_connection, "sonara"),
+                maest_analysis=count_rows(core_connection, "maest_genres"),
+                maest_embedding=count_rows(artifacts_connection, "maest_embeddings"),
+                mert=count_rows(artifacts_connection, "mert_embeddings"),
+                muq=count_rows(artifacts_connection, "muq_embeddings"),
+                clap=count_rows(artifacts_connection, "clap_embeddings"),
+                liked=count_rows(core_connection, "likes"),
+                classifiers=count_rows(core_connection, "classifier_scores"),
             )

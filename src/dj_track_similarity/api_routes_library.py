@@ -169,17 +169,7 @@ def register_library_routes(
 
     @app.get("/api/library/summary", response_model=LibrarySummaryResponse)
     def library_summary():
-        classifier_specifications = current_classifier_specifications(
-            promoted_classifiers()
-        )
-        classifier_keys = [
-            specification.classifier_key
-            for specification in classifier_specifications
-        ]
-        return state.require_db().library_summary(
-            classifier_keys=classifier_keys,
-            classifier_specifications=classifier_specifications,
-        )
+        return state.require_db().library_summary()
 
     @app.get("/media/{track_id}")
     def media(track_id: int):

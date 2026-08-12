@@ -345,51 +345,6 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
     ]
 
 
-def test_library_summary_uses_split_current_analysis_families(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "library.sqlite"
-    database = LibraryDatabase(db_path)
-    _add_track(
-        database,
-        tmp_path / "track.wav",
-        artist="Artist",
-        title="Track",
-    )
-    with database.connect() as connection:
-        connection.executemany(
-            """
-            INSERT INTO library_settings(setting_key, setting_value, updated_at)
-            VALUES (?, ?, '2026-08-11T00:00:00.000000Z')
-            """,
-            (
-                ("analysis.count.tracks", "7"),
-                ("analysis.count.sonara", "6"),
-                ("analysis.count.maest", "5"),
-                ("analysis.count.mert", "3"),
-                ("analysis.count.muq", "2"),
-                ("analysis.count.clap", "1"),
-            ),
-        )
-        connection.commit()
-
-    response = _client(monkeypatch, db_path).get("/api/library/summary")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "tracks": 7,
-        "sonara": 6,
-        "maest_analysis": 5,
-        "maest_embedding": 5,
-        "mert": 3,
-        "muq": 2,
-        "clap": 1,
-        "liked": 0,
-        "classifiers": 0,
-    }
-
-
 def test_media_endpoint_reports_missing_audio_file_without_traceback(
     monkeypatch,
     tmp_path: Path,

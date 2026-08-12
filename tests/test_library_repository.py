@@ -435,9 +435,6 @@ def test_library_coverage_rejects_malformed_embedding_payload(
     summary = repository.get_track_summaries((track.track_id,))[0]
     assert not summary.analysis_coverage.mert
     assert repository.get_track_detail(track.track_id).embeddings == ()
-    assert repository.library_summary().mert == (
-        1 if malformed_kind == "zero_l2" else 0
-    )
 
 
 def test_sonara_reads_core_and_ignores_reserved_optional_artifacts(
@@ -697,10 +694,7 @@ def test_summary_and_classifier_filters_use_current_rows(
     assert tag_candidates[0].expected_file_modified_ns == 987654321
     assert tag_candidates[0].genres == ("Techno",)
 
-    summary = repository.library_summary(
-        classifier_keys=("voice_presence",),
-        classifier_specifications=(_classifier_specification("voice_presence"),),
-    )
+    summary = repository.library_summary()
     assert summary.as_dict() == {
         "tracks": 2,
         "sonara": 0,

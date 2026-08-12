@@ -50,6 +50,16 @@ test("library hook can adopt an explicit catalog scope before the database state
   assert.match(source, /canGoForward,\s*adoptDatabaseScope,\s*refreshLibrary/);
 });
 
+test("startup initialization is guarded against Strict Mode re-entry", () => {
+  const appPath = join(srcDir, "App.tsx");
+  const source = readFileSync(appPath, "utf8");
+  const startupEffect = source.match(/useEffect\(\(\) => \{[\s\S]*?refreshRhythmLabStatus\(\);[\s\S]*?\}, \[\]\);/)?.[0] || "";
+
+  assert.match(source, /const startupInitializationStarted = useRef\(false\)/);
+  assert.match(startupEffect, /if \(startupInitializationStarted\.current\) return;/);
+  assert.match(startupEffect, /startupInitializationStarted\.current = true;/);
+});
+
 test("search playlist hook owns seed and playlist state", () => {
   const hookPath = join(srcDir, "useSearchPlaylist.ts");
   assert.equal(existsSync(hookPath), true, "useSearchPlaylist.ts exists");

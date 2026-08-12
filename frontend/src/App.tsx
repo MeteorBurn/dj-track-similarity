@@ -85,6 +85,7 @@ export function App() {
   const databaseCatalogUuidRef = useRef(databaseCatalogUuid);
   databaseCatalogUuidRef.current = databaseCatalogUuid;
   const suppressNextLibraryRefresh = useRef(false);
+  const startupInitializationStarted = useRef(false);
   const { activityLog, appendActivity } = useActivityLog();
   const {
     libraryTotal,
@@ -265,6 +266,8 @@ export function App() {
   const maxAnalysisInferenceBatchSize = 128;
 
   useEffect(() => {
+    if (startupInitializationStarted.current) return;
+    startupInitializationStarted.current = true;
     void initializeDatabase();
     void refreshRhythmLabStatus();
   }, []);

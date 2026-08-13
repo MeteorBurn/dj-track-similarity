@@ -15,7 +15,6 @@ class TrackInput:
     year: int | None = None
     country: str | None = None
     label: str | None = None
-    duration_seconds: float | None = None
     file_path: Path | None = None
 
     @property
@@ -38,7 +37,6 @@ class SourceRecord:
     artist: str | None = None
     album: str | None = None
     year: int | None = None
-    duration_seconds: float | None = None
     country: str | None = None
     label: str | None = None
     genres: tuple[str, ...] = ()

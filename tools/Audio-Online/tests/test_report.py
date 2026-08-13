@@ -13,26 +13,27 @@ def test_contract_places_maest_last_and_joins_values_with_semicolon() -> None:
     )
 
     assert contract["columns"] == [
-        "Track Name", "Local Title", "Local Artist", "Local Album", "Local Year", "Local Country", "Local Label", "Local Genre", "Local Style", "Local Tags", "Local Duration",
-        "Discogs Title", "Discogs Artist", "Discogs Album", "Discogs Year", "Discogs Country", "Discogs Label", "Discogs Genre", "Discogs Style", "Discogs Tags", "Discogs Duration",
-        "MAEST",
+        "Track Name", "Genres", "MAEST Genres", "Discogs Genres",
+        "Title", "Artist", "Album", "Year", "Country", "Label", "Tags",
+        "Discogs Title", "Discogs Artist", "Discogs Album", "Discogs Year", "Discogs Country", "Discogs Label", "Discogs Tags",
     ]
     row = contract["rows"][0]
-    assert row["MAEST"] == "House (81%); Techno (64%); Electronic (52%)"
-    assert row["Local Genre"] == "Electronic; Dance"
-    assert row["Discogs Style"] == "Melodic Techno"
+    assert row["MAEST Genres"] == "House (81%); Techno (64%); Electronic (52%)"
+    assert row["Genres"] == "Electronic; Dance"
+    assert row["Discogs Genres"] == "Electronic"
+    assert "Style" not in contract["columns"]
 
 
 def test_contract_contains_only_requested_track_fields() -> None:
 
     contract = build_report_contract(
         [(
-            TrackInput(artist="Artist", title="Title", album="Release", year=2024, duration_seconds=402),
+            TrackInput(artist="Artist", title="Title", album="Release", year=2024),
             LocalEvidence(),
             (SourceResult(
                 "Discogs", "matched",
                 SourceRecord(title="Title", artist="Artist", album="Release", year=2024,
-                             duration_seconds=402, record_type="release", record_id="123",
+                             record_type="release", record_id="123",
                              record_url="https://example.test/release/123"),
                 queried_at="2026-08-13T12:00:00+00:00",
             ),),
@@ -44,3 +45,14 @@ def test_contract_contains_only_requested_track_fields() -> None:
     assert "Record" not in row
     assert "Discogs Record ID" not in row
     assert row["Discogs Album"] == "Release"
+
+
+def test_contract_strips_line_breaks_and_limits_genre_values_to_three() -> None:
+    contract = build_report_contract(
+        [(TrackInput(artist="Artist\nName", title="Title\r\nHere"), LocalEvidence(("One", "Two", "Three", "Four")), ())],
+        (),
+    )
+
+    row = contract["rows"][0]
+    assert row["Track Name"] == "Artist Name — Title Here"
+    assert row["Genres"] == "One; Two; Three"

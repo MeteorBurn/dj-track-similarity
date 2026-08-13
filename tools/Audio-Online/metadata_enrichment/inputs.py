@@ -71,18 +71,15 @@ def _load_csv(path: Path) -> list[TrackInput]:
 def _load_m3u(path: Path) -> list[TrackInput]:
     tracks: list[TrackInput] = []
     pending_name = ""
-    pending_duration: float | None = None
     for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw_line.strip()
         if line.startswith("#EXTINF:"):
-            duration_text, _, pending_name = line[8:].partition(",")
-            pending_duration = float(duration_text) if duration_text.strip().isdigit() else None
+            _, _, pending_name = line[8:].partition(",")
             pending_name = pending_name.strip()
         elif line and not line.startswith("#"):
             artist, title = _split_track_line(pending_name)
-            tracks.append(TrackInput(artist=artist or None, title=title or pending_name or None, duration_seconds=pending_duration, file_path=Path(line)))
+            tracks.append(TrackInput(artist=artist or None, title=title or pending_name or None, file_path=Path(line)))
             pending_name = ""
-            pending_duration = None
     return tracks
 
 
@@ -102,11 +99,10 @@ def _load_audio_file(audio_path: Path) -> TrackInput:
     title = tagged_title or fallback_title or audio_path.stem
     if tagged_artist and tagged_title and fallback_title and tagged_title.casefold() == f"{tagged_artist} - {fallback_title}".casefold():
         title = fallback_title
-    duration = getattr(getattr(metadata, "info", None), "length", None)
     return TrackInput(
         title=title,
         artist=tagged_artist or fallback_artist or None,
-        album=value("album"), duration_seconds=float(duration) if isinstance(duration, (int, float)) else None,
+        album=value("album"),
         file_path=audio_path,
     )
 

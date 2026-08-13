@@ -16,25 +16,30 @@ export async function buildWorkbook(contract) {
   sheet.getRangeByIndexes(0, 0, 1, columns.length).values = [columns];
   sheet.getRangeByIndexes(0, 0, 1, columns.length).format = { fill: "#334155", font: { bold: true, color: "#FFFFFF" } };
   const rows = contract.rows || [];
-  if (rows.length) sheet.getRangeByIndexes(1, 0, rows.length, columns.length).values = rows.map((row) => columns.map((column) => row[column] ?? ""));
+  if (rows.length) {
+    const dataRange = sheet.getRangeByIndexes(1, 0, rows.length, columns.length);
+    dataRange.values = rows.map((row) => columns.map((column) => String(row[column] ?? "").replaceAll(/\r?\n/g, " ")));
+    dataRange.format = { fill: "#FFFFFF", verticalAlignment: "center", wrapText: false, borders: { insideHorizontal: { style: "thin", color: "#E2E8F0" } } };
+  }
   for (let column = 0; column < columns.length; column += 1) {
-    if (["Genre", "Style", "Tags", "MAEST"].some((field) => columns[column].endsWith(field))) {
+    if (columns[column].endsWith("Genres") || columns[column] === "Tags") {
       sheet.getRangeByIndexes(1, column, rows.length, 1).format = { fill: "#E8F4ED" };
     }
   }
   sheet.freezePanes.freezeRows(1);
   sheet.freezePanes.freezeColumns(1);
-  sheet.getUsedRange().format.wrapText = true;
-  sheet.getUsedRange().format.autofitColumns();
+  sheet.getUsedRange().format.wrapText = false;
   const used = sheet.getUsedRange();
-  used.getColumn(0).format.columnWidth = 20;
-  for (let column = 1; column < columns.length; column += 1) used.getColumn(column).format.columnWidth = 27;
+  used.getColumn(0).format.columnWidth = 38;
+  for (let column = 1; column < columns.length; column += 1) used.getColumn(column).format.columnWidth = columns[column].endsWith("Genres") ? 30 : 22;
+  used.getRangeByIndexes(0, 0, 1, columns.length).format.rowHeight = 22;
+  if (rows.length) used.getRangeByIndexes(1, 0, rows.length, columns.length).format.rowHeight = 21;
   return workbook;
 }
 
 async function main() {
   const [, , command, input, output] = process.argv;
-  if (!input || !output) throw new Error("usage: workbook_bridge.mjs <write|read> <input> <output>");
+  if (!input || !output) throw new Error("usage: workbook_bridge.mjs <write|read|render> <input> <output>");
   if (command === "read") {
     const workbook = await SpreadsheetFile.importXlsx(await FileBlob.load(input));
     const sheet = workbook.worksheets.getActiveWorksheet();
@@ -44,7 +49,13 @@ async function main() {
     await fs.writeFile(output, JSON.stringify(rows), "utf8");
     return;
   }
-  if (command !== "write") throw new Error("usage: workbook_bridge.mjs <write|read> <input> <output>");
+  if (command === "render") {
+    const workbook = await SpreadsheetFile.importXlsx(await FileBlob.load(input));
+    const preview = await workbook.render({ sheetName: workbook.worksheets.getActiveWorksheet().name, autoCrop: "all", scale: 1, format: "png" });
+    await fs.writeFile(output, new Uint8Array(await preview.arrayBuffer()));
+    return;
+  }
+  if (command !== "write") throw new Error("usage: workbook_bridge.mjs <write|read|render> <input> <output>");
   const contract = JSON.parse(await fs.readFile(input, "utf8"));
   const workbook = await buildWorkbook(contract);
   const file = await SpreadsheetFile.exportXlsx(workbook);

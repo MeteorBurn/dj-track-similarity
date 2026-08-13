@@ -27,10 +27,6 @@ def score_candidate(track: TrackInput, candidate: SourceRecord) -> MatchAssessme
     if track.year and track.year == candidate.year:
         score += 1
         evidence.append("year exact")
-    if track.duration_seconds is not None and candidate.duration_seconds is not None:
-        if abs(track.duration_seconds - candidate.duration_seconds) <= 2:
-            score += 1
-            evidence.append("duration within 2s")
     confidence = "high" if score >= 8 else "medium" if score >= 6 else "low"
     return MatchAssessment(score, confidence if score else None, tuple(evidence))
 

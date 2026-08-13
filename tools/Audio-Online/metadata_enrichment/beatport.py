@@ -58,7 +58,6 @@ def _record(item: Mapping[str, object]) -> SourceRecord | None:
         artist=artist,
         album=_text(release_values, "name") or _text(item, "release_name"),
         year=_year(_text(release_values, "publish_date") or _text(item, "publish_date")),
-        duration_seconds=_duration(item),
         label=label,
         genres=(genre,) if genre else (),
         styles=(subgenre,) if subgenre else (),
@@ -86,14 +85,4 @@ def _artists(value: object) -> str | None:
 def _year(value: str | None) -> int | None:
     if value and len(value) >= 4 and value[:4].isdigit():
         return int(value[:4])
-    return None
-
-
-def _duration(item: Mapping[str, object]) -> float | None:
-    value = item.get("length_ms")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value) / 1000
-    value = item.get("duration")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value)
     return None

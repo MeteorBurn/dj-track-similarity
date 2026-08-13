@@ -34,7 +34,7 @@ class DiscogsSource:
             year=release.get("year") if isinstance(release.get("year"), int) else None,
             country=str(release.get("country") or "") or None,
             label=_first_label(release.get("labels")), genres=_strings(release.get("styles")),
-            duration_seconds=_track_duration(release.get("tracklist"), track.title), record_type="release", record_id=str(release_id),
+            record_type="release", record_id=str(release_id),
             record_url=f"https://www.discogs.com/release/{release_id}",
         )
         return SourceResult(self.name, "matched", record=record)
@@ -47,15 +47,6 @@ def _strings(value: object) -> tuple[str, ...]:
 def _first_label(value: object) -> str | None:
     if isinstance(value, list) and value and isinstance(value[0], Mapping) and isinstance(value[0].get("name"), str):
         return value[0]["name"]
-    return None
-
-
-def _track_duration(value: object, title: str) -> float | None:
-    if not isinstance(value, list): return None
-    for item in value:
-        if isinstance(item, Mapping) and item.get("title") == title and isinstance(item.get("duration"), str):
-            parts = item["duration"].split(":")
-            if len(parts) == 2 and all(part.isdigit() for part in parts): return int(parts[0]) * 60 + int(parts[1])
     return None
 
 

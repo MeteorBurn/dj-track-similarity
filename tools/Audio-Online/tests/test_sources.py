@@ -130,5 +130,4 @@ def test_beatport_maps_catalog_track_and_keeps_genre_separate_from_subgenre() ->
     assert result.record.genres == ("Techno",)
     assert result.record.styles == ("Peak Time / Driving",)
     assert result.record.record_id == "123"
-    assert result.record.duration_seconds == 402
     assert calls == [{"url": "https://api.beatport.com/v4/catalog/search/", "headers": {"Authorization": "Bearer token"}, "params": {"q": "Artist — Title", "type": "tracks", "artist_name": "Artist", "per_page": "5"}}]

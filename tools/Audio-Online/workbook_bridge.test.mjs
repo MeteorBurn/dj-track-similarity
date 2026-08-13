@@ -16,15 +16,16 @@ const { SpreadsheetFile, Workbook } = await import(new URL(`file://${artifactToo
 
 test("writer creates one flat Metadata table with MAEST last", async () => {
   const workbook = await buildWorkbook({
-    sheet: "Metadata", columns: ["Track Name", "Local Genre", "Discogs Genre", "MAEST"],
-    rows: [{ "Track Name": "Artist — Title", "Local Genre": "Electronic", "Discogs Genre": "Melodic Techno", MAEST: "House (81%); Techno (64%); Electronic (52%)" }],
+    sheet: "Metadata", columns: ["Track Name", "Genres", "MAEST Genres", "Discogs Genres"],
+    rows: [{ "Track Name": "Artist — Title", Genres: "Electronic", "MAEST Genres": "House (81%); Techno (64%); Electronic (52%)", "Discogs Genres": "Melodic Techno" }],
   });
   assert.deepEqual(workbook.worksheets.items.map((sheet) => sheet.name), ["Metadata"]);
-  assert.equal(workbook.worksheets.getItem("Metadata").getRange("D2").values[0][0], "House (81%); Techno (64%); Electronic (52%)");
+  assert.equal(workbook.worksheets.getItem("Metadata").getRange("C2").values[0][0], "House (81%); Techno (64%); Electronic (52%)");
+  assert.equal(workbook.worksheets.getItem("Metadata").getUsedRange().format.wrapText, false);
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "audio-online-"));
   const input = path.join(temp, "contract.json");
   const output = path.join(temp, "metadata.xlsx");
-  await fs.writeFile(input, JSON.stringify({ sheet: "Metadata", columns: ["Track Name", "Local Genre", "Discogs Genre", "MAEST"], rows: [{ "Track Name": "Artist — Title", "Local Genre": "Electronic", "Discogs Genre": "Melodic Techno", MAEST: "House (81%); Techno (64%); Electronic (52%)" }] }));
+  await fs.writeFile(input, JSON.stringify({ sheet: "Metadata", columns: ["Track Name", "Genres", "MAEST Genres", "Discogs Genres"], rows: [{ "Track Name": "Artist — Title", Genres: "Electronic", "MAEST Genres": "House (81%); Techno (64%); Electronic (52%)", "Discogs Genres": "Melodic Techno" }] }));
   await execFile(process.execPath, [fileURLToPath(new URL("./workbook_bridge.mjs", import.meta.url)), "write", input, output]);
   assert.ok((await fs.stat(output)).size > 0);
 });

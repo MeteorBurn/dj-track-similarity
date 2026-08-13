@@ -40,7 +40,6 @@ def test_m3u_reader_uses_playlist_path_as_exact_local_identity(tmp_path: Path) -
 
     assert track.track_name == "Artist — Title"
     assert str(track.file_path) == r"C:\music\one.flac"
-    assert track.duration_seconds == 402
 
 
 def test_directory_reader_reads_tags_without_writing_audio(tmp_path: Path, monkeypatch) -> None:

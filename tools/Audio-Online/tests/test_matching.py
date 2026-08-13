@@ -4,12 +4,11 @@ from metadata_enrichment.matching import score_candidate
 from metadata_enrichment.models import SourceRecord, TrackInput
 
 
-def test_exact_title_artist_album_and_duration_is_high_confidence() -> None:
-    """Catch a matcher that overlooks corroborating album/duration evidence."""
+def test_exact_title_artist_and_album_is_high_confidence() -> None:
 
     assessment = score_candidate(
-        TrackInput(title="Title", artist="Artist", album="Album", duration_seconds=402),
-        SourceRecord(title="Title", artist="Artist", album="Album", duration_seconds=401),
+        TrackInput(title="Title", artist="Artist", album="Album"),
+        SourceRecord(title="Title", artist="Artist", album="Album"),
     )
 
     assert assessment.confidence == "high"
@@ -17,7 +16,6 @@ def test_exact_title_artist_album_and_duration_is_high_confidence() -> None:
         "title exact",
         "artist exact",
         "album exact",
-        "duration within 2s",
     )
 
 

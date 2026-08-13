@@ -40,8 +40,8 @@ The initial analysis values are:
 | **Device** | `auto` | `auto`, `cpu`, or `cuda` |
 
 The stage controls keep **SONARA**, **ML**, and **CLASSIFIERS** distinct. **FULL** runs the ordered
-pipeline. SONARA is selected at startup and always runs Core only. There are no output checkboxes.
-The ML selection contains MAEST, MERT, MuQ, and CLAP only;
+pipeline. SONARA is selected at startup and always runs Core plus its dedicated embedding as one
+fixed output set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, and CLAP only;
 SONARA and CLASSIFIERS remain separate stages. The UI also shows queued/running progress, per-file
 failures, blockers, cancellation, and reset actions from the typed job responses.
 

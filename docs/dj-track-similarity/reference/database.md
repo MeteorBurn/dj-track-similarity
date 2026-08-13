@@ -35,6 +35,8 @@ cache values and are not carried into the current schema.
 - `tags`: mutagen metadata for a track.
 - `likes`: explicit liked state for a track.
 - `sonara_features`: current SONARA scalar data and short fixed-size vectors.
+- `sonara_embeddings`: one current unnormalized 48-dimensional `float32` SONARA embedding per track,
+  bound to `track_uuid` and stored independently from Core features.
 - `maest_genres`: current MAEST genre labels and syncopation data.
 - `maest_embeddings`, `mert_embeddings`, `clap_embeddings`, and
   `muq_embeddings`: the current audio embedding for each model family.

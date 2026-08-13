@@ -163,7 +163,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, plus a dedicated 48-dimensional embedding in `sonara_embeddings`. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
@@ -180,11 +180,13 @@ current similarity or classifier inputs. In Custom SONARA search, the optional A
 uses the stored aggression rank and attenuates its directional bias by SONARA's evidence confidence.
 DJ transition mode also adds a soft, directional structural fit when current outro/intro and energy
 summary values are available. True peak and ReplayGain remain stored for future loudness-management
-work, not direct SONARA similarity scoring. MAEST/MERT/MuQ/CLAP embeddings live in dedicated
-tables in the library database.
+work, not direct SONARA similarity scoring. Model embeddings live in dedicated tables in the
+library database.
 
-SONARA analysis stores only the current feature fields. Timeline, SONARA embedding, and fingerprint
-collection are disabled and have no placeholder tables.
+Each successful SONARA analysis writes its Core row and an unnormalized 48-dimensional `float32`
+embedding row together. Timeline and fingerprint collection remain disabled. The stored SONARA
+embedding is not a current similarity, search, or classifier input; those SONARA workflows continue
+to use Core fields.
 
 Promoted classifier artifacts must describe the feature names and inputs they actually use. If an
 analysis update changes that recipe, retrain and promote the affected profile before scoring it
@@ -337,9 +339,11 @@ dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlit
 dj-sim analyze-pipeline --stages sonara,ml --db ./data/library.sqlite
 ```
 
-Normal reruns analyze only missing SONARA or embedding rows. A legacy split database is never
-rewritten at startup. Its one-time, backup-first migration is explicit with `dj-sim migrate-database`;
-it does not start analysis. Reanalysis remains a separate user decision.
+Normal SONARA reruns select a track when either its current Core row or its dedicated embedding row
+is missing, then store both outputs together after a successful pass. Tracks with both rows remain
+skipped. Other model jobs target only their missing selected outputs. A legacy split database
+is never rewritten at startup. Its one-time, backup-first migration is explicit with
+`dj-sim migrate-database`. It does not start analysis. Reanalysis remains a separate user decision.
 
 Useful options from the current CLI and API are:
 

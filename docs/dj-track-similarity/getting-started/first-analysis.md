@@ -29,7 +29,7 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | Core feature rows | feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs |
+| SONARA | Core feature row and a dedicated 48D embedding row | Core-backed feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs |
 | MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
 | MERT | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
 | MuQ | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
@@ -38,6 +38,7 @@ which families deserve a full-library run.
 
 Classifier scoring is a separate stage. Each promoted manifest defines its exact SONARA and
 MAEST/MERT/MuQ/CLAP requirements. Incomplete tracks are counted as not ready rather than failed.
+The stored SONARA embedding is not a current similarity, search, or classifier input.
 
 ## CLI analysis
 
@@ -76,8 +77,9 @@ SONARA batch values, Device, progress, blockers, cancellation, and SQLite-only r
 through the typed requests and responses. **CLASSIFIERS** stays a separate stage; **FULL** runs
 SONARA, ML, and CLASSIFIERS in order.
 
-SONARA is selected at startup and always runs Core only. There are no output checkboxes. The ML
-selection contains MAEST, MERT, MuQ, and CLAP, not SONARA or CLASSIFIERS.
+SONARA is selected at startup and always runs Core plus its dedicated embedding as one fixed output
+set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, and CLAP, not
+SONARA or CLASSIFIERS.
 
 SONARA receives paths in native batches and decodes them through its Symphonia path inside
 `sonara.analyze_batch()`. It does not call the project's FFmpeg loader and has no `analyze_signal`
@@ -88,16 +90,19 @@ default for a library on one HDD unless a measured pilot supports a larger value
 
 ## Already analyzed tracks
 
-Analysis jobs target missing results for the selected families. SONARA skips tracks whose current
-Core row is already present. Other complete families are skipped. Use reset only when you
-intentionally want to delete stored results.
+Analysis jobs target missing results for the selected families. SONARA skips a track only when both
+its current Core row and dedicated embedding row are present. If either row is missing, a normal
+SONARA rerun analyzes the track and stores both rows together. Other complete families are skipped.
+Use reset only when you intentionally want to delete stored results.
 
 After adopting a SONARA change, adapt storage explicitly if needed and decide which outputs to
 reset or reanalyze. Follow [Migrate and reanalyze SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Reset boundaries
 
-- Reset SONARA removes active Core and Artifacts outputs plus dependent classifier scores. Labels and feedback remain intact.
+- Reset SONARA removes Core rows plus dependent classifier scores. Dedicated SONARA embedding rows
+  remain. The next normal SONARA run sees Core missing and writes both outputs together. Labels and
+  feedback remain intact.
 - Reset MAEST removes MAEST metadata and MAEST embeddings.
 - Reset MERT, MuQ, or CLAP deletes embeddings for that key.
 - Reset CLASSIFIERS deletes selected classifier scores only.

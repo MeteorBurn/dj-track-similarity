@@ -19,6 +19,10 @@ A SONARA release does not force a project-wide reset. Change only the stored fie
 behavior you intend to use. If a classifier recipe depends on changed SONARA features, plan to
 retrain, promote, and rescore that classifier afterwards.
 
+If the Core row already exists but the dedicated SONARA embedding row is missing, a normal SONARA
+run can backfill it without a reset. The track is selected because one output is missing, then Core
+and embedding are written together.
+
 ## 3. Reset SONARA when chosen
 
 Use **Reset SONARA** in the browser or the matching CLI/API path. Reset changes SQLite data only;
@@ -42,8 +46,10 @@ Omit `--limit` only after approving a full-library run:
 dj-sim analyze --models sonara --db .\data\library.sqlite
 ```
 
-SONARA writes `sonara_features` in the library. Timeline, SONARA embedding, and fingerprint
-collection remain disabled.
+SONARA writes Core rows to `sonara_features` and unnormalized 48-dimensional `float32` embeddings to
+the dedicated `sonara_embeddings` table. Each successful pass writes both outputs together.
+Timeline and fingerprint collection remain disabled. The stored embedding is not a current
+similarity, search, or classifier input.
 
 ## 6. Refresh affected classifiers
 

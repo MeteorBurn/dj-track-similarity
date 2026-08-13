@@ -30,7 +30,7 @@ flowchart LR
 - `analysis_jobs.py` and `sonara_features.py`: separate ML jobs, native batched SONARA capture, and
   phase timing. A SONARA batch is persisted in one transaction with a savepoint per track.
 - `analysis_pipeline.py`: fixed SONARA then ML parent/child orchestration.
-- `sonara_runtime.py`: current SONARA Core feature selection.
+- `sonara_runtime.py`: current SONARA Core feature and embedding selection.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.
 - `search.py`, `sonara_similarity*.py`, and `transition_diagnostics.py`: search and transition-risk diagnostics.
 - `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, and database-only scoring for one classifier at a time.
@@ -38,7 +38,7 @@ flowchart LR
 - `frontend/src/`: typed API client, library/search state coordinators, and React UI panels.
 
 Selecting a fresh `library.sqlite` path creates the one library schema, including catalog, tracks,
-tags, analysis rows, MAEST/MERT/MuQ/CLAP embeddings, scores, likes, feedback, and FTS. Optional
+tags, analysis rows, SONARA/MAEST/MERT/MuQ/CLAP embeddings, scores, likes, feedback, and FTS. Optional
 `library.evaluation.sqlite` is created only by Evaluation workflows. A legacy split layout fails
 closed. Normal startup never migrates it. The only migration path is the confirmation-gated
 `dj-sim migrate-database` command, which stages and verifies one replacement file while preserving

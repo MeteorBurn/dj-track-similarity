@@ -119,10 +119,11 @@ Artifacts files move into that backup directory. It does not run analysis, reana
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
 | `--sonara-batch-size` | `1..16` concurrent native paths; default `8` |
 
-SONARA analysis materializes Core only. Timeline, SONARA embedding, and fingerprint collection are
-disabled and have no CLI selector. Their Artifacts tables remain empty placeholders; they do not
-define a payload format or version contract. MAEST/MERT/MuQ/CLAP embeddings continue to use their
-dedicated Artifacts tables.
+SONARA analysis always materializes Core plus its unnormalized 48-dimensional `float32` embedding.
+Core is stored in `sonara_features`; the embedding is stored in the dedicated `sonara_embeddings`
+table. There is no CLI output selector. A normal rerun selects a track when either row is missing
+and writes both rows together. Timeline and fingerprint collection remain disabled. The stored
+SONARA embedding is not a current similarity, search, or classifier input.
 
 `analyze-classifier <classifier_key>` forms a separate database-only job for the named promoted
 artifact. `analyze-pipeline` always executes selected stages as SONARA, then ML; `--ml-models`

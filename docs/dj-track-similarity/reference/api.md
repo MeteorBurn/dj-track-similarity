@@ -44,8 +44,9 @@ Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|f
 Regular track rows use `TrackSummaryResponse`: stable identity (`catalog_uuid`,
 `track_id`, `track_uuid`), `file_path`, compact tags, `analysis_coverage`, and
 classifier-score summaries. Detailed rows expose SONARA Core, MAEST, embedding summaries for the
-active ML families, and classifier details. Timeline, SONARA embedding, and fingerprint fields are
-not part of the response.
+active ML families, and classifier details. The stored SONARA embedding is not part of the track
+response or a current similarity, search, or classifier input. Timeline and fingerprint fields are
+also absent.
 
 ## Analysis and classifiers
 
@@ -55,6 +56,7 @@ not part of the response.
 | `GET` | `/api/analysis/jobs/latest` | latest analysis job |
 | `GET` | `/api/analysis/jobs/{job_id}` | job status |
 | `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
+| `GET` | `/api/analysis/sonara/status` | current SONARA Core and embedding coverage |
 | `POST` | `/api/analysis/reset` | reset one family |
 | `GET` | `/api/classifiers` | promoted classifier profiles |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
@@ -78,7 +80,8 @@ SONARA, then ML. All manual and pipeline stages share one sequential application
 
 `GET /api/library/summary` reports current coverage for SONARA Core, MAEST analysis and embedding,
 MERT, MuQ, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage` contains
-`sonara_core` only for SONARA.
+`sonara_core` only for SONARA. Use `GET /api/analysis/sonara/status` for separate current Core and
+embedding counts.
 
 Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`, `clap`). The typed
 response returns `core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`.

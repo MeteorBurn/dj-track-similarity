@@ -30,7 +30,7 @@ Scan and Refresh Tags use Mutagen to read a fixed metadata set: artist, title, a
 
 These are source-file tags. They can be incomplete or inconsistent. The app stores a JSON-safe copy in SQLite.
 
-## SONARA features
+## SONARA features and embedding
 
 SONARA produces explainable audio features and derived working fields such as BPM, key, duration, and energy. SONARA features support the SONARA tab, Evaluation transition diagnostics, Audio Dedup, and compatible classifier inputs.
 
@@ -47,9 +47,11 @@ for possible loudness-management features rather than direct SONARA similarity. 
 dynamics comparison uses momentary loudness maximum and loudness range; vocalness is also an
 explicit search modifier.
 
-SONARA analysis currently stores only compact Core scalars and fixed vectors. Timeline, SONARA
-embedding, and fingerprint collection are disabled. MAEST, MERT, MuQ, and CLAP vectors use
-dedicated tables in the mandatory Artifacts database.
+SONARA analysis stores compact Core scalars and fixed vectors in `sonara_features`, plus an
+unnormalized 48-dimensional `float32` embedding in the dedicated `sonara_embeddings` table. A
+successful SONARA pass writes both rows together. Timeline and fingerprint collection remain
+disabled. The stored SONARA embedding is not a current similarity, search, or classifier input.
+MAEST, MERT, MuQ, and CLAP vectors use their own dedicated tables in the same library database.
 
 SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current
 SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked tempo candidates and
@@ -59,7 +61,9 @@ toward a neutral score rather than creating similarity.
 The current SONARA `core` output stores `bpm_confidence` beside raw BPM, tempo candidates, and
 Camelot key. The confidence value records how strongly SONARA supports its working BPM estimate.
 
-CLI, API, and browser run SONARA Core only. There is no output selector or optional-output metadata.
+CLI, API, and browser analysis always request the fixed SONARA Core-plus-embedding output set. There
+is no output selector. A normal rerun selects a track when either current row is missing and writes
+both rows together. A track with both current rows is skipped.
 
 The exact field and scoring boundaries are in the
 [SONARA integration reference](../reference/sonara-integration.md).

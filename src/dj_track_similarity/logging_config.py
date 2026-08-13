@@ -261,9 +261,9 @@ def uvicorn_log_config(level: int | str = "info", log_path: str | Path | None = 
             "formatter": "file",
             "level": normalized_level,
         }
-        loggers["uvicorn"] = {"handlers": ["default", "file"], "level": normalized_level, "propagate": False}
-        loggers["uvicorn.error"] = {"handlers": ["default", "file"], "level": normalized_level, "propagate": False}
-        loggers["uvicorn.access"] = {"handlers": ["access", "file"], "level": normalized_level, "propagate": False}
+        loggers["uvicorn"] = {"handlers": ["default"], "level": normalized_level, "propagate": False}
+        loggers["uvicorn.error"] = {"handlers": ["default"], "level": normalized_level, "propagate": False}
+        loggers["uvicorn.access"] = {"handlers": ["access"], "level": normalized_level, "propagate": False}
         loggers["dj_track_similarity"] = {"handlers": ["file"], "level": normalized_level, "propagate": True}
     return config
 

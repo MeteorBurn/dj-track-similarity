@@ -60,16 +60,16 @@ def test_uvicorn_log_config_wraps_console_date_time_and_level_in_brackets():
     assert config["loggers"]["rhythm_lab"] == {"handlers": ["default"], "level": "WARNING", "propagate": False}
 
 
-def test_uvicorn_log_config_writes_server_and_access_logs_to_file(tmp_path):
+def test_uvicorn_log_config_uses_only_stream_handlers_to_avoid_duplicate_file_logs(tmp_path):
     log_path = tmp_path / "app.log"
 
     config = logging_config.uvicorn_log_config("info", log_path=log_path)
 
     assert config["formatters"]["file"]["format"] == "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
     assert config["handlers"]["file"]["filename"] == str(log_path.resolve())
-    assert config["loggers"]["uvicorn"]["handlers"] == ["default", "file"]
-    assert config["loggers"]["uvicorn.error"]["handlers"] == ["default", "file"]
-    assert config["loggers"]["uvicorn.access"]["handlers"] == ["access", "file"]
+    assert config["loggers"]["uvicorn"]["handlers"] == ["default"]
+    assert config["loggers"]["uvicorn.error"]["handlers"] == ["default"]
+    assert config["loggers"]["uvicorn.access"]["handlers"] == ["access"]
     assert config["loggers"]["dj_track_similarity"]["handlers"] == ["file"]
 
 

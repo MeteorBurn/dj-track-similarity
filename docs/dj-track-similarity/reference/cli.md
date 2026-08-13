@@ -74,6 +74,18 @@ Runtime diagnostic:
 dj-sim doctor
 ```
 
+Validate the selected persisted data without recalculating analysis or changing the database:
+
+```powershell
+dj-sim validate-database --db .\data\library.sqlite
+dj-sim validate-database --db .\data\library.sqlite --report .\reports\database-validation.json
+```
+
+The command walks rows sequentially and reports SQLite integrity, stored track paths, embeddings,
+SONARA feature vectors, and classifier scores. File-byte changes are not treated as a failure. A
+zero-exit run can still contain warnings, such as a missing file at a stored path; invalid
+persisted values return exit code `2`.
+
 ## Library maintenance
 
 Normal runtime opens one library database and does not rewrite a legacy split layout. Use a verified

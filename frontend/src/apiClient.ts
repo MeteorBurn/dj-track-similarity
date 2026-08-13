@@ -6,6 +6,7 @@ import type {
   ClassifierResetResult,
   DatabaseClearResult,
   DatabaseSelection,
+  DatabaseValidationJobStatus,
   EmbeddingSearchPayload,
   GenreTagJobStatus,
   LibrarySummary,
@@ -186,7 +187,10 @@ const libraryApi = {
     request<ScanStats>(`/api/library/scan/jobs/${jobId}/cancel`, {
       method: "POST",
       body: JSON.stringify({})
-    })
+    }),
+  startDatabaseValidation: () => request<DatabaseValidationJobStatus>("/api/database/validation/jobs", { method: "POST", body: JSON.stringify({}) }),
+  databaseValidationJob: (jobId: string) => request<DatabaseValidationJobStatus>(`/api/database/validation/jobs/${jobId}`),
+  latestDatabaseValidationJob: () => request<DatabaseValidationJobStatus | null>("/api/database/validation/jobs/latest")
 };
 
 const shellApi = {

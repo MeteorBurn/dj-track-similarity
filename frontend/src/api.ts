@@ -433,6 +433,17 @@ export type DatabaseSelection = {
   selected: boolean;
 };
 
+export type DatabaseValidationJobStatus = {
+  job_id: string;
+  state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  checked: number;
+  warnings: number;
+  errors: number;
+  current_entity?: string | null;
+  cancel_requested: boolean;
+  events: Array<{ timestamp: number; level: string; message: string; table?: string | null; track_id?: number | null; path?: string | null }>;
+};
+
 export type RhythmLabSourceBinding = {
   catalog_uuid: string;
   database_path: string;

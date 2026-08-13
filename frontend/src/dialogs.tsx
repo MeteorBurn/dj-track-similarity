@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
-import type { AnalysisJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import type { AnalysisJobStatus, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import type { ActivityEvent } from "./jobUi";
 import { UnifiedLog } from "./jobUi";
@@ -10,13 +10,15 @@ export function LogFrameDialog({
   scanJob,
   analysisJob,
   genreTagJob,
+  databaseValidationJob,
   activityLog,
   onClose
 }: {
-  processLogKind: "scan" | "analysis" | "genre_tags";
+  processLogKind: "scan" | "analysis" | "genre_tags" | "database_validation";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
+  databaseValidationJob: DatabaseValidationJobStatus | null;
   activityLog: ActivityEvent[];
   onClose: () => void;
 }) {
@@ -46,6 +48,7 @@ export function LogFrameDialog({
             scanJob={scanJob}
             analysisJob={analysisJob}
             genreTagJob={genreTagJob}
+            databaseValidationJob={databaseValidationJob}
             events={activityLog}
             className="log-frame-panel"
           />

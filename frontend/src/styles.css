@@ -385,7 +385,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
+  min-width: 270px;
   padding: 9px;
 }
 
@@ -994,7 +994,7 @@ h2 {
   align-items: stretch;
   display: grid;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr) repeat(3, 34px);
+  grid-template-columns: max-content repeat(4, 34px);
   margin-bottom: 8px;
 }
 
@@ -1034,7 +1034,7 @@ h2 {
   gap: 5px;
   min-width: 0;
   padding-inline: 6px;
-  width: 100%;
+  width: auto;
 }
 
 .scan-action-row .refresh-tags-button {

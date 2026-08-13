@@ -10,6 +10,7 @@ from .analysis_pipeline import AnalysisPipelineManager
 from .analysis_queue import AnalysisStageQueue
 from .classifier_jobs import ClassifierJobManager
 from .database import LibraryDatabase
+from .database_validation_jobs import DatabaseValidationJobManager
 from .scan_jobs import ScanJobManager
 from .tags import GenreTagJobManager
 
@@ -37,6 +38,7 @@ class AppDatabaseState:
         self.classifier_jobs: ClassifierJobManager | None = None
         self.scan_jobs: ScanJobManager | None = None
         self.genre_tag_jobs: GenreTagJobManager | None = None
+        self.database_validation_jobs: DatabaseValidationJobManager | None = None
         if db_path is not None:
             self.switch(db_path)
 
@@ -75,6 +77,7 @@ class AppDatabaseState:
             )
             scan_jobs = ScanJobManager(db)
             genre_tag_jobs = GenreTagJobManager(db)
+            database_validation_jobs = DatabaseValidationJobManager(str(db.path))
 
             self.db_path = db.path
             self.db = db
@@ -84,6 +87,7 @@ class AppDatabaseState:
             self.analysis_pipeline_jobs = analysis_pipeline_jobs
             self.scan_jobs = scan_jobs
             self.genre_tag_jobs = genre_tag_jobs
+            self.database_validation_jobs = database_validation_jobs
             return self.current()
 
     def require_db(self) -> LibraryDatabase:
@@ -171,6 +175,11 @@ class AppDatabaseState:
         assert self.genre_tag_jobs is not None
         return self.genre_tag_jobs
 
+    def require_database_validation_jobs(self) -> DatabaseValidationJobManager:
+        self._require_jobs_available()
+        assert self.database_validation_jobs is not None
+        return self.database_validation_jobs
+
     def _has_active_jobs(self) -> bool:
         managers = [
             self.analysis_jobs,
@@ -178,6 +187,7 @@ class AppDatabaseState:
             self.classifier_jobs,
             self.scan_jobs,
             self.genre_tag_jobs,
+            self.database_validation_jobs,
         ]
         for manager in managers:
             if manager is None:

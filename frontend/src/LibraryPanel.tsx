@@ -1,4 +1,4 @@
-import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
+import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
 
@@ -64,6 +64,7 @@ export function LibraryPanel({
   onRefreshTags,
   onWriteMaestGenres,
   onClearDatabase,
+  onValidateDatabase,
   analysisCounts,
   selectedAnalysisModels,
   onToggleAnalysisModel,
@@ -103,6 +104,7 @@ export function LibraryPanel({
   onRefreshTags: () => void;
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
+  onValidateDatabase: () => void;
   analysisCounts: Record<AnalysisSelection, number>;
   selectedAnalysisModels: AnalysisSelection[];
   onToggleAnalysisModel: (model: AnalysisSelection) => void;
@@ -157,6 +159,7 @@ export function LibraryPanel({
         <button className="scan-start-button" title="Загрузить треки в SQLite" disabled={busy || stageRunning || !canStartScan} onClick={onScan} type="button"><Play size={15} />Загрузить треки в базу</button>
         <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title={helpText.refreshTags} onClick={onRefreshTags} type="button"><RefreshCcw size={17} /></button>
         <button className="icon-button genre-save-button" disabled={busy || stageRunning || !maestGenreTrackCount} title={helpText.writeMaestGenres} onClick={onWriteMaestGenres} type="button"><Save size={17} /></button>
+        <button className="icon-button database-validation-button" disabled={busy || stageRunning || !databasePath} title="Проверить целостность и сохранённые данные базы без изменений" onClick={onValidateDatabase} type="button"><ShieldCheck size={17} /></button>
         <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title={helpText.clearDatabase} onClick={onClearDatabase} type="button"><Trash2 size={17} /></button>
       </div>
 

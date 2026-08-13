@@ -6,6 +6,7 @@ import {
   AnalysisModel,
   AnalysisPipelineStatus,
   api,
+  DatabaseValidationJobStatus,
   EmbeddingSource,
   GenreTagJobStatus,
   PromotedClassifier,
@@ -159,8 +160,9 @@ export function App() {
   const [analysisPipelineJob, setAnalysisPipelineJob] = useState<AnalysisPipelineStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
+  const [databaseValidationJob, setDatabaseValidationJob] = useState<DatabaseValidationJobStatus | null>(null);
   const [rhythmLabStatus, setRhythmLabStatus] = useState<RhythmLabStatus | null>(null);
-  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags">("scan");
+  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "database_validation">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [scanWorkers, setScanWorkers] = useState(8);
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(8);
@@ -243,15 +245,17 @@ export function App() {
     || (analysisPipelineJob && ["queued", "running"].includes(analysisPipelineJob.state))
   );
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
-  const stageRunning = scanRunning || analysisRunning || genreTagRunning;
+  const databaseValidationRunning = Boolean(databaseValidationJob && ["queued", "running"].includes(databaseValidationJob.state));
+  const stageRunning = scanRunning || analysisRunning || genreTagRunning || databaseValidationRunning;
   const rhythmLabRunning = Boolean(rhythmLabStatus?.running);
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
       || (analysisJob?.events || []).some((event) => event.level === "error")
-      || (genreTagJob?.events || []).some((event) => event.level === "error");
+      || (genreTagJob?.events || []).some((event) => event.level === "error")
+      || (databaseValidationJob?.events || []).some((event) => event.level === "error");
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
-  }, [activityLog, analysisJob, genreTagJob, scanJob]);
+  }, [activityLog, analysisJob, databaseValidationJob, genreTagJob, scanJob]);
   const canStartScan = Boolean(databasePath && musicRoot);
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
@@ -374,6 +378,18 @@ export function App() {
   }, [analysisJob?.job_id, analysisJob?.state]);
 
   useEffect(() => {
+    if (!databaseValidationJob || !["queued", "running"].includes(databaseValidationJob.state)) return;
+    const timer = window.setInterval(() => {
+      void api.databaseValidationJob(databaseValidationJob.job_id).then((job) => {
+        setDatabaseValidationJob(job);
+        const detail = `${job.checked} проверено · предупреждений ${job.warnings} · ошибок ${job.errors}`;
+        setNotice({ kind: job.errors ? "error" : "ok", text: job.state === "completed" ? `Проверка БД завершена: ${detail}` : `Проверка БД: ${detail}` });
+      }).catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) }));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [databaseValidationJob?.job_id, databaseValidationJob?.state]);
+
+  useEffect(() => {
     if (!analysisPipelineJob || !["queued", "running"].includes(analysisPipelineJob.state)) return;
     const timer = window.setInterval(() => {
       void api.analysisPipeline(analysisPipelineJob.job_id).then((job) => {
@@ -474,6 +490,12 @@ export function App() {
         if (job) {
           setGenreTagJob(job);
           if (["queued", "running"].includes(job.state)) setProcessLogKind("genre_tags");
+        }
+      }).catch(() => undefined),
+      api.latestDatabaseValidationJob().then((job) => {
+        if (job) {
+          setDatabaseValidationJob(job);
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("database_validation");
         }
       }).catch(() => undefined)
     ]);
@@ -1031,6 +1053,17 @@ export function App() {
     );
   }
 
+  async function handleValidateDatabase() {
+    await run(
+      () => api.startDatabaseValidation(),
+      (job) => {
+        setDatabaseValidationJob(job);
+        setProcessLogKind("database_validation");
+        setNotice({ kind: "ok", text: "Проверка БД запущена" });
+      },
+    );
+  }
+
   async function handleClearDatabase() {
     appendActivity("warn", "Очистка базы запущена", "Удаляем только данные SQLite, аудиофайлы не трогаем");
     await run(
@@ -1384,6 +1417,7 @@ export function App() {
             message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
             onConfirm: () => handleClearDatabase()
           })}
+          onValidateDatabase={() => void handleValidateDatabase()}
           analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
@@ -1542,6 +1576,7 @@ export function App() {
           scanJob={scanJob}
           analysisJob={analysisJob}
           genreTagJob={genreTagJob}
+          databaseValidationJob={databaseValidationJob}
           activityLog={activityLog}
           onClose={() => setLogFrameOpen(false)}
         />

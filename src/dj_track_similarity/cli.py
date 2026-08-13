@@ -48,6 +48,7 @@ from .analysis_queue import AnalysisStageQueue
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
+from .database_validation import DatabaseValidator, format_validation_finding
 from .db_migration import (
     MIGRATION_CONFIRMATION,
     LegacyLibraryMigrationError,
@@ -937,6 +938,20 @@ def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db"))
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
     typer.echo(f"added={stats.added} updated={stats.updated} unchanged={stats.unchanged} skipped={stats.skipped}")
+
+@app.command("validate-database")
+def validate_database(db_path: Path = typer.Option(..., "--db"), report: Path | None = typer.Option(None, "--report")) -> None:
+    try:
+        result = DatabaseValidator(db_path).run(lambda item: typer.echo(format_validation_finding(item)))
+        payload = {"status": result.status, "checked": result.checked, "warnings": result.warning_count, "errors": result.error_count}
+        if report is not None:
+            _write_json_report(report, payload)
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+        if result.error_count:
+            raise typer.Exit(2)
+    except (FileNotFoundError, sqlite3.Error, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
 
 
 @app.command("migrate-database")

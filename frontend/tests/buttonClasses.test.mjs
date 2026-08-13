@@ -128,7 +128,7 @@ test("scan action row keeps icon controls on the standard button grid", () => {
   const controlCount = (rowMatch[1].match(/<button\b/g) || []).length;
   const declaredIconColumns = Number(styleMatch[1].match(/repeat\((\d+),\s*34px\)/)?.[1] || 0);
 
-  assert.equal(controlCount, 4);
+  assert.equal(controlCount, 5);
   assert.equal(declaredIconColumns, controlCount - 1);
   assert.match(styleMatch[1], /gap:\s*6px/);
   assert.doesNotMatch(styles, /\.scan-action-row\s+\.icon-button\s*{[\s\S]*?width:\s*42px/);
@@ -722,4 +722,12 @@ test("library panel scrolls its own controls inside the fixed desktop workspace"
 
   assert.match(workspaceRule, /height:\s*calc\(100vh - 86px\)/);
   assert.match(libraryRule, /overflow:\s*auto/);
+});
+
+test("database validation starts without opening the log dialog", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const handler = appSource.match(/async function handleValidateDatabase[\s\S]*?async function handleClearDatabase/)?.[0] || "";
+
+  assert.match(handler, /setProcessLogKind\("database_validation"\)/);
+  assert.doesNotMatch(handler, /setLogFrameOpen\(/);
 });

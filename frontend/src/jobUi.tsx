@@ -1,4 +1,4 @@
-import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, ScanStats } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { basename, formatEta } from "./trackDisplay";
 
 export type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
@@ -17,17 +17,19 @@ export function UnifiedLog({
   scanJob,
   analysisJob,
   genreTagJob,
+  databaseValidationJob,
   events,
   className = ""
 }: {
-  processKind: "scan" | "analysis" | "genre_tags";
+  processKind: "scan" | "analysis" | "genre_tags" | "database_validation";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
+  databaseValidationJob: DatabaseValidationJobStatus | null;
   events: ActivityEvent[];
   className?: string;
 }) {
-  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, events);
+  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, databaseValidationJob, events);
   return (
     <section className={`log-panel ${className}`.trim()}>
       <div className="log-title">
@@ -35,7 +37,7 @@ export function UnifiedLog({
         <span>{mergedEvents.length}</span>
       </div>
       <div className="log-body">
-        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} />
+        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} databaseValidationJob={databaseValidationJob} />
         <UnifiedEventList events={mergedEvents} />
       </div>
     </section>
@@ -46,13 +48,16 @@ function ProcessStatus({
   kind,
   scanJob,
   analysisJob,
-  genreTagJob
+  genreTagJob,
+  databaseValidationJob
 }: {
-  kind: "scan" | "analysis" | "genre_tags";
+  kind: "scan" | "analysis" | "genre_tags" | "database_validation";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
+  databaseValidationJob: DatabaseValidationJobStatus | null;
 }) {
+  if (kind === "database_validation") return <DatabaseValidationProcessStatus job={databaseValidationJob} />;
   if (kind === "genre_tags") {
     return <GenreTagProcessStatus job={genreTagJob} />;
   }
@@ -66,6 +71,7 @@ function unifiedLogEvents(
   scanJob: ScanStats | null,
   analysisJob: AnalysisJobStatus | null,
   genreTagJob: GenreTagJobStatus | null,
+  databaseValidationJob: DatabaseValidationJobStatus | null,
   activityEvents: ActivityEvent[]
 ) {
   const uiEvents: UnifiedLogEvent[] = activityEvents.map((event) => ({
@@ -102,7 +108,15 @@ function unifiedLogEvents(
     message: event.message,
     detail: event.path ? basename(event.path) : undefined
   }));
-  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
+  const validationEvents: UnifiedLogEvent[] = (databaseValidationJob?.events || []).map((event, index) => ({
+    id: `validation-${event.timestamp}-${index}`,
+    timeMs: event.timestamp * 1000,
+    level: event.level as ActivityEvent["level"],
+    source: "validation",
+    message: event.message,
+    detail: event.path || undefined
+  }));
+  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
 }
 
 function isPerClassifierAnalysisEvent(message: string) {
@@ -174,10 +188,21 @@ function UnifiedEventList({ events }: { events: UnifiedLogEvent[] }) {
 }
 
 function sourceLabel(source: string) {
+  if (source === "validation") return "validation";
   if (source === "scan") return "scan";
   if (source === "analysis") return "analysis";
   if (source === "genre tags") return "genre tags";
   return "UI";
+}
+
+function DatabaseValidationProcessStatus({ job }: { job: DatabaseValidationJobStatus | null }) {
+  if (!job) return <div className="process-box">Проверка БД не запущена</div>;
+  return (
+    <div className="process-box">
+      <div className="process-head"><strong>{job.state}</strong><span>{job.checked} проверено</span></div>
+      <div className="process-grid"><span>warn {job.warnings}</span><span>error {job.errors}</span></div>
+    </div>
+  );
 }
 
 export function scanSummary(job: ScanStats) {

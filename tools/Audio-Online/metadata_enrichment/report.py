@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 
 from .models import LocalEvidence, SourceResult, TrackInput
+from .workbook_format import format_workbook
 BASE_FIELDS = ("Title", "Artist", "Album", "Year", "Country", "Label", "Tags")
 
 
@@ -68,5 +69,6 @@ def write_workbook(
         if node_modules:
             environment["METADATA_ENRICHMENT_NODE_MODULES"] = str(node_modules)
         subprocess.run([str(node_executable), str(bridge), "write", str(contract_path), str(output_path)], check=True, env=environment)
+        format_workbook(output_path)
     finally:
         contract_path.unlink(missing_ok=True)

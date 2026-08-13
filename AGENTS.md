@@ -10,9 +10,6 @@ remove obsolete guidance instead of layering more rules on top of it.
 - The project is under active development. File layout, schemas, API shapes,
   field order, model sets, weights, defaults, commands, ports, and UI structure
   describe the current checkout, not permanent contracts.
-- Treat the requested target behavior as the new source of truth. Update
-  affected source, types, migrations, tests, and docs together when they really
-  change.
 - Do not preserve incidental structure with compatibility aliases, duplicated
   registries, version gates, hidden legacy branches, or tests that freeze field
   order. Prefer one discoverable source of truth and tests of observable
@@ -22,6 +19,45 @@ remove obsolete guidance instead of layering more rules on top of it.
 - Keep work scoped. Preserve unrelated user changes. Do not create broad plans,
   specs, test profiles, or infrastructure unless they directly reduce current
   risk or complexity.
+- Treat the requested target behavior as the new source of truth.
+  Update affected source, types, migrations, and tests together when they really
+  change. Keep maintained documentation aligned through the independent
+  documentation workflow below.
+
+## Documentation Workflow
+
+- Documentation is maintained independently from the main implementation flow
+  and must not block completion of code changes, verification, commits, or
+  subsequent user tasks.
+- When a completed code or product-behavior change affects maintained
+  documentation, delegate the documentation update to a dedicated docs
+  sub-agent.
+- The docs sub-agent must use the `\codebase-documentation-writer` skill for
+  documentation work.
+- Pass the docs sub-agent the implemented behavior, relevant changed paths, and
+  any constraints needed to describe the actual current state of the project.
+- The main agent must not wait for the docs sub-agent to finish. It may complete
+  verification, commit the implementation, report completion, and continue with
+  later tasks independently.
+- The docs sub-agent owns its documentation changes through verification and a
+  separate documentation commit when its execution context allows safe
+  independent commits; otherwise it leaves only its scoped documentation
+  changes for later commit.
+- Documentation changes may be committed separately from the implementation
+  that triggered them.
+- The maintained documentation surface is limited to `README.md` and
+  `docs/dj-track-similarity/` unless the user explicitly requests another
+  documentation artifact.
+- Documentation must describe the current implemented behavior, not planned,
+  speculative, or superseded behavior.
+- Executable sources remain authoritative when documentation disagrees with the
+  current checkout.
+- Do not create additional architecture notes, plans, changelogs, migration
+  documents, or local documentation files unless explicitly requested.
+- Multiple pending documentation updates should be consolidated when practical
+  so closely related changes do not repeatedly rewrite the same documentation.
+- Documentation-only changes use the instruction/docs-only verification route
+  and must not trigger application test suites.
 
 ## Source Of Truth
 
@@ -34,7 +70,6 @@ remove obsolete guidance instead of layering more rules on top of it.
 - Executable sources beat prose when they disagree: `pyproject.toml`,
   `frontend/package.json`, `docs/dj-track-similarity/package.json`, tests,
   schemas, routes, and current source are authoritative.
-- The maintained docs surface is `README.md` plus `docs/dj-track-similarity/`.
 - Project databases live under `C:\projects\dj-track-similarity\database`.
   Never use a real project database in automated tests.
 
@@ -115,10 +150,8 @@ precaution.
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
 When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
 
-Rules:
 - For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
 - Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.

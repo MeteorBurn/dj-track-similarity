@@ -13,25 +13,16 @@ export async function buildWorkbook(contract) {
   const sheet = workbook.worksheets.add(contract.sheet || "Metadata");
   sheet.showGridLines = false;
   const columns = contract.columns;
-  const fields = contract.primary_fields;
-  let row = 0;
-  for (const block of contract.tracks) {
-    sheet.getRangeByIndexes(row, 0, 1, columns.length).merge();
-    sheet.getCell(row, 0).values = [[block.track_name]];
-    sheet.getRangeByIndexes(row, 0, 1, columns.length).format = { fill: "#1F2937", font: { bold: true, color: "#FFFFFF" } };
-    row += 1;
-    sheet.getRangeByIndexes(row, 0, 1, columns.length).values = [columns];
-    sheet.getRangeByIndexes(row, 0, 1, columns.length).format = { fill: "#334155", font: { bold: true, color: "#FFFFFF" } };
-    row += 1;
-    for (const field of fields) {
-      const values = [field, ...columns.slice(1).map((name) => block.rows[field]?.[name] ?? "")];
-      sheet.getRangeByIndexes(row, 0, 1, columns.length).values = [values];
-      if (["Genre", "Style", "Tags"].includes(field)) sheet.getRangeByIndexes(row, 0, 1, columns.length).format = { fill: "#E8F4ED" };
-      row += 1;
+  sheet.getRangeByIndexes(0, 0, 1, columns.length).values = [columns];
+  sheet.getRangeByIndexes(0, 0, 1, columns.length).format = { fill: "#334155", font: { bold: true, color: "#FFFFFF" } };
+  const rows = contract.rows || [];
+  if (rows.length) sheet.getRangeByIndexes(1, 0, rows.length, columns.length).values = rows.map((row) => columns.map((column) => row[column] ?? ""));
+  for (let column = 0; column < columns.length; column += 1) {
+    if (["Genre", "Style", "Tags", "MAEST"].some((field) => columns[column].endsWith(field))) {
+      sheet.getRangeByIndexes(1, column, rows.length, 1).format = { fill: "#E8F4ED" };
     }
-    row += 1;
   }
-  sheet.freezePanes.freezeRows(2);
+  sheet.freezePanes.freezeRows(1);
   sheet.freezePanes.freezeColumns(1);
   sheet.getUsedRange().format.wrapText = true;
   sheet.getUsedRange().format.autofitColumns();

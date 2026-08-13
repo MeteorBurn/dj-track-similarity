@@ -14,18 +14,17 @@ const require = createRequire(import.meta.url);
 const artifactToolPath = require.resolve("@oai/artifact-tool", { paths: [process.env.METADATA_ENRICHMENT_NODE_MODULES] });
 const { SpreadsheetFile, Workbook } = await import(new URL(`file://${artifactToolPath.replaceAll("\\", "/")}`).href);
 
-test("writer creates one Metadata sheet with MAEST last", async () => {
+test("writer creates one flat Metadata table with MAEST last", async () => {
   const workbook = await buildWorkbook({
-    sheet: "Metadata", columns: ["Field", "Local tags", "Discogs", "MAEST"],
-    primary_fields: ["Track Name", "Genre"], provenance_fields: [],
-    tracks: [{ track_name: "Artist — Title", rows: { "Track Name": { "Local tags": "Artist — Title", Discogs: "Artist — Title", MAEST: "" }, Genre: { "Local tags": "Electronic", Discogs: "Electronic", MAEST: "House (81%); Techno (64%); Electronic (52%)" } } }],
+    sheet: "Metadata", columns: ["Track Name", "Local Genre", "Discogs Genre", "MAEST"],
+    rows: [{ "Track Name": "Artist — Title", "Local Genre": "Electronic", "Discogs Genre": "Melodic Techno", MAEST: "House (81%); Techno (64%); Electronic (52%)" }],
   });
   assert.deepEqual(workbook.worksheets.items.map((sheet) => sheet.name), ["Metadata"]);
-  assert.equal(workbook.worksheets.getItem("Metadata").getRange("D4").values[0][0], "House (81%); Techno (64%); Electronic (52%)");
+  assert.equal(workbook.worksheets.getItem("Metadata").getRange("D2").values[0][0], "House (81%); Techno (64%); Electronic (52%)");
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "audio-online-"));
   const input = path.join(temp, "contract.json");
   const output = path.join(temp, "metadata.xlsx");
-  await fs.writeFile(input, JSON.stringify({ sheet: "Metadata", columns: ["Field", "Local tags", "Discogs", "MAEST"], primary_fields: ["Track Name", "Genre"], provenance_fields: [], tracks: [{ track_name: "Artist — Title", rows: { "Track Name": { "Local tags": "Artist — Title", Discogs: "Artist — Title", MAEST: "" }, Genre: { "Local tags": "Electronic", Discogs: "Electronic", MAEST: "House (81%); Techno (64%); Electronic (52%)" } } }] }));
+  await fs.writeFile(input, JSON.stringify({ sheet: "Metadata", columns: ["Track Name", "Local Genre", "Discogs Genre", "MAEST"], rows: [{ "Track Name": "Artist — Title", "Local Genre": "Electronic", "Discogs Genre": "Melodic Techno", MAEST: "House (81%); Techno (64%); Electronic (52%)" }] }));
   await execFile(process.execPath, [fileURLToPath(new URL("./workbook_bridge.mjs", import.meta.url)), "write", input, output]);
   assert.ok((await fs.stat(output)).size > 0);
 });

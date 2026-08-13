@@ -26,7 +26,8 @@ state.*.json
 .codex/
 /.worktrees/
 .omo/
-models/
+models/*
+!models/.gitkeep
 /.ideas/
 tools/audio-dedup/data/reports/*
 !tools/audio-dedup/data/reports/.gitkeep

@@ -22,6 +22,7 @@ test("writer creates one flat Metadata table with MAEST last", async () => {
   assert.deepEqual(workbook.worksheets.items.map((sheet) => sheet.name), ["Metadata"]);
   assert.equal(workbook.worksheets.getItem("Metadata").getRange("C2").values[0][0], "House (81%); Techno (64%); Electronic (52%)");
   assert.equal(workbook.worksheets.getItem("Metadata").getUsedRange().format.wrapText, false);
+  assert.ok(workbook.worksheets.getItem("Metadata").getRange("A:A").format.columnWidth > 0);
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "audio-online-"));
   const input = path.join(temp, "contract.json");
   const output = path.join(temp, "metadata.xlsx");

@@ -30,8 +30,7 @@ export async function buildWorkbook(contract) {
   sheet.freezePanes.freezeColumns(1);
   sheet.getUsedRange().format.wrapText = false;
   const used = sheet.getUsedRange();
-  used.getColumn(0).format.columnWidth = 38;
-  for (let column = 1; column < columns.length; column += 1) used.getColumn(column).format.columnWidth = columns[column].endsWith("Genres") ? 30 : 22;
+  used.format.autofitColumns();
   used.getRangeByIndexes(0, 0, 1, columns.length).format.rowHeight = 22;
   if (rows.length) used.getRangeByIndexes(1, 0, rows.length, columns.length).format.rowHeight = 21;
   return workbook;

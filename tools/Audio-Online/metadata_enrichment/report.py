@@ -48,7 +48,7 @@ def build_report_contract(
 
 
 def _join(values: Sequence[str]) -> str: return "; ".join(_clean(value) for value in values[:3] if _clean(value))
-def _maest(values: Sequence[tuple[str, float]]) -> str: return "; ".join(f"{_clean(label)} ({score:.0%})" for label, score in values[:3] if _clean(label))
+def _maest(values: Sequence[tuple[str, float]]) -> str: return "; ".join(f"{_clean(label.rsplit('---', 1)[-1])} ({score:.0%})" for label, score in values[:3] if _clean(label))
 def _column(source: str, field: str) -> str: return f"{source} {field}"
 def _clean(value: str | None) -> str: return " ".join(value.split()) if value else ""
 def _track_name(artist: str | None, title: str | None) -> str:

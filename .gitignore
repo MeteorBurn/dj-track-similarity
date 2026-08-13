@@ -58,8 +58,11 @@ frontend/.vite-temp/
 docs/dj-track-similarity/node_modules/
 docs/dj-track-similarity/.vitepress/cache/
 docs/dj-track-similarity/site/
-docs/superpowers/
 docs-legacy/
+
+# Local Superpowers artifacts
+.superpowers/
+docs/superpowers/
 
 # Vale package cache
 .vale/styles/*

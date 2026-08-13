@@ -147,6 +147,80 @@ def _insert_track_without_embedding(
         )
 
 
+def _insert_complete_rhythm_lab_rows(
+    repository: Repository,
+    *,
+    track_id: int,
+    missing_source: str | None = None,
+) -> None:
+    with repository.connect() as connection:
+        track_uuid = str(
+            connection.execute(
+                "SELECT track_uuid FROM tracks WHERE track_id = ?",
+                (track_id,),
+            ).fetchone()[0]
+        )
+        if missing_source != "sonara":
+            connection.execute(
+                """
+                INSERT INTO sonara_features(
+                    track_id, mfcc_mean_blob, chroma_mean_blob,
+                    spectral_contrast_mean_blob, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    track_id,
+                    bytes(13 * 4),
+                    bytes(12 * 4),
+                    bytes(7 * 4),
+                    NOW,
+                ),
+            )
+        for family in ("mert", "maest", "clap", "muq"):
+            if family == missing_source:
+                continue
+            specification = current_embedding_spec(family)
+            vector = np.zeros(specification.dimension, dtype="<f4")
+            if specification.normalization == "l2":
+                vector[0] = 1.0
+            connection.execute(
+                f"""
+                INSERT INTO {family}_embeddings(
+                    track_id, track_uuid, dim, normalization,
+                    embedding_blob, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    track_id,
+                    track_uuid,
+                    specification.dimension,
+                    specification.normalization,
+                    vector.tobytes(order="C"),
+                    NOW,
+                ),
+            )
+
+
+def _complete_all_tracks_for_rhythm_lab(
+    repository: Repository,
+    *,
+    existing_source: str,
+) -> None:
+    with repository.connect() as connection:
+        track_ids = [
+            int(row[0])
+            for row in connection.execute(
+                "SELECT track_id FROM tracks ORDER BY track_id"
+            )
+        ]
+    for track_id in track_ids:
+        _insert_complete_rhythm_lab_rows(
+            repository,
+            track_id=track_id,
+            missing_source=existing_source,
+        )
+
+
 def _write_promotable_artifact(
     root: Path,
     *,
@@ -248,6 +322,7 @@ def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
     output = _mert_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     with repository.connect() as core:
         track_id = int(core.execute("SELECT track_id FROM tracks").fetchone()[0])
         core.execute(
@@ -345,6 +420,7 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
 
     source = SourceDatabase(repository.path)
     tracks = source.list_tracks()
@@ -483,7 +559,7 @@ def test_source_feature_states_distinguish_current_and_missing(
 
     assert states["mert"].status == "current"
     assert states["muq"].status == "missing"
-    assert "current-generation" in str(states["muq"].reason)
+    assert "stored current-track" in str(states["muq"].reason)
     assert states["clap"].status == "missing"
 
 
@@ -524,6 +600,258 @@ def test_source_feature_inventory_is_cached_until_storage_changes(
     assert refreshed_counts["mert"] == first_counts["mert"] + 1
 
 
+def test_rhythm_lab_track_ids_exclude_tracks_missing_any_source(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    _insert_track_without_embedding(repository, index=0)
+    _insert_track_without_embedding(repository, index=1)
+    with repository.connect() as connection:
+        track_ids = [
+            int(row[0])
+            for row in connection.execute(
+                "SELECT track_id FROM tracks ORDER BY track_id"
+            )
+        ]
+    _insert_complete_rhythm_lab_rows(repository, track_id=track_ids[0])
+    _insert_complete_rhythm_lab_rows(
+        repository,
+        track_id=track_ids[1],
+        missing_source="mert",
+    )
+
+    source = SourceDatabase(repository.path)
+
+    assert source.rhythm_lab_track_ids() == (track_ids[0],)
+
+
+def test_source_feature_counts_trust_existing_rows_without_blob_validation(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    _insert_track_without_embedding(repository, index=0)
+    with repository.connect() as connection:
+        track_id, track_uuid = connection.execute(
+            "SELECT track_id, track_uuid FROM tracks"
+        ).fetchone()
+        connection.execute(
+            """
+            INSERT INTO mert_embeddings(
+                track_id, track_uuid, dim, normalization,
+                embedding_blob, analyzed_at
+            ) VALUES (?, ?, 1, 'none', ?, ?)
+            """,
+            (track_id, track_uuid, bytes(4), NOW),
+        )
+        connection.execute(
+            """
+            INSERT INTO sonara_features(
+                track_id, mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                track_id,
+                np.full(13, np.nan, dtype="<f4").tobytes(),
+                bytes(12 * 4),
+                bytes(7 * 4),
+                NOW,
+            ),
+        )
+
+    source = SourceDatabase(repository.path)
+
+    assert source.feature_counts()["mert"] == 1
+    assert source.count_embeddings("mert") == 1
+    assert source.count_sonara_features() == 1
+
+
+def test_rhythm_lab_track_page_excludes_tracks_missing_any_source(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    _insert_track(repository, output, index=1)
+    with repository.connect() as connection:
+        track_ids = [
+            int(row[0])
+            for row in connection.execute(
+                "SELECT track_id FROM tracks ORDER BY track_id"
+            )
+        ]
+    _insert_complete_rhythm_lab_rows(
+        repository,
+        track_id=track_ids[0],
+        missing_source="mert",
+    )
+    labels_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(labels_path)
+
+    page = SourceDatabase(repository.path).list_tracks_page(
+        labels_db_path=labels_path,
+        classifier_key="focused",
+        label_keys=("yes", "no"),
+        training_label_keys=("yes", "no"),
+    )
+
+    assert page["total"] == 1
+    assert [item["track_id"] for item in page["items"]] == [track_ids[0]]
+
+
+def test_labeled_features_exclude_tracks_missing_any_rhythm_lab_source(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    _insert_track(repository, output, index=1)
+    source = SourceDatabase(repository.path)
+    tracks = source.list_tracks()
+    _insert_complete_rhythm_lab_rows(
+        repository,
+        track_id=tracks[0].track_id,
+        missing_source="mert",
+    )
+    labels_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(labels_path)
+    scoped = RhythmLabDatabase(labels_path, classifier_key="focused")
+    scoped.set_label(tracks[0], "yes")
+    scoped.set_label(tracks[1], "no")
+
+    features = build_labeled_feature_matrix(
+        repository.path,
+        labels_path,
+        "mert",
+        classifier_key="focused",
+    )
+
+    assert [track.track_id for track in features.tracks] == [tracks[0].track_id]
+    assert len(features.skipped_identities) == 1
+    assert features.skipped_identities[0].track_uuid == tracks[1].track_uuid
+
+
+def test_prediction_refresh_excludes_tracks_missing_any_rhythm_lab_source(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    _insert_track(repository, output, index=1)
+    with repository.connect() as connection:
+        track_ids = [
+            int(row[0])
+            for row in connection.execute(
+                "SELECT track_id FROM tracks ORDER BY track_id"
+            )
+        ]
+    _insert_complete_rhythm_lab_rows(
+        repository,
+        track_id=track_ids[0],
+        missing_source="mert",
+    )
+    labels_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(labels_path)
+    artifact = _write_promotable_artifact(
+        tmp_path / "artifacts",
+        output=output,
+        catalog_uuid=repository.catalog_uuid,
+    )
+    progress: list[tuple[int, int]] = []
+
+    result = apply_model_to_lab(
+        repository.path,
+        labels_path,
+        artifact,
+        classifier_key="focused",
+        progress_callback=lambda completed, total: progress.append((completed, total)),
+    )
+
+    assert result["predicted"] == 1
+    assert result["skipped"] == 0
+    assert progress[-1] == (1, 1)
+
+
+def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    _insert_track(repository, output, index=1)
+    with repository.connect() as connection:
+        complete_track_id = int(
+            connection.execute(
+                "SELECT MIN(track_id) FROM tracks"
+            ).fetchone()[0]
+        )
+    _insert_complete_rhythm_lab_rows(
+        repository,
+        track_id=complete_track_id,
+        missing_source="mert",
+    )
+    labels_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(labels_path)
+    app = create_app(
+        repository.path,
+        labels_db_path=labels_path,
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/profiles/focused/summary")
+
+    assert response.status_code == 200
+    assert response.json()["tracks"] == 1
+
+
+def test_prediction_page_hides_track_after_any_source_row_is_removed(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    source = SourceDatabase(repository.path)
+    track = source.list_tracks()[0]
+    labels_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(labels_path)
+    scoped = RhythmLabDatabase(labels_path, classifier_key="focused")
+    scoped.save_prediction(
+        track,
+        feature_set="mert",
+        model_artifact="focused.joblib",
+        label="yes",
+        confidence=0.8,
+        probabilities={"yes": 0.8, "no": 0.2},
+    )
+    with repository.connect() as connection:
+        connection.execute(
+            "DELETE FROM mert_embeddings WHERE track_id = ?",
+            (track.track_id,),
+        )
+
+    page = source.list_predictions_page(
+        labels_db_path=labels_path,
+        classifier_key="focused",
+        profile_type="binary",
+        positive_label="yes",
+        negative_label="no",
+        label_keys=("yes", "no"),
+        training_label_keys=("yes", "no"),
+        label="all",
+        predicted="all",
+    )
+
+    assert page["items"] == []
+    assert page["total"] == 0
+
+
 def test_embedding_reads_are_bounded_by_track_id_chunks() -> None:
     class EmptyResult:
         def fetchall(self) -> list[object]:
@@ -562,6 +890,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
     repository.register_analysis_outputs((mert,))
     for index in range(2):
         _insert_track(repository, mert, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path)
     app = create_app(
@@ -594,7 +923,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             "muq",
         }
         assert first["feature_status"]["mert"]["status"] == "current"
-        assert first["feature_status"]["muq"]["status"] == "missing"
+        assert first["feature_status"]["muq"]["status"] == "current"
 
         mert_readiness = client.get(
             "/api/profiles/focused/training/readiness",
@@ -614,14 +943,14 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert mert_readiness["labels_ready"] is False
         assert mert_readiness["calibration_ready"] is False
         assert "100" in mert_readiness["calibration_readiness"]["reason"]
-        assert sonara_mert_maest_readiness["features_ready"] is False
+        assert sonara_mert_maest_readiness["features_ready"] is True
         assert sonara_mert_maest_readiness["feature_recipe"]["required_sources"] == [
             "sonara",
             "mert",
             "maest",
         ]
-        assert muq_readiness["features_ready"] is False
-        assert muq_readiness["feature_recipe"]["blocking"][0]["source"] == "muq"
+        assert muq_readiness["features_ready"] is True
+        assert muq_readiness["feature_recipe"]["blocking"] == []
 
         liked_payload = {
             "catalog_uuid": first["catalog_uuid"],
@@ -820,6 +1149,7 @@ def test_calibration_preflight_uses_usable_rows_and_preserves_current_artifact(
     _insert_track_without_embedding(repository, index=0)
     for index in range(1, 4):
         _insert_track(repository, output, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)
@@ -888,6 +1218,7 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)
@@ -944,13 +1275,14 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
     assert response.json()["artifact"] != str(newer_artifact)
 
 
-def test_web_promotion_rejects_artifact_when_muq_vectors_are_invalid(
+def test_web_promotion_readiness_trusts_existing_muq_rows(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
     current_muq = AnalysisOutput("muq", "embedding")
     repository.register_analysis_outputs((current_muq,))
     _insert_track(repository, current_muq, index=0)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="muq")
     with repository.connect() as connection:
         connection.execute(
             "UPDATE muq_embeddings SET normalization = 'none'"
@@ -989,15 +1321,8 @@ def test_web_promotion_rejects_artifact_when_muq_vectors_are_invalid(
         assert readiness.status_code == 200
         option = readiness.json()["artifact_summary"]["promotion_options"][0]
         assert option["feature_set"] == "muq"
-        assert option["source_data_ready"] is False
-        assert "No valid current-generation MUQ data" in option["source_data_reason"]
-
-        response = client.post(
-            "/api/profiles/focused/promote",
-            json={"feature_set": "muq"},
-        )
-        assert response.status_code == 409
-        assert not (tmp_path / "promoted").exists()
+        assert option["source_data_ready"] is True
+        assert option["source_data_reason"] is None
 
 
 def test_promotion_accepts_structurally_complete_muq_artifact(
@@ -1036,6 +1361,7 @@ def test_prediction_refresh_uses_requested_feature_recipe(
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)
@@ -1129,6 +1455,7 @@ def test_prediction_refresh_uses_bounded_features_and_one_atomic_swap(
     repository.register_analysis_outputs((output,))
     for index in range(5):
         _insert_track(repository, output, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path)
     artifact = _write_promotable_artifact(
@@ -1224,6 +1551,7 @@ def test_prediction_refresh_failure_leaves_previous_candidate_set_untouched(
     repository.register_analysis_outputs((output,))
     for index in range(5):
         _insert_track(repository, output, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path)
     scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
@@ -1282,6 +1610,7 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)

@@ -112,6 +112,15 @@ FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
         "muq": MUQ_EMBEDDING_OUTPUT,
     }
 )
+_FEATURE_TABLES: Mapping[FeatureSource, str] = MappingProxyType(
+    {
+        "sonara": "sonara_features",
+        "mert": "mert_embeddings",
+        "maest": "maest_embeddings",
+        "clap": "clap_embeddings",
+        "muq": "muq_embeddings",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -291,7 +300,7 @@ class SourceDatabase:
     def feature_inventory(
         self,
     ) -> tuple[Mapping[str, int], Mapping[str, SourceFeatureState]]:
-        """Return validated counts and states, cached until storage changes."""
+        """Return stored row counts and states, cached until storage changes."""
 
         with self._feature_inventory_lock:
             before = _storage_change_signature(self.path)
@@ -333,15 +342,48 @@ class SourceDatabase:
             ).fetchall()
         return tuple(int(row[0]) for row in rows)
 
+    def rhythm_lab_track_ids(self) -> tuple[int, ...]:
+        counts = self.feature_counts()
+        with closing(self.connect()) as connection:
+            current_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM tracks WHERE missing_since IS NULL"
+                ).fetchone()[0]
+            )
+            if all(count == current_count for count in counts.values()):
+                rows = connection.execute(
+                    """
+                    SELECT track_id
+                    FROM tracks
+                    WHERE missing_since IS NULL
+                    ORDER BY track_id
+                    """
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT t.track_id
+                    FROM tracks AS t
+                    JOIN sonara_features AS sonara USING(track_id)
+                    JOIN mert_embeddings AS mert USING(track_id)
+                    JOIN maest_embeddings AS maest USING(track_id)
+                    JOIN clap_embeddings AS clap USING(track_id)
+                    JOIN muq_embeddings AS muq USING(track_id)
+                    WHERE t.missing_since IS NULL
+                    ORDER BY t.track_id
+                    """
+                ).fetchall()
+        return tuple(int(row[0]) for row in rows)
+
     def count_embeddings(self, family: EmbeddingFamily) -> int:
-        return len(self.embedding_track_ids(family))
+        clean_family = _embedding_family(family)
+        return int(self.feature_counts()[clean_family])
 
     def count_sonara_features(self) -> int:
-        with closing(self.connect()) as connection:
-            return _count_sonara_features(connection)
+        return int(self.feature_counts()["sonara"])
 
     def feature_counts(self) -> Mapping[str, int]:
-        """Count structurally valid feature rows."""
+        """Count stored feature rows for current tracks."""
 
         counts, _ = self.feature_inventory()
         return counts
@@ -411,10 +453,30 @@ class SourceDatabase:
                 placeholders = ", ".join("?" for _ in chunk)
                 rows = connection.execute(
                     f"""
-                    SELECT track_id, track_uuid, file_path
-                    FROM tracks
-                    WHERE missing_since IS NULL
-                      AND track_uuid IN ({placeholders})
+                    SELECT t.track_id, t.track_uuid, t.file_path
+                    FROM tracks AS t
+                    WHERE t.missing_since IS NULL
+                      AND t.track_uuid IN ({placeholders})
+                      AND EXISTS (
+                          SELECT 1 FROM sonara_features AS data
+                          WHERE data.track_id = t.track_id
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM mert_embeddings AS data
+                          WHERE data.track_id = t.track_id
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM maest_embeddings AS data
+                          WHERE data.track_id = t.track_id
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM clap_embeddings AS data
+                          WHERE data.track_id = t.track_id
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM muq_embeddings AS data
+                          WHERE data.track_id = t.track_id
+                      )
                     """,
                     chunk,
                 ).fetchall()
@@ -1310,7 +1372,19 @@ def _track_page_filters(
     label: str,
     label_keys: tuple[str, ...],
 ) -> list[str]:
-    where = ["t.missing_since IS NULL"]
+    where = [
+        "t.missing_since IS NULL",
+        "EXISTS (SELECT 1 FROM sonara_features AS ready_sonara "
+        "WHERE ready_sonara.track_id = t.track_id)",
+        "EXISTS (SELECT 1 FROM mert_embeddings AS ready_mert "
+        "WHERE ready_mert.track_id = t.track_id)",
+        "EXISTS (SELECT 1 FROM maest_embeddings AS ready_maest "
+        "WHERE ready_maest.track_id = t.track_id)",
+        "EXISTS (SELECT 1 FROM clap_embeddings AS ready_clap "
+        "WHERE ready_clap.track_id = t.track_id)",
+        "EXISTS (SELECT 1 FROM muq_embeddings AS ready_muq "
+        "WHERE ready_muq.track_id = t.track_id)",
+    ]
     needle = query.strip().casefold()
     if needle:
         params["query_like"] = f"%{needle}%"
@@ -1485,6 +1559,26 @@ def _prediction_page_cte(trained_members: str) -> str:
              AND t.track_uuid = p.track_uuid
              AND t.file_path = p.selected_path
              AND t.missing_since IS NULL
+             AND EXISTS (
+                 SELECT 1 FROM sonara_features AS ready_sonara
+                 WHERE ready_sonara.track_id = t.track_id
+             )
+             AND EXISTS (
+                 SELECT 1 FROM mert_embeddings AS ready_mert
+                 WHERE ready_mert.track_id = t.track_id
+             )
+             AND EXISTS (
+                 SELECT 1 FROM maest_embeddings AS ready_maest
+                 WHERE ready_maest.track_id = t.track_id
+             )
+             AND EXISTS (
+                 SELECT 1 FROM clap_embeddings AS ready_clap
+                 WHERE ready_clap.track_id = t.track_id
+             )
+             AND EXISTS (
+                 SELECT 1 FROM muq_embeddings AS ready_muq
+                 WHERE ready_muq.track_id = t.track_id
+             )
             LEFT JOIN tags AS ft ON ft.track_id = t.track_id
             LEFT JOIN sonara_features AS s
               ON s.track_id = t.track_id
@@ -1514,7 +1608,7 @@ def _prediction_page_filter_sql(
     min_positive: float,
     profile_type: str,
 ) -> str:
-    where: list[str] = []
+    where = ["current_track_id IS NOT NULL"]
     needle = query.strip().casefold()
     if needle:
         params["query_like"] = f"%{needle}%"
@@ -1689,7 +1783,7 @@ def _feature_source_states(
                 reason=(
                     None
                     if int(counts.get(source, 0)) > 0
-                    else f"No valid current-generation {source.upper()} data is available."
+                    else f"No stored current-track {source.upper()} data is available."
                 ),
             )
             for source in FEATURE_SOURCE_OUTPUTS
@@ -1939,18 +2033,19 @@ def _storage_change_signature(path: Path) -> tuple[tuple[int, int], ...]:
 
 
 def _feature_counts(connection: sqlite3.Connection) -> dict[str, int]:
-    return {
-        "sonara": _count_sonara_features(connection),
-        **{
-            family: len(
-                _ready_embedding_vectors(
-                    connection,
-                    family=family,
-                )
-            )
-            for family in ("mert", "maest", "clap", "muq")
-        },
-    }
+    counts: dict[str, int] = {}
+    for source, table in _FEATURE_TABLES.items():
+        row = connection.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM {table} AS data
+            JOIN tracks AS t USING(track_id)
+            WHERE t.missing_since IS NULL
+            """
+        ).fetchone()
+        assert row is not None
+        counts[source] = int(row[0])
+    return counts
 
 
 def _embedding_family(value: object) -> EmbeddingFamily:

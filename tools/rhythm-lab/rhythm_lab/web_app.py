@@ -556,7 +556,7 @@ def create_app(
         feature_counts = source.feature_counts()
         return {
             **base,
-            "tracks": source.count_tracks(),
+            "tracks": len(source.rhythm_lab_track_ids()),
             **feature_counts,
             "feature_states": {
                 source_name: state.payload()

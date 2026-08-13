@@ -51,7 +51,7 @@ def apply_model_to_lab(
     labels_db = RhythmLabDatabase(labels_db_path, classifier_key=resolved_classifier_key)
     predicted_count = 0
     skipped_count = 0
-    track_ids = source.current_track_ids()
+    track_ids = source.rhythm_lab_track_ids()
     if progress_callback is not None:
         progress_callback(0, len(track_ids))
     with TemporaryDirectory(prefix="rhythm-lab-predictions-") as stage_root:

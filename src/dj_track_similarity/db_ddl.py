@@ -8,16 +8,17 @@ Tables (emission order matches FK dependency order):
   2.  tracks                — identity + file facts (file_modified_ns INTEGER)
   3.  tags                  — Mutagen tags per track
   4.  sonara_features       — SONARA scalars + three short BLOB vectors
-  5.  maest_genres          — MAEST genre predictions + syncopated_rhythm flag
-  6.  maest_embeddings      — MAEST float32-le embedding BLOBs
-  7.  mert_embeddings       — MERT float32-le embedding BLOBs
-  8.  muq_embeddings        — MuQ float32-le embedding BLOBs
-  9.  clap_embeddings       — CLAP float32-le embedding BLOBs
-  10. classifier_scores     — Rhythm Lab classifier scores
-  11. likes                 — user like per track
-  12. pair_feedback         — candidate pair ratings with reason_tags_json
-  13. transition_feedback   — transition ratings with risk_tags_json
-  14. track_search_fts      — FTS5 virtual table (human text only)
+  5.  sonara_embeddings     — SONARA float32-le embedding BLOBs
+  6.  maest_genres          — MAEST genre predictions + syncopated_rhythm flag
+  7.  maest_embeddings      — MAEST float32-le embedding BLOBs
+  8.  mert_embeddings       — MERT float32-le embedding BLOBs
+  9.  muq_embeddings        — MuQ float32-le embedding BLOBs
+  10. clap_embeddings       — CLAP float32-le embedding BLOBs
+  11. classifier_scores     — Rhythm Lab classifier scores
+  12. likes                 — user like per track
+  13. pair_feedback         — candidate pair ratings with reason_tags_json
+  14. transition_feedback   — transition ratings with risk_tags_json
+  15. track_search_fts      — FTS5 virtual table (human text only)
 
 """
 
@@ -168,6 +169,18 @@ CREATE TABLE sonara_features (
 );
 """
 
+_DDL_SONARA_EMBEDDINGS = """
+CREATE TABLE sonara_embeddings (
+    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid         TEXT    NOT NULL,
+    dim                INTEGER NOT NULL CHECK(dim = 48),
+    normalization      TEXT    NOT NULL CHECK(normalization = 'none'),
+    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = 48 * 4),
+    analyzed_at        TEXT    NOT NULL
+);
+CREATE INDEX idx_sonara_embeddings_track_uuid ON sonara_embeddings(track_uuid);
+"""
+
 _DDL_MAEST_GENRES = """
 CREATE TABLE maest_genres (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
@@ -308,6 +321,7 @@ _ALL_DDL: list[str] = [
     _DDL_TRACKS,
     _DDL_TAGS,
     _DDL_SONARA_FEATURES,
+    _DDL_SONARA_EMBEDDINGS,
     _DDL_MAEST_GENRES,
     _DDL_MAEST_EMBEDDINGS,
     _DDL_MERT_EMBEDDINGS,

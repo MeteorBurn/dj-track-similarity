@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from contextlib import closing
 from pathlib import Path
+import sqlite3
 import sys
 
 import numpy as np
@@ -13,6 +14,7 @@ from dj_track_similarity.analysis_models import (
     EmbeddingOutput,
 )
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db_analysis_candidates import collect_analysis_candidates
 from dj_track_similarity.scanner import scan_library
 from dj_track_similarity.track_models import TrackIdentity
 
@@ -129,6 +131,77 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
         )
 
 
+def test_sonara_embedding_table_uses_the_fixed_unversioned_48d_format(
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    with closing(database.connect()) as connection, connection:
+        track_id = int(
+            connection.execute(
+                """
+                INSERT INTO tracks(
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "track-sonara-48d",
+                    (tmp_path / "track-sonara-48d.wav").as_posix(),
+                    1,
+                    1,
+                    "2026-08-12T00:00:00.000000Z",
+                    "2026-08-12T00:00:00.000000Z",
+                    "2026-08-12T00:00:00.000000Z",
+                ),
+            ).lastrowid
+        )
+    target = TrackIdentity(database.catalog_uuid, track_id, "track-sonara-48d")
+    vector = np.linspace(-1.0, 1.0, 48, dtype=np.float32)
+    analyzed_at = "2026-08-12T00:00:00.000000Z"
+
+    database.write_embedding(
+        track=target,
+        output=EmbeddingOutput(
+            family="sonara",
+            vector=vector,
+            analyzed_at=analyzed_at,
+        ),
+    )
+
+    with closing(database.connect()) as connection:
+        columns = [
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(sonara_embeddings)")
+        ]
+        row = connection.execute(
+            """
+            SELECT track_id, track_uuid, dim, normalization,
+                   length(embedding_blob) AS blob_size, analyzed_at
+            FROM sonara_embeddings
+            WHERE track_id = ?
+            """,
+            (track_id,),
+        ).fetchone()
+
+    assert columns == [
+        "track_id",
+        "track_uuid",
+        "dim",
+        "normalization",
+        "embedding_blob",
+        "analyzed_at",
+    ]
+    assert row is not None
+    assert dict(row) == {
+        "track_id": track_id,
+        "track_uuid": "track-sonara-48d",
+        "dim": 48,
+        "normalization": "none",
+        "blob_size": 48 * 4,
+        "analyzed_at": analyzed_at,
+    }
+
+
 def test_current_embedding_removes_track_from_its_analysis_candidates(
     tmp_path: Path,
 ) -> None:
@@ -176,6 +249,63 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
     )
 
     assert database.list_analysis_candidates((output,)) == []
+
+
+def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    with closing(database.connect()) as connection, connection:
+        track_id = int(
+            connection.execute(
+                """
+                INSERT INTO tracks(
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "track-readiness",
+                    (tmp_path / "track-readiness.wav").as_posix(),
+                    1,
+                    1,
+                    "2026-08-12T00:00:00.000000Z",
+                    "2026-08-12T00:00:00.000000Z",
+                    "2026-08-12T00:00:00.000000Z",
+                ),
+            ).lastrowid
+        )
+    target = TrackIdentity(database.catalog_uuid, track_id, "track-readiness")
+    vector = np.zeros(768, dtype=np.float32)
+    vector[0] = 1.0
+    database.write_embedding(
+        track=target,
+        output=EmbeddingOutput(
+            family="mert",
+            vector=vector,
+            analyzed_at="2026-08-12T00:00:00.000000Z",
+        ),
+    )
+
+    with closing(database.connect()) as connection:
+        def authorizer(
+            action: int,
+            _arg1: str | None,
+            arg2: str | None,
+            _database_name: str | None,
+            _trigger_name: str | None,
+        ) -> int:
+            if action == sqlite3.SQLITE_READ and arg2 == "embedding_blob":
+                return sqlite3.SQLITE_DENY
+            return sqlite3.SQLITE_OK
+
+        connection.set_authorizer(authorizer)
+        candidates = collect_analysis_candidates(
+            connection=connection,
+            catalog_uuid=database.catalog_uuid,
+            outputs=(AnalysisOutput("mert", "embedding"),),
+            limit=None,
+        )
+
+    assert candidates == []
 
 
 def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:

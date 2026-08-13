@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Sequence
 
 from .analysis_models import AnalysisCandidate, AnalysisOutput, AnalysisTarget
-from .db_embeddings import EmbeddingTrackIdentity, validate_embedding_row_payload
+from .db_embeddings import EmbeddingTrackIdentity
 from .maest_analysis_validation import MAEST_ANALYSIS_COLUMNS, validate_maest_analysis_row
 from .maest_windows import MaestWindowContext
 from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_row
@@ -19,6 +19,7 @@ _TABLE_BY_OUTPUT = {
     ("mert", "embedding"): "mert_embeddings",
     ("muq", "embedding"): "muq_embeddings",
     ("clap", "embedding"): "clap_embeddings",
+    ("sonara", "embedding"): "sonara_embeddings",
 }
 
 
@@ -148,7 +149,6 @@ def ready_target_keys_by_output(
             rows = _valid_embedding_rows(
                 connection,
                 table=table,
-                output=output,
                 current_tracks=current_tracks,
             )
         else:
@@ -208,13 +208,11 @@ def _valid_embedding_rows(
     connection: sqlite3.Connection,
     *,
     table: str,
-    output: AnalysisOutput,
     current_tracks: dict[int, EmbeddingTrackIdentity],
 ) -> tuple[tuple[int, str], ...]:
     rows = connection.execute(
         f"""
-        SELECT track_id, track_uuid,
-               dim, normalization, embedding_blob
+        SELECT track_id, track_uuid
         FROM {table}
         """
     ).fetchall()
@@ -223,13 +221,9 @@ def _valid_embedding_rows(
         expected = current_tracks.get(int(row["track_id"]))
         if expected is None:
             continue
-        is_valid, _reason = validate_embedding_row_payload(
-            family=output.analysis_family,
-            row=row,
-            expected_track=expected,
-        )
-        if is_valid:
-            valid.append((expected.track_id, expected.track_uuid))
+        if str(row["track_uuid"]) != expected.track_uuid:
+            continue
+        valid.append((expected.track_id, expected.track_uuid))
     return tuple(valid)
 
 

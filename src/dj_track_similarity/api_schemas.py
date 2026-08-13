@@ -408,7 +408,7 @@ class _ResponseModel(BaseModel):
 
 
 class SonaraStatusOutputResponse(_ResponseModel):
-    output_kind: Literal["core"]
+    output_kind: Literal["core", "embedding"]
     present_count: int = Field(ge=0)
     missing_count: int = Field(ge=0)
 

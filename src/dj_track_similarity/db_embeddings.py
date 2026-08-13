@@ -17,6 +17,7 @@ _EMBEDDING_TABLES: Mapping[str, str] = {
     "mert": "mert_embeddings",
     "muq": "muq_embeddings",
     "clap": "clap_embeddings",
+    "sonara": "sonara_embeddings",
 }
 
 

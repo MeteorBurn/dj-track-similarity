@@ -137,7 +137,7 @@ class _SonaraStatusRepository(AnalysisWriteRepository, Protocol):
 
 @dataclass(frozen=True)
 class SonaraOutputStatus:
-    output_kind: Literal["core"]
+    output_kind: Literal["core", "embedding"]
     present_count: int
     missing_count: int
 
@@ -247,7 +247,7 @@ class AnalysisJobManager:
         )
         if config.models == ("sonara",):
             settings_message = (
-                "SONARA queued · output Core · "
+                "SONARA queued · outputs Core + embedding · "
                 f"batch {config.sonara_batch_size}"
             )
         else:
@@ -265,22 +265,24 @@ class AnalysisJobManager:
         return self.db.current_sonara_track_count()
 
     def sonara_status(self) -> SonaraStatus:
-        """Return SONARA Core coverage for the current catalog."""
+        """Return SONARA output coverage for the current catalog."""
 
         repository = cast(_SonaraStatusRepository, self.db)
         outputs = analysis_outputs_for_sonara_runtime()
         total_tracks = int(repository.library_summary().tracks)
-        missing_count = 0
+        missing_counts = {output.key: 0 for output in outputs}
         for candidate in repository.list_analysis_candidates(outputs):
-            if AnalysisOutput("sonara", "core") in candidate.missing_outputs:
-                missing_count += 1
+            for output in candidate.missing_outputs:
+                if output.key in missing_counts:
+                    missing_counts[output.key] += 1
 
-        statuses = (
+        statuses = tuple(
             SonaraOutputStatus(
-                output_kind="core",
-                present_count=total_tracks - missing_count,
-                missing_count=missing_count,
-            ),
+                output_kind=output.output_kind,
+                present_count=total_tracks - missing_counts[output.key],
+                missing_count=missing_counts[output.key],
+            )
+            for output in outputs
         )
         return SonaraStatus(
             catalog_uuid=str(repository.catalog_uuid),

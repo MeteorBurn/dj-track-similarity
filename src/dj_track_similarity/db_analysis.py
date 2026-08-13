@@ -606,6 +606,14 @@ class AnalysisRepository:
                                 connection,
                                 write=write,
                             )
+                            if write.embedding is not None:
+                                write_valid_embedding_in_transaction(
+                                    connection=connection,
+                                    track=_embedding_track(write.target),
+                                    family=write.embedding.family,
+                                    embedding=write.embedding.vector,
+                                    analyzed_at=write.embedding.analyzed_at,
+                                )
                         except Exception as error:
                             _rollback_savepoint(connection, name)
                             results.append(_error_result(write.target, error))

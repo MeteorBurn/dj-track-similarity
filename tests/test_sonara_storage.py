@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import closing
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -11,6 +13,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
 )
+from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.sonara_runtime import (
     SONARA_UNIT_INTERVAL_FIELDS,
 )
@@ -98,9 +101,89 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert write.target.track_id == 7
     assert write.core.detected_bpm == 128.0
     assert write.core.beat_count == 3
+    assert write.embedding is not None
+    assert write.embedding.family == "sonara"
+    assert write.embedding.vector.dtype == np.dtype("<f4")
+    assert write.embedding.vector.shape == (48,)
+    assert np.array_equal(write.embedding.vector, analysis["embedding"])
+    assert write.outputs == (
+        AnalysisOutput("sonara", "core"),
+        AnalysisOutput("sonara", "embedding"),
+    )
     assert not hasattr(write, "timeline")
     assert not hasattr(write, "similarity_embedding")
     assert not hasattr(write, "fingerprint")
+
+
+def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    track_uuid = str(uuid.UUID(int=3))
+    file_path = tmp_path / "track.wav"
+    with closing(database.connect()) as connection, connection:
+        track_id = int(
+            connection.execute(
+                """
+                INSERT INTO tracks(
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    track_uuid,
+                    file_path.as_posix(),
+                    123_456,
+                    456_789,
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                ),
+            ).lastrowid
+        )
+    candidate = AnalysisCandidate(
+        target=AnalysisTarget(
+            catalog_uuid=database.catalog_uuid,
+            track_id=track_id,
+            track_uuid=track_uuid,
+        ),
+        file_path=file_path.as_posix(),
+        file_size_bytes=123_456,
+        file_modified_ns=456_789,
+        missing_outputs=(
+            AnalysisOutput("sonara", "core"),
+            AnalysisOutput("sonara", "embedding"),
+        ),
+    )
+    write = prepare_sonara_write(
+        candidate,
+        _analysis(),
+        analyzed_at="2026-07-23T12:00:00.000000Z",
+    )
+
+    result = database.save_sonara_results((write,))
+
+    assert result[0].ok
+    with closing(database.connect()) as connection:
+        core_count = connection.execute(
+            "SELECT COUNT(*) FROM sonara_features WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+        embedding = connection.execute(
+            """
+            SELECT track_uuid, dim, normalization, embedding_blob
+            FROM sonara_embeddings
+            WHERE track_id = ?
+            """,
+            (track_id,),
+        ).fetchone()
+    assert core_count == 1
+    assert embedding is not None
+    assert embedding["track_uuid"] == track_uuid
+    assert embedding["dim"] == 48
+    assert embedding["normalization"] == "none"
+    assert np.array_equal(
+        np.frombuffer(embedding["embedding_blob"], dtype="<f4"),
+        _analysis()["embedding"],
+    )
 
 
 def test_detected_bpm_preserves_sonara_precision() -> None:
@@ -149,7 +232,10 @@ def test_unknown_future_analyzer_fields_do_not_gate_conversion() -> None:
     write = _prepare(analysis)
 
     assert write.core.vocal_probability == pytest.approx(0.3)
-    assert write.outputs == (AnalysisOutput("sonara", "core"),)
+    assert write.outputs == (
+        AnalysisOutput("sonara", "core"),
+        AnalysisOutput("sonara", "embedding"),
+    )
 
 
 def test_declared_clamp_fields_match_converter_implementation() -> None:
@@ -207,15 +293,22 @@ def test_fixed_shape_outputs_reject_wrong_shapes(
         _prepare(analysis)
 
 
-def test_non_core_values_are_ignored() -> None:
+def test_unknown_future_values_are_ignored() -> None:
     analysis = _analysis()
-    analysis["embedding"] = np.full(48, np.nan, dtype=np.float32)
     analysis["fingerprint"] = object()
     analysis["segments"] = [{"energy": float("nan")}]
 
     write = _prepare(analysis)
 
     assert write.core.detected_bpm == 128.0
+
+
+def test_embedding_rejects_non_finite_values_during_analysis_write() -> None:
+    analysis = _analysis()
+    analysis["embedding"] = np.full(48, np.nan, dtype=np.float32)
+
+    with pytest.raises(ValueError, match="embedding contains non-finite values"):
+        _prepare(analysis)
 
 
 def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -> None:

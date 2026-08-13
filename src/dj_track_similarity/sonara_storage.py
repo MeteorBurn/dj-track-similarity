@@ -10,6 +10,8 @@ import numpy as np
 
 from .analysis_models import (
     AnalysisCandidate,
+    EmbeddingOutput,
+    SONARA_EMBEDDING_DIM,
     SonaraWrite,
 )
 from .db_ddl import SonaraRow
@@ -69,6 +71,15 @@ def prepare_sonara_write(
     return SonaraWrite(
         target=candidate.target,
         core=core,
+        embedding=EmbeddingOutput(
+            family="sonara",
+            vector=_float32_vector(
+                analysis.get("embedding"),
+                dim=SONARA_EMBEDDING_DIM,
+                field_name="embedding",
+            ),
+            analyzed_at=analyzed_at,
+        ),
     )
 
 

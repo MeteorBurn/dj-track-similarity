@@ -18,7 +18,10 @@ from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
 from dj_track_similarity.analysis_queue import AnalysisStageQueue
 
 
-_OUTPUTS = (AnalysisOutput("sonara", "core"),)
+_OUTPUTS = (
+    AnalysisOutput("sonara", "core"),
+    AnalysisOutput("sonara", "embedding"),
+)
 
 
 def _candidate(
@@ -74,6 +77,7 @@ def test_sonara_status_reports_current_data_coverage_without_release_identity() 
         for output in status.outputs
     ] == [
         ("core", 2, 1),
+        ("embedding", 2, 1),
     ]
 
 
@@ -97,6 +101,11 @@ def test_sonara_status_endpoint_is_neutral_and_release_routes_are_removed(
         "outputs": [
             {
                 "output_kind": "core",
+                "present_count": 0,
+                "missing_count": 0,
+            },
+            {
+                "output_kind": "embedding",
                 "present_count": 0,
                 "missing_count": 0,
             },

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -9,6 +10,7 @@ from dj_track_similarity.analysis_job_batch import AnalysisBatchItem
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.analysis_model_runners import (
     MaestModelRunner,
+    SonaraModelRunner,
     current_embedding_analysis_output,
 )
 from dj_track_similarity.analysis_models import (
@@ -17,6 +19,10 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
 )
 from dj_track_similarity.audio_loader import DecodedAudio
+from dj_track_similarity.sonara_staging import (
+    StagedSonaraCandidate,
+    StagedSonaraResult,
+)
 
 
 def _mert_output() -> AnalysisOutput:
@@ -222,4 +228,45 @@ def test_sonara_ffmpeg_recovery_is_marked_in_final_track_event() -> None:
     track_events = [event for event in status.events if event.track_id == 1]
     assert [event.message for event in track_events] == [
         "Track analyzed [ffmpeg decode]"
+    ]
+
+
+def test_staged_sonara_emits_track_event_before_runner_returns_without_duplicates() -> None:
+    observed_during_runner: list[str] = []
+    manager: AnalysisJobManager
+
+    class _IncrementalSonaraRunner(SonaraModelRunner):
+        def __init__(self) -> None:
+            super().__init__(sonara_module=object())
+
+        def analyze_batch(self, repository, items):
+            del repository
+            self.incremental_results_emitted = True
+            assert self.track_result is not None
+            item = StagedSonaraCandidate(
+                candidate=items[0].candidate,
+                source_path=Path(items[0].candidate.file_path),
+                path=Path("C:/TracksTemp/staged.wav"),
+            )
+            self.track_result(StagedSonaraResult(item=item))
+            observed_during_runner.extend(
+                event.message
+                for event in manager.latest().events
+                if event.track_id == items[0].candidate.target.track_id
+            )
+            return [None]
+
+    runner = _IncrementalSonaraRunner()
+    repository = _Repository([_candidate(1, runner.active_outputs)])
+    manager = AnalysisJobManager(
+        repository,
+        model_runners={"sonara": runner},
+    )
+
+    status = manager.run_sync(models=("sonara",), device="cpu")
+
+    assert observed_during_runner == ["Track analyzed"]
+    assert (status.processed, status.analyzed, status.failed) == (1, 1, 0)
+    assert [event.message for event in status.events if event.track_id == 1] == [
+        "Track analyzed"
     ]

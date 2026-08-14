@@ -40,6 +40,14 @@ from .sonara_features import (
     analysis_outputs_for_sonara_runtime,
     analyze_and_store_sonara_batch,
 )
+from .sonara_staging import (
+    SonaraStagingConfig,
+    StagedSonaraResult,
+    analyze_and_store_staged_sonara,
+    analyze_staged_sonara_group,
+    sonara_process_executor,
+)
+from .sonara_storage import prepare_sonara_write
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
@@ -111,6 +119,7 @@ class SonaraModelRunner:
         self,
         *,
         sonara_module: Any | None = None,
+        staging_config: SonaraStagingConfig | None = None,
     ) -> None:
         self._sonara_module = sonara_module
         self._active_outputs = analysis_outputs_for_sonara_runtime()
@@ -118,6 +127,10 @@ class SonaraModelRunner:
         self.progress: Callable[[int, int], None] | None = None
         self.last_metrics: SonaraBatchMetrics | None = None
         self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
+        self.staging_config = staging_config or SonaraStagingConfig()
+        self.cancelled: Callable[[], bool] | None = None
+        self.track_result: Callable[[StagedSonaraResult], None] | None = None
+        self.incremental_results_emitted = False
 
     @property
     def model_name(self) -> str:
@@ -141,13 +154,46 @@ class SonaraModelRunner:
     ) -> Sequence[Exception | None]:
         self.last_metrics = None
         self.last_ffmpeg_fallback_track_ids = frozenset()
-        results = analyze_and_store_sonara_batch(
-            repository,
-            [item.candidate for item in items],
-            sonara_module=self._sonara_module,
-            progress=self.progress,
-            metrics=self._capture_metrics,
-        )
+        self.incremental_results_emitted = False
+        candidates = [item.candidate for item in items]
+        if self._sonara_module is not None:
+            results = analyze_and_store_sonara_batch(
+                repository,
+                candidates,
+                sonara_module=self._sonara_module,
+                progress=self.progress,
+                metrics=self._capture_metrics,
+            )
+        else:
+            self.incremental_results_emitted = True
+            staged_results = analyze_and_store_staged_sonara(
+                repository,
+                candidates,
+                config=self.staging_config,
+                analyze_group=analyze_staged_sonara_group,
+                prepare_write=lambda candidate, analysis: prepare_sonara_write(
+                    candidate,
+                    analysis,
+                    analyzed_at=utc_timestamp(),
+                ),
+                store_write=_store_staged_sonara_write,
+                cancelled=self.cancelled,
+                executor_factory=lambda: sonara_process_executor(self.staging_config),
+                result_callback=self.track_result,
+            )
+            results = staged_results
+            self.last_metrics = SonaraBatchMetrics(
+                track_count=len(candidates),
+                source_bytes=sum(candidate.file_size_bytes for candidate in candidates),
+                analyze_seconds=sum(result.analyze_seconds for result in staged_results),
+                prepare_seconds=0.0,
+                store_seconds=sum(result.store_seconds for result in staged_results),
+                copy_seconds=sum(result.copy_seconds for result in staged_results),
+                staged_track_count=len(staged_results),
+                ffmpeg_fallback_count=sum(
+                    result.used_ffmpeg_fallback for result in staged_results
+                ),
+            )
         self.last_ffmpeg_fallback_track_ids = frozenset(
             result.target.track_id
             for result in results
@@ -157,6 +203,20 @@ class SonaraModelRunner:
 
     def _capture_metrics(self, metrics: SonaraBatchMetrics) -> None:
         self.last_metrics = metrics
+
+
+def _store_staged_sonara_write(
+    repository: AnalysisWriteRepository,
+    write: SonaraWrite,
+) -> None:
+    results = tuple(repository.save_sonara_results((write,)))
+    if len(results) != 1:
+        raise RuntimeError("SONARA staged storage did not return one result")
+    result = results[0]
+    if result.target != write.target:
+        raise RuntimeError("SONARA staged storage returned the wrong target")
+    if result.error is not None:
+        raise RuntimeError(f"SONARA storage failure: {result.error}")
 
 
 class MaestModelRunner:

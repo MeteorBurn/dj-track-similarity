@@ -44,6 +44,7 @@ from .analysis_model_runners import (
     RunnerFactory,
     SonaraModelRunner,
 )
+from .sonara_staging import SonaraStagingConfig, StagedSonaraResult
 from .analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -161,6 +162,7 @@ class AnalysisJobManager:
         inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
         sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
         stage_queue: AnalysisStageQueue | None = None,
+        sonara_staging_config: SonaraStagingConfig | None = None,
     ) -> None:
         self.db = db
         self._model_runners = dict(model_runners) if model_runners is not None else None
@@ -181,6 +183,7 @@ class AnalysisJobManager:
         self.track_batch_size = max(1, int(track_batch_size))
         self.inference_batch_size = max(1, int(inference_batch_size))
         self.sonara_batch_size = max(1, int(sonara_batch_size))
+        self._sonara_staging_config = sonara_staging_config
         self._stage_queue = stage_queue
         self._store: JobStore[AnalysisJobStatus] = JobStore(
             self._copy_status,
@@ -331,12 +334,12 @@ class AnalysisJobManager:
 
         payload = self._payload(job_id)
         status = self.get(job_id)
-        batch_size = (
-            status.sonara_batch_size
+        batches = (
+            (payload.candidates,)
             if status.models == ["sonara"]
-            else status.track_batch_size
+            else chunks(payload.candidates, max(1, status.track_batch_size))
         )
-        for batch in chunks(payload.candidates, max(1, batch_size)):
+        for batch in batches:
             if self.get(job_id).cancel_requested:
                 return self._finish_cancelled(job_id)
             if not self._process_batch(
@@ -385,6 +388,11 @@ class AnalysisJobManager:
                     job_id,
                     done,
                     total,
+                )
+                runner.cancelled = lambda: self.get(job_id).cancel_requested
+                runner.track_result = lambda result: self._record_staged_sonara_result(
+                    job_id,
+                    result,
                 )
             lifecycle.runners[model] = runner
             lifecycle.handles[model] = handle
@@ -544,6 +552,16 @@ class AnalysisJobManager:
                     model_items,
                 ):
                     return False
+            if self.get(job_id).cancel_requested:
+                return True
+
+        sonara_runner = lifecycle.runners.get("sonara")
+        if (
+            status.models == ["sonara"]
+            and sonara_runner is not None
+            and bool(getattr(sonara_runner, "incremental_results_emitted", False))
+        ):
+            return True
 
         for item in items:
             self._mark_track_processed(job_id, item.candidate)
@@ -577,14 +595,18 @@ class AnalysisJobManager:
                     f"No analysis runner configured for: {model}"
                 ) from error
         if model == "sonara":
-            return _RunnerHandle(
-                self._runner_factory(
-                    model,
-                    status.device_requested,
-                    status.inference_batch_size,
-                    status.top_k,
-                )
+            runner = self._runner_factory(
+                model,
+                status.device_requested,
+                status.inference_batch_size,
+                status.top_k,
             )
+            if (
+                self._sonara_staging_config is not None
+                and isinstance(runner, SonaraModelRunner)
+            ):
+                runner.staging_config = self._sonara_staging_config
+            return _RunnerHandle(runner)
 
         key = _RunnerRuntimeKey(
             model=model,
@@ -674,6 +696,8 @@ class AnalysisJobManager:
 
         if model == "sonara":
             self._record_sonara_metrics(job_id, runner)
+            if bool(getattr(runner, "incremental_results_emitted", False)):
+                return True
         for item, error in zip(items, results):
             if error is None:
                 self._record_model_success(
@@ -695,6 +719,27 @@ class AnalysisJobManager:
                 )
         return True
 
+    def _record_staged_sonara_result(
+        self,
+        job_id: str,
+        result: StagedSonaraResult,
+    ) -> None:
+        if result.error is None:
+            self._record_model_success(
+                job_id,
+                "sonara",
+                result.candidate,
+                used_ffmpeg_decode=result.used_ffmpeg_fallback,
+            )
+        else:
+            self._record_model_failure(
+                job_id,
+                "sonara",
+                result.candidate,
+                result.error,
+            )
+        self._mark_track_processed(job_id, result.candidate)
+
     def _record_sonara_metrics(
         self,
         job_id: str,
@@ -711,10 +756,13 @@ class AnalysisJobManager:
             job_id,
             "info",
             f"SONARA batch: {metrics.track_count} tracks · "
+            f"staging {metrics.staged_track_count} · "
+            f"copy {metrics.copy_seconds:.2f}s · "
             f"analyze {metrics.analyze_seconds:.2f}s "
             f"({throughput:.1f} MiB/s) · "
             f"prepare {metrics.prepare_seconds:.2f}s · "
-            f"store {metrics.store_seconds:.2f}s",
+            f"store {metrics.store_seconds:.2f}s · "
+            f"FFmpeg fallback {metrics.ffmpeg_fallback_count}",
             model="sonara",
         )
 

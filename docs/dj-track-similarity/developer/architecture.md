@@ -11,7 +11,8 @@ flowchart LR
     CLI[Typer CLI] --> DB[LibraryDatabase]
     API[FastAPI backend] --> DB
     UI["React frontend (typed client)"] --> API
-    Audio[Audio files] --> Sonara[SONARA / Symphonia]
+    Audio[Audio files] --> Stage[Read-only SSD staging]
+    Stage --> Sonara[SONARA / Symphonia]
     Audio --> FFmpeg[FFmpeg shared ML decode]
     Sonara --> Queue[Sequential analysis queue]
     FFmpeg --> Queue
@@ -27,8 +28,11 @@ flowchart LR
 - `database.py`, `db_connection.py`, `db_schema.py`, `db_embeddings.py`, `db_evaluation_sidecar.py`, `db_storage.py`, and `db_analysis*.py` cover the library and optional Evaluation sidecar. These modules also handle identity validation, analysis persistence, resets, and clear.
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
-- `analysis_jobs.py` and `sonara_features.py`: separate ML jobs, native batched SONARA capture, and
-  phase timing. A SONARA batch is persisted in one transaction with a savepoint per track.
+- `analysis_jobs.py`, `analysis_model_runners.py`, `sonara_staging.py`, and `sonara_features.py`:
+  separate ML jobs plus staged native SONARA capture. SONARA copies source files read-only to a
+  temporary SSD job directory, runs a barrier-free ready queue through four Rayon-limited worker
+  processes, and uses FFmpeg PCM fallback per decode/codec failure. Results retain source identity;
+  a SONARA batch is persisted in one transaction with a savepoint per track.
 - `analysis_pipeline.py`: fixed SONARA then ML parent/child orchestration.
 - `sonara_runtime.py`: current SONARA Core feature and embedding selection.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.

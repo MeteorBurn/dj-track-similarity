@@ -163,7 +163,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, plus a dedicated 48-dimensional embedding in `sonara_embeddings`. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, plus a dedicated 48-dimensional embedding in `sonara_embeddings`. For the native CPU/Rust job, selected source files are copied read-only into a temporary job directory under `C:\TracksTemp`. SONARA receives only those staging paths. Four worker processes use `RAYON_NUM_THREADS=4` and take ready staging copies in mini-batches of up to four, without waiting for other workers. A decode or codec failure for one file falls back to FFmpeg mono `float32` PCM and SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
@@ -185,7 +185,7 @@ work, not direct SONARA similarity scoring. Model embeddings live in dedicated t
 library database.
 
 Each successful SONARA analysis writes its Core row and an unnormalized 48-dimensional `float32`
-embedding row together. Timeline and fingerprint collection remain disabled. The stored SONARA
+embedding row together under the original track identity. Timeline and fingerprint collection remain disabled. The stored SONARA
 embedding is not a current similarity, search, or classifier input; those SONARA workflows continue
 to use Core fields.
 
@@ -360,11 +360,17 @@ CLI and API pipeline stages share one in-memory queue, so only one SONARA or ML 
 runs at a time. The pipeline fixes the order to SONARA, then ML. Per-file failures are retained in job status and do
 not stop the next stage. A fatal initialization error or cancellation does.
 
-The SONARA control limits concurrent native file analysis, including full-file reads, rather than
-neural-network inference. Each returned batch writes only the SONARA result through the current
-repository with a per-track savepoint. The process log
-reports separate native analysis, result preparation, and database storage times plus source MiB/s.
-SONARA-only jobs traverse candidates in path order to keep adjacent HDD reads in the same folders.
+For HDD libraries, SONARA stages read-only copies in `C:\TracksTemp` before native analysis. Its
+staging coordinator maintains up to 16 active copies and 16 prefetched copies. Completed copies join
+a shared ready queue, where each of four workers can take up to four files without cross-worker
+batch barriers. Each worker sets `RAYON_NUM_THREADS=4`. Core and embedding writes remain per-track
+savepoints under the original source-track identity. The process log reports copy, native analysis,
+result preparation, and database storage times plus FFmpeg fallback and per-track errors. After a
+track is stored or its failure is finalized, the existing Process Log immediately adds its result
+under the original source path. Staging does not add a separate UI log. Staging
+copies are deleted after each track completes and the temporary job directory is cleaned up after
+completion, failure, or cancellation; a later run also removes abandoned job directories whose owner
+process is no longer running.
 Queued-stage messages contain only settings used by that stage. SONARA reports its outputs and
 native batch, ML reports its models, device, Track batch, and Inference batch, and CLASSIFIERS
 reports the selected profile count.

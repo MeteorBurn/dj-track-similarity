@@ -63,6 +63,9 @@ class SonaraBatchMetrics:
     analyze_seconds: float
     prepare_seconds: float
     store_seconds: float
+    copy_seconds: float = 0.0
+    staged_track_count: int = 0
+    ffmpeg_fallback_count: int = 0
 
 
 def analysis_outputs_for_sonara_runtime(
@@ -201,7 +204,11 @@ def _analysis_mapping_with_ffmpeg_fallback(
     try:
         return _analysis_mapping(raw_result), False
     except RuntimeError as error:
-        if not str(error).startswith("SONARA "):
+        message = str(error).lower()
+        if not (
+            message.startswith("sonara decode failure:")
+            or "codec" in message
+        ):
             raise
         native_error = error
 

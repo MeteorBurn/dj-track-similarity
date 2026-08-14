@@ -82,18 +82,38 @@ SONARA is selected at startup and always runs Core plus its dedicated embedding 
 set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, MuQ-MuLan, and CLAP, not
 SONARA or CLASSIFIERS.
 
-SONARA receives paths in native batches and decodes them through its Symphonia path inside
-`sonara.analyze_batch()`. It does not call the project's FFmpeg loader and has no `analyze_signal`
-or per-file decode fallback. ML models continue to share the project's FFmpeg decode.
+For HDD libraries, SONARA first copies selected files without changing or moving their originals to
+a temporary job directory below `C:\TracksTemp`. Only staging-copy paths are supplied to
+`sonara.analyze_batch()` and, when needed, FFmpeg. The stored result, job status, and error still
+belong to the original track.
 
-The SONARA batch value controls concurrent full-file native reads, not ML inference. Keep the
-default for a library on one HDD unless a measured pilot supports a larger value.
+The staging coordinator keeps a bounded window of 16 active copies and 16 prefetched copies. A copy
+that completes joins one shared ready queue. Four worker processes, each with
+`RAYON_NUM_THREADS=4`, immediately take up to four ready files for a native SONARA mini-batch; one
+worker does not wait for another worker's mini-batch. This is SONARA CPU/Rust execution, not ML
+inference batching.
+
+SONARA normally decodes each staged path through its Symphonia path. If an individual result reports
+a decode or codec failure, that staged copy is decoded through FFmpeg to mono `float32` PCM,
+resampled for SONARA when necessary, and retried through `analyze_signal()`. If that retry fails,
+only that track is reported as failed and other ready work continues. ML models continue to use their
+separate FFmpeg decode path.
+
+Staging files are released when their native analysis and any fallback finish. The job directory is
+removed on completion, failure, or cancellation; a later staging session also clears an abandoned
+job directory when its recorded owner process no longer exists. Diagnostics include staging use,
+FFmpeg fallback, copy/analyze/store timing, and per-track errors.
+
+After each successful database store or finalized track failure, the existing UI Process Log
+immediately shows `Track analyzed`, `Track analyzed [ffmpeg decode]`, or `Track failed` for the
+original source file. It does not wait for the whole staging queue, and staging does not add a
+separate UI panel.
 
 ## Already analyzed tracks
 
 Analysis jobs target missing results for the selected families. SONARA skips a track only when both
 its current Core row and dedicated embedding row are present. If either row is missing, a normal
-SONARA rerun analyzes the track and stores both rows together. Other complete families are skipped.
+SONARA rerun analyzes the track and stores both rows together, atomically per track. Other complete families are skipped.
 Use reset only when you intentionally want to delete stored results.
 
 After adopting a SONARA change, adapt storage explicitly if needed and decide which outputs to

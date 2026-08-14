@@ -348,6 +348,7 @@ export type AnalysisJobStatus = {
   track_batch_size?: number;
   inference_batch_size?: number;
   sonara_batch_size?: number;
+  sonara_mode?: "direct" | "staged";
   top_k?: number;
   readiness?: Record<string, { candidates: number; ready: number; not_ready: number; selected: number }>;
   blockers?: Record<string, string[]>;

@@ -819,6 +819,29 @@ h2 {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.sonara-mode-segmented {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sonara-staging-path-row {
+  margin-bottom: 0;
+}
+
+.sonara-staging-path-row input:disabled {
+  color: var(--text-muted);
+}
+
+.sonara-staged-settings-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sonara-staged-settings-grid .worker-control {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
 .models-analysis-block .analysis-actions {
   margin-bottom: 6px;
 }

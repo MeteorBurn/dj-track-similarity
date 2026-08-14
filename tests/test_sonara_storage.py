@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import dj_track_similarity.db_analysis as db_analysis
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -184,6 +185,79 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
         np.frombuffer(embedding["embedding_blob"], dtype="<f4"),
         _analysis()["embedding"],
     )
+
+
+def test_repository_rolls_back_core_when_embedding_write_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    track_uuid = str(uuid.UUID(int=4))
+    file_path = tmp_path / "track.wav"
+    with closing(database.connect()) as connection, connection:
+        track_id = int(
+            connection.execute(
+                """
+                INSERT INTO tracks(
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    track_uuid,
+                    file_path.as_posix(),
+                    123_456,
+                    456_789,
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                ),
+            ).lastrowid
+        )
+    candidate = AnalysisCandidate(
+        target=AnalysisTarget(
+            catalog_uuid=database.catalog_uuid,
+            track_id=track_id,
+            track_uuid=track_uuid,
+        ),
+        file_path=file_path.as_posix(),
+        file_size_bytes=123_456,
+        file_modified_ns=456_789,
+        missing_outputs=(
+            AnalysisOutput("sonara", "core"),
+            AnalysisOutput("sonara", "embedding"),
+        ),
+    )
+    write = prepare_sonara_write(
+        candidate,
+        _analysis(),
+        analyzed_at="2026-07-23T12:00:00.000000Z",
+    )
+
+    def fail_embedding_write(**_kwargs: object) -> None:
+        raise RuntimeError("forced embedding failure")
+
+    monkeypatch.setattr(
+        db_analysis,
+        "write_valid_embedding_in_transaction",
+        fail_embedding_write,
+    )
+
+    result = database.save_sonara_results((write,))
+
+    assert not result[0].ok
+    assert "forced embedding failure" in str(result[0].error)
+    with closing(database.connect()) as connection:
+        core_count = connection.execute(
+            "SELECT COUNT(*) FROM sonara_features WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+        embedding_count = connection.execute(
+            "SELECT COUNT(*) FROM sonara_embeddings WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+    assert core_count == 0
+    assert embedding_count == 0
 
 
 def test_detected_bpm_preserves_sonara_precision() -> None:

@@ -31,6 +31,11 @@ import { LibraryPanel } from "./LibraryPanel";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import {
+  loadSonaraAnalysisSettings,
+  saveSonaraAnalysisSettings,
+  type SonaraAnalysisSettings,
+} from "./sonaraAnalysisSettings";
+import {
   createRequestTokenGuard,
   type GenericSearchTab,
   type PrimarySearchTab,
@@ -168,7 +173,9 @@ export function App() {
   const [scanWorkers, setScanWorkers] = useState(8);
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(8);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(16);
-  const [sonaraBatchSize, setSonaraBatchSize] = useState(8);
+  const [sonaraSettings, setSonaraSettings] = useState<SonaraAnalysisSettings>(
+    () => loadSonaraAnalysisSettings(),
+  );
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
@@ -287,6 +294,10 @@ export function App() {
       // Theme persistence is optional; keep the UI usable if storage is blocked.
     }
   }, [theme]);
+
+  useEffect(() => {
+    saveSonaraAnalysisSettings(sonaraSettings);
+  }, [sonaraSettings]);
 
   useEffect(() => {
     genericSearchInputKeyRef.current = genericSearchInputKey;
@@ -925,6 +936,24 @@ export function App() {
     );
   }
 
+  async function handleChooseStagingFolder() {
+    await run(
+      () => api.chooseFolder(),
+      (value) => {
+        if (!value.path) {
+          appendActivity("info", "Выбор папки staging отменен");
+          return "Выбор папки staging отменен";
+        }
+        setSonaraSettings((current) => ({
+          ...current,
+          staged: { ...current.staged, folder: value.path || "" },
+        }));
+        appendActivity("ok", "Папка staging выбрана", value.path);
+        return value.path;
+      }
+    );
+  }
+
   async function handleChooseDatabase() {
     setBusy(true);
     try {
@@ -997,6 +1026,16 @@ export function App() {
       return;
     }
     if (
+      includeSonara
+      && sonaraSettings.mode === "staged"
+      && !sonaraSettings.staged.folder.trim()
+    ) {
+      const message = "Выберите папку staging перед запуском Staged Mode";
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "SONARA Staged Mode недоступен", message);
+      return;
+    }
+    if (
       analysisStartBlockedByMissingSonara(
         selectedAnalysisModels,
         librarySummary.sonara
@@ -1010,7 +1049,11 @@ export function App() {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const settings: string[] = [];
     if (includeSonara) {
-      settings.push(`SONARA · Core · SONARA batch ${sonaraBatchSize}`);
+      settings.push(
+        sonaraSettings.mode === "staged"
+          ? `SONARA · Staged · ${sonaraSettings.staged.folder} · Processes ${sonaraSettings.staged.processes} · Threads ${sonaraSettings.staged.threads} · BatchSize ${sonaraSettings.staged.batchSize} · StageSize ${sonaraSettings.staged.stageSize}`
+          : `SONARA · Direct · BatchSize ${sonaraSettings.directBatchSize}`
+      );
     }
     if (mlModels.length) {
       settings.push(
@@ -1027,7 +1070,17 @@ export function App() {
         return api.analysisPipelineStart({
           stages,
           limit: limit ?? null,
-          sonara: { batch_size: sonaraBatchSize },
+          sonara: {
+            mode: sonaraSettings.mode,
+            direct_batch_size: sonaraSettings.directBatchSize,
+            staged: {
+              folder: sonaraSettings.staged.folder,
+              processes: sonaraSettings.staged.processes,
+              threads: sonaraSettings.staged.threads,
+              batch_size: sonaraSettings.staged.batchSize,
+              stage_size: sonaraSettings.staged.stageSize,
+            },
+          },
           ml: {
             models: mlModels, device: analysisDevice, top_k: 3,
             track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
@@ -1411,8 +1464,9 @@ export function App() {
           maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
           adjustAnalysisInferenceBatchSize={adjustAnalysisInferenceBatchSize}
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
-          sonaraBatchSize={sonaraBatchSize}
-          onSonaraBatchSizeChange={setSonaraBatchSize}
+          sonaraSettings={sonaraSettings}
+          onSonaraSettingsChange={setSonaraSettings}
+          onChooseStagingFolder={() => void handleChooseStagingFolder()}
           helpText={helpText}
           onChooseFolder={() => void handleChooseFolder()}
           onScan={() => void handleScan()}

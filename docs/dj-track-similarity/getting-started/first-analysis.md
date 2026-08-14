@@ -73,25 +73,41 @@ In the CLI, omit `--limit` for the whole library.
 ## Analyze in the browser
 
 Use the browser model checkboxes to start the same jobs. **Analyze limit** starts at `0` for the
-whole eligible library. Track/Inference/
-SONARA batch values, Device, progress, blockers, cancellation, and SQLite-only resets are carried
-through the typed requests and responses. **CLASSIFIERS** stays a separate stage; **FULL** runs
-SONARA, ML, and CLASSIFIERS in order.
+whole eligible library. Track/Inference batch values, Device, SONARA mode settings, progress,
+blockers, cancellation, and SQLite-only resets are carried through the typed requests and
+responses. **CLASSIFIERS** stays a separate stage; **FULL** runs SONARA, ML, and CLASSIFIERS in
+order.
 
 SONARA is selected at startup and always runs Core plus its dedicated embedding as one fixed output
 set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, MuQ-MuLan, and CLAP, not
 SONARA or CLASSIFIERS.
 
-For HDD libraries, SONARA first copies selected files without changing or moving their originals to
-a temporary job directory below `C:\TracksTemp`. Only staging-copy paths are supplied to
-`sonara.analyze_batch()` and, when needed, FFmpeg. The stored result, job status, and error still
-belong to the original track.
+Browser SONARA analysis has two modes:
 
-The staging coordinator keeps a bounded window of 16 active copies and 16 prefetched copies. A copy
-that completes joins one shared ready queue. Four worker processes, each with
-`RAYON_NUM_THREADS=4`, immediately take up to four ready files for a native SONARA mini-batch; one
-worker does not wait for another worker's mini-batch. This is SONARA CPU/Rust execution, not ML
-inference batching.
+| Mode or control | Initial value | Range or behavior |
+| --- | ---: | --- |
+| **Direct Mode / BatchSize** | `8` | `1..16`; native SONARA reads source paths directly |
+| **Staged Mode / Folder** | empty | Choose an existing temporary folder before starting |
+| **Staged Mode / Processes** | `4` | `1..16` worker processes |
+| **Staged Mode / Threads** | `4` | `1..64` Rayon threads per process |
+| **Staged Mode / BatchSize** | `4` | `1..16` ready files per native mini-batch |
+| **Staged Mode / StageSize** | `32` | `1..512` files in the staging window |
+
+Direct Mode is the initial mode. The read-only staging-folder field and its picker stay visible but
+disabled in Direct Mode. They become active in Staged Mode. The folder has no initial path or
+placeholder, and switching modes preserves the selected path and the two independent BatchSize
+values. These settings are stored as one browser-local `localStorage` object rather than in SQLite.
+
+Staged Mode is intended for source libraries on slower disks. It copies selected files without
+changing or moving their originals to a temporary per-job directory below the selected folder. Only
+staging-copy paths are supplied to `sonara.analyze_batch()` and, when needed, FFmpeg. The stored
+result, job status, and error still belong to the original track.
+
+StageSize bounds the total in-flight staging window. The count includes copy tasks plus files in the
+ready queue or under analysis. A completed copy joins one shared ready queue. Each free process
+immediately takes up to the configured Staged BatchSize and sets `RAYON_NUM_THREADS` from Threads;
+one process does not wait for another process's mini-batch. This is SONARA CPU/Rust execution, not
+ML inference batching.
 
 SONARA normally decodes each staged path through its Symphonia path. If an individual result reports
 a decode or codec failure, that staged copy is decoded through FFmpeg to mono `float32` PCM,
@@ -103,6 +119,9 @@ Staging files are released when their native analysis and any fallback finish. T
 removed on completion, failure, or cancellation; a later staging session also clears an abandoned
 job directory when its recorded owner process no longer exists. Diagnostics include staging use,
 FFmpeg fallback, copy/analyze/store timing, and per-track errors.
+
+Staged Mode currently applies only to SONARA. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP keep their
+existing shared FFmpeg decode and CPU/CUDA inference path.
 
 After each successful database store or finalized track failure, the existing UI Process Log
 immediately shows `Track analyzed`, `Track analyzed [ffmpeg decode]`, or `Track failed` for the

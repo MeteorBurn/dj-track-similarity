@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 
 from .analysis_config import build_analysis_job_config
@@ -19,6 +20,7 @@ from .api_schemas import (
 )
 from .api_state import AppDatabaseState
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
+from .sonara_staging import SonaraStagingConfig
 
 
 def register_analysis_routes(
@@ -112,12 +114,40 @@ def register_analysis_routes(
         try:
             sonara_settings: dict[str, object] = {}
             if "sonara" in request.stages:
+                staging_config: SonaraStagingConfig | None = None
+                if request.sonara.mode == "staged":
+                    folder = request.sonara.staged.folder.strip()
+                    if not folder:
+                        raise ValueError(
+                            "Choose a staging folder before starting Staged Mode"
+                        )
+                    staging_root = Path(folder)
+                    if not staging_root.is_dir():
+                        raise ValueError(
+                            f"SONARA staging folder does not exist: {staging_root}"
+                        )
+                    staging_config = SonaraStagingConfig(
+                        root=staging_root,
+                        processes=request.sonara.staged.processes,
+                        rayon_threads=request.sonara.staged.threads,
+                        max_native_batch_size=request.sonara.staged.batch_size,
+                        stage_size=request.sonara.staged.stage_size,
+                    )
+                effective_batch_size = (
+                    request.sonara.staged.batch_size
+                    if request.sonara.mode == "staged"
+                    else request.sonara.direct_batch_size
+                )
                 sonara_config = build_analysis_job_config(
                     models=["sonara"],
-                    sonara_batch_size=request.sonara.batch_size,
+                    sonara_mode=request.sonara.mode,
+                    sonara_batch_size=effective_batch_size,
+                    sonara_staging_config=staging_config,
                 )
                 sonara_settings = {
+                    "mode": sonara_config.sonara_mode,
                     "batch_size": sonara_config.sonara_batch_size,
+                    "staging_config": sonara_config.sonara_staging_config,
                 }
 
             ml_settings: dict[str, object] = {}

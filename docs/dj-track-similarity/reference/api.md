@@ -67,11 +67,36 @@ also absent.
 | `POST` | `/api/analysis/pipelines/{job_id}/cancel` | cancel current and pending stages |
 
 Audio analysis payload fields include `models` and `limit`. ML requests add `device`, `top_k`,
-`track_batch_size`, and `inference_batch_size`. SONARA requests add `sonara_batch_size`;
-there is no output selector. `classifier_keys` is not accepted.
-SONARA runs alone and passes paths to native `analyze_batch`. ML models continue to use shared
-FFmpeg decode. Database migration is intentionally not an API operation; use the explicit
-`dj-sim migrate-database` CLI command after stopping every SQLite user.
+`track_batch_size`, and `inference_batch_size`. A standalone SONARA request adds
+`sonara_batch_size`. There is no output selector, and `classifier_keys` is not accepted. Standalone
+SONARA runs in Direct Mode and passes source paths to native `analyze_batch()`.
+
+A pipeline request uses separate browser SONARA settings:
+
+```json
+{
+  "stages": ["sonara"],
+  "sonara": {
+    "mode": "staged",
+    "direct_batch_size": 8,
+    "staged": {
+      "folder": "C:\\TracksTemp",
+      "processes": 4,
+      "threads": 4,
+      "batch_size": 4,
+      "stage_size": 32
+    }
+  }
+}
+```
+
+`mode` defaults to `direct`, and `direct_batch_size` accepts `1..16`. Direct Mode ignores the
+nested Staged folder. Staged Mode requires an existing folder and accepts Processes `1..16`,
+Threads `1..64`, BatchSize `1..16`, and StageSize `1..512`. Staged SONARA passes temporary copy
+paths to native analysis and its per-file FFmpeg fallback while retaining the original track
+identity. ML models continue to use shared FFmpeg decode and do not use this staging configuration.
+Database migration is intentionally not an API operation; use the explicit CLI command
+`dj-sim migrate-database` after stopping every SQLite user.
 
 Classifier analysis is always started for one explicit `classifier_key`. Readiness is
 manifest-specific, and not-ready tracks are excluded rather than failed. A pipeline payload selects

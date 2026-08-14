@@ -8,6 +8,7 @@ from dj_track_similarity.analysis_config import (
     normalize_analysis_models,
     parse_analysis_models_text,
 )
+from dj_track_similarity.sonara_staging import SonaraStagingConfig
 
 
 def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() -> None:
@@ -80,6 +81,37 @@ def test_ml_jobs_require_current_sonara_but_sonara_jobs_do_not() -> None:
     assert not build_analysis_job_config(
         models=["sonara"],
     ).require_current_sonara
+
+
+def test_sonara_mode_defaults_to_direct_and_keeps_staged_configuration(
+    tmp_path,
+) -> None:
+    direct = build_analysis_job_config(models=["sonara"])
+    staged_settings = SonaraStagingConfig(
+        root=tmp_path,
+        processes=4,
+        rayon_threads=4,
+        max_native_batch_size=4,
+        stage_size=32,
+    )
+    staged = build_analysis_job_config(
+        models=["sonara"],
+        sonara_mode="staged",
+        sonara_batch_size=4,
+        sonara_staging_config=staged_settings,
+    )
+
+    assert direct.sonara_mode == "direct"
+    assert direct.sonara_staging_config is None
+    assert staged.sonara_mode == "staged"
+    assert staged.sonara_staging_config == staged_settings
+
+
+def test_sonara_mode_rejects_unknown_or_incomplete_staged_configuration() -> None:
+    with pytest.raises(ValueError, match="Unknown SONARA analysis mode: turbo"):
+        build_analysis_job_config(models=["sonara"], sonara_mode="turbo")
+    with pytest.raises(ValueError, match="Staged SONARA mode requires staging settings"):
+        build_analysis_job_config(models=["sonara"], sonara_mode="staged")
 
 
 @pytest.mark.parametrize(

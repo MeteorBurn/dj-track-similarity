@@ -163,7 +163,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, plus a dedicated 48-dimensional embedding in `sonara_embeddings`. For the native CPU/Rust job, selected source files are copied read-only into a temporary job directory under `C:\TracksTemp`. SONARA receives only those staging paths. Four worker processes use `RAYON_NUM_THREADS=4` and take ready staging copies in mini-batches of up to four, without waiting for other workers. A decode or codec failure for one file falls back to FFmpeg mono `float32` PCM and SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, plus a dedicated 48-dimensional embedding in `sonara_embeddings`. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A decode or codec failure for one file falls back to FFmpeg mono `float32` PCM and SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
@@ -360,20 +360,24 @@ CLI and API pipeline stages share one in-memory queue, so only one SONARA or ML 
 runs at a time. The pipeline fixes the order to SONARA, then ML. Per-file failures are retained in job status and do
 not stop the next stage. A fatal initialization error or cancellation does.
 
-For HDD libraries, SONARA stages read-only copies in `C:\TracksTemp` before native analysis. Its
-staging coordinator maintains up to 16 active copies and 16 prefetched copies. Completed copies join
-a shared ready queue, where each of four workers can take up to four files without cross-worker
-batch barriers. Each worker sets `RAYON_NUM_THREADS=4`. Core and embedding writes remain per-track
-savepoints under the original source-track identity. The process log reports copy, native analysis,
-result preparation, and database storage times plus FFmpeg fallback and per-track errors. After a
-track is stored or its failure is finalized, the existing Process Log immediately adds its result
-under the original source path. Staging does not add a separate UI log. Staging
-copies are deleted after each track completes and the temporary job directory is cleaned up after
-completion, failure, or cancellation; a later run also removes abandoned job directories whose owner
-process is no longer running.
-Queued-stage messages contain only settings used by that stage. SONARA reports its outputs and
-native batch, ML reports its models, device, Track batch, and Inference batch, and CLASSIFIERS
-reports the selected profile count.
+Browser SONARA analysis starts in Direct Mode with BatchSize `8`; it reads the selected source files
+without making staging copies. Staged Mode is available for libraries on slower disks. Its folder
+starts empty and must be selected before analysis. Its editable defaults are Processes `4`, Threads
+`4`, BatchSize `4`, and StageSize `32`. The values and selected folder are kept in browser
+`localStorage`.
+
+In Staged Mode, StageSize bounds the copy, ready, and analysis window. Completed copies join one
+shared ready queue, where each process takes up to BatchSize files without cross-process batch
+barriers and sets its Rayon pool from Threads. Core and embedding writes remain per-track savepoints
+under the original source-track identity. The process log reports copy, native analysis, result
+preparation, and database storage times plus FFmpeg fallback and per-track errors. Staging copies are
+deleted after each track completes, and the temporary job directory is cleaned up after completion,
+failure, or cancellation. A later staged run also removes an abandoned job directory when its owner
+process is no longer running. Staged Mode currently applies only to SONARA; GPU model analysis keeps
+its existing FFmpeg decode path.
+Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
+relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
+and CLASSIFIERS reports the selected profile count.
 
 MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. MuQ-MuLan uses the same optional dependencies and official `OpenMuQ/MuQ-MuLan-large` weights. Both receive mono 24 kHz `float32` audio in 10-second windows and support CPU or CUDA. MuQ-MuLan writes its own normalized 512D vectors. It does not derive them from MuQ. The two families remain separate score spaces. CUDA is recommended for full-library runs.
 

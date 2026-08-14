@@ -6,7 +6,7 @@
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | file paths decoded natively by SONARA/Symphonia | Core feature rows and a dedicated 48D embedding | Core-backed SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
+| SONARA | source paths in Direct Mode or temporary paths in Staged Mode; normally decoded by SONARA/Symphonia with per-file FFmpeg fallback | Core feature rows and a dedicated 48D embedding | Core-backed SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
 | MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
@@ -24,7 +24,7 @@ SONARA uses its CPU runner. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP use model adap
 
 ## SONARA BPM range
 
-SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes paths to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns decoding and no FFmpeg or signal-analysis fallback is used.
+SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes source paths in Direct Mode or temporary copy paths in Staged Mode to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns normal decoding. A per-file decode or codec failure falls back to FFmpeg mono `float32` PCM and `analyze_signal()` without failing the other batch results.
 
 Tempo-aware search and transition diagnostics resolve current SONARA evidence
 first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.
@@ -59,8 +59,11 @@ boundaries.
 Every native batch requests the upstream features needed for Core plus the embedding. Extra values
 returned by SONARA are ignored at the conversion boundary. Core explicitly selects the bundled
 SONARA vocalness model.
-`sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8`. The
-browser selects SONARA at startup. There are no output checkboxes.
+`sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8` for the
+standalone job and browser Direct Mode. Browser Staged Mode keeps a separate BatchSize with default
+`4`; it also configures Processes, Threads, and the bounded StageSize window. The browser selects
+SONARA at startup without output checkboxes, while Staged Mode does not apply to the GPU model
+families.
 
 The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
 the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.

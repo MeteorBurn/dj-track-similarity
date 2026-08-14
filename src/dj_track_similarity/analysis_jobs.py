@@ -162,7 +162,6 @@ class AnalysisJobManager:
         inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
         sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
         stage_queue: AnalysisStageQueue | None = None,
-        sonara_staging_config: SonaraStagingConfig | None = None,
     ) -> None:
         self.db = db
         self._model_runners = dict(model_runners) if model_runners is not None else None
@@ -183,7 +182,6 @@ class AnalysisJobManager:
         self.track_batch_size = max(1, int(track_batch_size))
         self.inference_batch_size = max(1, int(inference_batch_size))
         self.sonara_batch_size = max(1, int(sonara_batch_size))
-        self._sonara_staging_config = sonara_staging_config
         self._stage_queue = stage_queue
         self._store: JobStore[AnalysisJobStatus] = JobStore(
             self._copy_status,
@@ -198,6 +196,8 @@ class AnalysisJobManager:
         track_batch_size: int | None = None,
         inference_batch_size: int | None = None,
         sonara_batch_size: int | None = None,
+        sonara_mode: str = "direct",
+        sonara_staging_config: SonaraStagingConfig | None = None,
         device: str = "auto",
         top_k: int = 3,
     ) -> str:
@@ -219,6 +219,8 @@ class AnalysisJobManager:
                 if sonara_batch_size is None
                 else sonara_batch_size
             ),
+            sonara_mode=sonara_mode,
+            sonara_staging_config=sonara_staging_config,
         )
         if config.require_current_sonara and self.current_sonara_track_count() < 1:
             raise ValueError(
@@ -241,6 +243,7 @@ class AnalysisJobManager:
             track_batch_size=config.track_batch_size,
             inference_batch_size=config.inference_batch_size,
             sonara_batch_size=config.sonara_batch_size,
+            sonara_mode=config.sonara_mode,
             top_k=config.top_k,
         )
         self._store.add(
@@ -249,10 +252,21 @@ class AnalysisJobManager:
             payload=_AnalysisPayload(config=config),
         )
         if config.models == ("sonara",):
-            settings_message = (
-                "SONARA queued · outputs Core + embedding · "
-                f"batch {config.sonara_batch_size}"
-            )
+            if config.sonara_mode == "staged":
+                staging = config.sonara_staging_config
+                assert staging is not None
+                settings_message = (
+                    "SONARA queued · outputs Core + embedding · Staged Mode · "
+                    f"folder {staging.root} · processes {staging.processes} · "
+                    f"threads {staging.rayon_threads} · "
+                    f"batch {staging.max_native_batch_size} · "
+                    f"stage {staging.stage_size}"
+                )
+            else:
+                settings_message = (
+                    "SONARA queued · outputs Core + embedding · Direct Mode · "
+                    f"batch {config.sonara_batch_size}"
+                )
         else:
             model_names = ", ".join(model.upper() for model in config.models)
             settings_message = (
@@ -334,11 +348,17 @@ class AnalysisJobManager:
 
         payload = self._payload(job_id)
         status = self.get(job_id)
-        batches = (
-            (payload.candidates,)
-            if status.models == ["sonara"]
-            else chunks(payload.candidates, max(1, status.track_batch_size))
-        )
+        if status.models == ["sonara"]:
+            batches = (
+                (payload.candidates,)
+                if payload.config.sonara_mode == "staged"
+                else chunks(
+                    payload.candidates,
+                    max(1, payload.config.sonara_batch_size),
+                )
+            )
+        else:
+            batches = chunks(payload.candidates, max(1, status.track_batch_size))
         for batch in batches:
             if self.get(job_id).cancel_requested:
                 return self._finish_cancelled(job_id)
@@ -378,7 +398,11 @@ class AnalysisJobManager:
         config = payload.config
         for model in config.models:
             try:
-                handle = self._runner_for_model(model, self.get(job_id))
+                handle = self._runner_for_model(
+                    model,
+                    self.get(job_id),
+                    sonara_staging_config=config.sonara_staging_config,
+                )
                 runner = handle.runner
                 _validate_runner(model, runner)
             except Exception as error:
@@ -585,6 +609,8 @@ class AnalysisJobManager:
         self,
         model: str,
         status: AnalysisJobStatus,
+        *,
+        sonara_staging_config: SonaraStagingConfig | None = None,
     ) -> _RunnerHandle:
         if self._model_runners is not None:
             try:
@@ -601,11 +627,8 @@ class AnalysisJobManager:
                 status.inference_batch_size,
                 status.top_k,
             )
-            if (
-                self._sonara_staging_config is not None
-                and isinstance(runner, SonaraModelRunner)
-            ):
-                runner.staging_config = self._sonara_staging_config
+            if isinstance(runner, SonaraModelRunner):
+                runner.staging_config = sonara_staging_config
             return _RunnerHandle(runner)
 
         key = _RunnerRuntimeKey(

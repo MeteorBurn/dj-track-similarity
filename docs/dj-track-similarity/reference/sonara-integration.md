@@ -6,24 +6,31 @@
 
 ## Current path
 
-The current project uses SONARA in `playlist` mode with a `70..180` BPM range. Before native
-analysis, the production SONARA path copies selected source files read-only to a per-job staging
-directory under `C:\TracksTemp`. It never moves or modifies the source files. SONARA and any
-fallback FFmpeg decoder receive only staging-copy paths, while job status, errors, and stored outputs
-continue to use the original candidate identity.
+The current project uses SONARA in `playlist` mode with a `70..180` BPM range. Direct Mode is the
+default and passes source paths to native `analyze_batch()`. Staged Mode instead copies selected
+source files read-only to a per-job directory below a user-selected folder. It never moves or
+modifies the source files. In Staged Mode, SONARA and any fallback FFmpeg decoder receive only
+staging-copy paths, while job status, errors, and stored outputs continue to use the original
+candidate identity.
 
-The staging coordinator holds a bounded window of 16 active and 16 prefetched files. Completed
-copies join a shared ready queue. Four persistent worker processes set `RAYON_NUM_THREADS=4` and
-take mini-batches of up to four ready paths for `sonara.analyze_batch()` without cross-process batch
-barriers. SONARA's Symphonia path is the normal decoder. A decode or codec failure for one result
-does not fail its mini-batch: the same staging copy is decoded with FFmpeg to mono `float32` PCM,
-resampled to SONARA's sample rate when needed, and retried through `analyze_signal()`. If that
-fallback fails, the error belongs only to that original track.
+The browser stores independent Direct and Staged settings in `localStorage`. Direct BatchSize
+defaults to `8`. Staged settings start with an empty folder, Processes `4`, Threads `4`, BatchSize
+`4`, and StageSize `32`. The API accepts Processes `1..16`, Threads `1..64`, BatchSize `1..16`, and
+StageSize `1..512`. The selected folder must already exist.
+
+In Staged Mode, StageSize bounds files being copied, waiting in the shared ready queue, and being
+analyzed. Each persistent worker process sets `RAYON_NUM_THREADS` from Threads and takes up to
+BatchSize ready paths for `sonara.analyze_batch()` without cross-process batch barriers. SONARA's
+Symphonia path is the normal decoder. A decode or codec failure for one result does not fail its
+mini-batch: FFmpeg decodes that same input to mono `float32` PCM, resamples it to SONARA's sample
+rate when needed, and retries through `analyze_signal()`. If that fallback fails, the error belongs
+only to the original track. Direct Mode uses the same per-file fallback rule, but its input remains
+the source path rather than a staging copy.
 
 Each staging copy is removed after its analysis, including any fallback, completes. The job directory
-is removed on success, failure, or cancellation. On a later session start, stale staging job
-directories are removed only when their recorded owner process is no longer present. ML, preview,
-and other non-SONARA functions retain their own FFmpeg behavior.
+is removed on success, failure, or cancellation. On a later staged session start, stale staging job
+directories are removed only when their recorded owner process is no longer present. Staged Mode is
+SONARA-only; ML, preview, and other non-SONARA functions retain their own FFmpeg behavior.
 
 The application requests a fixed output set: scalar and compact fixed-vector Core data plus the
 SONARA embedding. It stores Core in `sonara_features` and the unnormalized 48-dimensional `float32`
@@ -51,8 +58,9 @@ per-track errors.
 
 After a successful per-track store, or after a track failure is finalized, the staged runner updates
 job status immediately instead of waiting for the whole queue. The existing UI Process Log receives
-the normal track event with the original source path and track ID. This behavior reuses the current
-analysis-event UI rather than adding a separate staging component.
+the normal track event with the original source path and track ID. A fallback success is marked
+`Track analyzed [ffmpeg decode]`, whereas a final failure affects only that track. This behavior
+reuses the current analysis-event UI rather than adding a separate staging component.
 
 ## Updating SONARA or stored fields
 

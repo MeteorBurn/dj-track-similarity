@@ -6,6 +6,7 @@ import pytest
 
 from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
 from dj_track_similarity.analysis_queue import AnalysisStageQueue
+from dj_track_similarity.sonara_staging import SonaraStagingConfig
 
 
 class FakeJobs:
@@ -46,6 +47,42 @@ def test_pipeline_uses_fixed_order_and_continues_after_completed_per_file_failur
     assert status.order == ["sonara", "ml"]
     assert [stage.state for stage in status.stages.values()] == ["completed", "completed"]
     assert len(audio.created) == 2
+
+
+def test_pipeline_forwards_staged_sonara_configuration_to_child_job(tmp_path) -> None:
+    audio = FakeJobs(["completed"])
+    manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
+    staging = SonaraStagingConfig(
+        root=tmp_path,
+        processes=4,
+        rayon_threads=4,
+        max_native_batch_size=4,
+        stage_size=32,
+    )
+    job_id = manager.create_job(
+        stages=["sonara"],
+        limit=None,
+        sonara={
+            "mode": "staged",
+            "batch_size": 4,
+            "staging_config": staging,
+        },
+    )
+
+    manager.run_job(job_id)
+
+    assert audio.created == [
+        (
+            "child-1",
+            {
+                "models": ["sonara"],
+                "limit": None,
+                "sonara_mode": "staged",
+                "sonara_batch_size": 4,
+                "sonara_staging_config": staging,
+            },
+        )
+    ]
 
 
 def test_pipeline_stops_after_fatal_stage_failure() -> None:

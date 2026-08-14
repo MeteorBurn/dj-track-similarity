@@ -199,6 +199,8 @@ def _analysis_mapping_with_ffmpeg_fallback(
     sonara: Any,
     candidate: AnalysisCandidate,
     raw_result: object,
+    *,
+    decode_path: str | None = None,
 ) -> tuple[dict[str, object], bool]:
     native_error: RuntimeError
     try:
@@ -214,7 +216,7 @@ def _analysis_mapping_with_ffmpeg_fallback(
 
     try:
         audio, source_sample_rate, decode_detail = load_audio_mono_with_ffmpeg(
-            candidate.file_path
+            decode_path or candidate.file_path
         )
         if source_sample_rate != SONARA_SAMPLE_RATE:
             audio = sonara.resample(

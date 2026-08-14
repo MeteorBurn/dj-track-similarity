@@ -127,7 +127,7 @@ class SonaraModelRunner:
         self.progress: Callable[[int, int], None] | None = None
         self.last_metrics: SonaraBatchMetrics | None = None
         self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
-        self.staging_config = staging_config or SonaraStagingConfig()
+        self.staging_config = staging_config
         self.cancelled: Callable[[], bool] | None = None
         self.track_result: Callable[[StagedSonaraResult], None] | None = None
         self.incremental_results_emitted = False
@@ -156,7 +156,7 @@ class SonaraModelRunner:
         self.last_ffmpeg_fallback_track_ids = frozenset()
         self.incremental_results_emitted = False
         candidates = [item.candidate for item in items]
-        if self._sonara_module is not None:
+        if self.staging_config is None:
             results = analyze_and_store_sonara_batch(
                 repository,
                 candidates,

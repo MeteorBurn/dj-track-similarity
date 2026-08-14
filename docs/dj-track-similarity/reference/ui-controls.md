@@ -36,7 +36,13 @@ The initial analysis values are:
 | **Scan workers** | `8` | Clamped to the local worker limit |
 | **Track batch** | `8` | `1..64` |
 | **Inference batch** | `16` | `1..128` |
-| **SONARA batch** | `8` | `1..16` |
+| **SONARA Mode** | `Direct` | `Direct` or `Staged` |
+| **Direct BatchSize** | `8` | `1..16` source paths per native batch |
+| **Staged Folder** | empty | Existing temporary folder selected with **Choose Folder** |
+| **Staged Processes** | `4` | `1..16` |
+| **Staged Threads** | `4` | `1..64` Rayon threads per process |
+| **Staged BatchSize** | `4` | `1..16` ready staging paths per native mini-batch |
+| **Staged StageSize** | `32` | `1..512` files in the staging window |
 | **Device** | `auto` | `auto`, `cpu`, or `cuda` |
 
 The stage controls keep **SONARA**, **ML**, and **CLASSIFIERS** distinct. **FULL** runs the ordered
@@ -44,6 +50,12 @@ pipeline. SONARA is selected at startup and always runs Core plus its dedicated 
 fixed output set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, MuQ-MuLan, and CLAP only;
 SONARA and CLASSIFIERS remain separate stages. The UI also shows queued/running progress, per-file
 failures, blockers, cancellation, and reset actions from the typed job responses.
+
+The staging-folder field is read-only. It and **Choose Folder** stay visible but disabled in Direct
+Mode, and both become active in Staged Mode. No staging path or placeholder is supplied on first
+use, so Staged Mode cannot start until the user selects a folder. Mode, both BatchSize values, the
+folder, and the other Staged settings persist together in browser `localStorage`. These controls
+affect SONARA only, so GPU model analysis does not use the staging folder.
 
 ## Search tabs
 

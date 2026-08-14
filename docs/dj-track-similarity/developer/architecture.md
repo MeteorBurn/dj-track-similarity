@@ -11,8 +11,9 @@ flowchart LR
     CLI[Typer CLI] --> DB[LibraryDatabase]
     API[FastAPI backend] --> DB
     UI["React frontend (typed client)"] --> API
-    Audio[Audio files] --> Stage[Read-only SSD staging]
-    Stage --> Sonara[SONARA / Symphonia]
+    Audio[Audio files] --> Sonara[Direct SONARA / Symphonia]
+    Audio --> Stage[Optional read-only SSD staging]
+    Stage --> Sonara
     Audio --> FFmpeg[FFmpeg shared ML decode]
     Sonara --> Queue[Sequential analysis queue]
     FFmpeg --> Queue
@@ -29,10 +30,12 @@ flowchart LR
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
 - `analysis_jobs.py`, `analysis_model_runners.py`, `sonara_staging.py`, and `sonara_features.py`:
-  separate ML jobs plus staged native SONARA capture. SONARA copies source files read-only to a
-  temporary SSD job directory, runs a barrier-free ready queue through four Rayon-limited worker
-  processes, and uses FFmpeg PCM fallback per decode/codec failure. Results retain source identity;
-  a SONARA batch is persisted in one transaction with a savepoint per track.
+  separate ML jobs plus Direct or Staged native SONARA capture. Direct Mode reads source paths in
+  configured native batches. Staged Mode copies source files read-only to a user-selected temporary
+  directory and runs a bounded, barrier-free ready queue through configurable Rayon-limited worker
+  processes. Both modes use per-file FFmpeg PCM fallback for decode or codec failures. Results
+  retain source identity; SONARA Core and embedding data use one transaction with a savepoint per
+  track.
 - `analysis_pipeline.py`: fixed SONARA then ML parent/child orchestration.
 - `sonara_runtime.py`: current SONARA Core feature and embedding selection.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.

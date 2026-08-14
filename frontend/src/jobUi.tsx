@@ -259,7 +259,8 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
         <span>ok {job.analyzed}</span>
         <span>fail {job.failed}</span>
         {job.skipped ? <span>skip {job.skipped}</span> : null}
-        {sonaraJob ? <span>SONARA batch {job.sonara_batch_size || job.workers || 1}</span> : null}
+        {sonaraJob ? <span>SONARA {job.sonara_mode === "staged" ? "Staged" : "Direct"}</span> : null}
+        {sonaraJob ? <span>BatchSize {job.sonara_batch_size || job.workers || 1}</span> : null}
         {!sonaraJob && !classifierJob ? <span>Track batch {job.track_batch_size || job.workers || 1}</span> : null}
         {!sonaraJob && !classifierJob && job.inference_batch_size ? <span>Inference batch {job.inference_batch_size}</span> : null}
         {classifierJob ? <span>classifier {job.classifier_keys?.[0] || job.adapter_name}</span> : null}

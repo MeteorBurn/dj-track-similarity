@@ -20,6 +20,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.sonara_staging import (
+    SonaraStagingConfig,
     StagedSonaraCandidate,
     StagedSonaraResult,
 )
@@ -115,6 +116,7 @@ class _Runner:
         self.candidate_outputs = (output,)
         self.preflight_error = preflight_error
         self.items: list[AnalysisBatchItem] = []
+        self.batch_sizes: list[int] = []
 
     def preflight(self) -> None:
         if self.preflight_error is not None:
@@ -125,6 +127,7 @@ class _Runner:
         _repository: _Repository,
         items: Sequence[AnalysisBatchItem],
     ) -> list[None]:
+        self.batch_sizes.append(len(items))
         self.items.extend(items)
         return [None] * len(items)
 
@@ -229,6 +232,39 @@ def test_sonara_ffmpeg_recovery_is_marked_in_final_track_event() -> None:
     assert [event.message for event in track_events] == [
         "Track analyzed [ffmpeg decode]"
     ]
+
+
+def test_direct_sonara_uses_configured_batches_while_staged_uses_one_queue(
+    tmp_path: Path,
+) -> None:
+    output = AnalysisOutput("sonara", "core")
+    candidates = [_candidate(track_id, (output,)) for track_id in range(1, 6)]
+
+    direct_runner = _Runner("sonara", output)
+    direct_status = AnalysisJobManager(
+        _Repository(candidates),
+        model_runners={"sonara": direct_runner},
+    ).run_sync(
+        models=("sonara",),
+        sonara_mode="direct",
+        sonara_batch_size=2,
+    )
+
+    staged_runner = _Runner("sonara", output)
+    staged_status = AnalysisJobManager(
+        _Repository(candidates),
+        model_runners={"sonara": staged_runner},
+    ).run_sync(
+        models=("sonara",),
+        sonara_mode="staged",
+        sonara_batch_size=4,
+        sonara_staging_config=SonaraStagingConfig(root=tmp_path),
+    )
+
+    assert direct_status.state == "completed"
+    assert direct_runner.batch_sizes == [2, 2, 1]
+    assert staged_status.state == "completed"
+    assert staged_runner.batch_sizes == [5]
 
 
 def test_staged_sonara_emits_track_event_before_runner_returns_without_duplicates() -> None:

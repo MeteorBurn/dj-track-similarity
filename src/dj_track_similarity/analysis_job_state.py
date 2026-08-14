@@ -74,6 +74,7 @@ class AnalysisJobStatus:
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE
+    sonara_mode: str = "direct"
     top_k: int = 3
 
 
@@ -192,5 +193,6 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         track_batch_size=status.track_batch_size,
         inference_batch_size=status.inference_batch_size,
         sonara_batch_size=status.sonara_batch_size,
+        sonara_mode=status.sonara_mode,
         top_k=status.top_k,
     )

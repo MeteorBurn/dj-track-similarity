@@ -236,7 +236,17 @@ const analysisApi = {
   analysisPipelineStart: (payload: {
     stages: Array<"sonara" | "ml">;
     limit?: number | null;
-    sonara: { batch_size: number };
+    sonara: {
+      mode: "direct" | "staged";
+      direct_batch_size: number;
+      staged: {
+        folder: string;
+        processes: number;
+        threads: number;
+        batch_size: number;
+        stage_size: number;
+      };
+    };
     ml: { models: AnalysisModel[]; device: "auto" | "cpu" | "cuda"; top_k: number; track_batch_size: number; inference_batch_size: number };
   }) => request<AnalysisPipelineStatus>("/api/analysis/pipelines", { method: "POST", body: JSON.stringify(payload) }),
   analysisPipeline: (jobId: string) => request<AnalysisPipelineStatus>(`/api/analysis/pipelines/${jobId}`),

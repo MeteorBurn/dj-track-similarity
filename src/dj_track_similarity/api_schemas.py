@@ -112,14 +112,26 @@ class ClassifierAnalyzeRequest(BaseModel):
     limit: int | None = None
 
 
+class SonaraStagedSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder: str = ""
+    processes: int = Field(default=4, ge=1, le=16)
+    threads: int = Field(default=4, ge=1, le=64)
+    batch_size: int = Field(default=4, ge=1, le=16)
+    stage_size: int = Field(default=32, ge=1, le=512)
+
+
 class SonaraPipelineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    batch_size: int = Field(
+    mode: Literal["direct", "staged"] = "direct"
+    direct_batch_size: int = Field(
         default=DEFAULT_SONARA_BATCH_SIZE,
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
     )
+    staged: SonaraStagedSettings = Field(default_factory=SonaraStagedSettings)
 
 
 class MlPipelineSettings(BaseModel):

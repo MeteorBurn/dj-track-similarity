@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from .sonara_staging import SonaraStagingConfig
+
 ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "mulan", "clap")
 ANALYSIS_MODEL_ORDER = ("sonara", *ML_ANALYSIS_MODEL_ORDER)
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
@@ -12,6 +14,8 @@ DEFAULT_ANALYSIS_TOP_K = 3
 DEFAULT_ANALYSIS_TRACK_BATCH_SIZE = 8
 DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE = 16
 DEFAULT_SONARA_BATCH_SIZE = 8
+DEFAULT_SONARA_ANALYSIS_MODE = "direct"
+SONARA_ANALYSIS_MODES = ("direct", "staged")
 MIN_ANALYSIS_TOP_K = 1
 MAX_ANALYSIS_TOP_K = 10
 MIN_ANALYSIS_TRACK_BATCH_SIZE = 1
@@ -32,6 +36,8 @@ class AnalysisJobConfig:
     track_batch_size: int
     inference_batch_size: int
     sonara_batch_size: int
+    sonara_mode: str
+    sonara_staging_config: SonaraStagingConfig | None
 
 
 def normalize_analysis_models(models: Sequence[str] | None) -> tuple[str, ...]:
@@ -66,6 +72,13 @@ def normalize_analysis_device(device: str | None) -> str:
     return text
 
 
+def normalize_sonara_mode(mode: str | None) -> str:
+    text = (mode or DEFAULT_SONARA_ANALYSIS_MODE).strip().lower()
+    if text not in SONARA_ANALYSIS_MODES:
+        raise ValueError(f"Unknown SONARA analysis mode: {mode}")
+    return text
+
+
 def build_analysis_job_config(
     *,
     models: Sequence[str] | None = None,
@@ -75,6 +88,8 @@ def build_analysis_job_config(
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
+    sonara_mode: str = DEFAULT_SONARA_ANALYSIS_MODE,
+    sonara_staging_config: SonaraStagingConfig | None = None,
     allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
     normalized_models = (
@@ -82,6 +97,9 @@ def build_analysis_job_config(
         if allow_empty_models and models is not None and not models
         else normalize_analysis_models(models)
     )
+    normalized_sonara_mode = normalize_sonara_mode(sonara_mode)
+    if normalized_sonara_mode == "staged" and sonara_staging_config is None:
+        raise ValueError("Staged SONARA mode requires staging settings")
     return AnalysisJobConfig(
         models=normalized_models,
         require_current_sonara=bool(
@@ -109,6 +127,10 @@ def build_analysis_job_config(
             name="sonara_batch_size",
             minimum=MIN_SONARA_BATCH_SIZE,
             maximum=MAX_SONARA_BATCH_SIZE,
+        ),
+        sonara_mode=normalized_sonara_mode,
+        sonara_staging_config=(
+            sonara_staging_config if normalized_sonara_mode == "staged" else None
         ),
     )
 

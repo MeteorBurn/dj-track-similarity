@@ -192,6 +192,156 @@ def test_api_pipeline_rejects_classifier_stage(
     assert captured == []
 
 
+def test_api_pipeline_builds_staged_sonara_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[dict[str, object]] = []
+    staging_root = tmp_path / "staging"
+    staging_root.mkdir()
+
+    def start(_manager: AnalysisPipelineManager, **kwargs: object) -> dict[str, object]:
+        captured.append(dict(kwargs))
+        return {"job_id": "pipeline-job", "state": "queued"}
+
+    monkeypatch.setattr(AnalysisPipelineManager, "start", start)
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["sonara"],
+            "sonara": {
+                "mode": "staged",
+                "direct_batch_size": 8,
+                "staged": {
+                    "folder": str(staging_root),
+                    "processes": 4,
+                    "threads": 4,
+                    "batch_size": 4,
+                    "stage_size": 32,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    settings = captured[0]["sonara"]
+    assert isinstance(settings, dict)
+    assert settings["mode"] == "staged"
+    assert settings["batch_size"] == 4
+    staging = settings["staging_config"]
+    assert staging.root == staging_root
+    assert staging.processes == 4
+    assert staging.rayon_threads == 4
+    assert staging.max_native_batch_size == 4
+    assert staging.stage_size == 32
+
+
+def test_api_pipeline_builds_direct_sonara_settings_without_staging_folder(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[dict[str, object]] = []
+
+    def start(_manager: AnalysisPipelineManager, **kwargs: object) -> dict[str, object]:
+        captured.append(dict(kwargs))
+        return {"job_id": "pipeline-job", "state": "queued"}
+
+    monkeypatch.setattr(AnalysisPipelineManager, "start", start)
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["sonara"],
+            "sonara": {
+                "mode": "direct",
+                "direct_batch_size": 12,
+                "staged": {
+                    "folder": "",
+                    "processes": 4,
+                    "threads": 4,
+                    "batch_size": 4,
+                    "stage_size": 32,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    settings = captured[0]["sonara"]
+    assert isinstance(settings, dict)
+    assert settings == {
+        "mode": "direct",
+        "batch_size": 12,
+        "staging_config": None,
+    }
+
+
+def test_api_pipeline_requires_selected_folder_for_staged_sonara(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["sonara"],
+            "sonara": {
+                "mode": "staged",
+                "direct_batch_size": 8,
+                "staged": {
+                    "folder": "",
+                    "processes": 4,
+                    "threads": 4,
+                    "batch_size": 4,
+                    "stage_size": 32,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Choose a staging folder before starting Staged Mode"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("processes", 0),
+        ("processes", 17),
+        ("threads", 65),
+        ("batch_size", 17),
+        ("stage_size", 0),
+        ("stage_size", 513),
+    ),
+)
+def test_api_pipeline_rejects_out_of_range_staged_sonara_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    field: str,
+    value: int,
+) -> None:
+    staged = {
+        "folder": str(tmp_path),
+        "processes": 4,
+        "threads": 4,
+        "batch_size": 4,
+        "stage_size": 32,
+    }
+    staged[field] = value
+
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["sonara"],
+            "sonara": {
+                "mode": "staged",
+                "direct_batch_size": 8,
+                "staged": staged,
+            },
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_api_sonara_job_starts_without_release_preflight(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

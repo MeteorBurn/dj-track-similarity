@@ -152,8 +152,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /Помогает понять жанровый характер трека/);
   assert.match(source, /Ищет похожее звучание от выбранного seed-трека/);
   assert.match(source, /Связывает текстовое описание с аудио-звучанием/);
-  assert.match(source, /max=\{16\}/);
-  assert.match(source, /sonaraBatchSize >= 16/);
+  assert.match(source, /maximum=\{16\}/);
+  assert.match(source, /value >= maximum/);
   assert.match(source, /className="worker-control analysis-limit"/);
   assert.match(source, /analysis-limit-decrement-button/);
   assert.match(source, /analysis-limit-increment-button/);
@@ -177,7 +177,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.doesNotMatch(source, /Active SONARA release|Prepare release|sonaraAnalysisBlockedReason/);
   assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
   assert.doesNotMatch(appSource, /aggregateClassifierJob|currentStage === "classifiers"/);
-  assert.match(appSource, /SONARA · Core · SONARA batch \$\{sonaraBatchSize\}/);
+  assert.match(appSource, /SONARA · Direct · BatchSize \$\{sonaraSettings\.directBatchSize\}/);
+  assert.match(appSource, /SONARA · Staged · \$\{sonaraSettings\.staged\.folder\}/);
   assert.match(appSource, /Track batch \$\{analysisTrackBatchSize\} · Inference batch \$\{analysisInferenceBatchSize\}/);
   assert.doesNotMatch(appSource, /CLASSIFIERS · profiles|classifierKeys/);
 
@@ -191,7 +192,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   const batchSizeIndex = source.indexOf("Inference batch");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
   const sonaraRowIndex = source.indexOf('{modelRow("sonara")}');
-  const sonaraBatchIndex = source.indexOf("SONARA batch");
+  const sonaraModeIndex = source.indexOf("sonara-analysis-mode");
+  const sonaraBatchIndex = source.indexOf('label="BatchSize"');
   const mlRowsIndex = source.indexOf("mlAnalysisModelOrder.map(modelRow)");
   const mlSettingsIndex = source.indexOf('className="analysis-settings-grid ml-analysis-settings"');
 
@@ -207,7 +209,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.ok(modelNameIndex < modelCountIndex);
   assert.ok(modelCountIndex < resetButtonIndex);
   assert.doesNotMatch(modelRowBlock, /<label\b[\s\S]*analysis-model-check/);
-  assert.ok(sonaraRowIndex < sonaraBatchIndex);
+  assert.ok(sonaraRowIndex < sonaraModeIndex);
+  assert.ok(sonaraModeIndex < sonaraBatchIndex);
   assert.ok(sonaraBatchIndex < mlRowsIndex);
   assert.ok(mlRowsIndex < mlSettingsIndex);
   assert.match(source, /analysis-family-card sonara-analysis-block/);
@@ -372,13 +375,20 @@ test("explicit database refresh adopts its catalog scope and suppresses the dupl
 
 test("analysis and scan controls use the measured machine defaults", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const sonaraSettingsSource = readFileSync(join(srcDir, "sonaraAnalysisSettings.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
   const apiSchemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
   assert.match(appSource, /scanWorkers,\s*setScanWorkers\]\s*=\s*useState\(8\)/);
   assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(8\)/);
   assert.match(appSource, /analysisInferenceBatchSize,\s*setAnalysisInferenceBatchSize\]\s*=\s*useState\(16\)/);
-  assert.match(appSource, /sonaraBatchSize,\s*setSonaraBatchSize\]\s*=\s*useState\(8\)/);
+  assert.match(appSource, /loadSonaraAnalysisSettings\(\)/);
+  assert.match(sonaraSettingsSource, /mode:\s*"direct"/);
+  assert.match(sonaraSettingsSource, /directBatchSize:\s*8/);
+  assert.match(sonaraSettingsSource, /processes:\s*4/);
+  assert.match(sonaraSettingsSource, /threads:\s*4/);
+  assert.match(sonaraSettingsSource, /batchSize:\s*4/);
+  assert.match(sonaraSettingsSource, /stageSize:\s*32/);
   assert.match(schemaSource, /DEFAULT_ANALYSIS_TRACK_BATCH_SIZE\s*=\s*8/);
   assert.match(schemaSource, /DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE\s*=\s*16/);
   assert.match(schemaSource, /DEFAULT_SONARA_BATCH_SIZE\s*=\s*8/);

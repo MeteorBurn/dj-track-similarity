@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+import dj_track_similarity.sonara_features as sonara_features_module
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -12,10 +15,13 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.sonara_staging import (
     SonaraStagingConfig,
     SonaraStagingSession,
+    StagedSonaraCandidate,
     StagedSonaraResult,
     analyze_and_store_staged_sonara,
+    analyze_staged_sonara_group,
     cleanup_orphaned_sonara_staging,
 )
+from dj_track_similarity.sonara_runtime import SONARA_SAMPLE_RATE
 
 
 def _candidate(track_id: int, source: Path) -> AnalysisCandidate:
@@ -82,6 +88,68 @@ def test_staging_session_cleans_all_copies_when_copy_fails(
     assert not any(staging_root.iterdir())
 
 
+def test_staged_ffmpeg_fallback_decodes_copy_but_logs_source_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    source = tmp_path / "hdd" / "track.flac"
+    staged_path = tmp_path / "ssd" / "staged-track.flac"
+    source.parent.mkdir()
+    staged_path.parent.mkdir()
+    source.write_bytes(b"source")
+    staged_path.write_bytes(b"copy")
+    candidate = _candidate(9, source)
+    staged = StagedSonaraCandidate(
+        candidate=candidate,
+        source_path=source,
+        path=staged_path,
+    )
+    native_paths: list[str] = []
+    ffmpeg_paths: list[Path] = []
+
+    class _FailedTrack(dict):
+        @property
+        def failed(self) -> bool:
+            return True
+
+    class _Sonara:
+        @staticmethod
+        def analyze_batch(paths, **_kwargs):
+            native_paths.extend(paths)
+            return [
+                _FailedTrack(error_kind="decode", error="unsupported codec")
+                for _path in paths
+            ]
+
+        @staticmethod
+        def analyze_signal(_audio, **_kwargs):
+            return {"energy": 0.5}
+
+    monkeypatch.setattr(sonara_features_module, "_import_sonara", lambda: _Sonara)
+
+    def decode_copy(path: str):
+        ffmpeg_paths.append(Path(path))
+        return np.asarray([0.1, -0.1], dtype=np.float32), SONARA_SAMPLE_RATE, "test"
+
+    monkeypatch.setattr(
+        sonara_features_module,
+        "load_audio_mono_with_ffmpeg",
+        decode_copy,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.sonara_features"):
+        results = analyze_staged_sonara_group((staged,))
+
+    assert native_paths == [str(staged_path)]
+    assert ffmpeg_paths == [staged_path]
+    assert results[0].candidate is candidate
+    assert results[0].error is None
+    assert results[0].used_ffmpeg_fallback
+    assert f"path={source}" in caplog.text
+    assert f"path={staged_path}" not in caplog.text
+
+
 def test_staged_pipeline_stores_original_identity_and_isolates_failure(
     tmp_path: Path,
 ) -> None:
@@ -127,7 +195,7 @@ def test_staged_pipeline_stores_original_identity_and_isolates_failure(
     outcomes = analyze_and_store_staged_sonara(
         _Repository(),
         candidates,
-        config=SonaraStagingConfig(root=tmp_path / "ssd", active_files=1, prefetch_files=1),
+        config=SonaraStagingConfig(root=tmp_path / "ssd", stage_size=2),
         analyze_group=_analyze,
         prepare_write=lambda candidate, analysis: candidate.target.track_id,
         store_write=lambda repository, write: stored_writes.append(write),
@@ -177,8 +245,7 @@ def test_staged_pipeline_never_exceeds_configured_resident_window(
         sources,
         config=SonaraStagingConfig(
             root=tmp_path / "ssd",
-            active_files=1,
-            prefetch_files=1,
+            stage_size=2,
             copy_workers=1,
             processes=1,
             max_native_batch_size=1,

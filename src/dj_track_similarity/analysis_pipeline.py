@@ -12,6 +12,7 @@ from .analysis_config import (
 from .analysis_jobs import AnalysisJobManager
 from .analysis_queue import AnalysisStageQueue
 from .job_runtime import JobStore
+from .sonara_staging import SonaraStagingConfig
 
 
 PIPELINE_STAGE_ORDER = ("sonara", "ml")
@@ -138,7 +139,12 @@ class AnalysisPipelineManager:
             job_id = self.analysis_jobs.create_job(
                 models=["sonara"],
                 limit=payload.limit,
+                sonara_mode=str(payload.sonara.get("mode") or "direct"),
                 sonara_batch_size=cast(int | None, payload.sonara.get("batch_size")),
+                sonara_staging_config=cast(
+                    SonaraStagingConfig | None,
+                    payload.sonara.get("staging_config"),
+                ),
             )
             self._set_stage(parent_job_id, stage, state="running", child_job_id=job_id)
             if self.get(parent_job_id).cancel_requested:

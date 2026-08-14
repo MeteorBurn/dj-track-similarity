@@ -28,9 +28,8 @@ from .sonara_runtime import (
 class SonaraStagingConfig:
     """Location and bounded-window settings for one SONARA staging run."""
 
-    root: Path = Path(r"C:\TracksTemp")
-    active_files: int = 16
-    prefetch_files: int = 16
+    root: Path
+    stage_size: int = 32
     copy_workers: int = 16
     processes: int = 4
     rayon_threads: int = 4
@@ -41,8 +40,7 @@ class SonaraStagingConfig:
         if not str(root):
             raise ValueError("SONARA staging root must not be empty")
         for name, value in (
-            ("active_files", self.active_files),
-            ("prefetch_files", self.prefetch_files),
+            ("stage_size", self.stage_size),
             ("copy_workers", self.copy_workers),
             ("processes", self.processes),
             ("rayon_threads", self.rayon_threads),
@@ -184,7 +182,7 @@ def analyze_and_store_staged_sonara(
     outcomes: list[StagedSonaraResult] = []
     copy_futures: dict[Future[StagedSonaraCandidate], AnalysisCandidate] = {}
     analysis_futures: dict[Future[tuple[StagedSonaraResult, ...]], tuple[StagedSonaraCandidate, ...]] = {}
-    active_limit = config.active_files + config.prefetch_files
+    active_limit = config.stage_size
 
     def complete(result: StagedSonaraResult) -> None:
         outcomes.append(result)
@@ -304,11 +302,8 @@ def analyze_staged_sonara_group(
 
     started = time.perf_counter()
     sonara = _import_sonara()
-    worker_candidates = tuple(
-        replace(item.candidate, file_path=str(item.path)) for item in staged
-    )
     raw_results = sonara.analyze_batch(
-        [candidate.file_path for candidate in worker_candidates],
+        [str(item.path) for item in staged],
         sr=SONARA_SAMPLE_RATE,
         mode=SONARA_ANALYSIS_MODE,
         bpm_min=SONARA_BPM_MIN,
@@ -320,10 +315,13 @@ def analyze_staged_sonara_group(
         raise RuntimeError("SONARA staged worker result count mismatch")
     elapsed = time.perf_counter() - started
     results: list[StagedSonaraResult] = []
-    for item, worker_candidate, raw_result in zip(staged, worker_candidates, raw_results):
+    for item, raw_result in zip(staged, raw_results):
         try:
             analysis, used_ffmpeg_fallback = _analysis_mapping_with_ffmpeg_fallback(
-                sonara, worker_candidate, raw_result
+                sonara,
+                item.candidate,
+                raw_result,
+                decode_path=str(item.path),
             )
             results.append(
                 StagedSonaraResult(

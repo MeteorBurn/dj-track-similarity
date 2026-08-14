@@ -6,7 +6,7 @@ import { createServer } from "vite";
 
 test("pipeline status is not rendered above the analysis action", async () => {
   const server = await createServer({
-    server: { middlewareMode: true },
+    server: { middlewareMode: true, hmr: false },
     appType: "custom",
     optimizeDeps: { noDiscovery: true },
   });
@@ -64,8 +64,19 @@ test("pipeline status is not rendered above the analysis action", async () => {
       maxAnalysisInferenceBatchSize: 4,
       adjustAnalysisInferenceBatchSize: noop,
       onAnalysisInferenceBatchSizeChange: noop,
-      sonaraBatchSize: 1,
-      onSonaraBatchSizeChange: noop,
+      sonaraSettings: {
+        mode: "direct",
+        directBatchSize: 8,
+        staged: {
+          folder: "",
+          processes: 4,
+          threads: 4,
+          batchSize: 4,
+          stageSize: 32,
+        },
+      },
+      onSonaraSettingsChange: noop,
+      onChooseStagingFolder: noop,
       analysisJob,
       pipelineJob,
       helpText: {},

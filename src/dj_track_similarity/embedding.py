@@ -1307,7 +1307,7 @@ def _download_verified_hf_checkpoint(
             repo_id=repo_id,
             filename=filename,
             revision=revision,
-            local_files_only=True,
+            local_files_only=False,
         )
     )
     path = Path(checkpoint_path)
@@ -1457,7 +1457,7 @@ def _download_verified_hf_snapshot(
             repo_id=repo_id,
             revision=revision,
             allow_patterns=list(required_files),
-            local_files_only=True,
+            local_files_only=False,
         )
     )
     missing = [

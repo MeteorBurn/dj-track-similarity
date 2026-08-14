@@ -244,7 +244,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
             "lukewys/laion_clap",
             "music_audioset_epoch_15_esc_90.14.pt",
             "b3708341862f581175dba5c356a4ebf74a9b6651",
-            True,
+            False,
         )
     ]
     assert calls["verify"] == (
@@ -260,7 +260,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
         "roberta-base",
         "e2da8e2f811d1448a5b465c236feacd80ffbac7b",
         list(adapter.text_snapshot_files),
-        True,
+        False,
     )
     assert calls["module"] == (
         False,

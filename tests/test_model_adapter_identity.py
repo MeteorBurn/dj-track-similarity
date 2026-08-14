@@ -112,6 +112,7 @@ def test_hf_checkpoint_download_creates_immutable_verified_binding(
             binding.path.write_bytes(b"different deserializer input")
         assert binding.path.read_bytes() == b"checkpoint"
     assert calls["download"][:2] == ("owner/model", "model.bin")
+    assert calls["download"][3] is False
     assert calls["verify"] == (
         checkpoint,
         expected,
@@ -190,7 +191,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
-    assert calls["download"][3] is True
+    assert calls["download"][3] is False
     processor_path, processor_kwargs = calls["processor"]
     model_path, model_kwargs = calls["model"]
     assert processor_path == model_path
@@ -266,7 +267,7 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
-    assert calls["download"][3] is True
+    assert calls["download"][3] is False
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
     assert not Path(model_path).exists()
@@ -274,7 +275,7 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
     assert calls["float"] is True
 
 
-def test_mulan_loader_uses_official_joint_model_from_verified_local_snapshot(
+def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserialization(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -301,7 +302,12 @@ def test_mulan_loader_uses_official_joint_model_from_verified_local_snapshot(
             return FakeModel()
 
     hf_module = types.ModuleType("huggingface_hub")
-    hf_module.snapshot_download = lambda **_kwargs: str(snapshot)
+
+    def download(*, repo_id, revision, allow_patterns, local_files_only):
+        calls["download"] = (repo_id, revision, allow_patterns, local_files_only)
+        return str(snapshot)
+
+    hf_module.snapshot_download = download
     muq_module = types.ModuleType("muq")
     muq_module.MuQMuLan = FakeMuQMuLan
     monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
@@ -324,6 +330,12 @@ def test_mulan_loader_uses_official_joint_model_from_verified_local_snapshot(
     ]
     adapter._load_model()
 
+    assert calls["download"] == (
+        adapter.model_name,
+        adapter.model_revision,
+        list(adapter.snapshot_files),
+        False,
+    )
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
     assert not Path(model_path).exists()
@@ -408,8 +420,8 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     )
     assert calls["text_download"][0] == adapter.text_model_name
     assert calls["text_download"][2] == list(adapter.text_snapshot_files)
-    assert calls["download"][3] is True
-    assert calls["text_download"][3] is True
+    assert calls["download"][3] is False
+    assert calls["text_download"][3] is False
     assert calls["module"] == (
         False,
         "HTSAT-base",

@@ -15,10 +15,11 @@ from dj_track_similarity.analysis_models import (
     EmbeddingOutput,
     EmbeddingWrite,
     MERT_EMBEDDING_DIM,
+    MULAN_EMBEDDING_DIM,
 )
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.embedding import ClapEmbeddingAdapter
+from dj_track_similarity.embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -44,6 +45,20 @@ class FakeClapAdapter(ClapEmbeddingAdapter):
         )
 
 
+class FakeMulanAdapter(MuqMulanEmbeddingAdapter):
+    queries: list[str] = []
+
+    def __init__(self, device: str = "auto") -> None:
+        super().__init__(device=device)
+
+    def embed_text(self, query: str):
+        self.queries.append(query)
+        return _typed_vector(
+            current_embedding_analysis_output("mulan"),
+            [0.0, 1.0, 0.0],
+        )
+
+
 def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> None:
     FakeClapAdapter.queries = []
     db_path = tmp_path / "library.sqlite"
@@ -63,6 +78,42 @@ def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> N
     assert [item["track"]["track_id"] for item in payload] == [near_id, far_id]
     assert payload[0]["score"] > payload[1]["score"]
     assert FakeClapAdapter.queries == ["dark rolling techno"]
+
+
+def test_text_search_uses_persisted_mulan_embeddings_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    FakeMulanAdapter.queries = []
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    near_id = _track_with_embedding(db, "mulan-near.wav", [0.0, 1.0, 0.0], "mulan")
+    far_id = _track_with_embedding(db, "mulan-far.wav", [1.0, 0.0, 0.0], "mulan")
+    _track_with_embedding(db, "clap-only.wav", [0.0, 1.0, 0.0], "clap")
+    with db.connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM mulan_embeddings").fetchone()[0] == 2
+        assert connection.execute("SELECT COUNT(*) FROM clap_embeddings").fetchone()[0] == 1
+    assert np.allclose(
+        db.read_embedding(family="mulan", track_id=near_id),
+        _typed_vector(current_embedding_analysis_output("mulan"), [0.0, 1.0, 0.0]),
+    )
+    monkeypatch.setattr(api, "MuqMulanEmbeddingAdapter", FakeMulanAdapter)
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search/text",
+        json={
+            "query": "dark rolling techno",
+            "analysis_family": "mulan",
+            "limit": 5,
+            "device": "cpu",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["track"]["track_id"] for item in payload] == [near_id, far_id]
+    assert payload[0]["score"] > payload[1]["score"]
+    assert FakeMulanAdapter.queries == ["dark rolling techno"]
 
 
 def test_text_search_supports_adaptive_contrast_prompts(monkeypatch, tmp_path: Path) -> None:
@@ -263,6 +314,7 @@ def _typed_vector(
     dimensions = {
         "clap": CLAP_EMBEDDING_DIM,
         "mert": MERT_EMBEDDING_DIM,
+        "mulan": MULAN_EMBEDDING_DIM,
     }
     vector = np.zeros(dimensions[output.analysis_family], dtype=np.float32)
     vector[: len(values)] = values

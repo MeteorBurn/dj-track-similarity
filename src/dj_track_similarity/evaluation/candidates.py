@@ -23,7 +23,8 @@ if TYPE_CHECKING:
     from ..track_models import TrackIdentity
 
 
-ALLOWED_CANDIDATE_SOURCES = ("mert", "maest", "muq", "sonara", "clap")
+ALLOWED_CANDIDATE_SOURCES = ("mert", "maest", "muq", "mulan", "sonara", "clap")
+DEFAULT_CANDIDATE_SOURCES = ("mert", "maest", "muq", "sonara", "clap")
 DEFAULT_FEEDBACK_SOURCE = "manual"
 EXPORT_CANDIDATE_COLUMNS = (
     "seed_track_id",
@@ -340,7 +341,7 @@ def _search_source(
             mode="balanced",
             limit=per_source,
         )
-    if source in {"mert", "maest", "muq", "clap"}:
+    if source in {"mert", "maest", "muq", "mulan", "clap"}:
         output = current_embedding_analysis_output(source)
         search = SimilaritySearch(
             db,
@@ -446,7 +447,7 @@ def _identity_payload(track: TransitionTrack) -> dict[str, object]:
 
 def _clean_sources(sources: Sequence[str] | None) -> tuple[str, ...]:
     if not sources:
-        return ALLOWED_CANDIDATE_SOURCES
+        return DEFAULT_CANDIDATE_SOURCES
     clean_sources = tuple(dict.fromkeys(text for source in sources if (text := str(source).strip().lower())))
     if not clean_sources:
         raise ValueError("At least one --source value is required")

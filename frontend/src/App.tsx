@@ -154,6 +154,7 @@ export function App() {
   const [clapPresetKey, setClapPresetKey] = useState(defaultClapPromptPresetKey);
   const [clapNegativeQuery, setClapNegativeQuery] = useState("");
   const [clapUseNegativePrompt, setClapUseNegativePrompt] = useState(true);
+  const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<"clap" | "mulan">("clap");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
@@ -222,12 +223,14 @@ export function App() {
       clap_use_negative_prompt: clapUseNegativePrompt,
       clap_preset_key: clapPresetKey,
       clap_device: analysisDevice,
+      text_embedding_family: textEmbeddingFamily,
     }),
     [
       analysisDevice,
       clapNegativeQuery,
       clapPresetKey,
       clapUseNegativePrompt,
+      textEmbeddingFamily,
       databaseCatalogUuid,
       databasePath,
       filters,
@@ -262,6 +265,7 @@ export function App() {
     maest: librarySummary.maest_analysis,
     mert: librarySummary.mert,
     muq: librarySummary.muq,
+    mulan: librarySummary.mulan,
     clap: librarySummary.clap
   };
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
@@ -855,7 +859,7 @@ export function App() {
       setNotice({ kind: "error", text: error.message });
       throw error;
     }
-    if (analysisFamily !== "mert" && analysisFamily !== "muq") {
+    if (analysisFamily !== "mert" && analysisFamily !== "muq" && analysisFamily !== "mulan") {
       throw new Error(`Unsupported embedding search tab: ${analysisFamily}`);
     }
     const label = analysisFamily.toUpperCase();
@@ -1095,18 +1099,20 @@ export function App() {
 
   async function handleTextSearch() {
     const prompt = textQuery.trim();
+    const label = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
     if (!prompt) {
-      setNotice({ kind: "error", text: "Введите текстовый запрос для CLAP" });
+      setNotice({ kind: "error", text: `Введите текстовый запрос для ${label}` });
       return;
     }
     const manualQueries = promptQueriesFromText(prompt, clapNegativeQuery, clapUseNegativePrompt);
     const positiveQueries = manualQueries.positiveQueries;
     const negativeQueries = manualQueries.negativeQueries;
     const ticket = beginGenericSearchRequest();
-    appendActivity("info", "CLAP search запущен", negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
+    appendActivity("info", `${label} search запущен`, negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
     try {
       const value = await api.textSearch({
         query: prompt,
+        analysis_family: textEmbeddingFamily,
         positive_queries: positiveQueries,
         negative_queries: negativeQueries,
         adaptive_contrast: true,
@@ -1116,15 +1122,15 @@ export function App() {
       }, {
         signal: ticket.controller.signal,
       });
-      if (commitGenericSearchResults(ticket, "clap", value)) {
-        appendActivity("ok", "CLAP search завершен", `Найдено: ${value.length}`);
+      if (commitGenericSearchResults(ticket, textEmbeddingFamily, value)) {
+        appendActivity("ok", `${label} search завершен`, `Найдено: ${value.length}`);
         setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }
     } catch (error) {
       if (!genericSearchRequestIsCurrent(ticket) || isAbortError(error)) return;
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
-      appendActivity("error", "CLAP search недоступен", message);
+      appendActivity("error", `${label} search недоступен`, message);
     } finally {
       finishGenericSearchRequest(ticket);
     }
@@ -1478,6 +1484,8 @@ export function App() {
           onClapNegativeQueryChange={setClapNegativeQuery}
           clapUseNegativePrompt={clapUseNegativePrompt}
           onClapUseNegativePromptChange={setClapUseNegativePrompt}
+          textEmbeddingFamily={textEmbeddingFamily}
+          onTextEmbeddingFamilyChange={setTextEmbeddingFamily}
           clapPresetKey={clapPresetKey}
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}
@@ -1504,6 +1512,7 @@ export function App() {
             mert: librarySummary.mert,
             maest: librarySummary.maest_embedding,
             muq: librarySummary.muq,
+            mulan: librarySummary.mulan,
             clap: librarySummary.clap
           }}
           classifiers={classifiers}

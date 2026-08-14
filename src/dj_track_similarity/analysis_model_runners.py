@@ -23,6 +23,7 @@ from .analysis_models import (
     maest_embedding_output,
     mert_embedding_output,
     muq_embedding_output,
+    mulan_embedding_output,
 )
 from .audio_loader import DecodedAudio
 from .embedding import (
@@ -30,6 +31,7 @@ from .embedding import (
     MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
     MuqEmbeddingAdapter,
+    MuqMulanEmbeddingAdapter,
 )
 from .maest_analysis_validation import has_maest_syncopated_rhythm
 from .timestamps import utc_timestamp
@@ -276,13 +278,18 @@ class EmbeddingModelRunner:
         device: str,
         inference_batch_size: int,
         adapter: (
-            MertEmbeddingAdapter | MuqEmbeddingAdapter | ClapEmbeddingAdapter | None
+            MertEmbeddingAdapter
+            | MuqEmbeddingAdapter
+            | MuqMulanEmbeddingAdapter
+            | ClapEmbeddingAdapter
+            | None
         ) = None,
     ) -> None:
         self.model = model
         adapter_classes = {
             "mert": MertEmbeddingAdapter,
             "muq": MuqEmbeddingAdapter,
+            "mulan": MuqMulanEmbeddingAdapter,
             "clap": ClapEmbeddingAdapter,
         }
         try:
@@ -360,7 +367,7 @@ def default_model_runners(
             top_k=top_k,
             inference_batch_size=inference_batch_size,
         )
-    if model in {"mert", "muq", "clap"}:
+    if model in {"mert", "muq", "mulan", "clap"}:
         return EmbeddingModelRunner(
             model,
             device=device,
@@ -485,6 +492,26 @@ def embedding_analysis_output(
             dtype=cast(str, facts["dtype"]),
             parameters=extras,
         )
+    if model == "mulan":
+        facts, extras = _runtime_parameters(
+            adapter,
+            reserved=(
+                "sample_rate_hz",
+                "window_seconds",
+                "max_windows",
+                "pooling",
+                "dtype",
+            ),
+        )
+        return mulan_embedding_output(
+            **identity,
+            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
+            window_seconds=cast(float, facts["window_seconds"]),
+            max_windows=cast(int, facts["max_windows"]),
+            pooling=cast(str, facts["pooling"]),
+            dtype=cast(str, facts["dtype"]),
+            parameters=extras,
+        )
     if model == "clap":
         facts, extras = _runtime_parameters(
             adapter,
@@ -524,6 +551,8 @@ def current_embedding_analysis_output(
         adapter = MertEmbeddingAdapter(device=device)
     elif clean_model == "muq":
         adapter = MuqEmbeddingAdapter(device=device)
+    elif clean_model == "mulan":
+        adapter = MuqMulanEmbeddingAdapter(device=device)
     elif clean_model == "clap":
         adapter = ClapEmbeddingAdapter(device=device)
     else:

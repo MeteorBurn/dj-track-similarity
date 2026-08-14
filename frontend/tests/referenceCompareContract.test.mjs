@@ -113,10 +113,10 @@ test("reference panel uses current ids, exact verdict identities, notes, and sta
   assert.doesNotMatch(referencePanelSource, /result\.track\.id|referenceTrack\.id/);
 });
 
-test("reference panel keeps all five model groups visible including MuQ", () => {
+test("reference panel keeps all six model groups visible including MuQ-MuLan", () => {
   const referencePanelSource = readFileSync(join(srcDir, "ReferenceComparePanel.tsx"), "utf8");
 
-  assert.match(referencePanelSource, /\["clap", "mert", "muq", "maest", "sonara"\]/);
+  assert.match(referencePanelSource, /\["clap", "mert", "muq", "mulan", "maest", "sonara"\]/);
   assert.match(referencePanelSource, /orderedReferenceCompareGroups/);
   assert.match(referencePanelSource, /available: false/);
   assert.match(referencePanelSource, /did not return \$\{model\.toUpperCase\(\)\} availability/);

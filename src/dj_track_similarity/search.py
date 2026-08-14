@@ -24,9 +24,9 @@ from .vector_index import (
 
 
 FloatArray = NDArray[np.float32]
-EmbeddingFamily = Literal["maest", "mert", "muq", "clap"]
+EmbeddingFamily = Literal["maest", "mert", "muq", "mulan", "clap"]
 CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = 0.35
-_EMBEDDING_FAMILIES = frozenset({"maest", "mert", "muq", "clap"})
+_EMBEDDING_FAMILIES = frozenset({"maest", "mert", "muq", "mulan", "clap"})
 
 
 class AnalysisSearchRepository(Protocol):

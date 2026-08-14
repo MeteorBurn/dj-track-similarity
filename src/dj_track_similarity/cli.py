@@ -51,11 +51,13 @@ from .database import LibraryDatabase
 from .database_validation import DatabaseValidator, format_validation_finding
 from .db_migration import (
     MIGRATION_CONFIRMATION,
+    MULAN_SCHEMA_MIGRATION_CONFIRMATION,
     LegacyLibraryMigrationError,
+    migrate_mulan_embedding_schema,
     migrate_legacy_library_database,
 )
 from .dependencies import require_ffmpeg
-from .embedding import ClapEmbeddingAdapter
+from .embedding import adapter_factories
 from .evaluation.ablation import build_source_ablation_report
 from .evaluation.calibration import build_calibration_report, calibration_record_config, calibration_record_metrics
 from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
@@ -267,7 +269,7 @@ def index_build(
     model: str = typer.Option(
         ...,
         "--model",
-        help="Active embedding model family: maest, mert, muq, or clap.",
+        help="Active embedding model family: maest, mert, muq, mulan, or clap.",
     ),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
@@ -310,7 +312,7 @@ def index_verify(
     model: str = typer.Option(
         ...,
         "--model",
-        help="Active embedding model family: maest, mert, muq, or clap.",
+        help="Active embedding model family: maest, mert, muq, mulan, or clap.",
     ),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
@@ -345,7 +347,7 @@ def index_benchmark(
     model: str = typer.Option(
         ...,
         "--model",
-        help="Active embedding model family: maest, mert, muq, or clap.",
+        help="Active embedding model family: maest, mert, muq, mulan, or clap.",
     ),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
@@ -421,7 +423,7 @@ def export_evaluation_candidates(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     seed_track_ids: Optional[list[int]] = typer.Option(None, "--seed-track-id", help="Seed track ID. Repeat for multiple seeds."),
-    sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert, maest, muq, sonara, or clap. Repeat for multiple sources."),
+    sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert, maest, muq, mulan, sonara, or clap. Repeat for multiple sources."),
     per_source: int = typer.Option(10, "--per-source", min=1, help="Top candidates to request from each source."),
     random_seed: int = typer.Option(123, "--random-seed", help="Deterministic blind-order random seed."),
     record_session: bool = typer.Option(True, "--record-session/--no-record-session", help="Record evaluation search_sessions and result events."),
@@ -779,7 +781,7 @@ def evaluation_profile_sources(
     profile_output_path: Optional[Path] = typer.Option(None, "--profile-output", dir_okay=False, writable=True, help="Optional score profile JSON artifact to create from this report."),
     profile_name: str = typer.Option("auto-source-profile", "--profile-name", help="Score profile name when --profile-output is used."),
     seed_sample_path: Optional[Path] = typer.Option(None, "--seed-sample", exists=True, dir_okay=False, readable=True),
-    sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert, maest, muq, sonara, or clap. Repeat for multiple sources."),
+    sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert, maest, muq, mulan, sonara, or clap. Repeat for multiple sources."),
     sample_count: int = typer.Option(50, "--sample-count", min=1, help="Seed count to sample when --seed-sample is not provided."),
     per_source: int = typer.Option(30, "--per-source", min=1, help="Top candidates to request from each source per seed."),
     top_k: Optional[list[int]] = typer.Option(None, "--top-k", min=1, help="Agreement cutoff. Repeat for multiple values."),
@@ -993,6 +995,44 @@ def migrate_database_command(
     )
 
 
+@app.command("migrate-mulan-embeddings")
+def migrate_mulan_embeddings_command(
+    db_path: Path = typer.Option(..., "--db", help="Current library database path."),
+    backup_root: Optional[Path] = typer.Option(
+        None,
+        "--backup-root",
+        help="Parent directory for the timestamped migration backup.",
+    ),
+    confirm: Optional[str] = typer.Option(
+        None,
+        "--confirm",
+        help=f"Required exact phrase: {MULAN_SCHEMA_MIGRATION_CONFIRMATION}",
+    ),
+) -> None:
+    """Explicitly add the separate MuQ-MuLan embedding table."""
+
+    try:
+        phrase = confirm or typer.prompt(
+            f"Type {MULAN_SCHEMA_MIGRATION_CONFIRMATION} to continue"
+        )
+        result = migrate_mulan_embedding_schema(
+            db_path,
+            confirm=phrase,
+            backup_root=backup_root,
+        )
+    except (OSError, sqlite3.Error, LegacyLibraryMigrationError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    typer.echo(
+        f"library={result.library_path}\n"
+        f"backup={result.backup_path}\n"
+        f"catalog_uuid={result.catalog_uuid}\n"
+        f"table_created={result.table_created}\n"
+        f"integrity_check={result.integrity_check} "
+        f"foreign_key_violations={result.foreign_key_violations}"
+    )
+
+
 @app.command("relocate-library")
 def relocate_library(
     old_root: Path,
@@ -1023,7 +1063,7 @@ def relocate_library(
 def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
-    models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated ML models, or SONARA alone: maest,mert,muq,clap | sonara."),
+    models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated ML models, or SONARA alone: maest,mert,muq,mulan,clap | sonara."),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Embedding device: auto, cpu, or cuda."),
     top_k: int = typer.Option(
         DEFAULT_ANALYSIS_TOP_K,
@@ -1202,16 +1242,23 @@ def doctor() -> None:
 def text_search(
     query: str,
     db_path: Optional[Path] = typer.Option(None, "--db"),
+    model: str = typer.Option("clap", "--model", help="Text embedding model: clap or mulan."),
     limit: int = typer.Option(50, "--limit", min=1, max=500),
     min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
-    device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="CLAP device: auto, cpu, or cuda."),
-    use_ann_index: bool = typer.Option(False, "--use-ann-index", help="Require the persistent CLAP ANN sidecar instead of exact search."),
+    device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Text embedding device: auto, cpu, or cuda."),
+    use_ann_index: bool = typer.Option(False, "--use-ann-index", help="Require the persistent text-model ANN sidecar instead of exact search."),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Persistent index sidecar directory for --use-ann-index."),
 ) -> None:
     try:
         device_name = _parse_analysis_device(device)
         db = _db(db_path)
-        adapter = ClapEmbeddingAdapter(device=device_name)
+        clean_model = model.strip().lower()
+        adapter_class = adapter_factories().get(clean_model)
+        if adapter_class is None:
+            raise ValueError(f"Unsupported text embedding model: {model}")
+        adapter = adapter_class(device=device_name)
+        if not callable(getattr(adapter, "embed_text", None)):
+            raise ValueError(f"{clean_model} does not support text embeddings")
         analysis_output = embedding_analysis_output(
             adapter.embedding_key,
             adapter,

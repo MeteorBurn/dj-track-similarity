@@ -34,6 +34,7 @@ export const emptyLibrarySummary: LibrarySummary = {
   maest_embedding: 0,
   mert: 0,
   muq: 0,
+  mulan: 0,
   clap: 0,
   liked: 0,
   classifiers: 0

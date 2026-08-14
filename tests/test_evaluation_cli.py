@@ -910,6 +910,7 @@ def test_eval_export_seed_sample_cli_writes_csv(tmp_path: Path) -> None:
             "sonara_core",
             "mert_embedding",
             "muq_embedding",
+            "mulan_embedding",
             "clap_embedding",
         "maest_analysis",
         "maest_embedding",

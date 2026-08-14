@@ -143,6 +143,7 @@ def test_database_switch_creates_selected_current_bundle(tmp_path: Path) -> None
         "maest_embedding": 0,
         "mert": 0,
         "muq": 0,
+        "mulan": 0,
         "clap": 0,
         "liked": 0,
         "classifiers": 0,

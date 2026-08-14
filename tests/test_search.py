@@ -15,6 +15,7 @@ from dj_track_similarity.analysis_models import (
     EmbeddingOutput,
     EmbeddingWrite,
     MERT_EMBEDDING_DIM,
+    MULAN_EMBEDDING_DIM,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.search import SearchFilters, SimilaritySearch
@@ -44,6 +45,20 @@ def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(
         far.track_id,
     ]
     assert results[0].score > results[1].score
+
+
+def test_mulan_search_uses_only_mulan_embedding_space(tmp_path: Path) -> None:
+    db, output = _library(tmp_path, "mulan")
+    seed = _add_track(db, tmp_path, output, "mulan-seed.wav", [1.0, 0.0, 0.0])
+    near = _add_track(db, tmp_path, output, "mulan-near.wav", [0.9, 0.1, 0.0])
+    far = _add_track(db, tmp_path, output, "mulan-far.wav", [0.0, 1.0, 0.0])
+
+    results = SimilaritySearch(db, "mulan", analysis_output=output).search(
+        (seed,),
+        limit=5,
+    )
+
+    assert [result.target.track_id for result in results] == [near.track_id, far.track_id]
 
 
 def test_search_epsilon_keeps_only_candidates_near_the_best_score(
@@ -247,6 +262,7 @@ def _query(output: AnalysisOutput, values: list[float]) -> np.ndarray:
     dimensions = {
         "clap": CLAP_EMBEDDING_DIM,
         "mert": MERT_EMBEDDING_DIM,
+        "mulan": MULAN_EMBEDDING_DIM,
     }
     vector = np.zeros(dimensions[output.analysis_family], dtype=np.float32)
     vector[: len(values)] = values
@@ -254,6 +270,6 @@ def _query(output: AnalysisOutput, values: list[float]) -> np.ndarray:
 
 
 def _output(family: str) -> AnalysisOutput:
-    if family not in {"mert", "clap"}:
+    if family not in {"mert", "mulan", "clap"}:
         raise ValueError(f"Unsupported fixture family: {family}")
     return current_embedding_analysis_output(family)

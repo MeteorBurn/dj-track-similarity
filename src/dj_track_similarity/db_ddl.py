@@ -13,12 +13,13 @@ Tables (emission order matches FK dependency order):
   7.  maest_embeddings      — MAEST float32-le embedding BLOBs
   8.  mert_embeddings       — MERT float32-le embedding BLOBs
   9.  muq_embeddings        — MuQ float32-le embedding BLOBs
-  10. clap_embeddings       — CLAP float32-le embedding BLOBs
-  11. classifier_scores     — Rhythm Lab classifier scores
-  12. likes                 — user like per track
-  13. pair_feedback         — candidate pair ratings with reason_tags_json
-  14. transition_feedback   — transition ratings with risk_tags_json
-  15. track_search_fts      — FTS5 virtual table (human text only)
+  10. mulan_embeddings      — MuQ-MuLan float32-le embedding BLOBs
+  11. clap_embeddings       — CLAP float32-le embedding BLOBs
+  12. classifier_scores     — Rhythm Lab classifier scores
+  13. likes                 — user like per track
+  14. pair_feedback         — candidate pair ratings with reason_tags_json
+  15. transition_feedback   — transition ratings with risk_tags_json
+  16. track_search_fts      — FTS5 virtual table (human text only)
 
 """
 
@@ -226,6 +227,18 @@ CREATE TABLE muq_embeddings (
 CREATE INDEX idx_muq_embeddings_track_uuid ON muq_embeddings(track_uuid);
 """
 
+_DDL_MULAN_EMBEDDINGS = """
+CREATE TABLE mulan_embeddings (
+    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid         TEXT    NOT NULL,
+    dim                INTEGER NOT NULL CHECK(dim > 0),
+    normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
+    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
+    analyzed_at        TEXT    NOT NULL
+);
+CREATE INDEX idx_mulan_embeddings_track_uuid ON mulan_embeddings(track_uuid);
+"""
+
 _DDL_CLAP_EMBEDDINGS = """
 CREATE TABLE clap_embeddings (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
@@ -326,6 +339,7 @@ _ALL_DDL: list[str] = [
     _DDL_MAEST_EMBEDDINGS,
     _DDL_MERT_EMBEDDINGS,
     _DDL_MUQ_EMBEDDINGS,
+    _DDL_MULAN_EMBEDDINGS,
     _DDL_CLAP_EMBEDDINGS,
     _DDL_CLASSIFIER_SCORES,
     _DDL_LIKES,
@@ -355,6 +369,18 @@ def create_library_schema(db: "sqlite3.Connection | str") -> None:
             conn.close()
     else:
         _apply_schema(db)
+
+
+def create_mulan_embeddings_schema(connection: sqlite3.Connection) -> bool:
+    """Add the separate MuQ-MuLan table when an explicit migration needs it."""
+
+    existing = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mulan_embeddings'"
+    ).fetchone()
+    if existing is not None:
+        return False
+    connection.executescript(_DDL_MULAN_EMBEDDINGS)
+    return True
 
 
 def _apply_schema(conn: sqlite3.Connection) -> None:

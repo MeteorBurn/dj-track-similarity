@@ -157,7 +157,7 @@ def test_api_defaults_audio_job_to_ml_models_only(
     )
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["maest", "mert", "muq", "clap"]
+    assert response.json()["models"] == ["maest", "mert", "muq", "mulan", "clap"]
     assert "sonara_outputs" not in calls[0]
 
 

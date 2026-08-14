@@ -38,12 +38,14 @@ _DERIVED_TRACK_TABLES = (
     "maest_embeddings",
     "mert_embeddings",
     "muq_embeddings",
+    "mulan_embeddings",
     "clap_embeddings",
 )
 _EMBEDDING_TABLES = (
     "maest_embeddings",
     "mert_embeddings",
     "muq_embeddings",
+    "mulan_embeddings",
     "clap_embeddings",
 )
 _UTC_MICROSECOND_PATTERN = re.compile(

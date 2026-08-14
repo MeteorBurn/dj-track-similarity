@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,9 @@ from dj_track_similarity import cli
 from dj_track_similarity.db_ddl import create_library_schema
 from dj_track_similarity.db_migration import (
     MIGRATION_CONFIRMATION,
+    MULAN_SCHEMA_MIGRATION_CONFIRMATION,
     LegacyLibraryMigrationError,
+    migrate_mulan_embedding_schema,
     migrate_legacy_library_database,
 )
 
@@ -28,6 +31,7 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
             "maest_embeddings",
             "mert_embeddings",
             "muq_embeddings",
+            "mulan_embeddings",
             "clap_embeddings",
             "library",
         ):
@@ -161,6 +165,7 @@ def _create_legacy_artifacts(path: Path, *, catalog_uuid: str) -> None:
             "transition_feedback",
             "track_search_fts",
             "tracks",
+            "mulan_embeddings",
         ):
             connection.execute(f'DROP TABLE "{table}"')
         connection.execute(
@@ -216,6 +221,72 @@ def _create_legacy_pair(root: Path, *, artifact_catalog_uuid: str = _CATALOG_UUI
     return core_path
 
 
+def _create_current_library_without_mulan(path: Path) -> None:
+    with closing(sqlite3.connect(path)) as connection, connection:
+        create_library_schema(connection)
+        connection.execute(
+            "INSERT INTO library VALUES (1, ?, ?, ?, 1, '[]')",
+            (_CATALOG_UUID, _TIMESTAMP, _TIMESTAMP),
+        )
+        connection.execute(
+            "INSERT INTO tracks(track_uuid, file_path, file_size_bytes, file_modified_ns, last_scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("track-1", "D:/Music/track-1.wav", 1, 1, _TIMESTAMP, _TIMESTAMP, _TIMESTAMP),
+        )
+        connection.execute("DROP TABLE mulan_embeddings")
+
+
+def test_mulan_schema_migration_backups_and_adds_only_the_new_table(
+    tmp_path: Path,
+) -> None:
+    library_path = tmp_path / "current.sqlite"
+    _create_current_library_without_mulan(library_path)
+
+    result = migrate_mulan_embedding_schema(
+        library_path,
+        confirm=MULAN_SCHEMA_MIGRATION_CONFIRMATION,
+    )
+
+    assert result.library_path == library_path
+    assert result.catalog_uuid == _CATALOG_UUID
+    assert result.table_created is True
+    assert result.integrity_check == "ok"
+    assert result.foreign_key_violations == 0
+    with closing(sqlite3.connect(library_path)) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mulan_embeddings'"
+        ).fetchone() == ("mulan_embeddings",)
+    with closing(sqlite3.connect(result.backup_path)) as backup:
+        assert backup.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mulan_embeddings'"
+        ).fetchone() is None
+
+
+def test_mulan_schema_migration_cli_requires_confirmation_and_adds_the_table(
+    tmp_path: Path,
+) -> None:
+    library_path = tmp_path / "current.sqlite"
+    _create_current_library_without_mulan(library_path)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "migrate-mulan-embeddings",
+            "--db",
+            str(library_path),
+            "--confirm",
+            MULAN_SCHEMA_MIGRATION_CONFIRMATION,
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "table_created=True" in result.output
+    with closing(sqlite3.connect(library_path)) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mulan_embeddings'"
+        ).fetchone() == ("mulan_embeddings",)
+
+
 def test_migration_merges_a_legacy_pair_without_filtering_analysis_rows(
     tmp_path: Path,
 ) -> None:
@@ -237,6 +308,7 @@ def test_migration_merges_a_legacy_pair_without_filtering_analysis_rows(
         "maest_embeddings": 1,
         "mert_embeddings": 1,
         "muq_embeddings": 1,
+        "mulan_embeddings": 0,
         "clap_embeddings": 1,
         "classifier_scores": 1,
         "likes": 1,

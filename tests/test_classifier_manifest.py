@@ -99,6 +99,24 @@ def test_muq_manifest_checks_current_embedding_dimension(
     )
 
 
+def test_mulan_manifest_checks_current_embedding_dimension(
+    tmp_path: Path,
+) -> None:
+    model_path, manifest_path = _write_manifest(
+        tmp_path,
+        _manifest_payload(feature_names=["mulan:0", "mulan:511"]),
+    )
+
+    summary = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key="test_classifier",
+        metadata_path=manifest_path,
+    )
+
+    assert summary.status == "valid", summary.errors
+    assert summary.required_inputs == ("mulan",)
+
+
 def test_manifest_rejects_duplicate_feature_names(tmp_path: Path) -> None:
     model_path, manifest_path = _write_manifest(
         tmp_path,

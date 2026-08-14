@@ -366,7 +366,7 @@ def test_ann_accepts_only_explicit_l2_ml_families_and_hnsw_backend(
 ) -> None:
     repository = _repository(tmp_path)
 
-    for family in ("maest", "mert", "muq", "clap"):
+    for family in ("maest", "mert", "muq", "mulan", "clap"):
         assert normalize_index_family(family) == family
     for unsupported in (
         "sonara",

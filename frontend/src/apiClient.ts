@@ -64,6 +64,7 @@ type SonaraRandomTrackPayload = {
 
 type TextSearchPayload = {
   query: string;
+  analysis_family?: "clap" | "mulan";
   positive_queries?: string[];
   negative_queries?: string[];
   adaptive_contrast?: boolean;

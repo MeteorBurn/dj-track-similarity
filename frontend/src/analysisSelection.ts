@@ -2,8 +2,8 @@ import type { AnalysisModel } from "./api";
 
 export type AnalysisSelection = AnalysisModel;
 
-export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
-export const mlAnalysisModelOrder: AnalysisModel[] = ["maest", "mert", "muq", "clap"];
+export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "mulan", "clap"];
+export const mlAnalysisModelOrder: AnalysisModel[] = ["maest", "mert", "muq", "mulan", "clap"];
 export const analysisSelectionOrder: AnalysisSelection[] = [...audioAnalysisModelOrder];
 export const defaultAnalysisSelections: AnalysisSelection[] = ["sonara"];
 

@@ -117,13 +117,14 @@ test("library and generic search results render visible track numbering", () => 
   assert.match(panelSource, /rowIndex=\{index \+ 1\}/);
 });
 
-test("primary search tabs expose the six maintained workflows with roving ARIA relationships", () => {
+test("primary search tabs expose the seven maintained workflows with roving ARIA relationships", () => {
   assert.match(panelSource, /primarySearchTabs\.map/);
   assert.match(panelSource, /id=\{`search-tab-\$\{tab\}`\}/);
   assert.match(panelSource, /aria-controls=\{`search-panel-\$\{tab\}`\}/);
   assert.match(panelSource, /tabIndex=\{activeSearchTab === tab \? 0 : -1\}/);
   assert.match(panelSource, /onKeyDown=\{handlePrimaryTabKeyDown\}/);
   assert.match(panelSource, /muq: \{ label: "MUQ"/);
+  assert.match(panelSource, /mulan: \{ label: "MULAN"/);
 });
 
 test("SONARA tab can add an unselected random SONARA-ready seed", () => {
@@ -143,9 +144,10 @@ test("SONARA tab can add an unselected random SONARA-ready seed", () => {
 test("Left Right Home End navigation wraps across maintained search tabs", async () => {
   const { primarySearchTabs, tabAfterKey } = await loadSearchSurfaceState();
 
-  assert.deepEqual(primarySearchTabs, ["lab", "sonara", "mert", "muq", "clap", "class"]);
+  assert.deepEqual(primarySearchTabs, ["lab", "sonara", "mert", "muq", "mulan", "clap", "class"]);
   assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowLeft"), "class");
   assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowRight"), "sonara");
   assert.equal(tabAfterKey(primarySearchTabs, "muq", "Home"), "lab");
+  assert.equal(tabAfterKey(primarySearchTabs, "muq", "ArrowRight"), "mulan");
   assert.equal(tabAfterKey(primarySearchTabs, "muq", "End"), "class");
 });

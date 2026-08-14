@@ -20,12 +20,24 @@ from .api_routes_tags_export import register_tags_export_routes
 from .api_state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
 from .classifier_scoring import promoted_classifiers
 from .dependencies import require_ffmpeg
-from .embedding import ClapEmbeddingAdapter
+from .embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
 from .logging_config import configure_logging, install_asyncio_exception_logging, install_standard_stream_logging
 from .rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _text_embedding_adapter(
+    family: str,
+    *,
+    device: str,
+) -> ClapEmbeddingAdapter | MuqMulanEmbeddingAdapter:
+    if family == "clap":
+        return ClapEmbeddingAdapter(device=device)
+    if family == "mulan":
+        return MuqMulanEmbeddingAdapter(device=device)
+    raise ValueError(f"Unsupported text embedding model: {family}")
 
 
 def open_folder_dialog() -> Path | None:
@@ -120,7 +132,7 @@ def create_app(
     register_search_routes(
         app,
         state,
-        clap_embedding_adapter=ClapEmbeddingAdapter,
+        text_embedding_adapter=_text_embedding_adapter,
     )
     register_server_routes(app, stop_rhythm_lab=stop_rhythm_lab)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)

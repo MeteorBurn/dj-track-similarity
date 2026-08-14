@@ -14,6 +14,16 @@ def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() 
     assert normalize_analysis_models(["CLAP", "muq", "mert", "clap"]) == ("mert", "muq", "clap")
 
 
+def test_default_ml_models_include_mulan_in_canonical_order() -> None:
+    assert normalize_analysis_models(None) == (
+        "maest",
+        "mert",
+        "muq",
+        "mulan",
+        "clap",
+    )
+
+
 def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:
     with pytest.raises(ValueError, match="At least one analysis model"):
         normalize_analysis_models([])

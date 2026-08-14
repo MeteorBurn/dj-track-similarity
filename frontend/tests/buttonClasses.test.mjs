@@ -486,7 +486,7 @@ test("class search tab shows classifier threshold and scoped analysis controls",
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);
 });
 
-test("clap search exposes prompt presets and optional negative contrast fields without prompt generation", () => {
+test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative contrast", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const clapSource = readFileSync(join(srcDir, "ClapSearchTab.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
@@ -510,14 +510,18 @@ test("clap search exposes prompt presets and optional negative contrast fields w
   assert.doesNotMatch(clapSource, /clap-negative-toggle-text/);
   assert.doesNotMatch(clapSource, />\s*Use\s*</);
   assert.match(searchSource, /onClapUseNegativePromptChange/);
-  assert.match(searchSource, /hasStoredClapEmbeddings/);
+  assert.match(searchSource, /textEmbeddingFamily/);
+  assert.match(searchSource, /hasStoredTextEmbeddings/);
   assert.match(clapSource, /clap-search-requirement/);
-  assert.match(clapSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredClapEmbeddings\}/);
+  assert.match(clapSource, /<option value="clap">CLAP<\/option>/);
+  assert.match(clapSource, /<option value="mulan">MuQ-MuLan<\/option>/);
+  assert.match(clapSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredTextEmbeddings\}/);
   assert.doesNotMatch(clapSource, /WandSparkles/);
   assert.match(clapSource, /ListFilter/);
   assert.match(appSource, /embeddingCounts=\{\{[\s\S]*clap:\s*librarySummary\.clap/);
   assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /api\.textSearch/);
+  assert.match(appSource, /analysis_family:\s*textEmbeddingFamily/);
   assert.match(appSource, /const\s+\[clapUseNegativePrompt,\s*setClapUseNegativePrompt\]\s*=\s*useState\(true\)/);
   assert.match(appSource, /promptQueriesFromText\(prompt,\s*clapNegativeQuery,\s*clapUseNegativePrompt\)/);
   assert.match(apiClientSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
@@ -526,10 +530,12 @@ test("clap search exposes prompt presets and optional negative contrast fields w
   assert.match(appSource, /adaptive_contrast:\s*true/);
   assert.match(apiClientSource, /positive_queries\?:\s*string\[\]/);
   assert.match(apiClientSource, /negative_queries\?:\s*string\[\]/);
+  assert.match(apiClientSource, /analysis_family\?:\s*"clap" \| "mulan"/);
   assert.match(apiSource, /export \{ api \} from "\.\/apiClient";/);
   assert.match(schemaSource, /positive_queries:\s*list\[str\]/);
   assert.match(schemaSource, /negative_queries:\s*list\[str\]/);
   assert.match(schemaSource, /adaptive_contrast:\s*bool\s*=\s*True/);
+  assert.match(schemaSource, /analysis_family:\s*Literal\["clap", "mulan"\]\s*=\s*"clap"/);
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

@@ -1,5 +1,5 @@
-export type PrimarySearchTab = "sonara" | "mert" | "muq" | "clap" | "class" | "lab";
-export type GenericSearchTab = Extract<PrimarySearchTab, "sonara" | "mert" | "muq" | "clap">;
+export type PrimarySearchTab = "sonara" | "mert" | "muq" | "mulan" | "clap" | "class" | "lab";
+export type GenericSearchTab = Extract<PrimarySearchTab, "sonara" | "mert" | "muq" | "mulan" | "clap">;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
 
 export const primarySearchTabs: readonly PrimarySearchTab[] = [
@@ -7,6 +7,7 @@ export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "sonara",
   "mert",
   "muq",
+  "mulan",
   "clap",
   "class"
 ];

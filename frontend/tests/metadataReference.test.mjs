@@ -545,7 +545,7 @@ test("SONARA structure and spectral metadata uses natural display units", () => 
   assert.equal(features.has("analyzed_at"), false);
 });
 
-test("Reference Compare ordering preserves MuQ or supplies a model-scoped reason", () => {
+test("Reference Compare ordering preserves MuQ-MuLan or supplies a model-scoped reason", () => {
   const groups = referenceCompare.orderedReferenceCompareGroups({
     seed_track_id: 11,
     groups: [{
@@ -557,17 +557,20 @@ test("Reference Compare ordering preserves MuQ or supplies a model-scoped reason
   });
   const models = Array.from(groups, (group) => group.model);
   const muq = groups.find((group) => group.model === "muq");
+  const mulan = groups.find((group) => group.model === "mulan");
 
-  assert.deepEqual(models, ["clap", "mert", "muq", "maest", "sonara"]);
+  assert.deepEqual(models, ["clap", "mert", "muq", "mulan", "maest", "sonara"]);
   assert.equal(muq.available, false);
   assert.match(muq.reason, /MUQ availability/);
+  assert.equal(mulan.available, false);
+  assert.match(mulan.reason, /MULAN availability/);
 
-  const returnedMuq = { model: "muq", available: true, reason: null, results: [] };
-  const withMuq = referenceCompare.orderedReferenceCompareGroups({
+  const returnedMulan = { model: "mulan", available: true, reason: null, results: [] };
+  const withMulan = referenceCompare.orderedReferenceCompareGroups({
     seed_track_id: 11,
-    groups: [returnedMuq],
+    groups: [returnedMulan],
   });
-  assert.equal(withMuq.find((group) => group.model === "muq"), returnedMuq);
+  assert.equal(withMulan.find((group) => group.model === "mulan"), returnedMulan);
 });
 
 test("Reference Compare freshness includes catalog UUID track UUID and response seed", () => {

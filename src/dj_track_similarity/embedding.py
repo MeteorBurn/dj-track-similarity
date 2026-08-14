@@ -38,6 +38,12 @@ from .analysis_models import (
     MUQ_MODEL_REVISION,
     MUQ_PREPROCESSING,
     MUQ_SNAPSHOT_SHA256,
+    MULAN_ADAPTER_REVISION,
+    MULAN_CHECKPOINT_ID,
+    MULAN_MODEL_NAME,
+    MULAN_MODEL_REVISION,
+    MULAN_PREPROCESSING,
+    MULAN_SNAPSHOT_SHA256,
 )
 from .audio_loader import DecodedAudio, load_audio_mono, torch_compatible_audio
 from .genres import rank_maest_genres
@@ -651,26 +657,15 @@ class MuqEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
-        window_size = max(1, int(self.target_rate * self.window_seconds))
-        track_windows: list[list[int]] = []
-        all_windows: list[np.ndarray] = []
-        prepare_started = time.perf_counter()
-        for decoded in decoded_items:
-            waveform = torch.from_numpy(torch_compatible_audio(decoded.audio)).to(dtype=torch.float32).unsqueeze(0)
-            if decoded.sample_rate != self.target_rate:
-                if torchaudio is None:
-                    raise RuntimeError(f"MuQ shared-audio analysis requires torchaudio resampling: {decoded.path}")
-                waveform = torchaudio.transforms.Resample(decoded.sample_rate, self.target_rate)(waveform).to(dtype=torch.float32)
-            waveform = waveform.squeeze(0).to(dtype=torch.float32)
-            windows = _select_windows_torch(waveform, self.target_rate, self.window_seconds, self.max_windows, torch)
-            if not windows:
-                raise ValueError(f"No audio windows could be extracted: {decoded.path}")
-            window_indices = []
-            for window in windows:
-                window_indices.append(len(all_windows))
-                all_windows.append(_pad_or_trim_audio_window(window.detach().cpu().numpy(), window_size))
-            track_windows.append(window_indices)
-        prepare_seconds = time.perf_counter() - prepare_started
+        track_windows, all_windows, prepare_seconds = _prepare_muq_compatible_windows(
+            decoded_items,
+            target_rate=self.target_rate,
+            window_seconds=self.window_seconds,
+            max_windows=self.max_windows,
+            torch=torch,
+            torchaudio=torchaudio,
+            model_label="MuQ",
+        )
 
         pooled_windows: list[np.ndarray] = []
         inference_started = time.perf_counter()
@@ -693,14 +688,7 @@ class MuqEmbeddingAdapter:
             "windows": len(all_windows),
         }
 
-        vectors: list[np.ndarray] = []
-        for indices in track_windows:
-            vector = np.mean(np.vstack([pooled_windows[index] for index in indices]), axis=0).astype(np.float32)
-            norm = np.linalg.norm(vector)
-            if not np.isfinite(norm) or norm == 0:
-                raise ValueError("Model produced a zero vector")
-            vectors.append(vector / norm)
-        return vectors
+        return _average_l2_window_embeddings(pooled_windows, track_windows)
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -724,6 +712,203 @@ class MuqEmbeddingAdapter:
         with binding as verified:
             self.device = self._device()
             model = MuQ.from_pretrained(
+                str(verified.path),
+                local_files_only=True,
+            )
+        to_float = getattr(model, "float", None)
+        if callable(to_float):
+            model = to_float()
+        self._model = model.to(self.device).eval()
+
+    def _device(self) -> str:
+        assert self._torch is not None
+        if self.device:
+            return self.device
+        return select_torch_device(self._torch, self.requested_device)
+
+
+class MuqMulanEmbeddingAdapter:
+    embedding_key = "mulan"
+    adapter_revision = MULAN_ADAPTER_REVISION
+    model_name = MULAN_MODEL_NAME
+    model_revision = MULAN_MODEL_REVISION
+    model_version = model_revision
+    checkpoint_filename = "model.safetensors"
+    checkpoint_id = MULAN_CHECKPOINT_ID
+    checkpoint_sha256 = checkpoint_id.removeprefix("sha256:")
+    preprocessing = MULAN_PREPROCESSING
+    dim = 512
+    target_rate = 24_000
+    pooling = "mulan-audio-latent+per-window-l2+window-mean+l2"
+    dtype = "float32"
+    encoding = "float32-le"
+    normalization = "l2"
+    snapshot_files = ("config.json", checkpoint_filename)
+    snapshot_sha256 = MULAN_SNAPSHOT_SHA256
+
+    def __init__(
+        self,
+        device: str | None = None,
+        window_seconds: float = 10.0,
+        max_windows: int = 5,
+        inference_batch_size: int = 8,
+    ) -> None:
+        self.requested_device = device or "auto"
+        self.device_name = (
+            None if self.requested_device == "auto" else self.requested_device
+        )
+        self.window_seconds = window_seconds
+        self.max_windows = max_windows
+        self.inference_batch_size = max(1, int(inference_batch_size))
+        self._model = None
+        self._torch = None
+        self._torchaudio = None
+        self.device: str | None = None
+        self.last_batch_timing: dict[str, float | int] = {}
+
+    def runtime_parameters(self) -> dict[str, object]:
+        return {
+            "adapter_revision": self.adapter_revision,
+            "sample_rate_hz": self.target_rate,
+            "window_seconds": self.window_seconds,
+            "max_windows": self.max_windows,
+            "pooling": self.pooling,
+            "dtype": self.dtype,
+            "channel_downmix": "arithmetic-mean",
+            "decoder": "shared-load-audio-mono-v1",
+            "resampler": "torchaudio",
+            "window_selection": "10%-90%-interior-evenly-spaced-rounded",
+            "short_audio": "right-zero-pad-to-window",
+            "device_precision": "float32-eval-no-autocast-no-compile",
+            "model_revision": self.model_revision,
+            "checkpoint_filename": self.checkpoint_filename,
+            "snapshot_files": self.snapshot_files,
+            "snapshot_sha256": self.snapshot_sha256,
+        }
+
+    def embed(self, path: str | Path) -> np.ndarray:
+        return self.embed_batch([path])[0]
+
+    def preflight(self) -> None:
+        """Verify model assets and construct the configured loader."""
+
+        self._load_model()
+
+    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
+        self._load_model()
+        torchaudio = self._torchaudio
+        assert torchaudio is not None
+
+        decode_seconds = 0.0
+        decoded_items: list[DecodedAudio] = []
+        for path in paths:
+            decode_started = time.perf_counter()
+            audio, sample_rate, _decode_detail = load_audio_mono(
+                path,
+                torchaudio_module=torchaudio,
+            )
+            decode_seconds += time.perf_counter() - decode_started
+            decoded_items.append(
+                DecodedAudio(
+                    path=str(path),
+                    audio=audio,
+                    sample_rate=sample_rate,
+                    detail="adapter decode",
+                )
+            )
+        return self._embed_decoded_items(decoded_items, decode_seconds=decode_seconds)
+
+    def embed_decoded_batch(
+        self,
+        decoded_items: list[DecodedAudio],
+    ) -> list[np.ndarray]:
+        self._load_model()
+        return self._embed_decoded_items(decoded_items, decode_seconds=0.0)
+
+    def embed_text(self, text: str) -> np.ndarray:
+        self._load_model()
+        torch = self._torch
+        assert torch is not None and self._model is not None
+        with torch.inference_mode():
+            output = self._model(texts=[text])
+        return _normalized_embedding_rows(
+            output,
+            expected_rows=1,
+            expected_dim=self.dim,
+            model_label="MuQ-MuLan text",
+        )[0]
+
+    def _embed_decoded_items(
+        self,
+        decoded_items: list[DecodedAudio],
+        *,
+        decode_seconds: float,
+    ) -> list[np.ndarray]:
+        torch = self._torch
+        torchaudio = self._torchaudio
+        assert torch is not None and self._model is not None
+        track_windows, all_windows, prepare_seconds = _prepare_muq_compatible_windows(
+            decoded_items,
+            target_rate=self.target_rate,
+            window_seconds=self.window_seconds,
+            max_windows=self.max_windows,
+            torch=torch,
+            torchaudio=torchaudio,
+            model_label="MuQ-MuLan",
+        )
+
+        pooled_windows: list[np.ndarray] = []
+        inference_started = time.perf_counter()
+        for start in range(0, len(all_windows), self.inference_batch_size):
+            batch = np.stack(
+                all_windows[start : start + self.inference_batch_size]
+            ).astype(np.float32)
+            wavs = torch.from_numpy(batch).to(
+                device=self._device(),
+                dtype=torch.float32,
+            )
+            with torch.inference_mode():
+                output = self._model(wavs=wavs)
+            pooled_windows.extend(
+                _normalized_embedding_rows(
+                    output,
+                    expected_rows=int(wavs.shape[0]),
+                    expected_dim=self.dim,
+                    model_label="MuQ-MuLan audio",
+                )
+            )
+        inference_seconds = time.perf_counter() - inference_started
+        self.last_batch_timing = {
+            "prepare_seconds": prepare_seconds,
+            "decode_seconds": decode_seconds,
+            "inference_seconds": inference_seconds,
+            "tracks": len(decoded_items),
+            "windows": len(all_windows),
+        }
+        return _average_l2_window_embeddings(pooled_windows, track_windows)
+
+    def _load_model(self) -> None:
+        if self._model is not None:
+            return
+        import torch
+        import torchaudio
+        from huggingface_hub import snapshot_download
+        from muq import MuQMuLan
+
+        self._torch = torch
+        self._torchaudio = torchaudio
+        binding = _download_verified_hf_snapshot(
+            snapshot_download,
+            repo_id=self.model_name,
+            revision=self.model_revision,
+            required_files=self.snapshot_files,
+            expected_sha256=self.snapshot_sha256,
+            checkpoint_filename=self.checkpoint_filename,
+            expected_checkpoint_sha256=self.checkpoint_sha256,
+        )
+        with binding as verified:
+            self.device = self._device()
+            model = MuQMuLan.from_pretrained(
                 str(verified.path),
                 local_files_only=True,
             )
@@ -1102,6 +1287,7 @@ def adapter_factories():
         "maest": MaestEmbeddingAdapter,
         "mert": MertEmbeddingAdapter,
         "muq": MuqEmbeddingAdapter,
+        "mulan": MuqMulanEmbeddingAdapter,
         "clap": ClapEmbeddingAdapter,
     }
 
@@ -1357,6 +1543,92 @@ def _array_output_to_numpy(output) -> np.ndarray:
     if hasattr(output, "detach"):
         output = output.detach().cpu().numpy()
     return np.asarray(output, dtype=np.float32)
+
+
+def _normalized_embedding_rows(
+    output,
+    *,
+    expected_rows: int,
+    expected_dim: int,
+    model_label: str,
+) -> list[np.ndarray]:
+    matrix = _array_output_to_numpy(output)
+    if matrix.shape != (expected_rows, expected_dim):
+        raise ValueError(
+            f"{model_label} output shape {matrix.shape} does not match "
+            f"({expected_rows}, {expected_dim})"
+        )
+    return _normalize_rows(matrix)
+
+
+def _average_l2_window_embeddings(
+    pooled_windows: Sequence[np.ndarray],
+    track_windows: Sequence[Sequence[int]],
+) -> list[np.ndarray]:
+    vectors: list[np.ndarray] = []
+    for indices in track_windows:
+        vector = np.mean(
+            np.vstack([pooled_windows[index] for index in indices]),
+            axis=0,
+        ).astype(np.float32)
+        norm = np.linalg.norm(vector)
+        if not np.isfinite(norm) or norm == 0:
+            raise ValueError("Model produced a zero vector")
+        vectors.append(vector / norm)
+    return vectors
+
+
+def _prepare_muq_compatible_windows(
+    decoded_items: Sequence[DecodedAudio],
+    *,
+    target_rate: int,
+    window_seconds: float,
+    max_windows: int,
+    torch,
+    torchaudio,
+    model_label: str,
+) -> tuple[list[list[int]], list[np.ndarray], float]:
+    window_size = max(1, int(target_rate * window_seconds))
+    track_windows: list[list[int]] = []
+    all_windows: list[np.ndarray] = []
+    prepare_started = time.perf_counter()
+    for decoded in decoded_items:
+        waveform = (
+            torch.from_numpy(torch_compatible_audio(decoded.audio))
+            .to(dtype=torch.float32)
+            .unsqueeze(0)
+        )
+        if decoded.sample_rate != target_rate:
+            if torchaudio is None:
+                raise RuntimeError(
+                    f"{model_label} shared-audio analysis requires "
+                    f"torchaudio resampling: {decoded.path}"
+                )
+            waveform = torchaudio.transforms.Resample(
+                decoded.sample_rate,
+                target_rate,
+            )(waveform).to(dtype=torch.float32)
+        waveform = waveform.squeeze(0).to(dtype=torch.float32)
+        windows = _select_windows_torch(
+            waveform,
+            target_rate,
+            window_seconds,
+            max_windows,
+            torch,
+        )
+        if not windows:
+            raise ValueError(f"No audio windows could be extracted: {decoded.path}")
+        window_indices = []
+        for window in windows:
+            window_indices.append(len(all_windows))
+            all_windows.append(
+                _pad_or_trim_audio_window(
+                    window.detach().cpu().numpy(),
+                    window_size,
+                )
+            )
+        track_windows.append(window_indices)
+    return track_windows, all_windows, time.perf_counter() - prepare_started
 
 
 def _pad_or_trim_audio_window(audio: np.ndarray, target_samples: int) -> np.ndarray:

@@ -25,6 +25,7 @@ ReferenceCompareModel = Literal[
     "clap",
     "mert",
     "muq",
+    "mulan",
     "maest",
     "sonara",
 ]
@@ -42,7 +43,9 @@ DEFAULT_REFERENCE_COMPARE_MODELS: tuple[
     ReferenceCompareModel,
     ...,
 ] = ("clap", "mert", "muq", "maest", "sonara")
-_REFERENCE_COMPARE_MODELS = frozenset(DEFAULT_REFERENCE_COMPARE_MODELS)
+_REFERENCE_COMPARE_MODELS = frozenset(
+    ("clap", "mert", "muq", "mulan", "maest", "sonara")
+)
 _REFERENCE_COMPARE_VERDICTS = frozenset(
     {
         "mood",
@@ -233,7 +236,7 @@ def _reference_compare_group(
 def _embedding_group(
     repository: ReferenceCompareRepository,
     query: ReferenceCompareQuery,
-    model: Literal["clap", "mert", "muq", "maest"],
+    model: Literal["clap", "mert", "muq", "mulan", "maest"],
     summary_by_id: Mapping[int, TrackSummary],
 ) -> ReferenceCompareGroup:
     try:

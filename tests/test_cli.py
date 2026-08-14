@@ -278,12 +278,12 @@ def test_analyze_cli_prints_default_ml_progress_and_settings(
     )
 
     assert result.exit_code == 0
-    assert "Starting maest,mert,muq,clap analysis" in result.output
+    assert "Starting maest,mert,muq,mulan,clap analysis" in result.output
     assert "processed=3/3" in result.output
     assert "tracks/s" in result.output
     assert "eta=" in result.output
     assert "state=completed" in result.output
-    assert "models=maest,mert,muq,clap" in result.output
+    assert "models=maest,mert,muq,mulan,clap" in result.output
     assert "sonara_batch_size" not in result.output
     assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
 
@@ -344,10 +344,12 @@ def test_text_search_cli_rejects_unknown_device_before_loading_adapter(
 ) -> None:
     monkeypatch.setattr(
         cli,
-        "ClapEmbeddingAdapter",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("adapter should not be constructed")
-        ),
+        "adapter_factories",
+        lambda: {
+            "clap": lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("adapter should not be constructed")
+            )
+        },
     )
 
     result = CliRunner().invoke(
@@ -383,7 +385,7 @@ def test_text_search_cli_writes_adapter_stderr_to_app_log(
         def search_vector(self, *_args: object, **_kwargs: object) -> list[object]:
             return []
 
-    monkeypatch.setattr(cli, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(cli, "adapter_factories", lambda: {"clap": FakeClapAdapter})
     monkeypatch.setattr(cli, "embedding_analysis_output", lambda *_args: object())
     monkeypatch.setattr(cli, "SimilaritySearch", FakeSearch)
 

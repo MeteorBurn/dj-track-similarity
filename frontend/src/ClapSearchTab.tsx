@@ -1,5 +1,6 @@
 import { Check, ListFilter, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { EmbeddingSource } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 
 export function ClapSearchTab({
@@ -9,6 +10,8 @@ export function ClapSearchTab({
   onClapNegativeQueryChange,
   clapUseNegativePrompt,
   onClapUseNegativePromptChange,
+  textEmbeddingFamily,
+  onTextEmbeddingFamilyChange,
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
@@ -16,9 +19,9 @@ export function ClapSearchTab({
   onLimitChange,
   textPromptHelp,
   limitHelp,
-  hasStoredClapEmbeddings,
+  hasStoredTextEmbeddings,
   busy,
-  clapSearchTitle,
+  textSearchTitle,
   handleTextSearch
 }: {
   textQuery: string;
@@ -27,6 +30,8 @@ export function ClapSearchTab({
   onClapNegativeQueryChange: (value: string) => void;
   clapUseNegativePrompt: boolean;
   onClapUseNegativePromptChange: (value: boolean) => void;
+  textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
+  onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
@@ -34,13 +39,14 @@ export function ClapSearchTab({
   onLimitChange: (value: number) => void;
   textPromptHelp: string;
   limitHelp: string;
-  hasStoredClapEmbeddings: boolean;
+  hasStoredTextEmbeddings: boolean;
   busy: boolean;
-  clapSearchTitle: string;
+  textSearchTitle: string;
   handleTextSearch: () => void;
 }) {
   const [clapPresetMenuOpen, setClapPresetMenuOpen] = useState(false);
   const clapPresetMenuRef = useRef<HTMLDivElement>(null);
+  const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
 
   useEffect(() => {
     if (!clapPresetMenuOpen) return;
@@ -78,8 +84,8 @@ export function ClapSearchTab({
           <div className="clap-prompt-actions" ref={clapPresetMenuRef}>
             <button
               className={`icon-button folder-picker clap-presets-button ${clapPresetMenuOpen ? "active" : ""}`}
-              title="Выбрать prompt preset для CLAP"
-              aria-label="Выбрать prompt preset для CLAP"
+              title="Выбрать prompt preset"
+              aria-label="Выбрать prompt preset"
               aria-expanded={clapPresetMenuOpen}
               onClick={() => setClapPresetMenuOpen((current) => !current)}
               type="button"
@@ -104,19 +110,19 @@ export function ClapSearchTab({
           </div>
         </div>
         <div className="clap-negative-row">
-          <label className="clap-negative-field" title="Hard-negative CLAP bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly.">
+          <label className="clap-negative-field" title="Hard-negative text bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly.">
             Negative
             <textarea
               className="clap-negative-input"
               value={clapNegativeQuery}
               onChange={(event) => onClapNegativeQueryChange(event.target.value)}
               placeholder={"This audio is a vocal pop song.\nThis audio is a straight four-on-the-floor house track."}
-              title="Hard-negative CLAP bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly."
+              title="Hard-negative text bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly."
               disabled={!clapUseNegativePrompt}
               rows={4}
             />
           </label>
-          <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Apply Negative as hard-negative CLAP queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">
+          <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Apply Negative as hard-negative text queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">
             <input
               type="checkbox"
               aria-label="Use negative prompt"
@@ -130,13 +136,22 @@ export function ClapSearchTab({
         </div>
       </div>
       <div className="search-filter-grid clap-search-filter-grid">
+        <label title="Embedding family used for text-to-track retrieval">Model
+          <select
+            value={textEmbeddingFamily}
+            onChange={(event) => onTextEmbeddingFamilyChange(event.target.value as Extract<EmbeddingSource, "clap" | "mulan">)}
+          >
+            <option value="clap">CLAP</option>
+            <option value="mulan">MuQ-MuLan</option>
+          </select>
+        </label>
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
-      <button className="clap-text-search-button" title={clapSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredClapEmbeddings} onClick={handleTextSearch} type="button">
+      <button className="clap-text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
         <Search size={17} />
-        CLAP search
+        {textModelLabel} search
       </button>
-      {!hasStoredClapEmbeddings ? <span className="clap-search-requirement">Requires stored CLAP embeddings. Run CLAP analysis first.</span> : null}
+      {!hasStoredTextEmbeddings ? <span className="clap-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
     </div>
   );
 }

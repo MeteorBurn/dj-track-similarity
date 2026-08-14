@@ -30,7 +30,7 @@ type ReferenceComparePanelProps = {
   onDetails: (track: TrackSummary) => void;
 };
 
-const referenceCompareModels: ReferenceCompareModel[] = ["clap", "mert", "muq", "maest", "sonara"];
+const referenceCompareModels: ReferenceCompareModel[] = ["clap", "mert", "muq", "mulan", "maest", "sonara"];
 
 const referenceCompareVerdictOptions: Array<{ value: ReferenceCompareVerdict; label: string }> = [
   { value: "mood", label: "Mood" },

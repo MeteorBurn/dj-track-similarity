@@ -18,6 +18,7 @@ class AnalysisCoverage:
     maest_embedding: bool = False
     mert: bool = False
     muq: bool = False
+    mulan: bool = False
     clap: bool = False
 
     def as_dict(self) -> dict[str, bool]:
@@ -27,6 +28,7 @@ class AnalysisCoverage:
             "maest_embedding": self.maest_embedding,
             "mert": self.mert,
             "muq": self.muq,
+            "mulan": self.mulan,
             "clap": self.clap,
         }
 
@@ -244,6 +246,7 @@ class LibrarySummary:
     maest_embedding: int
     mert: int
     muq: int
+    mulan: int
     clap: int
     liked: int
     classifiers: int
@@ -256,6 +259,7 @@ class LibrarySummary:
             "maest_embedding": self.maest_embedding,
             "mert": self.mert,
             "muq": self.muq,
+            "mulan": self.mulan,
             "clap": self.clap,
             "liked": self.liked,
             "classifiers": self.classifiers,

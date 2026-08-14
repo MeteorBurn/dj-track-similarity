@@ -65,7 +65,7 @@ def register_search_routes(
     app: FastAPI,
     state: AppDatabaseState,
     *,
-    clap_embedding_adapter: Callable[..., _TextEmbeddingAdapter],
+    text_embedding_adapter: Callable[..., _TextEmbeddingAdapter],
 ) -> None:
     @app.post(
         "/api/search",
@@ -152,7 +152,10 @@ def register_search_routes(
         database = state.require_db()
         try:
             plan = _clap_text_search_plan(request)
-            adapter = clap_embedding_adapter(device=request.device)
+            adapter = text_embedding_adapter(
+                request.analysis_family,
+                device=request.device,
+            )
             analysis_output = embedding_analysis_output(
                 adapter.embedding_key,
                 adapter,

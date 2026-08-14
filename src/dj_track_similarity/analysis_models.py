@@ -26,6 +26,7 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
         "maest": frozenset({"analysis", "embedding"}),
         "mert": frozenset({"embedding"}),
         "muq": frozenset({"embedding"}),
+        "mulan": frozenset({"embedding"}),
         "clap": frozenset({"embedding"}),
     }
 )
@@ -33,17 +34,20 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
 MAEST_MODEL_NAME = "discogs-maest-30s-pw-129e-519l"
 MERT_MODEL_NAME = "m-a-p/MERT-v1-95M"
 MUQ_MODEL_NAME = "OpenMuQ/MuQ-large-msd-iter"
+MULAN_MODEL_NAME = "OpenMuQ/MuQ-MuLan-large"
 CLAP_MODEL_NAME = "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
 CLAP_TEXT_MODEL_NAME = "roberta-base"
 
 MAEST_ADAPTER_REVISION = "maest-adapter-v2"
 MERT_ADAPTER_REVISION = "mert-adapter-v1"
 MUQ_ADAPTER_REVISION = "muq-adapter-v1"
+MULAN_ADAPTER_REVISION = "mulan-adapter-v1"
 CLAP_ADAPTER_REVISION = "clap-adapter-v2"
 
 MAEST_MODEL_VERSION = "v0.0.0-beta"
 MERT_MODEL_REVISION = "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5"
 MUQ_MODEL_REVISION = "0562a57814f6f8bbd9fdea0a25921a2fce1a841a"
+MULAN_MODEL_REVISION = "57b8af8e903a6fa28b6ba1d7a1578b4d68fcc918"
 CLAP_MODEL_REVISION = "b3708341862f581175dba5c356a4ebf74a9b6651"
 CLAP_TEXT_MODEL_REVISION = "e2da8e2f811d1448a5b465c236feacd80ffbac7b"
 
@@ -55,6 +59,9 @@ MERT_CHECKPOINT_ID = (
 )
 MUQ_CHECKPOINT_ID = (
     "sha256:273febab2be02872c37d2c37e48a9d6c52c1c9392f3eeeabd498efa281ccb7a6"
+)
+MULAN_CHECKPOINT_ID = (
+    "sha256:5fe234bbc5f183a9f4275fb292f54a30cb3a8ce75f82f1a43410ee6044d71d59"
 )
 CLAP_CHECKPOINT_ID = (
     "sha256:fae3e9c087f2909c28a09dc31c8dfcdacbc42ba44c70e972b58c1bd1caf6dedd"
@@ -86,6 +93,13 @@ MUQ_SNAPSHOT_SHA256 = (
     ),
     ("model.safetensors", MUQ_CHECKPOINT_ID.removeprefix("sha256:")),
 )
+MULAN_SNAPSHOT_SHA256 = (
+    (
+        "config.json",
+        "8fefc545ef87ecd9bcde7417dd03464370c48c321f36dcff20266a752079e468",
+    ),
+    ("model.safetensors", MULAN_CHECKPOINT_ID.removeprefix("sha256:")),
+)
 CLAP_TEXT_SNAPSHOT_SHA256 = (
     (
         "config.json",
@@ -116,11 +130,13 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
 MAEST_PREPROCESSING = "shared-mono/maest-16khz-30s-three-windows-v1"
 MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows-v1"
 MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-interior-windows-v1"
+MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-interior-windows-v1"
 CLAP_PREPROCESSING = "shared-mono/clap-48khz-10s-repeatpad-v1"
 
 MAEST_EMBEDDING_DIM = 768
 MERT_EMBEDDING_DIM = 768
 MUQ_EMBEDDING_DIM = 1024
+MULAN_EMBEDDING_DIM = 512
 CLAP_EMBEDDING_DIM = 512
 SONARA_EMBEDDING_DIM = 48
 
@@ -139,6 +155,7 @@ CURRENT_EMBEDDING_SPECS: Mapping[str, EmbeddingFamilySpec] = MappingProxyType(
         "maest": EmbeddingFamilySpec(MAEST_EMBEDDING_DIM, "l2"),
         "mert": EmbeddingFamilySpec(MERT_EMBEDDING_DIM, "l2"),
         "muq": EmbeddingFamilySpec(MUQ_EMBEDDING_DIM, "l2"),
+        "mulan": EmbeddingFamilySpec(MULAN_EMBEDDING_DIM, "l2"),
         "clap": EmbeddingFamilySpec(CLAP_EMBEDDING_DIM, "l2"),
         "sonara": EmbeddingFamilySpec(SONARA_EMBEDDING_DIM, "none"),
     }
@@ -184,6 +201,14 @@ _ML_PARAMETER_DEFAULTS: dict[str, Mapping[str, object]] = {
         "checkpoint_filename": "model.safetensors",
         "snapshot_files": ("config.json", "model.safetensors"),
         "snapshot_sha256": MUQ_SNAPSHOT_SHA256,
+    },
+    "mulan": {
+        "adapter_revision": MULAN_ADAPTER_REVISION,
+        "dtype": "float32",
+        "device_precision": "float32-eval-no-autocast-no-compile",
+        "checkpoint_filename": "model.safetensors",
+        "snapshot_files": ("config.json", "model.safetensors"),
+        "snapshot_sha256": MULAN_SNAPSHOT_SHA256,
     },
     "clap": {
         "adapter_revision": CLAP_ADAPTER_REVISION,
@@ -253,6 +278,17 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
         "window_seconds": 10.0,
         "max_windows": 5,
         "pooling": "last-hidden-time-mean+per-window-l2+window-mean+l2",
+        "channel_downmix": "arithmetic-mean",
+        "decoder": "shared-load-audio-mono-v1",
+        "resampler": "torchaudio",
+        "window_selection": "10%-90%-interior-evenly-spaced-rounded",
+        "short_audio": "right-zero-pad-to-window",
+    },
+    ("mulan", "embedding"): {
+        "sample_rate_hz": 24_000,
+        "window_seconds": 10.0,
+        "max_windows": 5,
+        "pooling": "mulan-audio-latent+per-window-l2+window-mean+l2",
         "channel_downmix": "arithmetic-mean",
         "decoder": "shared-load-audio-mono-v1",
         "resampler": "torchaudio",
@@ -342,6 +378,21 @@ _REQUIRED_PARAMETER_KEYS = {
             "snapshot_sha256",
         }
     ),
+    ("mulan", "embedding"): frozenset(
+        {
+            "adapter_revision",
+            "sample_rate_hz",
+            "window_seconds",
+            "max_windows",
+            "pooling",
+            "dtype",
+            "device_precision",
+            "model_revision",
+            "checkpoint_filename",
+            "snapshot_files",
+            "snapshot_sha256",
+        }
+    ),
     ("clap", "embedding"): frozenset(
         {
             "adapter_revision",
@@ -413,12 +464,12 @@ def _merge_parameters(
 
 
 def _with_ml_runtime_identity(
-    family: Literal["maest", "mert", "muq", "clap"],
+    family: Literal["maest", "mert", "muq", "mulan", "clap"],
     model_version: str,
     parameters: Mapping[str, object],
 ) -> dict[str, object]:
     defaults = dict(_ML_PARAMETER_DEFAULTS[family])
-    if family in {"mert", "muq", "clap"}:
+    if family in {"mert", "muq", "mulan", "clap"}:
         defaults["model_revision"] = model_version
     if family == "mert":
         defaults["remote_code_revision"] = model_version
@@ -493,7 +544,7 @@ def _validate_short_float_blob(blob: bytes, *, dim: int, field_name: str) -> Non
 
 def _embedding_output(
     *,
-    family: Literal["maest", "mert", "muq", "clap"],
+    family: Literal["maest", "mert", "muq", "mulan", "clap"],
     model_name: str,
     model_version: str,
     checkpoint_id: str,
@@ -653,6 +704,48 @@ def muq_embedding_output(
     )
     return _embedding_output(
         family="muq",
+        model_name=model_name,
+        model_version=model_version,
+        checkpoint_id=checkpoint_id,
+        preprocessing=preprocessing,
+        parameters=values,
+    )
+
+
+def mulan_embedding_output(
+    *,
+    model_version: str,
+    checkpoint_id: str,
+    preprocessing: str,
+    sample_rate_hz: int,
+    window_seconds: float,
+    max_windows: int,
+    pooling: str,
+    dtype: str,
+    model_name: str = MULAN_MODEL_NAME,
+    parameters: Mapping[str, object] | None = None,
+) -> "AnalysisOutput":
+    if sample_rate_hz != 24_000:
+        raise ValueError("MuQ-MuLan sample_rate_hz must be 24000")
+    if dtype != "float32":
+        raise ValueError("MuQ-MuLan dtype must be 'float32'")
+    reserved: dict[str, object] = {
+        "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
+        "window_seconds": _positive_number(
+            window_seconds,
+            "window_seconds",
+        ),
+        "max_windows": _positive_int(max_windows, "max_windows"),
+        "pooling": _required_text(pooling, "pooling"),
+        "dtype": dtype,
+    }
+    values = _with_ml_runtime_identity(
+        "mulan",
+        model_version,
+        _merge_parameters(reserved, parameters),
+    )
+    return _embedding_output(
+        family="mulan",
         model_name=model_name,
         model_version=model_version,
         checkpoint_id=checkpoint_id,
@@ -910,9 +1003,9 @@ class EmbeddingWrite:
     output: EmbeddingOutput
 
     def __post_init__(self) -> None:
-        if self.output.family not in {"mert", "muq", "clap"}:
+        if self.output.family not in {"mert", "muq", "mulan", "clap"}:
             raise ValueError(
-                "standalone embedding writes support only MERT, MuQ, or CLAP"
+                "standalone embedding writes support only MERT, MuQ, MuQ-MuLan, or CLAP"
             )
 
 

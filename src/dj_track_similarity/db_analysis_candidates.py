@@ -18,6 +18,7 @@ _TABLE_BY_OUTPUT = {
     ("maest", "embedding"): "maest_embeddings",
     ("mert", "embedding"): "mert_embeddings",
     ("muq", "embedding"): "muq_embeddings",
+    ("mulan", "embedding"): "mulan_embeddings",
     ("clap", "embedding"): "clap_embeddings",
     ("sonara", "embedding"): "sonara_embeddings",
 }

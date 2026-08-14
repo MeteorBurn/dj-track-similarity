@@ -57,6 +57,7 @@ def test_track_responses_expose_current_identity_and_split_coverage(
         "maest_embedding": False,
         "mert": False,
         "muq": False,
+        "mulan": False,
         "clap": False,
     }
 
@@ -241,6 +242,7 @@ def test_reset_and_summary_use_analysis_family_names(
         "maest_embedding": 0,
         "mert": 0,
         "muq": 0,
+        "mulan": 0,
         "clap": 0,
         "liked": 0,
         "classifiers": 0,

@@ -23,9 +23,9 @@ from .analysis_config import (
 )
 
 
-EmbeddingSource = Literal["mert", "maest", "muq", "clap"]
-EvaluationSource = Literal["mert", "maest", "muq", "sonara", "clap"]
-ReferenceCompareModel = Literal["clap", "mert", "muq", "maest", "sonara"]
+EmbeddingSource = Literal["mert", "maest", "muq", "mulan", "clap"]
+EvaluationSource = Literal["mert", "maest", "muq", "mulan", "sonara", "clap"]
+ReferenceCompareModel = Literal["clap", "mert", "muq", "mulan", "maest", "sonara"]
 ReferenceCompareVerdict = Literal[
     "mood", "palette", "instruments", "groove", "genre", "transition", "miss"
 ]
@@ -162,13 +162,13 @@ class ClassifierResetRequest(BaseModel):
 class AnalysisResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["sonara", "maest", "mert", "muq", "clap"]
+    analysis_family: Literal["sonara", "maest", "mert", "muq", "mulan", "clap"]
 
 
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["maest", "mert", "muq", "clap"] = "mert"
+    analysis_family: Literal["maest", "mert", "muq", "mulan", "clap"] = "mert"
     seed_track_ids: list[TrackId] = Field(min_length=1, max_length=5)
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -231,6 +231,7 @@ class TextSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str
+    analysis_family: Literal["clap", "mulan"] = "clap"
     positive_queries: list[str] = Field(default_factory=list)
     negative_queries: list[str] = Field(default_factory=list)
     adaptive_contrast: bool = True
@@ -425,6 +426,7 @@ class AnalysisCoverageResponse(_ResponseModel):
     maest_embedding: bool
     mert: bool
     muq: bool
+    mulan: bool
     clap: bool
 
 
@@ -596,6 +598,7 @@ class LibrarySummaryResponse(_ResponseModel):
     maest_embedding: int
     mert: int
     muq: int
+    mulan: int
     clap: int
     liked: int
     classifiers: int

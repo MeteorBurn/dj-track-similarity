@@ -27,6 +27,12 @@ def test_evaluation_source_profile_defaults_include_muq() -> None:
     assert request.sources == ["mert", "maest", "muq", "sonara", "clap"]
 
 
+def test_evaluation_source_profile_accepts_explicit_mulan() -> None:
+    request = EvaluationSourceProfileRunRequest(sources=["mulan"])
+
+    assert request.sources == ["mulan"]
+
+
 def test_evaluation_summary_keeps_feedback_in_library_and_sessions_in_sidecar(
     monkeypatch,
     tmp_path: Path,

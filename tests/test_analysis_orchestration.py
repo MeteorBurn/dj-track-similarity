@@ -33,6 +33,7 @@ from dj_track_similarity.embedding import (
     MaestAnalysisResult,
     MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
+    MuqMulanEmbeddingAdapter,
 )
 from dj_track_similarity.maest_windows import MaestWindowContext
 from dj_track_similarity.track_models import FileTags, ScannedFile
@@ -329,13 +330,14 @@ def test_model_preflight_failure_preserves_prior_active_output() -> None:
 def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     runners = [
         default_model_runners(model, "cpu", 2, 3)
-        for model in ("maest", "mert", "muq", "clap")
+        for model in ("maest", "mert", "muq", "mulan", "clap")
     ]
 
     assert [runner.model for runner in runners] == [
         "maest",
         "mert",
         "muq",
+        "mulan",
         "clap",
     ]
     assert {
@@ -345,12 +347,14 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
         "maest": (("maest", "analysis"), ("maest", "embedding")),
         "mert": (("mert", "embedding"),),
         "muq": (("muq", "embedding"),),
+        "mulan": (("mulan", "embedding"),),
         "clap": (("clap", "embedding"),),
     }
     expected_dimensions = {
         "maest": 768,
         "mert": 768,
         "muq": 1024,
+        "mulan": 512,
         "clap": 512,
     }
     for runner in runners:
@@ -474,6 +478,48 @@ def test_embedding_runner_writes_typed_contract_output_only() -> None:
     assert write.output.family == runner.active_outputs[0].analysis_family
     assert write.output.vector.shape == (768,)
     assert np.linalg.norm(write.output.vector) == pytest.approx(1.0)
+
+
+class _FakeMulanAdapter(MuqMulanEmbeddingAdapter):
+    def __init__(self) -> None:
+        super().__init__(device="cpu", inference_batch_size=2)
+
+    def preflight(self) -> None:
+        pass
+
+    def embed_decoded_batch(
+        self,
+        decoded_items: Sequence[DecodedAudio],
+    ) -> list[np.ndarray]:
+        vector = np.zeros(512, dtype=np.float32)
+        vector[0] = 1.0
+        return [vector.copy() for _item in decoded_items]
+
+
+def test_mulan_runner_writes_its_own_typed_embedding_output() -> None:
+    runner = EmbeddingModelRunner(
+        "mulan",
+        device="cpu",
+        inference_batch_size=2,
+        adapter=_FakeMulanAdapter(),  # type: ignore[arg-type]
+    )
+    candidate = _candidate(1, runner.candidate_outputs)
+    repository = _EmbeddingWriteRepository()
+
+    results = runner.analyze_batch(
+        repository,  # type: ignore[arg-type]
+        (
+            AnalysisBatchItem(
+                candidate=candidate,
+                decoded=_decoded(candidate.file_path),
+                models=("mulan",),
+            ),
+        ),
+    )
+
+    assert results == [None]
+    assert repository.writes[0].output.family == "mulan"
+    assert repository.writes[0].output.vector.shape == (512,)
 
 
 def test_fresh_current_database_runs_candidate_to_typed_embedding_write(

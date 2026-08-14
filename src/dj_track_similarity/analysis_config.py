@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "clap")
+ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "mulan", "clap")
 ANALYSIS_MODEL_ORDER = ("sonara", *ML_ANALYSIS_MODEL_ORDER)
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
 ANALYSIS_DEVICE_PATTERN = "^(auto|cpu|cuda)$"

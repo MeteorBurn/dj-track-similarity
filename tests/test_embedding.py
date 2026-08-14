@@ -19,6 +19,7 @@ from dj_track_similarity.embedding import (
     MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
     MuqEmbeddingAdapter,
+    MuqMulanEmbeddingAdapter,
     _move_maest_runtime_modules,
     _array_output_to_numpy,
     _pad_or_trim_audio_window,
@@ -55,8 +56,19 @@ def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
     assert MuqEmbeddingAdapter.target_rate == 24_000
 
 
+def test_mulan_adapter_uses_the_official_joint_audio_text_checkpoint() -> None:
+    adapter = adapter_factories()["mulan"](device="cpu")
+
+    assert adapter.embedding_key == "mulan"
+    assert adapter.model_name == "OpenMuQ/MuQ-MuLan-large"
+    assert adapter.target_rate == 24_000
+    assert adapter.window_seconds == 10.0
+    assert adapter.dim == 512
+    assert adapter.normalization == "l2"
+
+
 def test_product_embedding_adapters_do_not_expose_removed_fake_adapter() -> None:
-    assert set(adapter_factories()) == {"maest", "mert", "muq", "clap"}
+    assert set(adapter_factories()) == {"maest", "mert", "muq", "mulan", "clap"}
 
 
 @pytest.mark.parametrize(
@@ -530,6 +542,53 @@ def test_muq_embed_decoded_batch_resamples_to_strict_24khz_float32() -> None:
     assert resample_calls == [(12_000, 24_000, (1, 12000), torch.float32)]
     assert adapter.fake_model.batch_shapes == [(1, 24000)]
     assert adapter.fake_model.batch_dtypes == [torch.float32]
+
+
+class FakeMulanModel:
+    def __call__(self, *, wavs=None, texts=None):
+        if wavs is not None:
+            rows = int(wavs.shape[0])
+            vector = torch.zeros((rows, 512), dtype=torch.float32, device=wavs.device)
+            vector[:, 0] = 3.0
+            vector[:, 1] = 4.0
+            return vector
+        if texts is not None:
+            assert len(texts) == 1
+            return torch.tensor([[5.0] + [0.0] * 511], dtype=torch.float32)
+        raise AssertionError("MuQ-MuLan adapter must provide audio or text input")
+
+
+class SharedAudioMulanAdapter(MuqMulanEmbeddingAdapter):
+    def _load_model(self) -> None:
+        self._torch = torch
+        self._torchaudio = None
+        self.device = "cpu"
+        self._model = FakeMulanModel()
+
+
+def test_mulan_adapter_returns_unit_audio_and_text_embeddings() -> None:
+    adapter = SharedAudioMulanAdapter(
+        device="cpu",
+        window_seconds=1.0,
+        max_windows=1,
+    )
+
+    audio_vector = adapter.embed_decoded_batch(
+        [
+            DecodedAudio(
+                path="mulan.wav",
+                audio=np.ones(24_000, dtype=np.float32),
+                sample_rate=24_000,
+                detail="shared",
+            )
+        ]
+    )[0]
+    text_vector = adapter.embed_text("rolling techno")
+
+    assert audio_vector.shape == (512,)
+    assert text_vector.shape == (512,)
+    assert np.linalg.norm(audio_vector) == pytest.approx(1.0)
+    assert np.linalg.norm(text_vector) == pytest.approx(1.0)
 
 
 class FakeMertProcessor:

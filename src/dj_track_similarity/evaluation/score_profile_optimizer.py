@@ -155,7 +155,7 @@ def build_score_profile_optimizer_report(
             examples,
             sources,
             decision="no_source_contributions",
-            guidance="Matched judged examples did not contain MERT, MAEST, MuQ, SONARA, or CLAP source contributions.",
+            guidance="Matched judged examples did not contain MERT, MAEST, MuQ, MuQ-MuLan, SONARA, or CLAP source contributions.",
         )
 
     split = _split_examples_by_seed(examples, request.random_seed)

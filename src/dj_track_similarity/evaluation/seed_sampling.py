@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from ..track_resolution import resolve_track_bpm, resolve_track_energy, resolve_track_key
 from ..transition_diagnostics import TransitionTrack
-from .candidates import ALLOWED_CANDIDATE_SOURCES
+from .candidates import ALLOWED_CANDIDATE_SOURCES, DEFAULT_CANDIDATE_SOURCES
 from .csv_io import CsvRow, write_csv_rows
 from .track_views import load_all_transition_tracks
 
@@ -28,6 +28,7 @@ SEED_SAMPLE_COLUMNS = (
     "sonara_core",
     "mert_embedding",
     "muq_embedding",
+    "mulan_embedding",
     "clap_embedding",
     "maest_analysis",
     "maest_embedding",
@@ -51,6 +52,7 @@ class SeedSampleTrack:
     maest_analysis: bool
     maest_embedding: bool
     bucket: str
+    mulan_embedding: bool = False
 
     @property
     def known_artist_key(self) -> str | None:
@@ -75,6 +77,7 @@ class SeedSampleTrack:
             "sonara_core": _analysis_flag(self.sonara_core),
             "mert_embedding": _analysis_flag(self.mert_embedding),
             "muq_embedding": _analysis_flag(self.muq_embedding),
+            "mulan_embedding": _analysis_flag(self.mulan_embedding),
             "clap_embedding": _analysis_flag(self.clap_embedding),
             "maest_analysis": _analysis_flag(self.maest_analysis),
             "maest_embedding": _analysis_flag(self.maest_embedding),
@@ -188,6 +191,7 @@ def _transition_track_to_seed_sample_track(
         sonara_core=sonara is not None,
         mert_embedding=coverage.mert,
         muq_embedding=coverage.muq,
+        mulan_embedding=coverage.mulan,
         clap_embedding=coverage.clap,
         maest_analysis=coverage.maest_analysis,
         maest_embedding=coverage.maest_embedding,
@@ -203,6 +207,7 @@ def _has_required_analysis(
         "mert": track.mert_embedding,
         "maest": track.maest_embedding,
         "muq": track.muq_embedding,
+        "mulan": track.mulan_embedding,
         "sonara": track.sonara_core,
         "clap": track.clap_embedding,
     }
@@ -212,7 +217,11 @@ def _has_required_analysis(
 def _clean_required_sources(
     required_sources: Sequence[str] | None,
 ) -> tuple[str, ...]:
-    values = ALLOWED_CANDIDATE_SOURCES if required_sources is None else required_sources
+    values = (
+        DEFAULT_CANDIDATE_SOURCES
+        if required_sources is None
+        else required_sources
+    )
     clean_sources = tuple(
         dict.fromkeys(
             text

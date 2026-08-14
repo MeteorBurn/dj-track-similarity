@@ -92,6 +92,7 @@ const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: s
   sonara: { label: "SONARA", title: "SONARA similarity search" },
   mert: { label: "MERT", title: "MERT seed embedding search" },
   muq: { label: "MUQ", title: "MuQ seed embedding search" },
+  mulan: { label: "MULAN", title: "MuQ-MuLan seed embedding search" },
   clap: { label: "CLAP", title: "CLAP text search" },
   class: { label: "CLASS", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }
@@ -107,6 +108,8 @@ export function SearchPlaylistPanel({
   onClapNegativeQueryChange,
   clapUseNegativePrompt,
   onClapUseNegativePromptChange,
+  textEmbeddingFamily,
+  onTextEmbeddingFamilyChange,
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
@@ -162,6 +165,8 @@ export function SearchPlaylistPanel({
   onClapNegativeQueryChange: (value: string) => void;
   clapUseNegativePrompt: boolean;
   onClapUseNegativePromptChange: (value: boolean) => void;
+  textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
+  onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
@@ -250,10 +255,11 @@ export function SearchPlaylistPanel({
   const orderedClassifierProfiles = orderPromotedClassifiers(classifiers);
   const availableClassifierCount = orderedClassifierProfiles.filter(classifierIsAvailable).length;
   const blockedClassifierCount = orderedClassifierProfiles.length - availableClassifierCount;
-  const hasStoredClapEmbeddings = embeddingCounts.clap > 0;
-  const clapSearchTitle = hasStoredClapEmbeddings
-    ? "Найти треки через CLAP по текстовому описанию звучания. Требуются сохраненные CLAP audio embeddings в SQLite."
-    : "CLAP search requires stored CLAP audio embeddings. Запустите анализ CLAP для библиотеки, затем повторите текстовый поиск.";
+  const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
+  const hasStoredTextEmbeddings = embeddingCounts[textEmbeddingFamily] > 0;
+  const textSearchTitle = hasStoredTextEmbeddings
+    ? `Найти треки через ${textModelLabel} по текстовому описанию звучания. Требуются сохраненные ${textModelLabel} audio embeddings в SQLite.`
+    : `${textModelLabel} search requires stored audio embeddings. Запустите анализ ${textModelLabel} для библиотеки, затем повторите текстовый поиск.`;
 
   useEffect(() => {
     setEmbeddingSearchErrors({});
@@ -469,7 +475,7 @@ export function SearchPlaylistPanel({
             </button>
           </div>
         )}
-        {(activeSearchTab === "mert" || activeSearchTab === "muq") && (
+        {(activeSearchTab === "mert" || activeSearchTab === "muq" || activeSearchTab === "mulan") && (
           <div id={`search-panel-${activeSearchTab}`} className="search-tab-panel" role="tabpanel" aria-labelledby={`search-tab-${activeSearchTab}`}>
             <EmbeddingSearchTab
               analysisFamily={activeSearchTab}
@@ -493,6 +499,8 @@ export function SearchPlaylistPanel({
             onClapNegativeQueryChange={onClapNegativeQueryChange}
             clapUseNegativePrompt={clapUseNegativePrompt}
             onClapUseNegativePromptChange={onClapUseNegativePromptChange}
+            textEmbeddingFamily={textEmbeddingFamily}
+            onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
             clapPresetKey={clapPresetKey}
             onClapPresetChange={onClapPresetChange}
             clapPromptPresets={clapPromptPresets}
@@ -500,9 +508,9 @@ export function SearchPlaylistPanel({
             onLimitChange={(value) => setFilters({ ...filters, limit: value })}
             textPromptHelp={helpText.textPrompt}
             limitHelp={helpText.limit}
-            hasStoredClapEmbeddings={hasStoredClapEmbeddings}
+            hasStoredTextEmbeddings={hasStoredTextEmbeddings}
             busy={busy}
-            clapSearchTitle={clapSearchTitle}
+            textSearchTitle={textSearchTitle}
             handleTextSearch={handleTextSearch}
           />
           </div>

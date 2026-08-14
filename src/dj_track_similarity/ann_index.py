@@ -44,6 +44,7 @@ PERSISTENT_INDEX_ANALYSIS_FAMILIES = (
     "maest",
     "mert",
     "muq",
+    "mulan",
     "clap",
 )
 DEFAULT_RECALL_THRESHOLD = 0.97

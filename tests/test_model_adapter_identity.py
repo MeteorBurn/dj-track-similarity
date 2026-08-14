@@ -11,6 +11,7 @@ from dj_track_similarity.embedding import (
     MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
     MuqEmbeddingAdapter,
+    MuqMulanEmbeddingAdapter,
 )
 
 
@@ -19,11 +20,12 @@ def test_adapters_expose_dimensions_and_normalization_before_model_load() -> Non
         MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
+        MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
     )
 
-    assert [adapter.dim for adapter in adapters] == [768, 768, 1024, 512]
-    assert [adapter.normalization for adapter in adapters] == ["l2", "l2", "l2", "l2"]
+    assert [adapter.dim for adapter in adapters] == [768, 768, 1024, 512, 512]
+    assert [adapter.normalization for adapter in adapters] == ["l2", "l2", "l2", "l2", "l2"]
     for adapter in adapters:
         assert adapter._model is None
 
@@ -40,6 +42,7 @@ def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> N
         MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
+        MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
     ):
         assert forbidden.isdisjoint(adapter.runtime_parameters())
@@ -269,6 +272,62 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
     assert not Path(model_path).exists()
     assert model_kwargs == {"local_files_only": True}
     assert calls["float"] is True
+
+
+def test_mulan_loader_uses_official_joint_model_from_verified_local_snapshot(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    calls: dict[str, object] = {}
+    snapshot = tmp_path / "mulan-snapshot"
+    snapshot.mkdir()
+    for file_name in MuqMulanEmbeddingAdapter.snapshot_files:
+        (snapshot / file_name).write_bytes(file_name.encode())
+
+    class FakeModel:
+        def float(self):
+            return self
+
+        def to(self, _device):
+            return self
+
+        def eval(self):
+            return self
+
+    class FakeMuQMuLan:
+        @staticmethod
+        def from_pretrained(model_path, **kwargs):
+            calls["model"] = (model_path, kwargs)
+            return FakeModel()
+
+    hf_module = types.ModuleType("huggingface_hub")
+    hf_module.snapshot_download = lambda **_kwargs: str(snapshot)
+    muq_module = types.ModuleType("muq")
+    muq_module.MuQMuLan = FakeMuQMuLan
+    monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
+    monkeypatch.setitem(sys.modules, "torchaudio", types.ModuleType("torchaudio"))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
+    monkeypatch.setitem(sys.modules, "muq", muq_module)
+    monkeypatch.setattr(
+        embedding,
+        "_verify_checkpoint_sha256",
+        lambda *args, **kwargs: None,
+    )
+
+    adapter = MuqMulanEmbeddingAdapter(device="cpu")
+    adapter.snapshot_sha256 = tuple(
+        (file_name, hashlib.sha256(file_name.encode()).hexdigest())
+        for file_name in adapter.snapshot_files
+    )
+    adapter.checkpoint_sha256 = dict(adapter.snapshot_sha256)[
+        adapter.checkpoint_filename
+    ]
+    adapter._load_model()
+
+    model_path, model_kwargs = calls["model"]
+    assert model_path != str(snapshot)
+    assert not Path(model_path).exists()
+    assert model_kwargs == {"local_files_only": True}
 
 
 def test_clap_loader_uses_verified_checkpoint_and_text_assets(

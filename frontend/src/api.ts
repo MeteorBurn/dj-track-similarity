@@ -1,4 +1,4 @@
-export type EmbeddingSource = "mert" | "maest" | "muq" | "clap";
+export type EmbeddingSource = "mert" | "maest" | "muq" | "mulan" | "clap";
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type SonaraStatusOutput = {
   output_kind: "core";
@@ -18,6 +18,7 @@ export type AnalysisCoverage = {
   maest_embedding: boolean;
   mert: boolean;
   muq: boolean;
+  mulan: boolean;
   clap: boolean;
 };
 
@@ -206,7 +207,7 @@ export type EmbeddingSearchPayload = {
   noise?: number;
 };
 
-export type ReferenceCompareModel = "clap" | "mert" | "muq" | "maest" | "sonara";
+export type ReferenceCompareModel = "clap" | "mert" | "muq" | "mulan" | "maest" | "sonara";
 export type ReferenceCompareVerdict = "mood" | "palette" | "instruments" | "groove" | "genre" | "transition" | "miss";
 export type ReferenceComparePayload = {
   seed_track_id: number;
@@ -265,6 +266,7 @@ export type LibrarySummary = {
   maest_embedding: number;
   mert: number;
   muq: number;
+  mulan: number;
   clap: number;
   liked: number;
   classifiers: number;

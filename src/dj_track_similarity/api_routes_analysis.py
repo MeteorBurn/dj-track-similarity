@@ -130,7 +130,10 @@ def register_analysis_routes(
                     inference_batch_size=request.ml.inference_batch_size,
                 )
                 if "sonara" in ml_config.models:
-                    raise ValueError("The ML pipeline stage accepts only MAEST, MERT, MuQ, and CLAP")
+                    raise ValueError(
+                        "The ML pipeline stage accepts only MAEST, MERT, MuQ, "
+                        "MuQ-MuLan, and CLAP"
+                    )
                 ml_settings = {
                     "models": list(ml_config.models),
                     "device": ml_config.device,
@@ -266,6 +269,7 @@ def _outputs_for_family(
         "maest": ("analysis", "embedding"),
         "mert": ("embedding",),
         "muq": ("embedding",),
+        "mulan": ("embedding",),
         "clap": ("embedding",),
     }[analysis_family]
     return tuple(

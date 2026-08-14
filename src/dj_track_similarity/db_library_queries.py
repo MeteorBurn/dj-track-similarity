@@ -54,6 +54,7 @@ _EMBEDDING_TABLES: tuple[tuple[str, str, str], ...] = (
     ("maest", "embedding", "maest_embeddings"),
     ("mert", "embedding", "mert_embeddings"),
     ("muq", "embedding", "muq_embeddings"),
+    ("mulan", "embedding", "mulan_embeddings"),
     ("clap", "embedding", "clap_embeddings"),
 )
 _SONARA_VECTOR_SUMMARIES = (
@@ -867,6 +868,7 @@ def _coverage_and_classifiers(
             maest_embedding=track_id in embedding_rows[("maest", "embedding")],
             mert=track_id in embedding_rows[("mert", "embedding")],
             muq=track_id in embedding_rows[("muq", "embedding")],
+            mulan=track_id in embedding_rows[("mulan", "embedding")],
             clap=track_id in embedding_rows[("clap", "embedding")],
         )
         for track_id in identities
@@ -1643,6 +1645,7 @@ class LibraryQueryRepository:
                 maest_embedding=count_rows(connection, "maest_embeddings"),
                 mert=count_rows(connection, "mert_embeddings"),
                 muq=count_rows(connection, "muq_embeddings"),
+                mulan=count_rows(connection, "mulan_embeddings"),
                 clap=count_rows(connection, "clap_embeddings"),
                 liked=count_rows(connection, "likes"),
                 classifiers=count_rows(connection, "classifier_scores"),

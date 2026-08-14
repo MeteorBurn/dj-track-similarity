@@ -371,18 +371,6 @@ def create_library_schema(db: "sqlite3.Connection | str") -> None:
         _apply_schema(db)
 
 
-def create_mulan_embeddings_schema(connection: sqlite3.Connection) -> bool:
-    """Add the separate MuQ-MuLan table when an explicit migration needs it."""
-
-    existing = connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mulan_embeddings'"
-    ).fetchone()
-    if existing is not None:
-        return False
-    connection.executescript(_DDL_MULAN_EMBEDDINGS)
-    return True
-
-
 def _apply_schema(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")

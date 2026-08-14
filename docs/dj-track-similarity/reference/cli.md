@@ -104,18 +104,6 @@ first copies legacy rows into a staged single-library file. It rebuilds FTS, com
 checks SQLite integrity and foreign keys before publishing `library.sqlite`. The original Core and
 Artifacts files move into that backup directory. It does not run analysis, reanalysis, or classifier jobs.
 
-### Add MuQ-MuLan storage to an existing library
-
-For a one-file library created before `mulan_embeddings`, stop every SQLite user and run:
-
-```powershell
-dj-sim migrate-mulan-embeddings --db .\data\library.sqlite --confirm 'MIGRATE MULAN EMBEDDINGS'
-```
-
-The migration saves a timestamped backup, adds only `mulan_embeddings`, then verifies SQLite
-integrity and foreign keys. It does not analyse audio or convert `muq_embeddings` into MuQ-MuLan
-vectors.
-
 ## Analysis options
 
 `dj-sim analyze` supports:

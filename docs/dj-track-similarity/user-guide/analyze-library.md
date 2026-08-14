@@ -48,9 +48,6 @@ data only; it is not a current similarity, search, or classifier input. MAEST, M
 MuQ-MuLan, and CLAP embeddings live in their own dedicated tables in the same library database.
 MuQ-MuLan analysis reads mono 24 kHz `float32` audio in 10-second windows and writes its own
 L2-normalized 512-dimensional rows to `mulan_embeddings`. It never converts existing MuQ rows.
-For an existing library that predates this table, first run the backup-first
-`dj-sim migrate-mulan-embeddings` command described in the
-[database reference](../reference/database.md).
 
 `*.evaluation.sqlite` is optional evaluation state. Normal startup refuses a legacy split layout
 rather than adapting it automatically.

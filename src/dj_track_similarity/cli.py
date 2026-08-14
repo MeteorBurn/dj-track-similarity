@@ -51,9 +51,7 @@ from .database import LibraryDatabase
 from .database_validation import DatabaseValidator, format_validation_finding
 from .db_migration import (
     MIGRATION_CONFIRMATION,
-    MULAN_SCHEMA_MIGRATION_CONFIRMATION,
     LegacyLibraryMigrationError,
-    migrate_mulan_embedding_schema,
     migrate_legacy_library_database,
 )
 from .dependencies import require_ffmpeg
@@ -990,44 +988,6 @@ def migrate_database_command(
         f"catalog_uuid={result.catalog_uuid}\n"
         f"roots={','.join(result.roots)}\n"
         f"fts_rows={result.fts_rows}\n"
-        f"integrity_check={result.integrity_check} "
-        f"foreign_key_violations={result.foreign_key_violations}"
-    )
-
-
-@app.command("migrate-mulan-embeddings")
-def migrate_mulan_embeddings_command(
-    db_path: Path = typer.Option(..., "--db", help="Current library database path."),
-    backup_root: Optional[Path] = typer.Option(
-        None,
-        "--backup-root",
-        help="Parent directory for the timestamped migration backup.",
-    ),
-    confirm: Optional[str] = typer.Option(
-        None,
-        "--confirm",
-        help=f"Required exact phrase: {MULAN_SCHEMA_MIGRATION_CONFIRMATION}",
-    ),
-) -> None:
-    """Explicitly add the separate MuQ-MuLan embedding table."""
-
-    try:
-        phrase = confirm or typer.prompt(
-            f"Type {MULAN_SCHEMA_MIGRATION_CONFIRMATION} to continue"
-        )
-        result = migrate_mulan_embedding_schema(
-            db_path,
-            confirm=phrase,
-            backup_root=backup_root,
-        )
-    except (OSError, sqlite3.Error, LegacyLibraryMigrationError, ValueError) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-    typer.echo(
-        f"library={result.library_path}\n"
-        f"backup={result.backup_path}\n"
-        f"catalog_uuid={result.catalog_uuid}\n"
-        f"table_created={result.table_created}\n"
         f"integrity_check={result.integrity_check} "
         f"foreign_key_violations={result.foreign_key_violations}"
     )

@@ -18,13 +18,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .db_ddl import create_library_schema, create_mulan_embeddings_schema
+from .db_ddl import create_library_schema
 from .db_schema import validate_library_schema
 from .db_search_fts import rebuild_track_search_fts
 
 
 MIGRATION_CONFIRMATION = "MIGRATE SINGLE LIBRARY"
-MULAN_SCHEMA_MIGRATION_CONFIRMATION = "MIGRATE MULAN EMBEDDINGS"
 _BUSY_TIMEOUT_SECONDS = 30
 
 _COPY_TABLES: tuple[tuple[str, str, str], ...] = (
@@ -57,72 +56,6 @@ class MigrationResult:
     fts_rows: int
     integrity_check: str
     foreign_key_violations: int
-
-
-@dataclass(frozen=True, slots=True)
-class MulanSchemaMigrationResult:
-    library_path: Path
-    backup_path: Path
-    catalog_uuid: str
-    table_created: bool
-    integrity_check: str
-    foreign_key_violations: int
-
-
-def migrate_mulan_embedding_schema(
-    library_path: str | Path,
-    *,
-    confirm: str,
-    backup_root: str | Path | None = None,
-) -> MulanSchemaMigrationResult:
-    """Explicitly add ``mulan_embeddings`` to one current library database."""
-
-    if confirm != MULAN_SCHEMA_MIGRATION_CONFIRMATION:
-        raise ValueError(
-            "Migration requires the exact confirmation "
-            f"{MULAN_SCHEMA_MIGRATION_CONFIRMATION!r}"
-        )
-
-    path = _required_database(library_path, "Library")
-    root = Path(backup_root) if backup_root is not None else path.parent / "backups"
-    backup_dir = _create_backup_directory(root, kind="mulan-embedding-migration")
-    backup_path = backup_dir / f"pre-mulan-{path.name}"
-    try:
-        with _reserve_legacy_sources((path,)) as (connection,):
-            catalog_uuid = validate_library_schema(
-                connection,
-                database_path=str(path),
-            )
-            _require_clean_database(connection, "Library")
-            _backup_sqlite(connection, backup_path)
-            with closing(_open_read_only(backup_path)) as backup:
-                if validate_library_schema(backup, database_path=str(backup_path)) != catalog_uuid:
-                    raise LegacyLibraryMigrationError(
-                        "Library backup belongs to another catalog"
-                    )
-                _require_clean_database(backup, "Library backup")
-
-            table_created = create_mulan_embeddings_schema(connection)
-            connection.commit()
-            _require_clean_database(connection, "Migrated library")
-            if not _table_exists(connection, "mulan_embeddings"):
-                raise LegacyLibraryMigrationError(
-                    "MuQ-MuLan embedding table was not created"
-                )
-            integrity_check = _integrity_check(connection)
-            foreign_key_violations = _foreign_key_violation_count(connection)
-        return MulanSchemaMigrationResult(
-            library_path=path,
-            backup_path=backup_path,
-            catalog_uuid=catalog_uuid,
-            table_created=table_created,
-            integrity_check=integrity_check,
-            foreign_key_violations=foreign_key_violations,
-        )
-    except BaseException:
-        if backup_dir.exists() and not backup_path.exists():
-            backup_dir.rmdir()
-        raise
 
 
 def migrate_legacy_library_database(

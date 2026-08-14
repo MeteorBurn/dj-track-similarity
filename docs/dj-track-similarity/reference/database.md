@@ -26,15 +26,9 @@ rebuilds FTS, verifies counts/integrity/foreign keys, then publishes the
 one-file library. The old `library_settings` analysis counters are derived
 cache values and are not carried into the current schema.
 
-An existing one-file library that predates `mulan_embeddings` needs an explicit,
-backup-first schema migration after every SQLite user has stopped:
-
-```powershell
-dj-sim migrate-mulan-embeddings --db .\data\library.sqlite --confirm 'MIGRATE MULAN EMBEDDINGS'
-```
-
-The command creates a timestamped backup, adds only the separate table, then checks SQLite
-integrity and foreign keys. It does not derive MuQ-MuLan rows from existing `muq_embeddings`.
+For an existing library that predates `mulan_embeddings`, the project owner performs the
+one-time schema update outside the user-facing CLI. It adds only the separate table and never
+derives MuQ-MuLan rows from existing `muq_embeddings`.
 
 ## Library tables
 

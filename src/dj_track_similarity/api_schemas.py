@@ -256,9 +256,9 @@ class ReferenceCompareRequest(BaseModel):
 
     seed_track_id: EvaluationTrackId
     models: list[ReferenceCompareModel] = Field(
-        default_factory=lambda: ["clap", "mert", "muq", "maest", "sonara"],
+        default_factory=lambda: ["clap", "mert", "muq", "mulan", "maest", "sonara"],
         min_length=1,
-        max_length=5,
+        max_length=6,
     )
     limit: int = Field(default=10, ge=1, le=100)
 

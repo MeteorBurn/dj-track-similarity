@@ -201,7 +201,7 @@ export function ReferenceComparePanel({
         </label>
         <button
           className="reference-compare-run-button"
-          title="Compare CLAP, MERT, MuQ, MAEST, and SONARA candidates for the first selected seed."
+          title="Compare CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA candidates for the first selected seed."
           type="button"
           disabled={!canCompare}
           onClick={() => void runReferenceCompare()}

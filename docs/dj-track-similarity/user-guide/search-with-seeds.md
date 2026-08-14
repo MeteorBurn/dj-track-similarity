@@ -88,7 +88,9 @@ Modifiers bias the result direction relative to the seed context: energy, valenc
 
 ## LAB tab
 
-The LAB tab opens **Model Listening Lab**. It compares how CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA rank candidates for the first selected seed track when those models are selected. Its default model selection remains unchanged, so add MuQ-MuLan explicitly when you want that comparison. Use it as a diagnostic listening view for separate model groups.
+The LAB tab opens **Model Listening Lab**. By default, it compares how CLAP, MERT, MuQ,
+MuQ-MuLan, MAEST, and SONARA rank candidates for the first selected seed track in six separate
+groups. Use it as a diagnostic listening view for separate model groups.
 
 Use it when one reference track feels important and you want to hear which model family is finding useful neighbors. Each model stays in its own column so you can compare the model ears directly instead of flattening them into one score.
 

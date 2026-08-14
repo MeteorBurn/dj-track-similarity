@@ -49,6 +49,7 @@ def test_reference_compare_returns_separate_model_groups(
         "clap",
         "mert",
         "muq",
+        "mulan",
         "maest",
         "sonara",
     ]
@@ -59,6 +60,8 @@ def test_reference_compare_returns_separate_model_groups(
             groups[model]["results"][0]["track"]["track_id"]
             == tracks[f"{model}_top"].track_id
         )
+    assert groups["mulan"]["available"] is False
+    assert groups["mulan"]["results"] == []
     assert not db.evaluation_path.exists()
 
 

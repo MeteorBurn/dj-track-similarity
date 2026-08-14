@@ -33,7 +33,7 @@ which families deserve a full-library run.
 | MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
 | MERT | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
 | MuQ | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
-| MuQ-MuLan | separate 512D L2-normalized audio embedding | seed search, text-to-track retrieval, optional ANN, explicit Reference Compare selection |
+| MuQ-MuLan | separate 512D L2-normalized audio embedding | seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
 | CLAP | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup, classifier input |
 | CLASSIFIERS | Core `classifier_scores` rows | CLASS filters |
 

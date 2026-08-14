@@ -61,9 +61,9 @@ The **CLASS** tab filters the library by stored classifier scores. Its per-profi
 rescans only that `classifier_key` from stored data, without decoding audio; the main analysis panel
 does not run classifier scoring.
 
-The **LAB** tab can compare a reference track across CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA. Its
-default selection remains unchanged, so MuQ-MuLan is chosen explicitly. Unavailable models show a
-model-specific reason. Verdict writes include `catalog_uuid` and `track_uuid`.
+The **LAB** tab compares a reference track across six separate default groups: CLAP, MERT, MuQ,
+MuQ-MuLan, MAEST, and SONARA. Unavailable models show a model-specific reason. Verdict writes
+include `catalog_uuid` and `track_uuid`.
 
 The **CLAP** tab has a **Model** control for CLAP and MuQ-MuLan text-to-track search. It requires
 current stored audio embeddings for the selected family and keeps the result in that family’s score

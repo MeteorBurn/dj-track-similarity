@@ -10,7 +10,7 @@
 | MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MuQ-MuLan | shared MuQ-compatible mono decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, and explicit Reference Compare selection |
+| MuQ-MuLan | shared MuQ-compatible mono decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
 | CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters |
 

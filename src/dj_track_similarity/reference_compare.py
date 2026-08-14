@@ -42,7 +42,7 @@ ReferenceCompareVerdict = Literal[
 DEFAULT_REFERENCE_COMPARE_MODELS: tuple[
     ReferenceCompareModel,
     ...,
-] = ("clap", "mert", "muq", "maest", "sonara")
+] = ("clap", "mert", "muq", "mulan", "maest", "sonara")
 _REFERENCE_COMPARE_MODELS = frozenset(
     ("clap", "mert", "muq", "mulan", "maest", "sonara")
 )

@@ -33,10 +33,10 @@ MuQ-MuLan family; do not compare them directly to MuQ, CLAP, MERT, SONARA, or Au
 
 ## Reference Compare scores
 
-The LAB Reference Compare panel can keep CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA results in
-separate groups for one seed track. Compare scores within one model group first. A high MERT score,
-a high MuQ-MuLan score, a high CLAP audio score, and a high SONARA score are related listening
-hints, not the same measurement.
+The LAB Reference Compare panel keeps CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA in six
+separate default groups for one seed track. Compare scores within one model group first. A high
+MERT score, a high MuQ-MuLan score, a high CLAP audio score, and a high SONARA score are related
+listening hints, not the same measurement.
 
 Saved LAB verdicts are manual pair-feedback labels for a specific model source. They record what you heard. They are not automatic truth labels and they do not rewrite the model score.
 

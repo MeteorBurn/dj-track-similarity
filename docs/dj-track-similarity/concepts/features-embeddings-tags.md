@@ -90,7 +90,8 @@ audio vector in `mulan_embeddings`. Existing MuQ vectors are never converted int
 Use the MULAN tab for audio-to-audio seed search. In the CLAP text-search tab, choose
 **MuQ-MuLan** to embed text and retrieve only `mulan_embeddings`. Its text and seed scores stay
 separate from MuQ and CLAP scores. MuQ-MuLan is available as an explicit Evaluation candidate
-source, but it is not added automatically to the default profile or Audio Dedup weights.
+source, but it is not added automatically to the default profile or Audio Dedup weights. LAB
+Reference Compare includes MuQ-MuLan in its six separate default groups.
 
 ## CLAP audio embedding
 

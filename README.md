@@ -156,7 +156,7 @@ product direction rather than a finished automatic DJ.
 audio files -> scan tags -> SQLite library -> browse/search/export
       |                         ^
       +---- SONARA native -------+
-      +---- FFmpeg -> ML --------+
+      +---- TorchCodec -> ML -----+
       +---- stored inputs -> classifiers -> CLASS scores
 ```
 
@@ -170,6 +170,14 @@ The app keeps evidence sources separate:
 - **MuQ-MuLan** stores a separate 512-dimensional L2-normalized audio embedding in `mulan_embeddings`. It supports its own seed-search space and text-to-track retrieval. It does not convert or reuse MuQ embeddings.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
+
+MAEST, MERT, MuQ, MuQ-MuLan, and CLAP reuse one decoded input per track. TorchCodec `0.16`
+returns mono `float32` at the source sample rate through
+`AudioDecoder(path, num_channels=1).get_all_samples()`. Its `AudioSamples.data[0]` stays a 1D CPU
+`torch.float32` tensor inside `DecodedAudio` and passes directly to each adapter without a shared
+Tensor-to-NumPy-to-Tensor round-trip. A TorchCodec failure fails that track's ML decode instead of
+falling back to FFmpeg. Each adapter applies its own Torchaudio resampling. The selected CPU or CUDA
+device applies to model inference, not this shared decode step.
 
 Tempo-aware search and Evaluation transition diagnostics use current signed SONARA tempo
 evidence. At low confidence, they also inspect SONARA candidates and the Mutagen BPM tag, while
@@ -278,6 +286,7 @@ You need:
 - FFmpeg on `PATH`, or `DJ_TRACK_SIMILARITY_FFMPEG` pointing to the ffmpeg executable
 - A local folder of audio files
 - Node.js only when you build the frontend or docs from source
+- `uv` when installing optional dependencies that include the `ml` extra
 
 Install the base package:
 
@@ -325,12 +334,15 @@ The base install is enough for scan, backend serving, a fresh database bundle, a
 optional analysis dependencies when you want the model jobs:
 
 ```powershell
-python -m pip install -e ".[sonara,ml,dev]"
+uv sync --locked --extra sonara --extra ml --extra dev
 ```
 
-Install the mutually compatible dependency set recorded by `pyproject.toml` and `uv.lock`. Those
-files describe the tested environment, not a permanent ban on updates. When dependencies change,
-update the manifests and lockfile together and run focused compatibility checks.
+Use `uv` for every install that includes the `ml` extra because `pip` does not apply
+`[tool.uv.sources]`. On Windows AMD64 with Python 3.10, `uv` selects `torch`, `torchaudio`, and
+`torchvision` from the CUDA 13.0 index plus the exact TorchCodec `0.16.0+cu130` wheel. Other
+supported environments select TorchCodec `0.16.0`. The manifests and lockfile describe the tested
+environment, not a permanent ban on updates. When dependencies change, update them together and run
+focused compatibility checks.
 
 Run a small first pass:
 
@@ -374,7 +386,7 @@ preparation, and database storage times plus FFmpeg fallback and per-track error
 deleted after each track completes, and the temporary job directory is cleaned up after completion,
 failure, or cancellation. A later staged run also removes an abandoned job directory when its owner
 process is no longer running. Staged Mode currently applies only to SONARA; GPU model analysis keeps
-its existing FFmpeg decode path.
+its strict shared TorchCodec `0.16` decode without an FFmpeg fallback.
 Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
 relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
 and CLASSIFIERS reports the selected profile count.

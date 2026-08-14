@@ -7,9 +7,12 @@
 ## Setup
 
 ```powershell
-python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
+uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 python -m pytest
 ```
+
+Use `uv` for installs containing the `ml` extra because `pip` does not apply `[tool.uv.sources]`.
+On Windows AMD64 with Python 3.10, `uv` selects the PyTorch packages from the CUDA 13.0 index.
 
 ## Ports
 

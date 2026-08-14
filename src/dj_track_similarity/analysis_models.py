@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
 
@@ -231,8 +231,8 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
         "sample_rate_hz": 16_000,
         "input_seconds": 30.0,
         "analysis_window_positions": (0.2, 0.5, 0.8),
-        "channel_downmix": "arithmetic-mean",
-        "decoder": "shared-load-audio-mono-v1",
+        "channel_downmix": "torchcodec-num-channels-1",
+        "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
         "window_selection": "structure-aware-main-range-centered-20-50-80",
         "window_context": "sonara-current-generation-optional",
@@ -248,8 +248,8 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
         "input_seconds": 30.0,
         "analysis_window_positions": (0.2, 0.5, 0.8),
         "pooling": "distilled-token-mean+window-mean+l2",
-        "channel_downmix": "arithmetic-mean",
-        "decoder": "shared-load-audio-mono-v1",
+        "channel_downmix": "torchcodec-num-channels-1",
+        "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
         "window_selection": "structure-aware-main-range-centered-20-50-80",
         "window_context": "sonara-current-generation-optional",
@@ -266,8 +266,8 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
         "max_windows": 5,
         "hidden_layers": (9, 10, 11, 12),
         "pooling": "last-4-layer-mean+masked-time-mean+window-mean+l2",
-        "channel_downmix": "arithmetic-mean",
-        "decoder": "shared-load-audio-mono-v1",
+        "channel_downmix": "torchcodec-num-channels-1",
+        "decoder": "shared-torchcodec-0.16",
         "window_selection": "10%-90%-interior-evenly-spaced-rounded",
         "short_audio": "single-variable-length-window",
         "processor_normalization": "wav2vec2-do-normalize",
@@ -278,8 +278,8 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
         "window_seconds": 10.0,
         "max_windows": 5,
         "pooling": "last-hidden-time-mean+per-window-l2+window-mean+l2",
-        "channel_downmix": "arithmetic-mean",
-        "decoder": "shared-load-audio-mono-v1",
+        "channel_downmix": "torchcodec-num-channels-1",
+        "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
         "window_selection": "10%-90%-interior-evenly-spaced-rounded",
         "short_audio": "right-zero-pad-to-window",
@@ -289,8 +289,8 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
         "window_seconds": 10.0,
         "max_windows": 5,
         "pooling": "mulan-audio-latent+per-window-l2+window-mean+l2",
-        "channel_downmix": "arithmetic-mean",
-        "decoder": "shared-load-audio-mono-v1",
+        "channel_downmix": "torchcodec-num-channels-1",
+        "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
         "window_selection": "10%-90%-interior-evenly-spaced-rounded",
         "short_audio": "right-zero-pad-to-window",
@@ -303,8 +303,8 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
         "amodel": "HTSAT-base",
         "tmodel": "roberta",
         "enable_fusion": False,
-        "channel_downmix": "arithmetic-mean",
-        "decoder": "shared-load-audio-mono-v1",
+        "channel_downmix": "torchcodec-num-channels-1",
+        "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
         "window_selection": "10%-90%-interior-evenly-spaced-rounded",
         "short_audio": "repeat-whole-window-then-right-zero-pad",

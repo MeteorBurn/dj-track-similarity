@@ -22,7 +22,7 @@ from dj_track_similarity.embedding import (
     MuqMulanEmbeddingAdapter,
     _move_maest_runtime_modules,
     _array_output_to_numpy,
-    _pad_or_trim_audio_window,
+    _pad_or_trim_audio_tensor,
     adapter_factories,
 )
 from dj_track_similarity.logging_config import configure_logging
@@ -421,10 +421,10 @@ def test_normalize_rows_rejects_zero_vectors() -> None:
         embedding._normalize_rows(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
 
 
-def test_pad_or_trim_audio_window_returns_fixed_length_float32() -> None:
-    assert _pad_or_trim_audio_window(np.array([1.0, 2.0]), 4).tolist() == [1.0, 2.0, 0.0, 0.0]
-    assert _pad_or_trim_audio_window(np.array([1.0, 2.0, 3.0, 4.0]), 2).tolist() == [1.0, 2.0]
-    assert _pad_or_trim_audio_window(np.array([1, 2], dtype=np.int16), 2).dtype == np.float32
+def test_pad_or_trim_audio_tensor_returns_fixed_length_float32() -> None:
+    assert _pad_or_trim_audio_tensor(torch.tensor([1.0, 2.0]), 4, torch).tolist() == [1.0, 2.0, 0.0, 0.0]
+    assert _pad_or_trim_audio_tensor(torch.tensor([1.0, 2.0, 3.0, 4.0]), 2, torch).tolist() == [1.0, 2.0]
+    assert _pad_or_trim_audio_tensor(torch.tensor([1, 2]), 2, torch).dtype == torch.float32
 
 
 def test_clap_repeatpad_or_trim_audio_window_matches_laion_short_audio_fill() -> None:
@@ -455,21 +455,42 @@ class SharedAudioClapAdapter(ClapEmbeddingAdapter):
         self._model = self.fake_model
 
 
-def test_clap_embed_decoded_batch_uses_shared_audio_without_loading_paths(monkeypatch) -> None:
-    def fail_load_audio(*_args, **_kwargs):
-        raise AssertionError("shared multi-model analysis must not reload paths for CLAP")
-
-    monkeypatch.setattr(embedding, "load_audio_mono", fail_load_audio)
+def test_clap_embed_decoded_batch_uses_shared_audio_without_loading_paths() -> None:
     adapter = SharedAudioClapAdapter()
     decoded = [
-        DecodedAudio(path="a.wav", audio=np.ones(48_000, dtype=np.float32), sample_rate=48_000, detail="shared"),
-        DecodedAudio(path="b.wav", audio=np.ones(48_000, dtype=np.float32), sample_rate=48_000, detail="shared"),
+        DecodedAudio(path="a.wav", audio=torch.ones(48_000), sample_rate=48_000, detail="shared"),
+        DecodedAudio(path="b.wav", audio=torch.ones(48_000), sample_rate=48_000, detail="shared"),
     ]
 
     vectors = adapter.embed_decoded_batch(decoded)
 
     assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
     assert adapter.fake_model.batch_shapes == [(2, 48000)]
+
+
+def test_clap_consumes_shared_torchcodec_tensor_without_numpy_round_trip(
+    monkeypatch,
+) -> None:
+    adapter = SharedAudioClapAdapter()
+    decoded = [
+        DecodedAudio(
+            path="a.wav",
+            audio=torch.ones(48_000, dtype=torch.float32),
+            sample_rate=48_000,
+            detail="shared",
+        )
+    ]
+    monkeypatch.setattr(
+        torch,
+        "from_numpy",
+        lambda _audio: (_ for _ in ()).throw(
+            AssertionError("TorchCodec tensors must not round-trip through NumPy")
+        ),
+    )
+
+    vectors = adapter.embed_decoded_batch(decoded)
+
+    assert vectors[0].tolist() == [1.0, 0.0, 0.0]
 
 
 class FakeMuqAudioModel:
@@ -500,15 +521,11 @@ class SharedAudioMuqAdapter(MuqEmbeddingAdapter):
         self._model = self.fake_model
 
 
-def test_muq_embed_decoded_batch_uses_shared_audio_without_loading_paths(monkeypatch) -> None:
-    def fail_load_audio(*_args, **_kwargs):
-        raise AssertionError("shared multi-model analysis must not reload paths for MuQ")
-
-    monkeypatch.setattr(embedding, "load_audio_mono", fail_load_audio)
+def test_muq_embed_decoded_batch_uses_shared_audio_without_loading_paths() -> None:
     adapter = SharedAudioMuqAdapter()
     decoded = [
-        DecodedAudio(path="a.wav", audio=np.ones(24_000, dtype=np.float32), sample_rate=24_000, detail="shared"),
-        DecodedAudio(path="b.wav", audio=np.ones(24_000, dtype=np.float32), sample_rate=24_000, detail="shared"),
+        DecodedAudio(path="a.wav", audio=torch.ones(24_000), sample_rate=24_000, detail="shared"),
+        DecodedAudio(path="b.wav", audio=torch.ones(24_000), sample_rate=24_000, detail="shared"),
     ]
 
     vectors = adapter.embed_decoded_batch(decoded)
@@ -516,6 +533,31 @@ def test_muq_embed_decoded_batch_uses_shared_audio_without_loading_paths(monkeyp
     assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
     assert adapter.fake_model.batch_shapes == [(2, 24000)]
     assert adapter.fake_model.batch_dtypes == [torch.float32]
+
+
+def test_muq_consumes_shared_torchcodec_tensor_without_numpy_round_trip(
+    monkeypatch,
+) -> None:
+    adapter = SharedAudioMuqAdapter()
+    decoded = [
+        DecodedAudio(
+            path="a.wav",
+            audio=torch.ones(24_000, dtype=torch.float32),
+            sample_rate=24_000,
+            detail="shared",
+        )
+    ]
+    monkeypatch.setattr(
+        torch,
+        "from_numpy",
+        lambda _audio: (_ for _ in ()).throw(
+            AssertionError("MuQ must keep TorchCodec audio as tensors")
+        ),
+    )
+
+    vectors = adapter.embed_decoded_batch(decoded)
+
+    assert vectors[0].tolist() == [1.0, 0.0, 0.0]
 
 
 def test_muq_embed_decoded_batch_resamples_to_strict_24khz_float32() -> None:
@@ -533,7 +575,7 @@ def test_muq_embed_decoded_batch_resamples_to_strict_24khz_float32() -> None:
     fake_torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResample))
     adapter = SharedAudioMuqAdapter(torchaudio_module=fake_torchaudio)
     decoded = [
-        DecodedAudio(path="a.wav", audio=np.ones(12_000, dtype=np.float32), sample_rate=12_000, detail="shared"),
+        DecodedAudio(path="a.wav", audio=torch.ones(12_000), sample_rate=12_000, detail="shared"),
     ]
 
     vectors = adapter.embed_decoded_batch(decoded)
@@ -566,18 +608,25 @@ class SharedAudioMulanAdapter(MuqMulanEmbeddingAdapter):
         self._model = FakeMulanModel()
 
 
-def test_mulan_adapter_returns_unit_audio_and_text_embeddings() -> None:
+def test_mulan_adapter_returns_unit_audio_and_text_embeddings(monkeypatch) -> None:
     adapter = SharedAudioMulanAdapter(
         device="cpu",
         window_seconds=1.0,
         max_windows=1,
+    )
+    monkeypatch.setattr(
+        torch,
+        "from_numpy",
+        lambda _audio: (_ for _ in ()).throw(
+            AssertionError("MuQ-MuLan must keep TorchCodec audio as tensors")
+        ),
     )
 
     audio_vector = adapter.embed_decoded_batch(
         [
             DecodedAudio(
                 path="mulan.wav",
-                audio=np.ones(24_000, dtype=np.float32),
+                audio=torch.ones(24_000),
                 sample_rate=24_000,
                 detail="shared",
             )
@@ -639,8 +688,8 @@ class SharedAudioMertAdapter(MertEmbeddingAdapter):
 def test_mert_embed_decoded_batch_uses_feature_vector_attention_mask() -> None:
     adapter = SharedAudioMertAdapter()
     decoded = [
-        DecodedAudio(path="short.wav", audio=np.ones(2, dtype=np.float32), sample_rate=2, detail="shared"),
-        DecodedAudio(path="full.wav", audio=np.ones(4, dtype=np.float32), sample_rate=2, detail="shared"),
+        DecodedAudio(path="short.wav", audio=torch.ones(2), sample_rate=2, detail="shared"),
+        DecodedAudio(path="full.wav", audio=torch.ones(4), sample_rate=2, detail="shared"),
     ]
 
     vectors = adapter.embed_decoded_batch(decoded)
@@ -725,15 +774,24 @@ def test_maest_initializes_only_missing_melspectrogram() -> None:
     assert model.melspectrogram.devices == ["cuda", "cuda"]
 
 
-def test_maest_analyze_batch_returns_genres_and_embeddings(monkeypatch) -> None:
-    def fake_load_audio(path, *, torchaudio_module=None):
-        value = 1.0 if Path(path).name == "a.wav" else 2.0
-        return np.full(16000 * 120, value, dtype=np.float32), 16000, "fake"
-
-    monkeypatch.setattr(embedding, "load_audio_mono", fake_load_audio)
+def test_maest_analyze_decoded_batch_returns_genres_and_embeddings() -> None:
     adapter = BatchMaestAdapter()
+    decoded = [
+        DecodedAudio(
+            path="a.wav",
+            audio=torch.full((16000 * 120,), 1.0),
+            sample_rate=16000,
+            detail="shared",
+        ),
+        DecodedAudio(
+            path="b.wav",
+            audio=torch.full((16000 * 120,), 2.0),
+            sample_rate=16000,
+            detail="shared",
+        ),
+    ]
 
-    results = adapter.analyze_batch(["a.wav", "b.wav"])
+    results = adapter.analyze_decoded_batch(decoded)
 
     assert adapter.fake_model.calls == [((6, 480000), False)]
     assert [[genre["label"] for genre in result.genres] for result in results] == [
@@ -753,19 +811,19 @@ def test_maest_analyze_batch_returns_genres_and_embeddings(monkeypatch) -> None:
     )
 
 
-def test_maest_analyze_batch_chunks_windows(monkeypatch) -> None:
-    monkeypatch.setattr(
-        embedding,
-        "load_audio_mono",
-        lambda *_args, **_kwargs: (
-            np.full(16000 * 120, 1.0, dtype=np.float32),
-            16000,
-            "fake",
-        ),
-    )
+def test_maest_analyze_decoded_batch_chunks_windows() -> None:
     adapter = BatchMaestAdapter(inference_batch_size=2)
+    decoded = [
+        DecodedAudio(
+            path=path,
+            audio=torch.full((16000 * 120,), 1.0),
+            sample_rate=16000,
+            detail="shared",
+        )
+        for path in ("a.wav", "b.wav")
+    ]
 
-    results = adapter.analyze_batch(["a.wav", "b.wav"])
+    results = adapter.analyze_decoded_batch(decoded)
 
     assert adapter.fake_model.calls == [
         ((2, 480000), False),
@@ -780,13 +838,13 @@ def test_maest_analyze_decoded_batch_uses_shared_audio() -> None:
     decoded = [
         DecodedAudio(
             path="a.wav",
-            audio=np.full(16000 * 120, 1.0, dtype=np.float32),
+            audio=torch.full((16000 * 120,), 1.0),
             sample_rate=16000,
             detail="shared",
         ),
         DecodedAudio(
             path="b.wav",
-            audio=np.full(16000 * 120, 2.0, dtype=np.float32),
+            audio=torch.full((16000 * 120,), 2.0),
             sample_rate=16000,
             detail="shared",
         ),
@@ -810,13 +868,14 @@ def test_maest_decoded_batch_applies_context_per_track() -> None:
     decoded = [
         DecodedAudio(
             path="structured.wav",
-            audio=np.arange(sample_rate * 200, dtype=np.float32),
+            audio=torch.arange(sample_rate * 200, dtype=torch.float32),
             sample_rate=sample_rate,
             detail="test",
         ),
         DecodedAudio(
             path="fallback.wav",
-            audio=np.arange(sample_rate * 200, dtype=np.float32) + 10_000_000.0,
+            audio=torch.arange(sample_rate * 200, dtype=torch.float32)
+            + 10_000_000.0,
             sample_rate=sample_rate,
             detail="test",
         ),

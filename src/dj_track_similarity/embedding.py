@@ -9,8 +9,12 @@ import importlib
 from pathlib import Path
 import threading
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from torch import Tensor
 
 from .analysis_models import (
     CLAP_ADAPTER_REVISION,
@@ -45,7 +49,7 @@ from .analysis_models import (
     MULAN_PREPROCESSING,
     MULAN_SNAPSHOT_SHA256,
 )
-from .audio_loader import DecodedAudio, load_audio_mono, torch_compatible_audio
+from .audio_loader import DecodedAudio
 from .genres import rank_maest_genres
 from .maest_windows import (
     MAEST_WINDOW_DEDUP_TOLERANCE_SECONDS,
@@ -118,8 +122,8 @@ class MaestEmbeddingAdapter:
             "analysis_window_positions": self.analysis_window_positions,
             "top_k": self.top_k,
             "pooling": self.pooling,
-            "channel_downmix": "arithmetic-mean",
-            "decoder": "shared-load-audio-mono-v1",
+            "channel_downmix": "torchcodec-num-channels-1",
+            "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "window_selection": "structure-aware-main-range-centered-20-50-80",
             "window_context": "sonara-current-generation-optional",
@@ -138,28 +142,6 @@ class MaestEmbeddingAdapter:
         """Verify model assets and construct the configured loader."""
 
         self._load_model()
-
-    def analyze_batch(self, paths: Sequence[str | Path]) -> list[MaestAnalysisResult]:
-        self._load_model()
-        prepared: list[object] = []
-        window_track_indexes: list[int] = []
-        decode_seconds = 0.0
-        prepare_started = time.perf_counter()
-        for track_index, path in enumerate(paths):
-            windows, window_decode_seconds = self._prepare_audio_windows_with_timing(
-                path
-            )
-            decode_seconds += window_decode_seconds
-            prepared.extend(windows)
-            window_track_indexes.extend([track_index] * len(windows))
-        prepare_seconds = time.perf_counter() - prepare_started
-        return self._analyze_prepared_batch(
-            prepared,
-            window_track_indexes,
-            expected_tracks=len(paths),
-            decode_seconds=decode_seconds,
-            prepare_seconds=prepare_seconds,
-        )
 
     def analyze_decoded_batch(
         self,
@@ -195,7 +177,6 @@ class MaestEmbeddingAdapter:
             prepared,
             window_track_indexes,
             expected_tracks=len(decoded_items),
-            decode_seconds=0.0,
             prepare_seconds=prepare_seconds,
         )
 
@@ -205,7 +186,6 @@ class MaestEmbeddingAdapter:
         window_track_indexes: Sequence[int],
         *,
         expected_tracks: int,
-        decode_seconds: float,
         prepare_seconds: float,
     ) -> list[MaestAnalysisResult]:
         torch = self._torch
@@ -236,7 +216,6 @@ class MaestEmbeddingAdapter:
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
-            "decode_seconds": decode_seconds,
             "inference_seconds": inference_seconds,
             "tracks": expected_tracks,
             "windows": len(prepared),
@@ -263,29 +242,10 @@ class MaestEmbeddingAdapter:
             for genres, embedding in zip(genres_by_track, averaged_embeddings)
         ]
 
-    def _prepare_audio_windows(self, path: str | Path) -> list[object]:
-        return self._prepare_audio_windows_with_timing(path)[0]
-
-    def _prepare_audio_windows_with_timing(
-        self,
-        path: str | Path,
-    ) -> tuple[list[object], float]:
-        torchaudio = self._torchaudio
-        assert torchaudio is not None
-        decode_started = time.perf_counter()
-        audio_values, sample_rate, _detail = load_audio_mono(
-            path,
-            torchaudio_module=torchaudio,
-        )
-        return (
-            self._prepare_audio_windows_from_audio(path, audio_values, sample_rate),
-            time.perf_counter() - decode_started,
-        )
-
     def _prepare_audio_windows_from_audio(
         self,
         path: str | Path,
-        audio_values: np.ndarray,
+        audio_values: Tensor,
         sample_rate: int,
         *,
         window_context: MaestWindowContext | None = None,
@@ -293,7 +253,7 @@ class MaestEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None
-        audio = torch.from_numpy(torch_compatible_audio(audio_values)).unsqueeze(0)
+        audio = audio_values.to(dtype=torch.float32).unsqueeze(0)
         if sample_rate != self.target_rate:
             if torchaudio is None:
                 raise RuntimeError(
@@ -408,8 +368,8 @@ class MertEmbeddingAdapter:
             "max_windows": self.max_windows,
             "hidden_layers": self.hidden_layers,
             "pooling": self.pooling,
-            "channel_downmix": "arithmetic-mean",
-            "decoder": "shared-load-audio-mono-v1",
+            "channel_downmix": "torchcodec-num-channels-1",
+            "decoder": "shared-torchcodec-0.16",
             "window_selection": "10%-90%-interior-evenly-spaced-rounded",
             "short_audio": "single-variable-length-window",
             "processor_normalization": "wav2vec2-do-normalize",
@@ -423,39 +383,25 @@ class MertEmbeddingAdapter:
             "snapshot_sha256": self.snapshot_sha256,
         }
 
-    def embed(self, path: str | Path) -> np.ndarray:
-        return self.embed_batch([path])[0]
-
     def preflight(self) -> None:
         """Verify model assets and construct the configured loader."""
 
         self._load_model()
 
-    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
-        self._load_model()
-        torch = self._torch
-        torchaudio = self._torchaudio
-        assert torch is not None and torchaudio is not None and self._model is not None and self._processor is not None
-
-        target_rate = int(self._processor.sampling_rate)
-        decode_seconds = 0.0
-        decoded_items: list[DecodedAudio] = []
-        for path in paths:
-            decode_started = time.perf_counter()
-            audio, sample_rate, _decode_detail = load_audio_mono(
-                path,
-                torchaudio_module=torchaudio,
-            )
-            decode_seconds += time.perf_counter() - decode_started
-            decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))
-        return self._embed_decoded_items(decoded_items, target_rate=target_rate, decode_seconds=decode_seconds)
-
     def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
         self._load_model()
         assert self._processor is not None
-        return self._embed_decoded_items(decoded_items, target_rate=int(self._processor.sampling_rate), decode_seconds=0.0)
+        return self._embed_decoded_items(
+            decoded_items,
+            target_rate=int(self._processor.sampling_rate),
+        )
 
-    def _embed_decoded_items(self, decoded_items: list[DecodedAudio], *, target_rate: int, decode_seconds: float) -> list[np.ndarray]:
+    def _embed_decoded_items(
+        self,
+        decoded_items: list[DecodedAudio],
+        *,
+        target_rate: int,
+    ) -> list[np.ndarray]:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None and self._processor is not None
@@ -463,7 +409,7 @@ class MertEmbeddingAdapter:
         all_windows = []
         prepare_started = time.perf_counter()
         for decoded in decoded_items:
-            waveform = torch.from_numpy(torch_compatible_audio(decoded.audio)).unsqueeze(0)
+            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
             if decoded.sample_rate != target_rate:
                 if torchaudio is None:
                     raise RuntimeError(f"MERT shared-audio analysis requires torchaudio resampling: {decoded.path}")
@@ -500,7 +446,6 @@ class MertEmbeddingAdapter:
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
-            "decode_seconds": decode_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
             "windows": len(all_windows),
@@ -611,8 +556,8 @@ class MuqEmbeddingAdapter:
             "max_windows": self.max_windows,
             "pooling": self.pooling,
             "dtype": self.dtype,
-            "channel_downmix": "arithmetic-mean",
-            "decoder": "shared-load-audio-mono-v1",
+            "channel_downmix": "torchcodec-num-channels-1",
+            "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "window_selection": "10%-90%-interior-evenly-spaced-rounded",
             "short_audio": "right-zero-pad-to-window",
@@ -623,37 +568,19 @@ class MuqEmbeddingAdapter:
             "snapshot_sha256": self.snapshot_sha256,
         }
 
-    def embed(self, path: str | Path) -> np.ndarray:
-        return self.embed_batch([path])[0]
-
     def preflight(self) -> None:
         """Verify model assets and construct the configured loader."""
 
         self._load_model()
 
-    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
-        self._load_model()
-        torch = self._torch
-        torchaudio = self._torchaudio
-        assert torch is not None and torchaudio is not None and self._model is not None
-
-        decode_seconds = 0.0
-        decoded_items: list[DecodedAudio] = []
-        for path in paths:
-            decode_started = time.perf_counter()
-            audio, sample_rate, _decode_detail = load_audio_mono(
-                path,
-                torchaudio_module=torchaudio,
-            )
-            decode_seconds += time.perf_counter() - decode_started
-            decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))
-        return self._embed_decoded_items(decoded_items, decode_seconds=decode_seconds)
-
     def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
         self._load_model()
-        return self._embed_decoded_items(decoded_items, decode_seconds=0.0)
+        return self._embed_decoded_items(decoded_items)
 
-    def _embed_decoded_items(self, decoded_items: list[DecodedAudio], *, decode_seconds: float) -> list[np.ndarray]:
+    def _embed_decoded_items(
+        self,
+        decoded_items: list[DecodedAudio],
+    ) -> list[np.ndarray]:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
@@ -670,8 +597,10 @@ class MuqEmbeddingAdapter:
         pooled_windows: list[np.ndarray] = []
         inference_started = time.perf_counter()
         for start in range(0, len(all_windows), self.inference_batch_size):
-            batch = np.stack(all_windows[start : start + self.inference_batch_size]).astype(np.float32)
-            wavs = torch.from_numpy(batch).to(device=self._device(), dtype=torch.float32)
+            wavs = torch.stack(
+                all_windows[start : start + self.inference_batch_size],
+                dim=0,
+            ).to(device=self._device(), dtype=torch.float32)
             with torch.inference_mode():
                 outputs = self._model(wavs, output_hidden_states=True)
             hidden = getattr(outputs, "last_hidden_state", None)
@@ -682,7 +611,6 @@ class MuqEmbeddingAdapter:
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
-            "decode_seconds": decode_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
             "windows": len(all_windows),
@@ -774,8 +702,8 @@ class MuqMulanEmbeddingAdapter:
             "max_windows": self.max_windows,
             "pooling": self.pooling,
             "dtype": self.dtype,
-            "channel_downmix": "arithmetic-mean",
-            "decoder": "shared-load-audio-mono-v1",
+            "channel_downmix": "torchcodec-num-channels-1",
+            "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "window_selection": "10%-90%-interior-evenly-spaced-rounded",
             "short_audio": "right-zero-pad-to-window",
@@ -786,44 +714,17 @@ class MuqMulanEmbeddingAdapter:
             "snapshot_sha256": self.snapshot_sha256,
         }
 
-    def embed(self, path: str | Path) -> np.ndarray:
-        return self.embed_batch([path])[0]
-
     def preflight(self) -> None:
         """Verify model assets and construct the configured loader."""
 
         self._load_model()
-
-    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
-        self._load_model()
-        torchaudio = self._torchaudio
-        assert torchaudio is not None
-
-        decode_seconds = 0.0
-        decoded_items: list[DecodedAudio] = []
-        for path in paths:
-            decode_started = time.perf_counter()
-            audio, sample_rate, _decode_detail = load_audio_mono(
-                path,
-                torchaudio_module=torchaudio,
-            )
-            decode_seconds += time.perf_counter() - decode_started
-            decoded_items.append(
-                DecodedAudio(
-                    path=str(path),
-                    audio=audio,
-                    sample_rate=sample_rate,
-                    detail="adapter decode",
-                )
-            )
-        return self._embed_decoded_items(decoded_items, decode_seconds=decode_seconds)
 
     def embed_decoded_batch(
         self,
         decoded_items: list[DecodedAudio],
     ) -> list[np.ndarray]:
         self._load_model()
-        return self._embed_decoded_items(decoded_items, decode_seconds=0.0)
+        return self._embed_decoded_items(decoded_items)
 
     def embed_text(self, text: str) -> np.ndarray:
         self._load_model()
@@ -841,8 +742,6 @@ class MuqMulanEmbeddingAdapter:
     def _embed_decoded_items(
         self,
         decoded_items: list[DecodedAudio],
-        *,
-        decode_seconds: float,
     ) -> list[np.ndarray]:
         torch = self._torch
         torchaudio = self._torchaudio
@@ -860,10 +759,10 @@ class MuqMulanEmbeddingAdapter:
         pooled_windows: list[np.ndarray] = []
         inference_started = time.perf_counter()
         for start in range(0, len(all_windows), self.inference_batch_size):
-            batch = np.stack(
-                all_windows[start : start + self.inference_batch_size]
-            ).astype(np.float32)
-            wavs = torch.from_numpy(batch).to(
+            wavs = torch.stack(
+                all_windows[start : start + self.inference_batch_size],
+                dim=0,
+            ).to(
                 device=self._device(),
                 dtype=torch.float32,
             )
@@ -880,7 +779,6 @@ class MuqMulanEmbeddingAdapter:
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
-            "decode_seconds": decode_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
             "windows": len(all_windows),
@@ -980,8 +878,8 @@ class ClapEmbeddingAdapter:
             "amodel": self.amodel,
             "tmodel": self.tmodel,
             "enable_fusion": self.enable_fusion,
-            "channel_downmix": "arithmetic-mean",
-            "decoder": "shared-load-audio-mono-v1",
+            "channel_downmix": "torchcodec-num-channels-1",
+            "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
             "window_selection": "10%-90%-interior-evenly-spaced-rounded",
             "short_audio": "repeat-whole-window-then-right-zero-pad",
@@ -1001,42 +899,24 @@ class ClapEmbeddingAdapter:
             "text_snapshot_sha256": self.text_snapshot_sha256,
         }
 
-    def embed(self, path: str | Path) -> np.ndarray:
-        return self.embed_batch([path])[0]
-
     def preflight(self) -> None:
         """Verify model assets and construct the configured loader."""
 
         self._load_model()
-
-    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
-        self._load_model()
-        torch = self._torch
-        torchaudio = self._torchaudio
-        assert torch is not None and torchaudio is not None and self._model is not None
-
-        target_rate = self.target_rate
-        decode_seconds = 0.0
-        decoded_items: list[DecodedAudio] = []
-        for path in paths:
-            decode_started = time.perf_counter()
-            audio, sample_rate, _decode_detail = load_audio_mono(
-                path,
-                torchaudio_module=torchaudio,
-            )
-            decode_seconds += time.perf_counter() - decode_started
-            decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))
-        return self._embed_decoded_items(decoded_items, target_rate=target_rate, decode_seconds=decode_seconds)
 
     def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
         self._load_model()
         return self._embed_decoded_items(
             decoded_items,
             target_rate=self.target_rate,
-            decode_seconds=0.0,
         )
 
-    def _embed_decoded_items(self, decoded_items: list[DecodedAudio], *, target_rate: int, decode_seconds: float) -> list[np.ndarray]:
+    def _embed_decoded_items(
+        self,
+        decoded_items: list[DecodedAudio],
+        *,
+        target_rate: int,
+    ) -> list[np.ndarray]:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
@@ -1045,7 +925,7 @@ class ClapEmbeddingAdapter:
         all_windows = []
         prepare_started = time.perf_counter()
         for decoded in decoded_items:
-            waveform = torch.from_numpy(torch_compatible_audio(decoded.audio)).unsqueeze(0)
+            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
             if decoded.sample_rate != target_rate:
                 if torchaudio is None:
                     raise RuntimeError(f"CLAP shared-audio analysis requires torchaudio resampling: {decoded.path}")
@@ -1071,7 +951,6 @@ class ClapEmbeddingAdapter:
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
-            "decode_seconds": decode_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
             "windows": len(all_windows),
@@ -1587,17 +1466,13 @@ def _prepare_muq_compatible_windows(
     torch,
     torchaudio,
     model_label: str,
-) -> tuple[list[list[int]], list[np.ndarray], float]:
+) -> tuple[list[list[int]], list[Tensor], float]:
     window_size = max(1, int(target_rate * window_seconds))
     track_windows: list[list[int]] = []
-    all_windows: list[np.ndarray] = []
+    all_windows: list[Tensor] = []
     prepare_started = time.perf_counter()
     for decoded in decoded_items:
-        waveform = (
-            torch.from_numpy(torch_compatible_audio(decoded.audio))
-            .to(dtype=torch.float32)
-            .unsqueeze(0)
-        )
+        waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
         if decoded.sample_rate != target_rate:
             if torchaudio is None:
                 raise RuntimeError(
@@ -1622,21 +1497,22 @@ def _prepare_muq_compatible_windows(
         for window in windows:
             window_indices.append(len(all_windows))
             all_windows.append(
-                _pad_or_trim_audio_window(
-                    window.detach().cpu().numpy(),
+                _pad_or_trim_audio_tensor(
+                    window,
                     window_size,
+                    torch,
                 )
             )
         track_windows.append(window_indices)
     return track_windows, all_windows, time.perf_counter() - prepare_started
 
 
-def _pad_or_trim_audio_window(audio: np.ndarray, target_samples: int) -> np.ndarray:
-    window = np.asarray(audio, dtype=np.float32).reshape(-1)
-    if window.shape[0] > target_samples:
+def _pad_or_trim_audio_tensor(audio: Tensor, target_samples: int, torch) -> Tensor:
+    window = audio.reshape(-1).to(dtype=torch.float32)
+    if window.numel() > target_samples:
         return window[:target_samples]
-    if window.shape[0] < target_samples:
-        return np.pad(window, (0, target_samples - window.shape[0]))
+    if window.numel() < target_samples:
+        return torch.nn.functional.pad(window, (0, target_samples - window.numel()))
     return window
 
 

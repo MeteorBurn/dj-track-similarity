@@ -48,6 +48,33 @@ def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> N
         assert forbidden.isdisjoint(adapter.runtime_parameters())
 
 
+def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
+    for adapter in (
+        MaestEmbeddingAdapter(device="cpu"),
+        MertEmbeddingAdapter(device="cpu"),
+        MuqEmbeddingAdapter(device="cpu"),
+        MuqMulanEmbeddingAdapter(device="cpu"),
+        ClapEmbeddingAdapter(device="cpu"),
+    ):
+        parameters = adapter.runtime_parameters()
+        assert parameters["decoder"] == "shared-torchcodec-0.16"
+        assert parameters["channel_downmix"] == "torchcodec-num-channels-1"
+
+
+def test_model_adapters_do_not_expose_legacy_path_decoders() -> None:
+    maest = MaestEmbeddingAdapter(device="cpu")
+    assert not hasattr(maest, "analyze_batch")
+
+    for adapter in (
+        MertEmbeddingAdapter(device="cpu"),
+        MuqEmbeddingAdapter(device="cpu"),
+        MuqMulanEmbeddingAdapter(device="cpu"),
+        ClapEmbeddingAdapter(device="cpu"),
+    ):
+        assert not hasattr(adapter, "embed")
+        assert not hasattr(adapter, "embed_batch")
+
+
 def test_maest_runtime_parameters_describe_structure_aware_windows() -> None:
     parameters = MaestEmbeddingAdapter(device="cpu").runtime_parameters()
 

@@ -12,6 +12,7 @@ The project is a Python package with optional extras plus a React frontend and V
 - FFmpeg on `PATH`, or `DJ_TRACK_SIMILARITY_FFMPEG` set to the full ffmpeg executable path.
 - Node.js and npm when building `frontend/dist` or the docs site.
 - A local audio folder for the library, with no cloud storage needed for normal workflows.
+- `uv` for every install that includes the `ml` extra.
 
 The server calls `require_ffmpeg()` during startup. If FFmpeg is missing, startup fails with a clear setup error instead of silently using partial decoding.
 
@@ -42,7 +43,7 @@ dependencies.
 Install only the extras you need:
 
 ```powershell
-python -m pip install -e ".[sonara,ml,dev]"
+uv sync --locked --extra sonara --extra ml --extra dev
 ```
 
 The current `sonara` extra installs SONARA `0.3.5`. PyPI publishes `cp310-abi3` wheels, including
@@ -61,6 +62,15 @@ together, followed by focused compatibility checks.
 The `ml` extra records one mutually compatible loader stack. Installed packages must expose the
 capabilities, checkpoints, and output shapes the adapters use, but the runtime does not reject a
 package solely because its distribution version changed.
+
+Use `uv` for this install because `pip` does not apply `[tool.uv.sources]`. On Windows AMD64 with
+Python 3.10, `uv` selects `torch`, `torchaudio`, and `torchvision` from the CUDA 13.0 index plus the
+exact TorchCodec `0.16.0+cu130` wheel and its SHA-256. Other supported environments select
+TorchCodec `0.16.0`. The CUDA package selection does not move shared audio decoding to the GPU:
+`AudioDecoder` has no device option in TorchCodec `0.16`, while `--device` controls model inference.
+The project requests mono output with `num_channels=1`, keeps `AudioSamples.data[0]` as a 1D CPU
+`torch.float32` tensor, and passes it directly to the adapters. Model-specific resampling remains in
+Torchaudio.
 
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.

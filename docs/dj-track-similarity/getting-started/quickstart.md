@@ -22,8 +22,11 @@ The base install supports scanning, backend API serving, exporting, database ope
 existing SQLite analysis data. For new analysis jobs, install the optional extras later:
 
 ```powershell
-python -m pip install -e ".[sonara,ml,dev]"
+uv sync --locked --extra sonara --extra ml --extra dev
 ```
+
+Use `uv` for installs containing the `ml` extra because `pip` does not apply `[tool.uv.sources]`.
+On Windows AMD64 with Python 3.10, `uv` selects the PyTorch packages from the CUDA 13.0 index.
 
 ## 2. Create a database and scan
 

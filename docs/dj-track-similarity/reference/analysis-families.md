@@ -4,14 +4,23 @@
 > Goal: List what each family reads, writes, and unlocks.
 > Type: reference
 
+MAEST, MERT, MuQ, MuQ-MuLan, and CLAP share one decoded input per track. TorchCodec `0.16` reads
+all samples as mono `float32` at the source sample rate through
+`AudioDecoder(path, num_channels=1).get_all_samples()`. The project keeps `AudioSamples.data[0]` as
+a 1D CPU `torch.float32` tensor in `DecodedAudio` and passes it directly to the adapters, without a
+shared Tensor-to-NumPy-to-Tensor round-trip. A TorchCodec failure is not bypassed by an FFmpeg retry.
+Each adapter then applies its own Torchaudio resampling and window preparation.
+On the input path, NumPy conversion occurs only at the MERT feature-extractor and CLAP model-API
+boundaries that require arrays.
+
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
 | SONARA | source paths in Direct Mode or temporary paths in Staged Mode; normally decoded by SONARA/Symphonia with per-file FFmpeg fallback | Core feature rows and a dedicated 48D embedding | Core-backed SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
-| MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MuQ-MuLan | shared MuQ-compatible mono decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
-| CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MAEST | shared ML decode | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MERT | shared ML decode | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MuQ | shared ML decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MuQ-MuLan | shared ML decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
+| CLAP | shared ML decode | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters |
 
 ## Device behavior
@@ -21,6 +30,10 @@
 - `cuda` requests CUDA and should fail clearly if unavailable.
 
 SONARA uses its CPU runner. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP use model adapters with the selected device. MuQ uses official `OpenMuQ/MuQ-large-msd-iter` weights. MuQ-MuLan uses official `OpenMuQ/MuQ-MuLan-large` weights through `MuQMuLan.from_pretrained(...)`. Both are fed mono 24 kHz `float32` audio in 10-second windows. CPU and CUDA are supported, with CUDA recommended for full-library runs.
+
+The shared decoder-to-adapter handoff remains a CPU `torch.float32` tensor. `AudioDecoder` has no
+device option in TorchCodec `0.16`, so the CUDA package variant does not make this decode step a GPU
+operation.
 
 ## SONARA BPM range
 

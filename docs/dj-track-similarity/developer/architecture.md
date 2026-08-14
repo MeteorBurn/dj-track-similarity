@@ -14,9 +14,9 @@ flowchart LR
     Audio[Audio files] --> Sonara[Direct SONARA / Symphonia]
     Audio --> Stage[Optional read-only SSD staging]
     Stage --> Sonara
-    Audio --> FFmpeg[FFmpeg shared ML decode]
+    Audio --> TorchCodec[TorchCodec 0.16 shared ML decode]
     Sonara --> Queue[Sequential analysis queue]
-    FFmpeg --> Queue
+    TorchCodec --> Queue
     Queue --> DB
     DB --> Classifiers[Manifest-ready classifier stage]
     Classifiers --> Queue
@@ -29,6 +29,12 @@ flowchart LR
 - `database.py`, `db_connection.py`, `db_schema.py`, `db_embeddings.py`, `db_evaluation_sidecar.py`, `db_storage.py`, and `db_analysis*.py` cover the library and optional Evaluation sidecar. These modules also handle identity validation, analysis persistence, resets, and clear.
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
+- `audio_loader.py`: one lazy TorchCodec `0.16` decode shared by the generic ML families calls
+  `AudioDecoder(path, num_channels=1).get_all_samples()`. It returns the whole track as mono
+  `float32` at its source sample rate, keeps `AudioSamples.data[0]` as a 1D CPU `torch.float32`
+  tensor in `DecodedAudio`, and passes that tensor directly to the adapters. A decode error fails
+  that track without an FFmpeg retry. `WavDecoder` is not used because it cannot request channel
+  remixing in TorchCodec `0.16`.
 - `analysis_jobs.py`, `analysis_model_runners.py`, `sonara_staging.py`, and `sonara_features.py`:
   separate ML jobs plus Direct or Staged native SONARA capture. Direct Mode reads source paths in
   configured native batches. Staged Mode copies source files read-only to a user-selected temporary

@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 import os
 from pathlib import Path
 import shutil
 import subprocess
+from typing import TYPE_CHECKING
 import wave
 
 from mutagen import File as MutagenFile
 import numpy as np
 
-from .dependencies import FFMPEG_ENV_VAR
-from .logging_config import analysis_diagnostics_enabled
+if TYPE_CHECKING:
+    from torch import Tensor
 
-LOGGER = logging.getLogger(__name__)
+from .dependencies import FFMPEG_ENV_VAR
+
 INVALID_AUDIO_STREAM_MESSAGE = "Invalid audio stream: ffmpeg could not decode audio"
 # FFmpeg's default stereo -> mono matrix uses equal-power coefficients and can
 # raise correlated stereo material by about 3 dB. The pan filter's ``<`` form
@@ -28,59 +29,15 @@ FFMPEG_ARITHMETIC_MONO_FILTER = "pan=mono|c0<" + "+".join(f"c{index}" for index 
 @dataclass(frozen=True)
 class DecodedAudio:
     path: str
-    audio: np.ndarray
+    audio: Tensor
     sample_rate: int
     detail: str
 
 
 def load_decoded_audio(path: str | Path) -> DecodedAudio:
     audio_path = Path(path)
-    if _is_mono_wave(audio_path):
-        try:
-            audio, sample_rate, detail = _load_with_wave(audio_path)
-            return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
-        except Exception as error:
-            _log_decoder_failure("wave", audio_path, error)
-    audio, sample_rate, detail = _load_with_ffmpeg(audio_path)
+    audio, sample_rate, detail = _load_with_torchcodec(audio_path)
     return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
-
-
-def load_audio_mono(
-    path: str | Path,
-    *,
-    torchaudio_module: object | None = None,
-) -> tuple[np.ndarray, int, str]:
-    audio_path = Path(path)
-    errors: list[str] = []
-    if torchaudio_module is not None:
-        try:
-            return _load_with_torchaudio(audio_path, torchaudio_module)
-        except Exception as error:
-            errors.append(f"torchaudio: {error}")
-            _log_decoder_failure("torchaudio", audio_path, error)
-
-    if audio_path.suffix.lower() in {".wav", ".wave"}:
-        try:
-            audio, sample_rate, detail = _load_with_wave(audio_path)
-            if errors:
-                _log_decoder_fallback_success("wave", audio_path, sample_rate, errors)
-            return audio, sample_rate, detail
-        except Exception as error:
-            errors.append(f"wave: {error}")
-            _log_decoder_failure("wave", audio_path, error)
-
-    try:
-        audio, sample_rate, detail = _load_with_ffmpeg(audio_path)
-        if errors:
-            detail = f"{detail}; native decoders failed ({'; '.join(errors)})"
-            _log_decoder_fallback_success("ffmpeg", audio_path, sample_rate, errors)
-        return audio, sample_rate, detail
-    except Exception as error:
-        errors.append(f"ffmpeg: {error}")
-        _log_decoder_failure("ffmpeg", audio_path, error)
-
-    detail = "; ".join(errors) if errors else "no decoder available"
-    raise RuntimeError(f"Unable to decode audio: {audio_path} ({detail})")
 
 
 def load_audio_mono_with_ffmpeg(path: str | Path) -> tuple[np.ndarray, int, str]:
@@ -94,37 +51,30 @@ def load_audio_mono_with_ffmpeg(path: str | Path) -> tuple[np.ndarray, int, str]
     return _load_with_ffmpeg(Path(path))
 
 
-def _log_decoder_failure(decoder: str, path: Path, error: Exception) -> None:
-    if analysis_diagnostics_enabled():
-        LOGGER.warning("Audio decoder failed decoder=%s path=%s error=%s", decoder, path, error)
+def _load_with_torchcodec(path: Path) -> tuple[Tensor, int, str]:
+    import torch
+    from torchcodec.decoders import AudioDecoder
 
-
-def _log_decoder_fallback_success(decoder: str, path: Path, sample_rate: int, errors: list[str]) -> None:
-    if analysis_diagnostics_enabled():
-        LOGGER.warning(
-            "Audio decode fallback succeeded decoder=%s path=%s sample_rate=%s failed_decoders=%s",
-            decoder,
-            path,
-            sample_rate,
-            "; ".join(errors),
+    decoded = AudioDecoder(str(path), num_channels=1).get_all_samples()
+    if decoded.data.ndim != 2 or decoded.data.shape[0] != 1:
+        raise RuntimeError(
+            f"TorchCodec produced an unexpected mono audio shape: {decoded.data.shape}"
         )
-
-
-def torch_compatible_audio(audio: np.ndarray) -> np.ndarray:
-    prepared = np.asarray(audio, dtype=np.float32)
-    if not prepared.flags.writeable:
-        return prepared.copy()
-    return prepared
-
-
-def _load_with_torchaudio(path: Path, torchaudio_module: object) -> tuple[np.ndarray, int, str]:
-    waveform, sample_rate = torchaudio_module.load(str(path))
-    audio = _tensor_to_numpy(waveform)
-    if audio.ndim == 2:
-        audio = audio.mean(axis=0)
-    elif audio.ndim != 1:
-        raise RuntimeError(f"Unsupported decoded audio shape: {audio.shape}")
-    return audio.astype(np.float32, copy=False), int(sample_rate), "native torchaudio decode"
+    audio = decoded.data[0]
+    if audio.dtype != torch.float32:
+        raise RuntimeError(
+            f"TorchCodec produced an unexpected audio dtype: {audio.dtype}"
+        )
+    if audio.numel() == 0:
+        raise RuntimeError("TorchCodec produced no decoded audio")
+    sample_rate = int(decoded.sample_rate)
+    if sample_rate <= 0:
+        raise RuntimeError("TorchCodec produced an invalid sample rate")
+    return (
+        audio,
+        sample_rate,
+        "torchcodec 0.16 decode (num_channels=1)",
+    )
 
 
 def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> tuple[np.ndarray, int, str]:
@@ -182,16 +132,6 @@ def _invalid_audio_stream_message(detail: str | None = None) -> str:
     if detail:
         return f"{INVALID_AUDIO_STREAM_MESSAGE}: {detail}"
     return INVALID_AUDIO_STREAM_MESSAGE
-
-
-def _is_mono_wave(path: Path) -> bool:
-    if path.suffix.lower() not in {".wav", ".wave"}:
-        return False
-    try:
-        with wave.open(str(path), "rb") as audio:
-            return audio.getnchannels() == 1
-    except Exception:
-        return False
 
 
 def _source_sample_rate(path: Path, *, ffmpeg_path: str) -> int:
@@ -273,46 +213,3 @@ def _ffprobe_path(ffmpeg_path: str) -> str | None:
         if candidate.is_file():
             return str(candidate)
     return shutil.which("ffprobe")
-
-
-def _load_with_wave(path: Path) -> tuple[np.ndarray, int, str]:
-    with wave.open(str(path), "rb") as audio:
-        channels = audio.getnchannels()
-        sample_width = audio.getsampwidth()
-        sample_rate = audio.getframerate()
-        raw = audio.readframes(audio.getnframes())
-    samples = _decode_pcm_bytes(raw, sample_width, channels)
-    return samples, sample_rate, "native wave decode"
-
-
-def _decode_pcm_bytes(raw: bytes, sample_width: int, channels: int) -> np.ndarray:
-    usable = len(raw) - (len(raw) % (channels * sample_width))
-    raw = raw[:usable]
-    if not raw:
-        raise RuntimeError("no PCM samples found")
-    if sample_width == 1:
-        samples = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
-    elif sample_width == 2:
-        samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
-    elif sample_width == 3:
-        data = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3)
-        values = data[:, 0].astype(np.int32) | (data[:, 1].astype(np.int32) << 8) | (data[:, 2].astype(np.int32) << 16)
-        values = np.where(values & 0x800000, values - 0x1000000, values)
-        samples = values.astype(np.float32) / 8388608.0
-    elif sample_width == 4:
-        samples = np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2147483648.0
-    else:
-        raise RuntimeError(f"unsupported PCM sample width: {sample_width}")
-    if channels > 1:
-        samples = samples.reshape(-1, channels).mean(axis=1)
-    return samples.astype(np.float32, copy=False)
-
-
-def _tensor_to_numpy(value: object) -> np.ndarray:
-    if hasattr(value, "detach"):
-        value = value.detach()
-    if hasattr(value, "cpu"):
-        value = value.cpu()
-    if hasattr(value, "numpy"):
-        return value.numpy()
-    return np.asarray(value)

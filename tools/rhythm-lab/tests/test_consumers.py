@@ -992,7 +992,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
 
         index = client.get("/")
         assert index.status_code == 200
-        assert "app.js?v=rhythm-lab-20260811-promoted-model-quality-v4" in index.text
+        assert "app.js?v=rhythm-lab-20260814-label-status-v1" in index.text
         assert 'id="refreshCandidatesStatus"' not in index.text
 
         static_script = client.get("/static/app.js")
@@ -1003,6 +1003,19 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert "catalog_uuid: track.catalog_uuid" in script
         assert "function trackStatusLine(track)" in script
         assert 'activeView === "candidates" ? predictionScoreStatus(track)' in script
+        status_line = script.split("function trackStatusLine(track)", 1)[1].split(
+            "function featuresReady(track)", 1
+        )[0]
+        assert status_line.index("trainedStatus(track)") < status_line.index(
+            "assignedLabelStatus(track)"
+        )
+        label_status = script.split("function assignedLabelStatus(track)", 1)[1].split(
+            "function predictionScoreStatus(track)", 1
+        )[0]
+        assert "labelByKey(track.label)" in label_status
+        assert '"status-yes"' in label_status
+        assert '"status-no"' in label_status
+        assert "escapeHtml(label.name)" in label_status
         assert "maest-genre-pill" in script
         assert 'split("---").pop()' in script
         assert "lucide-audio-waveform" in script

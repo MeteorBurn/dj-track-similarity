@@ -1810,6 +1810,7 @@ function mark(value) {
 function trackStatusLine(track) {
   return [
     trainedStatus(track),
+    assignedLabelStatus(track),
     activeView === "candidates" ? predictionScoreStatus(track) : "",
   ].filter(Boolean).join(" ");
 }
@@ -1852,6 +1853,14 @@ function featureStateReason(state) {
 
 function trainedStatus(track) {
   return featureStatusBadge("TRAINED", track.label_trained);
+}
+
+function assignedLabelStatus(track) {
+  if (isMulticlassProfile()) return "";
+  if (track.label !== activeProfile.positive_label && track.label !== activeProfile.negative_label) return "";
+  const label = labelByKey(track.label);
+  const status = track.label === activeProfile.positive_label ? "status-yes" : "status-no";
+  return `<span class="status-item"><b>LABEL</b><span class="analysis-status-badge ${status}">${escapeHtml(label.name)}</span></span>`;
 }
 
 function predictionScoreStatus(track) {

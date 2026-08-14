@@ -17,6 +17,7 @@ different sources and help with different decisions.
 | Which tracks fit a written sound description? | CLAP | Text-search rankings |
 | What genre-like and audio evidence does another model add? | MAEST | Display labels, LAB comparison, Audio Dedup, and classifier input |
 | How does another general audio model rank this seed? | MuQ | Seed search, a separate LAB group, Audio Dedup, and classifier input |
+| Which audio tracks fit a text-aligned music space? | MuQ-MuLan | Separate seed and text-to-track rankings |
 | How strongly does a track match my own labeled idea? | Classifier score | CLASS filters |
 
 An embedding is a compact model representation used for comparison. You do not need to interpret
@@ -51,7 +52,7 @@ SONARA analysis stores compact Core scalars and fixed vectors in `sonara_feature
 unnormalized 48-dimensional `float32` embedding in the dedicated `sonara_embeddings` table. A
 successful SONARA pass writes both rows together. Timeline and fingerprint collection remain
 disabled. The stored SONARA embedding is not a current similarity, search, or classifier input.
-MAEST, MERT, MuQ, and CLAP vectors use their own dedicated tables in the same library database.
+MAEST, MERT, MuQ, MuQ-MuLan, and CLAP vectors use their own dedicated tables in the same library database.
 
 SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current
 SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked tempo candidates and
@@ -80,6 +81,17 @@ MERT stores an audio embedding. The MERT tab searches from selected seed tracks 
 
 MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The vector supports direct seed search and a separate LAB Reference Compare group. Audio Dedup and compatible Rhythm Lab classifier feature sets can also use it. Audio Dedup can omit `muq` from its explicit source list.
 
+## MuQ-MuLan embedding
+
+MuQ-MuLan uses the official joint music-text model. Its audio analysis reuses the MuQ-compatible
+path: mono 24 kHz `float32` audio in 10-second windows. It stores a separate L2-normalized 512D
+audio vector in `mulan_embeddings`. Existing MuQ vectors are never converted into this family.
+
+Use the MULAN tab for audio-to-audio seed search. In the CLAP text-search tab, choose
+**MuQ-MuLan** to embed text and retrieve only `mulan_embeddings`. Its text and seed scores stay
+separate from MuQ and CLAP scores. MuQ-MuLan is available as an explicit Evaluation candidate
+source, but it is not added automatically to the default profile or Audio Dedup weights.
+
 ## CLAP audio embedding
 
 CLAP analysis stores audio embeddings. The CLAP tab embeds a text prompt at search time and compares it to stored audio embeddings. LAB Reference Compare and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals, which are not the same as CLAP prompt scores.
@@ -90,4 +102,6 @@ Promoted Rhythm Lab classifiers write scores under a `classifier_key`. A manifes
 
 ## Why separation matters
 
-A file genre tag, a MAEST genre label, a CLAP text score, and an Audio Dedup content similarity value answer different questions. Use them together, but do not treat them as one shared scale.
+A file genre tag, a MAEST genre label, a CLAP or MuQ-MuLan text score, and an Audio Dedup content
+similarity value answer different questions. Use them together, but do not treat them as one shared
+scale.

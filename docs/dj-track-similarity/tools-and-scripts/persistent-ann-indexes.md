@@ -15,7 +15,7 @@ Indexes live beside the selected SQLite database by default under:
 ```
 
 They store generated vector-index artifacts and manifests for one model family at a time: `maest`,
-`mert`, `muq`, or `clap`. They do not copy audio files and they do not write new SQLite rows.
+`mert`, `muq`, `mulan`, or `clap`. They do not copy audio files and they do not write new SQLite rows.
 
 ## Install optional backend
 
@@ -53,12 +53,12 @@ dj-sim index benchmark --model clap --recall-k 50 --seed-count 20 --db .\data\li
 
 The benchmark compares against exact search and reports pass/fail using the chosen threshold.
 
-## Use from CLAP text search
+## Use from text search
 
 The current CLI opt-in is explicit:
 
 ```powershell
-dj-sim text-search "warm dub techno pads" --use-ann-index --db .\data\library.sqlite
+dj-sim text-search "warm dub techno pads" --model mulan --use-ann-index --db .\data\library.sqlite
 ```
 
 If the sidecar is missing, stale, or unsupported, the command fails. Omit `--use-ann-index` when you

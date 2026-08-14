@@ -10,6 +10,7 @@
 | MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MuQ-MuLan | shared MuQ-compatible mono decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, and explicit Reference Compare selection |
 | CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters |
 
@@ -19,7 +20,7 @@
 - `cpu` forces CPU.
 - `cuda` requests CUDA and should fail clearly if unavailable.
 
-SONARA uses its CPU runner. MAEST, MERT, MuQ, and CLAP use model adapters with the selected device. MuQ uses official `OpenMuQ/MuQ-large-msd-iter` weights and is always fed 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full-library MuQ runs.
+SONARA uses its CPU runner. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP use model adapters with the selected device. MuQ uses official `OpenMuQ/MuQ-large-msd-iter` weights. MuQ-MuLan uses official `OpenMuQ/MuQ-MuLan-large` weights through `MuQMuLan.from_pretrained(...)`. Both are fed mono 24 kHz `float32` audio in 10-second windows. CPU and CUDA are supported, with CUDA recommended for full-library runs.
 
 ## SONARA BPM range
 
@@ -86,7 +87,7 @@ loudness-management features. The current `sonara` classifier source includes th
 scalars and vocalness; momentary loudness maximum and loudness range remain available to the
 existing SONARA dynamics comparison, and vocalness remains an explicit search modifier.
 
-MAEST, MERT, MuQ, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
+MAEST, MERT, MuQ, MuQ-MuLan, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
 Core features rather than the stored SONARA embedding, which is not a current similarity, search,
 or classifier input.
 
@@ -112,6 +113,7 @@ The library database stores embeddings in dedicated tables:
 - `maest_embeddings`
 - `mert_embeddings`
 - `muq_embeddings`
+- `mulan_embeddings`
 - `clap_embeddings`
 
 There is no generic runtime `embeddings` table. A fresh selected path creates one library database.
@@ -138,7 +140,7 @@ reset.
 ## Classifier requirement
 
 Classifier jobs use the inputs named by each promoted manifest: current SONARA Core when
-required, plus only the MERT, MAEST, MuQ, and/or CLAP embeddings named by its features or
+required, plus only the MERT, MAEST, MuQ, MuQ-MuLan, and/or CLAP embeddings named by its features or
 `required_inputs`. SONARA cannot share an audio job with GPU models, and classifier scoring is a
 third database-only job. Classifier scoring remains unavailable until the
 catalog has at least one current SONARA result, so run SONARA before starting a
@@ -148,3 +150,14 @@ SONARA-dependent classifier artifacts carry their exact ordered feature names. P
 scoring reject missing or mismatched recipes. A track must contain every requested SONARA value; an
 absent opt-in value such as `vocalness` is skipped instead of becoming `0.0`. When that recipe
 changes, retrain and promote only the affected profile. Labels and feedback remain intact.
+
+## Separate MuQ-MuLan space
+
+MuQ-MuLan is a separate family, not a MuQ output variant. Analysis writes one 512-dimensional,
+L2-normalized audio vector per current track to `mulan_embeddings`. Existing `muq_embeddings` are
+neither copied nor transformed. Seed and text queries use only the selected family table and its
+matching runtime identity.
+
+The new family is not added to the existing default Evaluation source profile or Audio Dedup source
+weights. Those mixed-score defaults remain unchanged. Choose MuQ-MuLan explicitly for
+its own seed or text search, or explicitly in a workflow that accepts a model-family choice.

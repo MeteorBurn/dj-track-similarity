@@ -41,17 +41,17 @@ The initial analysis values are:
 
 The stage controls keep **SONARA**, **ML**, and **CLASSIFIERS** distinct. **FULL** runs the ordered
 pipeline. SONARA is selected at startup and always runs Core plus its dedicated embedding as one
-fixed output set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, and CLAP only;
+fixed output set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, MuQ-MuLan, and CLAP only;
 SONARA and CLASSIFIERS remain separate stages. The UI also shows queued/running progress, per-file
 failures, blockers, cancellation, and reset actions from the typed job responses.
 
 ## Search tabs
 
-The primary tab list is **LAB**, **SONARA**, **MERT**, **MUQ**, **CLAP**, and **CLASS**.
+The primary tab list is **LAB**, **SONARA**, **MERT**, **MUQ**, **MULAN**, **CLAP**, and **CLASS**.
 Use `ArrowLeft` and `ArrowRight` to move between tabs; `Home` and `End` jump to the first and last
 tab.
 
-MERT and MUQ use the same generic seed-search shape. Both accept a `1..500` result limit and
+MERT, MUQ, and MULAN use the same generic seed-search shape. All accept a `1..500` result limit and
 selected seed tracks. A tab with zero current embeddings is disabled with a source-specific reason.
 Request failures stay visible in that tab instead of being replaced by an empty successful result.
 
@@ -61,13 +61,20 @@ The **CLASS** tab filters the library by stored classifier scores. Its per-profi
 rescans only that `classifier_key` from stored data, without decoding audio; the main analysis panel
 does not run classifier scoring.
 
-The **LAB** tab compares a reference track across CLAP, MERT, MuQ, MAEST, and SONARA. Unavailable
-models show a model-specific reason. Verdict writes include `catalog_uuid` and `track_uuid`, and the MuQ action sends `model="muq"`.
+The **LAB** tab can compare a reference track across CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA. Its
+default selection remains unchanged, so MuQ-MuLan is chosen explicitly. Unavailable models show a
+model-specific reason. Verdict writes include `catalog_uuid` and `track_uuid`.
+
+The **CLAP** tab has a **Model** control for CLAP and MuQ-MuLan text-to-track search. It requires
+current stored audio embeddings for the selected family and keeps the result in that family’s score
+space.
 
 The top-bar Rhythm Lab action calls `/api/rhythm-lab/launch` and opens the returned local URL. The
 current set can be saved as a Lab review collection. Standalone Rhythm Lab shows current, missing,
 or stale state for SONARA, MERT, MAEST, CLAP, and MuQ; its page sizes are `50`, `100`, `200`, and
-`500`. The **Training recipe** selector supports MuQ and explicit source combinations.
+`500`. For a binary profile, a configured training label appears immediately after **TRAINED** with
+its display name: positive is green and negative is red. The **Training recipe** selector supports
+MuQ and explicit source combinations.
 
 For analysis semantics, see [Analyze a library](../user-guide/analyze-library.md). For
 source-file boundaries, see [Local-first safety](../concepts/local-first-safety.md).

@@ -17,7 +17,7 @@ can also feed a later selection pass.
 2. Use the library search to narrow by artist, title, album, path, genres, liked state, syncopated rhythm, or classifier filters.
 3. Add visible filtered tracks to the current set when the filter already describes the crate.
 4. Use MERT or SONARA from a few seeds to expand around a sound.
-5. Use CLAP text search when the crate is easier to describe than seed.
+5. Use CLAP or MuQ-MuLan text search when the crate is easier to describe than seed.
 6. Preview results and remove obvious misses.
 7. Export CSV for review or M3U for playback.
 

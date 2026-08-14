@@ -18,8 +18,8 @@ The project tries to make that library searchable from several angles:
 
 - file tags and normal library metadata,
 - explainable SONARA audio features,
-- MAEST, MERT, MuQ, and CLAP model signals,
-- CLAP text prompts,
+- MAEST, MERT, MuQ, MuQ-MuLan, and CLAP model signals,
+- CLAP or MuQ-MuLan text prompts,
 - seed-track similarity,
 - optional personal classifier scores from Rhythm Lab.
 

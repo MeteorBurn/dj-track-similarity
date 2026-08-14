@@ -108,9 +108,9 @@ The current application already supports the practical parts of that vision:
 - Create one compatible SQLite library and scan local audio files with Mutagen metadata.
 - Browse large libraries through paginated API responses.
 - Read typed metadata, analysis coverage, likes, audio preview, search state, and the current set.
-- Run SONARA, MAEST, MERT, MuQ, and CLAP analysis jobs.
-- Search from seed tracks with MAEST, MERT, MuQ, CLAP, and SONARA.
-- Search from text prompts with CLAP after CLAP audio embeddings exist.
+- Run SONARA, MAEST, MERT, MuQ, MuQ-MuLan, and CLAP analysis jobs.
+- Search from seed tracks with MAEST, MERT, MuQ, MuQ-MuLan, CLAP, and SONARA.
+- Search from text prompts with CLAP or MuQ-MuLan after audio embeddings for the selected family exist.
 - Launch Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
 - Read promoted Rhythm Lab classifier scores for CLASS filtering.
 - Run optional Evaluation API and CLI workflows for feedback, profiles, calibration, and transition diagnostics.
@@ -146,7 +146,7 @@ opening mood -> first turn -> deeper chapter -> tension -> release -> final dest
 ```
 
 The current project should be understood as a local-first foundation for that idea. Seed search and
-CLAP text search are implemented today. LAB Reference Compare and classifier scoring are also
+CLAP or MuQ-MuLan text search are implemented today. LAB Reference Compare and classifier scoring are also
 available. The browser keeps a manual current set and exports playlists. Other parts are still a
 product direction rather than a finished automatic DJ.
 
@@ -167,6 +167,7 @@ The app keeps evidence sources separate:
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
+- **MuQ-MuLan** stores a separate 512-dimensional L2-normalized audio embedding in `mulan_embeddings`. It supports its own seed-search space and text-to-track retrieval. It does not convert or reuse MuQ embeddings.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
 
@@ -196,7 +197,7 @@ A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio 
 
 ## 🔗 Upstream models and licenses
 
-Optional analysis uses upstream projects and downloaded checkpoints, including [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights, and upstream code and weights may use different licenses, so check source terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md) for details.
+Optional analysis uses upstream projects and downloaded checkpoints, including [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights, and upstream code and weights may use different licenses, so check source terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md) for details.
 
 ## 🎚️ Main workflows
 
@@ -220,13 +221,13 @@ support M3U and CSV. This is browser-local working state, not automatic sequenci
 
 ### 4. 💬 Search by text
 
-After CLAP audio embeddings exist, the CLAP tab can search your library from text prompts such as:
+After CLAP or MuQ-MuLan audio embeddings exist, choose that family in the CLAP text-search tab and search your library from prompts such as:
 
 ```text
 dark hypnotic techno, rolling bass, low light, late night tension
 ```
 
-CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Good text results can have lower raw scores. Treat them as prompt evidence, not as a universal similarity value.
+CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Treat them as prompt evidence, not as a universal similarity value. MuQ-MuLan text-search scores stay inside that family's score space and are not directly comparable to CLAP or seed-search scores.
 
 ### 5. 🧪 Train personal classifiers
 
@@ -245,7 +246,7 @@ The normal loop is:
 4. Run classifier scoring in the main library database.
 5. Use the promoted scores as CLASS filters.
 
-Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/MuQ/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
+Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/MuQ/MuQ-MuLan/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
 
 SONARA-dependent classifier artifacts must use the same ordered feature recipe as the stored inputs
 they score. Missing requested values are skipped rather than imputed as `0.0`. When that recipe
@@ -335,7 +336,7 @@ Run a small first pass:
 
 ```powershell
 dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
-dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
+dj-sim analyze --models maest,mert,muq,mulan,clap --limit 25 --db ./data/library.sqlite
 dj-sim analyze-pipeline --stages sonara,ml --db ./data/library.sqlite
 ```
 
@@ -347,7 +348,7 @@ is never rewritten at startup. Its one-time, backup-first migration is explicit 
 
 Useful options from the current CLI and API are:
 
-- `--models sonara` for the standalone CPU/Rust job, or `--models maest,mert,muq,clap` for ML analysis
+- `--models sonara` for the standalone CPU/Rust job, or `--models maest,mert,muq,mulan,clap` for ML analysis
 - `--sonara-batch-size 1..16`; default `8`, independent from ML batching
 - `--device auto|cpu|cuda`
 - `--top-k 1..10` for MAEST labels
@@ -368,7 +369,7 @@ Queued-stage messages contain only settings used by that stage. SONARA reports i
 native batch, ML reports its models, device, Track batch, and Inference batch, and CLASSIFIERS
 reports the selected profile count.
 
-MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. The stored embedding is a normal source for seed search, LAB Reference Compare, Audio Dedup, and compatible classifier manifests. Audio Dedup callers can omit `muq` from an explicit source list.
+MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. MuQ-MuLan uses the same optional dependencies and official `OpenMuQ/MuQ-MuLan-large` weights. Both receive mono 24 kHz `float32` audio in 10-second windows and support CPU or CUDA. MuQ-MuLan writes its own normalized 512D vectors. It does not derive them from MuQ. The two families remain separate score spaces. CUDA is recommended for full-library runs.
 
 In the CLI, omit `--limit` to analyze the whole library.
 

@@ -20,7 +20,7 @@ set, classifier, and Lab workflows on top of the same API.
 | Your situation | Start with | Result |
 | --- | --- | --- |
 | You remember one useful track | MERT or SONARA seed search | A ranked list of nearby candidates to preview |
-| You can describe the sound, but not name a track | CLAP text search | A shortlist matched to an audible description |
+| You can describe the sound, but not name a track | CLAP or MuQ-MuLan text search | A shortlist matched to an audible description |
 | You have useful candidates to collect | Current Set | An editable working list for preview and export |
 | You want a broad pool for later listening | Filters, seeds, or text search | A crate that you can export as CSV or M3U |
 | You repeatedly judge tracks by a personal idea | Rhythm Lab classifier | A reusable per-track score for CLASS filtering |
@@ -47,7 +47,7 @@ CLI, API, storage, and model details remain available in the reference section.
 
 - [Project idea](./concepts/project-idea.md) explains the local-first DJ set dramaturgy goal and the author's modest scope.
 - [Features, embeddings, and tags](./concepts/features-embeddings-tags.md) explains what each stored signal means.
-- [Similarity scores](./concepts/similarity-scores.md) explains why MERT, MuQ, SONARA, CLAP, and Audio Dedup scores should not be mixed casually.
+- [Similarity scores](./concepts/similarity-scores.md) explains why MERT, MuQ, MuQ-MuLan, SONARA, CLAP, and Audio Dedup scores should not be mixed casually.
 - [Classifiers and Rhythm Lab](./concepts/classifiers-and-rhythm-lab.md) explains local classifier profiles and promoted scores.
 
 ## If you are maintaining a library

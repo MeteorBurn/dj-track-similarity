@@ -10,11 +10,11 @@ The app depends on your local Python environment, FFmpeg, optional ML packages, 
 
 ## Model analysis can be heavy
 
-MAEST, MERT, MuQ, and CLAP require optional ML dependencies. Large libraries can take time and memory. MuQ runs on 24 kHz `float32` audio. Its stored embedding can participate in seed search and LAB Reference Compare. Audio Dedup and classifier feature sets can use it too. Use a small `--limit` first, then adjust device and batch sizes.
+MAEST, MERT, MuQ, MuQ-MuLan, and CLAP require optional ML dependencies. Large libraries can take time and memory. MuQ and MuQ-MuLan run on mono 24 kHz `float32` audio. MuQ-MuLan uses 10-second windows and writes separate normalized 512D embeddings. Use a small `--limit` first, then adjust device and batch sizes.
 
 ## Scores are not probabilities
 
-Search scores are ranking signals. CLAP text scores, MERT seed scores, LAB model scores, and Audio Dedup thresholds should not be treated as one scale.
+Search scores are ranking signals. CLAP and MuQ-MuLan text scores, seed scores, LAB model scores, and Audio Dedup thresholds should not be treated as one scale.
 
 ## Browser preview depends on files still existing
 

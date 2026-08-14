@@ -12,8 +12,8 @@ These workflows do not edit audio files:
 
 - scan,
 - Refresh Tags,
-- SONARA, MAEST, MERT, MuQ, and CLAP analysis,
-- MAEST, MERT, MuQ, SONARA, and CLAP search or reference comparison,
+- SONARA, MAEST, MERT, MuQ, MuQ-MuLan, and CLAP analysis,
+- MAEST, MERT, MuQ, MuQ-MuLan, SONARA, and CLAP search or reference comparison,
 - browser preview,
 - analysis reset,
 - classifier scoring,

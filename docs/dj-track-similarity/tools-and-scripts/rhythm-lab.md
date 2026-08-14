@@ -53,6 +53,10 @@ MuQ. Coverage counts do not make a stale source trainable. The **Training recipe
 MuQ alone and every supported source combination; readiness and blocker text are recalculated for
 the selected recipe only.
 
+Only tracks with a configured positive or negative training label in a binary profile display a
+**LABEL** badge immediately after **TRAINED**, using that label's display name in green for positive
+or red for negative, with no badge on review labels or multiclass profiles.
+
 The training workflow uses the selected recipe to fit a model and refresh candidates. You can then
 benchmark variants before promoting an artifact. Library, Candidates, and
 Collection views use page sizes `50`, `100`, `200`, or `500`. The explicit liked-track toggle is

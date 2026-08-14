@@ -25,9 +25,18 @@ CLAP text search compares text embeddings to stored CLAP audio embeddings. Raw t
 
 When the Negative bank is enabled, the visible score is contrast evidence, not a probability.
 
+## MuQ-MuLan seed and text search
+
+MuQ-MuLan seed search compares its stored 512D audio embeddings. MuQ-MuLan text search compares a
+MuQ-MuLan text embedding to those same stored audio vectors. These are rankings within the
+MuQ-MuLan family; do not compare them directly to MuQ, CLAP, MERT, SONARA, or Audio Dedup values.
+
 ## Reference Compare scores
 
-The LAB Reference Compare panel keeps CLAP, MERT, MuQ, MAEST, and SONARA results in separate groups for one seed track. Compare scores within one model group first. A high MERT score, a high CLAP audio score, and a high SONARA score are related listening hints, not the same measurement.
+The LAB Reference Compare panel can keep CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA results in
+separate groups for one seed track. Compare scores within one model group first. A high MERT score,
+a high MuQ-MuLan score, a high CLAP audio score, and a high SONARA score are related listening
+hints, not the same measurement.
 
 Saved LAB verdicts are manual pair-feedback labels for a specific model source. They record what you heard. They are not automatic truth labels and they do not rewrite the model score.
 

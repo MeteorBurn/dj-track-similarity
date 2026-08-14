@@ -18,7 +18,7 @@ Analyze selected families:
 
 ```powershell
 dj-sim analyze --models sonara --db .\data\library.sqlite
-dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,mulan,clap --db .\data\library.sqlite
 ```
 
 Serve the backend:
@@ -36,10 +36,10 @@ specified path before starting Uvicorn.
 The React source uses the current API. Rebuild `frontend/dist` after frontend or API changes so the
 backend serves a bundle produced from the current typed client.
 
-Run CLAP text search:
+Run MuQ-MuLan text search:
 
 ```powershell
-dj-sim text-search "dark hypnotic techno, rolling bass" --limit 20 --db .\data\library.sqlite
+dj-sim text-search "dark hypnotic techno, rolling bass" --model mulan --limit 20 --db .\data\library.sqlite
 ```
 
 Relocation preview:
@@ -104,13 +104,25 @@ first copies legacy rows into a staged single-library file. It rebuilds FTS, com
 checks SQLite integrity and foreign keys before publishing `library.sqlite`. The original Core and
 Artifacts files move into that backup directory. It does not run analysis, reanalysis, or classifier jobs.
 
+### Add MuQ-MuLan storage to an existing library
+
+For a one-file library created before `mulan_embeddings`, stop every SQLite user and run:
+
+```powershell
+dj-sim migrate-mulan-embeddings --db .\data\library.sqlite --confirm 'MIGRATE MULAN EMBEDDINGS'
+```
+
+The migration saves a timestamped backup, adds only `mulan_embeddings`, then verifies SQLite
+integrity and foreign keys. It does not analyse audio or convert `muq_embeddings` into MuQ-MuLan
+vectors.
+
 ## Analysis options
 
 `dj-sim analyze` supports:
 
 | Option | Values |
 | --- | --- |
-| `--models` | comma-separated `sonara`, `maest`, `mert`, `muq`, `clap` |
+| `--models` | comma-separated `sonara`, `maest`, `mert`, `muq`, `mulan`, `clap`; omitting it selects the ML order `maest,mert,muq,mulan,clap` |
 | `--limit` | optional integer; omit for whole library |
 | `--device` | `auto`, `cpu`, `cuda` |
 | `--top-k` | `1..10` MAEST labels |
@@ -141,8 +153,9 @@ For structural updates and optional reanalysis, follow
 | `query` | required text prompt |
 | `--limit` | result count, `1..500` |
 | `--min-similarity` | optional threshold |
-| `--device` | `auto`, `cpu`, or `cuda` for CLAP text embedding |
-| `--use-ann-index` | require persistent CLAP sidecar lookup instead of exact search |
+| `--model` | `clap` (default) or `mulan` |
+| `--device` | `auto`, `cpu`, or `cuda` for the selected text embedding |
+| `--use-ann-index` | require the selected family's persistent sidecar lookup instead of exact search |
 | `--index-dir` | custom sidecar directory |
 
 If the sidecar is missing, stale, or unsupported, the command fails. Omit `--use-ann-index` when you
@@ -157,7 +170,7 @@ dj-sim index benchmark --model clap --db .\data\library.sqlite
 dj-sim index clear --model clap --db .\data\library.sqlite
 ```
 
-Models are `maest`, `mert`, `muq`, or `clap`. The `build`, `verify`, and `benchmark` commands require
+Models are `maest`, `mert`, `muq`, `mulan`, or `clap`. The `build`, `verify`, and `benchmark` commands require
 `--model`; `clear` omits it only when clearing every generated index.
 
 ## Evaluation commands
@@ -180,8 +193,9 @@ The `eval` command group is for local diagnostics and feedback reports:
 
 These commands require the current SQLite schema and operate on local database/report files.
 Candidate export and source-profile commands accept repeatable `--source` values from `mert`,
-`maest`, `muq`, `sonara`, and `clap`. Omitting the option uses all five. The default complete-analysis seed
-sample now requires current SONARA, MERT, MAEST, MuQ, and CLAP coverage. Use
+`maest`, `muq`, `mulan`, `sonara`, and `clap`. Omitting the option keeps the established five-source
+default and does not add MuQ-MuLan automatically. The default complete-analysis seed sample now requires
+current SONARA, MERT, MAEST, MuQ, and CLAP coverage. Use
 `--allow-partial-analysis` when that complete gate is not intended.
 
 ## Classifier diagnostics

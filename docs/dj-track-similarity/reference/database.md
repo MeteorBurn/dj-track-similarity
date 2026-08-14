@@ -26,6 +26,16 @@ rebuilds FTS, verifies counts/integrity/foreign keys, then publishes the
 one-file library. The old `library_settings` analysis counters are derived
 cache values and are not carried into the current schema.
 
+An existing one-file library that predates `mulan_embeddings` needs an explicit,
+backup-first schema migration after every SQLite user has stopped:
+
+```powershell
+dj-sim migrate-mulan-embeddings --db .\data\library.sqlite --confirm 'MIGRATE MULAN EMBEDDINGS'
+```
+
+The command creates a timestamped backup, adds only the separate table, then checks SQLite
+integrity and foreign keys. It does not derive MuQ-MuLan rows from existing `muq_embeddings`.
+
 ## Library tables
 
 - `library`: one row with `catalog_uuid`, creation/update times,
@@ -38,8 +48,10 @@ cache values and are not carried into the current schema.
 - `sonara_embeddings`: one current unnormalized 48-dimensional `float32` SONARA embedding per track,
   bound to `track_uuid` and stored independently from Core features.
 - `maest_genres`: current MAEST genre labels and syncopation data.
-- `maest_embeddings`, `mert_embeddings`, `clap_embeddings`, and
-  `muq_embeddings`: the current audio embedding for each model family.
+- `maest_embeddings`, `mert_embeddings`, `muq_embeddings`, `mulan_embeddings`, and
+  `clap_embeddings`: the current audio embedding for each model family. `mulan_embeddings` stores
+  MuQ-MuLan's separate 512-dimensional L2-normalized vectors; it is not populated by converting
+  `muq_embeddings`.
 - `classifier_scores`: current promoted Rhythm Lab classifier scores.
 - `pair_feedback` and `transition_feedback`: explicit evaluation feedback.
 - `track_search_fts`: the FTS5 search index. SQLite owns its

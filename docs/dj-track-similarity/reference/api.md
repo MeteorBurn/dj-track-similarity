@@ -79,11 +79,11 @@ manifest-specific, and not-ready tracks are excluded rather than failed. A pipel
 SONARA, then ML. All manual and pipeline stages share one sequential application queue.
 
 `GET /api/library/summary` reports current coverage for SONARA Core, MAEST analysis and embedding,
-MERT, MuQ, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage` contains
+MERT, MuQ, MuQ-MuLan, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage` contains
 `sonara_core` only for SONARA. Use `GET /api/analysis/sonara/status` for separate current Core and
 embedding counts.
 
-Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`, `clap`). The typed
+Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`, `mulan`, `clap`). The typed
 response returns `core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`.
 Classifier-score reset uses `{ "classifier_key": "live_instrumentation" }`.
 SONARA removes only dependent classifier rows; labels, feedback, and embedding-only results remain.
@@ -92,15 +92,18 @@ SONARA removes only dependent classifier rows; labels, feedback, and embedding-o
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/search` | seed search for `maest`, `mert`, `muq`, or `clap` |
+| `POST` | `/api/search` | seed search for `maest`, `mert`, `muq`, `mulan`, or `clap` |
 | `POST` | `/api/search/sonara` | SONARA seed search |
-| `POST` | `/api/search/text` | CLAP text search |
+| `POST` | `/api/search/text` | CLAP or MuQ-MuLan text-to-track search |
 | `POST` | `/api/reference/compare` | per-model Reference Compare groups for one seed |
 | `POST` | `/api/reference/compare/verdict` | save one Reference Compare listening verdict |
 
 Search limits are usually `1..500`.
 
-Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `mert`, `muq`, `maest`, and `sonara`, and `limit=1..100`. Verdicts use `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`. They persist as local pair feedback under `reference_compare:<model>`.
+`POST /api/search/text` accepts `analysis_family: "clap" | "mulan"` and defaults to `clap`. It
+embeds text with the selected family and searches only that family's stored audio vectors.
+
+Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `mert`, `muq`, `mulan`, `maest`, and `sonara`, and `limit=1..100`. Its default model list remains unchanged, so include `mulan` explicitly when needed. Verdicts use `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`. They persist as local pair feedback under `reference_compare:<model>`.
 
 ## Tags and export
 

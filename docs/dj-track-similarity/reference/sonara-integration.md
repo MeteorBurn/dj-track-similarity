@@ -48,5 +48,5 @@ separate.
 
 Search, Evaluation diagnostics, Audio Dedup, and classifiers continue to use stored SONARA Core
 values. The dedicated SONARA embedding is persisted but is not a current similarity, search, or
-classifier input. MERT, MuQ, MAEST, and CLAP remain separate analysis sources. Every result is a
+classifier input. MERT, MuQ, MuQ-MuLan, MAEST, and CLAP remain separate analysis sources. Every result is a
 ranking or diagnostic signal, not an automatic DJ decision.

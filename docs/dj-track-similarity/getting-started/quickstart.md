@@ -48,7 +48,7 @@ Install analysis extras first if you have not done so. Then run a small batch:
 
 ```powershell
 dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
-dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,mulan,clap --limit 25 --db .\data\library.sqlite
 ```
 
 A small limit confirms the model stack before you analyze every track. It also lets you hear what
@@ -57,10 +57,9 @@ each search approach returns before spending time on full-library analysis.
 - SONARA makes feature-guided search and transition evidence available.
 - MERT gives you a direct "find tracks near this track" search.
 - MAEST, MuQ, and CLAP add evidence for LAB comparison, Audio Dedup, and classifiers.
-- CLAP also enables text search.
-- MuQ also enables its seed-search and LAB views. Audio Dedup and compatible classifier feature
-  sets can use it too. Audio Dedup can omit `muq` from its explicit source list; CLAP remains the
-  model for text search.
+- CLAP and MuQ-MuLan enable text search in their own embedding spaces.
+- MuQ-MuLan also enables its seed-search view. It stores separate 512D L2-normalized embeddings
+  and does not transform MuQ vectors. Existing Audio Dedup weights remain unchanged.
 
 In the CLI, omit `--limit` for the whole library. In the browser, **Analyze limit** `0` has the same
 whole-eligible-library meaning.
@@ -99,10 +98,10 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/summary'
 Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/tracks?limit=25'
 ```
 
-For a first text shortlist, use the CLI after CLAP analysis:
+For a first text shortlist, use the CLI after analysis for the chosen family:
 
 ```powershell
-dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
+dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --model mulan --limit 20 --db .\data\library.sqlite
 ```
 
 Seed search, SONARA search, Current Set, and export are available in the browser and through the backend
@@ -114,7 +113,7 @@ endpoints documented in the [API reference](../reference/api.md).
 2. In **Library**, search or use **Prev**, **Next**, and the page-number field to browse fixed
    pages of up to `200` tracks.
 3. Add one to five tracks as seeds.
-4. Open **MERT** or **MUQ** for an embedding neighborhood, or **SONARA** when you want to steer the
+4. Open **MERT**, **MUQ**, or **MULAN** for an embedding neighborhood, or **SONARA** when you want to steer the
    search by rhythm, sound, dynamics, harmony, or tempo.
 5. Preview candidates by ear and add useful rows to the current set.
 6. Review or remove entries in the current set.
@@ -127,4 +126,4 @@ tracks, and export only when the list has earned it.
 
 - Missing FFmpeg blocks server startup and ffmpeg-backed audio decoding. See [Troubleshooting](../help/troubleshooting.md).
 - Empty search usually means the needed analysis family has not been run. See [First analysis](./first-analysis.md).
-- CLAP text search requires stored CLAP audio embeddings. Run CLAP analysis first.
+- Text search requires stored CLAP or MuQ-MuLan audio embeddings for the selected model. Run that analysis first.

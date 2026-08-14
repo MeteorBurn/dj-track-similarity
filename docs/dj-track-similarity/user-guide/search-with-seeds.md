@@ -1,7 +1,7 @@
 # Search with seed tracks
 
 > Audience: Users who have one or more reference tracks and want nearby candidates.
-> Goal: Use MERT, MuQ, SONARA, and Reference Compare search without confusing their scores.
+> Goal: Use MERT, MuQ, MuQ-MuLan, SONARA, and Reference Compare search without confusing their scores.
 > Type: guide
 
 Seed search is useful when a real track communicates your intention better than tags or words. The
@@ -13,8 +13,8 @@ ranked listening list, not an automatic crate.
 
 ## Browser and API entry points
 
-The browser provides MERT, MUQ, SONARA, and LAB tabs. Direct clients can use `POST /api/search` for
-`maest`, `mert`, `muq`, or `clap` seed search, `POST /api/search/sonara` for SONARA, and
+The browser provides MERT, MUQ, MULAN, SONARA, and LAB tabs. Direct clients can use `POST /api/search` for
+`maest`, `mert`, `muq`, `mulan`, or `clap` seed search, `POST /api/search/sonara` for SONARA, and
 `POST /api/reference/compare` for per-model comparison. Request fields, limits, and response
 identity are documented in the [API reference](../reference/api.md).
 
@@ -24,26 +24,28 @@ identity are documented in the [API reference](../reference/api.md).
 | --- | --- | --- |
 | MERT | You want a broad learned audio neighborhood with few decisions | Result limit |
 | MuQ | You want a second generic acoustic embedding neighborhood | Result limit |
+| MuQ-MuLan | You want a music-text-aligned audio neighborhood without mixing it into another family | Result limit |
 | SONARA | You know which audible qualities should stay close or move | Feature mode, mixer weights, and directional modifiers |
 | LAB | You want to hear how separate model families disagree | Model columns, result limit, and listening verdicts |
 
-MERT and MuQ ask the quicker question: "what is near these tracks in this model's audio space?"
+MERT, MuQ, and MuQ-MuLan ask the quicker question: "what is near these tracks in this model's audio space?"
 SONARA asks the more explicit question: "what is near them according to the qualities I care about
 now?"
 
 ## Choose seeds
 
 In the library list, add tracks to the seed strip. The search panel uses the selected seed IDs for
-MERT, MuQ, SONARA, and the LAB Reference Compare panel.
+MERT, MuQ, MuQ-MuLan, SONARA, and the LAB Reference Compare panel.
 
-## MERT and MUQ tabs
+## MERT, MUQ, and MULAN tabs
 
 Both tabs call `/api/search` with selected seed IDs and the matching `analysis_family`. They compare
 only exact-current stored embeddings for that family and return scored candidates.
 
-Use MERT or MuQ when you want audio-to-audio similarity from a learned embedding space. MERT is a
-broad musical representation. MuQ adds a separate generic acoustic view. Neither knows your exact
-DJ intention, and their scores are not one shared scale.
+Use MERT, MuQ, or MuQ-MuLan when you want audio-to-audio similarity from a learned embedding
+space. MERT is a broad musical representation. MuQ adds a separate generic acoustic view.
+MuQ-MuLan uses its own 512D audio space that also supports text retrieval. None knows your exact DJ
+intention, and their scores are not one shared scale.
 
 The browser ranks every returned candidate by score, from highest to lowest. **Limit** controls the
 maximum result count, `1..500`. There is no browser similarity threshold.
@@ -86,7 +88,7 @@ Modifiers bias the result direction relative to the seed context: energy, valenc
 
 ## LAB tab
 
-The LAB tab opens **Model Listening Lab**. It compares how CLAP, MERT, MuQ, MAEST, and SONARA rank candidates for the first selected seed track. Use it as a diagnostic listening view for separate model groups.
+The LAB tab opens **Model Listening Lab**. It compares how CLAP, MERT, MuQ, MuQ-MuLan, MAEST, and SONARA rank candidates for the first selected seed track when those models are selected. Its default model selection remains unchanged, so add MuQ-MuLan explicitly when you want that comparison. Use it as a diagnostic listening view for separate model groups.
 
 Use it when one reference track feels important and you want to hear which model family is finding useful neighbors. Each model stays in its own column so you can compare the model ears directly instead of flattening them into one score.
 

@@ -171,6 +171,36 @@ def test_load_decoded_audio_uses_torchcodec_for_mono_wav(tmp_path: Path) -> None
     assert result.detail == "torchcodec 0.16 decode (num_channels=1)"
 
 
+@pytest.mark.ml
+@pytest.mark.skipif(
+    sys.platform != "win32" or sys.version_info[:2] != (3, 10),
+    reason="the CUDA TorchCodec wheel is pinned for Windows Python 3.10",
+)
+def test_installed_torchcodec_cuda_wheel_decodes_real_wav(tmp_path: Path) -> None:
+    torch = pytest.importorskip("torch")
+    torchcodec = pytest.importorskip("torchcodec")
+    from torchcodec.decoders import AudioDecoder
+
+    audio_path = tmp_path / "torchcodec-smoke.wav"
+    _write_mono_pcm_wav(audio_path, sample_rate=44_100)
+
+    assert torch.version.cuda == "13.0"
+    assert torch.cuda.is_available()
+    assert torchcodec.__version__.startswith("0.16.0+cu")
+
+    decoded = AudioDecoder(str(audio_path), num_channels=1).get_all_samples()
+    result = load_decoded_audio(audio_path)
+    expected = torch.tensor([0.0, 1024.0, -2048.0, 4096.0], dtype=torch.float32) / 32768.0
+
+    assert decoded.sample_rate == 44_100
+    assert decoded.data.shape == (1, 4)
+    assert decoded.data.dtype == torch.float32
+    assert torch.allclose(decoded.data[0], expected)
+    assert result.sample_rate == 44_100
+    assert torch.allclose(result.audio, expected)
+    assert result.detail == "torchcodec 0.16 decode (num_channels=1)"
+
+
 def test_load_audio_mono_with_ffmpeg_bypasses_native_wave(monkeypatch, tmp_path: Path) -> None:
     audio_path = tmp_path / "track.wav"
     _write_mono_pcm_wav(audio_path)

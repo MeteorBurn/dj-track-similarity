@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -34,10 +35,106 @@ class DecodedAudio:
     detail: str
 
 
+@dataclass(frozen=True)
+class DecodedAudioWindows:
+    """Mono TorchCodec samples decoded only for one model's requested windows."""
+
+    path: str
+    windows: tuple[Tensor, ...]
+    sample_rate: int
+    detail: str
+
+
 def load_decoded_audio(path: str | Path) -> DecodedAudio:
     audio_path = Path(path)
     audio, sample_rate, detail = _load_with_torchcodec(audio_path)
     return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
+
+
+def load_decoded_audio_with_ffmpeg(path: str | Path) -> DecodedAudio:
+    """Decode one ML fallback source through FFmpeg into a tensor-backed value."""
+
+    import torch
+
+    audio, sample_rate, detail = _load_with_ffmpeg(Path(path))
+    return DecodedAudio(
+        path=str(path),
+        audio=torch.from_numpy(audio),
+        sample_rate=sample_rate,
+        detail=detail,
+    )
+
+
+def load_decoded_audio_windows(
+    path: str | Path,
+    *,
+    sample_rate: int,
+    window_seconds: float,
+    window_starts: Callable[[float], Sequence[float]],
+) -> DecodedAudioWindows:
+    """Decode only model-selected windows through TorchCodec.
+
+    The caller owns window selection because each ML family has its own policy.
+    This function intentionally has no FFmpeg fallback; the caller decides when
+    the range retry is insufficient and full FFmpeg decoding is warranted.
+    """
+
+    import torch
+    from torchcodec.decoders import AudioDecoder
+
+    target_rate = int(sample_rate)
+    if target_rate <= 0:
+        raise ValueError("sample_rate must be greater than zero")
+    seconds = float(window_seconds)
+    if not np.isfinite(seconds) or seconds <= 0:
+        raise ValueError("window_seconds must be a positive finite number")
+
+    audio_path = Path(path)
+    decoder = AudioDecoder(
+        str(audio_path),
+        sample_rate=target_rate,
+        num_channels=1,
+    )
+    duration = float(decoder.metadata.duration_seconds)
+    if not np.isfinite(duration) or duration <= 0:
+        raise RuntimeError("TorchCodec reported an invalid audio duration")
+
+    starts = tuple(float(start) for start in window_starts(duration))
+    if not starts:
+        raise RuntimeError("Model window selection returned no audio windows")
+
+    windows: list[Tensor] = []
+    for start in starts:
+        if not np.isfinite(start) or start < 0 or start >= duration:
+            raise ValueError(f"Invalid model audio-window start: {start}")
+        stop = min(duration, start + seconds)
+        decoded = decoder.get_samples_played_in_range(start, stop)
+        if decoded.data.ndim != 2 or decoded.data.shape[0] != 1:
+            raise RuntimeError(
+                "TorchCodec produced an unexpected mono audio-window shape: "
+                f"{decoded.data.shape}"
+            )
+        audio = decoded.data[0]
+        if audio.dtype != torch.float32:
+            raise RuntimeError(
+                "TorchCodec produced an unexpected audio-window dtype: "
+                f"{audio.dtype}"
+            )
+        if audio.numel() == 0:
+            raise RuntimeError("TorchCodec produced no decoded audio-window samples")
+        if int(decoded.sample_rate) != target_rate:
+            raise RuntimeError(
+                "TorchCodec produced an unexpected audio-window sample rate: "
+                f"{decoded.sample_rate}"
+            )
+        windows.append(audio)
+
+    return DecodedAudioWindows(
+        path=str(path),
+        windows=tuple(windows),
+        sample_rate=target_rate,
+        detail="torchcodec 0.16 range decode (num_channels=1)",
+    )
 
 
 def load_audio_mono_with_ffmpeg(path: str | Path) -> tuple[np.ndarray, int, str]:

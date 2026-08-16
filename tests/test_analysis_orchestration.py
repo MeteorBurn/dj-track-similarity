@@ -9,7 +9,7 @@ import pytest
 
 from dj_track_similarity import analysis_model_runners as runner_module
 from dj_track_similarity.analysis_config import build_analysis_job_config
-from dj_track_similarity.analysis_job_batch import AnalysisBatchItem
+from dj_track_similarity.analysis_job_batch import AnalysisBatchItem, DecodeFailure
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.analysis_model_runners import (
     EmbeddingModelRunner,
@@ -27,7 +27,7 @@ from dj_track_similarity.analysis_models import (
     MaestWrite,
     current_embedding_spec,
 )
-from dj_track_similarity.audio_loader import DecodedAudio
+from dj_track_similarity.audio_loader import DecodedAudio, DecodedAudioWindows
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.embedding import (
     MaestAnalysisResult,
@@ -495,6 +495,14 @@ class _FakeMulanAdapter(MuqMulanEmbeddingAdapter):
         vector[0] = 1.0
         return [vector.copy() for _item in decoded_items]
 
+    def embed_windowed_batch(
+        self,
+        decoded_items: Sequence[DecodedAudioWindows],
+    ) -> list[np.ndarray]:
+        vector = np.zeros(512, dtype=np.float32)
+        vector[1] = 1.0
+        return [vector.copy() for _item in decoded_items]
+
 
 def test_mulan_runner_writes_its_own_typed_embedding_output() -> None:
     runner = EmbeddingModelRunner(
@@ -520,6 +528,102 @@ def test_mulan_runner_writes_its_own_typed_embedding_output() -> None:
     assert results == [None]
     assert repository.writes[0].output.family == "mulan"
     assert repository.writes[0].output.vector.shape == (512,)
+
+
+def test_mulan_runner_uses_model_windows_before_ffmpeg_after_full_decode_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _FakeMulanAdapter()
+    runner = EmbeddingModelRunner(
+        "mulan",
+        device="cpu",
+        inference_batch_size=2,
+        adapter=adapter,  # type: ignore[arg-type]
+    )
+    candidate = _candidate(1, runner.candidate_outputs)
+    repository = _EmbeddingWriteRepository()
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        runner_module,
+        "load_decoded_audio_windows",
+        lambda path, **_kwargs: (
+            calls.append(f"range:{path}"),
+            DecodedAudioWindows(
+                path=str(path),
+                windows=(np.asarray([0.1], dtype=np.float32),),
+                sample_rate=24_000,
+                detail="range",
+            ),
+        )[1],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "load_decoded_audio_with_ffmpeg",
+        lambda _path: (_ for _ in ()).throw(AssertionError("FFmpeg must not run")),
+        raising=False,
+    )
+
+    results = runner.analyze_batch(
+        repository,  # type: ignore[arg-type]
+        (
+            AnalysisBatchItem(
+                candidate=candidate,
+                decoded=DecodeFailure(RuntimeError("bad final packet")),
+                models=("mulan",),
+            ),
+        ),
+    )
+
+    assert results == [None]
+    assert calls == [f"range:{candidate.file_path}"]
+    assert repository.writes[0].output.vector[1] == pytest.approx(1.0)
+    assert runner.last_ffmpeg_fallback_track_ids == frozenset()
+
+
+def test_mulan_runner_uses_ffmpeg_only_after_model_window_retry_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = EmbeddingModelRunner(
+        "mulan",
+        device="cpu",
+        inference_batch_size=2,
+        adapter=_FakeMulanAdapter(),  # type: ignore[arg-type]
+    )
+    candidate = _candidate(1, runner.candidate_outputs)
+    repository = _EmbeddingWriteRepository()
+    calls: list[str] = []
+
+    def fail_range(path, **_kwargs):
+        calls.append(f"range:{path}")
+        raise RuntimeError("corrupt middle packet")
+
+    monkeypatch.setattr(runner_module, "load_decoded_audio_windows", fail_range)
+    monkeypatch.setattr(
+        runner_module,
+        "load_decoded_audio_with_ffmpeg",
+        lambda path: (
+            calls.append(f"ffmpeg:{path}"),
+            _decoded(path),
+        )[1],
+    )
+
+    results = runner.analyze_batch(
+        repository,  # type: ignore[arg-type]
+        (
+            AnalysisBatchItem(
+                candidate=candidate,
+                decoded=DecodeFailure(RuntimeError("bad final packet")),
+                models=("mulan",),
+            ),
+        ),
+    )
+
+    assert results == [None]
+    assert calls == [f"range:{candidate.file_path}", f"ffmpeg:{candidate.file_path}"]
+    assert repository.writes[0].output.vector[0] == pytest.approx(1.0)
+    assert runner.last_ffmpeg_fallback_track_ids == frozenset({candidate.target.track_id})
 
 
 def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
@@ -578,6 +682,82 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     assert vector is not None
     assert vector.shape == (768,)
     assert vector[0] == pytest.approx(1.0)
+
+
+def test_job_defers_full_decode_failure_to_mulan_range_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    mutation = database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(tmp_path / "track.flac"),
+            file_size_bytes=128,
+            file_modified_ns=1_000,
+            audio_format="flac",
+            sample_rate_hz=24_000,
+            channel_count=2,
+            audio_duration_seconds=30.0,
+        ),
+        tags=FileTags(title="Range recovery"),
+    )
+    with database.connect() as connection:
+        connection.execute(
+            """
+                INSERT INTO sonara_features(
+                track_id, mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                mutation.identity.track_id,
+                np.zeros(13, dtype="<f4").tobytes(),
+                np.zeros(12, dtype="<f4").tobytes(),
+                np.zeros(7, dtype="<f4").tobytes(),
+                "2026-07-30T00:00:00.000000Z",
+            ),
+        )
+    runner = EmbeddingModelRunner(
+        "mulan",
+        device="cpu",
+        inference_batch_size=2,
+        adapter=_FakeMulanAdapter(),  # type: ignore[arg-type]
+    )
+    range_calls: list[str] = []
+    monkeypatch.setattr(
+        runner_module,
+        "load_decoded_audio_windows",
+        lambda path, **_kwargs: (
+            range_calls.append(str(path)),
+            DecodedAudioWindows(
+                path=str(path),
+                windows=(np.asarray([0.1], dtype=np.float32),),
+                sample_rate=24_000,
+                detail="range",
+            ),
+        )[1],
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "load_decoded_audio_with_ffmpeg",
+        lambda _path: (_ for _ in ()).throw(AssertionError("FFmpeg must not run")),
+    )
+
+    status = AnalysisJobManager(
+        database,
+        model_runners={"mulan": runner},
+        decode_audio=lambda _path: (_ for _ in ()).throw(RuntimeError("bad tail")),
+    ).run_sync(models=["mulan"], device="cpu")
+
+    assert status.state == "completed"
+    assert status.analyzed == 1
+    assert status.failed == 0
+    assert [Path(path) for path in range_calls] == [tmp_path / "track.flac"]
+    assert all("Track decode failed" not in event.message for event in status.events)
+    assert all("ffmpeg decode" not in event.message for event in status.events)
+    vector = database.read_embedding(family="mulan", track_id=mutation.identity.track_id)
+    assert vector is not None
+    assert vector[1] == pytest.approx(1.0)
 
 
 class _FakeMaestAdapter(MaestEmbeddingAdapter):

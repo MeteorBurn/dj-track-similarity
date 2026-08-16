@@ -175,9 +175,12 @@ MAEST, MERT, MuQ, MuQ-MuLan, and CLAP reuse one decoded input per track. TorchCo
 returns mono `float32` at the source sample rate through
 `AudioDecoder(path, num_channels=1).get_all_samples()`. Its `AudioSamples.data[0]` stays a 1D CPU
 `torch.float32` tensor inside `DecodedAudio` and passes directly to each adapter without a shared
-Tensor-to-NumPy-to-Tensor round-trip. A TorchCodec failure fails that track's ML decode instead of
-falling back to FFmpeg. Each adapter applies its own Torchaudio resampling. The selected CPU or CUDA
-device applies to model inference, not this shared decode step.
+Tensor-to-NumPy-to-Tensor round-trip. If that full-track decode fails, the affected ML family first
+retries TorchCodec only for its own model windows at its configured sample rate. Only when that
+range retry also fails does it decode the full track through FFmpeg. This is a recovery path, not a
+repair of an invalid audio file. Each adapter applies its own window preparation and, on the normal
+full-track path, Torchaudio resampling. The selected CPU or CUDA device applies to model inference,
+not TorchCodec decoding.
 
 Tempo-aware search and Evaluation transition diagnostics use current signed SONARA tempo
 evidence. At low confidence, they also inspect SONARA candidates and the Mutagen BPM tag, while
@@ -385,8 +388,8 @@ under the original source-track identity. The process log reports copy, native a
 preparation, and database storage times plus FFmpeg fallback and per-track errors. Staging copies are
 deleted after each track completes, and the temporary job directory is cleaned up after completion,
 failure, or cancellation. A later staged run also removes an abandoned job directory when its owner
-process is no longer running. Staged Mode currently applies only to SONARA; GPU model analysis keeps
-its strict shared TorchCodec `0.16` decode without an FFmpeg fallback.
+process is no longer running. Staged Mode applies only to SONARA. ML analysis reads original source
+paths and uses its separate full-TorchCodec, model-window TorchCodec, then FFmpeg recovery order.
 Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
 relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
 and CLASSIFIERS reports the selected profile count.

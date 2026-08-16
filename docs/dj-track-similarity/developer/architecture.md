@@ -32,9 +32,10 @@ flowchart LR
 - `audio_loader.py`: one lazy TorchCodec `0.16` decode shared by the generic ML families calls
   `AudioDecoder(path, num_channels=1).get_all_samples()`. It returns the whole track as mono
   `float32` at its source sample rate, keeps `AudioSamples.data[0]` as a 1D CPU `torch.float32`
-  tensor in `DecodedAudio`, and passes that tensor directly to the adapters. A decode error fails
-  that track without an FFmpeg retry. `WavDecoder` is not used because it cannot request channel
-  remixing in TorchCodec `0.16`.
+  tensor in `DecodedAudio`, and passes that tensor directly to the adapters. When the full decode
+  fails, the model runner retries TorchCodec only for that family's configured windows and sample
+  rate. A full FFmpeg decode is permitted only after the range retry fails. `WavDecoder` is not
+  used because it cannot request channel remixing in TorchCodec `0.16`.
 - `analysis_jobs.py`, `analysis_model_runners.py`, `sonara_staging.py`, and `sonara_features.py`:
   separate ML jobs plus Direct or Staged native SONARA capture. Direct Mode reads source paths in
   configured native batches. Staged Mode copies source files read-only to a user-selected temporary

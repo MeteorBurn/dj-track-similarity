@@ -30,8 +30,9 @@ the source path rather than a staging copy.
 Each staging copy is removed after its analysis, including any fallback, completes. The job directory
 is removed on success, failure, or cancellation. On a later staged session start, stale staging job
 directories are removed only when their recorded owner process is no longer present. Staged Mode is
-SONARA-only. Generic ML uses its strict shared TorchCodec `0.16` decoder without an FFmpeg fallback;
-preview and other non-SONARA functions keep their own decode paths.
+SONARA-only. Generic ML reads original source paths and uses a separate recovery sequence after a
+full TorchCodec failure: family-specific TorchCodec windows first, then full FFmpeg decoding only
+when the range retry fails. Preview and other non-SONARA functions keep their own decode paths.
 
 The application requests a fixed output set: scalar and compact fixed-vector Core data plus the
 SONARA embedding. It stores Core in `sonara_features` and the unnormalized 48-dimensional `float32`

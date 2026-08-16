@@ -18,16 +18,19 @@ class AnalysisBatchItem:
     models: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class DecodeFailure:
+    """A full-track decode error deferred to a model-specific recovery path."""
+
+    error: Exception
+
+
 def decode_analysis_batch(
     batch: Sequence[AnalysisCandidate],
     targets_by_track: Mapping[int, tuple[str, ...]],
     decode_audio: DecodeAudio,
     *,
     set_current_path: Callable[[str], None],
-    record_decode_failure: Callable[
-        [AnalysisCandidate, tuple[str, ...], Exception],
-        None,
-    ],
     mark_track_processed: Callable[[AnalysisCandidate], None],
 ) -> list[AnalysisBatchItem]:
     decoded_items: list[AnalysisBatchItem] = []
@@ -41,9 +44,7 @@ def decode_analysis_batch(
         try:
             decoded = decode_audio(candidate.file_path)
         except Exception as error:
-            record_decode_failure(candidate, targets, error)
-            mark_track_processed(candidate)
-            continue
+            decoded = DecodeFailure(error)
         decoded_items.append(
             AnalysisBatchItem(
                 candidate=candidate,

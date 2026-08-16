@@ -542,14 +542,6 @@ class AnalysisJobManager:
                     job_id,
                     current_path=path,
                 ),
-                record_decode_failure=lambda candidate, targets, error: (
-                    self._record_decode_failure(
-                        job_id,
-                        candidate,
-                        targets,
-                        error,
-                    )
-                ),
                 mark_track_processed=lambda candidate: self._mark_track_processed(
                     job_id, candidate
                 ),
@@ -789,29 +781,6 @@ class AnalysisJobManager:
             model="sonara",
         )
 
-    def _record_decode_failure(
-        self,
-        job_id: str,
-        candidate: AnalysisCandidate,
-        targets: tuple[str, ...],
-        error: Exception,
-    ) -> None:
-        for model in targets:
-            self._record_model_failure(
-                job_id,
-                model,
-                candidate,
-                error,
-                emit_event=False,
-            )
-        self._append_event(
-            job_id,
-            "error",
-            f"Track decode failed: {exception_summary(error)}",
-            path=candidate.file_path,
-            track_id=candidate.target.track_id,
-        )
-
     def _record_model_success(
         self,
         job_id: str,
@@ -907,8 +876,7 @@ class AnalysisJobManager:
         runner: AnalysisModelRunner,
         candidate: AnalysisCandidate,
     ) -> bool:
-        if model != "sonara":
-            return False
+        del model
         recovered_track_ids = getattr(runner, "last_ffmpeg_fallback_track_ids", ())
         return candidate.target.track_id in recovered_track_ids
 

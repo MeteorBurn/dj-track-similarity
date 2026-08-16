@@ -112,16 +112,19 @@ ML inference batching.
 SONARA normally decodes each staged path through its Symphonia path. If an individual result reports
 a decode or codec failure, that staged copy is decoded through FFmpeg to mono `float32` PCM,
 resampled for SONARA when necessary, and retried through `analyze_signal()`. If that retry fails,
-only that track is reported as failed and other ready work continues. ML models use a separate,
-strict shared TorchCodec `0.16` decode, and its failures are not retried through FFmpeg.
+only that track is reported as failed and other ready work continues. ML models keep a separate
+recovery path: after a failed full TorchCodec decode, the requested family retries TorchCodec only
+for its configured model windows before it can use a full FFmpeg decode. This does not repair an
+invalid source file.
 
 Staging files are released when their native analysis and any fallback finish. The job directory is
 removed on completion, failure, or cancellation; a later staging session also clears an abandoned
 job directory when its recorded owner process no longer exists. Diagnostics include staging use,
 FFmpeg fallback, copy/analyze/store timing, and per-track errors.
 
-Staged Mode currently applies only to SONARA. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP keep their
-strict shared TorchCodec `0.16` decode and their CPU/CUDA inference path.
+Staged Mode applies only to SONARA. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP read the original source
+paths and keep their own CPU/CUDA inference path. Their model-window recovery does not use SONARA
+staging settings.
 
 After each successful database store or finalized track failure, the existing UI Process Log
 immediately shows `Track analyzed`, `Track analyzed [ffmpeg decode]`, or `Track failed` for the

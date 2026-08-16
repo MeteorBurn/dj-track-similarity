@@ -11,8 +11,10 @@ import pytest
 
 import dj_track_similarity.audio_loader as audio_loader
 from dj_track_similarity.audio_loader import (
+    DecodedAudioWindows,
     load_audio_mono_with_ffmpeg,
     load_decoded_audio,
+    load_decoded_audio_windows,
 )
 
 
@@ -143,6 +145,51 @@ def test_load_decoded_audio_does_not_bypass_torchcodec_failure(
 
     with pytest.raises(RuntimeError, match="unsupported test codec"):
         load_decoded_audio(audio_path)
+
+
+def test_load_decoded_audio_windows_reads_only_model_requested_ranges(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    torch = pytest.importorskip("torch")
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"encoded audio")
+    range_calls: list[tuple[float, float]] = []
+
+    class FakeAudioDecoder:
+        metadata = SimpleNamespace(duration_seconds=120.0)
+
+        def __init__(self, source: str, *, sample_rate: int, num_channels: int) -> None:
+            assert source == str(audio_path)
+            assert sample_rate == 24_000
+            assert num_channels == 1
+
+        def get_samples_played_in_range(self, start_seconds: float, stop_seconds: float):
+            range_calls.append((start_seconds, stop_seconds))
+            return SimpleNamespace(
+                data=torch.ones((1, 24_000), dtype=torch.float32),
+                sample_rate=24_000,
+            )
+
+    torchcodec_module = types.ModuleType("torchcodec")
+    decoders_module = types.ModuleType("torchcodec.decoders")
+    decoders_module.AudioDecoder = FakeAudioDecoder
+    torchcodec_module.decoders = decoders_module
+    monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_module)
+    monkeypatch.setitem(sys.modules, "torchcodec.decoders", decoders_module)
+
+    result = load_decoded_audio_windows(
+        audio_path,
+        sample_rate=24_000,
+        window_seconds=10.0,
+        window_starts=lambda duration: (duration * 0.1, duration * 0.5),
+    )
+
+    assert isinstance(result, DecodedAudioWindows)
+    assert result.path == str(audio_path)
+    assert result.sample_rate == 24_000
+    assert [window.shape for window in result.windows] == [(24_000,), (24_000,)]
+    assert range_calls == [(12.0, 22.0), (60.0, 70.0)]
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for the integration check")

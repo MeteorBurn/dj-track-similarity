@@ -94,8 +94,9 @@ A pipeline request uses separate browser SONARA settings:
 nested Staged folder. Staged Mode requires an existing folder and accepts Processes `1..16`,
 Threads `1..64`, BatchSize `1..16`, and StageSize `1..512`. Staged SONARA passes temporary copy
 paths to native analysis and its per-file FFmpeg fallback while retaining the original track
-identity. ML models continue to use strict shared TorchCodec `0.16` decode without an FFmpeg
-fallback and do not use this staging configuration.
+identity. ML models do not use this staging configuration. Following a failed full TorchCodec
+decode, the requested ML family retries TorchCodec only for its configured model windows and uses
+full FFmpeg decoding only if that range retry fails.
 Database migration is intentionally not an API operation; use the explicit CLI command
 `dj-sim migrate-database` after stopping every SQLite user.
 

@@ -8,7 +8,8 @@ Reference pages are for exact names, ranges, and boundaries. Use the guide and w
 
 ## Pages
 
-- [CLI](./cli.md): `dj-sim` commands and standalone helper commands.
+- [Commands and arguments](./commands.md): complete current `dj-sim`, launcher, and supported tool command reference.
+- [CLI](./cli.md): short route to the canonical commands reference.
 - [API](./api.md): endpoint families and important payload constraints.
 - [Database](./database.md): local SQLite state at a high level.
 - [Configuration](./configuration.md): paths, ports, environment variables, and generated artifacts.

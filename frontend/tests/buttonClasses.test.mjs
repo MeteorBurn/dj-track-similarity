@@ -491,7 +491,7 @@ test("class search tab shows classifier threshold and scoped analysis controls",
   assert.match(classPanel, /if \(blockedReason\)/);
   assert.match(classPanel, /classifier-profile unavailable/);
   assert.match(classPanel, /classifier-profile-status-badge/);
-  assert.doesNotMatch(classPanel, /classifier-reset-button/);
+  assert.match(classPanel, /classifier-reset-button/);
   assert.doesNotMatch(classPanel, /classifier-action-row/);
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);
 });

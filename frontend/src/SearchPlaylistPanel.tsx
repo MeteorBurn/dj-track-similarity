@@ -416,7 +416,7 @@ export function SearchPlaylistPanel({
                         <em className="sonara-modifier-score">{formatSigned(value)}</em>
                         <button
                           aria-label={`Reset ${control.label} modifier to zero`}
-                          className="sonara-control-off"
+                          className="sonara-control-off sonara-modifier-reset-button"
                           disabled={isOff || customSonaraDisabled}
                           title={`Reset ${control.label} modifier to zero`}
                           type="button"

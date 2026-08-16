@@ -91,7 +91,7 @@ test("metadata renders MAEST genres in a dedicated block instead of analysis bad
   assert.doesNotMatch(source, /analysis-badge-row|analysis-badge|readableAnalysisBadges|trackHasAnalysis/);
 });
 
-test("metadata shows structural embedding and classifier detail records", () => {
+test("metadata shows structural embedding and classifier analysis detail records", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /track\.embeddings\.map\(\(embedding\)/);
@@ -99,7 +99,7 @@ test("metadata shows structural embedding and classifier detail records", () => 
   assert.match(source, /embedding\.dim/);
   assert.match(source, /embedding\.normalization/);
   assert.match(source, /track\.classifier_scores_detail\.map\(\(score\)/);
-  assert.match(source, /score\.feature_set/);
+  assert.match(source, /score\.analyzed_at/);
   assert.doesNotMatch(source, /embedding\.model_(?:name|version)|score\.model_id/);
 });
 

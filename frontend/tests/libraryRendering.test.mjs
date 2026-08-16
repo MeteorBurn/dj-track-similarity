@@ -12,7 +12,7 @@ const styles = readFileSync(
 );
 
 test("library renders every track supplied by the fixed 200-track page", () => {
-  assert.match(trackRowsSource, /\{tracks\.map\(\(track\) => \{/);
+  assert.match(trackRowsSource, /\{tracks\.map\(\(track, index\) => \{/);
   assert.doesNotMatch(
     trackRowsSource,
     /visibleLibraryWindow|shiftLibraryWindow|windowStart|track-window-controls/

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Literal
 
 from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
@@ -10,6 +11,14 @@ from .analysis_config import (
     DEFAULT_SONARA_BATCH_SIZE,
 )
 from .analysis_models import AnalysisCandidate
+
+
+DecodeMethod = Literal["torchcodec", "ffmpeg"]
+
+_DECODE_METHOD_PRIORITY: dict[DecodeMethod, int] = {
+    "torchcodec": 1,
+    "ffmpeg": 2,
+}
 
 
 @dataclass(frozen=True)
@@ -44,7 +53,7 @@ class AnalysisTrackOutcome:
     target_count: int
     successes: int = 0
     failures: int = 0
-    used_ffmpeg_decode: bool = False
+    decode_method: DecodeMethod | None = None
 
 
 @dataclass
@@ -105,7 +114,7 @@ def record_track_model_result(
     outcome: AnalysisTrackOutcome | None,
     *,
     failed: bool,
-    used_ffmpeg_decode: bool = False,
+    decode_method: DecodeMethod | None = None,
 ) -> None:
     if outcome is None:
         return
@@ -113,7 +122,12 @@ def record_track_model_result(
         outcome.failures += 1
     else:
         outcome.successes += 1
-        outcome.used_ffmpeg_decode = outcome.used_ffmpeg_decode or used_ffmpeg_decode
+        if decode_method is not None and (
+            outcome.decode_method is None
+            or _DECODE_METHOD_PRIORITY[decode_method]
+            > _DECODE_METHOD_PRIORITY[outcome.decode_method]
+        ):
+            outcome.decode_method = decode_method
 
 
 def record_model_success(status: AnalysisJobStatus, model: str) -> None:

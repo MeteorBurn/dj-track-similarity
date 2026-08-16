@@ -30,9 +30,9 @@ the source path rather than a staging copy.
 Each staging copy is removed after its analysis, including any fallback, completes. The job directory
 is removed on success, failure, or cancellation. On a later staged session start, stale staging job
 directories are removed only when their recorded owner process is no longer present. Staged Mode is
-SONARA-only. Generic ML reads original source paths and uses a separate recovery sequence after a
-full TorchCodec failure: family-specific TorchCodec windows first, then full FFmpeg decoding only
-when the range retry fails. Preview and other non-SONARA functions keep their own decode paths.
+SONARA-only. Generic ML reads original source paths and uses a separate tolerant full-track FFmpeg
+fallback after a full TorchCodec failure. Preview and other non-SONARA functions keep their own
+decode paths.
 
 The application requests a fixed output set: scalar and compact fixed-vector Core data plus the
 SONARA embedding. It stores Core in `sonara_features` and the unnormalized 48-dimensional `float32`
@@ -60,9 +60,10 @@ per-track errors.
 
 After a successful per-track store, or after a track failure is finalized, the staged runner updates
 job status immediately instead of waiting for the whole queue. The existing UI Process Log receives
-the normal track event with the original source path and track ID. A fallback success is marked
-`Track analyzed [ffmpeg decode]`, whereas a final failure affects only that track. This behavior
-reuses the current analysis-event UI rather than adding a separate staging component.
+the normal track event with the original source path and track ID. A normal SONARA Direct or Staged
+success is `Track analyzed`; its FFmpeg recovery is `[ffmpeg] Track analyzed`. A final failure
+affects only that track. This behavior reuses the current analysis-event UI rather than adding a
+separate staging component.
 
 ## Updating SONARA or stored fields
 

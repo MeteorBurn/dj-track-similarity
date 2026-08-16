@@ -230,7 +230,7 @@ def test_sonara_ffmpeg_recovery_is_marked_in_final_track_event() -> None:
     assert status.state == "completed"
     track_events = [event for event in status.events if event.track_id == 1]
     assert [event.message for event in track_events] == [
-        "Track analyzed [ffmpeg decode]"
+        "[ffmpeg] Track analyzed"
     ]
 
 

@@ -28,6 +28,7 @@ from .analysis_job_state import (
     AnalysisModelProgress,
     AnalysisTrackError,
     AnalysisTrackOutcome,
+    DecodeMethod,
     copy_analysis_status,
     initial_model_progress,
     initial_track_outcomes,
@@ -699,6 +700,11 @@ class AnalysisJobManager:
                         job_id,
                         model,
                         item.candidate,
+                        decode_method=self._runner_decode_method(
+                            model,
+                            runner,
+                            item.candidate,
+                        ),
                     )
                 else:
                     self._record_model_failure(
@@ -719,7 +725,7 @@ class AnalysisJobManager:
                     job_id,
                     model,
                     item.candidate,
-                    used_ffmpeg_decode=self._runner_used_ffmpeg_decode(
+                    decode_method=self._runner_decode_method(
                         model,
                         runner,
                         item.candidate,
@@ -744,7 +750,7 @@ class AnalysisJobManager:
                 job_id,
                 "sonara",
                 result.candidate,
-                used_ffmpeg_decode=result.used_ffmpeg_fallback,
+                decode_method="ffmpeg" if result.used_ffmpeg_fallback else None,
             )
         else:
             self._record_model_failure(
@@ -787,12 +793,12 @@ class AnalysisJobManager:
         model: str,
         candidate: AnalysisCandidate,
         *,
-        used_ffmpeg_decode: bool = False,
+        decode_method: DecodeMethod | None = None,
     ) -> None:
         apply_track_model_result(
             self._track_outcome(job_id, candidate.target.track_id),
             failed=False,
-            used_ffmpeg_decode=used_ffmpeg_decode,
+            decode_method=decode_method,
         )
         with self._store.locked(job_id) as status:
             apply_model_success(status, model)
@@ -857,9 +863,10 @@ class AnalysisJobManager:
                 now=time.time(),
             )
         if analyzed:
+            decode_method = outcome.decode_method if outcome is not None else None
             message = (
-                "Track analyzed [ffmpeg decode]"
-                if outcome is not None and outcome.used_ffmpeg_decode
+                f"[{decode_method}] Track analyzed"
+                if decode_method is not None
                 else "Track analyzed"
             )
             self._append_event(
@@ -871,14 +878,18 @@ class AnalysisJobManager:
             )
 
     @staticmethod
-    def _runner_used_ffmpeg_decode(
+    def _runner_decode_method(
         model: str,
         runner: AnalysisModelRunner,
         candidate: AnalysisCandidate,
-    ) -> bool:
-        del model
-        recovered_track_ids = getattr(runner, "last_ffmpeg_fallback_track_ids", ())
-        return candidate.target.track_id in recovered_track_ids
+    ) -> DecodeMethod | None:
+        track_id = candidate.target.track_id
+        ffmpeg_track_ids = getattr(runner, "last_ffmpeg_fallback_track_ids", ())
+        if track_id in ffmpeg_track_ids:
+            return "ffmpeg"
+        if model != "sonara":
+            return "torchcodec"
+        return None
 
     def _fail_stage(
         self,

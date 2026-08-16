@@ -28,8 +28,6 @@ from .analysis_models import (
 from .analysis_job_batch import DecodeFailure
 from .audio_loader import (
     DecodedAudio,
-    DecodedAudioWindows,
-    load_decoded_audio_windows,
     load_decoded_audio_with_ffmpeg,
 )
 from .embedding import (
@@ -359,48 +357,25 @@ class MaestModelRunner:
             if not isinstance(item.decoded, DecodeFailure):
                 continue
             try:
-                windowed = self._load_maest_windows(item)
-                range_results = self.adapter.analyze_windowed_batch([windowed])
-                if len(range_results) != 1:
-                    raise ValueError("MAEST range retry did not return one result")
-                results[index] = range_results[0]
-            except Exception as range_error:
-                try:
-                    decoded = load_decoded_audio_with_ffmpeg(item.candidate.file_path)
-                    ffmpeg_results = self.adapter.analyze_decoded_batch(
-                        [decoded],
-                        window_contexts=[item.candidate.maest_window_context],
-                    )
-                    if len(ffmpeg_results) != 1:
-                        raise ValueError("MAEST FFmpeg fallback did not return one result")
-                    results[index] = ffmpeg_results[0]
-                    ffmpeg_track_ids.add(item.candidate.target.track_id)
-                except Exception as ffmpeg_error:
-                    results[index] = RuntimeError(
-                        f"full TorchCodec decode failed: {item.decoded.error}; "
-                        f"maest range retry failed: {range_error}; "
-                        f"FFmpeg fallback failed: {ffmpeg_error}"
-                    )
+                decoded = load_decoded_audio_with_ffmpeg(item.candidate.file_path)
+                ffmpeg_results = self.adapter.analyze_decoded_batch(
+                    [decoded],
+                    window_contexts=[item.candidate.maest_window_context],
+                )
+                if len(ffmpeg_results) != 1:
+                    raise ValueError("MAEST FFmpeg fallback did not return one result")
+                results[index] = ffmpeg_results[0]
+                ffmpeg_track_ids.add(item.candidate.target.track_id)
+            except Exception as ffmpeg_error:
+                results[index] = RuntimeError(
+                    f"full TorchCodec decode failed: {item.decoded.error}; "
+                    f"FFmpeg fallback failed: {ffmpeg_error}"
+                )
 
         self.last_ffmpeg_fallback_track_ids = frozenset(ffmpeg_track_ids)
         if any(result is None for result in results):
             raise RuntimeError("MAEST runner did not produce one result per item")
         return [result for result in results if result is not None]
-
-    def _load_maest_windows(
-        self,
-        item: AnalysisBatchItem,
-    ) -> DecodedAudioWindows:
-        return load_decoded_audio_windows(
-            item.candidate.file_path,
-            sample_rate=self.adapter.target_rate,
-            window_seconds=self.adapter.input_seconds,
-            window_starts=lambda duration: select_maest_window_starts(
-                duration,
-                self.adapter.input_seconds,
-                item.candidate.maest_window_context,
-            ),
-        )
 
 
 class EmbeddingModelRunner:
@@ -509,57 +484,24 @@ class EmbeddingModelRunner:
             if not isinstance(item.decoded, DecodeFailure):
                 continue
             try:
-                windowed = self._load_model_windows(item)
-                embed_windowed = getattr(self.adapter, "embed_windowed_batch", None)
-                if not callable(embed_windowed):
-                    raise RuntimeError(
-                        f"{self.model.upper()} adapter does not support range decoding"
-                    )
-                range_vectors = embed_windowed([windowed])
-                if len(range_vectors) != 1:
+                decoded = load_decoded_audio_with_ffmpeg(item.candidate.file_path)
+                ffmpeg_vectors = self.adapter.embed_decoded_batch([decoded])
+                if len(ffmpeg_vectors) != 1:
                     raise ValueError(
-                        f"{self.model.upper()} range retry did not return one vector"
+                        f"{self.model.upper()} FFmpeg fallback did not return one vector"
                     )
-                results[index] = range_vectors[0]
-            except Exception as range_error:
-                try:
-                    decoded = load_decoded_audio_with_ffmpeg(item.candidate.file_path)
-                    ffmpeg_vectors = self.adapter.embed_decoded_batch([decoded])
-                    if len(ffmpeg_vectors) != 1:
-                        raise ValueError(
-                            f"{self.model.upper()} FFmpeg fallback did not return one vector"
-                        )
-                    results[index] = ffmpeg_vectors[0]
-                    ffmpeg_track_ids.add(item.candidate.target.track_id)
-                except Exception as ffmpeg_error:
-                    results[index] = RuntimeError(
-                        f"full TorchCodec decode failed: {item.decoded.error}; "
-                        f"{self.model} range retry failed: {range_error}; "
-                        f"FFmpeg fallback failed: {ffmpeg_error}"
-                    )
+                results[index] = ffmpeg_vectors[0]
+                ffmpeg_track_ids.add(item.candidate.target.track_id)
+            except Exception as ffmpeg_error:
+                results[index] = RuntimeError(
+                    f"full TorchCodec decode failed: {item.decoded.error}; "
+                    f"FFmpeg fallback failed: {ffmpeg_error}"
+                )
 
         self.last_ffmpeg_fallback_track_ids = frozenset(ffmpeg_track_ids)
         if any(result is None for result in results):
             raise RuntimeError("Embedding runner did not produce one result per item")
         return [result for result in results if result is not None]
-
-    def _load_model_windows(
-        self,
-        item: AnalysisBatchItem,
-    ) -> DecodedAudioWindows:
-        target_rate = int(getattr(self.adapter, "target_rate"))
-        window_seconds = float(getattr(self.adapter, "window_seconds"))
-        max_windows = int(getattr(self.adapter, "max_windows"))
-        return load_decoded_audio_windows(
-            item.candidate.file_path,
-            sample_rate=target_rate,
-            window_seconds=window_seconds,
-            window_starts=lambda duration: _interior_window_starts(
-                duration,
-                window_seconds=window_seconds,
-                max_windows=max_windows,
-            ),
-        )
 
 
 def default_model_runners(
@@ -778,25 +720,6 @@ def _decoded_items(items: Sequence[AnalysisBatchItem]) -> list[DecodedAudio]:
             )
         decoded.append(item.decoded)
     return decoded
-
-
-def _interior_window_starts(
-    duration_seconds: float,
-    *,
-    window_seconds: float,
-    max_windows: int,
-) -> tuple[float, ...]:
-    if duration_seconds <= window_seconds:
-        return (0.0,)
-    usable_start = duration_seconds * 0.1
-    usable_end = duration_seconds * 0.9
-    last_start = max(usable_start, usable_end - window_seconds)
-    if max_windows <= 1:
-        return (usable_start + (last_start - usable_start) / 2.0,)
-    return tuple(
-        usable_start + (last_start - usable_start) * index / (max_windows - 1)
-        for index in range(max_windows)
-    )
 
 
 def _maest_genres(

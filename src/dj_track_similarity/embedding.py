@@ -49,7 +49,7 @@ from .analysis_models import (
     MULAN_PREPROCESSING,
     MULAN_SNAPSHOT_SHA256,
 )
-from .audio_loader import DecodedAudio, DecodedAudioWindows
+from .audio_loader import DecodedAudio
 from .genres import rank_maest_genres
 from .maest_windows import (
     MAEST_WINDOW_DEDUP_TOLERANCE_SECONDS,
@@ -145,7 +145,7 @@ class MaestEmbeddingAdapter:
 
     def analyze_decoded_batch(
         self,
-        decoded_items: Sequence[DecodedAudio | DecodedAudioWindows],
+        decoded_items: Sequence[DecodedAudio],
         *,
         window_contexts: Sequence[MaestWindowContext | None] | None = None,
     ) -> list[MaestAnalysisResult]:
@@ -163,27 +163,13 @@ class MaestEmbeddingAdapter:
         prepared: list[object] = []
         window_track_indexes: list[int] = []
         prepare_started = time.perf_counter()
-        for track_index, (decoded, context) in enumerate(
-            zip(decoded_items, contexts)
-        ):
-            if isinstance(decoded, DecodedAudioWindows):
-                if decoded.sample_rate != self.target_rate:
-                    raise RuntimeError(
-                        "MAEST range audio uses an unexpected sample rate: "
-                        f"{decoded.sample_rate}"
-                    )
-                target_samples = int(self.target_rate * self.input_seconds)
-                windows = [
-                    _pad_or_trim_audio_tensor(window, target_samples, torch)
-                    for window in decoded.windows
-                ]
-            else:
-                windows = self._prepare_audio_windows_from_audio(
-                    decoded.path,
-                    decoded.audio,
-                    decoded.sample_rate,
-                    window_context=context,
-                )
+        for track_index, (decoded, context) in enumerate(zip(decoded_items, contexts)):
+            windows = self._prepare_audio_windows_from_audio(
+                decoded.path,
+                decoded.audio,
+                decoded.sample_rate,
+                window_context=context,
+            )
             prepared.extend(windows)
             window_track_indexes.extend([track_index] * len(windows))
         prepare_seconds = time.perf_counter() - prepare_started
@@ -193,12 +179,6 @@ class MaestEmbeddingAdapter:
             expected_tracks=len(decoded_items),
             prepare_seconds=prepare_seconds,
         )
-
-    def analyze_windowed_batch(
-        self,
-        decoded_items: Sequence[DecodedAudioWindows],
-    ) -> list[MaestAnalysisResult]:
-        return self.analyze_decoded_batch(decoded_items)
 
     def _analyze_prepared_batch(
         self,
@@ -416,20 +396,9 @@ class MertEmbeddingAdapter:
             target_rate=int(self._processor.sampling_rate),
         )
 
-    def embed_windowed_batch(
-        self,
-        decoded_items: list[DecodedAudioWindows],
-    ) -> list[np.ndarray]:
-        self._load_model()
-        assert self._processor is not None
-        return self._embed_decoded_items(
-            decoded_items,
-            target_rate=int(self._processor.sampling_rate),
-        )
-
     def _embed_decoded_items(
         self,
-        decoded_items: list[DecodedAudio | DecodedAudioWindows],
+        decoded_items: list[DecodedAudio],
         *,
         target_rate: int,
     ) -> list[np.ndarray]:
@@ -440,21 +409,13 @@ class MertEmbeddingAdapter:
         all_windows = []
         prepare_started = time.perf_counter()
         for decoded in decoded_items:
-            if isinstance(decoded, DecodedAudioWindows):
-                if decoded.sample_rate != target_rate:
-                    raise RuntimeError(
-                        "MERT range audio uses an unexpected sample rate: "
-                        f"{decoded.sample_rate}"
-                    )
-                windows = list(decoded.windows)
-            else:
-                waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
-                if decoded.sample_rate != target_rate:
-                    if torchaudio is None:
-                        raise RuntimeError(f"MERT shared-audio analysis requires torchaudio resampling: {decoded.path}")
-                    waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
-                waveform = waveform.squeeze(0)
-                windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
+            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
+            if decoded.sample_rate != target_rate:
+                if torchaudio is None:
+                    raise RuntimeError(f"MERT shared-audio analysis requires torchaudio resampling: {decoded.path}")
+                waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
+            waveform = waveform.squeeze(0)
+            windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
             if not windows:
                 raise ValueError(f"No audio windows could be extracted: {decoded.path}")
             window_indices = []
@@ -616,16 +577,9 @@ class MuqEmbeddingAdapter:
         self._load_model()
         return self._embed_decoded_items(decoded_items)
 
-    def embed_windowed_batch(
-        self,
-        decoded_items: list[DecodedAudioWindows],
-    ) -> list[np.ndarray]:
-        self._load_model()
-        return self._embed_decoded_items(decoded_items)
-
     def _embed_decoded_items(
         self,
-        decoded_items: list[DecodedAudio | DecodedAudioWindows],
+        decoded_items: list[DecodedAudio],
     ) -> list[np.ndarray]:
         torch = self._torch
         torchaudio = self._torchaudio
@@ -772,13 +726,6 @@ class MuqMulanEmbeddingAdapter:
         self._load_model()
         return self._embed_decoded_items(decoded_items)
 
-    def embed_windowed_batch(
-        self,
-        decoded_items: list[DecodedAudioWindows],
-    ) -> list[np.ndarray]:
-        self._load_model()
-        return self._embed_decoded_items(decoded_items)
-
     def embed_text(self, text: str) -> np.ndarray:
         self._load_model()
         torch = self._torch
@@ -794,7 +741,7 @@ class MuqMulanEmbeddingAdapter:
 
     def _embed_decoded_items(
         self,
-        decoded_items: list[DecodedAudio | DecodedAudioWindows],
+        decoded_items: list[DecodedAudio],
     ) -> list[np.ndarray]:
         torch = self._torch
         torchaudio = self._torchaudio
@@ -964,19 +911,9 @@ class ClapEmbeddingAdapter:
             target_rate=self.target_rate,
         )
 
-    def embed_windowed_batch(
-        self,
-        decoded_items: list[DecodedAudioWindows],
-    ) -> list[np.ndarray]:
-        self._load_model()
-        return self._embed_decoded_items(
-            decoded_items,
-            target_rate=self.target_rate,
-        )
-
     def _embed_decoded_items(
         self,
-        decoded_items: list[DecodedAudio | DecodedAudioWindows],
+        decoded_items: list[DecodedAudio],
         *,
         target_rate: int,
     ) -> list[np.ndarray]:
@@ -988,21 +925,13 @@ class ClapEmbeddingAdapter:
         all_windows = []
         prepare_started = time.perf_counter()
         for decoded in decoded_items:
-            if isinstance(decoded, DecodedAudioWindows):
-                if decoded.sample_rate != target_rate:
-                    raise RuntimeError(
-                        "CLAP range audio uses an unexpected sample rate: "
-                        f"{decoded.sample_rate}"
-                    )
-                windows = list(decoded.windows)
-            else:
-                waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
-                if decoded.sample_rate != target_rate:
-                    if torchaudio is None:
-                        raise RuntimeError(f"CLAP shared-audio analysis requires torchaudio resampling: {decoded.path}")
-                    waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
-                waveform = waveform.squeeze(0)
-                windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
+            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
+            if decoded.sample_rate != target_rate:
+                if torchaudio is None:
+                    raise RuntimeError(f"CLAP shared-audio analysis requires torchaudio resampling: {decoded.path}")
+                waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
+            waveform = waveform.squeeze(0)
+            windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
             if not windows:
                 raise ValueError(f"No audio windows could be extracted: {decoded.path}")
             window_indices = []
@@ -1529,7 +1458,7 @@ def _average_l2_window_embeddings(
 
 
 def _prepare_muq_compatible_windows(
-    decoded_items: Sequence[DecodedAudio | DecodedAudioWindows],
+    decoded_items: Sequence[DecodedAudio],
     *,
     target_rate: int,
     window_seconds: float,
@@ -1543,33 +1472,25 @@ def _prepare_muq_compatible_windows(
     all_windows: list[Tensor] = []
     prepare_started = time.perf_counter()
     for decoded in decoded_items:
-        if isinstance(decoded, DecodedAudioWindows):
-            if decoded.sample_rate != target_rate:
+        waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
+        if decoded.sample_rate != target_rate:
+            if torchaudio is None:
                 raise RuntimeError(
-                    f"{model_label} range audio uses an unexpected sample rate: "
-                    f"{decoded.sample_rate}"
+                    f"{model_label} shared-audio analysis requires "
+                    f"torchaudio resampling: {decoded.path}"
                 )
-            windows = list(decoded.windows)
-        else:
-            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
-            if decoded.sample_rate != target_rate:
-                if torchaudio is None:
-                    raise RuntimeError(
-                        f"{model_label} shared-audio analysis requires "
-                        f"torchaudio resampling: {decoded.path}"
-                    )
-                waveform = torchaudio.transforms.Resample(
-                    decoded.sample_rate,
-                    target_rate,
-                )(waveform).to(dtype=torch.float32)
-            waveform = waveform.squeeze(0).to(dtype=torch.float32)
-            windows = _select_windows_torch(
-                waveform,
+            waveform = torchaudio.transforms.Resample(
+                decoded.sample_rate,
                 target_rate,
-                window_seconds,
-                max_windows,
-                torch,
-            )
+            )(waveform).to(dtype=torch.float32)
+        waveform = waveform.squeeze(0).to(dtype=torch.float32)
+        windows = _select_windows_torch(
+            waveform,
+            target_rate,
+            window_seconds,
+            max_windows,
+            torch,
+        )
         if not windows:
             raise ValueError(f"No audio windows could be extracted: {decoded.path}")
         window_indices = []

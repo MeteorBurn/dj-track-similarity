@@ -8,32 +8,23 @@ MAEST, MERT, MuQ, MuQ-MuLan, and CLAP share one decoded input per track. TorchCo
 all samples as mono `float32` at the source sample rate through
 `AudioDecoder(path, num_channels=1).get_all_samples()`. The project keeps `AudioSamples.data[0]` as
 a 1D CPU `torch.float32` tensor in `DecodedAudio` and passes it directly to the adapters, without a
-shared Tensor-to-NumPy-to-Tensor round-trip. A failed full-track decode moves to the selected ML
-family, which retries TorchCodec only for its window policy and target sample rate. It proceeds to
-full-track FFmpeg decoding only when that range retry fails, so this recovery path may still fail on
-invalid audio. Each adapter applies its own window preparation and, on the normal full-track path,
-Torchaudio resampling.
+shared Tensor-to-NumPy-to-Tensor round-trip. If the full-track decode fails, the selected ML family
+uses a tolerant FFmpeg full decode that returns mono `float32` PCM. The fallback passes
+`-err_detect ignore_err` and `-fflags +discardcorrupt+genpts` to tolerate damaged packets when
+possible. It can still fail on invalid audio. Each adapter applies its own resampling and window
+preparation after either decode path.
 On the input path, NumPy conversion occurs only at the MERT feature-extractor and CLAP model-API
 boundaries that require arrays.
 
 ## ML decode recovery
 
 The initial ML decode remains one full-track TorchCodec read shared by the selected ML families. A
-failure is handled independently for each family; one family's recovery does not substitute its
-audio windows for another's. The range retry uses these current adapter settings before the
-full-track FFmpeg fallback:
-
-| Family | TorchCodec range retry |
-| --- | --- |
-| MAEST | 16 kHz; up to three 30-second windows chosen with the current MAEST content-window context |
-| MERT | 24 kHz; up to five 5-second interior windows |
-| MuQ | 24 kHz; up to five 10-second interior windows |
-| MuQ-MuLan | 24 kHz; up to five 10-second interior windows |
-| CLAP | 48 kHz; up to five 10-second interior windows |
-
-For MERT, MuQ, MuQ-MuLan, and CLAP, interior windows are spaced from the 10% to 90% portion of the
-track. A successful range retry proceeds as normal. FFmpeg is attempted only when that family's
-range retry cannot provide its inputs. A failed recovery remains a failure for that model and track.
+failed read is recovered independently for MAEST, MERT, MuQ, MuQ-MuLan, or CLAP through tolerant
+full-track FFmpeg decoding. The FFmpeg command uses `-err_detect ignore_err` and
+`-fflags +discardcorrupt+genpts`, then emits mono `float32` PCM. This recovery route neither repairs
+the source file nor changes the model preprocessing: MAEST, MERT, MuQ, MuQ-MuLan, and CLAP retain
+their existing resampling and window policies. SONARA has a separate native/Symphonia and FFmpeg
+fallback path.
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |

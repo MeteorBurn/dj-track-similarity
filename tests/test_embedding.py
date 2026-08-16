@@ -13,7 +13,7 @@ torch = pytest.importorskip("torch")
 pytestmark = pytest.mark.ml
 
 import dj_track_similarity.embedding as embedding
-from dj_track_similarity.audio_loader import DecodedAudio, DecodedAudioWindows
+from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.embedding import (
     ClapEmbeddingAdapter,
     MaestEmbeddingAdapter,
@@ -535,29 +535,6 @@ def test_muq_embed_decoded_batch_uses_shared_audio_without_loading_paths() -> No
     assert adapter.fake_model.batch_dtypes == [torch.float32]
 
 
-def test_muq_embed_windowed_batch_uses_preselected_torchcodec_windows() -> None:
-    adapter = SharedAudioMuqAdapter()
-    decoded = [
-        DecodedAudioWindows(
-            path="a.flac",
-            windows=(torch.ones(24_000),),
-            sample_rate=24_000,
-            detail="range",
-        ),
-        DecodedAudioWindows(
-            path="b.flac",
-            windows=(torch.ones(24_000),),
-            sample_rate=24_000,
-            detail="range",
-        ),
-    ]
-
-    vectors = adapter.embed_windowed_batch(decoded)
-
-    assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
-    assert adapter.fake_model.batch_shapes == [(2, 24000)]
-
-
 def test_muq_consumes_shared_torchcodec_tensor_without_numpy_round_trip(
     monkeypatch,
 ) -> None:
@@ -877,23 +854,6 @@ def test_maest_analyze_decoded_batch_uses_shared_audio() -> None:
 
     assert adapter.fake_model.calls == [((6, 480000), False)]
     assert len(results) == 2
-
-
-def test_maest_analyze_windowed_batch_uses_preselected_torchcodec_windows() -> None:
-    adapter = BatchMaestAdapter()
-    decoded = [
-        DecodedAudioWindows(
-            path="a.flac",
-            windows=tuple(torch.full((480_000,), float(index + 1)) for index in range(3)),
-            sample_rate=16_000,
-            detail="range",
-        )
-    ]
-
-    results = adapter.analyze_windowed_batch(decoded)
-
-    assert adapter.fake_model.calls == [((3, 480000), False)]
-    assert len(results) == 1
 
 
 def test_maest_decoded_batch_applies_context_per_track() -> None:

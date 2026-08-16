@@ -161,6 +161,52 @@ def test_api_defaults_audio_job_to_ml_models_only(
     assert "sonara_outputs" not in calls[0]
 
 
+def test_api_pipeline_starts_ml_with_direct_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[dict[str, object]] = []
+
+    def start(
+        _manager: AnalysisPipelineManager,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        captured.append(dict(kwargs))
+        return {"job_id": "pipeline-job", "state": "queued"}
+
+    monkeypatch.setattr(AnalysisPipelineManager, "start", start)
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["ml"],
+            "limit": 0,
+            "ml": {
+                "models": ["mert"],
+                "device": "cpu",
+                "top_k": 3,
+                "track_batch_size": 2,
+                "inference_batch_size": 4,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == [
+        {
+            "stages": ["ml"],
+            "limit": 0,
+            "sonara": {},
+            "ml": {
+                "models": ["mert"],
+                "device": "cpu",
+                "top_k": 3,
+                "track_batch_size": 2,
+                "inference_batch_size": 4,
+            },
+        }
+    ]
+
+
 def test_api_pipeline_rejects_classifier_stage(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

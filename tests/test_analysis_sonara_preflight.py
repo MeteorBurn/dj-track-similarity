@@ -21,6 +21,7 @@ from dj_track_similarity.analysis_queue import AnalysisStageQueue
 _OUTPUTS = (
     AnalysisOutput("sonara", "core"),
     AnalysisOutput("sonara", "embedding"),
+    AnalysisOutput("sonara", "fingerprint"),
 )
 
 
@@ -78,11 +79,12 @@ def test_sonara_status_reports_current_data_coverage_without_release_identity() 
     ] == [
         ("core", 2, 1),
         ("embedding", 2, 1),
+        ("fingerprint", 2, 1),
     ]
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None)
     return TestClient(api.create_app(tmp_path / "library.sqlite"))
 
 
@@ -106,6 +108,11 @@ def test_sonara_status_endpoint_is_neutral_and_release_routes_are_removed(
             },
             {
                 "output_kind": "embedding",
+                "present_count": 0,
+                "missing_count": 0,
+            },
+            {
+                "output_kind": "fingerprint",
                 "present_count": 0,
                 "missing_count": 0,
             },

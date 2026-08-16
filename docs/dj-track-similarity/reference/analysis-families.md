@@ -5,30 +5,29 @@
 > Type: reference
 
 MAEST, MERT, MuQ, MuQ-MuLan, and CLAP share one decoded input per track. TorchCodec `0.16` reads
-all samples as mono `float32` at the source sample rate through
-`AudioDecoder(path, num_channels=1).get_all_samples()`. The project keeps `AudioSamples.data[0]` as
-a 1D CPU `torch.float32` tensor in `DecodedAudio` and passes it directly to the adapters, without a
-shared Tensor-to-NumPy-to-Tensor round-trip. If the full-track decode fails, the selected ML family
-uses a tolerant FFmpeg full decode that returns mono `float32` PCM. The fallback passes
-`-err_detect ignore_err` and `-fflags +discardcorrupt+genpts` to tolerate damaged packets when
-possible. It can still fail on invalid audio. Each adapter applies its own resampling and window
-preparation after either decode path.
+all samples through the configured shared FFmpeg runtime as mono `float32` at the source sample
+rate with `AudioDecoder(path, num_channels=1).get_all_samples()`. The project keeps
+`AudioSamples.data[0]` as a 1D CPU `torch.float32` tensor in `DecodedAudio` and passes it directly
+to the adapters, without a shared Tensor-to-NumPy-to-Tensor round-trip. If the full-track decode
+fails, the selected ML family makes a separate in-process TorchCodec decode through the same shared
+libraries and uses an arithmetic channel mean for mono `float32`. It can still fail on invalid
+audio. Each adapter applies its own resampling and window preparation after either decode path.
 On the input path, NumPy conversion occurs only at the MERT feature-extractor and CLAP model-API
 boundaries that require arrays.
 
 ## ML decode recovery
 
 The initial ML decode remains one full-track TorchCodec read shared by the selected ML families. A
-failed read is recovered independently for MAEST, MERT, MuQ, MuQ-MuLan, or CLAP through tolerant
-full-track FFmpeg decoding. The FFmpeg command uses `-err_detect ignore_err` and
-`-fflags +discardcorrupt+genpts`, then emits mono `float32` PCM. This recovery route neither repairs
+failed read is recovered independently for MAEST, MERT, MuQ, MuQ-MuLan, or CLAP through another
+in-process TorchCodec `AudioDecoder` read backed by the configured shared FFmpeg libraries. It
+does not launch `ffmpeg.exe`, `ffprobe.exe`, or a shell command. This recovery route neither repairs
 the source file nor changes the model preprocessing: MAEST, MERT, MuQ, MuQ-MuLan, and CLAP retain
-their existing resampling and window policies. SONARA has a separate native/Symphonia and FFmpeg
-fallback path.
+their existing resampling and window policies. SONARA has a separate native/Symphonia decoder and
+only uses shared-library recovery after its own decode failure.
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | source paths in Direct Mode or temporary paths in Staged Mode; normally decoded by SONARA/Symphonia with per-file FFmpeg fallback | Core feature rows and a dedicated 48D embedding | Core-backed SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
+| SONARA | source paths in Direct Mode or temporary paths in Staged Mode; normally decoded by SONARA/Symphonia, with per-file direct shared-library recovery only after a native decode or codec failure | Core feature rows and a dedicated 48D embedding | Core-backed SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
 | MAEST | shared ML decode | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MERT | shared ML decode | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MuQ | shared ML decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
@@ -50,7 +49,7 @@ operation.
 
 ## SONARA BPM range
 
-SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes source paths in Direct Mode or temporary copy paths in Staged Mode to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns normal decoding. A per-file decode or codec failure falls back to FFmpeg mono `float32` PCM and `analyze_signal()` without failing the other batch results.
+SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes source paths in Direct Mode or temporary copy paths in Staged Mode to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns normal decoding. A per-file native decode or codec failure falls back to a direct TorchCodec shared-library decode, mono `float32` PCM, and `analyze_signal()` without failing the other batch results.
 
 Tempo-aware search and transition diagnostics resolve current SONARA evidence
 first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.

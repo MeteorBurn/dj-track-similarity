@@ -12,7 +12,7 @@ from dj_track_similarity.database import LibraryDatabase
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None)
     return TestClient(api.create_app(tmp_path / "library.sqlite"))
 
 

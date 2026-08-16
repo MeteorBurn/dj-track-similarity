@@ -15,7 +15,7 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 def _client(monkeypatch, db_path: Path) -> TestClient:
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: None)
     return TestClient(api_module.create_app(db_path))
 
 
@@ -135,7 +135,7 @@ def test_database_switch_bootstraps_clean_selected_current_bundle(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: None)
     monkeypatch.chdir(tmp_path)
     client = TestClient(api_module.create_app())
     core_path = tmp_path / "selected.sqlite"
@@ -199,7 +199,7 @@ def test_removed_sonara_release_prepare_endpoint_is_not_exposed(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: None)
     app = api_module.create_app(tmp_path / "library.sqlite")
     paths = {
         str(getattr(route, "path", ""))

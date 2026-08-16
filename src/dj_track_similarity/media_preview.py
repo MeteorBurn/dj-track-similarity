@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 import tempfile
 import wave
 from pathlib import Path
@@ -41,35 +40,19 @@ def requires_browser_preview_transcode(path: Path) -> bool:
     return False
 
 
-def transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
+def transcoded_wav_file_response(path: Path) -> FileResponse:
     with tempfile.NamedTemporaryFile(prefix="dj-sim-preview-", suffix=".wav", delete=False) as temp_file:
         temp_path = Path(temp_file.name)
-    command = [
-        ffmpeg_path,
-        "-i",
-        str(path),
-        "-map",
-        "0:a:0",
-        "-vn",
-        "-sn",
-        "-dn",
-        "-ar",
-        "44100",
-        "-ac",
-        "2",
-        "-f",
-        "wav",
-        "-c:a",
-        "pcm_s16le",
-        "-y",
-        str(temp_path),
-    ]
     try:
-        subprocess.run(command, stderr=subprocess.PIPE, check=True)
-    except (OSError, subprocess.CalledProcessError) as error:
+        from torchcodec.decoders import AudioDecoder
+        from torchcodec.encoders import AudioEncoder
+
+        decoded = AudioDecoder(str(path), sample_rate=44_100, num_channels=2).get_all_samples()
+        AudioEncoder(decoded.data, sample_rate=decoded.sample_rate).to_file(temp_path)
+    except (OSError, RuntimeError, ValueError) as error:
         _delete_temp_file(temp_path)
-        message = _preview_error_message(error)
-        LOGGER.warning("ffmpeg preview transcode failed path=%s error=%s", path, message)
+        message = f"Audio preview failed: {error}"
+        LOGGER.warning("Direct preview transcode failed path=%s error=%s", path, message)
         raise AudioPreviewError(message) from error
     return FileResponse(
         temp_path,
@@ -78,24 +61,6 @@ def transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
         content_disposition_type="inline",
         background=BackgroundTask(_delete_temp_file, temp_path),
     )
-
-
-def _preview_error_message(error: OSError | subprocess.CalledProcessError) -> str:
-    if isinstance(error, subprocess.CalledProcessError):
-        stderr = _decode_stderr(error.stderr)
-        detail = stderr or f"ffmpeg exited with status {error.returncode}"
-        return f"Audio preview failed: {detail}"
-    return f"Audio preview failed: {error}"
-
-
-def _decode_stderr(stderr: object) -> str:
-    if isinstance(stderr, bytes):
-        return stderr.decode("utf-8", errors="replace").strip()
-    if isinstance(stderr, str):
-        return stderr.strip()
-    return ""
-
-
 def _is_browser_safe_wav(path: Path) -> bool:
     try:
         with wave.open(str(path), "rb") as audio:

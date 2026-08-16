@@ -163,7 +163,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A decode or codec failure for one file falls back to FFmpeg mono `float32` PCM and SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A native decode or codec failure for one file recovers through in-process TorchCodec decoding with the configured shared FFmpeg libraries, then SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
@@ -171,14 +171,16 @@ The app keeps evidence sources separate:
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
 
-MAEST, MERT, MuQ, MuQ-MuLan, and CLAP reuse one decoded input per track. TorchCodec `0.16`
-returns mono `float32` at the source sample rate through
-`AudioDecoder(path, num_channels=1).get_all_samples()`. Its `AudioSamples.data[0]` stays a 1D CPU
-`torch.float32` tensor inside `DecodedAudio` and passes directly to each adapter without a shared
-Tensor-to-NumPy-to-Tensor round-trip. If that full-track decode fails, the affected ML family uses a
-tolerant full-track FFmpeg fallback that returns mono `float32` PCM. This is a recovery path, not a
-repair of an invalid audio file. Each adapter still applies its own window preparation and
-Torchaudio resampling. The selected CPU or CUDA device applies to model inference, not decoding.
+MAEST, MERT, MuQ, MuQ-MuLan, and CLAP reuse one decoded input per track. TorchCodec `0.16` uses
+the configured shared FFmpeg libraries in process and returns mono `float32` at the source sample
+rate through `AudioDecoder(path, num_channels=1).get_all_samples()`. Its `AudioSamples.data[0]`
+stays a 1D CPU `torch.float32` tensor inside `DecodedAudio` and passes directly to each adapter
+without a shared Tensor-to-NumPy-to-Tensor round-trip. If that full-track decode fails, the
+affected ML family makes a separate in-process TorchCodec recovery decode through the same shared
+libraries and downmixes it to mono `float32`. No `ffmpeg.exe` process is started. This is a
+recovery path, not a repair of an invalid audio file. Each adapter still applies its own window
+preparation and Torchaudio resampling. The selected CPU or CUDA device applies to model inference,
+not decoding.
 
 Tempo-aware search and Evaluation transition diagnostics use current signed SONARA tempo
 evidence. At low confidence, they also inspect SONARA candidates and the Mutagen BPM tag, while
@@ -286,7 +288,9 @@ Verified local development is Windows-first, but the Python package and web app 
 You need:
 
 - Python `>=3.10`
-- FFmpeg on `PATH`, or `DJ_TRACK_SIMILARITY_FFMPEG` pointing to the ffmpeg executable
+- A system-available shared FFmpeg runtime: a directory containing FFmpeg libraries (`.dll`,
+  `.so`, or `.dylib`) on `PATH`, or that directory in
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`. An `ffmpeg.exe` file alone is insufficient.
 - A local folder of audio files
 - Node.js only when you build the frontend or docs from source
 - `uv` when installing optional dependencies that include the `ml` extra
@@ -385,14 +389,14 @@ In Staged Mode, StageSize bounds the copy, ready, and analysis window. Completed
 shared ready queue, where each process takes up to BatchSize files without cross-process batch
 barriers and sets its Rayon pool from Threads. Core and embedding writes remain per-track savepoints
 under the original source-track identity. The process log reports copy, native analysis, result
-preparation, and database storage times plus FFmpeg fallback and per-track errors. Staging copies are
+preparation, and database storage times plus shared-library recovery and per-track errors. Staging copies are
 deleted after each track completes, and the temporary job directory is cleaned up after completion,
 failure, or cancellation. Each Staged run uses a new unique job directory. Before it starts, the
 runner removes owner-marked job directories whose recorded process is no longer running and empty
 `sonara-stage-*` residues without a valid owner marker. It preserves a directory with a live owner
 and a nonempty directory without a valid marker. Staged Mode applies only to SONARA. ML analysis
-reads original source paths and uses its separate full-TorchCodec, then tolerant FFmpeg recovery
-order.
+reads original source paths and uses its separate full-TorchCodec decode, then direct shared-library
+recovery if that decode fails. The recovery does not start `ffmpeg.exe`.
 Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
 relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
 and CLASSIFIERS reports the selected profile count.

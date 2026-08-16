@@ -9,12 +9,40 @@ The project is a Python package with optional extras plus a React frontend and V
 ## Requirements
 
 - Python `>=3.10`.
-- FFmpeg on `PATH`, or `DJ_TRACK_SIMILARITY_FFMPEG` set to the full ffmpeg executable path.
+- A system-available shared FFmpeg runtime. Put its library directory (containing FFmpeg `.dll`,
+  `.so`, or `.dylib` files) on `PATH`, or set
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to that directory.
 - Node.js and npm when building `frontend/dist` or the docs site.
 - A local audio folder for the library, with no cloud storage needed for normal workflows.
 - `uv` for every install that includes the `ml` extra.
 
-The server calls `require_ffmpeg()` during startup. If FFmpeg is missing, startup fails with a clear setup error instead of silently using partial decoding.
+The server registers the shared runtime during startup. If no directory containing the shared FFmpeg
+libraries is available, startup fails with a clear setup error instead of silently using partial
+decoding. `ffmpeg.exe` alone is insufficient.
+
+## Shared FFmpeg runtime
+
+The repository does not bundle FFmpeg. Install or otherwise provide a shared FFmpeg build for the
+host operating system, then make its library directory available to the process. On Windows, that
+directory normally contains `avcodec-*.dll` alongside its dependent FFmpeg DLLs; Linux and macOS
+use the corresponding `.so` or `.dylib` libraries.
+
+The runtime discovery order is:
+
+1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set.
+2. The first directory on `PATH` that contains an FFmpeg shared `avcodec` library.
+
+For one PowerShell session:
+
+```powershell
+$env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = 'C:\path\to\ffmpeg\bin'
+dj-sim serve --host 127.0.0.1 --port 8765
+```
+
+The main application uses TorchCodec and the shared libraries directly. It does not invoke
+`ffmpeg.exe` or `ffprobe.exe`. An executable installed for another application neither configures
+nor substitutes for this runtime. The current local validation covers compatible shared FFmpeg ABI
+majors 9 and 8. TorchCodec selects a compatible supported ABI at runtime.
 
 ## Create and activate an environment
 

@@ -140,6 +140,8 @@ def _core_result(path: str, features: tuple[str, ...]) -> FakeTrackAnalysis:
         chroma_mean=np.arange(12, dtype=np.float32) / 12.0,
         spectral_contrast_mean=np.arange(7, dtype=np.float32) / 7.0,
         embedding=np.linspace(-1.0, 1.0, 48, dtype=np.float32),
+        fingerprint="AQAAAAIAAAA=",
+        fingerprint_version=1,
         provenance={
             "future_analyzer_parameter": "accepted",
             "sample_rate": 22_050,

@@ -8,9 +8,17 @@
 
 | Variable | Purpose |
 | --- | --- |
-| `DJ_TRACK_SIMILARITY_FFMPEG` | Full path to ffmpeg executable when `ffmpeg` is not on `PATH` |
+| `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` | Directory containing the shared FFmpeg libraries; takes priority over `PATH` discovery |
 
-If the variable is set but points to a missing file, server startup fails clearly.
+The main application requires a system-available shared FFmpeg runtime. It first uses
+`DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` when set; otherwise it finds the first `PATH` directory
+containing a shared `avcodec` library. On Windows this is normally `avcodec-*.dll`; Linux and macOS
+use the equivalent `libavcodec.so*` or `libavcodec.*.dylib` file. If the variable points to another
+directory, or no such library directory is available, server startup fails clearly.
+
+The project does not bundle FFmpeg in the repository. The main application opens the shared
+libraries directly through TorchCodec, so `ffmpeg.exe` or `ffprobe.exe` alone does not satisfy this
+configuration and is irrelevant to the application's decoder selection.
 
 ## Default paths
 
@@ -71,6 +79,7 @@ run_server.cmd
 
 With no arguments, the launcher suggests `database\volumes.sqlite` under the repository root, then
 prompts for local or LAN mode. It forwards the confirmed path only after both prompts complete.
+It inherits the shared FFmpeg runtime from its environment. It does not bundle or select FFmpeg.
 
 For non-interactive use, run `run_server.cmd local --db .\database\volumes.sqlite` or replace `local`
 with `lan`. Explicit mode commands use only the supplied arguments. Direct `dj-sim serve` commands

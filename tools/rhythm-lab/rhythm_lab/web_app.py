@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from dj_track_similarity.classifier_manifest import load_classifier_manifest_summary
-from dj_track_similarity.dependencies import require_ffmpeg
+from dj_track_similarity.ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
 from dj_track_similarity.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
 from dj_track_similarity.rhythm_lab_collections import (
@@ -1254,7 +1254,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="Audio file is missing")
         if requires_browser_preview_transcode(path):
             try:
-                return transcoded_wav_file_response(path, require_ffmpeg())
+                configure_shared_ffmpeg_runtime()
+                return transcoded_wav_file_response(path)
             except RuntimeError as error:
                 raise HTTPException(status_code=503, detail=str(error)) from error
         return FileResponse(path)

@@ -31,7 +31,7 @@ _NOW = "2026-07-24T12:00:00.000000Z"
 def test_sonara_search_endpoint_uses_stored_sonara_features(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = _sonara_library(db_path)
     seed = _add_sonara_track(
@@ -75,7 +75,7 @@ def test_sonara_search_endpoint_uses_stored_sonara_features(
 def test_generic_search_endpoint_returns_mert_result_shape(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     output = _mert_output()
@@ -105,7 +105,7 @@ def test_generic_search_endpoint_returns_mert_result_shape(
 def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = _sonara_library(db_path)
     seed = _add_sonara_track(
@@ -173,7 +173,7 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
 def test_random_sonara_track_uses_an_unselected_current_sonara_track(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = _sonara_library(db_path)
     targets = [
@@ -196,7 +196,7 @@ def test_random_sonara_track_uses_an_unselected_current_sonara_track(
 def test_random_sonara_track_requires_an_available_sonara_track(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
 
     response = TestClient(create_app(tmp_path / "library.sqlite")).post(
         "/api/search/sonara/random-track",
@@ -210,7 +210,7 @@ def test_random_sonara_track_requires_an_available_sonara_track(
 def test_search_endpoints_reject_unknown_context_parameter(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     client = TestClient(create_app(tmp_path / "library.sqlite"))
     unknown_context_key = "extra_context_track_ids"
 
@@ -241,7 +241,7 @@ def test_search_endpoints_reject_unknown_context_parameter(
 def test_generic_search_endpoint_rejects_invalid_numeric_fields(
     monkeypatch, tmp_path: Path, payload: dict[str, float]
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     client = TestClient(create_app(tmp_path / "library.sqlite"))
 
     response = client.post("/api/search", json={"seed_track_ids": [1], **payload})

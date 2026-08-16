@@ -54,8 +54,8 @@ from .db_migration import (
     LegacyLibraryMigrationError,
     migrate_legacy_library_database,
 )
-from .dependencies import require_ffmpeg
 from .embedding import adapter_factories
+from .ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from .evaluation.ablation import build_source_ablation_report
 from .evaluation.calibration import build_calibration_report, calibration_record_config, calibration_record_metrics
 from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
@@ -1291,7 +1291,7 @@ def serve(
 
     try:
         log_path = configure_logging(level=log_level, log_track_events=log_track_events)
-        ffmpeg_path = require_ffmpeg()
+        ffmpeg_runtime_dir = configure_shared_ffmpeg_runtime()
     except (RuntimeError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
@@ -1308,7 +1308,7 @@ def serve(
         selected_database_path,
         log_path,
     )
-    LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
+    LOGGER.debug("shared FFmpeg runtime directory=%s", ffmpeg_runtime_dir)
     uvicorn.run(
         create_app(
             selected_database_path,

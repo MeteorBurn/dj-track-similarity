@@ -15,6 +15,7 @@ Start with the symptom page, then check known limits and FAQ.
 ## First checks
 
 - Confirm the UI is connected to the SQLite database you expect.
-- Confirm FFmpeg is on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG` points to it.
+- Confirm a directory containing shared FFmpeg libraries is on `PATH` or is set through
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`; `ffmpeg.exe` alone is insufficient.
 - Confirm the analysis family required by the feature has been run.
 - Check the process log in the top bar for job errors.

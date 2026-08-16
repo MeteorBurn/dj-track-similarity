@@ -93,10 +93,10 @@ A pipeline request uses separate browser SONARA settings:
 `mode` defaults to `direct`, and `direct_batch_size` accepts `1..16`. Direct Mode ignores the
 nested Staged folder. Staged Mode requires an existing folder and accepts Processes `1..16`,
 Threads `1..64`, BatchSize `1..16`, and StageSize `1..512`. Staged SONARA passes temporary copy
-paths to native analysis and its per-file FFmpeg fallback while retaining the original track
-identity. ML models do not use this staging configuration. Following a failed full TorchCodec
-decode, the requested ML family uses tolerant full-track FFmpeg decoding and then retains its
-existing model-specific resampling and window preparation.
+paths to native analysis and its per-file direct shared-library recovery while retaining the original
+track identity. ML models do not use this staging configuration. Following a failed full TorchCodec
+decode, the requested ML family makes its own in-process TorchCodec recovery decode with the shared
+FFmpeg libraries and then retains its existing model-specific resampling and window preparation.
 Database migration is intentionally not an API operation; use the explicit CLI command
 `dj-sim migrate-database` after stopping every SQLite user.
 

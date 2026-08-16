@@ -127,6 +127,7 @@ tracks, and export only when the list has earned it.
 
 ## If something fails
 
-- Missing FFmpeg blocks server startup and ffmpeg-backed audio decoding. See [Troubleshooting](../help/troubleshooting.md).
+- A missing shared FFmpeg runtime blocks server startup and TorchCodec audio decoding. An
+  `ffmpeg.exe` file alone does not satisfy this requirement. See [Troubleshooting](../help/troubleshooting.md).
 - Empty search usually means the needed analysis family has not been run. See [First analysis](./first-analysis.md).
 - Text search requires stored CLAP or MuQ-MuLan audio embeddings for the selected model. Run that analysis first.

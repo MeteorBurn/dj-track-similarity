@@ -59,7 +59,7 @@ Keep those sources separate when judging a track. A MAEST label and a file tag a
 
 ## Preview
 
-The `/media/{track_id}` endpoint streams the local file when the browser can play it. AIFF, FLAC, DSD/DSF, WMA, APE, WV, M4B/M4R, TAK, TTA, and browser-unsafe WAV files are transcoded to a temporary 16-bit WAV for streaming, then the temporary file is deleted. The source audio file is not rewritten.
+The `/media/{track_id}` endpoint streams the local file when the browser can play it. AIFF, FLAC, DSD/DSF, WMA, APE, WV, M4B/M4R, TAK, TTA, and browser-unsafe WAV files are decoded and encoded in process with TorchCodec and the configured shared FFmpeg libraries to a temporary WAV for streaming, then the temporary file is deleted. The source audio file is not rewritten, and no `ffmpeg.exe` process is started.
 
 If the file is missing, preview returns an error instead of hiding the problem.
 

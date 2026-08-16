@@ -4,10 +4,18 @@
 > Goal: Give checks tied to current storage and analysis behavior.
 > Type: help
 
-## Server says FFmpeg is missing
+## Server says the shared FFmpeg runtime is missing
 
-Set `DJ_TRACK_SIMILARITY_FFMPEG` to an FFmpeg executable or put FFmpeg on `PATH`, then restart
-`dj-sim serve`.
+Install or provide a shared FFmpeg build, then make its library directory available to the server:
+put the directory containing `avcodec-*.dll` (or the platform-equivalent `.so`/`.dylib` library) on
+`PATH`, or set `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to it before starting `dj-sim serve`.
+`ffmpeg.exe` alone is insufficient because the main application loads the shared libraries directly
+through TorchCodec.
+
+```powershell
+$env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = 'C:\path\to\ffmpeg\bin'
+dj-sim serve --host 127.0.0.1 --port 8765
+```
 
 ## The selected library will not open
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
+from fastapi.responses import FileResponse
 from fastapi.testclient import TestClient
 
 from dj_track_similarity import api as api_module
@@ -19,7 +19,7 @@ from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentit
 
 
 def _client(monkeypatch, db_path: Path) -> TestClient:
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: db_path.parent)
     return TestClient(api_module.create_app(db_path))
 
 
@@ -309,7 +309,7 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
         )
 
     monkeypatch.setattr(LibraryDatabase, "get_track_detail", enriched_detail)
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: None)
     response = TestClient(
         api_module.create_app(db_path),
         raise_server_exceptions=False,
@@ -424,20 +424,19 @@ def test_media_endpoint_transcodes_aiff_without_modifying_source(
         title="Preview",
     )
     source_bytes = source.read_bytes()
-    calls: list[list[str]] = []
+    calls: list[Path] = []
+    preview = tmp_path / "preview.wav"
+    preview.write_bytes(b"RIFFbrowser-compatible-wav")
 
-    def fake_run(
-        command: list[str],
-        *,
-        stderr: int,
-        check: bool,
-    ) -> subprocess.CompletedProcess[str]:
-        calls.append(command)
-        Path(command[-1]).write_bytes(b"RIFFbrowser-compatible-wav")
-        return subprocess.CompletedProcess(command, 0)
+    def fake_transcode(path: Path) -> FileResponse:
+        calls.append(path)
+        return FileResponse(preview, media_type="audio/wav")
 
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
-    monkeypatch.setattr(media_preview_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
+    monkeypatch.setattr(
+        "dj_track_similarity.api_routes_library.transcoded_wav_file_response",
+        fake_transcode,
+    )
 
     response = TestClient(api_module.create_app(db_path)).get(
         f"/media/{identity.track_id}"
@@ -447,10 +446,7 @@ def test_media_endpoint_transcodes_aiff_without_modifying_source(
     assert response.headers["content-type"].startswith("audio/wav")
     assert response.content == b"RIFFbrowser-compatible-wav"
     assert source.read_bytes() == source_bytes
-    assert calls[0][0] == "ffmpeg-test"
-    assert calls[0][2].casefold() == str(source).casefold()
-    assert Path(calls[0][-1]) != source
-    assert not Path(calls[0][-1]).exists()
+    assert calls == [source]
 
 
 def test_media_endpoint_reports_transcode_failure_without_traceback(
@@ -465,20 +461,14 @@ def test_media_endpoint_reports_transcode_failure_without_traceback(
         title="Broken",
     )
 
-    def fail_run(
-        command: list[str],
-        *,
-        stderr: int,
-        check: bool,
-    ) -> subprocess.CompletedProcess[str]:
-        raise subprocess.CalledProcessError(
-            1,
-            command,
-            stderr=b"Invalid data found when processing input",
-        )
+    def fail_transcode(_path: Path) -> FileResponse:
+        raise media_preview_module.AudioPreviewError("Audio preview failed: Invalid data found when processing input")
 
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
-    monkeypatch.setattr(media_preview_module.subprocess, "run", fail_run)
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
+    monkeypatch.setattr(
+        "dj_track_similarity.api_routes_library.transcoded_wav_file_response",
+        fail_transcode,
+    )
 
     response = TestClient(
         api_module.create_app(db_path),

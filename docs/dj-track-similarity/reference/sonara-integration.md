@@ -9,7 +9,7 @@
 The current project uses SONARA in `playlist` mode with a `70..180` BPM range. Direct Mode is the
 default and passes source paths to native `analyze_batch()`. Staged Mode instead copies selected
 source files read-only to a per-job directory below a user-selected folder. It never moves or
-modifies the source files. In Staged Mode, SONARA and any fallback FFmpeg decoder receive only
+modifies the source files. In Staged Mode, SONARA and any direct shared-library recovery decoder receive only
 staging-copy paths, while job status, errors, and stored outputs continue to use the original
 candidate identity.
 
@@ -22,8 +22,9 @@ In Staged Mode, StageSize bounds files being copied, waiting in the shared ready
 analyzed. Each persistent worker process sets `RAYON_NUM_THREADS` from Threads and takes up to
 BatchSize ready paths for `sonara.analyze_batch()` without cross-process batch barriers. SONARA's
 Symphonia path is the normal decoder. A decode or codec failure for one result does not fail its
-mini-batch: FFmpeg decodes that same input to mono `float32` PCM, resamples it to SONARA's sample
-rate when needed, and retries through `analyze_signal()`. If that fallback fails, the error belongs
+mini-batch: TorchCodec uses the configured shared FFmpeg libraries to decode that same input to mono
+`float32` PCM, resamples it to SONARA's sample rate when needed, and retries through
+`analyze_signal()`. If that recovery fails, the error belongs
 only to the original track. Direct Mode uses the same per-file fallback rule, but its input remains
 the source path rather than a staging copy.
 
@@ -32,8 +33,8 @@ is removed on success, failure, or cancellation. Every Staged session creates a 
 directory. Before doing so, it removes an owner-marked staging directory only if its recorded owner
 process is gone, and also removes an empty `sonara-stage-*` residue that has no valid owner marker.
 It preserves a directory with a live owner and a nonempty directory without a valid marker. Staged
-Mode is SONARA-only. Generic ML reads original source paths and uses a separate tolerant full-track
-FFmpeg fallback after a full TorchCodec failure. Preview and other non-SONARA functions keep their
+Mode is SONARA-only. Generic ML reads original source paths and uses a separate direct shared-library
+recovery after a full TorchCodec failure. Preview and other non-SONARA functions keep their
 own decode paths.
 
 The application requests a fixed output set. It contains scalar and compact fixed-vector Core data
@@ -59,13 +60,13 @@ Normal SONARA candidate selection checks all three current outputs and skips a t
 Core, embedding, and fingerprint rows are present for the current track identity. If any is missing,
 one successful SONARA rerun writes all three rows together. The repository opens one transaction and
 uses a savepoint per track, so that track's Core, embedding, and fingerprint are atomic while another
-track's failure can be retained separately. Job diagnostics report staging, FFmpeg fallback,
+track's failure can be retained separately. Job diagnostics report staging, shared-library recovery,
 copy/analyze/store timing, and per-track errors.
 
 After a successful per-track store, or after a track failure is finalized, the staged runner updates
 job status immediately instead of waiting for the whole queue. The existing UI Process Log receives
 the normal track event with the original source path and track ID. A normal SONARA Direct or Staged
-success is `Track analyzed`; its FFmpeg recovery is `[ffmpeg] Track analyzed`. A final failure
+success is `Track analyzed`; its shared-library recovery retains the existing `[ffmpeg] Track analyzed` label. A final failure
 affects only that track. This behavior reuses the current analysis-event UI rather than adding a
 separate staging component.
 

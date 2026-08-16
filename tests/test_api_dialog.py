@@ -12,8 +12,8 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 @pytest.fixture(autouse=True)
-def _ffmpeg(monkeypatch) -> None:
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+def _shared_ffmpeg(monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: None)
 
 
 def _add_track(
@@ -57,13 +57,13 @@ def test_choose_folder_endpoint_returns_selected_path(
     assert response.json() == {"path": str(selected)}
 
 
-def test_create_app_requires_ffmpeg(monkeypatch, tmp_path: Path) -> None:
-    def missing_ffmpeg() -> str:
-        raise RuntimeError("ffmpeg is required")
+def test_create_app_requires_shared_ffmpeg(monkeypatch, tmp_path: Path) -> None:
+    def missing_shared_ffmpeg() -> Path:
+        raise RuntimeError("shared FFmpeg is required")
 
-    monkeypatch.setattr(api_module, "require_ffmpeg", missing_ffmpeg)
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", missing_shared_ffmpeg)
 
-    with pytest.raises(RuntimeError, match="ffmpeg is required"):
+    with pytest.raises(RuntimeError, match="shared FFmpeg is required"):
         api_module.create_app(tmp_path / "library.sqlite")
 
 

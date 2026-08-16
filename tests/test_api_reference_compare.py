@@ -184,7 +184,7 @@ def test_reference_compare_verdict_rejects_stale_candidate_identity_without_feed
 
 
 def _client(monkeypatch, db_path: Path) -> TestClient:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     return TestClient(create_app(db_path))
 
 

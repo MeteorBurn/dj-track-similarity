@@ -20,8 +20,8 @@ from .api_routes_server import register_server_routes
 from .api_routes_tags_export import register_tags_export_routes
 from .api_state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
 from .classifier_scoring import promoted_classifiers
-from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
+from .ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from .logging_config import configure_logging, install_asyncio_exception_logging, install_standard_stream_logging
 from .rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
 
@@ -99,9 +99,9 @@ def create_app(
     log_track_events: bool | None = None,
 ) -> FastAPI:
     log_path = configure_logging(level=log_level, log_track_events=log_track_events)
-    ffmpeg_path = require_ffmpeg()
+    ffmpeg_runtime_dir = configure_shared_ffmpeg_runtime()
     LOGGER.info("API app created db_path=%s log_path=%s", db_path, log_path)
-    LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
+    LOGGER.debug("shared FFmpeg runtime directory=%s", ffmpeg_runtime_dir)
     state = AppDatabaseState(db_path)
     app = FastAPI(title="dj-track-similarity Utility")
     app.router.on_startup.append(install_asyncio_exception_logging)
@@ -135,7 +135,6 @@ def create_app(
     register_library_routes(
         app,
         state,
-        ffmpeg_path=ffmpeg_path,
         promoted_classifiers=promoted_classifiers,
         reveal_track_file=reveal_track_file,
     )

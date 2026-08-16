@@ -32,7 +32,6 @@ def register_library_routes(
     app: FastAPI,
     state: AppDatabaseState,
     *,
-    ffmpeg_path: str,
     promoted_classifiers: Callable[[], list[dict[str, object]]],
     reveal_track_file: Callable[[Path], None],
 ) -> None:
@@ -199,7 +198,7 @@ def register_library_routes(
             raise HTTPException(status_code=404, detail="Audio file is missing")
         try:
             if requires_browser_preview_transcode(path):
-                return transcoded_wav_file_response(path, ffmpeg_path)
+                return transcoded_wav_file_response(path)
             return FileResponse(path)
         except AudioPreviewError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error

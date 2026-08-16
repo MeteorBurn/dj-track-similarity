@@ -6,7 +6,10 @@
 
 ## Local-first means local setup matters
 
-The app depends on your local Python environment, FFmpeg, optional ML packages, GPU runtime, filesystem paths, and browser access to the backend.
+The app depends on your local Python environment, a system-available shared FFmpeg runtime, optional
+ML packages, GPU runtime, filesystem paths, and browser access to the backend. The repository does
+not bundle FFmpeg; an `ffmpeg.exe` installed for another program does not replace the shared
+libraries required by TorchCodec.
 
 ## Model analysis can be heavy
 

@@ -65,19 +65,19 @@ def _typed_track(database: LibraryDatabase, path: Path):
     ).identity
 
 
-def test_serve_reports_missing_ffmpeg_without_traceback(
+def test_serve_reports_missing_shared_ffmpeg_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         cli,
-        "require_ffmpeg",
-        lambda: (_ for _ in ()).throw(RuntimeError("ffmpeg is required")),
+        "configure_shared_ffmpeg_runtime",
+        lambda: (_ for _ in ()).throw(RuntimeError("shared FFmpeg is required")),
     )
 
     result = CliRunner().invoke(cli.app, ["serve"])
 
     assert result.exit_code == 1
-    assert "ffmpeg is required" in result.output
+    assert "shared FFmpeg is required" in result.output
     assert "Traceback" not in result.output
 
 
@@ -90,7 +90,7 @@ def test_serve_without_database_starts_unselected_and_creates_no_bundle(
     log_path = tmp_path / "app.log"
     captured: dict[str, object] = {}
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(cli, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(cli, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
     monkeypatch.setattr(
         cli,
         "configure_logging",
@@ -140,7 +140,7 @@ def test_serve_creates_selected_current_database_and_passes_log_config(
     db_path = tmp_path / "library.sqlite"
     log_path = tmp_path / "app.log"
     captured: dict[str, object] = {}
-    monkeypatch.setattr(cli, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(cli, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
     monkeypatch.setattr(
         cli,
         "configure_logging",
@@ -188,7 +188,7 @@ def test_serve_opens_existing_selected_current_database(
     database = LibraryDatabase(db_path)
     catalog_uuid = database.catalog_uuid
     captured: dict[str, object] = {}
-    monkeypatch.setattr(cli, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(cli, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
     monkeypatch.setattr(
         cli,
         "configure_logging",

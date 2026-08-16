@@ -30,7 +30,8 @@ not reorganize or rewrite the source files.
 
 - A local folder of audio files.
 - A local SQLite path where the app can create or open the library.
-- FFmpeg available on `PATH` or through `DJ_TRACK_SIMILARITY_FFMPEG`.
+- A system-available shared FFmpeg runtime: its library directory on `PATH` or in
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`. `ffmpeg.exe` alone is not enough.
 - Optional model dependencies if you want SONARA, MAEST, MERT, MuQ, or CLAP analysis.
 
 ## Privacy habit

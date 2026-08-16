@@ -250,7 +250,7 @@ def test_evaluation_api_rejects_unselected_and_legacy_database(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     unselected = TestClient(create_app()).get("/api/evaluation/summary")
     legacy_path = tmp_path / "legacy.sqlite"
     with sqlite3.connect(legacy_path) as connection:
@@ -293,7 +293,7 @@ def test_evaluation_feedback_does_not_touch_audio_path(
 
 
 def _client(monkeypatch, db_path: Path) -> TestClient:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     return TestClient(create_app(db_path))
 
 

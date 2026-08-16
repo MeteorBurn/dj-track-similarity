@@ -1,6 +1,4 @@
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 import types
 from types import SimpleNamespace
@@ -13,6 +11,7 @@ import dj_track_similarity.audio_loader as audio_loader
 from dj_track_similarity.audio_loader import (
     load_audio_mono_with_ffmpeg,
     load_decoded_audio,
+    load_decoded_audio_with_ffmpeg,
 )
 
 
@@ -97,14 +96,6 @@ def test_load_decoded_audio_requests_torchcodec_mono_output(
     torchcodec_module.decoders = decoders_module
     monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_module)
     monkeypatch.setitem(sys.modules, "torchcodec.decoders", decoders_module)
-    monkeypatch.setattr(
-        audio_loader,
-        "_load_with_ffmpeg",
-        lambda path: (_ for _ in ()).throw(
-            AssertionError("FFmpeg must not run after TorchCodec succeeds")
-        ),
-    )
-
     result = load_decoded_audio(audio_path)
 
     assert result.path == str(audio_path)
@@ -133,20 +124,11 @@ def test_load_decoded_audio_does_not_bypass_torchcodec_failure(
     torchcodec_module.decoders = decoders_module
     monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_module)
     monkeypatch.setitem(sys.modules, "torchcodec.decoders", decoders_module)
-    monkeypatch.setattr(
-        audio_loader,
-        "_load_with_ffmpeg",
-        lambda path: (_ for _ in ()).throw(
-            AssertionError("shared ML decoding must not bypass TorchCodec")
-        ),
-    )
-
     with pytest.raises(RuntimeError, match="unsupported test codec"):
         load_decoded_audio(audio_path)
 
 
-@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for the integration check")
-def test_ffmpeg_decode_uses_arithmetic_mean_for_correlated_stereo(tmp_path: Path) -> None:
+def test_shared_ffmpeg_decode_uses_arithmetic_mean_for_correlated_stereo(tmp_path: Path) -> None:
     audio_path = tmp_path / "correlated-stereo.wav"
     expected = _write_identical_stereo_pcm_wav(audio_path)
 
@@ -201,137 +183,36 @@ def test_installed_torchcodec_cuda_wheel_decodes_real_wav(tmp_path: Path) -> Non
     assert result.detail == "torchcodec 0.16 decode (num_channels=1)"
 
 
-def test_load_audio_mono_with_ffmpeg_bypasses_native_wave(monkeypatch, tmp_path: Path) -> None:
-    audio_path = tmp_path / "track.wav"
-    _write_mono_pcm_wav(audio_path)
-    expected = np.asarray([0.1, -0.2], dtype=np.float32)
-
-    monkeypatch.setattr(
-        audio_loader,
-        "_load_with_ffmpeg",
-        lambda path: (expected, 48_000, "ffmpeg decode"),
-    )
-
-    audio, sample_rate, detail = load_audio_mono_with_ffmpeg(audio_path)
-
-    assert sample_rate == 48_000
-    assert np.array_equal(audio, expected)
-    assert detail == "ffmpeg decode"
-
-
-def test_ffmpeg_decode_pins_first_audio_stream_and_disables_non_audio(monkeypatch, tmp_path: Path) -> None:
-    audio_path = tmp_path / "track.mp3"
-    audio_path.write_bytes(b"not real mp3 bytes")
-    decoded = np.array([0.1, -0.2, 0.3], dtype=np.float32)
-    commands = []
-
-    def fake_run(command, *, check, stdout, stderr):
-        commands.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout=decoded.tobytes(), stderr=b"")
-
-    monkeypatch.setattr(
-        audio_loader,
-        "shutil",
-        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
-        raising=False,
-    )
-    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
-    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
-
-    audio, sample_rate, detail = load_audio_mono_with_ffmpeg(audio_path)
-
-    assert sample_rate == 44_100
-    assert np.allclose(audio, decoded)
-    assert "ffmpeg decode" in detail
-    command = commands[0]
-    assert "-nostdin" in command
-    assert command[command.index("-map") + 1] == "0:a:0"
-    assert "-vn" in command
-    assert "-sn" in command
-    assert "-dn" in command
-    assert command[command.index("-af") + 1] == audio_loader.FFMPEG_ARITHMETIC_MONO_FILTER
-    assert "-ar" not in command
-
-
-def test_ffmpeg_decode_keeps_recovered_pcm_when_tolerant_decode_reports_an_error(
-    monkeypatch,
-    tmp_path: Path,
+def test_shared_ffmpeg_fallback_uses_manual_arithmetic_mean_without_subprocess(
+    monkeypatch, tmp_path: Path
 ) -> None:
-    """A recoverable decoder error must not discard valid PCM emitted before it."""
+    torch = pytest.importorskip("torch")
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"encoded audio")
 
-    audio_path = tmp_path / "truncated.flac"
-    audio_path.write_bytes(b"not real flac bytes")
-    recovered = np.asarray([0.1, -0.2, 0.3], dtype=np.float32)
-    commands = []
+    class FakeAudioDecoder:
+        def __init__(self, source: str) -> None:
+            assert source == str(audio_path)
 
-    def fake_run(command, *, check, stdout, stderr):
-        commands.append(command)
-        assert check is False
-        return subprocess.CompletedProcess(
-            command,
-            69,
-            stdout=recovered.tobytes(),
-            stderr=b"Invalid data found when processing input",
-        )
+        @staticmethod
+        def get_all_samples():
+            return SimpleNamespace(
+                data=torch.tensor([[0.25, -0.5], [0.25, 0.5]], dtype=torch.float32),
+                sample_rate=48_000,
+            )
 
-    monkeypatch.setattr(
-        audio_loader,
-        "shutil",
-        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
-        raising=False,
-    )
-    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
-    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
+    torchcodec_module = types.ModuleType("torchcodec")
+    decoders_module = types.ModuleType("torchcodec.decoders")
+    decoders_module.AudioDecoder = FakeAudioDecoder
+    torchcodec_module.decoders = decoders_module
+    monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_module)
+    monkeypatch.setitem(sys.modules, "torchcodec.decoders", decoders_module)
+    mono, sample_rate, detail = load_audio_mono_with_ffmpeg(audio_path)
+    decoded = load_decoded_audio_with_ffmpeg(audio_path)
 
-    audio, sample_rate, detail = load_audio_mono_with_ffmpeg(audio_path)
-
-    assert sample_rate == 44_100
-    assert np.array_equal(audio, recovered)
-    assert audio.flags.writeable
-    assert "ffmpeg decode" in detail
-    command = commands[0]
-    assert command[command.index("-err_detect") + 1] == "ignore_err"
-    assert command[command.index("-fflags") + 1] == "+discardcorrupt+genpts"
-
-
-def test_ffmpeg_decode_reports_invalid_audio_stream_when_source_rate_is_unknown(monkeypatch, tmp_path: Path) -> None:
-    audio_path = tmp_path / "broken.flac"
-    audio_path.write_bytes(b"not real flac bytes")
-
-    monkeypatch.setattr(
-        audio_loader,
-        "shutil",
-        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
-        raising=False,
-    )
-    monkeypatch.setattr(audio_loader, "_source_sample_rate_from_file_metadata", lambda path: None)
-    monkeypatch.setattr(audio_loader, "_source_sample_rate_from_ffprobe", lambda path, *, ffmpeg_path: None)
-
-    with pytest.raises(RuntimeError, match="Invalid audio stream: ffmpeg could not decode audio"):
-        load_audio_mono_with_ffmpeg(audio_path)
-
-
-def test_ffmpeg_decode_reports_invalid_audio_stream_when_ffmpeg_fails(monkeypatch, tmp_path: Path) -> None:
-    audio_path = tmp_path / "broken.aiff"
-    audio_path.write_bytes(b"not real aiff bytes")
-
-    def fake_run(command, *, check, stdout, stderr):
-        assert check is False
-        return subprocess.CompletedProcess(
-            command,
-            1,
-            stdout=b"",
-            stderr=b"Invalid data found when processing input",
-        )
-
-    monkeypatch.setattr(
-        audio_loader,
-        "shutil",
-        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
-        raising=False,
-    )
-    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
-    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
-
-    with pytest.raises(RuntimeError, match="Invalid audio stream: ffmpeg could not decode audio"):
-        load_audio_mono_with_ffmpeg(audio_path)
+    assert not hasattr(audio_loader, "subprocess")
+    assert sample_rate == 48_000
+    assert np.array_equal(mono, np.asarray([0.25, 0.0], dtype=np.float32))
+    assert detail == "torchcodec shared FFmpeg decode (arithmetic channel mean)"
+    assert torch.equal(decoded.audio, torch.tensor([0.25, 0.0], dtype=torch.float32))
+    assert decoded.sample_rate == 48_000

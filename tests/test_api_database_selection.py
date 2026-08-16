@@ -16,8 +16,8 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 @pytest.fixture(autouse=True)
-def _ffmpeg(monkeypatch) -> None:
-    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+def _shared_ffmpeg(monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: None)
 
 
 def _add_track(

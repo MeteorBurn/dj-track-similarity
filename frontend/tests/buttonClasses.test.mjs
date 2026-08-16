@@ -116,22 +116,26 @@ test("genre save button is placed between refresh tags and database clear", () =
   assert.ok(genreSaveIndex < clearIndex);
 });
 
-test("scan action row keeps icon controls on the standard button grid", () => {
+test("scan action row keeps the primary action flexible beside fixed icon controls", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const rowMatch = source.match(/<div className="scan-action-row">([\s\S]*?)<\/div>/);
   const styleMatch = styles.match(/\.scan-action-row\s*{([\s\S]*?)}/);
+  const primaryButtonMatch = styles.match(/\.scan-action-row \.scan-start-button\s*{([\s\S]*?)}/);
+  const iconButtonMatch = styles.match(/\.scan-action-row \.icon-button\s*{([\s\S]*?)}/);
 
   assert.ok(rowMatch, "scan action row markup exists");
   assert.ok(styleMatch, "scan action row styles exist");
+  assert.ok(primaryButtonMatch, "scan primary button styles exist");
+  assert.ok(iconButtonMatch, "scan icon button styles exist");
 
   const controlCount = (rowMatch[1].match(/<button\b/g) || []).length;
-  const declaredIconColumns = Number(styleMatch[1].match(/repeat\((\d+),\s*34px\)/)?.[1] || 0);
 
   assert.equal(controlCount, 5);
-  assert.equal(declaredIconColumns, controlCount - 1);
+  assert.match(styleMatch[1], /display:\s*flex/);
   assert.match(styleMatch[1], /gap:\s*6px/);
-  assert.doesNotMatch(styles, /\.scan-action-row\s+\.icon-button\s*{[\s\S]*?width:\s*42px/);
+  assert.match(primaryButtonMatch[1], /flex:\s*1/);
+  assert.match(iconButtonMatch[1], /flex:\s*0 0 34px/);
 });
 
 test("analysis controls expose one checkbox-driven Analyze action", () => {

@@ -110,12 +110,12 @@ test("analysis API carries separate Direct and Staged SONARA settings", () => {
   assert.match(appSource, /stage_size:\s*sonaraSettings\.staged\.stageSize/);
 });
 
-test("SONARA panel exposes mode, read-only folder picker, and editable staged values", () => {
+test("SONARA panel exposes the staging folder picker only in Staged Mode", () => {
   assert.match(panelSource, />Direct</);
   assert.match(panelSource, />Staged</);
   assert.match(panelSource, /staging-folder-picker-button/);
   assert.match(panelSource, /readOnly/);
-  assert.match(panelSource, /sonaraSettings\.mode !== "staged"/);
+  assert.match(panelSource, /sonaraSettings\.mode === "staged" && \(/);
   for (const label of ["Processes", "Threads", "BatchSize", "StageSize"]) {
     assert.match(panelSource, new RegExp(`label="${label}"`));
   }

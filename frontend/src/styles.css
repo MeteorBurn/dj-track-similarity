@@ -1020,14 +1020,18 @@ h2 {
 
 .scan-action-row {
   align-items: stretch;
-  display: grid;
+  display: flex;
   gap: 6px;
-  grid-template-columns: max-content repeat(4, 34px);
   margin-bottom: 8px;
 }
 
 .scan-action-row .scan-start-button {
+  flex: 1;
   margin-bottom: 0;
+}
+
+.scan-action-row .icon-button {
+  flex: 0 0 34px;
 }
 
 .folder-picker {

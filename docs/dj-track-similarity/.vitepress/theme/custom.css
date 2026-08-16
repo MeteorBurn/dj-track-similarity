@@ -216,6 +216,40 @@ body::before {
   letter-spacing: 0;
 }
 
+.VPNavBarTitle.has-sidebar,
+.VPNavBarTitle.has-sidebar .title {
+  width: 100%;
+}
+
+.VPNavBarTitle.has-sidebar .title {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 46px;
+  align-items: center;
+}
+
+.VPNavBarTitle.has-sidebar .title .logo,
+.VPNavBarTitle.has-sidebar .title::after {
+  position: static;
+  transform: none;
+}
+
+.VPNavBarTitle.has-sidebar .title .logo {
+  grid-column: 1;
+}
+
+.VPNavBarTitle.has-sidebar .title::after {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.VPNavBarTitle.has-sidebar .title span {
+  grid-column: 2;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
 .VPNavBarTitle .title::after {
   content: "";
   display: inline-block;
@@ -230,13 +264,10 @@ body::before {
 
 .VPNavBarMenuLink,
 .VPNavBarMenuGroup .button {
-  font-weight: 650;
-}
-
-.VPNavBarMenuLink {
-  font-family: var(--dts-font-display);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-family: var(--vp-font-family-base);
+  font-size: 0.94rem !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.01em;
 }
 
 .VPNavBarMenuLink:hover,
@@ -409,9 +440,9 @@ body::before {
   font-family: var(--vp-font-family-mono);
   font-size: 0.69rem;
   font-weight: 700;
-  letter-spacing: 0.065em;
+  letter-spacing: 0.01em;
   line-height: 1.25;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .VPSidebar .VPSidebarItem.level-0.has-active > .item > .text {
@@ -563,6 +594,16 @@ body::before {
   }
 }
 
+@media (min-width: 1536px) {
+  .VPContent:has(.VPDoc.has-aside) {
+    padding-right: 32px;
+  }
+
+  .VPDoc.has-aside {
+    padding-right: 0;
+  }
+}
+
 .vp-doc {
   max-width: var(--dts-doc-wide-width);
   color: var(--vp-c-text-1);
@@ -588,8 +629,8 @@ body::before {
 .vp-doc > div > ol,
 .vp-doc > div > blockquote,
 .vp-doc > div > .custom-block {
-  max-width: var(--dts-doc-readable-width);
-  width: min(100%, var(--dts-doc-readable-width));
+  max-width: var(--dts-doc-wide-width);
+  width: min(100%, var(--dts-doc-wide-width));
   margin-right: auto;
   margin-left: auto;
 }

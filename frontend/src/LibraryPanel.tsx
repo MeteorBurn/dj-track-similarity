@@ -220,10 +220,12 @@ export function LibraryPanel({
               <button className={`sonara-mode-button ${sonaraSettings.mode === "staged" ? "active" : ""}`} title="Копировать входные файлы во временную SSD-папку" disabled={settingsDisabled} onClick={() => onSonaraSettingsChange({ ...sonaraSettings, mode: "staged" })} type="button">Staged</button>
             </div>
           </div>
-          <div className="path-row sonara-staging-path-row">
-            <input value={sonaraSettings.staged.folder} readOnly disabled={sonaraSettings.mode !== "staged"} title="Папка для временных staging-копий SONARA" />
-            <button className="icon-button folder-picker staging-folder-picker-button" title="Choose Folder для staging-копий" aria-label="Choose Folder для staging-копий" disabled={settingsDisabled || sonaraSettings.mode !== "staged"} onClick={onChooseStagingFolder} type="button"><FolderOpen size={17} /></button>
-          </div>
+          {sonaraSettings.mode === "staged" && (
+            <div className="path-row sonara-staging-path-row">
+              <input value={sonaraSettings.staged.folder} readOnly title="Папка для временных staging-копий SONARA" />
+              <button className="icon-button folder-picker staging-folder-picker-button" title="Choose Folder для staging-копий" aria-label="Choose Folder для staging-копий" disabled={settingsDisabled} onClick={onChooseStagingFolder} type="button"><FolderOpen size={17} /></button>
+            </div>
+          )}
           {sonaraSettings.mode === "direct" ? (
             <NumberStepper label="BatchSize" value={sonaraSettings.directBatchSize} minimum={1} maximum={16} disabled={settingsDisabled} classPrefix="sonara-direct-batch" onChange={(directBatchSize) => onSonaraSettingsChange({ ...sonaraSettings, directBatchSize })} />
           ) : (

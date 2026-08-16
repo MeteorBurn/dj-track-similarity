@@ -230,7 +230,7 @@ support M3U and CSV. This is browser-local working state, not automatic sequenci
 
 ### 4. 💬 Search by text
 
-After CLAP or MuQ-MuLan audio embeddings exist, choose that family in the CLAP text-search tab and search your library from prompts such as:
+After CLAP or MuQ-MuLan audio embeddings exist, choose that family in the TEXT tab and search your library from prompts such as:
 
 ```text
 dark hypnotic techno, rolling bass, low light, late night tension

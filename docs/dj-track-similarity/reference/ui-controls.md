@@ -59,7 +59,7 @@ affect SONARA only, so GPU model analysis does not use the staging folder.
 
 ## Search tabs
 
-The primary tab list is **LAB**, **SONARA**, **MERT**, **MUQ**, **MULAN**, **CLAP**, and **CLASS**.
+The primary tab list is **LAB**, **SONARA**, **MERT**, **MUQ**, **MULAN**, **TEXT**, and **CLASS**.
 Use `ArrowLeft` and `ArrowRight` to move between tabs; `Home` and `End` jump to the first and last
 tab.
 
@@ -77,9 +77,9 @@ The **LAB** tab compares a reference track across six separate default groups: C
 MuQ-MuLan, MAEST, and SONARA. Unavailable models show a model-specific reason. Verdict writes
 include `catalog_uuid` and `track_uuid`.
 
-The **CLAP** tab has a **Model** control for CLAP and MuQ-MuLan text-to-track search. It requires
-current stored audio embeddings for the selected family and keeps the result in that family’s score
-space.
+The **TEXT** tab has a **Model** control for CLAP and MuQ-MuLan text-to-track search. It requires
+current stored audio embeddings for the selected family. Results from either selection stay in that
+family’s score space and appear on the TEXT tab.
 
 The top-bar Rhythm Lab action calls `/api/rhythm-lab/launch` and opens the returned local URL. The
 current set can be saved as a Lab review collection. Standalone Rhythm Lab shows current, missing,

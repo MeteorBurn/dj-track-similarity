@@ -93,7 +93,7 @@ const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: s
   mert: { label: "MERT", title: "MERT seed embedding search" },
   muq: { label: "MUQ", title: "MuQ seed embedding search" },
   mulan: { label: "MULAN", title: "MuQ-MuLan seed embedding search" },
-  clap: { label: "CLAP", title: "CLAP text search" },
+  clap: { label: "TEXT", title: "TEXT text search (CLAP or MuQ-MuLan)" },
   class: { label: "CLASS", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }
 };

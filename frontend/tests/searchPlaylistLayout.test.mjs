@@ -11,6 +11,7 @@ import ts from "typescript";
 const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
 const panelSource = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
 const trackPanelSource = readFileSync(fileURLToPath(new URL("../src/TrackPanel.tsx", import.meta.url)), "utf8");
+const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf8");
 
 async function loadSearchSurfaceState() {
   const sourcePath = new URL("../src/searchSurfaceState.ts", import.meta.url);
@@ -125,6 +126,14 @@ test("primary search tabs expose the seven maintained workflows with roving ARIA
   assert.match(panelSource, /onKeyDown=\{handlePrimaryTabKeyDown\}/);
   assert.match(panelSource, /muq: \{ label: "MUQ"/);
   assert.match(panelSource, /mulan: \{ label: "MULAN"/);
+});
+
+test("TEXT tab keeps results from both text embedding models visible", () => {
+  assert.match(panelSource, /clap: \{ label: "TEXT", title: "TEXT text search \(CLAP or MuQ-MuLan\)" \}/);
+  assert.match(
+    appSource,
+    /commitGenericSearchResults\(ticket, "clap", value\)/
+  );
 });
 
 test("SONARA tab can add an unselected random SONARA-ready seed", () => {

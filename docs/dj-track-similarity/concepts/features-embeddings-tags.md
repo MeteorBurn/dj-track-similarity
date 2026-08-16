@@ -87,7 +87,7 @@ MuQ-MuLan uses the official joint music-text model. Its audio analysis reuses th
 path: mono 24 kHz `float32` audio in 10-second windows. It stores a separate L2-normalized 512D
 audio vector in `mulan_embeddings`. Existing MuQ vectors are never converted into this family.
 
-Use the MULAN tab for audio-to-audio seed search. In the CLAP text-search tab, choose
+Use the MULAN tab for audio-to-audio seed search. In the TEXT tab, choose
 **MuQ-MuLan** to embed text and retrieve only `mulan_embeddings`. Its text and seed scores stay
 separate from MuQ and CLAP scores. MuQ-MuLan is available as an explicit Evaluation candidate
 source, but it is not added automatically to the default profile or Audio Dedup weights. LAB
@@ -95,7 +95,7 @@ Reference Compare includes MuQ-MuLan in its six separate default groups.
 
 ## CLAP audio embedding
 
-CLAP analysis stores audio embeddings. The CLAP tab embeds a text prompt at search time and compares it to stored audio embeddings. LAB Reference Compare and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals, which are not the same as CLAP prompt scores.
+CLAP analysis stores audio embeddings. The TEXT tab embeds a text prompt at search time and compares it to stored audio embeddings. LAB Reference Compare and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals, which are not the same as CLAP prompt scores.
 
 ## Classifier scores
 

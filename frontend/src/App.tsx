@@ -1178,7 +1178,7 @@ export function App() {
       }, {
         signal: ticket.controller.signal,
       });
-      if (commitGenericSearchResults(ticket, textEmbeddingFamily, value)) {
+      if (commitGenericSearchResults(ticket, "clap", value)) {
         appendActivity("ok", `${label} search завершен`, `Найдено: ${value.length}`);
         setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }

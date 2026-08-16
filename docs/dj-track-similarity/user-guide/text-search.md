@@ -12,13 +12,14 @@ The result is a ranked shortlist to audition. It can reveal tracks with incomple
 it does not prove that every word in the prompt is present. Rewording the prompt changes the
 question and often changes the useful part of the list.
 
-The **CLAP** tab calls `/api/search/text`. Its **Model** control selects CLAP or MuQ-MuLan. The
+The **TEXT** tab calls `/api/search/text`. Its **Model** control selects CLAP or MuQ-MuLan. The
 selected adapter embeds text and compares that vector only against stored audio embeddings from the
-same family. Run the matching analysis before using it.
+same family. Results from either selection appear in the TEXT tab. Run the matching analysis before
+using it.
 
 ## CLI and direct API
 
-The browser CLAP tab is the main interactive flow. The same search is available from the CLI:
+The browser TEXT tab is the main interactive flow. The same search is available from the CLI:
 
 ```powershell
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --model mulan --limit 20 --db .\data\library.sqlite

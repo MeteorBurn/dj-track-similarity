@@ -9,9 +9,9 @@ The project is a Python package with optional extras plus a React frontend and V
 ## Requirements
 
 - Python `>=3.10`.
-- A system-available shared FFmpeg runtime. Put its library directory (containing FFmpeg `.dll`,
-  `.so`, or `.dylib` files) on `PATH`, or set
-  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to that directory.
+- A system-available shared FFmpeg runtime. The local gitignored `libs/ffmpeg` directory is checked
+  first. Otherwise, put its library directory (containing FFmpeg `.dll`, `.so`, or `.dylib` files)
+  on `PATH`, or set `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to that directory.
 - Node.js and npm when building `frontend/dist` or the docs site.
 - A local audio folder for the library, with no cloud storage needed for normal workflows.
 - `uv` for every install that includes the `ml` extra.
@@ -22,17 +22,20 @@ decoding. `ffmpeg.exe` alone is insufficient.
 
 ## Shared FFmpeg runtime
 
-The repository does not bundle FFmpeg. Install or otherwise provide a shared FFmpeg build for the
-host operating system, then make its library directory available to the process. On Windows, that
-directory normally contains `avcodec-*.dll` alongside its dependent FFmpeg DLLs; Linux and macOS
-use the corresponding `.so` or `.dylib` libraries.
+The FFmpeg runtime is not versioned or bundled with the repository. A local installation may place
+its shared libraries in the gitignored `libs/ffmpeg` directory at the project root. Otherwise,
+install or provide a shared FFmpeg build for the host operating system and make its library directory
+available to the process. On Windows, that directory normally contains `avcodec-*.dll` alongside its
+dependent FFmpeg DLLs; Linux and macOS use the corresponding `.so` or `.dylib` libraries.
 
 The runtime discovery order is:
 
-1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set.
-2. The first directory on `PATH` that contains an FFmpeg shared `avcodec` library.
+1. Project-root `libs/ffmpeg`, when it contains an FFmpeg shared `avcodec` library.
+2. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set.
+3. The first directory on `PATH` that contains an FFmpeg shared `avcodec` library.
 
-For one PowerShell session:
+When no valid project-root `libs/ffmpeg` runtime is present, configure the next discovery choice for
+one PowerShell session:
 
 ```powershell
 $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = 'C:\path\to\ffmpeg\bin'

@@ -288,9 +288,10 @@ Verified local development is Windows-first, but the Python package and web app 
 You need:
 
 - Python `>=3.10`
-- A system-available shared FFmpeg runtime: a directory containing FFmpeg libraries (`.dll`,
-  `.so`, or `.dylib`) on `PATH`, or that directory in
-  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`. An `ffmpeg.exe` file alone is insufficient.
+- A system-available shared FFmpeg runtime. Discovery checks the gitignored local
+  `libs/ffmpeg` directory first, then `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, then a `PATH`
+  directory containing FFmpeg libraries (`.dll`, `.so`, or `.dylib`). An `ffmpeg.exe` file alone
+  is insufficient.
 - A local folder of audio files
 - Node.js only when you build the frontend or docs from source
 - `uv` when installing optional dependencies that include the `ml` extra

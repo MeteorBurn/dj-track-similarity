@@ -6,9 +6,10 @@
 
 ## Server says the shared FFmpeg runtime is missing
 
-Install or provide a shared FFmpeg build, then make its library directory available to the server:
-put the directory containing `avcodec-*.dll` (or the platform-equivalent `.so`/`.dylib` library) on
-`PATH`, or set `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to it before starting `dj-sim serve`.
+First check project-root `libs/ffmpeg`, which has highest priority and must contain
+`avcodec-*.dll` (or the platform-equivalent `.so`/`.dylib` library). This directory is gitignored.
+Otherwise, install or provide a shared FFmpeg build and set
+`DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to its library directory, or put that directory on `PATH`.
 `ffmpeg.exe` alone is insufficient because the main application loads the shared libraries directly
 through TorchCodec.
 

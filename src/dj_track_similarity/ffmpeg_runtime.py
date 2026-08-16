@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 FFMPEG_SHARED_DIR_ENV_VAR = "DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR"
+PROJECT_FFMPEG_SHARED_DIR = Path(__file__).resolve().parents[2] / "libs" / "ffmpeg"
 _DLL_DIRECTORY_HANDLES: list[object] = []
 _AVCODEC_LIBRARY_PATTERNS = ("avcodec-*.dll", "libavcodec.so*", "libavcodec.*.dylib")
 
@@ -25,6 +26,9 @@ def configure_shared_ffmpeg_runtime() -> Path:
 
 
 def _configured_or_path_shared_directory() -> Path | None:
+    if _contains_avcodec_library(PROJECT_FFMPEG_SHARED_DIR):
+        return PROJECT_FFMPEG_SHARED_DIR
+
     configured = os.environ.get(FFMPEG_SHARED_DIR_ENV_VAR)
     if configured:
         directory = Path(configured)

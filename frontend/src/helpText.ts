@@ -30,7 +30,7 @@ export const helpText = {
   sonaraModifierLoudness: "LUFS: уровень мастеринг-громкости. − тише по мастерингу; + громче и плотнее по мастерингу. Не равно Energy и часто менее полезен: при нормализации громкости разница может почти не ощущаться.",
   sonaraModifierVocalness: "Vocal: слышимое присутствие голоса. − инструментальнее; + больше вокала, речевых партий или вокальных семплов.",
   sonaraModifierAggression: "Aggression: жёсткость и напряжение. − мягче, глаже; + резче, жёстче, напряжённее. При неуверенном анализе SONARA этот эффект ослабляется.",
-  textPrompt: "CLAP search. Каждая строка = отдельный text prompt; CLAP усредняет positive embeddings. Пиши на английском слышимые признаки: genre/style, rhythm/drums, bass, texture, instruments, mood/space, vocal presence. Не полагайся на metadata, artist refs или отрицания вроде no/without.",
+  textPrompt: "CLAP search. Одно текстовое описание на английском: слышимые genre/style, rhythm/drums, bass, texture, instruments, mood/space и vocal presence. Не полагайся на metadata, artist refs или отрицания вроде no/without.",
   limit: "Максимум результатов поиска. Тип: целое число 1-500.",
   playlistName: "Название текущего сета. Формат: текст. Используется как имя файла экспорта.",
   outputDir: "Папка экспорта. Формат: путь Windows или POSIX, например D:/Exports. Если папки нет, она будет создана.",

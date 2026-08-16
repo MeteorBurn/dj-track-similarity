@@ -514,7 +514,10 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(clapSource, /document\.addEventListener\("pointerdown"/);
   assert.match(clapSource, /clapPresetMenuRef/);
   assert.doesNotMatch(clapSource, /clap-generate-button/);
+  assert.match(clapSource, /Text query\s*\n\s*<input\s*\n\s*type="text"/);
   assert.match(clapSource, />\s*Negative\s*</);
+  assert.match(clapSource, /Negative\s*\n\s*<input\s*\n\s*type="text"\s*\n\s*className="clap-negative-input"/);
+  assert.doesNotMatch(clapSource, /<textarea/);
   assert.doesNotMatch(clapSource, />\s*Avoid\s*</);
   assert.match(clapSource, /clap-negative-input/);
   assert.match(clapSource, /icon-button add-visible-tracks-button clap-negative-toggle/);

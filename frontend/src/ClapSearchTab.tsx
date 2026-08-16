@@ -62,8 +62,8 @@ export function ClapSearchTab({
 
   function applyClapPromptPreset(preset: ClapPromptPreset) {
     onClapPresetChange(preset.key);
-    onTextQueryChange(preset.query);
-    onClapNegativeQueryChange(preset.negativeQuery);
+    onTextQueryChange(preset.query.replace(/\s*[\r\n]+\s*/g, " "));
+    onClapNegativeQueryChange(preset.negativeQuery.replace(/\s*[\r\n]+\s*/g, " "));
     setClapPresetMenuOpen(false);
   }
 
@@ -73,12 +73,12 @@ export function ClapSearchTab({
         <div className="clap-prompt-row">
           <label className="clap-query-field" title={textPromptHelp}>
             Text query
-            <textarea
+            <input
+              type="text"
               value={textQuery}
               onChange={(event) => onTextQueryChange(event.target.value)}
-              placeholder={"breakbeat.\nThis audio is a breakbeat track.\nA breakbeat track with broken drums and syncopated percussion."}
+              placeholder="Breakbeat with broken drums and syncopated percussion"
               title={textPromptHelp}
-              rows={5}
             />
           </label>
           <div className="clap-prompt-actions" ref={clapPresetMenuRef}>
@@ -110,16 +110,16 @@ export function ClapSearchTab({
           </div>
         </div>
         <div className="clap-negative-row">
-          <label className="clap-negative-field" title="Hard-negative text bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly.">
+          <label className="clap-negative-field" title="Hard-negative text description. Type: text. Presets fill this field directly.">
             Negative
-            <textarea
+            <input
+              type="text"
               className="clap-negative-input"
               value={clapNegativeQuery}
               onChange={(event) => onClapNegativeQueryChange(event.target.value)}
-              placeholder={"This audio is a vocal pop song.\nThis audio is a straight four-on-the-floor house track."}
-              title="Hard-negative text bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly."
+              placeholder="Vocal pop song or straight four-on-the-floor house track"
+              title="Hard-negative text description. Type: text. Presets fill this field directly."
               disabled={!clapUseNegativePrompt}
-              rows={4}
             />
           </label>
           <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Apply Negative as hard-negative text queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">

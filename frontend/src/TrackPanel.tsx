@@ -101,8 +101,8 @@ export function TrackPanel({
   const syncedPageInput = currentPage ? String(currentPage) : "";
   const [pageInput, setPageInput] = useState(syncedPageInput);
   const addVisibleTitle = total === 0
-    ? "Нет отфильтрованных треков для добавления"
-    : "Добавить все отфильтрованные треки в сет. Уже добавленные треки будут пропущены.";
+    ? "Нет треков текущей страницы для добавления"
+    : "Добавить треки текущей страницы в сет. Уже добавленные треки будут пропущены.";
   const reverseSortActive = librarySortDirection === "reverse";
   const rangeStart = tracks.length ? offset + 1 : 0;
   const rangeEnd = tracks.length ? Math.min(total, offset + tracks.length) : 0;
@@ -266,7 +266,7 @@ export function TrackPanel({
         <button
           className="icon-button intent-add add-visible-tracks-button"
           title={addVisibleTitle}
-          aria-label="Добавить все отфильтрованные треки в сет"
+          aria-label="Добавить треки текущей страницы в сет"
           disabled={busy || total === 0}
           onClick={onAddVisibleTracks}
           type="button"

@@ -96,5 +96,6 @@ it as a Rhythm Lab collection.
 
 ## Add visible tracks
 
-The UI can add all currently filtered tracks to the current set. It reads the full filtered result
-from the server in bounded chunks and appends tracks that are not already in the set.
+The add button appends only the tracks already loaded on the current library page to the current
+set, in the displayed order. Tracks already in the set are skipped. It does not make a separate
+library or database request, load other pages, validate track data, or recalculate analysis.

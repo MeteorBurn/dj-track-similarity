@@ -121,7 +121,6 @@ export function App() {
     toggleLibraryPreset,
     toggleLikedOnly,
     toggleLibrarySortDirection,
-    filteredTracks,
     updateTrackLiked
   } = useLibraryState({
     databaseSelected: Boolean(databasePath),
@@ -749,27 +748,16 @@ export function App() {
     });
   }
 
-  async function addVisibleTracksToPlaylist() {
-    if (!databasePath || libraryLoading) return;
-    setBusy(true);
-    try {
-      const filtered = await filteredTracks();
-      const nextPlaylist = appendVisibleTracksToPlaylist(playlist, filtered);
-      const added = nextPlaylist.length - playlist.length;
-      if (!added) {
-        setNotice({ kind: "idle", text: "Все отфильтрованные треки уже в сете" });
-        return;
-      }
-      setPlaylist(nextPlaylist);
-      appendActivity("ok", "Отфильтрованная библиотека добавлена в сет", `${added} новых · всего найдено ${filtered.length}`);
-      setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setNotice({ kind: "error", text: message });
-      appendActivity("error", "Не удалось добавить треки в сет", message);
-    } finally {
-      setBusy(false);
+  function addVisibleTracksToPlaylist() {
+    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, orderedTracks);
+    const added = nextPlaylist.length - playlist.length;
+    if (!added) {
+      setNotice({ kind: "idle", text: "Все треки страницы уже в сете" });
+      return;
     }
+    setPlaylist(nextPlaylist);
+    appendActivity("ok", "Текущая страница добавлена в сет", `${added} новых · на странице ${orderedTracks.length}`);
+    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
   async function handleSonaraSearch() {

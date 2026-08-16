@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -85,6 +86,12 @@ def open_database_file_dialog() -> Path | None:
     return path.with_suffix(".sqlite") if not path.suffix else path
 
 
+def reveal_track_file(path: Path) -> None:
+    """Open Windows Explorer with the supplied audio file selected."""
+
+    subprocess.Popen(f'explorer.exe /select,"{path}"', shell=False)
+
+
 def create_app(
     db_path: str | Path | None = None,
     *,
@@ -125,7 +132,13 @@ def create_app(
         return JSONResponse(status_code=409, content={"detail": str(error)})
 
     register_database_routes(app, state, open_database_file_dialog=open_database_file_dialog)
-    register_library_routes(app, state, ffmpeg_path=ffmpeg_path, promoted_classifiers=promoted_classifiers)
+    register_library_routes(
+        app,
+        state,
+        ffmpeg_path=ffmpeg_path,
+        promoted_classifiers=promoted_classifiers,
+        reveal_track_file=reveal_track_file,
+    )
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_evaluation_routes(app, state)
     register_reference_compare_routes(app, state)

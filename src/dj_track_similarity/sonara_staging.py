@@ -142,6 +142,10 @@ def cleanup_orphaned_sonara_staging(root: Path) -> None:
         try:
             owner = int((path / ".owner").read_text(encoding="ascii").strip())
         except (OSError, ValueError):
+            try:
+                path.rmdir()
+            except OSError:
+                pass
             continue
         if _process_exists(owner):
             continue

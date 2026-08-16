@@ -300,3 +300,19 @@ def test_orphan_cleanup_preserves_live_job_directories(tmp_path: Path) -> None:
 
     assert not orphan.exists()
     assert live.exists()
+
+
+def test_orphan_cleanup_removes_empty_markerless_stage_directory(
+    tmp_path: Path,
+) -> None:
+    staging_root = tmp_path / "ssd"
+    empty_residue = staging_root / "sonara-stage-empty-residue"
+    unowned_files = staging_root / "sonara-stage-unowned-files"
+    empty_residue.mkdir(parents=True)
+    unowned_files.mkdir()
+    (unowned_files / "keep.wav").write_bytes(b"not owned by a staging session")
+
+    cleanup_orphaned_sonara_staging(staging_root)
+
+    assert not empty_residue.exists()
+    assert unowned_files.exists()

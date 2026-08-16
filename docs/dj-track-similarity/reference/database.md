@@ -41,6 +41,8 @@ derives MuQ-MuLan rows from existing `muq_embeddings`.
 - `sonara_features`: current SONARA scalar data and short fixed-size vectors.
 - `sonara_embeddings`: one current unnormalized 48-dimensional `float32` SONARA embedding per track,
   bound to `track_uuid` and stored independently from Core features.
+- `sonara_fingerprints`: one current versioned SONARA acoustic fingerprint per track, bound to
+  `track_uuid` and containing native `fingerprint_base64` data plus `analyzed_at`.
 - `maest_genres`: current MAEST genre labels and syncopation data.
 - `maest_embeddings`, `mert_embeddings`, `muq_embeddings`, `mulan_embeddings`, and
   `clap_embeddings`: the current audio embedding for each model family. `mulan_embeddings` stores

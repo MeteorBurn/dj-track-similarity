@@ -182,6 +182,17 @@ CREATE TABLE sonara_embeddings (
 CREATE INDEX idx_sonara_embeddings_track_uuid ON sonara_embeddings(track_uuid);
 """
 
+_DDL_SONARA_FINGERPRINTS = """
+CREATE TABLE sonara_fingerprints (
+    track_id              INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid            TEXT    NOT NULL,
+    fingerprint_version   INTEGER NOT NULL CHECK(fingerprint_version > 0),
+    fingerprint_base64    TEXT    NOT NULL,
+    analyzed_at           TEXT    NOT NULL
+);
+CREATE INDEX idx_sonara_fingerprints_track_uuid ON sonara_fingerprints(track_uuid);
+"""
+
 _DDL_MAEST_GENRES = """
 CREATE TABLE maest_genres (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
@@ -335,6 +346,7 @@ _ALL_DDL: list[str] = [
     _DDL_TAGS,
     _DDL_SONARA_FEATURES,
     _DDL_SONARA_EMBEDDINGS,
+    _DDL_SONARA_FINGERPRINTS,
     _DDL_MAEST_GENRES,
     _DDL_MAEST_EMBEDDINGS,
     _DDL_MERT_EMBEDDINGS,

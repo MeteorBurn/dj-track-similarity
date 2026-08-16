@@ -11,6 +11,7 @@ import numpy as np
 from .analysis_models import (
     AnalysisCandidate,
     EmbeddingOutput,
+    FingerprintOutput,
     SONARA_EMBEDDING_DIM,
     SonaraWrite,
 )
@@ -77,6 +78,14 @@ def prepare_sonara_write(
                 analysis.get("embedding"),
                 dim=SONARA_EMBEDDING_DIM,
                 field_name="embedding",
+            ),
+            analyzed_at=analyzed_at,
+        ),
+        fingerprint=FingerprintOutput(
+            value=_required_fingerprint_base64(analysis.get("fingerprint")),
+            version=_required_positive_int(
+                analysis.get("fingerprint_version"),
+                "fingerprint_version",
             ),
             analyzed_at=analyzed_at,
         ),
@@ -544,6 +553,21 @@ def _optional_int(
     if maximum is not None and result > maximum:
         raise ValueError(f"{key} must be at most {maximum}")
     return result
+
+
+def _required_positive_int(value: object, field_name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        raise ValueError(f"{field_name} must be a positive integer")
+    result = int(value)
+    if result <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return result
+
+
+def _required_fingerprint_base64(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("fingerprint must be a base64 string")
+    return value
 
 
 def _optional_text(values: Mapping[str, object], key: str) -> str | None:

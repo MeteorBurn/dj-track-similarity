@@ -29,7 +29,7 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | Core feature row and a dedicated 48D embedding row | Core-backed feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs |
+| SONARA | Core feature row, a dedicated 48D embedding row, and a versioned acoustic fingerprint row | Core-backed feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs; the fingerprint has no current UI, search, classifier, or dedup use |
 | MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
 | MERT | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
 | MuQ | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
@@ -78,8 +78,8 @@ blockers, cancellation, and SQLite-only resets are carried through the typed req
 responses. **CLASSIFIERS** stays a separate stage; **FULL** runs SONARA, ML, and CLASSIFIERS in
 order.
 
-SONARA is selected at startup and always runs Core plus its dedicated embedding as one fixed output
-set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, MuQ-MuLan, and CLAP, not
+SONARA is selected at startup and always runs one fixed output set. It includes Core data plus its
+dedicated embedding and acoustic fingerprint. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ, MuQ-MuLan, and CLAP, not
 SONARA or CLASSIFIERS.
 
 Browser SONARA analysis has two modes:
@@ -135,9 +135,10 @@ queue. Staging does not add a separate UI panel.
 
 ## Already analyzed tracks
 
-Analysis jobs target missing results for the selected families. SONARA skips a track only when both
-its current Core row and dedicated embedding row are present. If either row is missing, a normal
-SONARA rerun analyzes the track and stores both rows together, atomically per track. Other complete families are skipped.
+Analysis jobs target missing results for the selected families. SONARA skips a track only when its
+current Core, dedicated embedding, and acoustic fingerprint rows are present. If any row is missing,
+a normal SONARA rerun analyzes the track and stores all three rows together, atomically per track.
+Other complete families are skipped.
 Use reset only when you intentionally want to delete stored results.
 
 After adopting a SONARA change, adapt storage explicitly if needed and decide which outputs to
@@ -145,9 +146,9 @@ reset or reanalyze. Follow [Migrate and reanalyze SONARA storage](../workflows/r
 
 ## Reset boundaries
 
-- Reset SONARA removes Core rows plus dependent classifier scores. Dedicated SONARA embedding rows
-  remain. The next normal SONARA run sees Core missing and writes both outputs together. Labels and
-  feedback remain intact.
+- Reset SONARA removes Core rows plus dependent classifier scores. Dedicated SONARA embedding and
+  fingerprint rows remain. The next normal SONARA run sees Core missing and writes all three outputs
+  together. Labels and feedback remain intact.
 - Reset MAEST removes MAEST metadata and MAEST embeddings.
 - Reset MERT, MuQ, MuQ-MuLan, or CLAP deletes embeddings for that key.
 - Reset CLASSIFIERS deletes selected classifier scores only.

@@ -162,6 +162,11 @@ const libraryApi = {
     request<TrackDetail>(`/api/tracks/${trackId}`, {
       signal: options?.signal,
     }),
+  revealTrackFile: (trackId: number) =>
+    request<{ path: string }>(`/api/tracks/${trackId}/reveal`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   setTrackLiked: (track: Track, liked: boolean) =>
     request<Track>(`/api/tracks/${track.track_id}/liked`, {
       method: "POST",

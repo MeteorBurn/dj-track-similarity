@@ -30,10 +30,11 @@ Restart `dj-sim serve` and any running Rhythm Lab process after changing the env
 
 ## Timeline, SONARA embedding, or fingerprint data is unavailable
 
-Timeline and fingerprint collection remain disabled. The SONARA embedding is different: analysis
-stores it in `sonara_embeddings`, but track responses do not expose the raw vector and current
-similarity, search, and classifier workflows do not consume it. Use
-`GET /api/analysis/sonara/status` to check Core and embedding coverage separately.
+Timeline collection remains disabled. A complete SONARA analysis stores its embedding in
+`sonara_embeddings` and its versioned native-base64 acoustic fingerprint in `sonara_fingerprints`.
+Neither raw value is exposed through track responses, and neither is a current UI, similarity,
+search, classifier, or Audio Dedup input. Run normal SONARA analysis again when any of its Core,
+embedding, or fingerprint rows is missing.
 
 ## A classifier is incompatible
 

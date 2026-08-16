@@ -63,17 +63,19 @@ as same, relative, adjacent, or clash. `key_confidence` is not a similarity dime
 analyzed key only pulls the harmonic result toward neutral. Legacy transition-risk v1 keeps its
 original key behavior so recorded evaluations remain reproducible.
 
-Normal analysis jobs skip a SONARA track only when both Core and embedding are present for the
-current track identity.
+Normal analysis jobs skip a SONARA track only when Core, embedding, and fingerprint are present for
+the current track identity.
 
-## SONARA Core and embedding
+## SONARA Core, embedding, and fingerprint
 
-SONARA analysis produces a fixed Core-plus-embedding output set. It stores BPM/key/confidence,
+SONARA analysis produces a fixed Core, embedding, and fingerprint output set. It stores BPM/key/confidence,
 loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact
 structure/beat-grid values, vocalness, mood, aggression, and silence in `sonara_features`. The
-unnormalized 48-dimensional `float32` embedding is stored separately in `sonara_embeddings`.
+unnormalized 48-dimensional `float32` embedding is stored separately in `sonara_embeddings`; the
+versioned acoustic fingerprint is stored in `sonara_fingerprints` as SONARA's native base64 value.
 
-Timeline and fingerprint collection remain disabled and have no placeholder tables.
+Timeline collection remains disabled. The fingerprint is stored but is not a current UI, search,
+classifier, or Audio Dedup input.
 
 `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
 
@@ -82,8 +84,8 @@ Core deliberately does not request SONARA's Full-only `time_signature` metrogram
 See [SONARA integration](./sonara-integration.md) for the current decode, storage, and update
 boundaries.
 
-Every native batch requests the upstream features needed for Core plus the embedding. Extra values
-returned by SONARA are ignored at the conversion boundary. Core explicitly selects the bundled
+Every native batch requests the upstream features needed for Core, the embedding, and the
+fingerprint. Extra values returned by SONARA are ignored at the conversion boundary. Core explicitly selects the bundled
 SONARA vocalness model.
 `sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8` for the
 standalone job and browser Direct Mode. Browser Staged Mode keeps a separate BatchSize with default
@@ -117,8 +119,8 @@ scalars and vocalness; momentary loudness maximum and loudness range remain avai
 existing SONARA dynamics comparison, and vocalness remains an explicit search modifier.
 
 MAEST, MERT, MuQ, MuQ-MuLan, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
-Core features rather than the stored SONARA embedding, which is not a current similarity, search,
-or classifier input.
+Core features rather than the stored SONARA embedding or fingerprint, which are not current
+similarity, search, classifier, or Audio Dedup inputs.
 
 ## ML prerequisite and MAEST windows
 
@@ -136,9 +138,10 @@ scores are averaged before the top-K genres are selected.
 
 ## Dedicated storage tables
 
-The library database stores embeddings in dedicated tables:
+The library database stores embeddings and the SONARA fingerprint in dedicated tables:
 
 - `sonara_embeddings`
+- `sonara_fingerprints`
 - `maest_embeddings`
 - `mert_embeddings`
 - `muq_embeddings`
@@ -160,11 +163,11 @@ A legacy split database is rejected during normal startup and remains unchanged 
 
 ## Missing-result behavior
 
-Analysis jobs target missing selected results. SONARA checks Core and embedding independently. If
-either current row is missing, the track becomes a candidate and one successful SONARA pass writes
-both rows together. A track is skipped only when both rows are present. ML jobs also skip every
-track without current SONARA Core. Other already-complete analysis families remain skipped until
-reset.
+Analysis jobs target missing selected results. SONARA checks Core, embedding, and fingerprint
+independently. If any current row is missing, the track becomes a candidate and one successful
+SONARA pass writes all three rows together, and the track is skipped only when all three rows are
+present. ML jobs also skip every track without current SONARA Core. Other already-complete analysis
+families remain skipped until reset.
 
 ## Classifier requirement
 

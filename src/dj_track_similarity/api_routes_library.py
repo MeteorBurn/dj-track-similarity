@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -33,6 +34,7 @@ def register_library_routes(
     *,
     ffmpeg_path: str,
     promoted_classifiers: Callable[[], list[dict[str, object]]],
+    reveal_track_file: Callable[[Path], None],
 ) -> None:
     @app.post("/api/library/scan")
     def scan(request: ScanRequest):
@@ -151,6 +153,23 @@ def register_library_routes(
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/tracks/{track_id}/reveal")
+    def reveal_track_location(track_id: int):
+        try:
+            path = state.require_db().get_media_path(track_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Audio file is missing")
+        try:
+            reveal_track_file(path)
+        except OSError as error:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not open the track location: {error}",
+            ) from error
+        return {"path": str(path)}
 
     @app.post("/api/tracks/filtered", response_model=list[TrackSummaryResponse])
     def filtered_tracks(request: FilteredTracksRequest):

@@ -46,10 +46,11 @@ Omit `--limit` only after approving a full-library run:
 dj-sim analyze --models sonara --db .\data\library.sqlite
 ```
 
-SONARA writes Core rows to `sonara_features` and unnormalized 48-dimensional `float32` embeddings to
-the dedicated `sonara_embeddings` table. Each successful pass writes both outputs together.
-Timeline and fingerprint collection remain disabled. The stored embedding is not a current
-similarity, search, or classifier input.
+SONARA writes Core rows to `sonara_features`, unnormalized 48-dimensional `float32` embeddings to
+the dedicated `sonara_embeddings` table, and versioned native-base64 acoustic fingerprints to
+`sonara_fingerprints`. Each successful pass writes all three outputs together. Timeline collection
+remains disabled. The stored embedding and fingerprint are not current similarity, search,
+classifier, or Audio Dedup inputs.
 
 ## 6. Refresh affected classifiers
 

@@ -365,6 +365,52 @@ def test_media_endpoint_reports_missing_audio_file_without_traceback(
     assert "Traceback" not in response.text
 
 
+def test_reveal_track_location_uses_saved_track_path(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    source = tmp_path / "reveal.wav"
+    identity = _add_track(
+        LibraryDatabase(db_path),
+        source,
+        artist="Artist",
+        title="Reveal",
+    )
+    revealed: list[Path] = []
+    monkeypatch.setattr(
+        api_module,
+        "reveal_track_file",
+        lambda path: revealed.append(path),
+        raising=False,
+    )
+
+    response = _client(monkeypatch, db_path).post(
+        f"/api/tracks/{identity.track_id}/reveal"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"path": str(source)}
+    assert revealed == [source]
+
+
+def test_reveal_track_file_uses_explorer_select_without_shell(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Artist - Track.wav"
+    calls: list[tuple[str, bool]] = []
+
+    def fake_popen(command: str, *, shell: bool) -> None:
+        calls.append((command, shell))
+
+    monkeypatch.setattr(api_module.subprocess, "Popen", fake_popen)
+
+    api_module.reveal_track_file(source)
+
+    assert calls == [(f'explorer.exe /select,"{source}"', False)]
+
+
 def test_media_endpoint_transcodes_aiff_without_modifying_source(
     monkeypatch,
     tmp_path: Path,

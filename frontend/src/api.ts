@@ -1,7 +1,7 @@
 export type EmbeddingSource = "mert" | "maest" | "muq" | "mulan" | "clap";
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type SonaraStatusOutput = {
-  output_kind: "core";
+  output_kind: "core" | "embedding" | "fingerprint";
   present_count: number;
   missing_count: number;
 };

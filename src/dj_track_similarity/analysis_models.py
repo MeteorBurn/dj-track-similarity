@@ -8,6 +8,8 @@ newer content generation.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import math
 from collections.abc import Mapping, Sequence
@@ -22,7 +24,7 @@ from .maest_windows import MaestWindowContext
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "sonara": frozenset({"core", "embedding"}),
+        "sonara": frozenset({"core", "embedding", "fingerprint"}),
         "maest": frozenset({"analysis", "embedding"}),
         "mert": frozenset({"embedding"}),
         "muq": frozenset({"embedding"}),
@@ -907,11 +909,39 @@ class EmbeddingOutput:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class FingerprintOutput:
+    """One versioned SONARA acoustic fingerprint in native base64 form."""
+
+    value: str
+    version: int
+    analyzed_at: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, str):
+            raise ValueError("fingerprint.value must be a base64 string")
+        try:
+            decoded = base64.b64decode(self.value, validate=True)
+        except (ValueError, binascii.Error) as error:
+            raise ValueError("fingerprint.value must be valid base64") from error
+        if len(decoded) % 4:
+            raise ValueError("fingerprint.value must encode whole uint32 values")
+        if (
+            isinstance(self.version, bool)
+            or not isinstance(self.version, int)
+            or self.version <= 0
+        ):
+            raise ValueError("fingerprint.version must be a positive integer")
+        if not isinstance(self.analyzed_at, str) or not self.analyzed_at.strip():
+            raise ValueError("fingerprint.analyzed_at must be a non-empty string")
+
+
 @dataclass(frozen=True)
 class SonaraWrite:
     target: AnalysisTarget
     core: SonaraRow
     embedding: EmbeddingOutput | None = None
+    fingerprint: FingerprintOutput | None = None
 
     def __post_init__(self) -> None:
         if self.core.track_id != self.target.track_id:
@@ -934,12 +964,19 @@ class SonaraWrite:
         )
         if self.embedding is not None and self.embedding.family != "sonara":
             raise ValueError("SONARA embedding output must use family='sonara'")
+        if self.fingerprint is not None and not isinstance(
+            self.fingerprint,
+            FingerprintOutput,
+        ):
+            raise TypeError("SONARA fingerprint output must be a FingerprintOutput")
 
     @property
     def outputs(self) -> tuple[AnalysisOutput, ...]:
         outputs = [AnalysisOutput("sonara", "core")]
         if self.embedding is not None:
             outputs.append(AnalysisOutput("sonara", "embedding"))
+        if self.fingerprint is not None:
+            outputs.append(AnalysisOutput("sonara", "fingerprint"))
         return tuple(outputs)
 
 

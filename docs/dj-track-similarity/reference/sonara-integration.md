@@ -28,16 +28,19 @@ only to the original track. Direct Mode uses the same per-file fallback rule, bu
 the source path rather than a staging copy.
 
 Each staging copy is removed after its analysis, including any fallback, completes. The job directory
-is removed on success, failure, or cancellation. On a later staged session start, stale staging job
-directories are removed only when their recorded owner process is no longer present. Staged Mode is
-SONARA-only. Generic ML reads original source paths and uses a separate tolerant full-track FFmpeg
-fallback after a full TorchCodec failure. Preview and other non-SONARA functions keep their own
-decode paths.
+is removed on success, failure, or cancellation. Every Staged session creates a new unique job
+directory. Before doing so, it removes an owner-marked staging directory only if its recorded owner
+process is gone, and also removes an empty `sonara-stage-*` residue that has no valid owner marker.
+It preserves a directory with a live owner and a nonempty directory without a valid marker. Staged
+Mode is SONARA-only. Generic ML reads original source paths and uses a separate tolerant full-track
+FFmpeg fallback after a full TorchCodec failure. Preview and other non-SONARA functions keep their
+own decode paths.
 
-The application requests a fixed output set: scalar and compact fixed-vector Core data plus the
-SONARA embedding. It stores Core in `sonara_features` and the unnormalized 48-dimensional `float32`
-embedding in the dedicated `sonara_embeddings` table. Timeline and fingerprint are not requested,
-converted, stored, read, or exposed.
+The application requests a fixed output set. It contains scalar and compact fixed-vector Core data
+together with the SONARA embedding and acoustic fingerprint. It stores Core in `sonara_features`, the unnormalized
+48-dimensional `float32` embedding in the dedicated `sonara_embeddings` table, and SONARA's native
+base64 fingerprint in `sonara_fingerprints`. Timeline is not requested, converted, stored, read, or
+exposed.
 
 The Full-only `time_signature` metrogram is excluded from current SONARA storage. It is not a ranking
 or classifier input, and Beatgrid uses SONARA's normal fallback when a meter estimate is unavailable.
@@ -47,16 +50,17 @@ or classifier input, and Beatgrid uses SONARA's normal fallback when a meter est
 A selected catalog uses one library database with `catalog_uuid`. Evaluation is an optional sidecar
 created only by Evaluation workflows. Each `sonara_embeddings` row is bound to `track_id` and
 `track_uuid`, stores exactly 48 little-endian `float32` values with `normalization = 'none'`, and
-records `analyzed_at`. Normal track reads expose SONARA Core coverage and compact summaries. The
-SONARA status endpoint reports Core and embedding coverage separately. There is no Timeline route or
-optional SONARA output selector.
+records `analyzed_at`. Each `sonara_fingerprints` row is bound to `track_id` and `track_uuid` and
+stores `fingerprint_version`, native `fingerprint_base64`, and `analyzed_at`. Normal track reads
+expose SONARA Core coverage and compact summaries. There is no Timeline route or optional SONARA
+output selector.
 
-Normal SONARA candidate selection checks both current outputs and skips a track only when its Core
-and embedding rows are present for the current track identity. If either is missing, one successful
-SONARA rerun writes both rows together. The repository opens one transaction and uses a savepoint per
-track, so that track's Core and embedding are atomic while another track's failure can be retained
-separately. Job diagnostics report staging, FFmpeg fallback, copy/analyze/store timing, and
-per-track errors.
+Normal SONARA candidate selection checks all three current outputs and skips a track only when its
+Core, embedding, and fingerprint rows are present for the current track identity. If any is missing,
+one successful SONARA rerun writes all three rows together. The repository opens one transaction and
+uses a savepoint per track, so that track's Core, embedding, and fingerprint are atomic while another
+track's failure can be retained separately. Job diagnostics report staging, FFmpeg fallback,
+copy/analyze/store timing, and per-track errors.
 
 After a successful per-track store, or after a track failure is finalized, the staged runner updates
 job status immediately instead of waiting for the whole queue. The existing UI Process Log receives
@@ -79,6 +83,6 @@ separate.
 ## Scoring boundary
 
 Search, Evaluation diagnostics, Audio Dedup, and classifiers continue to use stored SONARA Core
-values. The dedicated SONARA embedding is persisted but is not a current similarity, search, or
-classifier input. MERT, MuQ, MuQ-MuLan, MAEST, and CLAP remain separate analysis sources. Every result is a
-ranking or diagnostic signal, not an automatic DJ decision.
+values. The dedicated SONARA embedding and acoustic fingerprint are persisted but are not current
+similarity, search, classifier, or Audio Dedup inputs. MERT, MuQ, MuQ-MuLan, MAEST, and CLAP remain
+separate analysis sources. Every result is a ranking or diagnostic signal, not an automatic DJ decision.

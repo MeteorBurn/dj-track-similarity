@@ -432,6 +432,11 @@ def test_api_sonara_status_returns_neutral_coverage(
             "total_tracks": 3,
             "outputs": [
                 {"output_kind": "core", "present_count": 2, "missing_count": 1},
+                {
+                    "output_kind": "fingerprint",
+                    "present_count": 1,
+                    "missing_count": 2,
+                },
             ],
         }
 
@@ -445,6 +450,11 @@ def test_api_sonara_status_returns_neutral_coverage(
         "total_tracks": 3,
         "outputs": [
             {"output_kind": "core", "present_count": 2, "missing_count": 1},
+            {
+                "output_kind": "fingerprint",
+                "present_count": 1,
+                "missing_count": 2,
+            },
         ],
     }
 

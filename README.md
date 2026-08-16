@@ -163,7 +163,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, plus a dedicated 48-dimensional embedding in `sonara_embeddings`. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A decode or codec failure for one file falls back to FFmpeg mono `float32` PCM and SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A decode or codec failure for one file falls back to FFmpeg mono `float32` PCM and SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
@@ -193,10 +193,12 @@ summary values are available. True peak and ReplayGain remain stored for future 
 work, not direct SONARA similarity scoring. Model embeddings live in dedicated tables in the
 library database.
 
-Each successful SONARA analysis writes its Core row and an unnormalized 48-dimensional `float32`
-embedding row together under the original track identity. Timeline and fingerprint collection remain disabled. The stored SONARA
-embedding is not a current similarity, search, or classifier input; those SONARA workflows continue
-to use Core fields.
+Each successful SONARA analysis writes its Core row, an unnormalized 48-dimensional `float32`
+embedding row, and a versioned native-base64 acoustic fingerprint row together under the original
+track identity. The fingerprint row in `sonara_fingerprints` contains `track_id`, `track_uuid`,
+`fingerprint_version`, `fingerprint_base64`, and `analyzed_at`. Timeline collection remains disabled.
+Neither the stored SONARA embedding nor fingerprint is a current similarity, search, classifier, or
+Audio Dedup input. Those SONARA workflows continue to use Core fields.
 
 Promoted classifier artifacts must describe the feature names and inputs they actually use. If an
 analysis update changes that recipe, retrain and promote the affected profile before scoring it
@@ -353,9 +355,9 @@ dj-sim analyze --models maest,mert,muq,mulan,clap --limit 25 --db ./data/library
 dj-sim analyze-pipeline --stages sonara,ml --db ./data/library.sqlite
 ```
 
-Normal SONARA reruns select a track when either its current Core row or its dedicated embedding row
-is missing, then store both outputs together after a successful pass. Tracks with both rows remain
-skipped. Other model jobs target only their missing selected outputs. A legacy split database
+Normal SONARA reruns select a track when its current Core, dedicated embedding, or fingerprint row
+is missing, then store all three outputs together after a successful pass. Tracks with all three
+rows remain skipped. Other model jobs target only their missing selected outputs. A legacy split database
 is never rewritten at startup. Its one-time, backup-first migration is explicit with
 `dj-sim migrate-database`. It does not start analysis. Reanalysis remains a separate user decision.
 
@@ -385,9 +387,12 @@ barriers and sets its Rayon pool from Threads. Core and embedding writes remain 
 under the original source-track identity. The process log reports copy, native analysis, result
 preparation, and database storage times plus FFmpeg fallback and per-track errors. Staging copies are
 deleted after each track completes, and the temporary job directory is cleaned up after completion,
-failure, or cancellation. A later staged run also removes an abandoned job directory when its owner
-process is no longer running. Staged Mode applies only to SONARA. ML analysis reads original source
-paths and uses its separate full-TorchCodec, then tolerant FFmpeg recovery order.
+failure, or cancellation. Each Staged run uses a new unique job directory. Before it starts, the
+runner removes owner-marked job directories whose recorded process is no longer running and empty
+`sonara-stage-*` residues without a valid owner marker. It preserves a directory with a live owner
+and a nonempty directory without a valid marker. Staged Mode applies only to SONARA. ML analysis
+reads original source paths and uses its separate full-TorchCodec, then tolerant FFmpeg recovery
+order.
 Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
 relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
 and CLASSIFIERS reports the selected profile count.

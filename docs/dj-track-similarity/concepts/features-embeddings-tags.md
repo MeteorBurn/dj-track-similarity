@@ -48,11 +48,14 @@ for possible loudness-management features rather than direct SONARA similarity. 
 dynamics comparison uses momentary loudness maximum and loudness range; vocalness is also an
 explicit search modifier.
 
-SONARA analysis stores compact Core scalars and fixed vectors in `sonara_features`, plus an
-unnormalized 48-dimensional `float32` embedding in the dedicated `sonara_embeddings` table. A
-successful SONARA pass writes both rows together. Timeline and fingerprint collection remain
-disabled. The stored SONARA embedding is not a current similarity, search, or classifier input.
-MAEST, MERT, MuQ, MuQ-MuLan, and CLAP vectors use their own dedicated tables in the same library database.
+SONARA analysis stores compact Core scalars and fixed vectors in `sonara_features`, an unnormalized
+48-dimensional `float32` embedding in the dedicated `sonara_embeddings` table, and a versioned
+acoustic fingerprint in `sonara_fingerprints`. A successful SONARA pass writes all three rows
+together. A fingerprint row contains `track_id`, `track_uuid`, `fingerprint_version`,
+`fingerprint_base64`, and `analyzed_at`. Its base64 value is SONARA's native representation.
+Timeline collection remains disabled. The stored SONARA embedding and fingerprint are not current
+similarity, search, classifier, or Audio Dedup inputs. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP vectors
+use their own dedicated tables in the same library database.
 
 SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current
 SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked tempo candidates and
@@ -62,9 +65,9 @@ toward a neutral score rather than creating similarity.
 The current SONARA `core` output stores `bpm_confidence` beside raw BPM, tempo candidates, and
 Camelot key. The confidence value records how strongly SONARA supports its working BPM estimate.
 
-CLI, API, and browser analysis always request the fixed SONARA Core-plus-embedding output set. There
-is no output selector. A normal rerun selects a track when either current row is missing and writes
-both rows together. A track with both current rows is skipped.
+CLI, API, and browser analysis always request the fixed SONARA Core, embedding, and fingerprint
+output set. There is no output selector. A normal rerun selects a track when any current row is
+missing and writes all three rows together. A track with all three current rows is skipped.
 
 The exact field and scoring boundaries are in the
 [SONARA integration reference](../reference/sonara-integration.md).

@@ -44,9 +44,9 @@ Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|f
 Regular track rows use `TrackSummaryResponse`: stable identity (`catalog_uuid`,
 `track_id`, `track_uuid`), `file_path`, compact tags, `analysis_coverage`, and
 classifier-score summaries. Detailed rows expose SONARA Core, MAEST, embedding summaries for the
-active ML families, and classifier details. The stored SONARA embedding is not part of the track
-response or a current similarity, search, or classifier input. Timeline and fingerprint fields are
-also absent.
+active ML families, and classifier details. The stored SONARA embedding and acoustic fingerprint
+are not part of a track response or current similarity, search, classifier, or Audio Dedup input.
+Timeline fields are also absent.
 
 ## Analysis and classifiers
 
@@ -56,7 +56,7 @@ also absent.
 | `GET` | `/api/analysis/jobs/latest` | latest analysis job |
 | `GET` | `/api/analysis/jobs/{job_id}` | job status |
 | `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
-| `GET` | `/api/analysis/sonara/status` | current SONARA Core and embedding coverage |
+| `GET` | `/api/analysis/sonara/status` | current SONARA Core, embedding, and fingerprint coverage |
 | `POST` | `/api/analysis/reset` | reset one family |
 | `GET` | `/api/classifiers` | promoted classifier profiles |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |

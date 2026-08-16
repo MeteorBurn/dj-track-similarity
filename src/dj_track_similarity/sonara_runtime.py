@@ -68,4 +68,4 @@ SONARA_CORE_REQUESTED_FEATURES = (
 
 
 def sonara_requested_features() -> tuple[str, ...]:
-    return (*SONARA_CORE_REQUESTED_FEATURES, "embedding")
+    return (*SONARA_CORE_REQUESTED_FEATURES, "embedding", "fingerprint")

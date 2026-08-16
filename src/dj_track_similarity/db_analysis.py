@@ -287,6 +287,35 @@ def _upsert_sonara_core(
     )
 
 
+def _upsert_sonara_fingerprint(
+    connection: sqlite3.Connection,
+    *,
+    write: SonaraWrite,
+) -> None:
+    fingerprint = write.fingerprint
+    if fingerprint is None:
+        return
+    connection.execute(
+        """
+        INSERT INTO sonara_fingerprints(
+            track_id, track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(track_id) DO UPDATE SET
+            track_uuid = excluded.track_uuid,
+            fingerprint_version = excluded.fingerprint_version,
+            fingerprint_base64 = excluded.fingerprint_base64,
+            analyzed_at = excluded.analyzed_at
+        """,
+        (
+            write.target.track_id,
+            write.target.track_uuid,
+            fingerprint.version,
+            fingerprint.value,
+            fingerprint.analyzed_at,
+        ),
+    )
+
+
 def _upsert_maest_analysis(
     core_connection: sqlite3.Connection,
     *,
@@ -614,6 +643,10 @@ class AnalysisRepository:
                                     embedding=write.embedding.vector,
                                     analyzed_at=write.embedding.analyzed_at,
                                 )
+                            _upsert_sonara_fingerprint(
+                                connection,
+                                write=write,
+                            )
                         except Exception as error:
                             _rollback_savepoint(connection, name)
                             results.append(_error_result(write.target, error))

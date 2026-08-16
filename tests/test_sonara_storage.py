@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import uuid
 from contextlib import closing
 from pathlib import Path
@@ -76,7 +77,7 @@ def _analysis() -> dict[str, object]:
         "loudness_curve": np.asarray([-10.0, -9.5], dtype=np.float32),
         "embedding": np.linspace(0.05, 0.95, 48, dtype=np.float32),
         "embedding_version": 99,
-        "fingerprint": "future-unused-payload",
+        "fingerprint": base64.b64encode(b"\x01\x00\x00\x00\x02\x00\x00\x00").decode("ascii"),
         "fingerprint_version": 7,
         "provenance": {
             "future_analyzer_parameter": "accepted",
@@ -110,10 +111,13 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert write.outputs == (
         AnalysisOutput("sonara", "core"),
         AnalysisOutput("sonara", "embedding"),
+        AnalysisOutput("sonara", "fingerprint"),
     )
+    assert write.fingerprint is not None
+    assert write.fingerprint.value == "AQAAAAIAAAA="
+    assert write.fingerprint.version == 7
     assert not hasattr(write, "timeline")
     assert not hasattr(write, "similarity_embedding")
-    assert not hasattr(write, "fingerprint")
 
 
 def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> None:
@@ -152,6 +156,7 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
         missing_outputs=(
             AnalysisOutput("sonara", "core"),
             AnalysisOutput("sonara", "embedding"),
+            AnalysisOutput("sonara", "fingerprint"),
         ),
     )
     write = prepare_sonara_write(
@@ -176,6 +181,14 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
             """,
             (track_id,),
         ).fetchone()
+        fingerprint = connection.execute(
+            """
+            SELECT track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
+            FROM sonara_fingerprints
+            WHERE track_id = ?
+            """,
+            (track_id,),
+        ).fetchone()
     assert core_count == 1
     assert embedding is not None
     assert embedding["track_uuid"] == track_uuid
@@ -185,6 +198,25 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
         np.frombuffer(embedding["embedding_blob"], dtype="<f4"),
         _analysis()["embedding"],
     )
+    assert fingerprint is not None
+    assert fingerprint["track_uuid"] == track_uuid
+    assert fingerprint["fingerprint_version"] == 7
+    assert fingerprint["fingerprint_base64"] == "AQAAAAIAAAA="
+    assert fingerprint["analyzed_at"] == "2026-07-23T12:00:00.000000Z"
+    assert database.list_analysis_candidates(
+        (AnalysisOutput("sonara", "fingerprint"),)
+    ) == []
+    with closing(database.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE sonara_fingerprints SET fingerprint_base64 = ? WHERE track_id = ?",
+            ("invalid base64", track_id),
+        )
+    candidates = database.list_analysis_candidates(
+        (AnalysisOutput("sonara", "fingerprint"),)
+    )
+    assert len(candidates) == 1
+    assert candidates[0].target == candidate.target
+    assert candidates[0].missing_outputs == (AnalysisOutput("sonara", "fingerprint"),)
 
 
 def test_repository_rolls_back_core_when_embedding_write_fails(
@@ -309,6 +341,7 @@ def test_unknown_future_analyzer_fields_do_not_gate_conversion() -> None:
     assert write.outputs == (
         AnalysisOutput("sonara", "core"),
         AnalysisOutput("sonara", "embedding"),
+        AnalysisOutput("sonara", "fingerprint"),
     )
 
 
@@ -369,7 +402,7 @@ def test_fixed_shape_outputs_reject_wrong_shapes(
 
 def test_unknown_future_values_are_ignored() -> None:
     analysis = _analysis()
-    analysis["fingerprint"] = object()
+    analysis["future_output"] = object()
     analysis["segments"] = [{"energy": float("nan")}]
 
     write = _prepare(analysis)

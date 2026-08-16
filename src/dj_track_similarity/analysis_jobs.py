@@ -139,7 +139,7 @@ class _SonaraStatusRepository(AnalysisWriteRepository, Protocol):
 
 @dataclass(frozen=True)
 class SonaraOutputStatus:
-    output_kind: Literal["core", "embedding"]
+    output_kind: Literal["core", "embedding", "fingerprint"]
     present_count: int
     missing_count: int
 

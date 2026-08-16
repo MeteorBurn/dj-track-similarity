@@ -41,7 +41,7 @@ const syncopatedRhythm = compileModule("syncopatedRhythm.ts", (name) => {
 });
 
 const metadataDialog = compileModule("TrackMetadataDialog.tsx", (name) => {
-  if (name === "lucide-react") return { Check: () => null, Copy: () => null, X: () => null };
+  if (name === "lucide-react") return { Check: () => null, Copy: () => null, FolderOpen: () => null, X: () => null };
   if (name === "react") return { Fragment: Symbol("Fragment"), useState: () => [false, () => {}] };
   if (name === "react/jsx-runtime") {
     return { Fragment: Symbol("Fragment"), jsx: () => null, jsxs: () => null };
@@ -53,6 +53,7 @@ const metadataDialog = compileModule("TrackMetadataDialog.tsx", (name) => {
     };
   }
   if (name === "./trackDisplay") return trackDisplay;
+  if (name === "./apiClient") return { api: { revealTrackFile: async () => ({}) } };
   throw new Error(`Unexpected require: ${name}`);
 });
 

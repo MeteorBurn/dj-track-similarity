@@ -14,8 +14,8 @@ library. The initial batch values are Track `8`,
 Inference `16`, and SONARA `8`; **Device** defaults to `auto`.
 
 The panel keeps **SONARA**, **ML**, and **CLASSIFIERS** as separate stages. **FULL** runs them in the
-fixed order. SONARA is selected at startup and always runs Core plus its dedicated embedding as one
-fixed output set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ,
+fixed order. SONARA is selected at startup and always runs Core, its dedicated embedding, and its
+acoustic fingerprint as one fixed output set. There are no output checkboxes. The ML selection contains MAEST, MERT, MuQ,
 MuQ-MuLan, and CLAP, not SONARA or CLASSIFIERS. The browser still starts with SONARA selected;
 when the CLI or API ML model list is omitted, its normal ordered default is MAEST, MERT, MuQ,
 MuQ-MuLan, then CLAP. Progress, per-file failures, blockers, cancellation, and reset
@@ -23,7 +23,7 @@ results come from the typed job responses.
 
 ## Run a family
 
-SONARA can run alone and writes its fixed Core-plus-embedding output set:
+SONARA can run alone and writes its fixed Core, embedding, and fingerprint output set:
 
 ```powershell
 dj-sim analyze --models sonara --db .\data\library.sqlite
@@ -41,10 +41,11 @@ MuQ, MuQ-MuLan, and CLAP. SONARA uses its native CPU path.
 
 ## SONARA storage
 
-SONARA writes Core feature rows to `sonara_features` and unnormalized 48-dimensional `float32`
-embeddings to the dedicated `sonara_embeddings` table. A successful SONARA pass stores both rows
-together. Timeline and fingerprint collection remain disabled. The SONARA embedding is persisted
-data only; it is not a current similarity, search, or classifier input. MAEST, MERT, MuQ,
+SONARA writes Core feature rows to `sonara_features`, unnormalized 48-dimensional `float32`
+embeddings to the dedicated `sonara_embeddings` table, and versioned native-base64 acoustic
+fingerprints to `sonara_fingerprints`. A successful SONARA pass stores all three rows together.
+Timeline collection remains disabled. The SONARA embedding and fingerprint are persisted data only;
+they are not current UI, similarity, search, classifier, or Audio Dedup inputs. MAEST, MERT, MuQ,
 MuQ-MuLan, and CLAP embeddings live in their own dedicated tables in the same library database.
 MuQ-MuLan analysis reads mono 24 kHz `float32` audio in 10-second windows and writes its own
 L2-normalized 512-dimensional rows to `mulan_embeddings`. It never converts existing MuQ rows.
@@ -71,7 +72,8 @@ Scores stay scoped to their `classifier_key`.
 
 ## Reset and interpretation
 
-Resets affect SQLite data only. A normal SONARA rerun selects a track when either its current Core
-row or embedding row is missing and stores both rows together. Tracks with both rows remain skipped.
-Use **Reset SONARA**, then **Analyze**, only for an intentional full reanalysis. Model outputs are
-ranking evidence for listening-led shortlists, not objective truth or automatic DJ decisions.
+Resets affect SQLite data only. A normal SONARA rerun selects a track when any current Core,
+embedding, or fingerprint row is missing and stores all three rows together. Tracks with all three
+rows remain skipped. Use **Reset SONARA**, then **Analyze**, only for an intentional full
+reanalysis. Model outputs are ranking evidence for listening-led shortlists, not objective truth or
+automatic DJ decisions.

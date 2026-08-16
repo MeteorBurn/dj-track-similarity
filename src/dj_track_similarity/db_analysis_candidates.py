@@ -5,7 +5,12 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Sequence
 
-from .analysis_models import AnalysisCandidate, AnalysisOutput, AnalysisTarget
+from .analysis_models import (
+    AnalysisCandidate,
+    AnalysisOutput,
+    AnalysisTarget,
+    FingerprintOutput,
+)
 from .db_embeddings import EmbeddingTrackIdentity
 from .maest_analysis_validation import MAEST_ANALYSIS_COLUMNS, validate_maest_analysis_row
 from .maest_windows import MaestWindowContext
@@ -21,6 +26,7 @@ _TABLE_BY_OUTPUT = {
     ("mulan", "embedding"): "mulan_embeddings",
     ("clap", "embedding"): "clap_embeddings",
     ("sonara", "embedding"): "sonara_embeddings",
+    ("sonara", "fingerprint"): "sonara_fingerprints",
 }
 
 
@@ -138,6 +144,11 @@ def ready_target_keys_by_output(
     for output in normalized:
         if output.key == ("sonara", "core"):
             rows = _valid_sonara_rows(connection, current_tracks=current_tracks)
+        elif output.key == ("sonara", "fingerprint"):
+            rows = _valid_sonara_fingerprint_rows(
+                connection,
+                current_tracks=current_tracks,
+            )
         elif output.key == ("maest", "analysis"):
             rows = _valid_maest_rows(connection, current_tracks=current_tracks)
         elif output.output_kind == "embedding":
@@ -180,6 +191,35 @@ def _valid_sonara_rows(
         )
         if is_valid:
             valid.append((expected.track_id, expected.track_uuid))
+    return tuple(valid)
+
+
+def _valid_sonara_fingerprint_rows(
+    connection: sqlite3.Connection,
+    *,
+    current_tracks: dict[int, EmbeddingTrackIdentity],
+) -> tuple[tuple[int, str], ...]:
+    rows = connection.execute(
+        """
+        SELECT track_id, track_uuid, fingerprint_version, fingerprint_base64,
+               analyzed_at
+        FROM sonara_fingerprints
+        """
+    ).fetchall()
+    valid: list[tuple[int, str]] = []
+    for row in rows:
+        expected = current_tracks.get(int(row["track_id"]))
+        if expected is None or str(row["track_uuid"]) != expected.track_uuid:
+            continue
+        try:
+            FingerprintOutput(
+                value=row["fingerprint_base64"],
+                version=row["fingerprint_version"],
+                analyzed_at=row["analyzed_at"],
+            )
+        except (TypeError, ValueError):
+            continue
+        valid.append((expected.track_id, expected.track_uuid))
     return tuple(valid)
 
 

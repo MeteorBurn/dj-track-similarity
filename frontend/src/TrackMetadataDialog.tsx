@@ -1,6 +1,7 @@
-import { AudioWaveform, Check, Copy, Pause, Play, X } from "lucide-react";
+import { AudioWaveform, Check, Copy, FolderOpen, Pause, Play, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
+import { api } from "./apiClient";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { displayTrack } from "./trackDisplay";
 
@@ -167,6 +168,7 @@ export function TrackMetadataDialog({
 }) {
   const [filePathCopied, setFilePathCopied] = useState(false);
   const [fileNameCopied, setFileNameCopied] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
   const view = metadataDialogModel(track);
   const sonaraFeatureCount = view.coreGroups.reduce((total, group) => total + group.features.length, 0);
   const previewActive = playingTrackId === track.track_id;
@@ -183,6 +185,15 @@ export function TrackMetadataDialog({
     if (!copied) return;
     setFileNameCopied(true);
     window.setTimeout(() => setFileNameCopied(false), 1400);
+  }
+
+  async function revealFileLocation() {
+    try {
+      await api.revealTrackFile(track.track_id);
+      setRevealError(null);
+    } catch {
+      setRevealError("Could not open containing folder");
+    }
   }
 
   return (
@@ -270,6 +281,17 @@ export function TrackMetadataDialog({
                     >
                       {(label === "File Path" ? filePathCopied : fileNameCopied) ? <Check size={14} /> : <Copy size={14} />}
                     </button>
+                    {label === "File Path" ? (
+                      <button
+                        className="icon-button metadata-copy-value-button"
+                        title={revealError ?? "Open containing folder"}
+                        aria-label={`Open containing folder: ${track.file_path}`}
+                        onClick={() => void revealFileLocation()}
+                        type="button"
+                      >
+                        <FolderOpen size={14} />
+                      </button>
+                    ) : null}
                   </dd>
                 ) : (
                   <dd>{value}</dd>

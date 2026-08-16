@@ -30,6 +30,10 @@ has a different no-database behavior.
 <details>
 <summary>Library, analysis, server, and database commands</summary>
 
+```powershell
+dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
+```
+
 ### `dj-sim scan MUSIC_ROOT`
 
 Scan one audio-folder root into the selected library.
@@ -152,6 +156,10 @@ Start the API server.
 <details>
 <summary>Persistent ANN indexes and classifier diagnostics</summary>
 
+```powershell
+dj-sim index verify --model mert --db .\data\library.sqlite
+```
+
 ### `dj-sim index build`
 
 | Option | Meaning |
@@ -226,6 +234,10 @@ Evaluation commands use the library database and, when needed, its adjacent Eval
 They create reports and feedback records. They do not write audio files. Candidate source options
 accept `mert`, `maest`, `muq`, `mulan`, `sonara`, or `clap` and are repeatable.
 
+```powershell
+dj-sim eval export-candidates --db .\data\library.sqlite --output .\reports\candidates.csv --seed-track-id 42 --source mert
+```
+
 ### `dj-sim eval export-candidates`
 
 | Option | Meaning |
@@ -290,6 +302,10 @@ accept `mert`, `maest`, `muq`, `mulan`, `sonara`, or `clap` and are repeatable.
 <details>
 <summary>Windows launcher and standalone maintenance scripts</summary>
 
+```powershell
+python scripts\qa_database.py --db .\data\library.sqlite
+```
+
 ### `run_server.cmd`
 
 Start the API and Vite development UI together. With no argument it asks for a database path
@@ -348,6 +364,10 @@ source database is `C:\db\abstracted.sqlite`. The default labels database is
 `tools\rhythm-lab\database\rhythm_lab.sqlite`. The default feature set is
 `sonara+mert+maest+clap+muq`.
 
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels .\data\rhythm_lab.sqlite
+```
+
 | Command | Arguments and options |
 | --- | --- |
 | `train` | `--source PATH`. `--labels PATH`. `--profile TEXT` **required**. `--artifacts PATH`. `--feature-set TEXT`, default full feature set. `--calibrate`. |
@@ -362,6 +382,10 @@ source database is `C:\db\abstracted.sqlite`. The default labels database is
 
 <details>
 <summary>Active-learning queue and review collections</summary>
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py queue --profile live_instrumentation --labels .\data\rhythm_lab.sqlite
+```
 
 | Command | Arguments and options |
 | --- | --- |
@@ -383,6 +407,10 @@ Use `python tools/rhythm-lab/rhythm_lab/label_transfer.py`. It exports a label b
 rebinding against a library, optionally builds a rebound bundle, then restores only on an explicit
 apply.
 
+```powershell
+python tools\rhythm-lab\rhythm_lab\label_transfer.py preview --bundle .\exports\labels.zip --library-db .\data\library.sqlite --output .\reports\label-preview.json
+```
+
 | Command | Arguments and options |
 | --- | --- |
 | `export` | `--lab-db PATH` **required**. `--output PATH` **required**. `--promoted-models-root PATH`. `--force` to overwrite output. |
@@ -399,6 +427,10 @@ apply.
 
 Run `python tools/audio-dedup/audio_dedup_cli.py`. It finds candidates from stored embeddings;
 the default mode writes a report only.
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
+```
 
 | Option | Meaning |
 | --- | --- |
@@ -424,6 +456,10 @@ the default mode writes a report only.
 Run `python tools/audio-doctor/audio_doctor_cli.py [paths ...]`. The default dry run inspects
 audio without copying or writing source files. Input paths, `--folder`, `--log`, and `--db` may be
 combined.
+
+```powershell
+python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite --summary-only
+```
 
 | Argument or option | Meaning |
 | --- | --- |
@@ -459,6 +495,10 @@ combined.
 
 Run `python tools/Audio-Online/metadata_enrichment_cli.py`. These commands contact configured
 online sources. Credentials and authorization are stored according to the selected config file.
+
+```powershell
+python tools\Audio-Online\metadata_enrichment_cli.py check-auth beatport
+```
 
 | Command | Arguments and options |
 | --- | --- |

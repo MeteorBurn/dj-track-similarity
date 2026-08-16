@@ -81,7 +81,7 @@
   --vp-sidebar-width: 328px;
   --dts-doc-readable-width: 860px;
   --dts-doc-wide-width: 1100px;
-  --dts-doc-aside-width: 300px;
+  --dts-doc-aside-width: 360px;
 }
 
 .dark {
@@ -529,15 +529,26 @@ body::before {
 }
 
 @media (min-width: 1280px) {
-  .VPDoc > .container > .content {
-    flex-grow: 1;
+  .VPDoc.has-aside > .container {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--dts-doc-aside-width);
+    align-items: start;
+  }
+
+  .VPDoc.has-aside > .container > .content {
+    grid-column: 1;
+    flex: none;
+    width: 100%;
+    max-width: 100%;
     min-width: 0;
   }
 
-  .VPDoc > .container > .aside {
-    flex: 0 0 var(--dts-doc-aside-width);
-    width: var(--dts-doc-aside-width);
-    max-width: var(--dts-doc-aside-width);
+  .VPDoc.has-aside > .container > .aside {
+    grid-column: 2;
+    flex: none;
+    width: auto;
+    max-width: none;
+    min-width: 0;
   }
 
   .VPDoc > .container > .aside > .aside-container,
@@ -1128,6 +1139,41 @@ body::before {
   font-size: 0.93rem;
 }
 
+/* Keep wide Markdown tables inside the document column rather than beneath the fixed aside. */
+.vp-doc table {
+  box-sizing: border-box;
+  overscroll-behavior-inline: contain;
+}
+
+@media (min-width: 641px) {
+  .vp-doc table {
+    display: table;
+    width: 100%;
+    overflow: visible;
+    table-layout: fixed;
+  }
+
+  .vp-doc th:first-child,
+  .vp-doc td:first-child {
+    width: 38%;
+    white-space: normal;
+  }
+
+  .vp-doc th:first-child :not(pre) > code,
+  .vp-doc td:first-child :not(pre) > code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 640px) {
+  .vp-doc table {
+    display: block;
+    overflow-x: auto;
+    table-layout: auto;
+  }
+}
+
 .vp-doc thead tr {
   background:
     linear-gradient(90deg, var(--vp-c-brand-soft), rgba(240, 107, 71, 0.1));
@@ -1235,6 +1281,195 @@ body::before {
   background:
     linear-gradient(135deg, rgba(13, 118, 126, 0.08), transparent 38%),
     var(--vp-c-bg-elv);
+}
+
+/* ─── Native details: Shiki-style command drawers ───────────────────────── */
+.vp-doc details {
+  position: relative;
+  width: min(100%, var(--dts-doc-wide-width));
+  margin: 26px auto 34px;
+  overflow: clip;
+  border: 1px solid rgba(13, 118, 126, 0.24);
+  border-radius: var(--dts-radius-sm);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(13, 118, 126, 0.12), transparent 22rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(231, 238, 232, 0.9) 100%);
+  box-shadow: var(--dts-shadow-sm);
+}
+
+.vp-doc details::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 4px;
+  background: var(--dts-gradient-hot);
+}
+
+.vp-doc details > summary {
+  position: relative;
+  display: block;
+  padding: 18px 54px 18px 20px;
+  color: var(--vp-c-text-1);
+  cursor: pointer;
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  list-style: none;
+  transition:
+    background-color var(--dts-transition),
+    color var(--dts-transition);
+}
+
+.vp-doc details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vp-doc details > summary::after {
+  content: "▸";
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  color: var(--vp-c-brand-1);
+  font-size: 1.18rem;
+  line-height: 1;
+  transform: translateY(-50%);
+  transition:
+    color var(--dts-transition),
+    transform var(--dts-transition);
+}
+
+.vp-doc details > summary:hover {
+  background: rgba(13, 118, 126, 0.1);
+  color: var(--vp-c-text-1);
+}
+
+.vp-doc details[open] > summary {
+  border-bottom: 1px solid rgba(13, 118, 126, 0.2);
+  background: rgba(13, 118, 126, 0.09);
+  color: var(--vp-c-text-1);
+}
+
+.vp-doc details[open] > summary::after {
+  color: var(--dts-orange);
+  transform: translateY(-50%) rotate(90deg);
+}
+
+.vp-doc details > summary:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: -5px;
+}
+
+.vp-doc details > :not(summary) {
+  max-width: calc(100% - 40px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.vp-doc details > :not(summary):last-child {
+  margin-bottom: 24px;
+}
+
+.vp-doc details p,
+.vp-doc details ul,
+.vp-doc details ol {
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc details h3 {
+  margin-top: 30px;
+  color: var(--vp-c-text-1);
+}
+
+.vp-doc details table {
+  width: 100%;
+  margin-top: 20px;
+  margin-bottom: 28px;
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.vp-doc details td {
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc details tr:nth-child(even) td {
+  background: rgba(13, 118, 126, 0.055);
+}
+
+.vp-doc details tr:hover td {
+  background: var(--vp-c-brand-soft);
+}
+
+.vp-doc details :not(pre) > code {
+  border-color: rgba(13, 118, 126, 0.2);
+  background: var(--vp-c-brand-soft);
+  color: var(--vp-c-brand-1);
+}
+
+.dark .vp-doc details {
+  border-color: rgba(100, 116, 139, 0.48);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(101, 229, 238, 0.13), transparent 22rem),
+    linear-gradient(180deg, #151b27 0%, #0b1019 100%);
+  box-shadow: 0 16px 38px rgba(8, 10, 16, 0.2);
+}
+
+.dark .vp-doc details > summary {
+  color: #e7edf4;
+}
+
+.dark .vp-doc details > summary::after {
+  color: #8cf2f6;
+}
+
+.dark .vp-doc details > summary:hover {
+  background: rgba(101, 229, 238, 0.1);
+  color: #ffffff;
+}
+
+.dark .vp-doc details[open] > summary {
+  border-bottom-color: rgba(148, 163, 184, 0.28);
+  background: rgba(101, 229, 238, 0.09);
+  color: #ffffff;
+}
+
+.dark .vp-doc details[open] > summary::after {
+  color: #ff9d6b;
+}
+
+.dark .vp-doc details > summary:focus-visible {
+  outline-color: #8cf2f6;
+}
+
+.dark .vp-doc details p,
+.dark .vp-doc details ul,
+.dark .vp-doc details ol,
+.dark .vp-doc details td {
+  color: #d6dee8;
+}
+
+.dark .vp-doc details h3 {
+  color: #e7edf4;
+}
+
+.dark .vp-doc details table {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.dark .vp-doc details tr:nth-child(even) td {
+  background: rgba(101, 229, 238, 0.055);
+}
+
+.dark .vp-doc details tr:hover td {
+  background: rgba(101, 229, 238, 0.13);
+}
+
+.dark .vp-doc details :not(pre) > code {
+  border-color: rgba(140, 242, 246, 0.28);
+  background: rgba(101, 229, 238, 0.13);
+  color: #9af8ff;
 }
 
 /* ─── Custom blocks, quotes, outline ─────────────────────────────────────── */

@@ -14,7 +14,7 @@ export const helpText = {
   clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги. Text-to-audio поиск использует текстовый запрос отдельно от сохранённого audio-to-audio CLAP evidence для совместимых classifier feature sets.",
   analysisTrackBatchSize: "Сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Измеренный дефолт для этой машины: 8.",
   analysisInferenceBatchSize: "Сколько окон/семплов MAEST, MERT, MuQ и CLAP прогоняют за один model forward pass. Тип: целое число 1-128. Измеренный дефолт для RTX 3090: 16.",
-  librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
+  librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path и MAEST genres.",
   sonaraMode: "Mode выбирает готовый сценарий поиска. Balanced, Vibe, Sound и DJ transition используют заданные веса. Custom mixer включает ручную настройку Mixer и Modifiers.",
   sonaraMixerTimbre: "Timbre: характер и текстура звука. Чем выше вес, тем сильнее выдача стремится к похожему саунду: тёплому/холодному, мягкому/резкому, гладкому/шероховатому.",
   sonaraMixerRhythm: "Rhythm: как ощущаются ударные и грув. Чем выше вес, тем сильнее выдача ищет похожий пульс, рисунок перкуссии и движение.",

@@ -60,3 +60,9 @@ test("SONARA mode help describes ready-made modes and manual control", () => {
   assert.match(helpText.sonaraMode, /готовый сценарий поиска/);
   assert.match(helpText.sonaraMode, /Custom mixer включает ручную настройку/);
 });
+
+test("library search help does not advertise syncopated rhythm", () => {
+  const helpText = loadHelpText();
+
+  assert.doesNotMatch(helpText.librarySearch, /syncopated rhythm/i);
+});

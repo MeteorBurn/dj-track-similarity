@@ -658,6 +658,12 @@ test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
   assert.match(styles, /\.library-search-mode-toggle button\s*{/);
 });
 
+test("library search placeholder lists path before genre", () => {
+  const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
+
+  assert.match(source, /placeholder="artist, title, path, genre"/);
+});
+
 test("track rows keep analysis availability out of track copy", () => {
   const source = readFileSync(join(srcDir, "TrackRows.tsx"), "utf8");
   const trackListSource = source.match(/export function TrackList[\s\S]*?\n}\n\nfunction formatPlaybackTime/)?.[0] || "";

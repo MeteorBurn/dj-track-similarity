@@ -28,7 +28,7 @@ import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
 import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
-import { appendVisibleTracksToPlaylist } from "./libraryView";
+import { appendVisibleTracksToPlaylist, nextLibraryPlaybackTrack } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import {
   loadSonaraAnalysisSettings,
@@ -183,6 +183,7 @@ export function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   const [busy, setBusy] = useState(false);
+  const [libraryPlaybackShuffle, setLibraryPlaybackShuffle] = useState(false);
   const [filters, setFilters] = useState<SearchFiltersState>({
     limit: 20,
     sonaraMode: "custom",
@@ -676,6 +677,20 @@ export function App() {
     const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
     audio.currentTime = Math.min(Math.max(0, seconds), duration);
     updatePreviewPosition(track.track_id);
+  }
+
+  function handleLibraryPreviewEnded(track: Track) {
+    updatePreviewPosition(track.track_id);
+    const nextTrack = nextLibraryPlaybackTrack(
+      orderedTracks,
+      track.track_id,
+      libraryPlaybackShuffle
+    );
+    if (nextTrack) {
+      togglePreview(nextTrack);
+      return;
+    }
+    markPreviewPaused(track.track_id);
   }
 
   async function handleTrackDetails(track: Track) {
@@ -1500,6 +1515,8 @@ export function App() {
           likedOnly={likedOnly}
           likedTrackCount={librarySummary.liked}
           onToggleLikedOnly={toggleLikedOnly}
+          libraryPlaybackShuffle={libraryPlaybackShuffle}
+          onToggleLibraryPlaybackShuffle={() => setLibraryPlaybackShuffle((current) => !current)}
           librarySortDirection={librarySortDirection}
           onToggleLibrarySortDirection={toggleLibrarySortDirection}
           loadError={libraryError}
@@ -1611,8 +1628,7 @@ export function App() {
           }}
           onPause={() => markPreviewPaused(preview.track_id)}
           onEnded={() => {
-            updatePreviewPosition(preview.track_id);
-            markPreviewPaused(preview.track_id);
+            handleLibraryPreviewEnded(preview);
           }}
           onDurationChange={() => updatePreviewPosition(preview.track_id)}
           onTimeUpdate={() => updatePreviewPosition(preview.track_id)}

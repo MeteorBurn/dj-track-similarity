@@ -1192,8 +1192,15 @@ h2 {
   white-space: nowrap;
 }
 
-.library-sort-direction-button {
+.library-playback-controls {
+  display: flex;
+  gap: 6px;
   margin-left: auto;
+}
+
+.library-playback-order-controls {
+  display: flex;
+  gap: 6px;
 }
 
 .library-load-error {

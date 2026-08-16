@@ -624,6 +624,19 @@ test("library controls keep pagination left and actions pinned right", () => {
   assert.ok(pagination.indexOf("library-page-number-status") < pagination.indexOf("library-range-status"));
   assert.ok(pagination.indexOf("library-range-status") < pagination.indexOf("library-filtered-total-status"));
   assert.ok(source.indexOf("library-pagination-controls") < source.indexOf("library-sort-direction-button"));
+  const shuffleIndex = source.indexOf("library-playback-shuffle-button");
+  const likedIndex = source.indexOf("liked-filter-button");
+  const playbackControlsIndex = source.indexOf("library-playback-controls");
+  const paginationIndex = source.indexOf("library-pagination-controls");
+  const playbackOrderControls = source.match(/<div className="library-playback-order-controls">([\s\S]*?)<\/div>/)?.[1] || "";
+  assert.notEqual(shuffleIndex, -1);
+  assert.ok(paginationIndex < likedIndex);
+  assert.ok(playbackControlsIndex < likedIndex);
+  assert.ok(likedIndex < shuffleIndex);
+  assert.ok(shuffleIndex < source.indexOf("library-sort-direction-button"));
+  assert.match(playbackOrderControls, /library-playback-shuffle-button[\s\S]*library-sort-direction-button/);
+  assert.doesNotMatch(playbackOrderControls, /library-preset-button/);
+  assert.doesNotMatch(playbackOrderControls, /liked-filter-button/);
   assert.ok(source.indexOf("library-sort-direction-button") < source.indexOf("add-visible-tracks-button"));
 });
 
@@ -717,6 +730,8 @@ test("library pagination controls share height and keep actions pinned right", (
   const controlRule = styles.match(/\.library-pagination-controls \.library-page-previous-button,[\s\S]*?\.library-pagination-controls \.library-page-next-button\s*{([\s\S]*?)}/)?.[1] || "";
   const inputRule = styles.match(/\.library-page-index-input\s*{([\s\S]*?)}/)?.[1] || "";
   const statusRule = styles.match(/\.library-page-number-status,\s*\.library-range-status,\s*\.library-filtered-total-status\s*{([\s\S]*?)}/)?.[1] || "";
+  const playbackControlsRule = styles.match(/\.library-playback-controls\s*{([\s\S]*?)}/)?.[1] || "";
+  const playbackOrderRule = styles.match(/\.library-playback-order-controls\s*{([\s\S]*?)}/)?.[1] || "";
   const sortRule = styles.match(/\.library-sort-direction-button\s*{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(controlsRule, /gap:\s*6px/);
@@ -727,7 +742,13 @@ test("library pagination controls share height and keep actions pinned right", (
   assert.match(inputRule, /height:\s*34px/);
   assert.match(statusRule, /height:\s*34px/);
   assert.match(statusRule, /font-variant-numeric:\s*tabular-nums/);
-  assert.match(sortRule, /margin-left:\s*auto/);
+  assert.match(playbackControlsRule, /display:\s*flex/);
+  assert.match(playbackControlsRule, /gap:\s*6px/);
+  assert.match(playbackControlsRule, /margin-left:\s*auto/);
+  assert.match(playbackOrderRule, /display:\s*flex/);
+  assert.match(playbackOrderRule, /gap:\s*6px/);
+  assert.doesNotMatch(playbackOrderRule, /margin-left/);
+  assert.doesNotMatch(sortRule, /margin-left/);
   assert.doesNotMatch(styles, /\.library-(load-size|load-cancel)/);
 });
 

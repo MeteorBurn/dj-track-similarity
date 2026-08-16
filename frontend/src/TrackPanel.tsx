@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
+import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search, Shuffle } from "lucide-react";
 import type { Track } from "./api";
 import { libraryPageSize } from "./libraryLoading";
 import {
@@ -24,6 +24,8 @@ export function TrackPanel({
   likedOnly,
   likedTrackCount,
   onToggleLikedOnly,
+  libraryPlaybackShuffle,
+  onToggleLibraryPlaybackShuffle,
   librarySortDirection,
   onToggleLibrarySortDirection,
   loadError,
@@ -63,6 +65,8 @@ export function TrackPanel({
   likedOnly: boolean;
   likedTrackCount: number;
   onToggleLikedOnly: () => void;
+  libraryPlaybackShuffle: boolean;
+  onToggleLibraryPlaybackShuffle: () => void;
   librarySortDirection: LibrarySortDirection;
   onToggleLibrarySortDirection: () => void;
   loadError: string | null;
@@ -167,28 +171,6 @@ export function TrackPanel({
         </div>
       </div>
       <div className="library-view-controls">
-        <button
-          className={`icon-button library-preset-button ${libraryPreset === "syncopated" ? "active" : ""}`}
-          title="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
-          aria-label="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
-          aria-pressed={libraryPreset === "syncopated"}
-          disabled={!databaseSelected}
-          onClick={() => onToggleLibraryPreset("syncopated")}
-          type="button"
-        >
-          <AudioWaveform size={16} />
-        </button>
-        <button
-          className={`icon-button liked-filter-button ${likedOnly ? "active" : ""}`}
-          title={likedTracksFilterTitle(likedOnly, likedTrackCount)}
-          aria-label="Показать список лайкнутых треков"
-          aria-pressed={likedOnly}
-          disabled={busy || (!likedOnly && likedTrackCount === 0)}
-          onClick={onToggleLikedOnly}
-          type="button"
-        >
-          <Heart size={16} />
-        </button>
         <div className="library-pagination-controls" role="group" aria-label="Пагинация библиотеки">
           <button className="library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
           <button className="library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
@@ -233,17 +215,54 @@ export function TrackPanel({
             {loading ? "..." : `(${total})`}
           </span>
         </div>
-        <button
-          className={`icon-button library-sort-direction-button ${reverseSortActive ? "active" : ""}`}
-          title={reverseSortActive ? "Показать загруженные треки в прямом порядке" : "Показать загруженные треки в обратном порядке"}
-          aria-label="Переключить порядок загруженных треков"
-          aria-pressed={reverseSortActive}
-          disabled={loading || tracks.length < 2}
-          onClick={onToggleLibrarySortDirection}
-          type="button"
-        >
-          <ArrowDownUp size={16} />
-        </button>
+        <div className="library-playback-controls">
+          <button
+            className={`icon-button liked-filter-button ${likedOnly ? "active" : ""}`}
+            title={likedTracksFilterTitle(likedOnly, likedTrackCount)}
+            aria-label="Показать список лайкнутых треков"
+            aria-pressed={likedOnly}
+            disabled={busy || (!likedOnly && likedTrackCount === 0)}
+            onClick={onToggleLikedOnly}
+            type="button"
+          >
+            <Heart size={16} />
+          </button>
+          <button
+            className={`icon-button library-preset-button ${libraryPreset === "syncopated" ? "active" : ""}`}
+            title="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
+            aria-label="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
+            aria-pressed={libraryPreset === "syncopated"}
+            disabled={!databaseSelected}
+            onClick={() => onToggleLibraryPreset("syncopated")}
+            type="button"
+          >
+            <AudioWaveform size={16} />
+          </button>
+          <div className="library-playback-order-controls">
+          <button
+            className={`icon-button library-playback-shuffle-button ${libraryPlaybackShuffle ? "active" : ""}`}
+            title={libraryPlaybackShuffle ? "Отключить случайный порядок воспроизведения на текущей странице" : "Включить случайный порядок воспроизведения на текущей странице"}
+            aria-label="Переключить случайный порядок воспроизведения на текущей странице"
+            aria-pressed={libraryPlaybackShuffle}
+            disabled={loading || tracks.length < 2}
+            onClick={onToggleLibraryPlaybackShuffle}
+            type="button"
+          >
+            <Shuffle size={16} />
+          </button>
+          <button
+            className={`icon-button library-sort-direction-button ${reverseSortActive ? "active" : ""}`}
+            title={reverseSortActive ? "Показать загруженные треки в прямом порядке" : "Показать загруженные треки в обратном порядке"}
+            aria-label="Переключить порядок загруженных треков"
+            aria-pressed={reverseSortActive}
+            disabled={loading || tracks.length < 2}
+            onClick={onToggleLibrarySortDirection}
+            type="button"
+          >
+            <ArrowDownUp size={16} />
+          </button>
+          </div>
+        </div>
         <button
           className="icon-button intent-add add-visible-tracks-button"
           title={addVisibleTitle}

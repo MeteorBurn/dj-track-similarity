@@ -28,6 +28,14 @@ test("preview audio play events cannot re-enable a paused track", () => {
   assert.match(previewAudio, /onPlay=\{\(\) => \{\s*if \(playingTrackId === preview\.track_id\) markPreviewPlaying\(preview\.track_id\);\s*}}/);
 });
 
+test("ending a library preview starts the next visible track", () => {
+  const source = readFileSync(appPath, "utf8");
+  const previewAudio = source.match(/<audio\b[\s\S]*?src=\{`\/media\/\$\{preview\.track_id\}`\}[\s\S]*?\/>/)?.[0] || "";
+
+  assert.match(source, /function handleLibraryPreviewEnded\(track: Track\)/);
+  assert.match(previewAudio, /onEnded=\{\(\) => \{\s*handleLibraryPreviewEnded\(preview\);\s*}}/);
+});
+
 test("track preview buttons toggle between play and pause icons", () => {
   const rowsSource = readFileSync(trackRowsPath, "utf8");
   const hookSource = readFileSync(searchHookPath, "utf8");

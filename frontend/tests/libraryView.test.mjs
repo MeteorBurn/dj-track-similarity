@@ -108,6 +108,21 @@ test("library track order can be reversed without mutating the loaded page", asy
   assert.deepEqual(tracks.map((track) => track.track_id), [1, 2, 3]);
 });
 
+test("library playback advances within the visible page or chooses another visible track when shuffled", async () => {
+  const { nextLibraryPlaybackTrack } = await loadLibraryViewModule();
+  const tracks = [
+    { track_id: 1 },
+    { track_id: 2 },
+    { track_id: 3 }
+  ];
+
+  assert.equal(nextLibraryPlaybackTrack(tracks, 1, false)?.track_id, 2);
+  assert.equal(nextLibraryPlaybackTrack(tracks, 3, false), null);
+  assert.equal(nextLibraryPlaybackTrack(tracks, 2, true, () => 0)?.track_id, 1);
+  assert.equal(nextLibraryPlaybackTrack(tracks, 2, true, () => 0.999)?.track_id, 3);
+  assert.equal(nextLibraryPlaybackTrack([{ track_id: 1 }], 1, true), null);
+});
+
 test("library page helpers report one-based pages and clamp requested page offsets", async () => {
   const { libraryCurrentPageNumber, libraryPageCount, libraryPageOffsetForNumber } = await loadLibraryViewModule();
 

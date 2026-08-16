@@ -33,10 +33,10 @@ The library browser supports:
 
 - Text search over artist, title, album, path, genres, and other indexed fields.
 - Search mode selection between `like` and `fts`.
-- A syncopated rhythm preset when MAEST syncopated rhythm data exists.
-- Liked-only filtering.
+- After pagination, a common right-side control group is ordered from left to right as liked-only
+  filtering, the syncopated rhythm preset when MAEST syncopated rhythm data exists, then a nested
+  playback/order pair of shuffle playback and sort direction.
 - Classifier minimum-score filters when promoted classifier scores exist.
-- Sort direction toggle.
 - **Prev**, **Next**, and page-number navigation for fixed pages of up to `200` tracks.
 
 The API caps each request at `1..500`. The UI keeps rows light and opens full metadata only on
@@ -62,6 +62,18 @@ Keep those sources separate when judging a track. A MAEST label and a file tag a
 The `/media/{track_id}` endpoint streams the local file when the browser can play it. AIFF, FLAC, DSD/DSF, WMA, APE, WV, M4B/M4R, TAK, TTA, and browser-unsafe WAV files are transcoded to a temporary 16-bit WAV for streaming, then the temporary file is deleted. The source audio file is not rewritten.
 
 If the file is missing, preview returns an error instead of hiding the problem.
+
+### Continuous playback on the loaded page
+
+When a library preview finishes, the player starts the next visible track in the
+displayed order of the currently loaded page. Playback stops after the last
+visible track. It does not advance to another page.
+
+Use the shuffle button at the left of the nested right-side playback/order
+pair to choose the next track at random from the current page. The liked-only
+filter and syncopated preset appear before this pair, and sort direction is to
+the right of shuffle.
+Shuffle never selects the track that just finished.
 
 ## Likes
 

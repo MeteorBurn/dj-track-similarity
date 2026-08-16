@@ -32,6 +32,20 @@ export function orderedLibraryTracks(tracks: Track[], direction: LibrarySortDire
   return direction === "reverse" ? [...tracks].reverse() : tracks;
 }
 
+export function nextLibraryPlaybackTrack(
+  tracks: Track[],
+  currentTrackId: number,
+  shuffle: boolean,
+  random = Math.random
+) {
+  const currentIndex = tracks.findIndex((track) => track.track_id === currentTrackId);
+  if (currentIndex < 0 || tracks.length < 2) return null;
+  if (!shuffle) return tracks[currentIndex + 1] || null;
+
+  const alternatives = tracks.filter((track) => track.track_id !== currentTrackId);
+  return alternatives[Math.min(alternatives.length - 1, Math.floor(random() * alternatives.length))] || null;
+}
+
 export function libraryPageCount(total: number, pageSize = libraryPageSize) {
   if (total <= 0 || pageSize <= 0) return 0;
   return Math.ceil(total / pageSize);

@@ -55,7 +55,7 @@ from .db_migration import (
     migrate_legacy_library_database,
 )
 from .embedding import adapter_factories
-from .ffmpeg_runtime import configure_shared_ffmpeg_runtime
+from .ffmpeg_runtime import configure_shared_ffmpeg_runtime, inspect_audio_runtime
 from .evaluation.ablation import build_source_ablation_report
 from .evaluation.calibration import build_calibration_report, calibration_record_config, calibration_record_metrics
 from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
@@ -1196,6 +1196,24 @@ def doctor() -> None:
         if index_url:
             typer.echo(f"suggested_torch_index={index_url}")
             typer.echo(f"install=torch torchaudio --index-url {index_url}")
+
+    try:
+        audio_runtime = inspect_audio_runtime()
+    except RuntimeError as error:
+        typer.echo("audio_runtime_check=failed")
+        typer.echo(f"audio_runtime_error={error}")
+        return
+
+    typer.echo("audio_runtime_check=ok")
+    typer.echo(f"ffmpeg_shared_dir={audio_runtime.ffmpeg_directory}")
+    typer.echo(f"ffmpeg_version={audio_runtime.ffmpeg_version}")
+    for component, library_path in audio_runtime.ffmpeg_libraries:
+        typer.echo(f"ffmpeg_{component}={library_path}")
+    typer.echo(f"pyav={audio_runtime.pyav_version}")
+    typer.echo(f"pyav_module={audio_runtime.pyav_module_path}")
+    typer.echo(
+        "pyav_libavcodec=" + ".".join(str(part) for part in audio_runtime.pyav_avcodec_version)
+    )
 
 
 @app.command("text-search")

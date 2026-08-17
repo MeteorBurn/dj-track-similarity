@@ -121,8 +121,10 @@ Score a promoted classifier against its declared database inputs. It does not de
 
 ### `dj-sim doctor`
 
-Print Python, Torch, CUDA, and recommended Torch-index diagnostics. It takes no command-specific
-options.
+Print Python, Torch, CUDA, and recommended Torch-index diagnostics. When Torch is installed, it
+also validates the audio runtime: the selected FFmpeg `8.1.1` full shared directory, its required
+library paths, and PyAV `17.1.0` imported from the active Python environment. It takes no
+command-specific options.
 
 ### `dj-sim text-search QUERY`
 

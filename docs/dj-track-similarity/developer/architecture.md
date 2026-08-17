@@ -30,10 +30,11 @@ flowchart LR
 - `database.py`, `db_connection.py`, `db_schema.py`, `db_embeddings.py`, `db_evaluation_sidecar.py`, `db_storage.py`, and `db_analysis*.py` cover the library and optional Evaluation sidecar. These modules also handle identity validation, analysis persistence, resets, and clear.
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
-- `ffmpeg_runtime.py`: resolves a system-available shared FFmpeg library directory in this order:
-  project-root gitignored `libs/ffmpeg`, `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, then `PATH`.
-  It registers that directory for the process on Windows. The project does not version or vendor
-  FFmpeg, or invoke `ffmpeg.exe` for its main runtime.
+- `ffmpeg_runtime.py`: validates FFmpeg `8.1.1` as a full shared runtime in this order:
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, then `PATH`. A valid Windows candidate has `ffmpeg.exe`
+  plus the required ABI-8 DLL set. It registers that
+  directory for the process on Windows, loads pinned PyAV `17.1.0` from the active environment,
+  and powers `dj-sim doctor`. The project does not version or vendor FFmpeg.
 - `audio_loader.py`: one lazy TorchCodec `0.16` decode shared by the generic ML families calls
   `AudioDecoder(path, num_channels=1).get_all_samples()`. It returns the whole track as mono
   `float32` at its source sample rate, keeps `AudioSamples.data[0]` as a 1D CPU `torch.float32`

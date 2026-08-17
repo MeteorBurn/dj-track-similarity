@@ -101,8 +101,8 @@ values. These settings are stored as one browser-local `localStorage` object rat
 Staged Mode is intended for source libraries on slower disks. It copies selected files without
 changing or moving their originals to a temporary per-job directory below the selected folder. Only
 staging-copy paths are supplied to `sonara.analyze_batch()` and, when native decoding fails, to its
-project-bundled PyAV recovery decoder. The stored result, job status, and error still belong to the
-original track.
+PyAV recovery decoder from the active Python environment. The stored result, job status, and error
+still belong to the original track.
 
 StageSize bounds the total in-flight staging window. The count includes copy tasks plus files in the
 ready queue or under analysis. A completed copy joins one shared ready queue. Each free process
@@ -111,8 +111,8 @@ one process does not wait for another process's mini-batch. This is SONARA CPU/R
 ML inference batching.
 
 SONARA normally decodes each staged path through its Symphonia path. If an individual result reports
-a decode or codec failure, the project-bundled PyAV `18.1.0` recovery decoder loads after
-registering `libs/ffmpeg/bin` (shared FFmpeg `9.0.1`). It opens the same input with
+a decode or codec failure, the project loads PyAV `17.1.0` from the active Python environment after
+registering the validated FFmpeg `8.1.1` full shared runtime. It opens the same input with
 `fflags=+discardcorrupt+genpts` and passes `err_detect=ignore_err` to the decoder. It retains valid
 decoded frames, discards only a malformed `AVERROR_INVALIDDATA` packet, downmixes the PCM by the
 arithmetic channel mean to mono `float32`, resamples for SONARA when necessary, and retries through

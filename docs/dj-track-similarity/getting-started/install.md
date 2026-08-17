@@ -9,43 +9,49 @@ The project is a Python package with optional extras plus a React frontend and V
 ## Requirements
 
 - Python `>=3.10`.
-- A system-available shared FFmpeg runtime. The local gitignored `libs/ffmpeg` directory is checked
-  first. Otherwise, put its library directory (containing FFmpeg `.dll`, `.so`, or `.dylib` files)
-  on `PATH`, or set `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to that directory.
+- FFmpeg `8.1.1` as a full shared build. Put its library directory on `PATH`, or set
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to that directory.
 - Node.js and npm when building `frontend/dist` or the docs site.
 - A local audio folder for the library, with no cloud storage needed for normal workflows.
 - `uv` for every install that includes the `ml` extra.
 
-The server registers the shared runtime during startup. If no directory containing the shared FFmpeg
-libraries is available, startup fails with a clear setup error instead of silently using partial
-decoding. `ffmpeg.exe` alone is insufficient.
+The server registers the shared runtime during startup. It requires `ffmpeg.exe` reporting `8.1.1`
+plus the complete compatible shared-library set. A missing, partial, or different runtime fails with
+a clear setup error instead of silently using partial decoding. `ffmpeg.exe` alone is insufficient.
 
 ## Shared FFmpeg runtime
 
-The FFmpeg runtime is not versioned or bundled with the repository. A local installation may place
-its shared libraries in the gitignored `libs/ffmpeg` directory at the project root. Otherwise,
-install or provide a shared FFmpeg build for the host operating system and make its library directory
-available to the process. On Windows, that directory normally contains `avcodec-*.dll` alongside its
-dependent FFmpeg DLLs; Linux and macOS use the corresponding `.so` or `.dylib` libraries.
+The FFmpeg runtime is not versioned or bundled with the repository. Install or provide exactly
+FFmpeg `8.1.1` as a full shared build and make its library directory available to the process. On
+Windows, the directory must contain `ffmpeg.exe` and this complete DLL set: `avcodec-62.dll`,
+`avformat-62.dll`, `avutil-60.dll`, `avfilter-11.dll`, `swresample-6.dll`, and `swscale-9.dll`.
 
 The runtime discovery order is:
 
-1. Project-root `libs/ffmpeg`, when it contains an FFmpeg shared `avcodec` library.
-2. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set.
-3. The first directory on `PATH` that contains an FFmpeg shared `avcodec` library.
+1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set to a valid complete runtime.
+2. The first valid complete FFmpeg `8.1.1` runtime directory on `PATH`.
 
-When no valid project-root `libs/ffmpeg` runtime is present, configure the next discovery choice for
-one PowerShell session:
+To configure the preferred discovery choice for one PowerShell session:
 
 ```powershell
 $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = 'C:\path\to\ffmpeg\bin'
 dj-sim serve --host 127.0.0.1 --port 8765
 ```
 
-The main application uses TorchCodec and the shared libraries directly. It does not invoke
-`ffmpeg.exe` or `ffprobe.exe`. An executable installed for another application neither configures
-nor substitutes for this runtime. The current local validation covers compatible shared FFmpeg ABI
-majors 9 and 8. TorchCodec selects a compatible supported ABI at runtime.
+The main application uses TorchCodec and the shared libraries directly for decoding. The executable
+is used only to verify the selected runtime version during setup. An executable installed for another
+application neither configures nor substitutes for the required shared libraries. The base project
+dependency installs PyAV `17.1.0` into the active Python environment; it is not loaded from `libs`.
+
+After installation, verify the actual process environment:
+
+```powershell
+dj-sim doctor
+```
+
+The command reports the selected FFmpeg directory, version, required library paths, and the PyAV
+version and module path. It fails clearly when the installed PyAV or FFmpeg runtime does not match
+the project contract.
 
 ## Create and activate an environment
 
@@ -65,7 +71,7 @@ python -m pip install -e ".[dev]"
 ```
 
 The base package installs the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI,
-Uvicorn, Joblib, and dev test tools. This is enough for scan, CLI, backend API, export, and
+Uvicorn, Joblib, PyAV `17.1.0`, and dev test tools. This is enough for scan, CLI, backend API, export, and
 database-selection paths. The typed React client is built separately with its recorded Node
 dependencies.
 

@@ -8,22 +8,22 @@
 
 | Variable | Purpose |
 | --- | --- |
-| `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` | Directory containing shared FFmpeg libraries; used after the project-local runtime and before `PATH` discovery |
+| `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` | Directory containing a complete FFmpeg `8.1.1` shared runtime; used before `PATH` discovery |
 
-The main application requires a system-available shared FFmpeg runtime. Its exact discovery order is:
+The main application requires FFmpeg `8.1.1` as a full shared runtime. Its exact discovery order is:
 
-1. Project-root `libs/ffmpeg`, when it contains a shared `avcodec` library.
-2. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set.
-3. The first `PATH` directory containing a shared `avcodec` library.
+1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set to a valid complete runtime.
+2. The first valid complete FFmpeg `8.1.1` runtime directory on `PATH`.
 
-`libs/ffmpeg` is a gitignored local runtime directory. On Windows it normally contains
-`avcodec-*.dll` alongside the dependent FFmpeg DLLs; Linux and macOS use the equivalent
-`libavcodec.so*` or `libavcodec.*.dylib` library. If the environment variable points to another
-directory, or no eligible library directory is available, server startup fails clearly.
+On Windows, the configured directory must contain `ffmpeg.exe`, `avcodec-62.dll`,
+`avformat-62.dll`, `avutil-60.dll`, `avfilter-11.dll`, `swresample-6.dll`, and `swscale-9.dll`.
+Linux and macOS use the equivalent shared-library names. If the environment variable points to
+another directory, or no eligible library directory is available, server startup fails clearly.
 
 The project does not version or vendor FFmpeg in the repository. The main application opens the
 shared libraries directly through TorchCodec, so `ffmpeg.exe` or `ffprobe.exe` alone does not
-satisfy this configuration and is irrelevant to the application's decoder selection.
+satisfy this configuration. PyAV is a base dependency pinned to `17.1.0` and must load from the
+active Python environment. Use `dj-sim doctor` to inspect both runtimes.
 
 ## Default paths
 
@@ -84,8 +84,8 @@ run_server.cmd
 
 With no arguments, the launcher suggests `database\volumes.sqlite` under the repository root, then
 prompts for local or LAN mode. It forwards the confirmed path only after both prompts complete.
-It uses project-root `libs/ffmpeg` when present, otherwise inherits the environment-variable and
-`PATH` discovery order. It does not bundle or select FFmpeg.
+It inherits the environment-variable and `PATH` discovery order. It does not bundle or select
+FFmpeg.
 
 For non-interactive use, run `run_server.cmd local --db .\database\volumes.sqlite` or replace `local`
 with `lan`. Explicit mode commands use only the supplied arguments. Direct `dj-sim serve` commands

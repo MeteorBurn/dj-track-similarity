@@ -9,9 +9,9 @@
 The current project uses SONARA in `playlist` mode with a `70..180` BPM range. Direct Mode is the
 default and passes source paths to native `analyze_batch()`. Staged Mode instead copies selected
 source files read-only to a per-job directory below a user-selected folder. It never moves or
-modifies the source files. In Staged Mode, SONARA and its project-bundled PyAV recovery decoder
-receive only staging-copy paths, while job status, errors, and stored outputs continue to use the
-original candidate identity.
+modifies the source files. In Staged Mode, SONARA and its PyAV recovery decoder from the active
+Python environment receive only staging-copy paths, while job status, errors, and stored outputs
+continue to use the original candidate identity.
 
 The browser stores independent Direct and Staged settings in `localStorage`. Direct BatchSize
 defaults to `8`. Staged settings start with an empty folder, Processes `4`, Threads `4`, BatchSize
@@ -22,8 +22,9 @@ In Staged Mode, StageSize bounds files being copied, waiting in the shared ready
 analyzed. Each persistent worker process sets `RAYON_NUM_THREADS` from Threads and takes up to
 BatchSize ready paths for `sonara.analyze_batch()` without cross-process batch barriers. SONARA's
 Symphonia path is the normal decoder. A decode or codec failure for one result does not fail its
-mini-batch: project-bundled PyAV `18.1.0` is loaded after registering `libs/ffmpeg/bin` (shared
-FFmpeg `9.0.1`) and decodes that same input with `fflags=+discardcorrupt+genpts` and
+mini-batch: PyAV `17.1.0` is loaded from the active Python environment after registering the
+validated FFmpeg `8.1.1` full shared runtime and decodes that same input with
+`fflags=+discardcorrupt+genpts` and
 `err_detect=ignore_err`. It keeps valid decoded frames, discards only a malformed
 `AVERROR_INVALIDDATA` packet, converts the PCM by arithmetic channel mean to mono `float32`,
 resamples it to SONARA's sample rate when needed, and retries through `analyze_signal()`. If that

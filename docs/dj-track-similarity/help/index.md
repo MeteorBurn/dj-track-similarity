@@ -15,8 +15,8 @@ Start with the symptom page, then check known limits and FAQ.
 ## First checks
 
 - Confirm the UI is connected to the SQLite database you expect.
-- Confirm the project-root gitignored `libs/ffmpeg` directory contains the shared FFmpeg libraries,
-  or use `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` or `PATH` as the next discovery choices.
-  `ffmpeg.exe` alone is insufficient.
+- Run `dj-sim doctor` to check FFmpeg `8.1.1` and PyAV `17.1.0` in the active environment.
+- Configure the complete shared FFmpeg runtime with
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` or `PATH`. `ffmpeg.exe` alone is insufficient.
 - Confirm the analysis family required by the feature has been run.
 - Check the process log in the top bar for job errors.

@@ -6,12 +6,13 @@
 
 ## Server says the shared FFmpeg runtime is missing
 
-First check project-root `libs/ffmpeg`, which has highest priority and must contain
-`avcodec-*.dll` (or the platform-equivalent `.so`/`.dylib` library). This directory is gitignored.
-Otherwise, install or provide a shared FFmpeg build and set
+Run `dj-sim doctor` first. The required runtime is FFmpeg `8.1.1` as a full shared build with
+`ffmpeg.exe`, `avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `avfilter-11.dll`,
+`swresample-6.dll`, and `swscale-9.dll`. Install or provide that runtime and set
 `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to its library directory, or put that directory on `PATH`.
 `ffmpeg.exe` alone is insufficient because the main application loads the shared libraries directly
-through TorchCodec.
+through TorchCodec. `dj-sim doctor` also confirms that PyAV `17.1.0` is imported from the active
+Python environment. The project does not load either runtime from `libs`.
 
 ```powershell
 $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = 'C:\path\to\ffmpeg\bin'

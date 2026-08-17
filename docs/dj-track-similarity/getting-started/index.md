@@ -30,9 +30,9 @@ not reorganize or rewrite the source files.
 
 - A local folder of audio files.
 - A local SQLite path where the app can create or open the library.
-- A system-available shared FFmpeg runtime. Discovery prefers project-root `libs/ffmpeg`, then
-  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, then a library directory on `PATH`.
-  `ffmpeg.exe` alone is not enough.
+- FFmpeg `8.1.1` as a full shared build. Discovery checks
+  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, then a valid library directory on `PATH`.
+  `ffmpeg.exe` alone is not enough. Run `dj-sim doctor` after setup.
 - Optional model dependencies if you want SONARA, MAEST, MERT, MuQ, or CLAP analysis.
 
 ## Privacy habit

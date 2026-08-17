@@ -66,13 +66,22 @@ starts at `0`; `0` scans every eligible track. The default duration range is `12
 Clear either duration field to disable that bound independently. **Workers** starts at `8` and
 allows `1..16`.
 
-The app first collects a list of paths that match the selected formats, then hands that list to the
-existing scan workers. A duration bound is evaluated during each worker's normal metadata read, so
-there is no separate duration pass.
+The app first collects a list of paths that match the selected formats, then submits the raw paths
+to the configured `ProcessPoolExecutor` in bounded batches of up to `64`. It keeps at most twice as
+many metadata batches in flight as the configured worker count. As each batch finishes, the parent
+scan coordinator consumes its results and writes eligible records to SQLite immediately instead of
+waiting for metadata reads across the whole library. All SQLite writes stay on the parent job
+thread. Worker processes only read metadata and apply the duration bound. There is no separate
+duration pass.
 
 Duration uses Mutagen metadata first and then a lightweight PyAV container-duration fallback that
 does not decode audio frames. When a duration filter is active, files whose duration cannot be
-determined are skipped. **Scan limit** caps tracks that meet the selected filters.
+determined are skipped. When **Scan limit** is positive, every canonical path already registered in
+the active database is excluded before the duration filter and limit are counted. On Windows this
+path comparison is case-insensitive, and stored rows marked as missing are still considered
+registered. Repeating the same limited import selects the next batch of eligible new
+paths. **Scan limit** `0` is sent as no limit and retains full-scan behavior. Limited or filtered
+scans do not reconcile unvisited database rows as missing.
 
 ## ML analysis availability
 

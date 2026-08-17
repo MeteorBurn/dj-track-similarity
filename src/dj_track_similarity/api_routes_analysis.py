@@ -21,6 +21,7 @@ from .api_schemas import (
 from .api_state import AppDatabaseState
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
 from .sonara_staging import SonaraStagingConfig
+from .ml_staging import MLStagingConfig
 
 
 def register_analysis_routes(
@@ -152,12 +153,35 @@ def register_analysis_routes(
 
             ml_settings: dict[str, object] = {}
             if "ml" in request.stages:
+                ml_staging_config: MLStagingConfig | None = None
+                if request.ml.mode == "staged":
+                    folder = request.ml.staged.folder.strip()
+                    if not folder:
+                        raise ValueError(
+                            "Choose a staging folder before starting ML Staged Mode"
+                        )
+                    staging_root = Path(folder)
+                    if not staging_root.is_dir():
+                        raise ValueError(
+                            f"ML staging folder does not exist: {staging_root}"
+                        )
+                    ml_staging_config = MLStagingConfig(
+                        root=staging_root,
+                        copy_workers=request.ml.staged.copy_workers,
+                        decode_workers=request.ml.staged.decode_workers,
+                        stage_size=request.ml.staged.stage_size,
+                        inference_batch_size=request.ml.staged.inference_batch_size,
+                        preflight_copy_enabled=request.ml.staged.preflight_copy_enabled,
+                        preflight_copy_count=request.ml.staged.preflight_copy_count,
+                    )
+                
                 ml_config = build_analysis_job_config(
                     models=request.ml.models,
                     device=request.ml.device,
                     top_k=request.ml.top_k,
                     track_batch_size=request.ml.track_batch_size,
                     inference_batch_size=request.ml.inference_batch_size,
+                    ml_staging_config=ml_staging_config,
                 )
                 if "sonara" in ml_config.models:
                     raise ValueError(
@@ -170,6 +194,8 @@ def register_analysis_routes(
                     "top_k": ml_config.top_k,
                     "track_batch_size": ml_config.track_batch_size,
                     "inference_batch_size": ml_config.inference_batch_size,
+                    "mode": request.ml.mode,
+                    "ml_staging_config": ml_staging_config,
                 }
             with state.job_start():
                 return state.require_analysis_pipeline_jobs().start(

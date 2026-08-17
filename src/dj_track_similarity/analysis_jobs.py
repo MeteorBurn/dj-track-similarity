@@ -46,6 +46,7 @@ from .analysis_model_runners import (
     SonaraModelRunner,
 )
 from .sonara_staging import SonaraStagingConfig, StagedSonaraResult
+from .ml_staging import MLStagingConfig, MLStagedResult, analyze_and_store_staged_ml
 from .analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -199,6 +200,7 @@ class AnalysisJobManager:
         sonara_batch_size: int | None = None,
         sonara_mode: str = "direct",
         sonara_staging_config: SonaraStagingConfig | None = None,
+        ml_staging_config: MLStagingConfig | None = None,
         device: str = "auto",
         top_k: int = 3,
     ) -> str:
@@ -222,6 +224,7 @@ class AnalysisJobManager:
             ),
             sonara_mode=sonara_mode,
             sonara_staging_config=sonara_staging_config,
+            ml_staging_config=ml_staging_config,
         )
         if config.require_current_sonara and self.current_sonara_track_count() < 1:
             raise ValueError(
@@ -270,12 +273,24 @@ class AnalysisJobManager:
                 )
         else:
             model_names = ", ".join(model.upper() for model in config.models)
-            settings_message = (
-                f"ML queued · models {model_names} · "
-                f"Device {config.device.upper()} · "
-                f"Track batch {config.track_batch_size} · "
-                f"Inference batch {config.inference_batch_size}"
-            )
+            if config.ml_staging_config:
+                staging = config.ml_staging_config
+                settings_message = (
+                    f"ML queued · models {model_names} · Staged Mode · "
+                    f"folder {staging.root} · "
+                    f"copy workers {staging.copy_workers} · "
+                    f"decode workers {staging.decode_workers} · "
+                    f"stage size {staging.stage_size} · "
+                    f"inference batch {staging.inference_batch_size} · "
+                    f"Device {config.device.upper()}"
+                )
+            else:
+                settings_message = (
+                    f"ML queued · models {model_names} · Direct Mode · "
+                    f"Device {config.device.upper()} · "
+                    f"Track batch {config.track_batch_size} · "
+                    f"Inference batch {config.inference_batch_size}"
+                )
         self._append_event(job_id, "info", settings_message)
         return job_id
 
@@ -359,7 +374,12 @@ class AnalysisJobManager:
                 )
             )
         else:
-            batches = chunks(payload.candidates, max(1, status.track_batch_size))
+            # ML models: use single batch for staged mode, chunks for direct mode
+            batches = (
+                (payload.candidates,)
+                if payload.config.ml_staging_config is not None
+                else chunks(payload.candidates, max(1, status.track_batch_size))
+            )
         for batch in batches:
             if self.get(job_id).cancel_requested:
                 return self._finish_cancelled(job_id)
@@ -520,7 +540,10 @@ class AnalysisJobManager:
         batch: list[AnalysisCandidate],
         targets_by_track: Mapping[int, tuple[str, ...]],
     ) -> bool:
+        payload = self._payload(job_id)
         status = self.get(job_id)
+        
+        # SONARA-only path
         if status.models == ["sonara"]:
             items = [
                 AnalysisBatchItem(
@@ -534,6 +557,53 @@ class AnalysisJobManager:
                 for candidate in batch
                 if targets_by_track.get(candidate.target.track_id)
             ]
+        # ML Staged Mode path
+        elif payload.config.ml_staging_config is not None:
+            # ML staged processes ALL candidates in one pipeline run
+            config = payload.config.ml_staging_config
+            self._append_event(
+                job_id,
+                "info",
+                f"ML staged pipeline starting: {len(batch)} tracks",
+            )
+            
+            try:
+                results = analyze_and_store_staged_ml(
+                    repository=self.db,
+                    candidates=batch,
+                    model_runners=lifecycle.runners,
+                    targets_by_track=targets_by_track,
+                    config=config,
+                    decode_audio=self._decode_audio,
+                    cancelled=lambda: self.get(job_id).cancel_requested,
+                    track_result_callback=lambda result: self._record_staged_ml_result(
+                        job_id, result
+                    ),
+                    progress_callback=lambda phase, done, total: self._ml_staged_progress(
+                        job_id, phase, done, total
+                    ),
+                    set_current_path=lambda path: self._update(
+                        job_id, current_path=path
+                    ),
+                    mark_track_processed=lambda candidate: self._mark_track_processed(
+                        job_id, candidate
+                    ),
+                )
+                
+                self._append_event(
+                    job_id,
+                    "info",
+                    f"ML staged pipeline completed: {len(results)} tracks processed",
+                )
+                
+                # ML staged handles its own track processing
+                return True
+                
+            except RuntimeError as error:
+                if "cancelled" in str(error).lower():
+                    return True
+                raise
+        # ML Direct Mode path (current)
         else:
             items = decode_analysis_batch(
                 batch,
@@ -548,6 +618,7 @@ class AnalysisJobManager:
                 ),
             )
 
+        # Run models on decoded items (SONARA or ML direct mode)
         for model in ANALYSIS_MODEL_ORDER:
             model_items = [item for item in items if model in item.models]
             if not model_items:
@@ -760,6 +831,51 @@ class AnalysisJobManager:
                 result.error,
             )
         self._mark_track_processed(job_id, result.candidate)
+
+    def _record_staged_ml_result(
+        self,
+        job_id: str,
+        result: MLStagedResult,
+    ) -> None:
+        """Record ML staged result (called incrementally per track)."""
+        if result.error is None:
+            # Success - track was processed by all models
+            # Note: ML staged doesn't track per-model success, only overall
+            pass
+        # Note: mark_track_processed is called by ML staged pipeline itself
+
+    def _ml_staged_progress(
+        self,
+        job_id: str,
+        phase: str,
+        done: int,
+        total: int,
+    ) -> None:
+        """Progress callback for ML staged pipeline phases."""
+        if done == 1 or done == total or done % 10 == 0:
+            phase_label = {
+                "copy": "Copy",
+                "copy_queued": "Copy queued",
+                "decode": "Decode",
+                "preflight_copy": "Preflight copy",
+            }.get(phase, phase)
+            
+            # For inference phases (inference:model_name), extract model
+            if phase.startswith("inference:"):
+                model_name = phase.split(":", 1)[1].upper()
+                self._append_event(
+                    job_id,
+                    "info",
+                    f"ML staged · {model_name} inference {done}/{total}",
+                    model=phase.split(":", 1)[1],
+                )
+            else:
+                self._append_event(
+                    job_id,
+                    "info",
+                    f"ML staged · {phase_label} {done}/{total}",
+                )
+
 
     def _record_sonara_metrics(
         self,

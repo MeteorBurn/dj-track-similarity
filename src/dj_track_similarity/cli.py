@@ -1054,8 +1054,41 @@ def analyze(
         max=MAX_SONARA_BATCH_SIZE,
         help="Native SONARA/Symphonia file batch size; independent from ML batching.",
     ),
+    ml_staged: bool = typer.Option(False, "--ml-staged", help="Enable ML Staged Mode (copy→decode→inference pipeline for HDD optimization)."),
+    ml_staging_path: Optional[str] = typer.Option(None, "--ml-staging-path", help="ML staging folder (SSD recommended). Required when --ml-staged is enabled."),
+    ml_copy_workers: int = typer.Option(4, "--ml-copy-workers", min=1, max=16, help="ML staged: parallel copy workers (HDD→SSD)."),
+    ml_decode_workers: int = typer.Option(8, "--ml-decode-workers", min=1, max=32, help="ML staged: parallel TorchCodec decoders."),
+    ml_stage_size: int = typer.Option(64, "--ml-stage-size", min=1, max=512, help="ML staged: max files in staging directory."),
 ) -> None:
     set_analysis_diagnostics_enabled(diagnostics)
+    
+    # Validate and build ML staging config if enabled
+    ml_staging_config = None
+    if ml_staged:
+        if not ml_staging_path:
+            typer.secho(
+                "Error: --ml-staging-path is required when --ml-staged is enabled",
+                err=True,
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+        staging_root = Path(ml_staging_path)
+        if not staging_root.is_dir():
+            typer.secho(
+                f"Error: ML staging folder does not exist: {staging_root}",
+                err=True,
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+        from .ml_staging import MLStagingConfig
+        ml_staging_config = MLStagingConfig(
+            root=staging_root,
+            copy_workers=ml_copy_workers,
+            decode_workers=ml_decode_workers,
+            stage_size=ml_stage_size,
+            inference_batch_size=inference_batch_size,
+        )
+    
     try:
         selected_models = _parse_analysis_models(models)
         config = build_analysis_job_config(
@@ -1066,6 +1099,7 @@ def analyze(
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
             sonara_batch_size=sonara_batch_size,
+            ml_staging_config=ml_staging_config,
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
@@ -1079,6 +1113,7 @@ def analyze(
             track_batch_size=config.track_batch_size,
             inference_batch_size=config.inference_batch_size,
             sonara_batch_size=config.sonara_batch_size,
+            ml_staging_config=config.ml_staging_config,
         )
         status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
     except (FileNotFoundError, RuntimeError, ValueError) as error:

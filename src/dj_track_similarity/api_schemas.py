@@ -161,6 +161,31 @@ class SonaraPipelineSettings(BaseModel):
     staged: SonaraStagedSettings = Field(default_factory=SonaraStagedSettings)
 
 
+class MLStagedSettings(BaseModel):
+    """ML Staged Mode settings - copy/decode/inference pipeline.
+    
+    Similar to SONARA staged but optimized for ML models:
+    - copy_workers: Parallel HDD→SSD copies (lower than SONARA, sequential optimization)
+    - decode_workers: Parallel TorchCodec decoders (GPU bottleneck relief)
+    - stage_size: Max files in staging directory (higher than SONARA, more VRAM available)
+    - inference_batch_size: Per-model GPU batch size
+    - preflight_copy_enabled: Copy during model loading (ML-specific optimization)
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    folder: str = ""
+    copy_workers: int = Field(default=4, ge=1, le=16)
+    decode_workers: int = Field(default=8, ge=1, le=32)
+    stage_size: int = Field(default=64, ge=1, le=512)
+    inference_batch_size: int = Field(
+        default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+        ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
+        le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+    )
+    preflight_copy_enabled: bool = True
+    preflight_copy_count: int = Field(default=64, ge=1, le=512)
+
+
 class MlPipelineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -181,6 +206,8 @@ class MlPipelineSettings(BaseModel):
         ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
         le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     )
+    mode: Literal["direct", "staged"] = "direct"
+    staged: MLStagedSettings = Field(default_factory=MLStagedSettings)
 
 
 class AnalysisPipelineRequest(BaseModel):

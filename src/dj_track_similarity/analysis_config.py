@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .sonara_staging import SonaraStagingConfig
+from .ml_staging import MLStagingConfig
 
 ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "mulan", "clap")
 ANALYSIS_MODEL_ORDER = ("sonara", *ML_ANALYSIS_MODEL_ORDER)
@@ -38,6 +39,7 @@ class AnalysisJobConfig:
     sonara_batch_size: int
     sonara_mode: str
     sonara_staging_config: SonaraStagingConfig | None
+    ml_staging_config: MLStagingConfig | None
 
 
 def normalize_analysis_models(models: Sequence[str] | None) -> tuple[str, ...]:
@@ -90,6 +92,7 @@ def build_analysis_job_config(
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
     sonara_mode: str = DEFAULT_SONARA_ANALYSIS_MODE,
     sonara_staging_config: SonaraStagingConfig | None = None,
+    ml_staging_config: MLStagingConfig | None = None,
     allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
     normalized_models = (
@@ -132,6 +135,7 @@ def build_analysis_job_config(
         sonara_staging_config=(
             sonara_staging_config if normalized_sonara_mode == "staged" else None
         ),
+        ml_staging_config=ml_staging_config,
     )
 
 

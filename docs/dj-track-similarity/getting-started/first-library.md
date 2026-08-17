@@ -62,13 +62,24 @@ eligible tracks. Its duration fields are seconds, with defaults of `120` and `12
 either field disables only that bound. **Workers** starts at `8` and accepts `1..16`. The dialog
 keeps these values only while it is open, so every new opening restores the defaults.
 
-The app first collects a list of paths that match the selected formats, then hands that list to the
-existing scan workers. A duration bound is evaluated during each worker's normal metadata read, so
-there is no separate duration pass.
+The app first collects a list of paths that match the selected formats, then submits the raw paths
+to the configured `ProcessPoolExecutor` in bounded batches of up to `64`. It keeps at most twice as
+many metadata batches in flight as the configured worker count. As each batch finishes, the parent
+scan coordinator consumes its results and writes eligible records to SQLite immediately instead of
+waiting for metadata reads across the whole library. All SQLite writes stay on the parent job
+thread. Worker processes only read metadata and apply the duration bound. There is no separate
+duration pass.
 
 Duration uses Mutagen metadata first and then a lightweight PyAV container-duration fallback that
 does not decode audio frames. Files with an unknown duration are skipped when a bound is active.
-**Scan limit** caps tracks that meet the selected filters.
+With a positive **Scan limit**, paths already registered in the active database are excluded before
+the duration filter and limit are counted. The comparison uses the canonical path (case-insensitive
+on Windows) and includes database rows currently marked as missing. Repeating the same folder,
+formats, and duration bounds with a limit of `1000` selects the next `1000` eligible new
+paths instead of spending the limit on unchanged tracks.
+
+**Scan limit** `0` is sent as no limit and keeps full-scan behavior, including checking registered
+paths. A limited or filtered scan does not mark tracks it did not visit as missing.
 
 The equivalent CLI command is:
 

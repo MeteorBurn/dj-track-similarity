@@ -32,6 +32,29 @@ def _make_wav(path: Path) -> None:
         handle.writeframes(b"\x00\x00" * 441)
 
 
+def test_iter_audio_files_skips_an_unreadable_subdirectory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    music_root = tmp_path / "music"
+    visible = music_root / "visible.wav"
+    hidden = music_root / "blocked" / "hidden.wav"
+    _make_wav(visible)
+    _make_wav(hidden)
+    original_scandir = os.scandir
+
+    def inaccessible_scandir(path):
+        if Path(path) == hidden.parent:
+            raise OSError("access denied")
+        return original_scandir(path)
+
+    monkeypatch.setattr(scanner_module.os, "scandir", inaccessible_scandir)
+
+    assert list(scanner_module.iter_audio_files(music_root)) == [
+        visible.resolve(),
+    ]
+
+
 def _make_tagged_wav(
     path: Path,
     *,

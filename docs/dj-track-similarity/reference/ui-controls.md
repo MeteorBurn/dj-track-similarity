@@ -12,8 +12,10 @@ separate Timeline or Representations database controls.
 
 - **Choose database** selects or creates the Core file. An older or incomplete catalog is rejected
   instead of being migrated in place.
-- **Music root** and **Scan workers** configure a scan. Scan and **Refresh Tags** update catalog
-  rows without rewriting source audio.
+- **Load tracks into the database** opens an import dialog. Its server-side folder picker selects
+  the root, and its **MP3**, **FLAC**, **ALAC**, **WAV**, **AIFF**, **M4A**, **OGG**, and **OPUS**
+  badges select the formats to scan. Scan and **Refresh Tags** update catalog rows without
+  rewriting source audio.
 - Library pages contain up to `200` tracks. **Prev**, **Next**, and the page-number field request one
   `/api/tracks` page at a time.
 - All rows from the current page render in one scrollable list. There is no second row-window
@@ -56,6 +58,17 @@ Mode, and both become active in Staged Mode. No staging path or placeholder is s
 use, so Staged Mode cannot start until the user selects a folder. Mode, both BatchSize values, the
 folder, and the other Staged settings persist together in browser `localStorage`. These controls
 affect SONARA only, so GPU model analysis does not use the staging folder.
+
+## Track import
+
+Each opening of **Load tracks into the database** starts a new modal dialog; it does not retain a
+previous folder or settings. The default selected formats are **MP3**, **FLAC**, **ALAC**, **WAV**,
+**AIFF**, **M4A**, **OGG**, and **OPUS**. Its default duration range is `120..1200` seconds and its
+default worker count is `8`. Clear either duration field to disable that bound independently.
+
+Format and duration filters are resolved before the scan queue is created. Duration uses Mutagen
+metadata first and then a lightweight PyAV container-duration fallback that does not decode audio
+frames. When a duration filter is active, files whose duration cannot be determined are skipped.
 
 ## Search tabs
 

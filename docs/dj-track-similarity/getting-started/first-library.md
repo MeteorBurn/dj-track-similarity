@@ -45,12 +45,22 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 In the browser:
 
 1. Choose the database.
-2. Enter **Music root** or use the folder picker.
-3. Adjust **Scan workers** when needed.
-4. Click **Load tracks into the database**.
+2. Click **Load tracks into the database** to open the import dialog.
+3. Choose the music folder with the server-side folder picker.
+4. Select the formats, duration bounds, and worker count, then start the import.
 
 The scan job shows queued/running progress, counts, errors, cancellation, and completion in the
 activity panel. The browser refreshes the typed library summary when the job finishes.
+
+The dialog starts with all format badges selected: **MP3**, **FLAC**, **ALAC**, **WAV**, **AIFF**,
+**M4A**, **OGG**, and **OPUS**. Its duration fields are seconds, with defaults of `120` and `1200`;
+clearing either field disables only that bound. **Workers** starts at `8`. The dialog keeps these
+values only while it is open, so every new opening restores the defaults.
+
+Selected format and duration filters are applied while files are discovered, before scan work is
+queued. Duration comes from Mutagen metadata first. If that is unavailable, the scanner uses the
+lightweight PyAV container-duration fallback without decoding audio frames. A file whose duration
+remains unknown is skipped when either duration bound is active.
 
 The equivalent CLI command is:
 

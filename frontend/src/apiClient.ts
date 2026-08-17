@@ -18,6 +18,7 @@ import type {
   RhythmLabCollectionSaveResult,
   RhythmLabLaunchResult,
   RhythmLabStatus,
+  ScanRequest,
   ScanStats,
   SearchResult,
   ServerShutdownResult,
@@ -177,10 +178,10 @@ const libraryApi = {
       })
     }),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
-  scan: (root: string, workers: number, limit?: number) =>
+  scan: (payload: ScanRequest) =>
     request<ScanStats>("/api/library/scan", {
       method: "POST",
-      body: JSON.stringify({ root, workers, limit: limit ?? null })
+      body: JSON.stringify(payload)
     }),
   refreshTags: (workers: number) =>
     request<ScanStats>("/api/library/tags/refresh", {

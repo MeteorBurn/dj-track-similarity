@@ -116,7 +116,7 @@ test("genre save button is placed between refresh tags and database clear", () =
   assert.ok(genreSaveIndex < clearIndex);
 });
 
-test("scan action row keeps the primary action flexible beside fixed icon controls", () => {
+test("scan action keeps the import trigger beside database maintenance controls", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const rowMatch = source.match(/<div className="scan-action-row">([\s\S]*?)<\/div>/);
@@ -379,11 +379,12 @@ test("explicit database refresh adopts its catalog scope and suppresses the dupl
 
 test("analysis and scan controls use the measured machine defaults", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const scanDialogSource = readFileSync(join(srcDir, "ScanImportDialog.tsx"), "utf8");
   const sonaraSettingsSource = readFileSync(join(srcDir, "sonaraAnalysisSettings.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
   const apiSchemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
-  assert.match(appSource, /scanWorkers,\s*setScanWorkers\]\s*=\s*useState\(8\)/);
+  assert.match(scanDialogSource, /workers:\s*8/);
   assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(8\)/);
   assert.match(appSource, /analysisInferenceBatchSize,\s*setAnalysisInferenceBatchSize\]\s*=\s*useState\(16\)/);
   assert.match(appSource, /loadSonaraAnalysisSettings\(\)/);
@@ -788,4 +789,11 @@ test("database validation starts without opening the log dialog", () => {
 
   assert.match(handler, /setProcessLogKind\("database_validation"\)/);
   assert.doesNotMatch(handler, /setLogFrameOpen\(/);
+});
+
+test("database validation is disabled until the library has tracks", () => {
+  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
+  const validationButton = source.match(/<button className="icon-button database-validation-button"[\s\S]*?<\/button>/)?.[0] || "";
+
+  assert.match(validationButton, /disabled=\{busy \|\| stageRunning \|\| !hasTracks\}/);
 });

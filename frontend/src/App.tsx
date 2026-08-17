@@ -28,6 +28,7 @@ import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
 import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
+import { ScanImportDialog, type ScanImportRequest } from "./ScanImportDialog";
 import { appendVisibleTracksToPlaylist, nextLibraryPlaybackTrack } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import {
@@ -65,11 +66,8 @@ type GuardedRequestTicket = {
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 const analysisModelOrder = analysisSelectionOrder;
-
-function optimalWorkerLimit() {
-  const cores = typeof navigator === "undefined" ? 4 : navigator.hardwareConcurrency || 4;
-  return Math.max(1, Math.min(8, Math.floor(cores / 2) || 1));
-}
+const defaultScanWorkers = 8;
+const maxScanWorkers = 16;
 
 function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
   const opened = window.open("/docs/", "_blank", "noopener,noreferrer");
@@ -160,7 +158,7 @@ export function App() {
   const [clapUseNegativePrompt, setClapUseNegativePrompt] = useState(true);
   const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<"clap" | "mulan">("clap");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
-  const [musicRoot, setMusicRoot] = useState("");
+  const [scanImportOpen, setScanImportOpen] = useState(false);
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [analysisPipelineJob, setAnalysisPipelineJob] = useState<AnalysisPipelineStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
@@ -169,7 +167,6 @@ export function App() {
   const [rhythmLabStatus, setRhythmLabStatus] = useState<RhythmLabStatus | null>(null);
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "database_validation">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
-  const [scanWorkers, setScanWorkers] = useState(8);
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(8);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(16);
   const [sonaraSettings, setSonaraSettings] = useState<SonaraAnalysisSettings>(
@@ -266,7 +263,6 @@ export function App() {
       || (databaseValidationJob?.events || []).some((event) => event.level === "error");
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
   }, [activityLog, analysisJob, databaseValidationJob, genreTagJob, scanJob]);
-  const canStartScan = Boolean(databasePath && musicRoot);
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
     maest: librarySummary.maest_analysis,
@@ -275,7 +271,6 @@ export function App() {
     mulan: librarySummary.mulan,
     clap: librarySummary.clap
   };
-  const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisTrackBatchSize = 64;
   const maxAnalysisInferenceBatchSize = 128;
 
@@ -560,7 +555,6 @@ export function App() {
     cancelTrackDetailRequest();
     resetLibraryState();
     setDatabaseCatalogUuid(null);
-    setMusicRoot("");
     resetSearchPlaylistState();
     setScanJob(null);
     setAnalysisJob(null);
@@ -904,39 +898,49 @@ export function App() {
     }
   }
 
-  async function handleScan() {
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+  async function handleStartScan(request: ScanImportRequest) {
     appendActivity(
       "info",
       "Сканирование запущено",
-      `${musicRoot} · limit ${limit ?? "all"}`,
+      request.root,
     );
     setProcessLogKind("scan");
     setScanJob(null);
-    await run(
-      () => api.scan(musicRoot, scanWorkers, limit),
-      (value) => {
-        setScanJob(value);
-        const detail = value.job_id ? `job ${value.job_id.slice(0, 8)} · ${value.total || 0} файлов` : scanSummary(value);
-        appendActivity("ok", "Scan job создан", detail);
-        return detail;
-      }
-    );
+    setBusy(true);
+    try {
+      const value = await api.scan(request);
+      setScanJob(value);
+      const detail = value.job_id ? `job ${value.job_id.slice(0, 8)} · ${value.total || 0} файлов` : scanSummary(value);
+      appendActivity("ok", "Scan job создан", detail);
+      setNotice({ kind: "ok", text: detail });
+      setScanImportOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Ошибка загрузки треков", message);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function handleChooseFolder() {
-    await run(
-      () => api.chooseFolder(),
-      (value) => {
-        if (!value.path) {
-          appendActivity("info", "Выбор папки отменен");
-          return "Выбор папки отменен";
-        }
-        setMusicRoot(value.path);
-        appendActivity("ok", "Папка выбрана", value.path);
-        return value.path;
+  async function handleChooseScanFolder(): Promise<string | null> {
+    setBusy(true);
+    try {
+      const value = await api.chooseFolder();
+      if (!value.path) {
+        appendActivity("info", "Выбор папки отменен");
+        return null;
       }
-    );
+      appendActivity("ok", "Папка выбрана", value.path);
+      return value.path;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось выбрать папку", message);
+      return null;
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleChooseStagingFolder() {
@@ -1103,7 +1107,7 @@ export function App() {
     setProcessLogKind("scan");
     setScanJob(null);
     await run(
-      () => api.refreshTags(scanWorkers),
+      () => api.refreshTags(defaultScanWorkers),
       (value) => {
         setScanJob(value);
         const detail = value.job_id ? `job ${value.job_id.slice(0, 8)} · ${value.total || 0} треков` : scanSummary(value);
@@ -1291,10 +1295,6 @@ export function App() {
     );
   }
 
-  function adjustScanWorkers(delta: number) {
-    setScanWorkers((current) => Math.min(maxScanWorkers, Math.max(1, current + delta)));
-  }
-
   async function handleGenreTagsApply() {
     if (!librarySummary.maest_analysis) {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
@@ -1444,17 +1444,10 @@ export function App() {
         <LibraryPanel
           databasePath={databasePath}
           onChooseDatabase={() => void handleChooseDatabase()}
-          musicRoot={musicRoot}
-          onMusicRootChange={setMusicRoot}
           busy={busy}
           stageRunning={stageRunning}
-          canStartScan={canStartScan}
           hasTracks={hasTracks}
           maestGenreTrackCount={librarySummary.maest_analysis}
-          scanWorkers={scanWorkers}
-          maxScanWorkers={maxScanWorkers}
-          adjustScanWorkers={adjustScanWorkers}
-          onScanWorkersChange={setScanWorkers}
           analysisLimit={analysisLimit}
           onAnalysisLimitChange={setAnalysisLimit}
           analysisDevice={analysisDevice}
@@ -1471,8 +1464,7 @@ export function App() {
           onSonaraSettingsChange={setSonaraSettings}
           onChooseStagingFolder={() => void handleChooseStagingFolder()}
           helpText={helpText}
-          onChooseFolder={() => void handleChooseFolder()}
-          onScan={() => void handleScan()}
+          onOpenScanDialog={() => setScanImportOpen(true)}
           onRefreshTags={() => void handleRefreshTags()}
           onWriteMaestGenres={() => void handleGenreTagsApply()}
           onClearDatabase={() => requestConfirmation({
@@ -1628,6 +1620,16 @@ export function App() {
           onClose={() => setMetadataTrack(null)}
           onPreview={togglePreview}
           playingTrackId={playingTrackId}
+        />
+      )}
+      {scanImportOpen && (
+        <ScanImportDialog
+          busy={busy}
+          stageRunning={stageRunning}
+          maxWorkers={maxScanWorkers}
+          onChooseFolder={handleChooseScanFolder}
+          onClose={() => setScanImportOpen(false)}
+          onStart={handleStartScan}
         />
       )}
       {confirmation && (

@@ -59,6 +59,8 @@ test("analysis model rows render summary counts near each model", () => {
   assert.match(descriptionRule, /white-space:\s*nowrap/);
   assert.match(descriptionRule, /line-height:\s*12px/);
   assert.match(countRule, /justify-self:\s*end/);
+  assert.match(countRule, /justify-content:\s*center/);
+  assert.match(countRule, /text-align:\s*center/);
   assert.match(countRule, /color:\s*var\(--text-strong\)/);
   assert.match(countRule, /font-size:\s*13px/);
   assert.match(countRule, /font-weight:\s*800/);

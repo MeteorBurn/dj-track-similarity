@@ -225,11 +225,9 @@ def test_scan_accepts_existing_directory_without_persisting_request_state(
     def run_synchronously(
         manager: api_state.ScanJobManager,
         root: str | Path,
-        *,
-        workers: int = 1,
-        limit: int | None = None,
+        **kwargs: object,
     ):
-        return manager.run_sync(root, workers=workers, limit=limit)
+        return manager.run_sync(root, **kwargs)
 
     monkeypatch.setattr(
         api_state.ScanJobManager,
@@ -251,6 +249,49 @@ def test_scan_accepts_existing_directory_without_persisting_request_state(
         scan_root.resolve()
     ).casefold()
     assert client.get("/api/database/current").json() == before
+
+
+def test_scan_forwards_format_and_duration_filters_to_job_manager(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    scan_root = tmp_path / "music"
+    scan_root.mkdir()
+    captured: dict[str, object] = {}
+
+    def capture_start(
+        manager: api_state.ScanJobManager,
+        root: str | Path,
+        **kwargs: object,
+    ):
+        captured["root"] = root
+        captured.update(kwargs)
+        return manager.run_sync(root)
+
+    monkeypatch.setattr(api_state.ScanJobManager, "start", capture_start)
+    client = TestClient(api_module.create_app(db_path))
+
+    response = client.post(
+        "/api/library/scan",
+        json={
+            "root": str(scan_root),
+            "workers": 3,
+            "extensions": [".mp3", ".flac"],
+            "min_duration_seconds": 120,
+            "max_duration_seconds": 1200,
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "root": str(scan_root),
+        "workers": 3,
+        "limit": None,
+        "extensions": {".mp3", ".flac"},
+        "min_duration_seconds": 120,
+        "max_duration_seconds": 1200,
+    }
 
 
 def test_scan_rejects_missing_directory_without_mutating_selected_bundle(
@@ -282,11 +323,9 @@ def test_database_switch_is_rejected_while_scan_job_is_queued(
     def queue_without_running(
         manager: api_state.ScanJobManager,
         root: str | Path,
-        *,
-        workers: int = 1,
-        limit: int | None = None,
+        **kwargs: object,
     ):
-        job_id = manager.create_job(root, workers=workers, limit=limit)
+        job_id = manager.create_job(root, **kwargs)
         return manager.get(job_id)
 
     monkeypatch.setattr(

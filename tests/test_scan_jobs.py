@@ -9,14 +9,14 @@ from dj_track_similarity.scan_jobs import ScanJobManager, ScanJobPayload
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
-def _audio(root: Path, name: str) -> Path:
+def _audio(root: Path, name: str, *, seconds: float = 0.01) -> Path:
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
         handle.setframerate(44_100)
-        handle.writeframes(b"\x00\x00" * 441)
+        handle.writeframes(b"\x00\x00" * round(44_100 * seconds))
     return path
 
 
@@ -78,6 +78,31 @@ def test_limited_scan_does_not_mark_unseen_tracks_missing(tmp_path: Path) -> Non
             "SELECT COUNT(*) FROM tracks WHERE missing_since IS NOT NULL"
         ).fetchone()[0]
     assert missing_count == 0
+
+
+def test_scan_job_filters_extensions_and_duration_without_marking_others_missing(
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    accepted = _audio(music, "accepted.wav", seconds=2)
+    _audio(music, "short.wav", seconds=0.5)
+    _audio(music, "long.wav", seconds=4)
+    (music / "ignored.flac").write_bytes(b"not audio")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+
+    status = manager.run_sync(
+        music,
+        extensions={".wav"},
+        min_duration_seconds=1,
+        max_duration_seconds=3,
+    )
+
+    assert status.state == "completed"
+    assert status.total == 1
+    assert status.added == 1
+    assert [item.file_path for item in database.list_track_paths()] == [accepted.resolve().as_posix()]
 
 
 def test_scan_job_can_be_cancelled_then_rerun(

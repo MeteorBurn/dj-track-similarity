@@ -31,6 +31,9 @@
   --surface-raised: #fbfcf7;
   --surface-disabled: #f4f5ef;
   --surface-disabled-border: #dde2d8;
+  --scan-import-format-off-bg: #f1f1f1;
+  --scan-import-format-off-border: #b6b6b6;
+  --scan-import-format-off-text: #5f5f5f;
   --text-strong: #17221c;
   --text: #354036;
   --text-track: #4c5747;
@@ -139,6 +142,9 @@
   --surface-raised: #162033;
   --surface-disabled: #101722;
   --surface-disabled-border: #2a3648;
+  --scan-import-format-off-bg: #232323;
+  --scan-import-format-off-border: #585858;
+  --scan-import-format-off-text: #c8c8c8;
   --text-strong: #f1f7ff;
   --text: #d8e5f3;
   --text-track: #c7d7ea;
@@ -962,12 +968,12 @@ h2 {
   font-weight: 800;
   box-sizing: border-box;
   height: 34px;
-  justify-content: flex-end;
+  justify-content: center;
   justify-self: end;
   min-height: 34px;
   min-width: 76px;
   padding: 0 8px;
-  text-align: right;
+  text-align: center;
 }
 
 .analyze-selected-button {
@@ -1012,10 +1018,18 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 42px;
 }
 
+.database-path-row {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
 .database-path-row .icon-button,
 .library-path-row .icon-button,
 .output-row .icon-button {
   width: 42px;
+}
+
+.database-path-row .icon-button {
+  width: 34px;
 }
 
 .scan-action-row {
@@ -1089,6 +1103,144 @@ h2 {
 .stop-button:hover:not(:disabled) {
   border-color: var(--danger-border-hover);
   color: var(--danger-text-hover);
+}
+
+.scan-import-backdrop {
+  align-items: center;
+  background: var(--overlay-strong);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 1200;
+}
+
+.scan-import-dialog {
+  background: var(--surface);
+  border: 1px solid var(--button-border);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px var(--shadow-dialog-strong);
+  display: grid;
+  gap: 14px;
+  max-width: min(760px, calc(100vw - 32px));
+  padding: 16px;
+  width: 100%;
+}
+
+.scan-import-title {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.scan-import-title h2 {
+  margin: 0;
+}
+
+.scan-import-title-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.scan-import-description {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.35;
+  margin: 0;
+  width: 100%;
+}
+
+.scan-import-path-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.scan-import-path-row .icon-button {
+  width: 34px;
+}
+
+.scan-import-formats {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.scan-import-format-chip {
+  background: var(--scan-import-format-off-bg);
+  border: 1px solid var(--scan-import-format-off-border);
+  border-radius: 3px;
+  color: var(--scan-import-format-off-text);
+  flex: 1 1 0;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 30px;
+  min-width: 0;
+  padding: 4px 9px;
+}
+
+.scan-import-format-chip.selected {
+  background: var(--danger-muted-bg);
+  border-color: var(--danger-muted-border);
+  color: var(--danger-text);
+}
+
+.scan-import-format-chip.selected:hover:not(:disabled) {
+  border-color: var(--danger-border-hover);
+  color: var(--danger-text-hover);
+}
+
+.scan-import-settings {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.scan-import-settings > label {
+  color: var(--text-muted);
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
+}
+
+.scan-import-settings .worker-control {
+  align-content: start;
+  gap: 4px;
+}
+
+.scan-import-settings > label,
+.scan-import-settings .worker-control {
+  grid-template-rows: 18px 36px;
+}
+
+.scan-import-settings .stepper {
+  align-items: stretch;
+  height: 36px;
+}
+
+.scan-import-settings > label > input,
+.scan-import-settings .stepper .icon-button,
+.scan-import-settings .stepper input {
+  height: 36px;
+  min-height: 36px;
+}
+
+.scan-import-validation {
+  color: var(--danger-text);
+  font-size: 12px;
+  margin: 0;
+}
+
+.scan-import-submit-button {
+  justify-content: center;
+  margin-bottom: 0;
+}
+
+@media (max-width: 560px) {
+  .scan-import-settings {
+    grid-template-columns: 1fr;
+  }
 }
 
 .analysis-reset-button.stop-button {

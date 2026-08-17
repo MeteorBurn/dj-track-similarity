@@ -10,14 +10,16 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path
-from typing import Callable, cast
+from typing import Callable, Collection, cast
 
 from .db_tracks import TrackRepository, canonical_file_path
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure, log_job_event
 from .scanner import (
+    SUPPORTED_AUDIO_EXTENSIONS,
     file_tags_from_metadata,
     iter_audio_files,
+    read_audio_duration_seconds,
     read_audio_metadata,
     read_audio_metadata_stable,
     scan_audio_file,
@@ -63,6 +65,7 @@ class ScanJobStatus:
 class ScanJobPayload:
     paths: list[Path]
     track_states: dict[str, TrackFileState] = field(default_factory=dict)
+    reconcile_missing: bool = True
 
 
 class ScanJobManager:
@@ -81,6 +84,9 @@ class ScanJobManager:
         *,
         workers: int = 1,
         limit: int | None = None,
+        extensions: Collection[str] | None = None,
+        min_duration_seconds: int | None = None,
+        max_duration_seconds: int | None = None,
     ) -> str:
         root_path = Path(root).expanduser().resolve(strict=False)
         if limit is not None and (
@@ -89,11 +95,30 @@ class ScanJobManager:
             or limit < 1
         ):
             raise ValueError("limit must be a positive integer or None")
-        discovered_paths = iter_audio_files(root_path)
+        _validate_duration_bounds(min_duration_seconds, max_duration_seconds)
+        selected_extensions = _selected_extensions(extensions)
+        discovered_paths = iter_audio_files(
+            root_path,
+            extensions=selected_extensions,
+        )
+        unknown_duration_count = 0
+        eligible_paths: list[Path] = []
+        for path in discovered_paths:
+            if min_duration_seconds is not None or max_duration_seconds is not None:
+                duration = read_audio_duration_seconds(path)
+                if duration is None:
+                    unknown_duration_count += 1
+                    continue
+                if (
+                    (min_duration_seconds is not None and duration < min_duration_seconds)
+                    or (max_duration_seconds is not None and duration > max_duration_seconds)
+                ):
+                    continue
+            eligible_paths.append(path)
         paths = list(
-            discovered_paths
+            eligible_paths
             if limit is None
-            else islice(discovered_paths, limit)
+            else islice(eligible_paths, limit)
         )
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(
@@ -107,7 +132,15 @@ class ScanJobManager:
         self._store.add(
             job_id,
             status,
-            payload=ScanJobPayload(paths=paths),
+            payload=ScanJobPayload(
+                paths=paths,
+                reconcile_missing=(
+                    limit is None
+                    and selected_extensions == SUPPORTED_AUDIO_EXTENSIONS
+                    and min_duration_seconds is None
+                    and max_duration_seconds is None
+                ),
+            ),
         )
         self._append_event(
             job_id,
@@ -118,6 +151,12 @@ class ScanJobManager:
             ),
             path=str(root_path),
         )
+        if unknown_duration_count:
+            self._append_event(
+                job_id,
+                "warn",
+                f"Scan discovery skipped {unknown_duration_count} tracks with unknown duration",
+            )
         return job_id
 
     def start(
@@ -126,8 +165,18 @@ class ScanJobManager:
         *,
         workers: int = 1,
         limit: int | None = None,
+        extensions: Collection[str] | None = None,
+        min_duration_seconds: int | None = None,
+        max_duration_seconds: int | None = None,
     ) -> ScanJobStatus:
-        job_id = self.create_job(root, workers=workers, limit=limit)
+        job_id = self.create_job(
+            root,
+            workers=workers,
+            limit=limit,
+            extensions=extensions,
+            min_duration_seconds=min_duration_seconds,
+            max_duration_seconds=max_duration_seconds,
+        )
         thread = threading.Thread(
             target=self.run_job,
             args=(job_id,),
@@ -142,8 +191,18 @@ class ScanJobManager:
         *,
         workers: int = 1,
         limit: int | None = None,
+        extensions: Collection[str] | None = None,
+        min_duration_seconds: int | None = None,
+        max_duration_seconds: int | None = None,
     ) -> ScanJobStatus:
-        job_id = self.create_job(root, workers=workers, limit=limit)
+        job_id = self.create_job(
+            root,
+            workers=workers,
+            limit=limit,
+            extensions=extensions,
+            min_duration_seconds=min_duration_seconds,
+            max_duration_seconds=max_duration_seconds,
+        )
         return self.run_job(job_id)
 
     def create_tag_refresh_job(
@@ -268,7 +327,7 @@ class ScanJobManager:
                     "Scan cancelled",
                 )
 
-        if status.limit is None:
+        if payload.reconcile_missing:
             try:
                 self.repository.mark_unseen_missing(
                     status.root,
@@ -571,3 +630,34 @@ class ScanJobManager:
             workers=status.workers,
             limit=status.limit,
         )
+
+
+def _selected_extensions(extensions: Collection[str] | None) -> set[str]:
+    if extensions is None:
+        return set(SUPPORTED_AUDIO_EXTENSIONS)
+    selected = {
+        extension.lower()
+        for extension in extensions
+        if extension.lower() in SUPPORTED_AUDIO_EXTENSIONS
+    }
+    if not selected:
+        raise ValueError("at least one supported audio extension is required")
+    return selected
+
+
+def _validate_duration_bounds(
+    min_duration_seconds: int | None,
+    max_duration_seconds: int | None,
+) -> None:
+    for label, value in (
+        ("min_duration_seconds", min_duration_seconds),
+        ("max_duration_seconds", max_duration_seconds),
+    ):
+        if value is not None and (isinstance(value, bool) or value <= 0):
+            raise ValueError(f"{label} must be a positive integer or None")
+    if (
+        min_duration_seconds is not None
+        and max_duration_seconds is not None
+        and min_duration_seconds > max_duration_seconds
+    ):
+        raise ValueError("min_duration_seconds must not exceed max_duration_seconds")

@@ -312,6 +312,15 @@ export type ScanStats = {
   workers?: number;
 };
 
+export type ScanRequest = {
+  root: string;
+  workers: number;
+  limit?: number;
+  extensions: string[];
+  min_duration_seconds?: number;
+  max_duration_seconds?: number;
+};
+
 export type AnalysisJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";

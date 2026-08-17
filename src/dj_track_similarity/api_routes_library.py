@@ -43,6 +43,9 @@ def register_library_routes(
                     request.root,
                     workers=request.workers,
                     limit=request.limit,
+                    extensions=request.extensions,
+                    min_duration_seconds=request.min_duration_seconds,
+                    max_duration_seconds=request.max_duration_seconds,
                 )
         except (FileNotFoundError, NotADirectoryError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

@@ -7,8 +7,6 @@ type DeviceMode = "auto" | "cpu" | "cuda";
 
 type LibraryHelpText = {
   databasePath: string;
-  musicRoot: string;
-  scanWorkers: string;
   refreshTags: string;
   clearDatabase: string;
   sonaraAnalyze: string;
@@ -67,17 +65,10 @@ function NumberStepper({
 export function LibraryPanel({
   databasePath,
   onChooseDatabase,
-  musicRoot,
-  onMusicRootChange,
   busy,
   stageRunning,
-  canStartScan,
   hasTracks,
   maestGenreTrackCount,
-  scanWorkers,
-  maxScanWorkers,
-  adjustScanWorkers,
-  onScanWorkersChange,
   analysisLimit,
   onAnalysisLimitChange,
   analysisDevice,
@@ -94,8 +85,7 @@ export function LibraryPanel({
   onSonaraSettingsChange,
   onChooseStagingFolder,
   helpText,
-  onChooseFolder,
-  onScan,
+  onOpenScanDialog,
   onRefreshTags,
   onWriteMaestGenres,
   onClearDatabase,
@@ -108,17 +98,10 @@ export function LibraryPanel({
 }: {
   databasePath: string | null;
   onChooseDatabase: () => void;
-  musicRoot: string;
-  onMusicRootChange: (value: string) => void;
   busy: boolean;
   stageRunning: boolean;
-  canStartScan: boolean;
   hasTracks: boolean;
   maestGenreTrackCount: number;
-  scanWorkers: number;
-  maxScanWorkers: number;
-  adjustScanWorkers: (delta: number) => void;
-  onScanWorkersChange: (value: number) => void;
   analysisLimit: number;
   onAnalysisLimitChange: (value: number) => void;
   analysisDevice: DeviceMode;
@@ -135,8 +118,7 @@ export function LibraryPanel({
   onSonaraSettingsChange: (value: SonaraAnalysisSettings) => void;
   onChooseStagingFolder: () => void;
   helpText: LibraryHelpText;
-  onChooseFolder: () => void;
-  onScan: () => void;
+  onOpenScanDialog: () => void;
   onRefreshTags: () => void;
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
@@ -186,24 +168,12 @@ export function LibraryPanel({
         <input value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
         <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={busy || stageRunning} onClick={onChooseDatabase} type="button"><Database size={17} /></button>
       </div>
-      <div className="path-row library-path-row">
-        <input value={musicRoot} onChange={(event) => onMusicRootChange(event.target.value)} placeholder="D:/Music" title={helpText.musicRoot} />
-        <button className="icon-button folder-picker library-folder-picker-button" title="Выбрать папку" aria-label="Выбрать папку" disabled={busy || stageRunning} onClick={onChooseFolder} type="button"><FolderOpen size={17} /></button>
-      </div>
-      <div className="worker-control" title={helpText.scanWorkers}>
-        <span>Scan workers</span>
-        <div className="stepper">
-          <button className="icon-button scan-workers-decrement-button" title="Уменьшить количество потоков сканирования" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования" type="button"><Minus size={15} /></button>
-          <input type="number" min={1} max={maxScanWorkers} value={scanWorkers} onChange={(event) => onScanWorkersChange(Math.min(maxScanWorkers, Math.max(1, Number(event.target.value) || 1)))} />
-          <button className="icon-button scan-workers-increment-button" title="Увеличить количество потоков сканирования" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования" type="button"><Plus size={15} /></button>
-        </div>
-      </div>
       <div className="scan-action-row">
-        <button className="scan-start-button" title="Загрузить треки в SQLite" disabled={busy || stageRunning || !canStartScan} onClick={onScan} type="button"><Play size={15} />Загрузить треки в базу</button>
-        <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title={helpText.refreshTags} onClick={onRefreshTags} type="button"><RefreshCcw size={17} /></button>
-        <button className="icon-button genre-save-button" disabled={busy || stageRunning || !maestGenreTrackCount} title={helpText.writeMaestGenres} onClick={onWriteMaestGenres} type="button"><Save size={17} /></button>
-        <button className="icon-button database-validation-button" disabled={busy || stageRunning || !databasePath} title="Проверить целостность и сохранённые данные базы без изменений" onClick={onValidateDatabase} type="button"><ShieldCheck size={17} /></button>
-        <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title={helpText.clearDatabase} onClick={onClearDatabase} type="button"><Trash2 size={17} /></button>
+        <button className="scan-start-button" title="Открыть параметры загрузки треков" disabled={busy || stageRunning || !databasePath} onClick={onOpenScanDialog} type="button"><Play size={15} />Загрузить треки в базу</button>
+        <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title="Обновить теги" aria-label="Обновить теги" onClick={onRefreshTags} type="button"><RefreshCcw size={17} /></button>
+        <button className="icon-button genre-save-button" disabled={busy || stageRunning || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={17} /></button>
+        <button className="icon-button database-validation-button" disabled={busy || stageRunning || !hasTracks} title="Проверить базу" aria-label="Проверить базу" onClick={onValidateDatabase} type="button"><ShieldCheck size={17} /></button>
+        <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title="Очистить базу" aria-label="Очистить базу" onClick={onClearDatabase} type="button"><Trash2 size={17} /></button>
       </div>
 
       <div className="analysis-models-heading">
@@ -270,10 +240,10 @@ export function LibraryPanel({
         <span>Analyze limit</span>
         <div className="stepper">
           <button className="icon-button analysis-limit-decrement-button" title="Уменьшить Analyze limit" aria-label="Уменьшить Analyze limit" disabled={busy || stageRunning || analysisLimit <= 0} onClick={() => onAnalysisLimitChange(Math.max(0, analysisLimit - 1))} type="button"><Minus size={15} /></button>
-          <input type="number" min={0} max={100000} value={analysisLimit} aria-label="Analyze limit 0 = все треки; ограничивает Scan и применяется отдельно к каждой стадии анализа" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
+          <input type="number" min={0} max={100000} value={analysisLimit} aria-label="Analyze limit 0 = все треки; применяется отдельно к каждой стадии анализа" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
           <button className="icon-button analysis-limit-increment-button" title="Увеличить Analyze limit" aria-label="Увеличить Analyze limit" disabled={busy || stageRunning || analysisLimit >= 100000} onClick={() => onAnalysisLimitChange(Math.min(100000, analysisLimit + 1))} type="button"><Plus size={15} /></button>
         </div>
-        <small>0 = все треки; ограничивает Scan и каждую стадию анализа</small>
+        <small>0 = все треки; применяется отдельно к каждой стадии анализа</small>
       </div>
       <button
         className="analyze-selected-button analysis-pipeline-button"

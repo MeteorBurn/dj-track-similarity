@@ -144,6 +144,49 @@ def test_read_audio_metadata_uses_fixed_tag_whitelist(
     }
 
 
+def test_read_audio_duration_uses_ffmpeg_when_mutagen_has_no_duration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "recoverable.mp3"
+    monkeypatch.setattr(scanner, "read_audio_metadata", lambda path: {})
+    monkeypatch.setattr(
+        scanner,
+        "read_ffmpeg_audio_duration_seconds",
+        lambda path: 245.5,
+        raising=False,
+    )
+
+    assert scanner.read_audio_duration_seconds(audio_path) == 245.5
+
+
+def test_ffmpeg_duration_reads_container_header_without_decoding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeContainer:
+        duration = 245_500_000
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback) -> None:
+            return None
+
+    class FakeAv:
+        time_base = 1_000_000
+
+        @staticmethod
+        def open(path: str, mode: str):
+            assert path.endswith("recoverable.mp3")
+            assert mode == "r"
+            return FakeContainer()
+
+    monkeypatch.setattr(scanner, "load_project_pyav", lambda: FakeAv(), raising=False)
+
+    assert scanner.read_ffmpeg_audio_duration_seconds(tmp_path / "recoverable.mp3") == 245.5
+
+
 def test_read_audio_metadata_converts_mutagen_objects_to_json_safe_values(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

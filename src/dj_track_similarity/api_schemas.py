@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .analysis_config import (
     ANALYSIS_DEVICE_PATTERN,
@@ -21,6 +21,7 @@ from .analysis_config import (
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
     MIN_SONARA_BATCH_SIZE,
 )
+from .scanner import SUPPORTED_AUDIO_EXTENSIONS
 
 
 EmbeddingSource = Literal["mert", "maest", "muq", "mulan", "clap"]
@@ -55,6 +56,32 @@ class ScanRequest(BaseModel):
     root: str
     workers: int = Field(default=8, ge=1, le=64)
     limit: int | None = Field(default=None, ge=1, le=100_000)
+    extensions: set[str] = Field(default_factory=lambda: set(SUPPORTED_AUDIO_EXTENSIONS))
+    min_duration_seconds: int | None = Field(default=None, ge=1)
+    max_duration_seconds: int | None = Field(default=None, ge=1)
+
+    @field_validator("extensions")
+    @classmethod
+    def _supported_extensions(cls, value: set[str]) -> set[str]:
+        normalized = {extension.lower() for extension in value}
+        unsupported = normalized - SUPPORTED_AUDIO_EXTENSIONS
+        if unsupported:
+            raise ValueError(
+                "unsupported audio extensions: " + ", ".join(sorted(unsupported))
+            )
+        if not normalized:
+            raise ValueError("at least one audio extension is required")
+        return normalized
+
+    @model_validator(mode="after")
+    def _duration_range_is_ordered(self) -> "ScanRequest":
+        if (
+            self.min_duration_seconds is not None
+            and self.max_duration_seconds is not None
+            and self.min_duration_seconds > self.max_duration_seconds
+        ):
+            raise ValueError("min_duration_seconds must not exceed max_duration_seconds")
+        return self
 
 
 class TagRefreshRequest(BaseModel):

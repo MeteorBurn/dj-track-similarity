@@ -6,7 +6,7 @@ import math
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Collection, Iterable
 
 from mutagen import File as MutagenFile
 
@@ -15,6 +15,7 @@ from .db_tracks import (
     canonical_file_path,
     resolved_file_path,
 )
+from .ffmpeg_runtime import load_project_pyav
 from .track_models import (
     FileTags,
     ScannedFile,
@@ -191,21 +192,56 @@ def read_audio_metadata_stable(
     )
 
 
-def iter_audio_files(root: Path) -> Iterable[Path]:
+def iter_audio_files(
+    root: Path,
+    *,
+    extensions: Collection[str] | None = None,
+) -> Iterable[Path]:
     """Yield deterministic absolute audio paths, deduplicated after resolve."""
 
     root_path = _resolved_directory(root)
+    selected_extensions = (
+        SUPPORTED_AUDIO_EXTENSIONS
+        if extensions is None
+        else {
+            extension.lower()
+            for extension in extensions
+            if extension.lower() in SUPPORTED_AUDIO_EXTENSIONS
+        }
+    )
     paths_by_identity: dict[str, Path] = {}
     for candidate in root_path.rglob("*"):
         if (
             candidate.is_file()
-            and candidate.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
+            and candidate.suffix.lower() in selected_extensions
             and not candidate.name.startswith("._")
         ):
             resolved = candidate.resolve(strict=False)
             paths_by_identity.setdefault(canonical_file_path(resolved), resolved)
     for identity in sorted(paths_by_identity):
         yield paths_by_identity[identity]
+
+
+def read_audio_duration_seconds(path: str | Path) -> float | None:
+    """Read duration from tags first, then the shared FFmpeg container reader."""
+
+    duration = _positive_float_or_none(read_audio_metadata(path).get("duration"))
+    if duration is not None:
+        return duration
+    return read_ffmpeg_audio_duration_seconds(path)
+
+
+def read_ffmpeg_audio_duration_seconds(path: str | Path) -> float | None:
+    """Read a container duration through PyAV without decoding audio frames."""
+
+    try:
+        av = load_project_pyav()
+        with av.open(str(path), mode="r") as container:
+            return _positive_float_or_none(
+                float(container.duration) / float(av.time_base)
+            )
+    except Exception:
+        return None
 
 
 def read_audio_metadata(path: str | Path) -> dict[str, object]:

@@ -9,9 +9,9 @@
 The current project uses SONARA in `playlist` mode with a `70..180` BPM range. Direct Mode is the
 default and passes source paths to native `analyze_batch()`. Staged Mode instead copies selected
 source files read-only to a per-job directory below a user-selected folder. It never moves or
-modifies the source files. In Staged Mode, SONARA and any direct shared-library recovery decoder receive only
-staging-copy paths, while job status, errors, and stored outputs continue to use the original
-candidate identity.
+modifies the source files. In Staged Mode, SONARA and its project-bundled PyAV recovery decoder
+receive only staging-copy paths, while job status, errors, and stored outputs continue to use the
+original candidate identity.
 
 The browser stores independent Direct and Staged settings in `localStorage`. Direct BatchSize
 defaults to `8`. Staged settings start with an empty folder, Processes `4`, Threads `4`, BatchSize
@@ -22,20 +22,24 @@ In Staged Mode, StageSize bounds files being copied, waiting in the shared ready
 analyzed. Each persistent worker process sets `RAYON_NUM_THREADS` from Threads and takes up to
 BatchSize ready paths for `sonara.analyze_batch()` without cross-process batch barriers. SONARA's
 Symphonia path is the normal decoder. A decode or codec failure for one result does not fail its
-mini-batch: TorchCodec uses the configured shared FFmpeg libraries to decode that same input to mono
-`float32` PCM, resamples it to SONARA's sample rate when needed, and retries through
-`analyze_signal()`. If that recovery fails, the error belongs
-only to the original track. Direct Mode uses the same per-file fallback rule, but its input remains
-the source path rather than a staging copy.
+mini-batch: project-bundled PyAV `18.1.0` is loaded after registering `libs/ffmpeg/bin` (shared
+FFmpeg `9.0.1`) and decodes that same input with `fflags=+discardcorrupt+genpts` and
+`err_detect=ignore_err`. It keeps valid decoded frames, discards only a malformed
+`AVERROR_INVALIDDATA` packet, converts the PCM by arithmetic channel mean to mono `float32`,
+resamples it to SONARA's sample rate when needed, and retries through `analyze_signal()`. If that
+recovery fails, the error belongs only to the original track. Direct Mode uses the same per-file
+fallback rule, but its input remains the source path rather than a staging copy.
 
-Each staging copy is removed after its analysis, including any fallback, completes. The job directory
-is removed on success, failure, or cancellation. Every Staged session creates a new unique job
-directory. Before doing so, it removes an owner-marked staging directory only if its recorded owner
-process is gone, and also removes an empty `sonara-stage-*` residue that has no valid owner marker.
-It preserves a directory with a live owner and a nonempty directory without a valid marker. Staged
-Mode is SONARA-only. Generic ML reads original source paths and uses a separate direct shared-library
-recovery after a full TorchCodec failure. Preview and other non-SONARA functions keep their
-own decode paths.
+Each staging copy is normally removed after its analysis, including any fallback, completes. If
+Windows reports `WinError 32` or `WinError 64` for a completed copy, the runner logs the error at
+warning level. The job continues, with deletion deferred to final session cleanup after the analyzer
+and copy worker pools exit. Every Staged session creates a new unique job directory. Before doing
+so, it removes an owner-marked staging directory only if its recorded owner process is gone, and
+also removes an empty `sonara-stage-*` residue that has no valid owner marker. It preserves a
+directory with a live owner and a nonempty directory without a valid marker. Staged Mode is
+SONARA-only. Generic ML reads original source paths and uses a separate in-process shared-library
+TorchCodec recovery after a full TorchCodec failure. Preview and other non-SONARA functions keep
+their own decode paths.
 
 The application requests a fixed output set. It contains scalar and compact fixed-vector Core data
 together with the SONARA embedding and acoustic fingerprint. It stores Core in `sonara_features`, the unnormalized
@@ -66,9 +70,9 @@ copy/analyze/store timing, and per-track errors.
 After a successful per-track store, or after a track failure is finalized, the staged runner updates
 job status immediately instead of waiting for the whole queue. The existing UI Process Log receives
 the normal track event with the original source path and track ID. A normal SONARA Direct or Staged
-success is `Track analyzed`; its shared-library recovery retains the existing `[ffmpeg] Track analyzed` label. A final failure
-affects only that track. This behavior reuses the current analysis-event UI rather than adding a
-separate staging component.
+success is `Track analyzed`; its PyAV/FFmpeg shared-library recovery retains the existing
+`[ffmpeg] Track analyzed` label. A final failure affects only that track. This behavior reuses the
+current analysis-event UI rather than adding a separate staging component.
 
 ## Updating SONARA or stored fields
 

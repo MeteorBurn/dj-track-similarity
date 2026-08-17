@@ -101,7 +101,7 @@ values. These settings are stored as one browser-local `localStorage` object rat
 Staged Mode is intended for source libraries on slower disks. It copies selected files without
 changing or moving their originals to a temporary per-job directory below the selected folder. Only
 staging-copy paths are supplied to `sonara.analyze_batch()` and, when native decoding fails, to its
-direct shared-library recovery. The stored result, job status, and error still belong to the
+project-bundled PyAV recovery decoder. The stored result, job status, and error still belong to the
 original track.
 
 StageSize bounds the total in-flight staging window. The count includes copy tasks plus files in the
@@ -111,17 +111,22 @@ one process does not wait for another process's mini-batch. This is SONARA CPU/R
 ML inference batching.
 
 SONARA normally decodes each staged path through its Symphonia path. If an individual result reports
-a decode or codec failure, that staged copy is decoded in process through TorchCodec with the shared
-FFmpeg libraries, downmixed to mono `float32`, resampled for SONARA when necessary, and retried
-through `analyze_signal()`. If that retry fails, only that track is reported as failed and other
-ready work continues. ML models keep a separate recovery path: after a failed full TorchCodec
-decode, the requested family makes its own in-process shared-library decode. Neither recovery path
+a decode or codec failure, the project-bundled PyAV `18.1.0` recovery decoder loads after
+registering `libs/ffmpeg/bin` (shared FFmpeg `9.0.1`). It opens the same input with
+`fflags=+discardcorrupt+genpts` and passes `err_detect=ignore_err` to the decoder. It retains valid
+decoded frames, discards only a malformed `AVERROR_INVALIDDATA` packet, downmixes the PCM by the
+arithmetic channel mean to mono `float32`, resamples for SONARA when necessary, and retries through
+`analyze_signal()`. If that retry fails, only that track is reported as failed and other ready work
+continues. ML models keep a separate recovery path: after a failed full TorchCodec decode, the
+requested family makes its own in-process shared-library TorchCodec recovery. Neither recovery path
 starts `ffmpeg.exe` or repairs an invalid source file.
 
-Staging files are released when their native analysis and any fallback finish. The job directory is
-removed on completion, failure, or cancellation; a later staging session also clears an abandoned
-job directory when its recorded owner process no longer exists. Diagnostics include staging use,
-shared-library recovery, copy/analyze/store timing, and per-track errors.
+Staging files are normally released when their native analysis and any fallback finish. If Windows
+reports `WinError 32` or `WinError 64` for a completed copy, the runner logs the error at warning
+level and skips its immediate deletion. Analysis continues with other tracks. Final session cleanup
+attempts removal after the analyzer and copy worker pools exit. A later staging session also clears an
+abandoned job directory when its recorded owner process no longer exists. Diagnostics include
+staging use, shared-library recovery, copy/analyze/store timing, and per-track errors.
 
 Staged Mode applies only to SONARA. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP read the original source
 paths and keep their own CPU/CUDA inference path. Their shared-library recovery does not use
@@ -132,9 +137,9 @@ immediately shows one decode label for ML analysis: `[torchcodec] Track analyzed
 analyzed`, or `Track failed`. The first label means the initial full-track TorchCodec read
 succeeded. The second is the existing recovery label and means direct shared-library TorchCodec
 recovery was used, not that an `ffmpeg.exe` process ran. SONARA keeps its own event convention: a
-normal Direct or Staged success is `Track analyzed`, while its shared-library recovery is
-`[ffmpeg] Track analyzed`. Events use the original source file and do not wait for the whole staging
-queue. Staging does not add a separate UI panel.
+normal Direct or Staged success is `Track analyzed`, while its PyAV/FFmpeg shared-library recovery
+is `[ffmpeg] Track analyzed`. Events use the original source file and do not wait for the whole
+staging queue. Staging does not add a separate UI panel.
 
 ## Already analyzed tracks
 

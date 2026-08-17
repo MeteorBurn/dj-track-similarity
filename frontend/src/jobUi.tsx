@@ -267,8 +267,8 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
         <span>{percent}%</span>
       </div>
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
-      {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
       {job.model_progress && <ModelProgress job={job} />}
+      {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
       {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].model ? `${job.errors[0].model}: ` : ""}{job.errors[0].path}: {job.errors[0].error}</span>}
     </div>
   );

@@ -458,10 +458,18 @@ test("model search exposes only current seed controls", () => {
 
 test("analysis process status renders per-model progress", () => {
   const source = readFileSync(join(srcDir, "jobUi.tsx"), "utf8");
+  const analysisStatus = source.slice(
+    source.indexOf("function AnalysisProcessStatus"),
+    source.indexOf("type ProgressItem")
+  );
 
   assert.match(source, /model_progress/);
   assert.match(source, /analysis-model-progress/);
   assert.match(source, /Object\.keys\(progress \|\| \{\}\)/);
+  assert.ok(
+    analysisStatus.indexOf("<ModelProgress job={job} />") < analysisStatus.indexOf('className="analysis-current"'),
+    "model progress appears before the current file in the log status"
+  );
   assert.doesNotMatch(source, /api\.sonaraJob/);
   assert.doesNotMatch(source, /api\.genreJob/);
 });
@@ -661,10 +669,10 @@ test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
   assert.match(styles, /\.library-search-mode-toggle button\s*{/);
 });
 
-test("library search placeholder lists path before genre", () => {
+test("library search placeholder lists fields as path, title, artist, and genre", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
 
-  assert.match(source, /placeholder="artist, title, path, genre"/);
+  assert.match(source, /placeholder="path, title, artist, genre"/);
 });
 
 test("track rows keep analysis availability out of track copy", () => {

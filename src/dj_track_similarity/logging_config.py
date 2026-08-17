@@ -28,6 +28,13 @@ _ANALYSIS_DIAGNOSTICS: bool | None = None
 _ASYNCIO_HANDLER_MARKER = "_dj_track_similarity_asyncio_exception_logging"
 _STREAM_MIRROR_MARKER = "_dj_track_similarity_stream_mirror"
 _STREAM_LOGGING_STATE = threading.local()
+_WEIGHT_LOADING_PROGRESS_PATTERN = re.compile(r"Loading weights:\s*\d+%")
+_XLM_ROBERTA_LOAD_REPORT_HEADER = re.compile(
+    r"^\[transformers\]\s+XLMRobertaModel\s+LOAD REPORT from:"
+)
+_XLM_ROBERTA_LOAD_REPORT_TABLE_LINE = re.compile(
+    r"^(?:Key\s+\|\s+Status\s+\||[-+| ]+$|\S.*\|\s+[A-Z_]+\s+\|)$"
+)
 _STANDARD_STREAM_LOGGERS = {
     "stdout": ("dj_track_similarity.console.stdout", logging.INFO),
     "stderr": ("dj_track_similarity.console.stderr", logging.WARNING),
@@ -140,6 +147,7 @@ class StandardStreamLogMirror:
         self._level = level
         self._buffer = ""
         self._lock = threading.RLock()
+        self._suppress_xlm_roberta_load_report = False
         setattr(self, _STREAM_MIRROR_MARKER, True)
 
     @property
@@ -197,6 +205,8 @@ class StandardStreamLogMirror:
         cleaned = line.rstrip()
         if not cleaned:
             return
+        if self._is_suppressed_model_loading_line(cleaned):
+            return
         if getattr(_STREAM_LOGGING_STATE, "active", False):
             return
         try:
@@ -204,6 +214,18 @@ class StandardStreamLogMirror:
             self._logger.log(self._level, "%s", cleaned)
         finally:
             _STREAM_LOGGING_STATE.active = False
+
+    def _is_suppressed_model_loading_line(self, line: str) -> bool:
+        if _WEIGHT_LOADING_PROGRESS_PATTERN.search(line):
+            return True
+        if _XLM_ROBERTA_LOAD_REPORT_HEADER.match(line):
+            self._suppress_xlm_roberta_load_report = True
+            return True
+        if self._suppress_xlm_roberta_load_report:
+            if _XLM_ROBERTA_LOAD_REPORT_TABLE_LINE.match(line):
+                return True
+            self._suppress_xlm_roberta_load_report = False
+        return False
 
 
 def uvicorn_log_config(level: int | str = "info", log_path: str | Path | None = None) -> dict[str, object]:

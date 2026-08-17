@@ -162,6 +162,25 @@ def test_configure_logging_defaults_to_info_and_higher(tmp_path):
     assert "important warning" in contents
 
 
+def test_standard_stream_logging_omits_xlm_roberta_weight_loading_noise(tmp_path):
+    log_path = tmp_path / "app.log"
+    configure_logging(log_path)
+
+    print("Loading weights: 100%|█████████████████████████████████████████████████████████████| 199/199 [00:00<00:00, 5143.40it/s]")
+    print("[transformers] XLMRobertaModel LOAD REPORT from: xlm-roberta-base")
+    print("Key                       | Status     |")
+    print("lm_head.bias              | UNEXPECTED |")
+    print("Model loading completed")
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
+
+    contents = log_path.read_text(encoding="utf-8")
+    assert "Loading weights:" not in contents
+    assert "XLMRobertaModel LOAD REPORT" not in contents
+    assert "lm_head.bias" not in contents
+    assert "Model loading completed" in contents
+
+
 def test_configure_logging_does_not_roll_over_active_log_during_emit(tmp_path):
     log_path = tmp_path / "app.log"
     configure_logging(log_path)

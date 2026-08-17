@@ -141,7 +141,7 @@ export function TrackPanel({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="artist, title, path, genre"
+          placeholder="path, title, artist, genre"
           title={librarySearchHelp}
           disabled={!databaseSelected}
         />

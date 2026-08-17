@@ -782,8 +782,7 @@ class AnalysisJobManager:
             f"analyze {metrics.analyze_seconds:.2f}s "
             f"({throughput:.1f} MiB/s) · "
             f"prepare {metrics.prepare_seconds:.2f}s · "
-            f"store {metrics.store_seconds:.2f}s · "
-            f"FFmpeg fallback {metrics.ffmpeg_fallback_count}",
+            f"store {metrics.store_seconds:.2f}s",
             model="sonara",
         )
 

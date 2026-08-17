@@ -13,9 +13,8 @@ separate Timeline or Representations database controls.
 - **Choose database** selects or creates the Core file. An older or incomplete catalog is rejected
   instead of being migrated in place.
 - **Load tracks into the database** opens an import dialog. Its server-side folder picker selects
-  the root, and its **MP3**, **FLAC**, **ALAC**, **WAV**, **AIFF**, **M4A**, **OGG**, and **OPUS**
-  badges select the formats to scan. Scan and **Refresh Tags** update catalog rows without
-  rewriting source audio.
+  the root, and its format badges select the formats to scan. Scan and **Refresh Tags** update
+  catalog rows without rewriting source audio.
 - Library pages contain up to `200` tracks. **Prev**, **Next**, and the page-number field request one
   `/api/tracks` page at a time.
 - All rows from the current page render in one scrollable list. There is no second row-window
@@ -35,7 +34,6 @@ The initial analysis values are:
 | Control | Default | Range or meaning |
 | --- | ---: | --- |
 | **Analyze limit** | `0` | `0..100000`; `0` means the whole eligible library |
-| **Scan workers** | `8` | Clamped to the local worker limit |
 | **Track batch** | `8` | `1..64` |
 | **Inference batch** | `16` | `1..128` |
 | **SONARA Mode** | `Direct` | `Direct` or `Staged` |
@@ -63,12 +61,24 @@ affect SONARA only, so GPU model analysis does not use the staging folder.
 
 Each opening of **Load tracks into the database** starts a new modal dialog; it does not retain a
 previous folder or settings. The default selected formats are **MP3**, **FLAC**, **ALAC**, **WAV**,
-**AIFF**, **M4A**, **OGG**, and **OPUS**. Its default duration range is `120..1200` seconds and its
-default worker count is `8`. Clear either duration field to disable that bound independently.
+**WAVE**, **AIFF**, **AIF**, **M4A**, **OGG**, and **OPUS**. **Scan limit** is `0..100000` and
+starts at `0`; `0` scans every eligible track. The default duration range is `120..1200` seconds.
+Clear either duration field to disable that bound independently. **Workers** starts at `8` and
+allows `1..16`.
 
-Format and duration filters are resolved before the scan queue is created. Duration uses Mutagen
-metadata first and then a lightweight PyAV container-duration fallback that does not decode audio
-frames. When a duration filter is active, files whose duration cannot be determined are skipped.
+The app first collects a list of paths that match the selected formats, then hands that list to the
+existing scan workers. A duration bound is evaluated during each worker's normal metadata read, so
+there is no separate duration pass.
+
+Duration uses Mutagen metadata first and then a lightweight PyAV container-duration fallback that
+does not decode audio frames. When a duration filter is active, files whose duration cannot be
+determined are skipped. **Scan limit** caps tracks that meet the selected filters.
+
+## ML analysis availability
+
+The ML checkboxes for MAEST, MERT, MuQ, MuQ-MuLan, and CLAP are unavailable until the library has
+at least one SONARA result. Until then, the analysis selection is limited to SONARA. Run SONARA
+first, then select the ML families to analyze.
 
 ## Search tabs
 

@@ -679,6 +679,23 @@ h2 {
   border-color: var(--notice-error-border);
 }
 
+.scan-import-start-toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 250;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border: 1px solid var(--accent-soft-border);
+  border-radius: 8px;
+  background: var(--accent-soft-bg);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
+  color: var(--text);
+  font-weight: 600;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
 .workspace {
   display: grid;
   gap: 12px;

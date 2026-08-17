@@ -47,20 +47,28 @@ In the browser:
 1. Choose the database.
 2. Click **Load tracks into the database** to open the import dialog.
 3. Choose the music folder with the server-side folder picker.
-4. Select the formats, duration bounds, and worker count, then start the import.
+4. Select the formats, scan limit, duration bounds, and worker count, then start the import.
 
 The scan job shows queued/running progress, counts, errors, cancellation, and completion in the
 activity panel. The browser refreshes the typed library summary when the job finishes.
+After you select **Start**, the dialog closes immediately, a centered “Preparing the track list…”
+message appears, and the main status changes to “Scanning directory” with its activity indicator
+spinning; after the API returns the scan job, the main status changes to “Loading tracks into the
+database” and the normal scan-job status takes over.
 
-The dialog starts with all format badges selected: **MP3**, **FLAC**, **ALAC**, **WAV**, **AIFF**,
-**M4A**, **OGG**, and **OPUS**. Its duration fields are seconds, with defaults of `120` and `1200`;
-clearing either field disables only that bound. **Workers** starts at `8`. The dialog keeps these
-values only while it is open, so every new opening restores the defaults.
+The dialog starts with all format badges selected: **MP3**, **FLAC**, **ALAC**, **WAV**, **WAVE**,
+**AIFF**, **AIF**, **M4A**, **OGG**, and **OPUS**. **Scan limit** starts at `0`, meaning all
+eligible tracks. Its duration fields are seconds, with defaults of `120` and `1200`; clearing
+either field disables only that bound. **Workers** starts at `8` and accepts `1..16`. The dialog
+keeps these values only while it is open, so every new opening restores the defaults.
 
-Selected format and duration filters are applied while files are discovered, before scan work is
-queued. Duration comes from Mutagen metadata first. If that is unavailable, the scanner uses the
-lightweight PyAV container-duration fallback without decoding audio frames. A file whose duration
-remains unknown is skipped when either duration bound is active.
+The app first collects a list of paths that match the selected formats, then hands that list to the
+existing scan workers. A duration bound is evaluated during each worker's normal metadata read, so
+there is no separate duration pass.
+
+Duration uses Mutagen metadata first and then a lightweight PyAV container-duration fallback that
+does not decode audio frames. Files with an unknown duration are skipped when a bound is active.
+**Scan limit** caps tracks that meet the selected filters.
 
 The equivalent CLI command is:
 

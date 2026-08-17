@@ -3,6 +3,7 @@ from __future__ import annotations
 import wave
 from pathlib import Path
 
+from dj_track_similarity import scanner
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_tracks import canonical_file_path
 from dj_track_similarity.scan_jobs import ScanJobManager, ScanJobPayload
@@ -59,6 +60,24 @@ def test_scan_job_records_requested_worker_count(tmp_path: Path) -> None:
     assert status.processed == 2
 
 
+def test_scan_job_creation_collects_paths_for_existing_workers(
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    audio_path = _audio(music, "track.wav")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+
+    job_id = manager.create_job(music, workers=8)
+    payload = manager._store.payload(job_id)
+
+    assert manager.get(job_id).state == "queued"
+    assert manager.get(job_id).total == 1
+    assert isinstance(payload, ScanJobPayload)
+    assert payload.paths == [audio_path]
+
+
 def test_limited_scan_does_not_mark_unseen_tracks_missing(tmp_path: Path) -> None:
     music = tmp_path / "music"
     music.mkdir()
@@ -100,9 +119,61 @@ def test_scan_job_filters_extensions_and_duration_without_marking_others_missing
     )
 
     assert status.state == "completed"
-    assert status.total == 1
+    assert status.total == 3
     assert status.added == 1
+    assert status.skipped == 2
     assert [item.file_path for item in database.list_track_paths()] == [accepted.resolve().as_posix()]
+
+
+def test_scan_job_reads_duration_from_the_worker_metadata_pass_once(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    _audio(music, "accepted.wav", seconds=2)
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+    original_reader = scanner.read_audio_metadata
+    reads: list[Path] = []
+
+    def record_metadata_read(path: str | Path) -> dict[str, object]:
+        reads.append(Path(path))
+        return original_reader(path)
+
+    monkeypatch.setattr(scanner, "read_audio_metadata", record_metadata_read)
+
+    status = manager.run_sync(
+        music,
+        min_duration_seconds=1,
+        max_duration_seconds=3,
+    )
+
+    assert status.added == 1
+    assert reads == [music / "accepted.wav"]
+
+
+def test_duration_filtered_scan_limit_counts_only_eligible_tracks(
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    _audio(music, "short.wav", seconds=0.5)
+    _audio(music, "first.wav", seconds=2)
+    _audio(music, "second.wav", seconds=2)
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+
+    status = manager.run_sync(
+        music,
+        workers=2,
+        limit=1,
+        min_duration_seconds=1,
+        max_duration_seconds=3,
+    )
+
+    assert status.added == 1
+    assert len(database.list_track_paths()) == 1
 
 
 def test_scan_job_can_be_cancelled_then_rerun(

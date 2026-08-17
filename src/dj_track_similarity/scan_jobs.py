@@ -19,7 +19,6 @@ from .scanner import (
     SUPPORTED_AUDIO_EXTENSIONS,
     file_tags_from_metadata,
     iter_audio_files,
-    read_audio_duration_seconds,
     read_audio_metadata,
     read_audio_metadata_stable,
     scan_audio_file,
@@ -61,11 +60,35 @@ class ScanJobStatus:
     limit: int | None = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class ScanJobPayload:
     paths: list[Path]
     track_states: dict[str, TrackFileState] = field(default_factory=dict)
     reconcile_missing: bool = True
+    min_duration_seconds: int | None = None
+    max_duration_seconds: int | None = None
+    scan_limit: int | None = None
+    _accepted_count: int = field(default=0, init=False, repr=False)
+    _accepted_lock: threading.Lock = field(
+        default_factory=threading.Lock,
+        init=False,
+        repr=False,
+    )
+
+    def claim_scan_slot(self) -> bool:
+        if self.scan_limit is None:
+            return True
+        with self._accepted_lock:
+            if self._accepted_count >= self.scan_limit:
+                return False
+            self._accepted_count += 1
+            return True
+
+    def scan_limit_reached(self) -> bool:
+        if self.scan_limit is None:
+            return False
+        with self._accepted_lock:
+            return self._accepted_count >= self.scan_limit
 
 
 class ScanJobManager:
@@ -95,30 +118,24 @@ class ScanJobManager:
             or limit < 1
         ):
             raise ValueError("limit must be a positive integer or None")
+        if not root_path.exists():
+            raise FileNotFoundError(root_path)
+        if not root_path.is_dir():
+            raise NotADirectoryError(root_path)
         _validate_duration_bounds(min_duration_seconds, max_duration_seconds)
         selected_extensions = _selected_extensions(extensions)
+        duration_filter_active = (
+            min_duration_seconds is not None
+            or max_duration_seconds is not None
+        )
         discovered_paths = iter_audio_files(
             root_path,
             extensions=selected_extensions,
         )
-        unknown_duration_count = 0
-        eligible_paths: list[Path] = []
-        for path in discovered_paths:
-            if min_duration_seconds is not None or max_duration_seconds is not None:
-                duration = read_audio_duration_seconds(path)
-                if duration is None:
-                    unknown_duration_count += 1
-                    continue
-                if (
-                    (min_duration_seconds is not None and duration < min_duration_seconds)
-                    or (max_duration_seconds is not None and duration > max_duration_seconds)
-                ):
-                    continue
-            eligible_paths.append(path)
         paths = list(
-            eligible_paths
-            if limit is None
-            else islice(eligible_paths, limit)
+            discovered_paths
+            if duration_filter_active or limit is None
+            else islice(discovered_paths, limit)
         )
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(
@@ -140,6 +157,9 @@ class ScanJobManager:
                     and min_duration_seconds is None
                     and max_duration_seconds is None
                 ),
+                min_duration_seconds=min_duration_seconds,
+                max_duration_seconds=max_duration_seconds,
+                scan_limit=limit if duration_filter_active else None,
             ),
         )
         self._append_event(
@@ -151,12 +171,6 @@ class ScanJobManager:
             ),
             path=str(root_path),
         )
-        if unknown_duration_count:
-            self._append_event(
-                job_id,
-                "warn",
-                f"Scan discovery skipped {unknown_duration_count} tracks with unknown duration",
-            )
         return job_id
 
     def start(
@@ -309,10 +323,7 @@ class ScanJobManager:
         if status.workers <= 1:
             for path in payload.paths:
                 if self.get(job_id).cancel_requested:
-                    return self._finish_cancelled(
-                        job_id,
-                        "Scan cancelled",
-                    )
+                    return self._finish_cancelled(job_id, "Scan cancelled")
                 self._scan_one(job_id, path)
         else:
             self._run_parallel(
@@ -322,10 +333,7 @@ class ScanJobManager:
                 self._scan_one,
             )
             if self.get(job_id).cancel_requested:
-                return self._finish_cancelled(
-                    job_id,
-                    "Scan cancelled",
-                )
+                return self._finish_cancelled(job_id, "Scan cancelled")
 
         if payload.reconcile_missing:
             try:
@@ -403,8 +411,28 @@ class ScanJobManager:
 
     def _scan_one(self, job_id: str, path: Path) -> None:
         self._update(job_id, current_path=str(path))
+        payload = cast(ScanJobPayload, self._store.payload(job_id))
         try:
-            mutation = scan_audio_file(self.repository, path)
+            mutation = scan_audio_file(
+                self.repository,
+                path,
+                min_duration_seconds=payload.min_duration_seconds,
+                max_duration_seconds=payload.max_duration_seconds,
+                claim_scan_slot=(
+                    payload.claim_scan_slot
+                    if payload.scan_limit is not None
+                    else None
+                ),
+            )
+            if mutation is None:
+                self._increment(
+                    job_id,
+                    skipped=1,
+                    message="Track skipped by duration filter or scan limit",
+                    level="info",
+                    path=str(path),
+                )
+                return
             counters = {
                 "added": 1 if mutation.action == "added" else 0,
                 "updated": 1 if mutation.action == "updated" else 0,

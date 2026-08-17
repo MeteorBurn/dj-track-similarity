@@ -159,6 +159,7 @@ export function App() {
   const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<"clap" | "mulan">("clap");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
+  const [scanImportStartToast, setScanImportStartToast] = useState(false);
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [analysisPipelineJob, setAnalysisPipelineJob] = useState<AnalysisPipelineStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
@@ -253,7 +254,7 @@ export function App() {
   );
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const databaseValidationRunning = Boolean(databaseValidationJob && ["queued", "running"].includes(databaseValidationJob.state));
-  const stageRunning = scanRunning || analysisRunning || genreTagRunning || databaseValidationRunning;
+  const stageRunning = scanImportStartToast || scanRunning || analysisRunning || genreTagRunning || databaseValidationRunning;
   const rhythmLabRunning = Boolean(rhythmLabStatus?.running);
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
@@ -907,24 +908,31 @@ export function App() {
   async function handleStartScan(request: ScanImportRequest) {
     appendActivity(
       "info",
-      "Сканирование запущено",
+      "Подготовка сканирования начата",
       request.root,
     );
     setProcessLogKind("scan");
     setScanJob(null);
+    setScanImportOpen(false);
+    setScanImportStartToast(true);
+    setNotice({ kind: "idle", text: "Сканирование директории" });
     setBusy(true);
     try {
       const value = await api.scan(request);
       setScanJob(value);
       const detail = value.job_id ? `job ${value.job_id.slice(0, 8)} · ${value.total || 0} файлов` : scanSummary(value);
       appendActivity("ok", "Scan job создан", detail);
-      setNotice({ kind: "ok", text: detail });
-      setScanImportOpen(false);
+      setNotice(
+        ["queued", "running"].includes(value.state || "")
+          ? { kind: "ok", text: "Загрузка треков в базу" }
+          : { kind: "ok", text: detail },
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Ошибка загрузки треков", message);
     } finally {
+      setScanImportStartToast(false);
       setBusy(false);
     }
   }
@@ -1637,6 +1645,9 @@ export function App() {
           onClose={() => setScanImportOpen(false)}
           onStart={handleStartScan}
         />
+      )}
+      {scanImportStartToast && (
+        <div className="scan-import-start-toast" role="status" aria-live="polite">Подготавливаем список треков…</div>
       )}
       {confirmation && (
           <ConfirmationDialog

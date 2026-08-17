@@ -115,7 +115,11 @@ def scan_library(
 def scan_audio_file(
     repository: TrackRepository,
     path: str | Path,
-) -> TrackMutation:
+    *,
+    min_duration_seconds: int | None = None,
+    max_duration_seconds: int | None = None,
+    claim_scan_slot: Callable[[], bool] | None = None,
+) -> TrackMutation | None:
     """Reconcile one audio file using exact nanosecond filesystem facts.
 
     An unchanged size/mtime pair intentionally skips tag decoding. Tag-only
@@ -125,10 +129,15 @@ def scan_audio_file(
     audio_path = Path(path).expanduser().resolve(strict=False)
     initial_stat = audio_path.stat()
     existing = repository.get_track_file_state(audio_path)
+    duration_filter_active = (
+        min_duration_seconds is not None
+        or max_duration_seconds is not None
+    )
     if (
         existing is not None
         and existing.file_size_bytes == initial_stat.st_size
         and existing.file_modified_ns == initial_stat.st_mtime_ns
+        and not duration_filter_active
     ):
         return repository.upsert_scanned_track(
             file=ScannedFile(
@@ -143,6 +152,20 @@ def scan_audio_file(
         audio_path,
         initial_stat=initial_stat,
     )
+    if duration_filter_active:
+        duration = _positive_float_or_none(metadata.get("duration"))
+        if duration is None:
+            duration = read_ffmpeg_audio_duration_seconds(audio_path)
+            if duration is not None:
+                metadata["duration"] = duration
+        if duration is None or (
+            min_duration_seconds is not None and duration < min_duration_seconds
+        ) or (
+            max_duration_seconds is not None and duration > max_duration_seconds
+        ):
+            return None
+    if claim_scan_slot is not None and not claim_scan_slot():
+        return None
     return repository.upsert_scanned_track(
         file=scanned_file_from_metadata(
             audio_path,
@@ -220,15 +243,6 @@ def iter_audio_files(
             paths_by_identity.setdefault(canonical_file_path(resolved), resolved)
     for identity in sorted(paths_by_identity):
         yield paths_by_identity[identity]
-
-
-def read_audio_duration_seconds(path: str | Path) -> float | None:
-    """Read duration from tags first, then the shared FFmpeg container reader."""
-
-    duration = _positive_float_or_none(read_audio_metadata(path).get("duration"))
-    if duration is not None:
-        return duration
-    return read_ffmpeg_audio_duration_seconds(path)
 
 
 def read_ffmpeg_audio_duration_seconds(path: str | Path) -> float | None:

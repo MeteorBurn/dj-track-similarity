@@ -89,3 +89,24 @@ test("library panel opens the import dialog instead of owning scan parameters", 
   assert.match(app, /onOpenScanDialog/);
   assert.match(app, /const maxScanWorkers = 16;/);
 });
+
+test("scan import closes immediately and shows a centered preparation notice", () => {
+  const app = readFileSync(appPath, "utf8");
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  const startHandler = app.match(/async function handleStartScan\(request: ScanImportRequest\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+  const toastStyles = styles.match(/\.scan-import-start-toast\s*\{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(app, /const \[scanImportStartToast, setScanImportStartToast\] = useState\(false\)/);
+  assert.match(app, /const stageRunning = scanImportStartToast \|\| scanRunning/);
+  assert.match(startHandler, /setScanImportOpen\(false\);/);
+  assert.match(startHandler, /setScanImportStartToast\(true\);/);
+  assert.match(startHandler, /setNotice\(\{ kind: "idle", text: "Сканирование директории" \}\);/);
+  assert.ok(startHandler.indexOf("setScanImportOpen(false)") < startHandler.indexOf("await api.scan(request)"));
+  assert.match(startHandler, /text: "Загрузка треков в базу"/);
+  assert.match(app, /className="scan-import-start-toast"/);
+  assert.match(app, /Подготавливаем список треков/);
+  assert.match(toastStyles, /position:\s*fixed/);
+  assert.match(toastStyles, /top:\s*50%/);
+  assert.match(toastStyles, /left:\s*50%/);
+});

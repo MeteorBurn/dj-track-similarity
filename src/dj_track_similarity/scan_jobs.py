@@ -132,6 +132,16 @@ class ScanJobManager:
             root_path,
             extensions=selected_extensions,
         )
+        if limit is not None:
+            existing_path_keys = {
+                canonical_file_path(item.file_path)
+                for item in self.repository.list_track_paths(include_missing=True)
+            }
+            discovered_paths = (
+                path
+                for path in discovered_paths
+                if canonical_file_path(path) not in existing_path_keys
+            )
         paths = list(
             discovered_paths
             if duration_filter_active or limit is None

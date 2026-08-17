@@ -90,13 +90,66 @@ def test_limited_scan_does_not_mark_unseen_tracks_missing(tmp_path: Path) -> Non
     status = manager.run_sync(music, limit=1)
 
     assert status.limit == 1
-    assert status.total == 1
+    assert status.total == 0
+    assert status.added == 0
+    assert status.unchanged == 0
     assert status.events[0].message == "Scan queued · workers 1 · limit 1"
     with database.connect() as connection:
         missing_count = connection.execute(
             "SELECT COUNT(*) FROM tracks WHERE missing_since IS NOT NULL"
         ).fetchone()[0]
     assert missing_count == 0
+
+
+def test_limited_scan_skips_existing_paths_before_applying_limit(
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    existing = _audio(music, "a-existing.wav")
+    next_new = _audio(music, "b-new.wav")
+    later_new = _audio(music, "c-new.wav")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    assert scanner.scan_audio_file(database, existing).action == "added"
+    manager = ScanJobManager(database)
+
+    status = manager.run_sync(music, limit=1)
+
+    assert status.added == 1
+    assert status.unchanged == 0
+    assert [item.file_path for item in database.list_track_paths()] == [
+        existing.resolve().as_posix(),
+        next_new.resolve().as_posix(),
+    ]
+    assert database.get_track_file_state(later_new) is None
+
+
+def test_duration_filtered_limit_skips_existing_eligible_paths(
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    existing = _audio(music, "a-existing.wav", seconds=2)
+    next_new = _audio(music, "b-new.wav", seconds=2)
+    _audio(music, "c-short.wav", seconds=0.5)
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    assert scanner.scan_audio_file(database, existing).action == "added"
+    manager = ScanJobManager(database)
+
+    status = manager.run_sync(
+        music,
+        workers=1,
+        limit=1,
+        min_duration_seconds=1,
+        max_duration_seconds=3,
+    )
+
+    assert status.added == 1
+    assert status.unchanged == 0
+    assert [item.file_path for item in database.list_track_paths()] == [
+        existing.resolve().as_posix(),
+        next_new.resolve().as_posix(),
+    ]
 
 
 def test_scan_job_filters_extensions_and_duration_without_marking_others_missing(

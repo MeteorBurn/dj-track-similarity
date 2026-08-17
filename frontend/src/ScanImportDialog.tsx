@@ -30,6 +30,10 @@ const scanFormats = [
   { key: "m4a", label: "M4A", extensions: [".m4a"] },
   { key: "ogg", label: "OGG", extensions: [".ogg"] },
   { key: "opus", label: "OPUS", extensions: [".opus"] },
+  { key: "aac", label: "AAC", extensions: [".aac"] },
+  { key: "ape", label: "APE", extensions: [".ape"] },
+  { key: "wma", label: "WMA", extensions: [".wma"] },
+  { key: "wv", label: "WavPack", extensions: [".wv"] },
 ] as const;
 
 export function defaultScanImportSettings(): ScanImportSettings {

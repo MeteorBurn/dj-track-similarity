@@ -25,9 +25,11 @@ from .track_models import (
 
 
 SUPPORTED_AUDIO_EXTENSIONS = {
+    ".aac",
     ".aif",
     ".aiff",
     ".alac",
+    ".ape",
     ".flac",
     ".m4a",
     ".mp3",
@@ -35,12 +37,16 @@ SUPPORTED_AUDIO_EXTENSIONS = {
     ".opus",
     ".wav",
     ".wave",
+    ".wma",
+    ".wv",
 }
 METADATA_STABILITY_ATTEMPTS = 3
 DISPLAY_AUDIO_FORMATS = {
+    ".aac": "AAC",
     ".aif": "AIFF",
     ".aiff": "AIFF",
     ".alac": "ALAC",
+    ".ape": "APE",
     ".flac": "FLAC",
     ".m4a": "M4A",
     ".mp3": "MP3",
@@ -48,6 +54,8 @@ DISPLAY_AUDIO_FORMATS = {
     ".opus": "Opus",
     ".wav": "Wave",
     ".wave": "Wave",
+    ".wma": "WMA",
+    ".wv": "WavPack",
 }
 MUTAGEN_TAG_LOOKUP = {
     "artist": ["artist", "albumartist", "TPE1", "TPE2", "\xa9ART", "aART"],

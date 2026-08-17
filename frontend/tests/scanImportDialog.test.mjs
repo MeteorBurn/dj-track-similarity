@@ -38,6 +38,22 @@ test("scan import dialog owns ephemeral defaults and required controls", () => {
   assert.match(source, /label: "AIF", extensions: \["\.aif"\]/);
 });
 
+test("scan import dialog offers extended audio formats", () => {
+  const source = readFileSync(dialogPath, "utf8");
+
+  for (const [label, extension] of [
+    ["AAC", ".aac"],
+    ["APE", ".ape"],
+    ["WMA", ".wma"],
+    ["WavPack", ".wv"],
+  ]) {
+    assert.match(
+      source,
+      new RegExp(`label: "${label}", extensions: \\["\\${extension}"\\]`),
+    );
+  }
+});
+
 test("scan import dialog uses neutral inactive format chips and aligned worker controls", () => {
   const source = readFileSync(dialogPath, "utf8");
   const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");

@@ -1039,7 +1039,7 @@ h2 {
   margin-bottom: 8px;
 }
 
-.scan-action-row .scan-start-button {
+.scan-action-row .scan-settings-button {
   flex: 1;
   margin-bottom: 0;
 }
@@ -1075,7 +1075,8 @@ h2 {
   animation: spin 1s linear infinite;
 }
 
-.scan-start-button {
+.scan-settings-button,
+.scan-import-submit-button {
   font-size: 15px;
   gap: 5px;
   min-width: 0;
@@ -2873,7 +2874,8 @@ h2 {
   width: 16px;
 }
 
-.scan-start-button,
+.scan-settings-button,
+.scan-import-submit-button,
 .analyze-selected-button,
 .sonara-search-button,
 .clap-text-search-button,
@@ -2891,7 +2893,8 @@ h2 {
   }
 }
 
-.scan-start-button:hover:not(:disabled),
+.scan-settings-button:hover:not(:disabled),
+.scan-import-submit-button:hover:not(:disabled),
 .analyze-selected-button:hover:not(:disabled),
 .sonara-search-button:hover:not(:disabled),
 .clap-text-search-button:hover:not(:disabled),

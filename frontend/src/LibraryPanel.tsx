@@ -1,4 +1,4 @@
-import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { Cpu, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
 import type { SonaraAnalysisSettings } from "./sonaraAnalysisSettings";
@@ -146,7 +146,7 @@ export function LibraryPanel({
           type="checkbox"
           aria-label={`${model.toUpperCase()} selected`}
           checked={selectedAnalysisModels.includes(model)}
-          disabled={busy || stageRunning}
+          disabled={busy || stageRunning || (model !== "sonara" && analysisCounts.sonara < 1)}
           onChange={() => onToggleAnalysisModel(model)}
         />
       </span>
@@ -169,7 +169,7 @@ export function LibraryPanel({
         <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={busy || stageRunning} onClick={onChooseDatabase} type="button"><Database size={17} /></button>
       </div>
       <div className="scan-action-row">
-        <button className="scan-start-button" title="Открыть параметры загрузки треков" disabled={busy || stageRunning || !databasePath} onClick={onOpenScanDialog} type="button"><Play size={15} />Загрузить треки в базу</button>
+        <button className="scan-settings-button" title="Открыть параметры загрузки треков" disabled={busy || stageRunning || !databasePath} onClick={onOpenScanDialog} type="button"><Music4 size={15} />Загрузить треки в базу</button>
         <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title="Обновить теги" aria-label="Обновить теги" onClick={onRefreshTags} type="button"><RefreshCcw size={17} /></button>
         <button className="icon-button genre-save-button" disabled={busy || stageRunning || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={17} /></button>
         <button className="icon-button database-validation-button" disabled={busy || stageRunning || !hasTracks} title="Проверить базу" aria-label="Проверить базу" onClick={onValidateDatabase} type="button"><ShieldCheck size={17} /></button>

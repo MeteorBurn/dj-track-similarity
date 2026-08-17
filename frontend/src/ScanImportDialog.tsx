@@ -170,7 +170,7 @@ export function ScanImportDialog({
           <button className="icon-button folder-picker scan-import-folder-button" title="Выбрать папку на сервере" aria-label="Выбрать папку на сервере" disabled={disabled} onClick={() => void chooseFolder()} type="button"><FolderOpen size={17} /></button>
         </div>
         {validationError && <p className="scan-import-validation" role="alert">{validationError}</p>}
-        <button className="scan-start-button scan-import-submit-button" title="Запустить загрузку треков с выбранными параметрами" disabled={!canStart} onClick={() => void start()} type="button"><Play size={15} />Старт</button>
+        <button className="scan-import-submit-button" title="Запустить загрузку треков с выбранными параметрами" disabled={!canStart} onClick={() => void start()} type="button"><Play size={15} />Старт</button>
       </section>
     </div>
   );

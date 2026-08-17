@@ -295,6 +295,12 @@ export function App() {
   }, [sonaraSettings]);
 
   useEffect(() => {
+    if (librarySummary.sonara < 1) {
+      setSelectedAnalysisModels(["sonara"]);
+    }
+  }, [librarySummary.sonara]);
+
+  useEffect(() => {
     genericSearchInputKeyRef.current = genericSearchInputKey;
     cancelGenericSearchRequest();
     setGenericSearchResultState(null);

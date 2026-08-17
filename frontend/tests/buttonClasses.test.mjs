@@ -121,7 +121,7 @@ test("scan action keeps the import trigger beside database maintenance controls"
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const rowMatch = source.match(/<div className="scan-action-row">([\s\S]*?)<\/div>/);
   const styleMatch = styles.match(/\.scan-action-row\s*{([\s\S]*?)}/);
-  const primaryButtonMatch = styles.match(/\.scan-action-row \.scan-start-button\s*{([\s\S]*?)}/);
+  const primaryButtonMatch = styles.match(/\.scan-action-row \.scan-settings-button\s*{([\s\S]*?)}/);
   const iconButtonMatch = styles.match(/\.scan-action-row \.icon-button\s*{([\s\S]*?)}/);
 
   assert.ok(rowMatch, "scan action row markup exists");
@@ -136,6 +136,9 @@ test("scan action keeps the import trigger beside database maintenance controls"
   assert.match(styleMatch[1], /gap:\s*6px/);
   assert.match(primaryButtonMatch[1], /flex:\s*1/);
   assert.match(iconButtonMatch[1], /flex:\s*0 0 34px/);
+  assert.match(source, /className="scan-settings-button"[\s\S]*?<Music4 size=\{15\}/);
+  assert.doesNotMatch(source, /scan-start-button/);
+  assert.doesNotMatch(styles, /scan-start-button/);
 });
 
 test("analysis controls expose one checkbox-driven Analyze action", () => {
@@ -219,6 +222,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.ok(mlRowsIndex < mlSettingsIndex);
   assert.match(source, /analysis-family-card sonara-analysis-block/);
   assert.match(source, /analysis-family-card models-analysis-block/);
+  assert.match(source, /model !== "sonara" && analysisCounts\.sonara < 1/);
+  assert.match(appSource, /if \(librarySummary\.sonara < 1\) \{\s*setSelectedAnalysisModels\(\["sonara"\]\);/);
   assert.doesNotMatch(source, /mlModelsSelected/);
   assert.doesNotMatch(source, /classifiersSelected/);
   assert.doesNotMatch(styles, /\.analysis-family-card\.selected/);

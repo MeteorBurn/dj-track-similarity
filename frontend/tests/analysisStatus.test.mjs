@@ -76,7 +76,17 @@ test("pipeline status is not rendered above the analysis action", async () => {
         },
       },
       onSonaraSettingsChange: noop,
-      onChooseStagingFolder: noop,
+      mlSettings: {
+        mode: "direct",
+        staged: {
+          folder: "",
+          workers: 4,
+          stageSize: 64,
+        },
+      },
+      onMLSettingsChange: noop,
+      onChooseSonaraStagingFolder: noop,
+      onChooseMLStagingFolder: noop,
       analysisJob,
       pipelineJob,
       helpText: {},

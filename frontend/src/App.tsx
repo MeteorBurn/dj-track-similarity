@@ -37,6 +37,12 @@ import {
   type SonaraAnalysisSettings,
 } from "./sonaraAnalysisSettings";
 import {
+  loadMLAnalysisSettings,
+  saveMLAnalysisSettings,
+  type MLAnalysisSettings,
+  withMLStagingFolder,
+} from "./mlAnalysisSettings";
+import {
   createRequestTokenGuard,
   type GenericSearchTab,
   type PrimarySearchTab,
@@ -173,6 +179,9 @@ export function App() {
   const [sonaraSettings, setSonaraSettings] = useState<SonaraAnalysisSettings>(
     () => loadSonaraAnalysisSettings(),
   );
+  const [mlSettings, setMlSettings] = useState<MLAnalysisSettings>(
+    () => loadMLAnalysisSettings(),
+  );
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
@@ -294,6 +303,10 @@ export function App() {
   useEffect(() => {
     saveSonaraAnalysisSettings(sonaraSettings);
   }, [sonaraSettings]);
+
+  useEffect(() => {
+    saveMLAnalysisSettings(mlSettings);
+  }, [mlSettings]);
 
   useEffect(() => {
     if (librarySummary.sonara < 1) {
@@ -975,6 +988,22 @@ export function App() {
     );
   }
 
+  async function handleChooseMLStagingFolder() {
+    await run(
+      () => api.chooseFolder(),
+      (value) => {
+        const folder = value.path;
+        if (!folder) {
+          appendActivity("info", "Выбор ML staging-папки отменен");
+          return "Выбор ML staging-папки отменен";
+        }
+        setMlSettings((current) => withMLStagingFolder(current, folder));
+        appendActivity("ok", "ML staging-папка выбрана", folder);
+        return `ML staging-папка: ${folder}`;
+      }
+    );
+  }
+
   async function handleChooseDatabase() {
     setBusy(true);
     try {
@@ -1103,8 +1132,21 @@ export function App() {
             },
           },
           ml: {
-            models: mlModels, device: analysisDevice, top_k: 3,
-            track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
+            mode: mlSettings.mode,
+            staged: {
+              folder: mlSettings.staged.folder,
+              copy_workers: mlSettings.staged.workers,
+              decode_workers: mlSettings.staged.workers,
+              stage_size: mlSettings.staged.stageSize,
+              inference_batch_size: analysisInferenceBatchSize,
+              preflight_copy_enabled: true,
+              preflight_copy_count: 64,
+            },
+            models: mlModels,
+            device: analysisDevice,
+            top_k: 3,
+            track_batch_size: analysisTrackBatchSize,
+            inference_batch_size: analysisInferenceBatchSize
           }
         });
       },
@@ -1476,7 +1518,10 @@ export function App() {
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
           sonaraSettings={sonaraSettings}
           onSonaraSettingsChange={setSonaraSettings}
-          onChooseStagingFolder={() => void handleChooseStagingFolder()}
+          mlSettings={mlSettings}
+          onMLSettingsChange={setMlSettings}
+          onChooseSonaraStagingFolder={() => void handleChooseStagingFolder()}
+          onChooseMLStagingFolder={() => void handleChooseMLStagingFolder()}
           helpText={helpText}
           onOpenScanDialog={() => setScanImportOpen(true)}
           onRefreshTags={() => void handleRefreshTags()}

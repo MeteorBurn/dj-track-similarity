@@ -1,5 +1,6 @@
 import type {
   AnalysisJobStatus,
+  AnalysisPipelineRequest,
   AnalysisPipelineStatus,
   AnalysisModel,
   AnalysisResetResult,
@@ -239,22 +240,7 @@ const analysisApi = {
       method: "POST",
       body: JSON.stringify({ limit: limit || null })
     }),
-  analysisPipelineStart: (payload: {
-    stages: Array<"sonara" | "ml">;
-    limit?: number | null;
-    sonara: {
-      mode: "direct" | "staged";
-      direct_batch_size: number;
-      staged: {
-        folder: string;
-        processes: number;
-        threads: number;
-        batch_size: number;
-        stage_size: number;
-      };
-    };
-    ml: { models: AnalysisModel[]; device: "auto" | "cpu" | "cuda"; top_k: number; track_batch_size: number; inference_batch_size: number };
-  }) => request<AnalysisPipelineStatus>("/api/analysis/pipelines", { method: "POST", body: JSON.stringify(payload) }),
+  analysisPipelineStart: (payload: AnalysisPipelineRequest) => request<AnalysisPipelineStatus>("/api/analysis/pipelines", { method: "POST", body: JSON.stringify(payload) }),
   analysisPipeline: (jobId: string) => request<AnalysisPipelineStatus>(`/api/analysis/pipelines/${jobId}`),
   latestAnalysisPipeline: () => request<AnalysisPipelineStatus | null>("/api/analysis/pipelines/latest"),
   cancelAnalysisPipeline: (jobId: string) => request<AnalysisPipelineStatus>(`/api/analysis/pipelines/${jobId}/cancel`, { method: "POST" }),

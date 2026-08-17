@@ -2,6 +2,7 @@ import { Cpu, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save,
 import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
 import type { SonaraAnalysisSettings } from "./sonaraAnalysisSettings";
+import type { MLAnalysisSettings } from "./mlAnalysisSettings";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
 
@@ -83,7 +84,10 @@ export function LibraryPanel({
   onAnalysisInferenceBatchSizeChange,
   sonaraSettings,
   onSonaraSettingsChange,
-  onChooseStagingFolder,
+  mlSettings,
+  onMLSettingsChange,
+  onChooseSonaraStagingFolder,
+  onChooseMLStagingFolder,
   helpText,
   onOpenScanDialog,
   onRefreshTags,
@@ -116,7 +120,10 @@ export function LibraryPanel({
   onAnalysisInferenceBatchSizeChange: (value: number) => void;
   sonaraSettings: SonaraAnalysisSettings;
   onSonaraSettingsChange: (value: SonaraAnalysisSettings) => void;
-  onChooseStagingFolder: () => void;
+  mlSettings: MLAnalysisSettings;
+  onMLSettingsChange: (value: MLAnalysisSettings) => void;
+  onChooseSonaraStagingFolder: () => void;
+  onChooseMLStagingFolder: () => void;
   helpText: LibraryHelpText;
   onOpenScanDialog: () => void;
   onRefreshTags: () => void;
@@ -135,6 +142,12 @@ export function LibraryPanel({
     onSonaraSettingsChange({
       ...sonaraSettings,
       staged: { ...sonaraSettings.staged, ...changes },
+    });
+  };
+  const updateMLStaged = (changes: Partial<MLAnalysisSettings["staged"]>) => {
+    onMLSettingsChange({
+      ...mlSettings,
+      staged: { ...mlSettings.staged, ...changes },
     });
   };
 
@@ -193,7 +206,7 @@ export function LibraryPanel({
           {sonaraSettings.mode === "staged" && (
             <div className="path-row sonara-staging-path-row">
               <input value={sonaraSettings.staged.folder} readOnly title="Папка для временных staging-копий SONARA" />
-              <button className="icon-button folder-picker staging-folder-picker-button" title="Choose Folder для staging-копий" aria-label="Choose Folder для staging-копий" disabled={settingsDisabled} onClick={onChooseStagingFolder} type="button"><FolderOpen size={17} /></button>
+              <button className="icon-button folder-picker staging-folder-picker-button" title="Choose Folder для staging-копий" aria-label="Choose Folder для staging-копий" disabled={settingsDisabled} onClick={onChooseSonaraStagingFolder} type="button"><FolderOpen size={17} /></button>
             </div>
           )}
           {sonaraSettings.mode === "direct" ? (
@@ -213,6 +226,25 @@ export function LibraryPanel({
         <div className="analysis-family-title"><strong>ML-модели</strong><small>Выберите нужные способы анализа звучания</small></div>
         <div className="analysis-actions">{mlAnalysisModelOrder.map(modelRow)}</div>
         <div className="analysis-settings-grid ml-analysis-settings">
+          <div className="analysis-device ml-analysis-mode">
+            <span>Mode</span>
+            <div className="segmented ml-mode-segmented">
+              <button className={`ml-mode-button ${mlSettings.mode === "direct" ? "active" : ""}`} title="Читать исходные аудиофайлы напрямую" disabled={settingsDisabled} onClick={() => onMLSettingsChange({ ...mlSettings, mode: "direct" })} type="button">Direct</button>
+              <button className={`ml-mode-button ${mlSettings.mode === "staged" ? "active" : ""}`} title="Копировать входные файлы во временную SSD-папку" disabled={settingsDisabled} onClick={() => onMLSettingsChange({ ...mlSettings, mode: "staged" })} type="button">Staged</button>
+            </div>
+          </div>
+          {mlSettings.mode === "staged" && (
+            <>
+              <div className="path-row ml-staging-path-row">
+                <input value={mlSettings.staged.folder} readOnly title="Папка для временных staging-копий ML" />
+                <button className="icon-button folder-picker ml-staging-folder-picker-button" title="Choose Folder для ML staging-копий" aria-label="Choose Folder для ML staging-копий" disabled={settingsDisabled} onClick={onChooseMLStagingFolder} type="button"><FolderOpen size={17} /></button>
+              </div>
+              <div className="ml-staged-settings-grid">
+                <NumberStepper label="Workers" value={mlSettings.staged.workers} minimum={1} maximum={16} disabled={settingsDisabled} classPrefix="ml-workers" onChange={(workers) => updateMLStaged({ workers })} />
+                <NumberStepper label="StageSize" value={mlSettings.staged.stageSize} minimum={1} maximum={512} disabled={settingsDisabled} classPrefix="ml-stage-size" onChange={(stageSize) => updateMLStaged({ stageSize })} />
+              </div>
+            </>
+          )}
           <div className="analysis-device" title={helpText.analysisDevice}>
             <span><Cpu size={15} /> Device</span>
             <div className="segmented">{(["auto", "cpu", "cuda"] as DeviceMode[]).map((device) => <button key={device} className={`analysis-device-button ${analysisDevice === device ? "active" : ""}`} title={`ML device: ${device}`} disabled={busy || stageRunning} onClick={() => onAnalysisDeviceChange(device)} type="button">{device.toUpperCase()}</button>)}</div>

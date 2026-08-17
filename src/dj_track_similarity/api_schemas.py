@@ -162,15 +162,8 @@ class SonaraPipelineSettings(BaseModel):
 
 
 class MLStagedSettings(BaseModel):
-    """ML Staged Mode settings - copy/decode/inference pipeline.
-    
-    Similar to SONARA staged but optimized for ML models:
-    - copy_workers: Parallel HDD→SSD copies (lower than SONARA, sequential optimization)
-    - decode_workers: Parallel TorchCodec decoders (GPU bottleneck relief)
-    - stage_size: Max files in staging directory (higher than SONARA, more VRAM available)
-    - inference_batch_size: Per-model GPU batch size
-    - preflight_copy_enabled: Copy during model loading (ML-specific optimization)
-    """
+    """ML Staged Mode settings for the isolated copy/decode/inference pipeline."""
+
     model_config = ConfigDict(extra="forbid")
 
     folder: str = ""

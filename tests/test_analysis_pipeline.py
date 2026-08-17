@@ -6,6 +6,7 @@ import pytest
 
 from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
 from dj_track_similarity.analysis_queue import AnalysisStageQueue
+from dj_track_similarity.ml_staging import MLStagingConfig
 from dj_track_similarity.sonara_staging import SonaraStagingConfig
 
 
@@ -80,6 +81,49 @@ def test_pipeline_forwards_staged_sonara_configuration_to_child_job(tmp_path) ->
                 "sonara_mode": "staged",
                 "sonara_batch_size": 4,
                 "sonara_staging_config": staging,
+            },
+        )
+    ]
+
+
+def test_pipeline_forwards_staged_ml_configuration_to_child_job(tmp_path) -> None:
+    audio = FakeJobs(["completed"])
+    manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
+    staging = MLStagingConfig(
+        root=tmp_path,
+        copy_workers=4,
+        decode_workers=4,
+        stage_size=64,
+        inference_batch_size=16,
+        preflight_copy_enabled=True,
+        preflight_copy_count=64,
+    )
+    job_id = manager.create_job(
+        stages=["ml"],
+        limit=None,
+        ml={
+            "models": ["mert"],
+            "device": "auto",
+            "top_k": 3,
+            "track_batch_size": 8,
+            "inference_batch_size": 16,
+            "ml_staging_config": staging,
+        },
+    )
+
+    manager.run_job(job_id)
+
+    assert audio.created == [
+        (
+            "child-1",
+            {
+                "models": ["mert"],
+                "limit": None,
+                "device": "auto",
+                "top_k": 3,
+                "track_batch_size": 8,
+                "inference_batch_size": 16,
+                "ml_staging_config": staging,
             },
         )
     ]

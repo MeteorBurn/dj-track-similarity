@@ -12,6 +12,7 @@ from .analysis_config import (
 from .analysis_jobs import AnalysisJobManager
 from .analysis_queue import AnalysisStageQueue
 from .job_runtime import JobStore
+from .ml_staging import MLStagingConfig
 from .sonara_staging import SonaraStagingConfig
 
 
@@ -164,6 +165,10 @@ class AnalysisPipelineManager:
                 inference_batch_size=int(
                     payload.ml.get("inference_batch_size")
                     or DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
+                ),
+                ml_staging_config=cast(
+                    MLStagingConfig | None,
+                    payload.ml.get("ml_staging_config"),
                 ),
             )
             self._set_stage(parent_job_id, stage, state="running", child_job_id=job_id)

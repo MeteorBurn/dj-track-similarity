@@ -486,4 +486,45 @@ export type RhythmLabCollectionSaveResult = {
   updated_at: string;
 };
 
+export type SonaraStagedSettings = {
+  folder: string;
+  processes: number;
+  threads: number;
+  batch_size: number;
+  stage_size: number;
+};
+
+export type SonaraPipelineSettings = {
+  mode: "direct" | "staged";
+  direct_batch_size: number;
+  staged: SonaraStagedSettings;
+};
+
+export type MLStagedSettings = {
+  folder: string;
+  copy_workers: number;
+  decode_workers: number;
+  stage_size: number;
+  inference_batch_size: number;
+  preflight_copy_enabled: boolean;
+  preflight_copy_count: number;
+};
+
+export type MlPipelineSettings = {
+  models: AnalysisModel[];
+  device: "auto" | "cpu" | "cuda";
+  top_k: number;
+  track_batch_size: number;
+  inference_batch_size: number;
+  mode: "direct" | "staged";
+  staged: MLStagedSettings;
+};
+
+export type AnalysisPipelineRequest = {
+  stages: Array<"sonara" | "ml" | "classifiers">;
+  limit?: number;
+  sonara?: SonaraPipelineSettings;
+  ml?: MlPipelineSettings;
+};
+
 export { api } from "./apiClient";

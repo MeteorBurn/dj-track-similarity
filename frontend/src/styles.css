@@ -794,6 +794,26 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.ml-staging-path-row,
+.ml-staged-settings-grid {
+  grid-column: 1 / -1;
+}
+
+.ml-staging-path-row {
+  margin-bottom: 0;
+}
+
+.ml-staged-settings-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ml-staged-settings-grid .worker-control {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
 .analysis-family-card {
   background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
   border: 1px solid var(--border-soft);
@@ -848,6 +868,15 @@ h2 {
 }
 
 .sonara-mode-button {
+  width: 100%;
+}
+
+.segmented.ml-mode-segmented {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.ml-mode-button {
   width: 100%;
 }
 

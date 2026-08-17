@@ -202,9 +202,95 @@ def test_api_pipeline_starts_ml_with_direct_settings(
                 "top_k": 3,
                 "track_batch_size": 2,
                 "inference_batch_size": 4,
+                "mode": "direct",
+                "ml_staging_config": None,
             },
         }
     ]
+
+
+def test_api_pipeline_builds_staged_ml_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[dict[str, object]] = []
+    staging_root = tmp_path / "ml-staging"
+    staging_root.mkdir()
+
+    def start(_manager: AnalysisPipelineManager, **kwargs: object) -> dict[str, object]:
+        captured.append(dict(kwargs))
+        return {"job_id": "pipeline-job", "state": "queued"}
+
+    monkeypatch.setattr(AnalysisPipelineManager, "start", start)
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["ml"],
+            "ml": {
+                "models": ["mert"],
+                "device": "cpu",
+                "top_k": 3,
+                "track_batch_size": 2,
+                "inference_batch_size": 4,
+                "mode": "staged",
+                "staged": {
+                    "folder": str(staging_root),
+                    "copy_workers": 3,
+                    "decode_workers": 5,
+                    "stage_size": 40,
+                    "inference_batch_size": 4,
+                    "preflight_copy_enabled": True,
+                    "preflight_copy_count": 12,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    settings = captured[0]["ml"]
+    assert isinstance(settings, dict)
+    assert settings["mode"] == "staged"
+    staging = settings["ml_staging_config"]
+    assert staging.root == staging_root
+    assert staging.copy_workers == 3
+    assert staging.decode_workers == 5
+    assert staging.stage_size == 40
+    assert staging.inference_batch_size == 4
+    assert staging.preflight_copy_enabled is True
+    assert staging.preflight_copy_count == 12
+
+
+def test_api_pipeline_rejects_unknown_ml_staged_setting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    staging_root = tmp_path / "ml-staging"
+    staging_root.mkdir()
+
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["ml"],
+            "ml": {
+                "models": ["mert"],
+                "mode": "staged",
+                "staged": {
+                    "folder": str(staging_root),
+                    "copy_workers": 4,
+                    "decode_workers": 4,
+                    "stage_size": 64,
+                    "inference_batch_size": 16,
+                    "preflight_copy_enabled": True,
+                    "preflight_copy_count": 64,
+                    "unexpected": True,
+                },
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "ml", "staged", "unexpected"]
+    assert response.json()["detail"][0]["type"] == "extra_forbidden"
 
 
 def test_api_pipeline_rejects_classifier_stage(

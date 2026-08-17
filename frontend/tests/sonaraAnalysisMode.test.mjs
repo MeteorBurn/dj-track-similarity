@@ -5,6 +5,7 @@ import test from "node:test";
 import { createServer } from "vite";
 
 const appPath = fileURLToPath(new URL("../src/App.tsx", import.meta.url));
+const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
 const apiClientPath = fileURLToPath(new URL("../src/apiClient.ts", import.meta.url));
 const panelPath = fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url));
 const settingsPath = fileURLToPath(new URL("../src/sonaraAnalysisSettings.ts", import.meta.url));
@@ -12,6 +13,7 @@ const stylesPath = fileURLToPath(new URL("../src/styles.css", import.meta.url));
 const frontendRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const appSource = readFileSync(appPath, "utf8");
+const apiSource = readFileSync(apiPath, "utf8");
 const apiClientSource = readFileSync(apiClientPath, "utf8");
 const panelSource = readFileSync(panelPath, "utf8");
 const settingsSource = existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : "";
@@ -102,10 +104,11 @@ test("Staged Mode requires a chosen folder before analysis starts", () => {
 });
 
 test("analysis API carries separate Direct and Staged SONARA settings", () => {
-  assert.match(apiClientSource, /direct_batch_size:\s*number/);
-  assert.match(apiClientSource, /processes:\s*number/);
-  assert.match(apiClientSource, /threads:\s*number/);
-  assert.match(apiClientSource, /stage_size:\s*number/);
+  assert.match(apiSource, /direct_batch_size:\s*number/);
+  assert.match(apiSource, /processes:\s*number/);
+  assert.match(apiSource, /threads:\s*number/);
+  assert.match(apiSource, /stage_size:\s*number/);
+  assert.match(apiClientSource, /analysisPipelineStart: \(payload: AnalysisPipelineRequest\)/);
   assert.match(appSource, /direct_batch_size:\s*sonaraSettings\.directBatchSize/);
   assert.match(appSource, /stage_size:\s*sonaraSettings\.staged\.stageSize/);
 });

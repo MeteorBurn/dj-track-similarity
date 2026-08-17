@@ -20,18 +20,18 @@ type ScanImportSettings = {
 };
 
 const scanFormats = [
-  { key: "mp3", label: "MP3", extensions: [".mp3"] },
-  { key: "flac", label: "FLAC", extensions: [".flac"] },
-  { key: "alac", label: "ALAC", extensions: [".alac"] },
-  { key: "wav", label: "WAV", extensions: [".wav"] },
-  { key: "wave", label: "WAVE", extensions: [".wave"] },
-  { key: "aiff", label: "AIFF", extensions: [".aiff"] },
+  { key: "aac", label: "AAC", extensions: [".aac"] },
   { key: "aif", label: "AIF", extensions: [".aif"] },
+  { key: "aiff", label: "AIFF", extensions: [".aiff"] },
+  { key: "alac", label: "ALAC", extensions: [".alac"] },
+  { key: "ape", label: "APE", extensions: [".ape"] },
+  { key: "flac", label: "FLAC", extensions: [".flac"] },
   { key: "m4a", label: "M4A", extensions: [".m4a"] },
+  { key: "mp3", label: "MP3", extensions: [".mp3"] },
   { key: "ogg", label: "OGG", extensions: [".ogg"] },
   { key: "opus", label: "OPUS", extensions: [".opus"] },
-  { key: "aac", label: "AAC", extensions: [".aac"] },
-  { key: "ape", label: "APE", extensions: [".ape"] },
+  { key: "wav", label: "WAV", extensions: [".wav"] },
+  { key: "wave", label: "WAVE", extensions: [".wave"] },
   { key: "wma", label: "WMA", extensions: [".wma"] },
   { key: "wv", label: "WavPack", extensions: [".wv"] },
 ] as const;

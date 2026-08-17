@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Collection, Iterable
 
@@ -84,6 +84,23 @@ MUTAGEN_TAG_LOOKUP = {
 }
 
 
+@dataclass(frozen=True)
+class PreparedScan:
+    """Stable metadata ready for the scan coordinator to write."""
+
+    file: ScannedFile
+    tags: FileTags
+
+
+@dataclass(frozen=True)
+class PreparedScanResult:
+    """One process-worker result for a source path."""
+
+    path: str
+    prepared: PreparedScan | None = None
+    error_message: str | None = None
+
+
 def _resolved_directory(root: str | Path) -> Path:
     root_path = Path(root).expanduser().resolve(strict=False)
     if not root_path.exists():
@@ -134,6 +151,31 @@ def scan_audio_file(
     edits with unchanged file facts must use the explicit Refresh Tags path.
     """
 
+    prepared = prepare_audio_file(
+        repository,
+        path,
+        min_duration_seconds=min_duration_seconds,
+        max_duration_seconds=max_duration_seconds,
+        claim_scan_slot=claim_scan_slot,
+    )
+    if prepared is None:
+        return None
+    return repository.upsert_scanned_track(
+        file=prepared.file,
+        tags=prepared.tags,
+    )
+
+
+def prepare_audio_file(
+    repository: TrackRepository,
+    path: str | Path,
+    *,
+    min_duration_seconds: int | None = None,
+    max_duration_seconds: int | None = None,
+    claim_scan_slot: Callable[[], bool] | None = None,
+) -> PreparedScan | None:
+    """Read one stable scan record without writing it to the library."""
+
     audio_path = Path(path).expanduser().resolve(strict=False)
     initial_stat = audio_path.stat()
     existing = repository.get_track_file_state(audio_path)
@@ -147,7 +189,7 @@ def scan_audio_file(
         and existing.file_modified_ns == initial_stat.st_mtime_ns
         and not duration_filter_active
     ):
-        return repository.upsert_scanned_track(
+        return PreparedScan(
             file=ScannedFile(
                 file_path=resolved_file_path(audio_path),
                 file_size_bytes=initial_stat.st_size,
@@ -156,9 +198,59 @@ def scan_audio_file(
             tags=FileTags(),
         )
 
+    return _prepare_audio_file_metadata(
+        audio_path,
+        initial_stat=initial_stat,
+        min_duration_seconds=min_duration_seconds,
+        max_duration_seconds=max_duration_seconds,
+        claim_scan_slot=claim_scan_slot,
+    )
+
+
+def prepare_audio_path_group(
+    paths: list[str],
+    *,
+    min_duration_seconds: int | None = None,
+    max_duration_seconds: int | None = None,
+) -> list[PreparedScanResult]:
+    """Read metadata for raw path strings without opening the library database."""
+
+    results: list[PreparedScanResult] = []
+    for path in paths:
+        try:
+            prepared = _prepare_audio_file_metadata(
+                Path(path).expanduser().resolve(strict=False),
+                min_duration_seconds=min_duration_seconds,
+                max_duration_seconds=max_duration_seconds,
+            )
+        except Exception as error:
+            results.append(
+                PreparedScanResult(
+                    path=path,
+                    error_message=f"{type(error).__name__}: {error}",
+                )
+            )
+            continue
+        results.append(PreparedScanResult(path=path, prepared=prepared))
+    return results
+
+
+def _prepare_audio_file_metadata(
+    audio_path: Path,
+    *,
+    initial_stat: os.stat_result | None = None,
+    min_duration_seconds: int | None = None,
+    max_duration_seconds: int | None = None,
+    claim_scan_slot: Callable[[], bool] | None = None,
+) -> PreparedScan | None:
+    initial_stat = initial_stat or audio_path.stat()
     metadata, final_stat = read_audio_metadata_stable(
         audio_path,
         initial_stat=initial_stat,
+    )
+    duration_filter_active = (
+        min_duration_seconds is not None
+        or max_duration_seconds is not None
     )
     if duration_filter_active:
         duration = _positive_float_or_none(metadata.get("duration"))
@@ -174,7 +266,7 @@ def scan_audio_file(
             return None
     if claim_scan_slot is not None and not claim_scan_slot():
         return None
-    return repository.upsert_scanned_track(
+    return PreparedScan(
         file=scanned_file_from_metadata(
             audio_path,
             metadata,
@@ -241,14 +333,28 @@ def iter_audio_files(
         }
     )
     paths_by_identity: dict[str, Path] = {}
-    for candidate in root_path.rglob("*"):
-        if (
-            candidate.is_file()
-            and candidate.suffix.lower() in selected_extensions
-            and not candidate.name.startswith("._")
-        ):
-            resolved = candidate.resolve(strict=False)
-            paths_by_identity.setdefault(canonical_file_path(resolved), resolved)
+
+    def scan_directory(directory: Path) -> None:
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_file() and (
+                            Path(entry.name).suffix.lower() in selected_extensions
+                        ) and not entry.name.startswith("._"):
+                            resolved = Path(entry.path).resolve(strict=False)
+                            paths_by_identity.setdefault(
+                                canonical_file_path(resolved),
+                                resolved,
+                            )
+                        elif entry.is_dir(follow_symlinks=False):
+                            scan_directory(Path(entry.path))
+                    except OSError:
+                        continue
+        except OSError:
+            return
+
+    scan_directory(root_path)
     for identity in sorted(paths_by_identity):
         yield paths_by_identity[identity]
 

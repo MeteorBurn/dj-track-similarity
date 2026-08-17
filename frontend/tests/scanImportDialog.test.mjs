@@ -67,7 +67,7 @@ test("scan import dialog uses neutral inactive format chips and aligned worker c
   const formats = styles.match(/\.scan-import-formats\s*{([\s\S]*?)}/)?.[1] || "";
   const dialog = styles.match(/\.scan-import-dialog\s*{([\s\S]*?)}/)?.[1] || "";
   const description = styles.match(/\.scan-import-description\s*{([\s\S]*?)}/)?.[1] || "";
-  const formatOrder = ["MP3", "FLAC", "ALAC", "WAV", "WAVE", "AIFF", "AIF", "M4A", "OGG", "OPUS"].map((label) => source.indexOf(`label: "${label}"`));
+  const formatOrder = ["AAC", "AIF", "AIFF", "ALAC", "APE", "FLAC", "M4A", "MP3", "OGG", "OPUS", "WAV", "WAVE", "WMA", "WavPack"].map((label) => source.indexOf(`label: "${label}"`));
 
   assert.match(source, /scan-import-description/);
   assert.match(source, /<p className="scan-import-description">Выберите папку как источник для загрузки треков в базу: сканирование папок выполняется рекурсивно\.<\/p>\s*<div className="path-row scan-import-path-row">/);
@@ -75,7 +75,7 @@ test("scan import dialog uses neutral inactive format chips and aligned worker c
   assert.doesNotMatch(source, /scan-import-submit-description/);
   assert.match(inactiveChip, /var\(--scan-import-format-off-bg\)/);
   assert.match(inactiveChip, /var\(--scan-import-format-off-border\)/);
-  assert.match(inactiveChip, /flex:\s*1 1 0/);
+  assert.match(inactiveChip, /flex:\s*0 1 calc\(\(100% - 42px\) \/ 7\)/);
   assert.match(inactiveChip, /min-width:\s*0/);
   assert.match(workerControls, /gap:\s*4px/);
   assert.match(settingControls, /grid-template-rows:\s*18px 36px/);
@@ -86,7 +86,7 @@ test("scan import dialog uses neutral inactive format chips and aligned worker c
   assert.match(pathRow, /grid-template-columns:\s*minmax\(0, 1fr\) 34px/);
   assert.match(pathButton, /width:\s*34px/);
   assert.doesNotMatch(source, /scan-import-format-aliases/);
-  assert.match(formats, /flex-wrap:\s*nowrap/);
+  assert.match(formats, /flex-wrap:\s*wrap/);
   assert.match(formats, /justify-content:\s*center/);
   assert.match(dialog, /max-width:\s*min\(760px, calc\(100vw - 32px\)\)/);
   assert.match(description, /font-size:\s*13px/);

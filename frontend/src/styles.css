@@ -1180,7 +1180,7 @@ h2 {
 
 .scan-import-formats {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
   justify-content: center;
 }
@@ -1190,7 +1190,7 @@ h2 {
   border: 1px solid var(--scan-import-format-off-border);
   border-radius: 3px;
   color: var(--scan-import-format-off-text);
-  flex: 1 1 0;
+  flex: 0 1 calc((100% - 42px) / 7);
   font-size: 12px;
   font-weight: 700;
   min-height: 30px;

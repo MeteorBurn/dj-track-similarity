@@ -38,7 +38,7 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Scan walks the folder recursively and reads supported audio extensions through Mutagen:
 
 ```text
-.aif .aiff .alac .flac .m4a .mp3 .ogg .opus .wav .wave
+.aac .aif .aiff .alac .ape .flac .m4a .mp3 .ogg .opus .wav .wave .wma .wv
 ```
 
 The scan creates a local catalog from paths and tags. It gives the UI something to browse, but it

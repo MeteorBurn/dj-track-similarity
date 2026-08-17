@@ -93,7 +93,7 @@ database remains unchanged until you explicitly stop its users and run `dj-sim m
 Scan supports these extensions:
 
 ```text
-.aif .aiff .alac .flac .m4a .mp3 .ogg .opus .wav .wave
+.aac .aif .aiff .alac .ape .flac .m4a .mp3 .ogg .opus .wav .wave .wma .wv
 ```
 
 It skips AppleDouble-style files whose names start with `._`.

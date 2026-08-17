@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .shared_ffmpeg_decoder import load_tolerant_mono_audio
+
 if TYPE_CHECKING:
     from torch import Tensor
 
@@ -36,10 +38,9 @@ def load_decoded_audio_with_ffmpeg(path: str | Path) -> DecodedAudio:
 
 
 def load_audio_mono_with_ffmpeg(path: str | Path) -> tuple[np.ndarray, int, str]:
-    """Decode one recovery source through shared FFmpeg to mono float32 PCM."""
+    """Decode one SONARA recovery source through shared FFmpeg to mono float32 PCM."""
 
-    audio, sample_rate, detail = _load_with_shared_ffmpeg(Path(path))
-    return audio.numpy().copy(), sample_rate, detail
+    return load_tolerant_mono_audio(path)
 
 
 def _load_with_torchcodec(path: Path) -> tuple[Tensor, int, str]:

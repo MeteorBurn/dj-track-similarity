@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import os
+import sys
+from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 
 
 FFMPEG_SHARED_DIR_ENV_VAR = "DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR"
-PROJECT_FFMPEG_SHARED_DIR = Path(__file__).resolve().parents[2] / "libs" / "ffmpeg"
+PROJECT_FFMPEG_SHARED_DIR = Path(__file__).resolve().parents[2] / "libs" / "ffmpeg" / "bin"
+PROJECT_PYAV_SITE_PACKAGES = (
+    Path(__file__).resolve().parents[2] / "libs" / "pyav" / "Lib" / "site-packages"
+)
 _DLL_DIRECTORY_HANDLES: list[object] = []
 _AVCODEC_LIBRARY_PATTERNS = ("avcodec-*.dll", "libavcodec.so*", "libavcodec.*.dylib")
 
@@ -23,6 +29,21 @@ def configure_shared_ffmpeg_runtime() -> Path:
     if os.name == "nt":
         _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(str(directory)))
     return directory
+
+
+def load_project_pyav() -> ModuleType:
+    """Load the project-bundled PyAV binding against the registered FFmpeg DLLs."""
+
+    configure_shared_ffmpeg_runtime()
+    if not PROJECT_PYAV_SITE_PACKAGES.is_dir():
+        raise RuntimeError(
+            "The project PyAV runtime is required at "
+            f"{PROJECT_PYAV_SITE_PACKAGES}"
+        )
+    site_packages = str(PROJECT_PYAV_SITE_PACKAGES)
+    if site_packages not in sys.path:
+        sys.path.insert(0, site_packages)
+    return import_module("av")
 
 
 def _configured_or_path_shared_directory() -> Path | None:

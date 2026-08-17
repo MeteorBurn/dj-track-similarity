@@ -183,7 +183,7 @@ def test_installed_torchcodec_cuda_wheel_decodes_real_wav(tmp_path: Path) -> Non
     assert result.detail == "torchcodec 0.16 decode (num_channels=1)"
 
 
-def test_shared_ffmpeg_fallback_uses_manual_arithmetic_mean_without_subprocess(
+def test_shared_torchcodec_ml_fallback_uses_manual_arithmetic_mean_without_subprocess(
     monkeypatch, tmp_path: Path
 ) -> None:
     torch = pytest.importorskip("torch")
@@ -207,12 +207,9 @@ def test_shared_ffmpeg_fallback_uses_manual_arithmetic_mean_without_subprocess(
     torchcodec_module.decoders = decoders_module
     monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_module)
     monkeypatch.setitem(sys.modules, "torchcodec.decoders", decoders_module)
-    mono, sample_rate, detail = load_audio_mono_with_ffmpeg(audio_path)
     decoded = load_decoded_audio_with_ffmpeg(audio_path)
 
     assert not hasattr(audio_loader, "subprocess")
-    assert sample_rate == 48_000
-    assert np.array_equal(mono, np.asarray([0.25, 0.0], dtype=np.float32))
-    assert detail == "torchcodec shared FFmpeg decode (arithmetic channel mean)"
     assert torch.equal(decoded.audio, torch.tensor([0.25, 0.0], dtype=torch.float32))
     assert decoded.sample_rate == 48_000
+    assert decoded.detail == "torchcodec shared FFmpeg decode (arithmetic channel mean)"

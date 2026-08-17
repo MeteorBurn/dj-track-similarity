@@ -6,6 +6,7 @@ import shutil
 import uuid
 import os
 import time
+import logging
 from collections import deque
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
@@ -22,6 +23,10 @@ from .sonara_runtime import (
     SONARA_VOCALNESS_MODEL_SELECTOR,
     sonara_requested_features,
 )
+
+
+LOGGER = logging.getLogger(__name__)
+_DEFERRED_STAGING_CLEANUP_WINERRORS = frozenset({32, 64})
 
 
 @dataclass(frozen=True)
@@ -123,7 +128,16 @@ class SonaraStagingSession:
     def release(self, staged: StagedSonaraCandidate) -> None:
         if not staged.path.is_relative_to(self.path):
             raise ValueError("staged path is not owned by this SONARA session")
-        staged.path.unlink(missing_ok=True)
+        try:
+            staged.path.unlink(missing_ok=True)
+        except OSError as error:
+            if getattr(error, "winerror", None) not in _DEFERRED_STAGING_CLEANUP_WINERRORS:
+                raise
+            LOGGER.warning(
+                "SONARA staged copy cleanup deferred path=%s error=%s",
+                staged.path,
+                error,
+            )
 
     def cleanup(self) -> None:
         if self._created:

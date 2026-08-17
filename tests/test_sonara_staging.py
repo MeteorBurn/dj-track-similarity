@@ -220,6 +220,92 @@ def test_staged_pipeline_stores_original_identity_and_isolates_failure(
     assert not any((tmp_path / "ssd").iterdir())
 
 
+@pytest.mark.parametrize("winerror", [32, 64])
+def test_staged_pipeline_continues_when_failed_copy_cleanup_has_expected_windows_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    winerror: int,
+) -> None:
+    source_one = tmp_path / "hdd" / "damaged.wav"
+    source_two = tmp_path / "hdd" / "healthy.wav"
+    source_one.parent.mkdir()
+    source_one.write_bytes(b"damaged")
+    source_two.write_bytes(b"healthy")
+    candidates = (_candidate(1, source_one), _candidate(2, source_two))
+    completed_track_ids: list[int] = []
+    original_unlink = Path.unlink
+
+    def lock_damaged_staged_copy(path: Path, *args, **kwargs) -> None:
+        if path.name == "1-damaged.wav":
+            raise OSError(winerror, "simulated cleanup error", str(path), winerror)
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", lock_damaged_staged_copy)
+
+    outcomes = analyze_and_store_staged_sonara(
+        object(),
+        candidates,
+        config=SonaraStagingConfig(
+            root=tmp_path / "ssd",
+            stage_size=2,
+            copy_workers=1,
+            processes=1,
+            max_native_batch_size=1,
+        ),
+        analyze_group=lambda staged: [
+            StagedSonaraResult(
+                item=item,
+                error=RuntimeError("damaged WAV"),
+            )
+            if item.candidate.target.track_id == 1
+            else StagedSonaraResult(item=item, analysis={"energy": 0.5})
+            for item in staged
+        ],
+        prepare_write=lambda candidate, analysis: candidate.target.track_id,
+        store_write=lambda repository, write: None,
+        result_callback=lambda result: completed_track_ids.append(
+            result.candidate.target.track_id
+        ),
+    )
+
+    outcomes_by_track = {
+        outcome.candidate.target.track_id: outcome for outcome in outcomes
+    }
+    assert "damaged WAV" in str(outcomes_by_track[1].error)
+    assert outcomes_by_track[2].error is None
+    assert completed_track_ids == [1, 2]
+    assert not any((tmp_path / "ssd").iterdir())
+
+
+def test_staging_release_raises_unrelated_windows_access_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "hdd" / "track.wav"
+    source.parent.mkdir()
+    source.write_bytes(b"audio")
+    original_unlink = Path.unlink
+
+    def reject_staged_copy(path: Path, *args, **kwargs) -> None:
+        if path.name == "1-track.wav":
+            raise OSError(5, "simulated access denied", str(path), 5)
+        original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", reject_staged_copy)
+
+    with pytest.raises(PermissionError, match="simulated access denied"):
+        analyze_and_store_staged_sonara(
+            object(),
+            (_candidate(1, source),),
+            config=SonaraStagingConfig(root=tmp_path / "ssd"),
+            analyze_group=lambda staged: [
+                StagedSonaraResult(item=staged[0], analysis={"energy": 0.5})
+            ],
+            prepare_write=lambda candidate, analysis: candidate.target.track_id,
+            store_write=lambda repository, write: None,
+        )
+
+
 def test_staged_pipeline_never_exceeds_configured_resident_window(
     tmp_path: Path,
 ) -> None:

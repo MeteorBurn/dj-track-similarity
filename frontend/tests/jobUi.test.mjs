@@ -5,6 +5,13 @@ import test from "node:test";
 
 const jobUiPath = fileURLToPath(new URL("../src/jobUi.tsx", import.meta.url));
 
+test("scan progress shows the skipped track count", () => {
+  const source = readFileSync(jobUiPath, "utf8");
+  const statusBlock = source.match(/function ScanProcessStatus[\s\S]*?function UnifiedEventList/)?.[0] || "";
+
+  assert.match(statusBlock, /job\.skipped \? <span>skip \{job\.skipped\}<\/span>/);
+});
+
 test("analysis progress keeps the active classifier key", () => {
   const source = readFileSync(jobUiPath, "utf8");
   const modelProgressBlock = source.match(/function ModelProgress[\s\S]*?function GenreTagProcessStatus/)?.[0] || "";

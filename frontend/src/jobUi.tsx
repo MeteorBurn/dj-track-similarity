@@ -153,6 +153,7 @@ function ScanProcessStatus({ job }: { job: ScanStats | null }) {
         <span>+{job.added || 0}</span>
         <span>upd {job.updated || 0}</span>
         <span>same {job.unchanged || 0}</span>
+        {job.skipped ? <span>skip {job.skipped}</span> : null}
         <span>fail {job.failed || 0}</span>
         <span>{job.workers || 1} поток</span>
         <span>{percent}%</span>

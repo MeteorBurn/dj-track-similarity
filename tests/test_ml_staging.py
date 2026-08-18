@@ -208,6 +208,61 @@ def test_analyze_and_store_staged_ml_basic(
     assert mock_model_runner.analyze_batch.call_count >= 1
 
 
+def test_analyze_and_store_staged_ml_refills_window_until_all_candidates_complete(
+    tmp_path: Path,
+    mock_repository: MagicMock,
+    mock_model_runner: MagicMock,
+    mock_decode_fn: Mock,
+) -> None:
+    """Staged analysis continues past one active staging window."""
+    staging_root = tmp_path / "ml_staging"
+    staging_root.mkdir()
+    candidates = []
+    targets_by_track = {}
+    for track_id in range(1, 6):
+        source = tmp_path / f"track{track_id}.mp3"
+        source.write_text(f"dummy audio {track_id}")
+        candidates.append(
+            AnalysisCandidate(
+                target=AnalysisTarget(
+                    catalog_uuid="catalog-uuid",
+                    track_id=track_id,
+                    track_uuid=f"track-uuid-{track_id}",
+                ),
+                file_path=str(source),
+                file_size_bytes=len(f"dummy audio {track_id}"),
+                file_modified_ns=0,
+                missing_outputs=(
+                    AnalysisOutput(analysis_family="muq", output_kind="embedding"),
+                ),
+            )
+        )
+        targets_by_track[track_id] = ("muq",)
+
+    completed_track_ids: list[int] = []
+    results = analyze_and_store_staged_ml(
+        repository=mock_repository,
+        candidates=candidates,
+        model_runners={"muq": mock_model_runner},
+        targets_by_track=targets_by_track,
+        config=MLStagingConfig(
+            root=staging_root,
+            copy_workers=1,
+            decode_workers=1,
+            stage_size=2,
+            inference_batch_size=1,
+        ),
+        decode_audio=mock_decode_fn,
+        track_result_callback=lambda result: completed_track_ids.append(
+            result.candidate.target.track_id
+        ),
+    )
+
+    assert [result.candidate.target.track_id for result in results] == [1, 2, 3, 4, 5]
+    assert completed_track_ids == [1, 2, 3, 4, 5]
+    assert mock_decode_fn.call_count == 5
+
+
 def test_analyze_and_store_staged_ml_empty_queue(
     tmp_path: Path,
     mock_repository: MagicMock,

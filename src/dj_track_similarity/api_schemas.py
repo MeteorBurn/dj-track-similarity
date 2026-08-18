@@ -531,6 +531,9 @@ class VectorSummaryResponse(_ResponseModel):
 
 
 class SonaraCoreResponse(_ResponseModel):
+    analysis_schema_version: int = Field(gt=0)
+    bpm_min: float = Field(gt=0)
+    bpm_max: float = Field(gt=0)
     detected_bpm: float | None
     raw_bpm: float | None
     bpm_confidence: float | None

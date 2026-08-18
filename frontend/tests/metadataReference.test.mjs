@@ -135,6 +135,9 @@ function detail() {
       raw_bpm: 128.125,
       bpm_confidence: 0.92,
       bpm_candidates: [{ bpm: 128.125, score: 0.92 }],
+      bpm_min: 70,
+      bpm_max: 180,
+      analysis_schema_version: 6,
       vocal_probability: 0.35,
       vector_summaries: [],
       analyzed_at: "2026-07-24T10:01:00Z",
@@ -281,6 +284,9 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
   assert.deepEqual(Array.from(model.sonaraAnalysisEntries, ([label, value]) => [label, value]), [
     ["Analyzed at", expectedLocalTimestamp("2026-07-24T10:01:00Z")],
   ]);
+  assert.deepEqual(Array.from(model.sonaraProvenanceEntries, ([label, value]) => [label, value]), [
+    ["Analysis schema", "v6"],
+  ]);
   assert.equal(model.analysisBadges, undefined);
   assert.equal(model.syncopatedRhythm, true);
   assert.equal(model.maestAnalyzed, true);
@@ -300,7 +306,7 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
   assert.equal(new Map(model.audioEntries).get("Audio Format"), "audio/flac");
 });
 
-test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => {
+test("SONARA tempo metadata uses tempo-specific units and ends with one BPM analysis range row", () => {
   const features = sonaraFeatures({
     detected_bpm: 127.45889282226563,
     raw_bpm: 63.72944641113281,
@@ -316,6 +322,8 @@ test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => 
     beat_grid_offset_seconds: 0.4876190423965454,
     beat_grid_stability: 0.98765,
     analyzed_duration_seconds: 459.3149719238281,
+    bpm_min: 70,
+    bpm_max: 180,
   });
 
   assert.equal(features.get("detected_bpm").value, "127.46");
@@ -331,6 +339,18 @@ test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => 
   assert.equal(features.get("beat_grid_offset_seconds").value, "488 ms");
   assert.equal(features.get("beat_grid_stability").value, "98.8%");
   assert.equal(features.get("analyzed_duration_seconds").value, "7:39");
+  assert.equal(features.get("bpm_analysis_range").value, "70–180 BPM");
+
+  const model = metadataDialog.metadataDialogModel({
+    ...detail(),
+    sonara_core: {
+      ...detail().sonara_core,
+      bpm_min: 70,
+      bpm_max: 180,
+    },
+  });
+  const tempo = model.coreGroups.find((group) => group.title === "Tempo");
+  assert.equal(tempo.features.at(-1).key, "bpm_analysis_range");
 });
 
 test("SONARA clock fields use whole-second m:ss and h:mm:ss positions", () => {

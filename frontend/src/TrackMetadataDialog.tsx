@@ -6,8 +6,9 @@ import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABE
 import { displayTrack } from "./trackDisplay";
 
 type MetadataEntry = readonly [label: string, value: string];
+type CoreFeatureKey = keyof SonaraCore | "bpm_analysis_range";
 type CoreFeature = {
-  key: keyof SonaraCore;
+  key: CoreFeatureKey;
   label: string;
   description: string;
 };
@@ -38,6 +39,11 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("beat_grid_offset_seconds", "Beat-grid offset", "Offset of the detected beat grid from the beginning of the audio."),
       feature("beat_grid_stability", "Beat-grid stability", "Stability of the detected beat grid."),
       feature("analyzed_duration_seconds", "Duration", "Duration represented by the current SONARA Core analysis."),
+      {
+        key: "bpm_analysis_range",
+        label: "BPM analysis range",
+        description: "BPM octave-folding range recorded in SONARA analysis provenance.",
+      },
     ],
   },
   {
@@ -145,6 +151,7 @@ export function metadataDialogModel(track: TrackDetail) {
     audioEntries: readableAudioData(track),
     scanEntries: readableScanDetails(track),
     sonaraAnalysisEntries: readableSonaraAnalysisDetails(track),
+    sonaraProvenanceEntries: readableSonaraProvenance(track.sonara_core),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
     classifierScores: readableClassifierScores(track),
     classifierAnalysisEntries: readableClassifierAnalysisDetails(track),
@@ -343,6 +350,16 @@ export function TrackMetadataDialog({
           ) : (
             <span className="metadata-empty-state">Core данные ещё не рассчитаны</span>
           )}
+          {view.sonaraProvenanceEntries.length ? (
+            <dl className="metadata-grid sonara-feature-grid">
+              {view.sonaraProvenanceEntries.map(([label, value]) => (
+                <Fragment key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          ) : null}
         </div>
 
         <div className="metadata-classifier-block">
@@ -473,6 +490,11 @@ function readableSonaraAnalysisDetails(track: TrackDetail): MetadataEntry[] {
   return [["Analyzed at", formatTimestamp(track.sonara_core.analyzed_at)]];
 }
 
+function readableSonaraProvenance(core: SonaraCore | null): MetadataEntry[] {
+  if (!core) return [];
+  return [["Analysis schema", `v${core.analysis_schema_version}`]];
+}
+
 function readableSonaraCoreGroups(core: SonaraCore | null) {
   if (!core) return [];
   return sonaraCoreFeatureGroups
@@ -480,6 +502,12 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
       title: group.title,
       features: group.features
         .map((descriptor) => {
+          if (descriptor.key === "bpm_analysis_range") {
+            return {
+              ...descriptor,
+              value: `${formatOptionalNumber(core.bpm_min)}–${formatOptionalNumber(core.bpm_max)} BPM`,
+            };
+          }
           if (descriptor.key === "detected_key_name") {
             const value = formatDetectedKey(
               core.detected_key_name,

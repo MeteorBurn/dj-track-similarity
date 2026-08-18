@@ -1,6 +1,23 @@
 import { AnalysisJobStatus, AnalysisModel, api, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { basename, formatEta } from "./trackDisplay";
 
+const ACTIVE_JOB_STATES = ["queued", "running"] as const;
+const AUDIO_MODELS: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
+const MAX_LOG_EVENTS = 120;
+const SECONDS_TO_MS = 1000;
+
+function calculateProgressPercent(processed: number, total: number): number {
+  return total ? Math.round((processed / total) * 100) : 100;
+}
+
+function calculateEta(isRunning: boolean, avgSecondsPerTrack: number | null | undefined, total: number, processed: number): number | null {
+  return isRunning && avgSecondsPerTrack ? Math.max(0, (total - processed) * avgSecondsPerTrack) : null;
+}
+
+function isJobActive(state: string | undefined): boolean {
+  return state ? ACTIVE_JOB_STATES.includes(state as (typeof ACTIVE_JOB_STATES)[number]) : false;
+}
+
 export type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
 
 type UnifiedLogEvent = {
@@ -74,7 +91,40 @@ function unifiedLogEvents(
   databaseValidationJob: DatabaseValidationJobStatus | null,
   activityEvents: ActivityEvent[]
 ) {
-  const uiEvents: UnifiedLogEvent[] = activityEvents.map((event) => ({
+  const uiEvents = transformUiEvents(activityEvents);
+  const scanEvents = transformJobEvents("scan", scanJob?.events || [], { idPrefix: "scan" });
+  const analysisEvents = transformJobEvents("analysis", analysisJob?.events || [], {
+    idPrefix: "analysis",
+    filterFn: (event) => !isPerClassifierAnalysisEvent(event.message)
+  });
+  const genreTagEvents = transformJobEvents("genre tags", genreTagJob?.events || [], { idPrefix: "genre-tags" });
+  const validationEvents = transformJobEvents("validation", databaseValidationJob?.events || [], {
+    idPrefix: "validation",
+    formatDetail: (event) => event.path || undefined
+  });
+  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, MAX_LOG_EVENTS);
+}
+
+type JobEvent = { timestamp: number; level: string; message: string; path?: string | null };
+
+function transformJobEvents(
+  source: string,
+  events: JobEvent[],
+  options: { idPrefix: string; filterFn?: (event: JobEvent) => boolean; formatDetail?: (event: JobEvent) => string | undefined }
+): UnifiedLogEvent[] {
+  const filtered = options.filterFn ? events.filter(options.filterFn) : events;
+  return filtered.map((event, index) => ({
+    id: `${options.idPrefix}-${event.timestamp}-${index}`,
+    timeMs: event.timestamp * SECONDS_TO_MS,
+    level: event.level as ActivityEvent["level"],
+    source,
+    message: event.message,
+    detail: options.formatDetail ? options.formatDetail(event) : event.path ? basename(event.path) : undefined
+  }));
+}
+
+function transformUiEvents(events: ActivityEvent[]): UnifiedLogEvent[] {
+  return events.map((event) => ({
     id: `ui-${event.id}`,
     timeMs: event.time,
     level: event.level,
@@ -82,41 +132,6 @@ function unifiedLogEvents(
     message: event.message,
     detail: event.detail
   }));
-  const scanEvents: UnifiedLogEvent[] = (scanJob?.events || []).map((event, index) => ({
-    id: `scan-${event.timestamp}-${index}`,
-    timeMs: event.timestamp * 1000,
-    level: event.level as ActivityEvent["level"],
-    source: "scan",
-    message: event.message,
-    detail: event.path ? basename(event.path) : undefined
-  }));
-  const analysisEvents: UnifiedLogEvent[] = (analysisJob?.events || [])
-    .filter((event) => !isPerClassifierAnalysisEvent(event.message))
-    .map((event, index) => ({
-      id: `analysis-${event.timestamp}-${index}`,
-      timeMs: event.timestamp * 1000,
-      level: event.level as ActivityEvent["level"],
-      source: "analysis",
-      message: event.message,
-      detail: event.path ? basename(event.path) : undefined
-    }));
-  const genreTagEvents: UnifiedLogEvent[] = (genreTagJob?.events || []).map((event, index) => ({
-    id: `genre-tags-${event.timestamp}-${index}`,
-    timeMs: event.timestamp * 1000,
-    level: event.level as ActivityEvent["level"],
-    source: "genre tags",
-    message: event.message,
-    detail: event.path ? basename(event.path) : undefined
-  }));
-  const validationEvents: UnifiedLogEvent[] = (databaseValidationJob?.events || []).map((event, index) => ({
-    id: `validation-${event.timestamp}-${index}`,
-    timeMs: event.timestamp * 1000,
-    level: event.level as ActivityEvent["level"],
-    source: "validation",
-    message: event.message,
-    detail: event.path || undefined
-  }));
-  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
 }
 
 function isPerClassifierAnalysisEvent(message: string) {
@@ -139,9 +154,9 @@ function ScanProcessStatus({ job }: { job: ScanStats | null }) {
   }
   const total = job.total || 0;
   const processed = job.processed || 0;
-  const percent = total ? Math.round((processed / total) * 100) : 100;
-  const running = ["queued", "running"].includes(job.state || "");
-  const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (total - processed) * job.avg_seconds_per_track) : null;
+  const percent = calculateProgressPercent(processed, total);
+  const running = isJobActive(job.state || "");
+  const etaSeconds = calculateEta(running, job.avg_seconds_per_track, total, processed);
   return (
     <div className="process-box">
       <div className="process-head">
@@ -243,9 +258,9 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
   if (!job) {
     return <div className="process-box">Анализ не запущен</div>;
   }
-  const percent = job.total ? Math.round((job.processed / job.total) * 100) : 100;
-  const running = ["queued", "running"].includes(job.state);
-  const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_track) : null;
+  const percent = calculateProgressPercent(job.processed, job.total);
+  const running = isJobActive(job.state);
+  const etaSeconds = calculateEta(running, job.avg_seconds_per_track, job.total, job.processed);
   const classifierJob = Boolean(job.classifier_keys?.length);
   const sonaraJob = job.adapter_name === "sonara" || (job.models?.length === 1 && job.models[0] === "sonara");
   return (
@@ -280,13 +295,12 @@ type ProgressRow = { key: string; label: string; item: ProgressItem };
 
 function ModelProgress({ job }: { job: AnalysisJobStatus }) {
   const progress = job.model_progress;
-  const audioModels: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
-  const audioRows: ProgressRow[] = audioModels.flatMap((model) => {
+  const audioRows: ProgressRow[] = AUDIO_MODELS.flatMap((model) => {
     const item = progress?.[model];
     return item ? [{ key: model, label: model.toUpperCase(), item }] : [];
   });
   const classifierRows: ProgressRow[] = Object.keys(progress || {})
-    .filter((model) => !audioModels.includes(model as AnalysisModel))
+    .filter((model) => !AUDIO_MODELS.includes(model as AnalysisModel))
     .flatMap((model) => {
       const item = progress?.[model];
       return item ? [{ key: model, label: model.toUpperCase(), item }] : [];
@@ -308,9 +322,9 @@ function GenreTagProcessStatus({ job }: { job: GenreTagJobStatus | null }) {
   if (!job) {
     return <div className="process-box">Запись жанров не запущена</div>;
   }
-  const percent = job.total ? Math.round((job.processed / job.total) * 100) : 100;
-  const running = ["queued", "running"].includes(job.state);
-  const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_track) : null;
+  const percent = calculateProgressPercent(job.processed, job.total);
+  const running = isJobActive(job.state);
+  const etaSeconds = calculateEta(running, job.avg_seconds_per_track, job.total, job.processed);
   return (
     <div className="process-box">
       <div className="process-head">

@@ -3339,8 +3339,17 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   }
 
   .topbar-actions {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .topbar-actions .notice {
+    flex: 1 0 100%;
+    max-width: none;
+    width: 100%;
   }
 
   .topbar h1 {

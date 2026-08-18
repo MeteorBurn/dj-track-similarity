@@ -1119,7 +1119,7 @@ export function App() {
       async () => {
         return api.analysisPipelineStart({
           stages,
-          limit: limit ?? null,
+          limit: limit === 0 ? undefined : limit,
           sonara: {
             mode: sonaraSettings.mode,
             direct_batch_size: sonaraSettings.directBatchSize,

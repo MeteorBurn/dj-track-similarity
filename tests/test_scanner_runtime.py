@@ -41,14 +41,14 @@ def test_iter_audio_files_skips_an_unreadable_subdirectory(
     hidden = music_root / "blocked" / "hidden.wav"
     _make_wav(visible)
     _make_wav(hidden)
-    original_scandir = os.scandir
+    original_is_file = Path.is_file
 
-    def inaccessible_scandir(path):
-        if Path(path) == hidden.parent:
+    def guarded_is_file(self):
+        if self == hidden:
             raise OSError("access denied")
-        return original_scandir(path)
+        return original_is_file(self)
 
-    monkeypatch.setattr(scanner_module.os, "scandir", inaccessible_scandir)
+    monkeypatch.setattr(Path, "is_file", guarded_is_file)
 
     assert list(scanner_module.iter_audio_files(music_root)) == [
         visible.resolve(),

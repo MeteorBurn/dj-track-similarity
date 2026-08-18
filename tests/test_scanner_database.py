@@ -157,7 +157,7 @@ def test_read_audio_duration_uses_ffmpeg_when_mutagen_has_no_duration(
         raising=False,
     )
 
-    assert scanner.read_audio_duration_seconds(audio_path) == 245.5
+    assert scanner.read_ffmpeg_audio_duration_seconds(audio_path) == 245.5
 
 
 def test_ffmpeg_duration_reads_container_header_without_decoding(

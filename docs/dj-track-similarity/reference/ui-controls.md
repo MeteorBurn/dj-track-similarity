@@ -76,12 +76,10 @@ duration pass.
 
 Duration uses Mutagen metadata first and then a lightweight PyAV container-duration fallback that
 does not decode audio frames. When a duration filter is active, files whose duration cannot be
-determined are skipped. When **Scan limit** is positive, every canonical path already registered in
-the active database is excluded before the duration filter and limit are counted. On Windows this
-path comparison is case-insensitive, and stored rows marked as missing are still considered
-registered. Repeating the same limited import selects the next batch of eligible new
-paths. **Scan limit** `0` is sent as no limit and retains full-scan behavior. Limited or filtered
-scans do not reconcile unvisited database rows as missing.
+determined are skipped. **Scan limit** caps tracks that meet the selected filters.
+The final scan total includes only tracks accepted after the duration bounds and scan limit. The
+scan status shows `skip N` for tracks rejected by those filters plus supported audio files excluded
+by the selected format badges.
 
 ## ML analysis availability
 

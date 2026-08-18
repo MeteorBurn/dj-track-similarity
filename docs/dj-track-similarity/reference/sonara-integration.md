@@ -48,6 +48,11 @@ together with the SONARA embedding and acoustic fingerprint. It stores Core in `
 base64 fingerprint in `sonara_fingerprints`. Timeline is not requested, converted, stored, read, or
 exposed.
 
+For SONARA 0.3.6 Core results, `sonara_features` also persists the analysis provenance returned by
+SONARA: `analysis_schema_version`, `bpm_min`, and `bpm_max`. The track-detail API exposes those
+values in `sonara_core`. In the Track Metadata dialog, `BPM analysis range` is the final Tempo row
+(`70–180 BPM`), and `Analysis schema` is the final SONARA Core provenance row (`v6`).
+
 The Full-only `time_signature` metrogram is excluded from current SONARA storage. It is not a ranking
 or classifier input, and Beatgrid uses SONARA's normal fallback when a meter estimate is unavailable.
 

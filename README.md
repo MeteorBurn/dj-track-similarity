@@ -395,9 +395,13 @@ deleted after each track completes, and the temporary job directory is cleaned u
 failure, or cancellation. Each Staged run uses a new unique job directory. Before it starts, the
 runner removes owner-marked job directories whose recorded process is no longer running and empty
 `sonara-stage-*` residues without a valid owner marker. It preserves a directory with a live owner
-and a nonempty directory without a valid marker. Staged Mode applies only to SONARA. ML analysis
-reads original source paths and uses its separate full-TorchCodec decode, then direct shared-library
-recovery if that decode fails. The recovery does not start `ffmpeg.exe`.
+and a nonempty directory without a valid marker. ML has a separate optional Staged Mode with its
+own temporary folder and copy/decode workers. It copies selected ML candidates read-only, then runs
+copy, decode, and inference. ML StageSize is a bounded active staging window, not a total-analysis
+limit: after a track completes, its staging copy is deleted and the window refills until every
+candidate in the current ML job has completed. Without ML Staged Mode, ML analysis reads original
+source paths and uses its separate full-TorchCodec decode, then direct shared-library recovery if
+that decode fails. The recovery does not start `ffmpeg.exe`.
 Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
 relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
 and CLASSIFIERS reports the selected profile count.

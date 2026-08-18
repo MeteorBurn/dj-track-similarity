@@ -331,7 +331,13 @@ def analyze_and_store_staged_ml(
 
         fill_copy_window()
 
-        while copy_futures or staged_ready or decode_futures or ready_decoded:
+        while (
+            not exhausted
+            or copy_futures
+            or staged_ready
+            or decode_futures
+            or ready_decoded
+        ):
             if cancelled is not None and cancelled():
                 raise RuntimeError("ML staging cancelled")
 
@@ -357,6 +363,7 @@ def analyze_and_store_staged_ml(
                         progress_callback,
                         mark_track_processed,
                     )
+                fill_copy_window()
                 continue
 
             done, _ = wait(all_futures, return_when=FIRST_COMPLETED, timeout=0.1)

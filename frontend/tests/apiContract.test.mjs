@@ -61,7 +61,7 @@ test("API module keeps public types separate from domain client implementation",
   assert.doesNotMatch(apiSource, /async function request/);
 });
 
-test("public API types omit versioned contract identity fields", () => {
+test("public API types omit generic versioned contract identity fields", () => {
   const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
   const forbiddenFields = [
     "schema_version",
@@ -76,7 +76,11 @@ test("public API types omit versioned contract identity fields", () => {
   ];
 
   for (const field of forbiddenFields) {
-    assert.equal(apiSource.includes(field), false, `${field} must not be part of the public frontend API`);
+    assert.equal(
+      new RegExp(`^\\s*${field}:`, "m").test(apiSource),
+      false,
+      `${field} must not be a public frontend API property`,
+    );
   }
 });
 

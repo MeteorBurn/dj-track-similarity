@@ -6,7 +6,12 @@ import logging
 import threading
 import time
 import uuid
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    wait,
+)
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path
@@ -16,18 +21,23 @@ from .db_tracks import TrackRepository, canonical_file_path
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure, log_job_event
 from .scanner import (
+    PreparedScan,
+    PreparedScanResult,
     SUPPORTED_AUDIO_EXTENSIONS,
     file_tags_from_metadata,
     iter_audio_files,
+    prepare_audio_path_group,
     read_audio_metadata,
     read_audio_metadata_stable,
-    scan_audio_file,
     scanned_file_from_metadata,
 )
 from .track_models import TrackFileState
 
 
 LOGGER = logging.getLogger(__name__)
+_SCAN_PREPARE_BATCH_SIZE = 64
+_SCAN_PREPARE_IN_FLIGHT_FACTOR = 2
+_SCAN_WRITE_BATCH_SIZE = 64
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,7 @@ class ScanJobPayload:
     min_duration_seconds: int | None = None
     max_duration_seconds: int | None = None
     scan_limit: int | None = None
+    extension_filtered_count: int = 0
     _accepted_count: int = field(default=0, init=False, repr=False)
     _accepted_lock: threading.Lock = field(
         default_factory=threading.Lock,
@@ -128,25 +139,17 @@ class ScanJobManager:
             min_duration_seconds is not None
             or max_duration_seconds is not None
         )
-        discovered_paths = iter_audio_files(
+        paths: list[Path] = []
+        extension_filtered_count = 0
+        for path in iter_audio_files(
             root_path,
-            extensions=selected_extensions,
-        )
-        if limit is not None:
-            existing_path_keys = {
-                canonical_file_path(item.file_path)
-                for item in self.repository.list_track_paths(include_missing=True)
-            }
-            discovered_paths = (
-                path
-                for path in discovered_paths
-                if canonical_file_path(path) not in existing_path_keys
-            )
-        paths = list(
-            discovered_paths
-            if duration_filter_active or limit is None
-            else islice(discovered_paths, limit)
-        )
+            extensions=SUPPORTED_AUDIO_EXTENSIONS,
+        ):
+            if path.suffix.lower() not in selected_extensions:
+                extension_filtered_count += 1
+                continue
+            if duration_filter_active or limit is None or len(paths) < limit:
+                paths.append(path)
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(
             job_id=job_id,
@@ -170,6 +173,7 @@ class ScanJobManager:
                 min_duration_seconds=min_duration_seconds,
                 max_duration_seconds=max_duration_seconds,
                 scan_limit=limit if duration_filter_active else None,
+                extension_filtered_count=extension_filtered_count,
             ),
         )
         self._append_event(
@@ -330,20 +334,13 @@ class ScanJobManager:
             "Scan started",
             path=status.root,
         )
-        if status.workers <= 1:
-            for path in payload.paths:
-                if self.get(job_id).cancel_requested:
-                    return self._finish_cancelled(job_id, "Scan cancelled")
-                self._scan_one(job_id, path)
-        else:
-            self._run_parallel(
-                job_id,
-                payload.paths,
-                status.workers,
-                self._scan_one,
-            )
-            if self.get(job_id).cancel_requested:
-                return self._finish_cancelled(job_id, "Scan cancelled")
+        self._run_parallel_scan(
+            job_id,
+            payload.paths,
+            status.workers,
+        )
+        if self.get(job_id).cancel_requested:
+            return self._finish_cancelled(job_id, "Scan cancelled")
 
         if payload.reconcile_missing:
             try:
@@ -409,6 +406,83 @@ class ScanJobManager:
                     futures.pop(future, None)
                     future.result()
 
+    def _run_parallel_scan(
+        self,
+        job_id: str,
+        paths: list[Path],
+        workers: int,
+    ) -> None:
+        """Prepare bounded path batches and write ready results on this thread."""
+
+        payload = cast(ScanJobPayload, self._store.payload(job_id))
+        pending_paths = iter(paths)
+        max_in_flight = max(1, workers * _SCAN_PREPARE_IN_FLIGHT_FACTOR)
+        futures = {}
+        input_exhausted = False
+        actual_total = 0
+        skipped_count = payload.extension_filtered_count
+        self._update(job_id, total=actual_total, skipped=skipped_count)
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            while not input_exhausted or futures:
+                if self.get(job_id).cancel_requested:
+                    for future in futures:
+                        future.cancel()
+                    return
+
+                while not input_exhausted and len(futures) < max_in_flight:
+                    path_group = [
+                        str(path)
+                        for path in islice(
+                            pending_paths,
+                            _SCAN_PREPARE_BATCH_SIZE,
+                        )
+                    ]
+                    if not path_group:
+                        input_exhausted = True
+                        break
+                    future = executor.submit(
+                        prepare_audio_path_group,
+                        path_group,
+                        min_duration_seconds=payload.min_duration_seconds,
+                        max_duration_seconds=payload.max_duration_seconds,
+                    )
+                    futures[future] = None
+
+                if not futures:
+                    return
+                done, _ = wait(
+                    futures,
+                    return_when=FIRST_COMPLETED,
+                )
+                for future in done:
+                    futures.pop(future, None)
+                    prepared_group, filtered_count = self._collect_prepared_scan_group(
+                        job_id,
+                        future.result(),
+                    )
+                    actual_total += len(prepared_group)
+                    skipped_count += filtered_count
+                    self._update(
+                        job_id,
+                        total=actual_total,
+                        skipped=skipped_count,
+                    )
+                    for start in range(
+                        0,
+                        len(prepared_group),
+                        _SCAN_WRITE_BATCH_SIZE,
+                    ):
+                        if self.get(job_id).cancel_requested:
+                            for pending_future in futures:
+                                pending_future.cancel()
+                            return
+                        self._write_prepared_scan_batch(
+                            job_id,
+                            prepared_group[
+                                start : start + _SCAN_WRITE_BATCH_SIZE
+                            ],
+                        )
+
     def get(self, job_id: str) -> ScanJobStatus:
         return self._store.get(job_id)
 
@@ -419,58 +493,123 @@ class ScanJobManager:
         self._update(job_id, cancel_requested=True)
         return self.get(job_id)
 
-    def _scan_one(self, job_id: str, path: Path) -> None:
-        self._update(job_id, current_path=str(path))
+    def _collect_prepared_scan_group(
+        self,
+        job_id: str,
+        results: list[PreparedScanResult],
+    ) -> tuple[list[tuple[Path, PreparedScan]], int]:
+        """Apply worker results to job state without writing to SQLite."""
+
+        prepared_group: list[tuple[Path, PreparedScan]] = []
+        skipped_count = 0
         payload = cast(ScanJobPayload, self._store.payload(job_id))
-        try:
-            mutation = scan_audio_file(
-                self.repository,
-                path,
-                min_duration_seconds=payload.min_duration_seconds,
-                max_duration_seconds=payload.max_duration_seconds,
-                claim_scan_slot=(
-                    payload.claim_scan_slot
-                    if payload.scan_limit is not None
-                    else None
-                ),
-            )
-            if mutation is None:
-                self._increment(
+        for result in results:
+            path = Path(result.path)
+            self._update(job_id, current_path=str(path))
+            if result.error_message is not None:
+                self._record_scan_failure(
                     job_id,
-                    skipped=1,
-                    message="Track skipped by duration filter or scan limit",
-                    level="info",
+                    path,
+                    RuntimeError(result.error_message),
+                )
+                continue
+            if result.prepared is None:
+                skipped_count += 1
+                self._append_event(
+                    job_id,
+                    "info",
+                    "Track skipped by duration filter or scan limit",
                     path=str(path),
                 )
-                return
-            counters = {
-                "added": 1 if mutation.action == "added" else 0,
-                "updated": 1 if mutation.action == "updated" else 0,
-                "unchanged": 1 if mutation.action == "unchanged" else 0,
-            }
+                continue
+            if (
+                payload.scan_limit is not None
+                and not payload.claim_scan_slot()
+            ):
+                skipped_count += 1
+                self._append_event(
+                    job_id,
+                    "info",
+                    "Track skipped by duration filter or scan limit",
+                    path=str(path),
+                )
+                continue
+            prepared_group.append((path, result.prepared))
+        return prepared_group, skipped_count
+
+    def _write_prepared_scan_batch(
+        self,
+        job_id: str,
+        batch: list[tuple[Path, PreparedScan]],
+    ) -> None:
+        for path, prepared in batch:
+            self._write_prepared_scan_one(job_id, path, prepared)
+
+    def _write_prepared_scan_one(
+        self,
+        job_id: str,
+        path: Path,
+        prepared: PreparedScan | None,
+    ) -> None:
+        if prepared is None:
             self._increment(
                 job_id,
-                level="info" if mutation.action == "unchanged" else "ok",
-                message=f"Track {mutation.action}",
+                skipped=1,
+                message="Track skipped by duration filter or scan limit",
+                level="info",
                 path=str(path),
-                **counters,
+            )
+            return
+        try:
+            current_stat = Path(prepared.file.file_path).stat()
+            if (
+                int(current_stat.st_size) != prepared.file.file_size_bytes
+                or int(current_stat.st_mtime_ns) != prepared.file.file_modified_ns
+            ):
+                raise RuntimeError(
+                    "Source file changed after scan metadata was read"
+                )
+            mutation = self.repository.upsert_scanned_track(
+                file=prepared.file,
+                tags=prepared.tags,
             )
         except Exception as error:
-            error_text = exception_summary(error)
-            log_failure(
-                LOGGER,
-                "Scan track failed job_id=%s path=%s error=%s",
-                job_id,
-                path,
-                error_text,
-            )
-            self._increment(
-                job_id,
-                failed=1,
-                message=f"Track failed: {error_text}",
-                level="error",
-                path=str(path),
-            )
+            self._record_scan_failure(job_id, path, error)
+            return
+        counters = {
+            "added": 1 if mutation.action == "added" else 0,
+            "updated": 1 if mutation.action == "updated" else 0,
+            "unchanged": 1 if mutation.action == "unchanged" else 0,
+        }
+        self._increment(
+            job_id,
+            level="info" if mutation.action == "unchanged" else "ok",
+            message=f"Track {mutation.action}",
+            path=str(path),
+            **counters,
+        )
+
+    def _record_scan_failure(
+        self,
+        job_id: str,
+        path: Path,
+        error: Exception,
+    ) -> None:
+        error_text = exception_summary(error)
+        log_failure(
+            LOGGER,
+            "Scan track failed job_id=%s path=%s error=%s",
+            job_id,
+            path,
+            error_text,
+        )
+        self._increment(
+            job_id,
+            failed=1,
+            message=f"Track failed: {error_text}",
+            level="error",
+            path=str(path),
+        )
 
     def _refresh_tags_one(self, job_id: str, path: Path) -> None:
         self._update(job_id, current_path=str(path))

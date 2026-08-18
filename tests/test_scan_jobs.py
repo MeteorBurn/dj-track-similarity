@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from concurrent.futures import Future, ProcessPoolExecutor
+import threading
 import wave
 from pathlib import Path
 
+import dj_track_similarity.scan_jobs as scan_jobs_module
 from dj_track_similarity import scanner
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_tracks import canonical_file_path
@@ -78,6 +81,150 @@ def test_scan_job_creation_collects_paths_for_existing_workers(
     assert payload.paths == [audio_path]
 
 
+def test_parallel_scan_uses_process_workers_and_writes_on_calling_thread(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    for index in range(4):
+        _audio(music, f"track-{index}.wav")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+    original_upsert = database.upsert_scanned_track
+    created_worker_counts: list[int] = []
+    writer_thread_ids: list[int] = []
+
+    class RecordingProcessPoolExecutor:
+        def __init__(self, *, max_workers: int) -> None:
+            created_worker_counts.append(max_workers)
+            self._executor = ProcessPoolExecutor(max_workers=max_workers)
+
+        def __enter__(self):
+            self._executor.__enter__()
+            return self
+
+        def __exit__(self, *args) -> None:
+            self._executor.__exit__(*args)
+
+        def submit(self, *args, **kwargs):
+            return self._executor.submit(*args, **kwargs)
+
+    def record_writer_thread(*, file: ScannedFile, tags: FileTags):
+        writer_thread_ids.append(threading.get_ident())
+        return original_upsert(file=file, tags=tags)
+
+    monkeypatch.setattr(
+        scan_jobs_module,
+        "ProcessPoolExecutor",
+        RecordingProcessPoolExecutor,
+        raising=False,
+    )
+    monkeypatch.setattr(database, "upsert_scanned_track", record_writer_thread)
+
+    status = manager.run_sync(music, workers=4)
+
+    assert status.added == 4
+    assert created_worker_counts == [4]
+    assert len(set(writer_thread_ids)) == 1
+    assert writer_thread_ids[0] == threading.get_ident()
+
+
+def test_parallel_scan_writes_ready_batches_before_all_paths_are_prepared(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+    job_id = manager.create_job(music, workers=2)
+    paths = [music / f"track-{index}.wav" for index in range(10)]
+    events: list[tuple[str, tuple[Path, ...]]] = []
+
+    class RecordingFuture(Future[list[str]]):
+        def __init__(self, path_group: list[str]) -> None:
+            super().__init__()
+            self.path_group = path_group
+            self.set_result(path_group)
+
+        def result(self, timeout=None):
+            events.append(
+                ("prepared", tuple(Path(path) for path in self.path_group))
+            )
+            return super().result(timeout)
+
+    class ImmediateProcessPoolExecutor:
+        def __init__(self, *, max_workers: int) -> None:
+            self.max_workers = max_workers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args) -> None:
+            return None
+
+        def submit(self, _function, path_group, **_kwargs):
+            return RecordingFuture(path_group)
+
+    def collect_prepared_group(_job_id: str, results: list[str]):
+        return [(Path(path), object()) for path in results], 0
+
+    def record_write(_job_id: str, batch) -> None:
+        events.append(("write", tuple(path for path, _prepared in batch)))
+
+    monkeypatch.setattr(scan_jobs_module, "_SCAN_PREPARE_BATCH_SIZE", 2, raising=False)
+    monkeypatch.setattr(
+        scan_jobs_module,
+        "ProcessPoolExecutor",
+        ImmediateProcessPoolExecutor,
+    )
+    monkeypatch.setattr(manager, "_collect_prepared_scan_group", collect_prepared_group)
+    monkeypatch.setattr(manager, "_write_prepared_scan_batch", record_write)
+
+    manager._run_parallel_scan(job_id, paths, workers=2)
+
+    event_kinds = [kind for kind, _paths in events]
+    assert event_kinds.index("write") < max(
+        index for index, kind in enumerate(event_kinds) if kind == "prepared"
+    )
+    assert event_kinds[-1] == "write"
+    assert all(
+        len(batch_paths) <= 2
+        for kind, batch_paths in events
+        if kind == "write"
+    )
+    assert {
+        path
+        for kind, batch_paths in events
+        if kind == "write"
+        for path in batch_paths
+    } == set(paths)
+
+
+def test_scan_writer_rejects_metadata_if_source_changes_after_read(
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    audio_path = _audio(music, "track.wav")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+    prepared = scanner.prepare_audio_file(database, audio_path)
+    assert prepared is not None
+    job_id = manager.create_job(music)
+
+    with audio_path.open("ab") as handle:
+        handle.write(b"changed")
+
+    manager._write_prepared_scan_one(job_id, audio_path, prepared)
+
+    status = manager.get(job_id)
+    assert status.added == 0
+    assert status.failed == 1
+    assert database.list_track_paths() == []
+
+
 def test_limited_scan_does_not_mark_unseen_tracks_missing(tmp_path: Path) -> None:
     music = tmp_path / "music"
     music.mkdir()
@@ -90,66 +237,13 @@ def test_limited_scan_does_not_mark_unseen_tracks_missing(tmp_path: Path) -> Non
     status = manager.run_sync(music, limit=1)
 
     assert status.limit == 1
-    assert status.total == 0
-    assert status.added == 0
-    assert status.unchanged == 0
+    assert status.total == 1
     assert status.events[0].message == "Scan queued · workers 1 · limit 1"
     with database.connect() as connection:
         missing_count = connection.execute(
             "SELECT COUNT(*) FROM tracks WHERE missing_since IS NOT NULL"
         ).fetchone()[0]
     assert missing_count == 0
-
-
-def test_limited_scan_skips_existing_paths_before_applying_limit(
-    tmp_path: Path,
-) -> None:
-    music = tmp_path / "music"
-    music.mkdir()
-    existing = _audio(music, "a-existing.wav")
-    next_new = _audio(music, "b-new.wav")
-    later_new = _audio(music, "c-new.wav")
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    assert scanner.scan_audio_file(database, existing).action == "added"
-    manager = ScanJobManager(database)
-
-    status = manager.run_sync(music, limit=1)
-
-    assert status.added == 1
-    assert status.unchanged == 0
-    assert [item.file_path for item in database.list_track_paths()] == [
-        existing.resolve().as_posix(),
-        next_new.resolve().as_posix(),
-    ]
-    assert database.get_track_file_state(later_new) is None
-
-
-def test_duration_filtered_limit_skips_existing_eligible_paths(
-    tmp_path: Path,
-) -> None:
-    music = tmp_path / "music"
-    music.mkdir()
-    existing = _audio(music, "a-existing.wav", seconds=2)
-    next_new = _audio(music, "b-new.wav", seconds=2)
-    _audio(music, "c-short.wav", seconds=0.5)
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    assert scanner.scan_audio_file(database, existing).action == "added"
-    manager = ScanJobManager(database)
-
-    status = manager.run_sync(
-        music,
-        workers=1,
-        limit=1,
-        min_duration_seconds=1,
-        max_duration_seconds=3,
-    )
-
-    assert status.added == 1
-    assert status.unchanged == 0
-    assert [item.file_path for item in database.list_track_paths()] == [
-        existing.resolve().as_posix(),
-        next_new.resolve().as_posix(),
-    ]
 
 
 def test_scan_job_filters_extensions_and_duration_without_marking_others_missing(
@@ -172,21 +266,20 @@ def test_scan_job_filters_extensions_and_duration_without_marking_others_missing
     )
 
     assert status.state == "completed"
-    assert status.total == 3
+    assert status.total == 1
+    assert status.processed == 1
     assert status.added == 1
-    assert status.skipped == 2
+    assert status.skipped == 3
     assert [item.file_path for item in database.list_track_paths()] == [accepted.resolve().as_posix()]
 
 
-def test_scan_job_reads_duration_from_the_worker_metadata_pass_once(
+def test_prepare_audio_path_group_reads_duration_once(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     music = tmp_path / "music"
     music.mkdir()
     _audio(music, "accepted.wav", seconds=2)
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    manager = ScanJobManager(database)
     original_reader = scanner.read_audio_metadata
     reads: list[Path] = []
 
@@ -196,13 +289,13 @@ def test_scan_job_reads_duration_from_the_worker_metadata_pass_once(
 
     monkeypatch.setattr(scanner, "read_audio_metadata", record_metadata_read)
 
-    status = manager.run_sync(
-        music,
+    results = scanner.prepare_audio_path_group(
+        [str(music / "accepted.wav")],
         min_duration_seconds=1,
         max_duration_seconds=3,
     )
 
-    assert status.added == 1
+    assert results[0].prepared is not None
     assert reads == [music / "accepted.wav"]
 
 

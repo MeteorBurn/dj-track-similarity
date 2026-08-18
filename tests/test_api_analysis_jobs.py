@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from api_test_support import create_api_client
 import dj_track_similarity.api as api
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
@@ -12,8 +13,7 @@ from dj_track_similarity.database import LibraryDatabase
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
-    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None)
-    return TestClient(api.create_app(tmp_path / "library.sqlite"))
+    return create_api_client(monkeypatch, tmp_path / "library.sqlite")
 
 
 def _analysis_start(calls: list[dict[str, object]]):

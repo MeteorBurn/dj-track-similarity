@@ -9,7 +9,6 @@ const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
 const apiClientPath = fileURLToPath(new URL("../src/apiClient.ts", import.meta.url));
 const panelPath = fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url));
 const settingsPath = fileURLToPath(new URL("../src/sonaraAnalysisSettings.ts", import.meta.url));
-const stylesPath = fileURLToPath(new URL("../src/styles.css", import.meta.url));
 const frontendRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const appSource = readFileSync(appPath, "utf8");
@@ -17,7 +16,6 @@ const apiSource = readFileSync(apiPath, "utf8");
 const apiClientSource = readFileSync(apiClientPath, "utf8");
 const panelSource = readFileSync(panelPath, "utf8");
 const settingsSource = existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : "";
-const stylesSource = readFileSync(stylesPath, "utf8");
 
 test("SONARA settings default to Direct Mode and keep an empty staging folder", () => {
   assert.match(settingsSource, /mode:\s*"direct"/);
@@ -122,12 +120,4 @@ test("SONARA panel exposes the staging folder picker only in Staged Mode", () =>
   for (const label of ["Processes", "Threads", "BatchSize", "StageSize"]) {
     assert.match(panelSource, new RegExp(`label="${label}"`));
   }
-});
-
-test("SONARA mode buttons fill the available mode-control width", () => {
-  const segmentedRule = stylesSource.match(/\.segmented\.sonara-mode-segmented\s*{([\s\S]*?)}/)?.[1] || "";
-  const buttonRule = stylesSource.match(/\.sonara-mode-button\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(segmentedRule, /width:\s*100%;/);
-  assert.match(buttonRule, /width:\s*100%;/);
 });

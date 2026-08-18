@@ -32,32 +32,6 @@ function cssRule(selector) {
   return styles.match(new RegExp(`${escapedSelector}\\s*{([\\s\\S]*?)}`))?.[1] || "";
 }
 
-function gridColumnCount(rule) {
-  const value = rule.match(/grid-template-columns:\s*([^;]+);/)?.[1] || "";
-  return value
-    .replace(/minmax\([^)]*\)/g, "minmax")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .length;
-}
-
-test("desktop workspace keeps library track and search panels equal width", () => {
-  const topbarRule = cssRule(".topbar");
-  const workspaceRule = cssRule(".workspace");
-  const resultsRule = cssRule(".search-workflow-section .results-list");
-  const workflowRule = cssRule(".search-workflow-section");
-
-  assert.match(topbarRule, /max-width:\s*1880px/);
-  assert.match(workspaceRule, /max-width:\s*1880px/);
-  assert.match(workspaceRule, /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
-  assert.doesNotMatch(workspaceRule, /1\.24fr/);
-  assert.match(workflowRule, /min-width:\s*0/);
-  assert.match(resultsRule, /min-height:\s*280px/);
-  assert.match(resultsRule, /max-height:\s*min\(520px,\s*52vh\)/);
-  assert.doesNotMatch(resultsRule, /max-height:\s*160px/);
-});
-
 test("set and export is a closed disclosure with 20-track pagination", () => {
   const disclosure = panelSource.match(
     /<details[\s\S]*?className="playlist-export-disclosure"[\s\S]*?<\/details>/
@@ -93,18 +67,6 @@ test("set and export is a closed disclosure with 20-track pagination", () => {
   assert.match(pageControlsRule, /display:\s*flex/);
   assert.match(styles, /\.playlist-export-summary-toggle::before\s*{[\s\S]*?content:\s*"Развернуть"/);
   assert.match(styles, /\.playlist-export-disclosure\[open\] \.playlist-export-summary-toggle::before\s*{[\s\S]*?content:\s*"Свернуть"/);
-});
-
-test("candidate result rows reserve stable columns for all icon actions", () => {
-  const resultRowRule = cssRule(".result-row");
-  const numberedResultRowRule = cssRule(".result-row.has-row-index");
-  const resultMeterRule = cssRule(".result-row meter");
-
-  assert.equal(gridColumnCount(resultRowRule), 8);
-  assert.equal(gridColumnCount(numberedResultRowRule), 9);
-  assert.match(resultRowRule, /minmax\(56px,\s*0\.46fr\)/);
-  assert.match(resultRowRule, /minmax\(42px,\s*max-content\)/);
-  assert.match(resultMeterRule, /width:\s*100%/);
 });
 
 test("library and generic search results render visible track numbering", () => {

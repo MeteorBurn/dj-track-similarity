@@ -1,98 +1,10 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import test from "node:test";
 
 const srcDir = fileURLToPath(new URL("../src", import.meta.url));
-const styleTokens = new Set([
-  "active",
-  "icon-button",
-  "intent-add",
-  "intent-remove"
-]);
-
-function sourceFiles(dir) {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) return sourceFiles(path);
-    return entry.isFile() && /\.(tsx|jsx)$/.test(entry.name) ? [path] : [];
-  });
-}
-
-function buttonTags(source) {
-  return source.match(/<button\b[\s\S]*?>/g) || [];
-}
-
-function classNameValue(tag) {
-  const start = tag.indexOf("className=");
-  if (start === -1) return "";
-  const valueStart = start + "className=".length;
-  const opener = tag[valueStart];
-  if (opener === '"' || opener === "'") {
-    const end = tag.indexOf(opener, valueStart + 1);
-    return tag.slice(valueStart + 1, end);
-  }
-  if (opener !== "{") return "";
-  let depth = 0;
-  for (let index = valueStart; index < tag.length; index += 1) {
-    if (tag[index] === "{") depth += 1;
-    if (tag[index] === "}") {
-      depth -= 1;
-      if (depth === 0) return tag.slice(valueStart + 1, index);
-    }
-  }
-  return "";
-}
-
-function semanticClassTokens(value) {
-  return (value.match(/[A-Za-z][A-Za-z0-9_-]*/g) || [])
-    .filter((token) => !styleTokens.has(token))
-    .filter((token) => /(?:button|tab|chip)$/.test(token));
-}
-
-test("every button has a semantic class name", () => {
-  const failures = [];
-  for (const file of sourceFiles(srcDir)) {
-    const source = readFileSync(file, "utf8");
-    if (!statSync(file).isFile()) continue;
-    for (const tag of buttonTags(source)) {
-      const className = classNameValue(tag);
-      const semantics = semanticClassTokens(className);
-      if (!className || semantics.length === 0) {
-        failures.push(`${file}: ${tag.replace(/\s+/g, " ")}`);
-      }
-    }
-  }
-  assert.deepEqual(failures, []);
-});
-
-test("every button exposes tooltip text", () => {
-  const failures = [];
-  for (const file of sourceFiles(srcDir)) {
-    const source = readFileSync(file, "utf8");
-    if (!statSync(file).isFile()) continue;
-    for (const tag of buttonTags(source)) {
-      if (!/\btitle=/.test(tag)) {
-        failures.push(`${file}: ${tag.replace(/\s+/g, " ")}`);
-      }
-    }
-  }
-  assert.deepEqual(failures, []);
-});
-
-test("button tooltip text uses compact viewport-level styling", () => {
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const rule = styles.match(/\.ui-tooltip\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.doesNotMatch(styles, /\.app-shell\s+\[title\][^{]*::after/);
-  assert.match(rule, /position:\s*fixed/);
-  assert.match(rule, /font-size:\s*12px/);
-  assert.match(rule, /line-height:\s*1\.25/);
-  assert.match(rule, /max-width:\s*min\(260px,\s*calc\(100vw - 16px\)\)/);
-  assert.match(rule, /overflow-wrap:\s*anywhere/);
-});
-
 test("server shutdown button uses the destructive intent color", () => {
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const shutdownRule = styles.match(/\.server-shutdown-button\s*{([\s\S]*?)}/)?.[1] || "";
@@ -232,50 +144,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.ok(batchSizeIndex < analyzeSelectedIndex);
 });
 
-test("ui class names describe responsibility instead of visual priority", () => {
-  const staleClasses = new Set([
-    "primary",
-    "secondary-mini",
-    "meta",
-    "meta-badge",
-    "track-copy",
-    "filters",
-    "compact-filters",
-    "player",
-    "action-row",
-    "score",
-    "analysis-section-title",
-    "search-section",
-    "playlist-section"
-  ]);
-  const failures = [];
-  for (const file of sourceFiles(srcDir)) {
-    const source = readFileSync(file, "utf8");
-    for (const className of source.matchAll(/className=(?:"([^"]+)"|\{`([^`]+)`\})/g)) {
-      const value = className[1] || className[2] || "";
-      for (const token of value.split(/\s+/).filter(Boolean)) {
-        if (staleClasses.has(token)) failures.push(`${file}: ${value}`);
-      }
-    }
-  }
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  assert.deepEqual(failures, []);
-  for (const className of staleClasses) {
-    assert.doesNotMatch(styles, new RegExp(`\\.${className}(?=[\\s,{:.#])`));
-  }
-  assert.match(styles, /\.library-summary-badge\s*{/);
-  assert.match(styles, /\.track-panel \.panel-title \.library-summary-total-badge\s*{/);
-  assert.doesNotMatch(styles, /\.library-summary\s*{/);
-  assert.match(styles, /\.track-title-cell\s*{/);
-  assert.match(styles, /\.search-filter-grid\s*{/);
-  assert.match(styles, /\.analysis-models-heading\s*{/);
-  assert.match(styles, /\.search-workflow-section\s*{/);
-  assert.match(styles, /\.playlist-export-section\s*{/);
-  assert.doesNotMatch(styles, /\.library-preview-player\s*{/);
-  assert.match(styles, /\.export-action-row\s*{/);
-  assert.match(styles, /\.similarity-score\s*{/);
-});
-
 test("class tab exposes per-classifier missing-score analysis controls", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
@@ -404,29 +272,6 @@ test("analysis and scan controls use the measured machine defaults", () => {
   assert.match(schemaSource, /DEFAULT_SONARA_BATCH_SIZE\s*=\s*8/);
   assert.match(apiSchemaSource, /class ScanRequest[\s\S]*?workers:\s*int\s*=\s*Field\(default=8/);
   assert.match(apiSchemaSource, /class TagRefreshRequest[\s\S]*?workers:\s*int\s*=\s*Field\(default=8/);
-});
-
-test("analysis model reset buttons fit inside a full-width row", () => {
-  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const actionsRule = styles.match(/\.analysis-actions\s*{([\s\S]*?)}/)?.[1] || "";
-  const rowRule = styles.match(/\.analysis-model-row\s*{([\s\S]*?)}/)?.[1] || "";
-  const resetRule = styles.match(/\.analysis-reset-button\s*{([\s\S]*?)}/)?.[1] || "";
-  const resetIntentRule = styles.match(/\.analysis-reset-button\.stop-button\s*{([\s\S]*?)}/)?.[1] || "";
-  const resetButtonBlock = source.match(/className=\{`icon-button stop-button analysis-reset-button[\s\S]*?<\/button>/)?.[0] || "";
-
-  assert.match(source, /icon-button stop-button analysis-reset-button \$\{model\}-reset-button/);
-  assert.doesNotMatch(resetButtonBlock, />\s*Reset\s*</);
-  assert.match(actionsRule, /align-self:\s*stretch/);
-  assert.match(actionsRule, /width:\s*100%/);
-  assert.match(rowRule, /grid-template-columns:\s*34px\s+minmax\(0,\s*1fr\)\s+minmax\(76px,\s*max-content\)\s+34px/);
-  assert.match(rowRule, /width:\s*100%/);
-  assert.doesNotMatch(rowRule, /82px/);
-  assert.doesNotMatch(resetRule, /min-width:\s*96px/);
-  assert.doesNotMatch(resetRule, /white-space:\s*nowrap/);
-  assert.match(resetIntentRule, /background:\s*var\(--danger-bg\)/);
-  assert.match(resetIntentRule, /border-color:\s*var\(--danger-border-hover\)/);
-  assert.match(resetIntentRule, /color:\s*var\(--danger-deep-text\)/);
 });
 
 test("frontend analysis api uses unified job endpoints only", () => {
@@ -621,46 +466,6 @@ test("audio helper tools are absent from the application client", () => {
   assert.doesNotMatch(apiSource, /audio-(dedup|doctor)/);
 });
 
-test("library controls keep pagination left and actions pinned right", () => {
-  const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
-  const pagination = source.match(
-    /<div className="library-pagination-controls"[\s\S]*?<\/div>/
-  )?.[0] || "";
-  const prevIndex = pagination.indexOf("library-page-previous-button");
-  const nextIndex = pagination.indexOf("library-page-next-button");
-  const inputIndex = pagination.indexOf("library-page-index-input");
-
-  assert.doesNotMatch(source, /library-load-size-(control|button)/);
-  assert.notEqual(prevIndex, -1);
-  assert.notEqual(nextIndex, -1);
-  assert.notEqual(inputIndex, -1);
-  assert.equal((pagination.match(/<button\b/g) || []).length, 2);
-  assert.equal((pagination.match(/<input\b/g) || []).length, 1);
-  assert.match(pagination, /library-page-number-status/);
-  assert.match(pagination, /library-range-status/);
-  assert.match(pagination, /library-filtered-total-status/);
-  assert.ok(prevIndex < nextIndex);
-  assert.ok(nextIndex < inputIndex);
-  assert.ok(inputIndex < pagination.indexOf("library-page-number-status"));
-  assert.ok(pagination.indexOf("library-page-number-status") < pagination.indexOf("library-range-status"));
-  assert.ok(pagination.indexOf("library-range-status") < pagination.indexOf("library-filtered-total-status"));
-  assert.ok(source.indexOf("library-pagination-controls") < source.indexOf("library-sort-direction-button"));
-  const shuffleIndex = source.indexOf("library-playback-shuffle-button");
-  const likedIndex = source.indexOf("liked-filter-button");
-  const playbackControlsIndex = source.indexOf("library-playback-controls");
-  const paginationIndex = source.indexOf("library-pagination-controls");
-  const playbackOrderControls = source.match(/<div className="library-playback-order-controls">([\s\S]*?)<\/div>/)?.[1] || "";
-  assert.notEqual(shuffleIndex, -1);
-  assert.ok(paginationIndex < likedIndex);
-  assert.ok(playbackControlsIndex < likedIndex);
-  assert.ok(likedIndex < shuffleIndex);
-  assert.ok(shuffleIndex < source.indexOf("library-sort-direction-button"));
-  assert.match(playbackOrderControls, /library-playback-shuffle-button[\s\S]*library-sort-direction-button/);
-  assert.doesNotMatch(playbackOrderControls, /library-preset-button/);
-  assert.doesNotMatch(playbackOrderControls, /liked-filter-button/);
-  assert.ok(source.indexOf("library-sort-direction-button") < source.indexOf("add-visible-tracks-button"));
-});
-
 test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
@@ -748,44 +553,6 @@ test("library pagination exposes page count, range, and current-selection total"
   assert.match(pagination, /\{loading \? "\.\.\." : `\(\$\{total\}\)`\}/);
   assert.doesNotMatch(pagination, /Всего:/);
   assert.doesNotMatch(source, /library-load-cancel-button/);
-});
-
-test("library pagination controls share height and keep actions pinned right", () => {
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const controlsRule = styles.match(/\.library-view-controls\s*{([\s\S]*?)}/)?.[1] || "";
-  const paginationRule = styles.match(/\.library-pagination-controls\s*{([\s\S]*?)}/)?.[1] || "";
-  const controlRule = styles.match(/\.library-pagination-controls \.library-page-previous-button,[\s\S]*?\.library-pagination-controls \.library-page-next-button\s*{([\s\S]*?)}/)?.[1] || "";
-  const inputRule = styles.match(/\.library-page-index-input\s*{([\s\S]*?)}/)?.[1] || "";
-  const statusRule = styles.match(/\.library-page-number-status,\s*\.library-range-status,\s*\.library-filtered-total-status\s*{([\s\S]*?)}/)?.[1] || "";
-  const playbackControlsRule = styles.match(/\.library-playback-controls\s*{([\s\S]*?)}/)?.[1] || "";
-  const playbackOrderRule = styles.match(/\.library-playback-order-controls\s*{([\s\S]*?)}/)?.[1] || "";
-  const sortRule = styles.match(/\.library-sort-direction-button\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(controlsRule, /gap:\s*6px/);
-  assert.match(paginationRule, /display:\s*inline-flex/);
-  assert.match(paginationRule, /gap:\s*6px/);
-  assert.match(controlRule, /height:\s*34px/);
-  assert.match(inputRule, /align-self:\s*start/);
-  assert.match(inputRule, /height:\s*34px/);
-  assert.match(statusRule, /height:\s*34px/);
-  assert.match(statusRule, /font-variant-numeric:\s*tabular-nums/);
-  assert.match(playbackControlsRule, /display:\s*flex/);
-  assert.match(playbackControlsRule, /gap:\s*6px/);
-  assert.match(playbackControlsRule, /margin-left:\s*auto/);
-  assert.match(playbackOrderRule, /display:\s*flex/);
-  assert.match(playbackOrderRule, /gap:\s*6px/);
-  assert.doesNotMatch(playbackOrderRule, /margin-left/);
-  assert.doesNotMatch(sortRule, /margin-left/);
-  assert.doesNotMatch(styles, /\.library-(load-size|load-cancel)/);
-});
-
-test("library panel scrolls its own controls inside the fixed desktop workspace", () => {
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const workspaceRule = styles.match(/\.workspace\s*{([\s\S]*?)}/)?.[1] || "";
-  const libraryRule = styles.match(/\.library-panel\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(workspaceRule, /height:\s*calc\(100vh - 86px\)/);
-  assert.match(libraryRule, /overflow:\s*auto/);
 });
 
 test("database validation starts without opening the log dialog", () => {

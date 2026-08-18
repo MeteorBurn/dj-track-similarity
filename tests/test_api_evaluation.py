@@ -4,8 +4,10 @@ from pathlib import Path
 import sqlite3
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
+from api_test_support import create_api_client
 import dj_track_similarity.api as api
 from dj_track_similarity.analysis_model_runners import (
     current_embedding_analysis_output,
@@ -21,16 +23,21 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
-def test_evaluation_source_profile_defaults_include_muq() -> None:
-    request = EvaluationSourceProfileRunRequest()
-
-    assert request.sources == ["mert", "maest", "muq", "sonara", "clap"]
-
-
-def test_evaluation_source_profile_accepts_explicit_mulan() -> None:
-    request = EvaluationSourceProfileRunRequest(sources=["mulan"])
-
-    assert request.sources == ["mulan"]
+@pytest.mark.parametrize(
+    "profile_request, expected",
+    [
+        (
+            EvaluationSourceProfileRunRequest(),
+            ["mert", "maest", "muq", "sonara", "clap"],
+        ),
+        (EvaluationSourceProfileRunRequest(sources=["mulan"]), ["mulan"]),
+    ],
+    ids=("default-includes-muq", "explicit-mulan"),
+)
+def test_evaluation_source_profile_sources(
+    profile_request: EvaluationSourceProfileRunRequest, expected: list[str]
+) -> None:
+    assert profile_request.sources == expected
 
 
 def test_evaluation_summary_keeps_feedback_in_library_and_sessions_in_sidecar(
@@ -293,8 +300,7 @@ def test_evaluation_feedback_does_not_touch_audio_path(
 
 
 def _client(monkeypatch, db_path: Path) -> TestClient:
-    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
-    return TestClient(create_app(db_path))
+    return create_api_client(monkeypatch, db_path)
 
 
 def _track(database: LibraryDatabase, path: Path):

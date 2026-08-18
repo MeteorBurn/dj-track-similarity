@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
@@ -21,16 +22,14 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
-def test_evaluation_source_profile_defaults_include_muq() -> None:
-    request = EvaluationSourceProfileRunRequest()
-
-    assert request.sources == ["mert", "maest", "muq", "sonara", "clap"]
-
-
-def test_evaluation_source_profile_accepts_explicit_mulan() -> None:
-    request = EvaluationSourceProfileRunRequest(sources=["mulan"])
-
-    assert request.sources == ["mulan"]
+@pytest.mark.parametrize("profile_request, expected", [
+    (EvaluationSourceProfileRunRequest(), ["mert", "maest", "muq", "sonara", "clap"]),
+    (EvaluationSourceProfileRunRequest(sources=["mulan"]), ["mulan"]),
+], ids=("default-includes-muq", "explicit-mulan"))
+def test_evaluation_source_profile_sources(
+    profile_request: EvaluationSourceProfileRunRequest, expected: list[str]
+) -> None:
+    assert profile_request.sources == expected
 
 
 def test_evaluation_summary_keeps_feedback_in_library_and_sessions_in_sidecar(

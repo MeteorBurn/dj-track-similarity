@@ -164,6 +164,9 @@ CREATE TABLE sonara_features (
     chroma_mean_blob               BLOB    NOT NULL CHECK(length(chroma_mean_blob) = 12*4),
     spectral_contrast_mean_blob    BLOB    NOT NULL CHECK(length(spectral_contrast_mean_blob) = 7*4),
     -- Provenance
+    analysis_schema_version        INTEGER NOT NULL CHECK(analysis_schema_version > 0),
+    bpm_min                        REAL    NOT NULL CHECK(bpm_min > 0),
+    bpm_max                        REAL    NOT NULL CHECK(bpm_max >= 2 * bpm_min),
     analyzed_at                    TEXT    NOT NULL,
     -- Ordering constraint
     CHECK(energy_curve_min IS NULL OR energy_curve_mean IS NULL OR energy_curve_max IS NULL OR (energy_curve_min <= energy_curve_mean AND energy_curve_mean <= energy_curve_max))
@@ -489,6 +492,9 @@ class SonaraRow:
     chroma_mean_blob: bytes  # 12 * 4 = 48 bytes
     spectral_contrast_mean_blob: bytes  # 7 * 4 = 28 bytes
     # Provenance
+    analysis_schema_version: int
+    bpm_min: float
+    bpm_max: float
     analyzed_at: str
 
 

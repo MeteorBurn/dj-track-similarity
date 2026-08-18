@@ -80,6 +80,9 @@ def _analysis() -> dict[str, object]:
         "fingerprint": base64.b64encode(b"\x01\x00\x00\x00\x02\x00\x00\x00").decode("ascii"),
         "fingerprint_version": 7,
         "provenance": {
+            "schema_version": 6,
+            "bpm_min": 70.0,
+            "bpm_max": 180.0,
             "future_analyzer_parameter": "accepted",
         },
     }
@@ -103,6 +106,9 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert write.target.track_id == 7
     assert write.core.detected_bpm == 128.0
     assert write.core.beat_count == 3
+    assert write.core.analysis_schema_version == 6
+    assert write.core.bpm_min == 70.0
+    assert write.core.bpm_max == 180.0
     assert write.embedding is not None
     assert write.embedding.family == "sonara"
     assert write.embedding.vector.dtype == np.dtype("<f4")
@@ -169,10 +175,14 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
 
     assert result[0].ok
     with closing(database.connect()) as connection:
-        core_count = connection.execute(
-            "SELECT COUNT(*) FROM sonara_features WHERE track_id = ?",
+        core = connection.execute(
+            """
+            SELECT analysis_schema_version, bpm_min, bpm_max
+            FROM sonara_features
+            WHERE track_id = ?
+            """,
             (track_id,),
-        ).fetchone()[0]
+        ).fetchone()
         embedding = connection.execute(
             """
             SELECT track_uuid, dim, normalization, embedding_blob
@@ -189,7 +199,10 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
             """,
             (track_id,),
         ).fetchone()
-    assert core_count == 1
+    assert core is not None
+    assert core["analysis_schema_version"] == 6
+    assert core["bpm_min"] == 70.0
+    assert core["bpm_max"] == 180.0
     assert embedding is not None
     assert embedding["track_uuid"] == track_uuid
     assert embedding["dim"] == 48
@@ -203,6 +216,11 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
     assert fingerprint["fingerprint_version"] == 7
     assert fingerprint["fingerprint_base64"] == "AQAAAAIAAAA="
     assert fingerprint["analyzed_at"] == "2026-07-23T12:00:00.000000Z"
+    detail = database.get_track_detail(track_id)
+    assert detail.sonara_core is not None
+    assert detail.sonara_core.analysis_schema_version == 6
+    assert detail.sonara_core.bpm_min == 70.0
+    assert detail.sonara_core.bpm_max == 180.0
     assert database.list_analysis_candidates(
         (AnalysisOutput("sonara", "fingerprint"),)
     ) == []

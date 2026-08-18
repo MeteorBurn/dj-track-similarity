@@ -149,6 +149,9 @@ def _raw_analysis(path: str, *, features: tuple[str, ...]) -> TrackAnalysis:
         beats=np.asarray([0, 22, 43], dtype=np.int64),
         n_beats=3,
         provenance={
+            "schema_version": 6,
+            "bpm_min": 70.0,
+            "bpm_max": 180.0,
             "future_analyzer_parameter": "accepted",
             "sample_rate": 22_050,
             "hop_length": 512,

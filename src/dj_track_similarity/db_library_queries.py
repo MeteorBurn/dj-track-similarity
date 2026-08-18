@@ -989,6 +989,9 @@ def _sonara_core(
     if not valid:
         return None
     return SonaraCore(
+        analysis_schema_version=int(row["analysis_schema_version"]),
+        bpm_min=float(row["bpm_min"]),
+        bpm_max=float(row["bpm_max"]),
         detected_bpm=_optional_float(row["detected_bpm"]),
         raw_bpm=_optional_float(row["raw_bpm"]),
         bpm_confidence=_optional_float(row["bpm_confidence"]),

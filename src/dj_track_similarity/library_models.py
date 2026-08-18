@@ -89,6 +89,9 @@ class VectorSummary:
 
 @dataclass(frozen=True)
 class SonaraCore:
+    analysis_schema_version: int
+    bpm_min: float
+    bpm_max: float
     detected_bpm: float | None
     raw_bpm: float | None
     bpm_confidence: float | None

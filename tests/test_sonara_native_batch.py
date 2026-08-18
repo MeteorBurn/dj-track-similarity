@@ -143,6 +143,9 @@ def _core_result(path: str, features: tuple[str, ...]) -> FakeTrackAnalysis:
         fingerprint="AQAAAAIAAAA=",
         fingerprint_version=1,
         provenance={
+            "schema_version": 6,
+            "bpm_min": 70.0,
+            "bpm_max": 180.0,
             "future_analyzer_parameter": "accepted",
             "sample_rate": 22_050,
             "hop_length": 512,

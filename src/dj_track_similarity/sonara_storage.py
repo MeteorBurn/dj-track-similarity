@@ -98,6 +98,24 @@ def _sonara_core_row(
     *,
     analyzed_at: str,
 ) -> SonaraRow:
+    provenance = analysis.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise ValueError("provenance must be a mapping")
+    analysis_schema_version = _required_positive_int(
+        provenance.get("schema_version"),
+        "provenance.schema_version",
+    )
+    bpm_min = _required_float(
+        provenance.get("bpm_min"),
+        "provenance.bpm_min",
+        minimum=0.0,
+        strict_minimum=True,
+    )
+    bpm_max = _required_float(
+        provenance.get("bpm_max"),
+        "provenance.bpm_max",
+        minimum=2 * bpm_min,
+    )
     detected_bpm = _optional_float(
         analysis,
         "bpm",
@@ -370,6 +388,9 @@ def _sonara_core_row(
             7,
             "spectral_contrast_mean",
         ),
+        analysis_schema_version=analysis_schema_version,
+        bpm_min=bpm_min,
+        bpm_max=bpm_max,
         analyzed_at=analyzed_at,
     )
 

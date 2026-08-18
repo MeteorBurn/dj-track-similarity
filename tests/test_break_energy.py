@@ -120,6 +120,9 @@ def _write_sonara_core(
             "spectral_contrast_mean_blob": np.full(
                 7, 0.5, dtype="<f4"
             ).tobytes(),
+            "analysis_schema_version": 6,
+            "bpm_min": 70.0,
+            "bpm_max": 180.0,
             "analyzed_at": _NOW,
         }
     )

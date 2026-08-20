@@ -11,7 +11,7 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
     ["detected_bpm", "BPM"],
     ["onset_density_per_second", "Onset density"],
     ["detected_key_name", "Key"],
-    ["detected_key_camelot", "Key Camelot"],
+    ["detected_key_camelot", "Key camelot"],
     ["energy_score", "Energy"],
     ["danceability_score", "Danceability"],
     ["spectral_centroid_hz", "Spectral centroid"],

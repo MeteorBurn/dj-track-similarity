@@ -52,7 +52,7 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("detected_key_name", "Key", "Detected musical key in standard notation."),
       feature("key_confidence", "Key confidence", "Confidence of the detected key."),
       feature("key_candidates", "Key candidates", "Ranked key candidates returned by SONARA."),
-      feature("detected_key_camelot", "Key Camelot", "Detected musical key in Camelot notation."),
+      feature("detected_key_camelot", "Key camelot", "Detected musical key in Camelot notation."),
       feature("predominant_chord", "Predominant chord", "Most frequent detected chord."),
       feature("chord_changes_per_second", "Chord changes", "Detected chord changes per second."),
       feature("dissonance_score", "Dissonance", "SONARA dissonance score."),

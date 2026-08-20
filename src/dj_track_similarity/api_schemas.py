@@ -357,6 +357,10 @@ class TrackLikedRequest(TrackMutationIdentity):
     liked: bool
 
 
+class TrackDeleteRequest(TrackMutationIdentity):
+    pass
+
+
 class ExportRequest(BaseModel):
     name: str
     track_ids: list[int]
@@ -677,6 +681,10 @@ class ClearLibraryResponse(_ResponseModel):
     feature_rows_deleted: int
     embedding_rows_deleted: int
     classifier_rows_deleted: int
+
+
+class TrackDeleteResponse(_ResponseModel):
+    track_id: int
 
 
 class GenreTagApplyResultResponse(_ResponseModel):

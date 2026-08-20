@@ -159,6 +159,27 @@ test("filtered tracks client sends defaulted domain payloads for library view co
   });
 });
 
+test("track deletion client sends the current track identity to the delete endpoint", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options) => {
+    calls.push({ path, options });
+    return jsonResponse({ track_id: 42 });
+  });
+
+  await api.deleteTrack({
+    track_id: 42,
+    catalog_uuid: "catalog-current",
+    track_uuid: "track-current"
+  });
+
+  assert.equal(calls[0].path, "/api/tracks/42");
+  assert.equal(calls[0].options.method, "DELETE");
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    catalog_uuid: "catalog-current",
+    track_uuid: "track-current"
+  });
+});
+
 test("SONARA status client reads neutral current-output counts", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {

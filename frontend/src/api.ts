@@ -441,6 +441,10 @@ export type DatabaseClearResult = {
   classifier_rows_deleted: number;
 };
 
+export type TrackDeleteResult = {
+  track_id: number;
+};
+
 export type DatabaseSelection = {
   path: string | null;
   evaluation_path: string | null;

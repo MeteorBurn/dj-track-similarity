@@ -14,7 +14,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .db_search_fts import upsert_track_search_fts
+from .db_search_fts import delete_track_search_fts, upsert_track_search_fts
 from .track_models import (
     ClearLibraryResult,
     FileTags,
@@ -1429,6 +1429,39 @@ class TrackRepository:
             track_rows_deleted=track_rows_deleted,
             derived_rows_deleted=derived_rows_deleted,
         )
+
+    def delete_track(self, *, expected: TrackIdentity) -> None:
+        """Delete one current catalog track and its database-owned relations.
+
+        The source audio path is deliberately never accessed or changed.
+        SQLite foreign-key cascades remove related catalog rows atomically.
+        """
+
+        if expected.catalog_uuid != self.catalog_uuid:
+            raise RuntimeError("Track deletion candidate belongs to a different catalog")
+
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    row = connection.execute(
+                        "SELECT track_uuid FROM tracks WHERE track_id = ?",
+                        (expected.track_id,),
+                    ).fetchone()
+                    if row is None:
+                        raise KeyError(f"Track {expected.track_id} was not found")
+                    if str(row[0]) != expected.track_uuid:
+                        raise RuntimeError("Track identity changed before deletion")
+                    delete_track_search_fts(connection, expected.track_id)
+                    connection.execute(
+                        "DELETE FROM tracks WHERE track_id = ? AND track_uuid = ?",
+                        (expected.track_id, expected.track_uuid),
+                    )
+                    connection.commit()
+                except BaseException:
+                    if connection.in_transaction:
+                        connection.rollback()
+                    raise
 
     def mark_missing_if_current(
         self,

@@ -563,6 +563,16 @@ test("database validation starts without opening the log dialog", () => {
   assert.doesNotMatch(handler, /setLogFrameOpen\(/);
 });
 
+test("track deletion clears deletion-scoped UI state before a library refresh can fail", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const handler = appSource.match(/async function handleDeleteTrack[\s\S]*?async function handleResetAnalysis/)?.[0] || "";
+
+  assert.match(
+    handler,
+    /async \(\) => \{\s*const result = await api\.deleteTrack\(track\);\s*cancelTrackDetailRequest\(\);\s*resetSearchPlaylistState\(\);/,
+  );
+});
+
 test("database validation is disabled until the library has tracks", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
   const validationButton = source.match(/<button className="icon-button database-validation-button"[\s\S]*?<\/button>/)?.[0] || "";

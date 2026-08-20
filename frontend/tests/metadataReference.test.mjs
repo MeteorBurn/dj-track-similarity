@@ -57,6 +57,33 @@ const metadataDialog = compileModule("TrackMetadataDialog.tsx", (name) => {
   throw new Error(`Unexpected require: ${name}`);
 });
 
+const metadataDialogUi = compileModule("TrackMetadataDialog.tsx", (name) => {
+  if (name === "lucide-react") {
+    return {
+      AudioWaveform: () => null,
+      Check: () => null,
+      Copy: () => null,
+      FolderOpen: () => null,
+      Pause: () => null,
+      Play: () => null,
+      Trash2: () => null,
+      X: () => null,
+    };
+  }
+  if (name === "react") return { Fragment: Symbol("Fragment"), useState: (value) => [value, () => {}] };
+  if (name === "react/jsx-runtime") {
+    return {
+      Fragment: Symbol("Fragment"),
+      jsx: (type, props) => ({ type, props }),
+      jsxs: (type, props) => ({ type, props }),
+    };
+  }
+  if (name === "./syncopatedRhythm") return { ...syncopatedRhythm, formatMaestGenreLabel: (value) => value };
+  if (name === "./trackDisplay") return trackDisplay;
+  if (name === "./apiClient") return { api: { revealTrackFile: async () => ({}) } };
+  throw new Error(`Unexpected require: ${name}`);
+});
+
 const referenceCompare = compileModule("ReferenceComparePanel.tsx", (name) => {
   if (name === "lucide-react") return { Search: () => null };
   if (name === "react") {
@@ -199,6 +226,34 @@ function expectedLocalTimestamp(value) {
   ].join(" ");
 }
 
+function findByClassName(node, className) {
+  if (!node || typeof node !== "object") return null;
+  if (node.props?.className === className) return node;
+  const children = node.props?.children;
+  for (const child of Array.isArray(children) ? children : [children]) {
+    const found = findByClassName(child, className);
+    if (found) return found;
+  }
+  return null;
+}
+
+test("metadata dialog delegates its destructive track action to the current detail", () => {
+  const track = detail();
+  let deleted = null;
+  const tree = metadataDialogUi.TrackMetadataDialog({
+    track,
+    onClose: () => {},
+    onDelete: (value) => { deleted = value; },
+    onPreview: () => {},
+    playingTrackId: null,
+  });
+
+  const deleteButton = findByClassName(tree, "icon-button intent-remove metadata-delete-button");
+  assert.ok(deleteButton);
+  deleteButton.props.onClick();
+  assert.equal(deleted, track);
+});
+
 test("track display uses the file path stem instead of tags", () => {
   const track = summary();
 
@@ -306,7 +361,7 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
   assert.equal(new Map(model.audioEntries).get("Audio Format"), "audio/flac");
 });
 
-test("SONARA tempo metadata uses tempo-specific units and ends with one BPM analysis range row", () => {
+test("SONARA BPM candidates begin with the analysis range", () => {
   const features = sonaraFeatures({
     detected_bpm: 127.45889282226563,
     raw_bpm: 63.72944641113281,
@@ -331,7 +386,7 @@ test("SONARA tempo metadata uses tempo-specific units and ends with one BPM anal
   assert.equal(features.get("bpm_confidence").value, "0.92");
   assert.equal(
     features.get("bpm_candidates").value,
-    "#1 129.20 (score 7.95)",
+    "(analysis range 70–180 BPM) #1 129.20 (score 7.95)",
   );
   assert.equal(features.get("onset_density_per_second").value, "5.58/s");
   assert.equal(features.get("beat_count").value, "1,280");
@@ -339,7 +394,7 @@ test("SONARA tempo metadata uses tempo-specific units and ends with one BPM anal
   assert.equal(features.get("beat_grid_offset_seconds").value, "488 ms");
   assert.equal(features.get("beat_grid_stability").value, "98.8%");
   assert.equal(features.get("analyzed_duration_seconds").value, "7:39");
-  assert.equal(features.get("bpm_analysis_range").value, "70–180 BPM");
+  assert.equal(features.has("bpm_analysis_range"), false);
 
   const model = metadataDialog.metadataDialogModel({
     ...detail(),
@@ -350,7 +405,7 @@ test("SONARA tempo metadata uses tempo-specific units and ends with one BPM anal
     },
   });
   const tempo = model.coreGroups.find((group) => group.title === "Tempo");
-  assert.equal(tempo.features.at(-1).key, "bpm_analysis_range");
+  assert.ok(tempo);
 });
 
 test("SONARA clock fields use whole-second m:ss and h:mm:ss positions", () => {

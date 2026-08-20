@@ -37,6 +37,7 @@ incompatible or incomplete bundles are rejected rather than migrated during norm
 | `POST` | `/api/tracks/filtered` | full filtered list for UI set actions |
 | `GET` | `/api/tracks/{track_id}` | full metadata row |
 | `POST` | `/api/tracks/{track_id}/liked` | toggle local liked state |
+| `DELETE` | `/api/tracks/{track_id}` | remove one current catalog track and its catalog-owned data |
 | `GET` | `/media/{track_id}` | stream preview audio |
 
 Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|fts`, and `preset=all|syncopated`.
@@ -47,6 +48,11 @@ classifier-score summaries. Detailed rows expose SONARA Core, MAEST, embedding s
 active ML families, and classifier details. The stored SONARA embedding and acoustic fingerprint
 are not part of a track response or current similarity, search, classifier, or Audio Dedup input.
 Timeline fields are also absent.
+
+`DELETE /api/tracks/{track_id}` requires the current track identity in its JSON body:
+`catalog_uuid` and `track_uuid`. It removes the matching SQLite catalog row, its FTS entry, and
+foreign-key-cascaded catalog relations in one transaction. It never deletes or changes the source
+audio file. Rhythm Lab and Evaluation sidecars are independent and are not modified by this route.
 
 ## Analysis and classifiers
 

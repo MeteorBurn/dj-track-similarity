@@ -30,10 +30,10 @@ test("metadata dialog reads every current detail surface directly", () => {
   }
 });
 
-test("SONARA metadata shows Core only", () => {
+test("SONARA metadata shows feature groups only", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, />SONARA · Core</);
+  assert.match(source, />SONARA features</);
   assert.doesNotMatch(source, /SONARA · Timeline|SONARA · Embedding|SONARA · Fingerprint/);
   assert.doesNotMatch(source, /optional_outputs/);
   assert.doesNotMatch(source, /Representations|representation_fields/);

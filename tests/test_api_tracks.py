@@ -204,6 +204,46 @@ def test_tracks_endpoint_liked_mutation_uses_composite_cas(
     assert unliked.json()["liked"] is False
 
 
+def test_delete_track_removes_catalog_data_but_keeps_source_audio(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    database = LibraryDatabase(db_path)
+    audio_path = tmp_path / "delete-me.wav"
+    identity = _add_track(
+        database,
+        audio_path,
+        artist="DJ",
+        title="Delete Me",
+    )
+    database.set_track_liked(expected=identity, liked=True)
+    client = _client(monkeypatch, db_path)
+
+    response = client.request(
+        "DELETE",
+        f"/api/tracks/{identity.track_id}",
+        json={
+            "catalog_uuid": identity.catalog_uuid,
+            "track_uuid": identity.track_uuid,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"track_id": identity.track_id}
+    assert client.get("/api/tracks").json()["items"] == []
+    assert client.get(
+        "/api/tracks",
+        params={"q": "Delete Me", "search_mode": "fts"},
+    ).json()["items"] == []
+    assert audio_path.read_bytes() == b"audio"
+    with database.connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM tags").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM likes").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM track_search_fts").fetchone()[0] == 0
+
+
 def test_track_detail_endpoint_returns_full_typed_tags(
     monkeypatch,
     tmp_path: Path,

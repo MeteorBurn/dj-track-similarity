@@ -108,6 +108,7 @@ The current application already supports the practical parts of that vision:
 - Create one compatible SQLite library and scan local audio files with Mutagen metadata.
 - Browse large libraries through paginated API responses.
 - Read typed metadata, analysis coverage, likes, audio preview, search state, and the current set.
+- Remove a confirmed track from the SQLite catalog and its catalog-owned data while keeping its source audio file.
 - Run SONARA, MAEST, MERT, MuQ, MuQ-MuLan, and CLAP analysis jobs.
 - Search from seed tracks with MAEST, MERT, MuQ, MuQ-MuLan, CLAP, and SONARA.
 - Search from text prompts with CLAP or MuQ-MuLan after audio embeddings for the selected family exist.
@@ -448,6 +449,7 @@ Default workflows do not modify source audio files:
 - audio preview
 - analysis reset
 - database clear
+- confirmed single-track catalog removal
 - relocation preview
 - set generation
 - export

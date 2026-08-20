@@ -19,6 +19,8 @@ from .api_schemas import (
     ScanRequest,
     TagRefreshRequest,
     TrackDetailResponse,
+    TrackDeleteRequest,
+    TrackDeleteResponse,
     TrackLikedRequest,
     TrackPageResponse,
     TrackSummaryResponse,
@@ -138,6 +140,23 @@ def register_library_routes(
                 liked=request.liked,
                 classifier_specifications=classifier_specifications,
             )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.delete("/api/tracks/{track_id}", response_model=TrackDeleteResponse)
+    def delete_track(track_id: int, request: TrackDeleteRequest):
+        try:
+            with state.exclusive_db("delete a track") as database:
+                database.delete_track(
+                    expected=TrackIdentity(
+                        catalog_uuid=request.catalog_uuid,
+                        track_id=track_id,
+                        track_uuid=request.track_uuid,
+                    )
+                )
+            return {"track_id": track_id}
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except RuntimeError as error:

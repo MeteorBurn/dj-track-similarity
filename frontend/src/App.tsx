@@ -14,6 +14,7 @@ import {
   RhythmLabStatus,
   ScanStats,
   Track,
+  TrackDetail,
 } from "./api";
 import {
   analysisSelectionOrder,
@@ -1200,6 +1201,20 @@ export function App() {
     );
   }
 
+  async function handleDeleteTrack(track: TrackDetail) {
+    await run(
+      async () => {
+        const result = await api.deleteTrack(track);
+        cancelTrackDetailRequest();
+        resetSearchPlaylistState();
+        appendActivity("ok", "Трек удалён из базы", displayTrack(track));
+        return result;
+      },
+      () => displayTrack(track),
+      { refreshLibrary: true, refreshSummary: true },
+    );
+  }
+
   async function handleResetAnalysis(adapter: ResetAdapter) {
     const label = adapter.toUpperCase();
     appendActivity("warn", `${label} reset запущен`, "Точечная очистка результатов анализа");
@@ -1677,6 +1692,11 @@ export function App() {
         <TrackMetadataDialog
           track={metadataTrack}
           onClose={() => setMetadataTrack(null)}
+          onDelete={(track) => requestConfirmation({
+            title: "Удалить трек из базы?",
+            message: `Будут удалены трек и все связанные данные SQLite. Аудиофайл ${displayTrack(track)} на диске останется.`,
+            onConfirm: () => handleDeleteTrack(track),
+          })}
           onPreview={togglePreview}
           playingTrackId={playingTrackId}
         />

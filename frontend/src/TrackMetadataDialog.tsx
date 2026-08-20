@@ -1,4 +1,4 @@
-import { AudioWaveform, Check, Copy, FolderOpen, Pause, Play, X } from "lucide-react";
+import { AudioWaveform, Check, Copy, FolderOpen, Pause, Play, Trash2, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { api } from "./apiClient";
@@ -6,7 +6,7 @@ import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABE
 import { displayTrack } from "./trackDisplay";
 
 type MetadataEntry = readonly [label: string, value: string];
-type CoreFeatureKey = keyof SonaraCore | "bpm_analysis_range";
+type CoreFeatureKey = keyof SonaraCore;
 type CoreFeature = {
   key: CoreFeatureKey;
   label: string;
@@ -39,11 +39,6 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("beat_grid_offset_seconds", "Beat-grid offset", "Offset of the detected beat grid from the beginning of the audio."),
       feature("beat_grid_stability", "Beat-grid stability", "Stability of the detected beat grid."),
       feature("analyzed_duration_seconds", "Duration", "Duration represented by the current SONARA Core analysis."),
-      {
-        key: "bpm_analysis_range",
-        label: "BPM analysis range",
-        description: "BPM octave-folding range recorded in SONARA analysis provenance.",
-      },
     ],
   },
   {
@@ -165,11 +160,13 @@ export function metadataDialogModel(track: TrackDetail) {
 export function TrackMetadataDialog({
   track,
   onClose,
+  onDelete,
   onPreview,
   playingTrackId,
 }: {
   track: TrackDetail;
   onClose: () => void;
+  onDelete: (track: TrackDetail) => void;
   onPreview: (track: TrackDetail) => void;
   playingTrackId: number | null;
 }) {
@@ -234,6 +231,15 @@ export function TrackMetadataDialog({
               type="button"
             >
               {previewActive ? <Pause size={16} /> : <Play size={16} />}
+            </button>
+            <button
+              className="icon-button intent-remove metadata-delete-button"
+              title="Удалить из базы"
+              aria-label={`Удалить ${displayTrack(track)} из базы`}
+              onClick={() => onDelete(track)}
+              type="button"
+            >
+              <Trash2 size={16} />
             </button>
           </h2>
         </div>
@@ -330,7 +336,7 @@ export function TrackMetadataDialog({
         </details>
 
         <div className="sonara-block">
-          <strong>SONARA · Core</strong>
+          <strong>SONARA features</strong>
           {sonaraFeatureCount ? (
             <div className="sonara-feature-groups">
               {view.coreGroups.map((group) => (
@@ -400,7 +406,7 @@ export function TrackMetadataDialog({
                 ))}
               </dl>
             ) : (
-              <span className="metadata-empty-state">SONARA Core ещё не рассчитан</span>
+            <span className="metadata-empty-state">SONARA features ещё не рассчитаны</span>
             )}
           </section>
           <section className="metadata-scan-analyses-section">
@@ -502,12 +508,6 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
       title: group.title,
       features: group.features
         .map((descriptor) => {
-          if (descriptor.key === "bpm_analysis_range") {
-            return {
-              ...descriptor,
-              value: `${formatOptionalNumber(core.bpm_min)}–${formatOptionalNumber(core.bpm_max)} BPM`,
-            };
-          }
           if (descriptor.key === "detected_key_name") {
             const value = formatDetectedKey(
               core.detected_key_name,
@@ -517,6 +517,12 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
           }
           const value = core[descriptor.key];
           if (value == null || (Array.isArray(value) && value.length === 0)) return null;
+          if (descriptor.key === "bpm_candidates" && Array.isArray(value)) {
+            return {
+              ...descriptor,
+              value: formatBpmCandidates(value, core.bpm_min, core.bpm_max),
+            };
+          }
           return {
             ...descriptor,
             value: formatSonaraCoreValue(descriptor.key, value),
@@ -567,7 +573,6 @@ function readableClassifierName(key: string) {
 
 function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
   if (key === "analyzed_at") return formatTimestamp(String(value));
-  if (key === "bpm_candidates" && Array.isArray(value)) return formatBpmCandidates(value);
   if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
   if (key === "vector_summaries" && Array.isArray(value)) return formatVectorSummaries(value);
   if (Array.isArray(value)) return formatRecordList(value);
@@ -625,8 +630,15 @@ function formatDetectedKey(
     .join(" · ");
 }
 
-function formatBpmCandidates(value: Record<string, unknown>[]) {
-  return value.map((candidate, index) => {
+function formatBpmCandidates(
+  value: Record<string, unknown>[],
+  bpmMin: number | null,
+  bpmMax: number | null,
+) {
+  const range = bpmMin != null && bpmMax != null
+    ? `(analysis range ${formatOptionalNumber(bpmMin)}–${formatOptionalNumber(bpmMax)} BPM) `
+    : "";
+  return range + value.map((candidate, index) => {
     const rank = candidateRank(candidate, index);
     const bpm = typeof candidate.bpm === "number"
       ? candidate.bpm.toFixed(2)

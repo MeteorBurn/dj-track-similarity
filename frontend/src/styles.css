@@ -3027,7 +3027,8 @@ meter {
   padding-right: 40px;
 }
 
-button.icon-button.metadata-preview-button {
+button.icon-button.metadata-preview-button,
+button.icon-button.metadata-delete-button {
   flex: 0 0 auto;
   height: 1.18em;
   min-height: 1.18em;

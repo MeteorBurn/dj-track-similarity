@@ -28,7 +28,9 @@ import type {
   SonaraStatus,
   SonaraSearchMode,
   Track,
+  TrackDeleteResult,
   TrackDetail,
+  TrackIdentity,
   TrackPage
 } from "./api";
 
@@ -134,6 +136,14 @@ const databaseApi = {
 };
 
 const libraryApi = {
+  deleteTrack: (track: TrackIdentity) =>
+    request<TrackDeleteResult>(`/api/tracks/${track.track_id}`, {
+      method: "DELETE",
+      body: JSON.stringify({
+        catalog_uuid: track.catalog_uuid,
+        track_uuid: track.track_uuid,
+      }),
+    }),
   tracks: (params: TrackQueryParams = {}) => {
     const search = new URLSearchParams();
     if (params.query) search.set("q", params.query);

@@ -8,13 +8,18 @@ import { displayTrack } from "./trackDisplay";
 type MetadataEntry = readonly [label: string, value: string];
 type CoreFeatureKey = keyof SonaraCore;
 type CoreFeature = {
+  key: string;
+  label: string;
+  description: string;
+};
+type CoreFeatureDescriptor = {
   key: CoreFeatureKey;
   label: string;
   description: string;
 };
 type CoreFeatureGroup = {
   title: string;
-  features: CoreFeature[];
+  features: CoreFeatureDescriptor[];
 };
 
 const twoDecimalSonaraScoreKeys = new Set<keyof SonaraCore>([
@@ -92,6 +97,12 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     ],
   },
   {
+    title: "Timbral",
+    features: [
+      feature("vector_summaries", "Timbral vectors", "Stored short timbral feature vectors."),
+    ],
+  },
+  {
     title: "Perceptual",
     features: [
       feature("energy_level", "Level", "SONARA energy tier."),
@@ -127,15 +138,9 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
     ],
   },
-  {
-    title: "Vector summaries",
-    features: [
-      feature("vector_summaries", "Vectors", "Compact summaries for stored SONARA Core vectors."),
-    ],
-  },
 ];
 
-function feature(key: keyof SonaraCore, label: string, description: string): CoreFeature {
+function feature(key: keyof SonaraCore, label: string, description: string): CoreFeatureDescriptor {
   return { key, label, description };
 }
 
@@ -147,7 +152,6 @@ export function metadataDialogModel(track: TrackDetail) {
     audioEntries: readableAudioData(track),
     scanEntries: readableScanDetails(track),
     sonaraAnalysisEntries: readableSonaraAnalysisDetails(track),
-    sonaraProvenanceEntries: readableSonaraProvenance(track.sonara_core),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
     classifierScores: readableClassifierScores(track),
     classifierAnalysisEntries: readableClassifierAnalysisDetails(track),
@@ -357,16 +361,6 @@ export function TrackMetadataDialog({
           ) : (
             <span className="metadata-empty-state">Core данные ещё не рассчитаны</span>
           )}
-          {view.sonaraProvenanceEntries.length ? (
-            <dl className="metadata-grid sonara-feature-grid">
-              {view.sonaraProvenanceEntries.map(([label, value]) => (
-                <Fragment key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value}</dd>
-                </Fragment>
-              ))}
-            </dl>
-          ) : null}
         </div>
 
         <div className="metadata-classifier-block">
@@ -494,12 +488,10 @@ function readableScanDetails(track: TrackDetail): MetadataEntry[] {
 
 function readableSonaraAnalysisDetails(track: TrackDetail): MetadataEntry[] {
   if (!track.sonara_core) return [];
-  return [["Analyzed at", formatTimestamp(track.sonara_core.analyzed_at)]];
-}
-
-function readableSonaraProvenance(core: SonaraCore | null): MetadataEntry[] {
-  if (!core) return [];
-  return [["Analysis schema", `v${core.analysis_schema_version}`]];
+  return [
+    ["Analysis schema", `v${track.sonara_core.analysis_schema_version}`],
+    ["Analyzed at", formatTimestamp(track.sonara_core.analyzed_at)],
+  ];
 }
 
 function readableSonaraCoreGroups(core: SonaraCore | null) {
@@ -508,21 +500,24 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
     .map((group) => ({
       title: group.title,
       features: group.features
-        .map((descriptor) => {
+        .flatMap((descriptor) => {
           const value = core[descriptor.key];
-          if (value == null || (Array.isArray(value) && value.length === 0)) return null;
+          if (value == null || (Array.isArray(value) && value.length === 0)) return [];
           if (descriptor.key === "bpm_candidates" && Array.isArray(value)) {
-            return {
+            return [{
               ...descriptor,
               value: formatBpmCandidates(value, core.bpm_min, core.bpm_max),
-            };
+            }];
           }
-          return {
+          if (descriptor.key === "vector_summaries" && Array.isArray(value)) {
+            return readableTimbralVectors(value);
+          }
+          return [{
             ...descriptor,
             value: formatSonaraCoreValue(descriptor.key, value),
-          };
+          }];
         })
-        .filter((entry): entry is CoreFeature & { value: string } => entry != null),
+        .filter((entry): entry is CoreFeature & { value: string } => entry.value != null),
     }))
     .filter((group) => group.features.length > 0);
 }
@@ -568,7 +563,6 @@ function readableClassifierName(key: string) {
 function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
   if (key === "analyzed_at") return formatTimestamp(String(value));
   if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
-  if (key === "vector_summaries" && Array.isArray(value)) return formatVectorSummaries(value);
   if (Array.isArray(value)) return formatRecordList(value);
   if (typeof value === "number") {
     if (key === "detected_bpm") return value.toFixed(2);
@@ -654,20 +648,25 @@ function candidateRank(candidate: Record<string, unknown>, index: number) {
     : index + 1;
 }
 
-function formatVectorSummaries(value: Record<string, unknown>[]) {
+function readableTimbralVectors(value: Record<string, unknown>[]): Array<CoreFeature & { value: string }> {
   const labels: Record<string, string> = {
     mfcc_mean: "MFCC",
     chroma_mean: "Chroma",
     spectral_contrast_mean: "Spectral Contrast",
   };
-  return value.map((summary) => {
+  return value.flatMap((summary) => {
     const vectorType = typeof summary.vector_type === "string"
       ? summary.vector_type
       : "";
-    const label = labels[vectorType] || vectorType || "Vector";
-    const dim = typeof summary.dim === "number" ? ` [${summary.dim}]` : "";
-    return `${label}${dim}`;
-  }).join(" · ");
+    const label = labels[vectorType];
+    if (!label || typeof summary.dim !== "number") return [];
+    return [{
+      key: `timbral-${vectorType}`,
+      label,
+      description: `Stored ${label} feature vector.`,
+      value: `[${summary.dim}] vectors`,
+    }];
+  });
 }
 
 function formatRecordList(value: Record<string, unknown>[]) {

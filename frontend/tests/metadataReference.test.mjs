@@ -337,11 +337,10 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
     ["Missing Since", "-"],
   ]);
   assert.deepEqual(Array.from(model.sonaraAnalysisEntries, ([label, value]) => [label, value]), [
+    ["Analysis schema", "v6"],
     ["Analyzed at", expectedLocalTimestamp("2026-07-24T10:01:00Z")],
   ]);
-  assert.deepEqual(Array.from(model.sonaraProvenanceEntries, ([label, value]) => [label, value]), [
-    ["Analysis schema", "v6"],
-  ]);
+  assert.equal(model.sonaraProvenanceEntries, undefined);
   assert.equal(model.analysisBadges, undefined);
   assert.equal(model.syncopatedRhythm, true);
   assert.equal(model.maestAnalyzed, true);
@@ -457,7 +456,7 @@ test("SONARA perceptual scores stay decimal while vocal probability is a percent
   assert.equal(features.get("mood_sad_score").value, "0.629");
 });
 
-test("SONARA model-backed groups precede Vector summaries and use dedicated formatting", () => {
+test("SONARA Timbral vectors follow Spectral and use dedicated fields", () => {
   const track = detail();
   track.sonara_core = {
     ...track.sonara_core,
@@ -469,20 +468,26 @@ test("SONARA model-backed groups precede Vector summaries and use dedicated form
     aggression_harshness: 0.4789124131202698,
     aggression_tension: 0.731246829032898,
     aggression_rhythm: 0.8567891120910645,
-    vector_summaries: [{ vector_type: "mfcc_mean", dim: 13 }],
+    spectral_centroid_hz: 1600,
+    vector_summaries: [
+      { vector_type: "mfcc_mean", dim: 13 },
+      { vector_type: "chroma_mean", dim: 12 },
+      { vector_type: "spectral_contrast_mean", dim: 7 },
+    ],
   };
 
   const model = metadataDialog.metadataDialogModel(track);
   const titles = Array.from(model.coreGroups, (group) => group.title);
-  const vectorSummariesIndex = titles.indexOf("Vector summaries");
+  const timbralIndex = titles.indexOf("Timbral");
   assert.deepEqual(
-    titles.slice(vectorSummariesIndex - 4, vectorSummariesIndex + 1),
-    ["Perceptual", "Mood", "Aggression", "Vocalness", "Vector summaries"],
+    titles.slice(timbralIndex - 1, timbralIndex + 4),
+    ["Spectral", "Timbral", "Perceptual", "Mood", "Aggression"],
   );
 
   const mood = model.coreGroups.find((group) => group.title === "Mood");
   const vocalness = model.coreGroups.find((group) => group.title === "Vocalness");
   const aggression = model.coreGroups.find((group) => group.title === "Aggression");
+  const timbral = model.coreGroups.find((group) => group.title === "Timbral");
   assert.equal(
     mood.features.some((feature) => feature.key === "vocal_probability"),
     false,
@@ -504,6 +509,14 @@ test("SONARA model-backed groups precede Vector summaries and use dedicated form
       ["aggression_harshness", "0.479"],
       ["aggression_tension", "0.731"],
       ["aggression_rhythm", "0.857"],
+    ],
+  );
+  assert.deepEqual(
+    Array.from(timbral.features, (feature) => [feature.label, feature.value]),
+    [
+      ["MFCC", "[13] vectors"],
+      ["Chroma", "[12] vectors"],
+      ["Spectral Contrast", "[7] vectors"],
     ],
   );
 });

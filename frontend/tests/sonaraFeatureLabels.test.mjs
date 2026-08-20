@@ -11,6 +11,7 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
     ["detected_bpm", "BPM"],
     ["onset_density_per_second", "Onset density"],
     ["detected_key_name", "Key"],
+    ["detected_key_camelot", "Key Camelot"],
     ["energy_score", "Energy"],
     ["danceability_score", "Danceability"],
     ["spectral_centroid_hz", "Spectral centroid"],
@@ -27,7 +28,6 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
       `${field} should use the current label`,
     );
   }
-  assert.doesNotMatch(source, /feature\("detected_key_camelot"/);
 });
 
 test("metadata descriptions keep model outputs as ranking signals", () => {

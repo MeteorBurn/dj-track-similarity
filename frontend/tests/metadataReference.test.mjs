@@ -361,7 +361,7 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
   assert.equal(new Map(model.audioEntries).get("Audio Format"), "audio/flac");
 });
 
-test("SONARA BPM candidates begin with the analysis range", () => {
+test("SONARA BPM candidates begin with the analysis range label", () => {
   const features = sonaraFeatures({
     detected_bpm: 127.45889282226563,
     raw_bpm: 63.72944641113281,
@@ -386,7 +386,7 @@ test("SONARA BPM candidates begin with the analysis range", () => {
   assert.equal(features.get("bpm_confidence").value, "0.92");
   assert.equal(
     features.get("bpm_candidates").value,
-    "(analysis range 70–180 BPM) #1 129.20 (score 7.95)",
+    "Analysis range (70–180 BPM): #1 129.20 (score 7.95)",
   );
   assert.equal(features.get("onset_density_per_second").value, "5.58/s");
   assert.equal(features.get("beat_count").value, "1,280");
@@ -526,8 +526,8 @@ test("SONARA probability and variability formatting preserves open boundaries", 
   );
 });
 
-test("SONARA tonal and loudness metadata uses meaningful precision", () => {
-  const features = sonaraFeatures({
+test("SONARA tonal metadata separates musical and Camelot keys", () => {
+  const tonalCore = {
     detected_key_camelot: "8A",
     detected_key_name: "A minor",
     key_confidence: 0.14823633432388306,
@@ -548,10 +548,11 @@ test("SONARA tonal and loudness metadata uses meaningful precision", () => {
     replay_gain_db: 0.6638298034667969,
     max_momentary_loudness_lufs: -11.292563438415527,
     loudness_range_lu: 4.79802131652832,
-  });
+  };
+  const features = sonaraFeatures(tonalCore);
 
-  assert.equal(features.get("detected_key_camelot"), undefined);
-  assert.equal(features.get("detected_key_name").value, "A minor · 8A");
+  assert.equal(features.get("detected_key_name").value, "A minor");
+  assert.equal(features.get("detected_key_camelot").value, "8A");
   assert.equal(features.get("key_confidence").value, "0.15");
   assert.equal(
     features.get("key_candidates").value,
@@ -560,6 +561,33 @@ test("SONARA tonal and loudness metadata uses meaningful precision", () => {
   assert.equal(features.get("predominant_chord").value, "Am");
   assert.equal(features.get("chord_changes_per_second").value, "1.75/s");
   assert.equal(features.get("dissonance_score").value, "0.018");
+  const tonal = metadataDialog.metadataDialogModel({
+    ...detail(),
+    sonara_core: { ...detail().sonara_core, ...tonalCore },
+  }).coreGroups.find((group) => group.title === "Tonal");
+  assert.deepEqual(Array.from(tonal.features, (feature) => feature.key), [
+    "detected_key_name",
+    "key_confidence",
+    "key_candidates",
+    "detected_key_camelot",
+    "predominant_chord",
+    "chord_changes_per_second",
+    "dissonance_score",
+  ]);
+});
+
+test("SONARA loudness metadata uses meaningful precision", () => {
+  const features = sonaraFeatures({
+    rms_mean: 0.20517976582050324,
+    rms_max: 0.525765597820282,
+    integrated_loudness_lufs: -14.789587020874023,
+    dynamic_range_db: 21.840232849121094,
+    true_peak_dbtp: -0.04332813620567322,
+    replay_gain_db: 0.6638298034667969,
+    max_momentary_loudness_lufs: -11.292563438415527,
+    loudness_range_lu: 4.79802131652832,
+  });
+
   assert.equal(features.get("rms_mean").value, "0.205");
   assert.equal(features.get("rms_max").value, "0.526");
   assert.equal(features.get("integrated_loudness_lufs").value, "-14.8 LUFS");

@@ -44,9 +44,10 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Tonal",
     features: [
-      feature("detected_key_name", "Key", "Detected musical key with SONARA Camelot notation."),
+      feature("detected_key_name", "Key", "Detected musical key in standard notation."),
       feature("key_confidence", "Key confidence", "Confidence of the detected key."),
       feature("key_candidates", "Key candidates", "Ranked key candidates returned by SONARA."),
+      feature("detected_key_camelot", "Key Camelot", "Detected musical key in Camelot notation."),
       feature("predominant_chord", "Predominant chord", "Most frequent detected chord."),
       feature("chord_changes_per_second", "Chord changes", "Detected chord changes per second."),
       feature("dissonance_score", "Dissonance", "SONARA dissonance score."),
@@ -508,13 +509,6 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
       title: group.title,
       features: group.features
         .map((descriptor) => {
-          if (descriptor.key === "detected_key_name") {
-            const value = formatDetectedKey(
-              core.detected_key_name,
-              core.detected_key_camelot,
-            );
-            return value ? { ...descriptor, value } : null;
-          }
           const value = core[descriptor.key];
           if (value == null || (Array.isArray(value) && value.length === 0)) return null;
           if (descriptor.key === "bpm_candidates" && Array.isArray(value)) {
@@ -621,22 +615,13 @@ function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof So
   return String(value);
 }
 
-function formatDetectedKey(
-  keyName: string | null,
-  camelot: string | null,
-): string {
-  return [keyName, camelot]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .join(" · ");
-}
-
 function formatBpmCandidates(
   value: Record<string, unknown>[],
   bpmMin: number | null,
   bpmMax: number | null,
 ) {
   const range = bpmMin != null && bpmMax != null
-    ? `(analysis range ${formatOptionalNumber(bpmMin)}–${formatOptionalNumber(bpmMax)} BPM) `
+    ? `Analysis range (${formatOptionalNumber(bpmMin)}–${formatOptionalNumber(bpmMax)} BPM): `
     : "";
   return range + value.map((candidate, index) => {
     const rank = candidateRank(candidate, index);

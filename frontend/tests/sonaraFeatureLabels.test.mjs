@@ -33,11 +33,11 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
 test("metadata descriptions keep model outputs as ranking signals", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /SONARA energy ranking signal/);
-  assert.match(source, /SONARA danceability ranking signal/);
-  assert.match(source, /SONARA valence ranking signal/);
-  assert.match(source, /SONARA acousticness ranking signal/);
-  assert.match(source, /Probability returned by the bundled SONARA vocal model/);
+  assert.match(source, /Relative perceived-intensity ranking signal/);
+  assert.match(source, /Relative beat-and-rhythm suitability ranking signal/);
+  assert.match(source, /Relative mood-brightness ranking signal/);
+  assert.match(source, /Relative acoustic-versus-electronic character ranking signal/);
+  assert.match(source, /Probability returned by the bundled vocal model/);
 });
 
 test("metadata header and file block are driven by the current detail", () => {

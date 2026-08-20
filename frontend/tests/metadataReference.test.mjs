@@ -237,6 +237,23 @@ function findByClassName(node, className) {
   return null;
 }
 
+function findAllByType(node, type, results = []) {
+  if (!node || typeof node !== "object") return results;
+  if (node.type === type) results.push(node);
+  const children = node.props?.children;
+  for (const child of Array.isArray(children) ? children : [children]) {
+    findAllByType(child, type, results);
+  }
+  return results;
+}
+
+function nodeText(node) {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (!node || typeof node !== "object") return "";
+  const children = node.props?.children;
+  return (Array.isArray(children) ? children : [children]).map(nodeText).join("");
+}
+
 test("metadata dialog delegates its destructive track action to the current detail", () => {
   const track = detail();
   let deleted = null;
@@ -252,6 +269,34 @@ test("metadata dialog delegates its destructive track action to the current deta
   assert.ok(deleteButton);
   deleteButton.props.onClick();
   assert.equal(deleted, track);
+});
+
+test("SONARA feature descriptions are inline comments, except for candidate lists", () => {
+  const tree = metadataDialogUi.TrackMetadataDialog({
+    track: detail(),
+    onClose: () => {},
+    onDelete: () => {},
+    onPreview: () => {},
+    playingTrackId: null,
+  });
+  const sonaraGrid = findByClassName(tree, "metadata-grid sonara-feature-grid");
+  assert.ok(sonaraGrid);
+
+  const labels = findAllByType(sonaraGrid, "dt");
+  const values = findAllByType(sonaraGrid, "dd");
+  const bpmIndex = labels.findIndex((node) => nodeText(node) === "BPM");
+  const bpmCandidatesIndex = labels.findIndex((node) => nodeText(node) === "BPM candidates");
+  assert.ok(bpmIndex >= 0);
+  assert.ok(bpmCandidatesIndex >= 0);
+
+  assert.equal(labels[bpmIndex].props.title, undefined);
+  assert.equal(values[bpmIndex].props.title, undefined);
+  assert.equal(
+    nodeText(findByClassName(values[bpmIndex], "sonara-feature-description sonara-feature-description-separated sonara-feature-description-aligned")),
+    " # Estimated tempo in beats per minute after any active BPM-range alignment.",
+  );
+  assert.equal(findByClassName(values[bpmCandidatesIndex], "sonara-feature-description sonara-feature-description-separated"), null);
+  assert.ok(findByClassName(values[bpmCandidatesIndex], "sonara-feature-value sonara-feature-value-candidates"));
 });
 
 test("track display uses the file path stem instead of tags", () => {
@@ -405,6 +450,43 @@ test("SONARA BPM candidates begin with the analysis range label", () => {
   });
   const tempo = model.coreGroups.find((group) => group.title === "Tempo");
   assert.ok(tempo);
+});
+
+test("SONARA feature descriptions preserve source-defined measurement boundaries", () => {
+  const features = sonaraFeatures({
+    beat_grid_offset_seconds: 0.42,
+    dynamic_range_db: 10.5,
+    energy_curve_sample_count: 48,
+    spectral_flatness: 0.31,
+  });
+
+  assert.equal(
+    features.get("beat_grid_offset_seconds").description,
+    "Time in seconds of the first tracked beat, which anchors the beat grid to the audio-file start.",
+  );
+  assert.equal(
+    features.get("dynamic_range_db").description,
+    "Difference between the 95th and 5th loudness percentiles in dB, showing how widely the typical loudness varies.",
+  );
+  assert.equal(
+    features.get("energy_curve_sample_count").description,
+    "Number of sequential time-series samples in the stored perceptual-energy curve.",
+  );
+  assert.equal(
+    features.get("spectral_flatness").description,
+    "Frequency-domain measure of tone versus noise: near 0 indicates distinct tonal peaks, while near 1 indicates flatter, noise-like energy.",
+  );
+});
+
+test("visible SONARA metadata comments use generic MIR terminology", () => {
+  const model = metadataDialog.metadataDialogModel(detail());
+  const visibleFeatures = model.coreGroups
+    .flatMap((group) => group.features)
+    .filter((feature) => feature.key !== "bpm_candidates" && feature.key !== "key_candidates");
+
+  for (const feature of visibleFeatures) {
+    assert.doesNotMatch(feature.description, /\bSONARA\b/i, `${feature.key} should be described without product branding`);
+  }
 });
 
 test("SONARA clock fields use whole-second m:ss and h:mm:ss positions", () => {

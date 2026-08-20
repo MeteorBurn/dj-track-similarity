@@ -3153,6 +3153,46 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   max-height: none;
 }
 
+.sonara-feature-grid dt,
+.sonara-feature-grid dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sonara-feature-grid dd {
+  column-gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 120px) minmax(0, 1fr);
+}
+
+.sonara-feature-value {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sonara-feature-value-candidates {
+  grid-column: 1 / -1;
+}
+
+.sonara-feature-description {
+  color: var(--text-muted);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sonara-feature-description-separated {
+  margin-left: 0;
+}
+
+.sonara-feature-description-aligned {
+  grid-column: 2;
+}
+
 .metadata-analysis-grid {
   max-height: none;
 }

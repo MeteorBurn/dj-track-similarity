@@ -55,6 +55,10 @@ The Mutagen section shows primary file facts such as title, length, format, size
 shows stored genre, BPM, key, and comment tags when those fields are present. Use the copy button next
 to the path when you need the local file location.
 
+In the SONARA section, regular feature values include an inline `#` comment in a fixed description
+column. The comment describes the feature without repeating SONARA branding. BPM and key candidate
+lists use the full value width and omit that comment.
+
 Keep those sources separate when judging a track. A MAEST label and a file tag are not the same evidence.
 
 ## Preview

@@ -31,19 +31,24 @@ const twoDecimalSonaraScoreKeys = new Set<keyof SonaraCore>([
   "acousticness_score",
 ]);
 
+const sonaraFeatureDescriptionExcludedKeys = new Set<CoreFeatureKey>([
+  "bpm_candidates",
+  "key_candidates",
+]);
+
 const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Tempo",
     features: [
-      feature("detected_bpm", "BPM", "Detected tempo after applying the active SONARA BPM range."),
+      feature("detected_bpm", "BPM", "Estimated tempo in beats per minute after any active BPM-range alignment."),
       feature("bpm_confidence", "BPM confidence", "Confidence of the detected tempo."),
-      feature("bpm_candidates", "BPM candidates", "Ranked tempo candidates returned by SONARA."),
+      feature("bpm_candidates", "BPM candidates", "Ranked tempo candidates for the detected tempo."),
       feature("onset_density_per_second", "Onset density", "Detected onsets per second."),
       feature("beat_count", "Beat count", "Number of detected beats."),
-      feature("tempo_variability", "Tempo variability", "Within-track tempo variation retained by SONARA."),
-      feature("beat_grid_offset_seconds", "Beat-grid offset", "Offset of the detected beat grid from the beginning of the audio."),
+      feature("tempo_variability", "Tempo variability", "Variation of tempo within the analysed track."),
+      feature("beat_grid_offset_seconds", "Beat-grid offset", "Time in seconds of the first tracked beat, which anchors the beat grid to the audio-file start."),
       feature("beat_grid_stability", "Beat-grid stability", "Stability of the detected beat grid."),
-      feature("analyzed_duration_seconds", "Duration", "Duration represented by the current SONARA Core analysis."),
+      feature("analyzed_duration_seconds", "Duration", "Duration represented by the current Core analysis."),
     ],
   },
   {
@@ -51,11 +56,11 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     features: [
       feature("detected_key_name", "Key", "Detected musical key in standard notation."),
       feature("key_confidence", "Key confidence", "Confidence of the detected key."),
-      feature("key_candidates", "Key candidates", "Ranked key candidates returned by SONARA."),
+      feature("key_candidates", "Key candidates", "Ranked musical-key candidates."),
       feature("detected_key_camelot", "Key camelot", "Detected musical key in Camelot notation."),
-      feature("predominant_chord", "Predominant chord", "Most frequent detected chord."),
+      feature("predominant_chord", "Predominant chord", "The most frequent harmonic structure detected across the track, representing its dominant chord."),
       feature("chord_changes_per_second", "Chord changes", "Detected chord changes per second."),
-      feature("dissonance_score", "Dissonance", "SONARA dissonance score."),
+      feature("dissonance_score", "Dissonance", "Estimated sensory dissonance from the track's spectral content."),
     ],
   },
   {
@@ -63,7 +68,7 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     features: [
       feature("integrated_loudness_lufs", "Integrated loudness", "Overall programme loudness across the track in LUFS. Use it to compare perceived level between tracks; less-negative values are louder."),
       feature("loudness_range_lu", "Loudness range", "Variation of loudness across the track in LU. Higher values usually mean a less even, more dynamic loudness profile."),
-      feature("dynamic_range_db", "Dynamic range", "SONARA estimate of the spread between quieter and louder material in dB. Use it as a relative signal, not a mastering-quality grade."),
+      feature("dynamic_range_db", "Dynamic range", "Difference between the 95th and 5th loudness percentiles in dB, showing how widely the typical loudness varies."),
       feature("max_momentary_loudness_lufs", "Momentary max", "Highest short-term loudness in LUFS. It represents the loudest sustained moment, not an instantaneous sample peak."),
       feature("true_peak_dbtp", "True peak", "Highest reconstructed sample peak in dBTP. Values near 0 dBTP leave less headroom and can matter for limiting or lossy encoding."),
       feature("rms_mean", "RMS", "Average RMS energy across the track. It is a simple signal-strength measure and should be read alongside integrated loudness."),
@@ -79,7 +84,7 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("leading_silence_seconds", "Leading silence", "Silence before the first detected sound."),
       feature("trailing_silence_seconds", "Trailing silence", "Silence after the last detected sound."),
       feature("energy_curve_hop_seconds", "Energy-curve hop", "Spacing between stored energy-curve samples."),
-      feature("energy_curve_sample_count", "Energy-curve samples", "Number of stored energy-curve samples."),
+      feature("energy_curve_sample_count", "Energy-curve samples", "Number of sequential time-series samples in the stored perceptual-energy curve."),
       feature("energy_curve_min", "Energy-curve min", "Minimum stored energy-curve value."),
       feature("energy_curve_max", "Energy-curve max", "Maximum stored energy-curve value."),
       feature("energy_curve_mean", "Energy-curve mean", "Mean stored energy-curve value."),
@@ -92,7 +97,7 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("spectral_centroid_hz", "Spectral centroid", "Center of mass of the spectrum in hertz."),
       feature("spectral_bandwidth_hz", "Spectral bandwidth", "Frequency spread in hertz."),
       feature("spectral_rolloff_hz", "Spectral rolloff", "Rolloff frequency in hertz."),
-      feature("spectral_flatness", "Spectral flatness", "Tonal-to-noise-like spectral measure."),
+      feature("spectral_flatness", "Spectral flatness", "Frequency-domain measure of tone versus noise: near 0 indicates distinct tonal peaks, while near 1 indicates flatter, noise-like energy."),
       feature("zero_crossing_rate", "Zero-crossing rate", "Rate of waveform sign changes."),
     ],
   },
@@ -105,37 +110,37 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Perceptual",
     features: [
-      feature("energy_level", "Level", "SONARA energy tier."),
-      feature("energy_score", "Energy", "SONARA energy ranking signal."),
-      feature("danceability_score", "Danceability", "SONARA danceability ranking signal."),
-      feature("valence_score", "Valence", "SONARA valence ranking signal."),
-      feature("acousticness_score", "Acousticness", "SONARA acousticness ranking signal."),
+      feature("energy_level", "Level", "Coarse energy tier derived from the track's analysed intensity."),
+      feature("energy_score", "Energy", "Relative perceived-intensity ranking signal."),
+      feature("danceability_score", "Danceability", "Relative beat-and-rhythm suitability ranking signal."),
+      feature("valence_score", "Valence", "Relative mood-brightness ranking signal."),
+      feature("acousticness_score", "Acousticness", "Relative acoustic-versus-electronic character ranking signal."),
     ],
   },
   {
     title: "Mood",
     features: [
-      feature("mood_happy_score", "Happy", "SONARA happy-mood ranking signal."),
-      feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood heuristic; distinct from the dedicated Aggression model."),
-      feature("mood_relaxed_score", "Relaxed", "SONARA relaxed-mood ranking signal."),
-      feature("mood_sad_score", "Sad", "SONARA sad-mood ranking signal."),
+      feature("mood_happy_score", "Happy", "Heuristic happy-mood affinity, intended as a relative ranking signal."),
+      feature("mood_aggressive_score", "Aggressive", "Heuristic aggressive-mood affinity, distinct from the dedicated Aggression model."),
+      feature("mood_relaxed_score", "Relaxed", "Heuristic relaxed-mood affinity, intended as a relative ranking signal."),
+      feature("mood_sad_score", "Sad", "Heuristic sad-mood affinity, intended as a relative ranking signal."),
     ],
   },
   {
     title: "Aggression",
     features: [
-      feature("aggression_score", "Score", "Dedicated SONARA aggression perceptual rank; not the aggressive-mood heuristic."),
+      feature("aggression_score", "Score", "Dedicated perceptual aggression rank, not the aggressive-mood heuristic."),
       feature("aggression_confidence", "Evidence support", "Supported musical evidence for the aggression analysis, not rank certainty."),
-      feature("aggression_forcefulness", "Forcefulness", "SONARA forcefulness component of the aggression analysis."),
-      feature("aggression_harshness", "Harshness", "SONARA harshness component of the aggression analysis."),
-      feature("aggression_tension", "Tension", "SONARA tension component of the aggression analysis."),
-      feature("aggression_rhythm", "Rhythm", "SONARA rhythmic component of the aggression analysis."),
+      feature("aggression_forcefulness", "Forcefulness", "Forcefulness component of the dedicated aggression analysis."),
+      feature("aggression_harshness", "Harshness", "Harshness component of the dedicated aggression analysis."),
+      feature("aggression_tension", "Tension", "Tension component of the dedicated aggression analysis."),
+      feature("aggression_rhythm", "Rhythm", "Rhythmic component of the dedicated aggression analysis."),
     ],
   },
   {
     title: "Vocalness",
     features: [
-      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
+      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled vocal model."),
     ],
   },
 ];
@@ -350,8 +355,13 @@ export function TrackMetadataDialog({
                   <dl className="metadata-grid sonara-feature-grid">
                     {group.features.map((coreFeature) => (
                       <Fragment key={coreFeature.key}>
-                        <dt title={coreFeature.description}>{coreFeature.label}</dt>
-                        <dd title={coreFeature.description}>{coreFeature.value}</dd>
+                        <dt>{coreFeature.label}</dt>
+                        <dd>
+                          <span className={`sonara-feature-value${sonaraFeatureDescriptionExcludedKeys.has(coreFeature.key as CoreFeatureKey) ? " sonara-feature-value-candidates" : ""}`}>{coreFeature.value}</span>
+                          {!sonaraFeatureDescriptionExcludedKeys.has(coreFeature.key as CoreFeatureKey) ? (
+                            <span className="sonara-feature-description sonara-feature-description-separated sonara-feature-description-aligned"> # {coreFeature.description}</span>
+                          ) : null}
+                        </dd>
                       </Fragment>
                     ))}
                   </dl>

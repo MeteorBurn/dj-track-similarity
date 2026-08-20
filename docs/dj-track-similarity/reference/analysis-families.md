@@ -49,7 +49,7 @@ operation.
 
 ## SONARA BPM range
 
-SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes source paths in Direct Mode or temporary copy paths in Staged Mode to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns normal decoding. A per-file native decode or codec failure falls back to a direct TorchCodec shared-library decode, mono `float32` PCM, and `analyze_signal()` without failing the other batch results.
+SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. The project chose that window from the 70 to 180 BPM rekordbox reference range; it is a practical starting point for a mixed DJ library, not a universal tempo standard. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes source paths in Direct Mode or temporary copy paths in Staged Mode to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns normal decoding. A per-file native decode or codec failure falls back to a direct TorchCodec shared-library decode, mono `float32` PCM, and `analyze_signal()` without failing the other batch results.
 
 Tempo-aware search and transition diagnostics resolve current SONARA evidence
 first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.

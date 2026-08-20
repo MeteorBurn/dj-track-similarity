@@ -41,6 +41,36 @@ Classifier scoring is a separate stage. Each promoted manifest defines its exact
 MAEST/MERT/MuQ/MuQ-MuLan/CLAP requirements. Incomplete tracks are counted as not ready rather than failed.
 The stored SONARA embedding is not a current similarity, search, or classifier input.
 
+## Choose a SONARA BPM range for your library
+
+The SONARA BPM range is an analysis input, not a playback-tempo limit or a search threshold. Tempo
+estimators can describe the same rhythmic pulse at half-time or double-time. A 174 BPM drum-and-bass
+track can be useful to a DJ as 87 BPM. SONARA uses the supplied range to fold octave-related
+tempo estimates into one working interpretation. Its lower and upper bounds need to span at
+least one octave. See [SONARA BPM range](../reference/analysis-families.md#sonara-bpm-range) for the
+project's stored range and exact analysis behavior.
+
+There is no genre-independent correct window. It reflects how you want tempo to be represented in your
+own library: whether a half-time break is filed near its slower pulse or near its full drum pattern, and
+whether a mixed collection needs room for both slow and fast material. A narrow, genre-focused window can
+make the chosen convention more consistent. A broad window is often a better first pass for a varied
+library, followed by listening checks and review of BPM candidates for tracks whose pulse can reasonably
+be read two ways.
+
+These familiar application ranges are useful reference starting points, not universal genre standards or
+guarantees about the defaults in every product version:
+
+| Application | Reference BPM range |
+| --- | ---: |
+| Mixed In Key | 79 to 192 |
+| rekordbox | 70 to 180 |
+| Serato | 96 to 190 |
+
+For a cross-genre collection, begin with the project range of 70 to 180 BPM. It was chosen from the
+70 to 180 BPM rekordbox reference range and is recorded in [SONARA BPM range](../reference/analysis-families.md#sonara-bpm-range).
+Decide later whether your collection needs a different interpretation window. Keep one convention within a
+workflow when practical: otherwise an apparent BPM mismatch may only be a half/double-time representation.
+
 ## CLI analysis
 
 Install optional analysis dependencies first. Then run:

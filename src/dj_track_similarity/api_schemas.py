@@ -300,15 +300,19 @@ class SonaraRandomTrackRequest(BaseModel):
 
 
 class TextSearchRequest(BaseModel):
+    """One prompt bank searched against one text-embedding family.
+
+    ``positive_queries`` is the whole bank: every line is embedded and the bank
+    is averaged. There is deliberately no second field holding the same prompt
+    as one string, and no switch that reduces the bank to its first line.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    query: str
+    positive_queries: list[str] = Field(min_length=1)
     analysis_family: Literal["clap", "mulan"] = "clap"
-    positive_queries: list[str] = Field(default_factory=list)
     negative_queries: list[str] = Field(default_factory=list)
-    adaptive_contrast: bool = True
     negative_weight: float | None = Field(default=None, ge=0.0, le=2.0)
-    preset: str | None = None
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = None
     device: str = Field(

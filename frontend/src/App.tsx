@@ -1300,15 +1300,12 @@ export function App() {
     appendActivity("info", `${label} search запущен`, negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
     try {
       const value = await api.textSearch({
-        query: prompt,
         analysis_family: textEmbeddingFamily,
         positive_queries: positiveQueries,
         negative_queries: negativeQueries,
-        adaptive_contrast: true,
         ...(negativeQueries.length && promptNegativeWeight !== null
           ? { negative_weight: promptNegativeWeight }
           : {}),
-        preset: selectedPresetKeys.join("+") || null,
         limit: filters.limit,
         device: analysisDevice
       }, {

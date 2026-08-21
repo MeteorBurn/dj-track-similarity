@@ -63,7 +63,6 @@ class _ClapTextSearchPlan:
     prompt_bank: _TextPromptBank
     filters: SearchFilters
     limit: int
-    adaptive_contrast: bool
     negative_weight: float
 
 
@@ -211,10 +210,9 @@ def register_search_routes(
             raise HTTPException(status_code=409, detail=str(error)) from error
 
 def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
-    query = request.query.strip()
-    if not query:
-        raise ValueError("Text query is required")
-    positive_queries = _clean_text_queries(request.positive_queries) or (query,)
+    positive_queries = _clean_text_queries(request.positive_queries)
+    if not positive_queries:
+        raise ValueError("At least one positive query is required")
     return _ClapTextSearchPlan(
         prompt_bank=_TextPromptBank(
             primary_query=positive_queries[0],
@@ -223,7 +221,6 @@ def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
         ),
         filters=SearchFilters(min_similarity=request.min_similarity),
         limit=request.limit,
-        adaptive_contrast=request.adaptive_contrast,
         negative_weight=(
             CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT
             if request.negative_weight is None
@@ -239,7 +236,7 @@ def _search_clap_text_prompts(
 ) -> list[SimilaritySearchResult]:
     positive_queries = plan.prompt_bank.positive_queries
     negative_queries = plan.prompt_bank.negative_queries
-    if plan.adaptive_contrast and (negative_queries or len(positive_queries) > 1):
+    if negative_queries or len(positive_queries) > 1:
         return searcher.search_contrast_vectors(
             positive_vectors=adapter.embed_texts(positive_queries),
             negative_vectors=adapter.embed_texts(negative_queries),

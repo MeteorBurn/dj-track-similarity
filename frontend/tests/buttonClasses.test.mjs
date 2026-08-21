@@ -407,15 +407,22 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(apiClientSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);
-  assert.match(appSource, /adaptive_contrast:\s*true/);
-  assert.match(apiClientSource, /positive_queries\?:\s*string\[\]/);
+  assert.match(apiClientSource, /positive_queries:\s*string\[\]/);
   assert.match(apiClientSource, /negative_queries\?:\s*string\[\]/);
   assert.match(apiClientSource, /analysis_family\?:\s*"clap" \| "mulan"/);
   assert.match(apiSource, /export \{ api \} from "\.\/apiClient";/);
   assert.match(schemaSource, /positive_queries:\s*list\[str\]/);
   assert.match(schemaSource, /negative_queries:\s*list\[str\]/);
-  assert.match(schemaSource, /adaptive_contrast:\s*bool\s*=\s*True/);
   assert.match(schemaSource, /analysis_family:\s*Literal\["clap", "mulan"\]\s*=\s*"clap"/);
+  // The bank is the only prompt field: no second copy of it as one string, and
+  // no switch that reduces it to its first line.
+  const afterTextRequest = schemaSource.split("class TextSearchRequest")[1];
+  const textRequestSchema = afterTextRequest.slice(0, afterTextRequest.indexOf("class "));
+  const textSearchPayloadType = apiClientSource.split("type TextSearchPayload = {")[1].split("};")[0];
+  for (const retired of [/adaptive_contrast/, /preset/, /query/]) {
+    assert.doesNotMatch(textRequestSchema, retired);
+    assert.doesNotMatch(textSearchPayloadType, retired);
+  }
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

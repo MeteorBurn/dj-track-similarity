@@ -97,8 +97,9 @@ python .agents\skills\clap-query-workflow\scripts\project_text_search.py `
   --limit 25
 ```
 
-Useful flags: `--model clap|mulan`, `--negative-weight 0..2`, `--no-adaptive-contrast` to ignore the
-negative bank, `--json` for raw output, `--no-db-check` to skip the database guard.
+Useful flags: `--model clap|mulan`, `--negative-weight 0..2`, `--no-negatives` to drop the negative
+bank, `--json` for raw output, `--no-db-check` to skip the database guard. `--query` is shorthand for
+one more positive prompt, not a separate field.
 
 Start broad: omit `min_similarity`, or keep it low. Seed-search thresholds do not transfer here.
 
@@ -142,6 +143,8 @@ When changing text-layer code:
 - Model a multiline field as one prompt per non-empty line.
 - Keep `positive_queries` and `negative_queries` as arrays through frontend, API and backend, and keep
   `TextSearchRequest` aligned with `frontend/src/apiClient.ts`.
+- `positive_queries` is the only prompt field and is required. There is no `query` string beside it,
+  no `preset`, and no switch that reduces the bank to its first line.
 - Mean-pool normalized positive embeddings before scoring.
 - Never imply that text-search scores are calibrated probabilities.
 - Text search must not modify audio files or write into `classifier_scores`.

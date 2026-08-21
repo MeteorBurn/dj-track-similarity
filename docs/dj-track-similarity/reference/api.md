@@ -131,6 +131,9 @@ Search limits are usually `1..500`.
 
 `POST /api/search/text` accepts `analysis_family: "clap" | "mulan"` and defaults to `clap`. It
 embeds text with the selected family and searches only that family's stored audio vectors.
+`positive_queries` is required and holds the whole prompt bank: every entry is embedded and the
+bank is averaged. Optional `negative_queries` are subtracted with `negative_weight` (`0..2`,
+server default when omitted). Unknown fields are rejected.
 
 Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `mert`, `muq`, `mulan`, `maest`, and `sonara`, and `limit=1..100`. When `models` is omitted, it returns six separate default groups in that order, including `mulan`. Verdicts use `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`. They persist as local pair feedback under `reference_compare:<model>`.
 

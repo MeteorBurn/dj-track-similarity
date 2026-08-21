@@ -115,7 +115,11 @@ def run_text_search(args: argparse.Namespace) -> int:
     positives = clean_lines(args.positive) + read_lines(args.positive_file)
     negatives = clean_lines(args.negative) + read_lines(args.negative_file)
     query = (args.query or "").strip()
-    if not query and not positives:
+    if query and query not in positives:
+        positives.insert(0, query)
+    if args.no_negatives:
+        negatives = []
+    if not positives:
         raise SystemExit("Provide --query or at least one --positive prompt")
 
     base_url = args.base_url.rstrip("/")
@@ -125,11 +129,9 @@ def run_text_search(args: argparse.Namespace) -> int:
             verify_expected_database(base_url, expected_db, args.timeout)
 
     payload: dict[str, Any] = {
-        "query": query or positives[0],
         "analysis_family": args.model,
         "positive_queries": positives,
         "negative_queries": negatives,
-        "adaptive_contrast": not args.no_adaptive_contrast,
         "limit": args.limit,
         "min_similarity": args.min_similarity,
         "device": args.device,
@@ -146,7 +148,7 @@ def run_text_search(args: argparse.Namespace) -> int:
         return 0
     print(
         f"model={MODEL_LABELS[args.model]} positives={len(positives)} "
-        f"negatives={len(negatives) if not args.no_adaptive_contrast else 0} results={len(results)}"
+        f"negatives={len(negatives)} results={len(results)}"
     )
     print_results(results)
     return 0
@@ -174,7 +176,7 @@ def main() -> int:
         default=None,
         help="Hard-negative weight 0..2. Omit to use the server default. Raise it only when the negatives name a real competing class.",
     )
-    parser.add_argument("--no-adaptive-contrast", action="store_true", help="Ignore the negative bank for this search.")
+    parser.add_argument("--no-negatives", action="store_true", help="Drop the negative bank for this search.")
     parser.add_argument("--expected-db", type=Path, default=None, help="Fail unless the API serves this database.")
     parser.add_argument("--no-db-check", action="store_true", help="Skip the /api/database/current guard.")
     parser.add_argument("--limit", type=int, default=25)

@@ -76,7 +76,11 @@ def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> N
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
-        json={"query": " dark rolling techno ", "limit": 5, "device": "cpu"},
+        json={
+            "positive_queries": [" dark rolling techno "],
+            "limit": 5,
+            "device": "cpu",
+        },
     )
 
     assert response.status_code == 200
@@ -98,7 +102,11 @@ def test_repeated_text_search_reuses_one_loaded_adapter(monkeypatch, tmp_path: P
     for _ in range(3):
         response = client.post(
             "/api/search/text",
-            json={"query": "dark rolling techno", "limit": 5, "device": "cpu"},
+            json={
+                "positive_queries": ["dark rolling techno"],
+                "limit": 5,
+                "device": "cpu",
+            },
         )
         assert response.status_code == 200
 
@@ -128,7 +136,7 @@ def test_text_search_uses_persisted_mulan_embeddings_only(
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
         json={
-            "query": "dark rolling techno",
+            "positive_queries": ["dark rolling techno"],
             "analysis_family": "mulan",
             "limit": 5,
             "device": "cpu",
@@ -142,7 +150,7 @@ def test_text_search_uses_persisted_mulan_embeddings_only(
     assert FakeMulanAdapter.queries == ["dark rolling techno"]
 
 
-def test_text_search_supports_adaptive_contrast_prompts(monkeypatch, tmp_path: Path) -> None:
+def test_text_search_subtracts_a_hard_negative_bank(monkeypatch, tmp_path: Path) -> None:
     FakeClapAdapter.queries = []
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -154,10 +162,8 @@ def test_text_search_supports_adaptive_contrast_prompts(monkeypatch, tmp_path: P
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
         json={
-            "query": "track with vocals and speech",
             "positive_queries": ["track with vocals and speech"],
             "negative_queries": ["instrumental track without voices"],
-            "adaptive_contrast": True,
             "limit": 5,
             "device": "cpu",
         },
@@ -186,7 +192,6 @@ def test_text_search_mean_pools_positive_prompt_bank(monkeypatch, tmp_path: Path
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
         json={
-            "query": "broken drums.",
             "positive_queries": ["broken drums.", "syncopated percussion."],
             "limit": 5,
             "device": "cpu",
@@ -214,10 +219,8 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
         json={
-            "query": "broken drums.",
             "positive_queries": ["broken drums."],
             "negative_queries": ["straight house groove."],
-            "adaptive_contrast": True,
             "limit": 5,
             "device": "cpu",
         },
@@ -239,7 +242,7 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
     assert FakeClapAdapter.queries == ["broken drums.", "straight house groove."]
 
 
-def test_text_search_applies_a_preset_negative_weight(monkeypatch, tmp_path: Path) -> None:
+def test_text_search_applies_a_requested_negative_weight(monkeypatch, tmp_path: Path) -> None:
     FakeClapAdapter.queries = []
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -252,10 +255,8 @@ def test_text_search_applies_a_preset_negative_weight(monkeypatch, tmp_path: Pat
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
         json={
-            "query": "broken drums.",
             "positive_queries": ["broken drums."],
             "negative_queries": ["straight house groove."],
-            "adaptive_contrast": True,
             "negative_weight": 1.0,
             "limit": 5,
             "device": "cpu",
@@ -275,27 +276,32 @@ def test_text_search_applies_a_preset_negative_weight(monkeypatch, tmp_path: Pat
 def test_text_search_rejects_a_negative_weight_outside_the_contract(tmp_path: Path) -> None:
     response = TestClient(create_app(tmp_path / "library.sqlite")).post(
         "/api/search/text",
-        json={"query": "broken drums.", "negative_weight": -0.5},
+        json={"positive_queries": ["broken drums."], "negative_weight": -0.5},
     )
 
     assert response.status_code == 422
 
 
-def test_text_search_disabled_adaptive_contrast_uses_single_positive_prompt(monkeypatch, tmp_path: Path) -> None:
+def test_text_search_embeds_every_prompt_of_a_negated_bank(monkeypatch, tmp_path: Path) -> None:
+    """A multi-line bank is never reduced to its first line.
+
+    The removed ``adaptive_contrast`` switch silently dropped every prompt after
+    the first, so a five-line bank ranked on one line with no sign in the
+    response. Nothing selects that behaviour now.
+    """
+
     FakeClapAdapter.queries = []
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    direct_id = _track_with_embedding(db, "direct.wav", [1.0, 0.0, 0.0], "clap")
+    first_line_id = _track_with_embedding(db, "direct.wav", [1.0, 0.0, 0.0], "clap")
     bank_id = _track_with_embedding(db, "bank.wav", [0.70710677, 0.70710677, 0.0], "clap")
     monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
         json={
-            "query": "broken drums.",
             "positive_queries": ["broken drums.", "syncopated percussion."],
             "negative_queries": ["straight house groove."],
-            "adaptive_contrast": False,
             "limit": 5,
             "device": "cpu",
         },
@@ -304,34 +310,63 @@ def test_text_search_disabled_adaptive_contrast_uses_single_positive_prompt(monk
     assert response.status_code == 200
     payload = response.json()
     assert [item["track"]["track_id"] for item in payload] == [
-        direct_id,
         bank_id,
+        first_line_id,
     ]
-    assert payload[0]["score_breakdown"] is None
-    assert FakeClapAdapter.queries == ["broken drums."]
+    assert payload[0]["score_breakdown"] is not None
+    assert FakeClapAdapter.queries == [
+        "broken drums.",
+        "syncopated percussion.",
+        "straight house groove.",
+    ]
 
 
-def test_text_search_rejects_blank_query_before_loading_clap(monkeypatch, tmp_path: Path) -> None:
+def test_text_search_rejects_a_blank_bank_before_loading_clap(monkeypatch, tmp_path: Path) -> None:
     FakeClapAdapter.queries = []
     monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(tmp_path / "library.sqlite")).post(
         "/api/search/text",
-        json={"query": "   ", "positive_queries": ["broken drums."], "device": "cpu"},
+        json={"positive_queries": ["   ", ""], "device": "cpu"},
     )
 
     assert response.status_code == 400
-    assert response.json() == {"detail": "Text query is required"}
+    assert response.json() == {"detail": "At least one positive query is required"}
     assert FakeClapAdapter.queries == []
 
 
-def test_text_search_rejects_unknown_contract_fields(tmp_path: Path) -> None:
-    response = TestClient(create_app(tmp_path / "library.sqlite")).post(
-        "/api/search/text",
-        json={"query": "broken drums.", "score_is_probability": True},
+def test_text_search_requires_a_prompt_bank(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    assert client.post("/api/search/text", json={"device": "cpu"}).status_code == 422
+    assert (
+        client.post(
+            "/api/search/text",
+            json={"positive_queries": [], "device": "cpu"},
+        ).status_code
+        == 422
     )
 
-    assert response.status_code == 422
+
+def test_text_search_rejects_unknown_contract_fields(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    assert (
+        client.post(
+            "/api/search/text",
+            json={
+                "positive_queries": ["broken drums."],
+                "score_is_probability": True,
+            },
+        ).status_code
+        == 422
+    )
+    for retired in ("query", "adaptive_contrast", "preset"):
+        response = client.post(
+            "/api/search/text",
+            json={"positive_queries": ["broken drums."], retired: "broken drums."},
+        )
+        assert response.status_code == 422, retired
 
 
 def _track_with_embedding(

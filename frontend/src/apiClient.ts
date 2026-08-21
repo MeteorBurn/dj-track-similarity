@@ -68,13 +68,10 @@ type SonaraRandomTrackPayload = {
 };
 
 type TextSearchPayload = {
-  query: string;
+  positive_queries: string[];
   analysis_family?: "clap" | "mulan";
-  positive_queries?: string[];
   negative_queries?: string[];
-  adaptive_contrast?: boolean;
   negative_weight?: number;
-  preset?: string | null;
   limit: number;
   min_similarity?: number | null;
   device?: "auto" | "cpu" | "cuda";

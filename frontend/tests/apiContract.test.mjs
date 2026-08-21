@@ -214,11 +214,8 @@ test("CLAP text search client keeps positive and negative prompt arrays separate
   });
 
   await api.textSearch({
-    query: "broken beat",
     positive_queries: ["breakbeat.", "This audio is a syncopated drum track."],
     negative_queries: ["This audio is a straight house track."],
-    adaptive_contrast: true,
-    preset: "breaks_broken",
     limit: 10,
     min_similarity: 0,
     device: "auto"
@@ -226,11 +223,8 @@ test("CLAP text search client keeps positive and negative prompt arrays separate
 
   assert.equal(calls[0].path, "/api/search/text");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
-    query: "broken beat",
     positive_queries: ["breakbeat.", "This audio is a syncopated drum track."],
     negative_queries: ["This audio is a straight house track."],
-    adaptive_contrast: true,
-    preset: "breaks_broken",
     limit: 10,
     min_similarity: 0,
     device: "auto"
@@ -270,11 +264,8 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
     exclude_track_ids: [7],
   }, { signal: controller.signal });
   await api.textSearch({
-    query: "broken beat",
     positive_queries: ["broken beat"],
     negative_queries: [],
-    adaptive_contrast: true,
-    preset: "manual",
     limit: 10,
     min_similarity: 0,
     device: "auto",

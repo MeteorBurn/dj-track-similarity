@@ -2192,7 +2192,7 @@ h2 {
 .search-tabs {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin: 10px 0 12px;
   max-width: 100%;
 }
@@ -2219,6 +2219,18 @@ h2 {
 .embedding-search-grid {
   align-items: end;
   grid-template-columns: minmax(92px, 160px);
+}
+
+.embedding-model-select {
+  background: var(--surface);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+  color: var(--app-text);
+  cursor: pointer;
+  min-height: 34px;
+  min-width: 0;
+  padding: 7px 10px;
+  width: 100%;
 }
 
 .embedding-search-button {
@@ -3365,7 +3377,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 
   .search-tabs {
     gap: 6px;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .search-tabs button {

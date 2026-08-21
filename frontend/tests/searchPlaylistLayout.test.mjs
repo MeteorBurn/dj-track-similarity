@@ -80,14 +80,35 @@ test("library and generic search results render visible track numbering", () => 
   assert.match(panelSource, /rowIndex=\{index \+ 1\}/);
 });
 
-test("primary search tabs expose the seven maintained workflows with roving ARIA relationships", () => {
+test("primary search tabs expose the five maintained workflows with roving ARIA relationships", () => {
   assert.match(panelSource, /primarySearchTabs\.map/);
   assert.match(panelSource, /id=\{`search-tab-\$\{tab\}`\}/);
   assert.match(panelSource, /aria-controls=\{`search-panel-\$\{tab\}`\}/);
   assert.match(panelSource, /tabIndex=\{activeSearchTab === tab \? 0 : -1\}/);
   assert.match(panelSource, /onKeyDown=\{handlePrimaryTabKeyDown\}/);
-  assert.match(panelSource, /muq: \{ label: "MUQ"/);
-  assert.match(panelSource, /mulan: \{ label: "MULAN"/);
+  assert.match(panelSource, /similarity: \{ label: "SIMILARITY", title: "Seed embedding similarity search \(MERT, MuQ, MuQ-MuLan\)" \}/);
+});
+
+test("one SIMILARITY tab switches seed models and keeps per-model result provenance", async () => {
+  const {
+    genericSearchResultIsCurrent,
+    searchTabForResultOrigin,
+    seedEmbeddingFamilies,
+    seedEmbeddingFamilyPresentation
+  } = await loadSearchSurfaceState();
+
+  assert.deepEqual([...seedEmbeddingFamilies], ["mert", "muq", "mulan"]);
+  assert.deepEqual(
+    seedEmbeddingFamilies.map((family) => seedEmbeddingFamilyPresentation[family].label),
+    ["MERT", "MuQ", "MuQ-MuLan"]
+  );
+  assert.equal(searchTabForResultOrigin("mulan"), "similarity");
+  assert.equal(searchTabForResultOrigin("clap"), "clap");
+  assert.equal(genericSearchResultIsCurrent("similarity", "muq", "key", "key"), true);
+  assert.equal(genericSearchResultIsCurrent("clap", "muq", "key", "key"), false);
+  assert.equal(genericSearchResultIsCurrent("similarity", "muq", "stale", "key"), false);
+  assert.match(panelSource, /searchResultOriginLabel\(genericSearchResultOrigin\)/);
+  assert.match(appSource, /seed_embedding_family: seedEmbeddingFamily/);
 });
 
 test("TEXT tab keeps results from both text embedding models visible", () => {
@@ -115,10 +136,10 @@ test("SONARA tab can add an unselected random SONARA-ready seed", () => {
 test("Left Right Home End navigation wraps across maintained search tabs", async () => {
   const { primarySearchTabs, tabAfterKey } = await loadSearchSurfaceState();
 
-  assert.deepEqual(primarySearchTabs, ["lab", "sonara", "mert", "muq", "mulan", "clap", "class"]);
+  assert.deepEqual(primarySearchTabs, ["lab", "sonara", "similarity", "clap", "class"]);
   assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowLeft"), "class");
   assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowRight"), "sonara");
-  assert.equal(tabAfterKey(primarySearchTabs, "muq", "Home"), "lab");
-  assert.equal(tabAfterKey(primarySearchTabs, "muq", "ArrowRight"), "mulan");
-  assert.equal(tabAfterKey(primarySearchTabs, "muq", "End"), "class");
+  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "Home"), "lab");
+  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "ArrowRight"), "clap");
+  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "End"), "class");
 });

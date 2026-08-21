@@ -46,8 +46,11 @@ import {
 } from "./mlAnalysisSettings";
 import {
   createRequestTokenGuard,
+  isSeedEmbeddingFamily,
+  seedEmbeddingFamilyPresentation,
   type GenericSearchTab,
   type PrimarySearchTab,
+  type SeedEmbeddingFamily,
 } from "./searchSurfaceState";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
@@ -165,6 +168,7 @@ export function App() {
   const [clapNegativeQuery, setClapNegativeQuery] = useState("");
   const [clapUseNegativePrompt, setClapUseNegativePrompt] = useState(true);
   const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<"clap" | "mulan">("clap");
+  const [seedEmbeddingFamily, setSeedEmbeddingFamily] = useState<SeedEmbeddingFamily>("mert");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
   const [scanImportStartToast, setScanImportStartToast] = useState(false);
@@ -236,6 +240,7 @@ export function App() {
       clap_preset_key: clapPresetKey,
       clap_device: analysisDevice,
       text_embedding_family: textEmbeddingFamily,
+      seed_embedding_family: seedEmbeddingFamily,
     }),
     [
       analysisDevice,
@@ -243,6 +248,7 @@ export function App() {
       clapPresetKey,
       clapUseNegativePrompt,
       textEmbeddingFamily,
+      seedEmbeddingFamily,
       databaseCatalogUuid,
       databasePath,
       filters,
@@ -885,10 +891,10 @@ export function App() {
       setNotice({ kind: "error", text: error.message });
       throw error;
     }
-    if (analysisFamily !== "mert" && analysisFamily !== "muq" && analysisFamily !== "mulan") {
-      throw new Error(`Unsupported embedding search tab: ${analysisFamily}`);
+    if (!isSeedEmbeddingFamily(analysisFamily)) {
+      throw new Error(`Unsupported seed embedding model: ${analysisFamily}`);
     }
-    const label = analysisFamily.toUpperCase();
+    const label = seedEmbeddingFamilyPresentation[analysisFamily].label;
     const ticket = beginGenericSearchRequest();
     appendActivity("info", `${label} search запущен`, `${seeds.length} seed`);
     try {
@@ -1606,6 +1612,8 @@ export function App() {
           onClapUseNegativePromptChange={setClapUseNegativePrompt}
           textEmbeddingFamily={textEmbeddingFamily}
           onTextEmbeddingFamilyChange={setTextEmbeddingFamily}
+          seedEmbeddingFamily={seedEmbeddingFamily}
+          onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
           clapPresetKey={clapPresetKey}
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}

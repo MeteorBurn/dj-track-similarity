@@ -1,8 +1,16 @@
 import { Search } from "lucide-react";
 import type { EmbeddingSource } from "./api";
+import {
+  seedEmbeddingFamilies,
+  seedEmbeddingFamilyPresentation,
+  type SeedEmbeddingFamily
+} from "./searchSurfaceState";
+
+const modelHelp = "Embedding family used for seed-to-track similarity search. MERT, MuQ, and MuQ-MuLan stay separate score spaces.";
 
 export function EmbeddingSearchTab({
   analysisFamily,
+  onAnalysisFamilyChange,
   currentEmbeddingCount,
   busy,
   pending,
@@ -12,7 +20,8 @@ export function EmbeddingSearchTab({
   onLimitChange,
   onSearch
 }: {
-  analysisFamily: EmbeddingSource;
+  analysisFamily: SeedEmbeddingFamily;
+  onAnalysisFamilyChange: (value: SeedEmbeddingFamily) => void;
   currentEmbeddingCount: number;
   busy: boolean;
   pending: boolean;
@@ -22,7 +31,7 @@ export function EmbeddingSearchTab({
   onLimitChange: (value: number) => void;
   onSearch: (analysisFamily: EmbeddingSource) => Promise<void>;
 }) {
-  const label = analysisFamily.toUpperCase();
+  const label = seedEmbeddingFamilyPresentation[analysisFamily].label;
   const missingReason = currentEmbeddingCount > 0
     ? ""
     : `No current ${label} embeddings are available in the selected catalog. Run ${label} analysis first.`;
@@ -31,6 +40,21 @@ export function EmbeddingSearchTab({
   return (
     <>
       <div className="search-filter-grid embedding-search-grid">
+        <label title={modelHelp}>
+          Model
+          <select
+            className="embedding-model-select"
+            value={analysisFamily}
+            title={seedEmbeddingFamilyPresentation[analysisFamily].title}
+            onChange={(event) => onAnalysisFamilyChange(event.target.value as SeedEmbeddingFamily)}
+          >
+            {seedEmbeddingFamilies.map((family) => (
+              <option key={family} value={family} title={seedEmbeddingFamilyPresentation[family].title}>
+                {seedEmbeddingFamilyPresentation[family].label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label title={limitHelp}>
           Limit
           <input

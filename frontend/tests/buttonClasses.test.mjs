@@ -302,7 +302,7 @@ test("model search exposes only current seed controls", () => {
   assert.match(appSource, /seed_track_ids:\s*seeds/);
   assert.match(searchSource, /handleSonaraSearch/);
   assert.match(searchSource, /handleEmbeddingSearch/);
-  assert.match(searchSource, /activeSearchTab === "mert" \|\| activeSearchTab === "muq"/);
+  assert.match(searchSource, /activeSearchTab === "similarity"/);
   assert.match(apiSource, /seed_track_ids/);
   assert.match(schemaSource, /seed_track_ids/);
 });

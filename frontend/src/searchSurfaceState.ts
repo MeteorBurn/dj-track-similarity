@@ -1,16 +1,23 @@
-export type PrimarySearchTab = "sonara" | "mert" | "muq" | "mulan" | "clap" | "class" | "lab";
-export type GenericSearchTab = Extract<PrimarySearchTab, "sonara" | "mert" | "muq" | "mulan" | "clap">;
+export type PrimarySearchTab = "sonara" | "similarity" | "clap" | "class" | "lab";
+export type SeedEmbeddingFamily = "mert" | "muq" | "mulan";
+export type GenericSearchTab = Extract<PrimarySearchTab, "sonara" | "clap"> | SeedEmbeddingFamily;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
 
 export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "lab",
   "sonara",
-  "mert",
-  "muq",
-  "mulan",
+  "similarity",
   "clap",
   "class"
 ];
+
+export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["mert", "muq", "mulan"];
+
+export const seedEmbeddingFamilyPresentation: Record<SeedEmbeddingFamily, { label: string; title: string }> = {
+  mert: { label: "MERT", title: "MERT seed embedding search" },
+  muq: { label: "MuQ", title: "MuQ seed embedding search" },
+  mulan: { label: "MuQ-MuLan", title: "MuQ-MuLan seed embedding search" }
+};
 
 export type RequestTokenGuard = {
   begin: () => number;
@@ -47,6 +54,14 @@ export function createRequestTokenGuard(): RequestTokenGuard {
   };
 }
 
+export function isSeedEmbeddingFamily(value: string): value is SeedEmbeddingFamily {
+  return seedEmbeddingFamilies.includes(value as SeedEmbeddingFamily);
+}
+
+export function searchTabForResultOrigin(origin: GenericSearchTab): PrimarySearchTab {
+  return isSeedEmbeddingFamily(origin) ? "similarity" : origin;
+}
+
 export function genericSearchResultIsCurrent(
   activeTab: PrimarySearchTab,
   resultOrigin: GenericSearchTab | null,
@@ -55,7 +70,7 @@ export function genericSearchResultIsCurrent(
 ): boolean {
   return (
     resultOrigin !== null
-    && activeTab === resultOrigin
+    && activeTab === searchTabForResultOrigin(resultOrigin)
     && Boolean(responseKey)
     && responseKey === currentKey
   );

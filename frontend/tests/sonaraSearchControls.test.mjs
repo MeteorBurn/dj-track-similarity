@@ -74,18 +74,21 @@ test("SONARA mode and limit share one compact styled row", () => {
   assert.match(stylesSource, /\.sonara-mode-select:focus-visible/);
 });
 
-test("MERT and MUQ use one typed generic embedding search component and handler", () => {
-  assert.match(panelSource, /activeSearchTab === "mert" \|\| activeSearchTab === "muq"/);
+test("MERT, MuQ, and MuQ-MuLan share one SIMILARITY tab with a seed model switcher", () => {
+  assert.match(panelSource, /activeSearchTab === "similarity"/);
   assert.match(panelSource, /<EmbeddingSearchTab/);
-  assert.match(panelSource, /analysisFamily=\{activeSearchTab\}/);
+  assert.match(panelSource, /analysisFamily=\{seedEmbeddingFamily\}/);
+  assert.match(panelSource, /onAnalysisFamilyChange=\{selectSeedEmbeddingFamily\}/);
   assert.match(panelSource, /handleEmbeddingSearch: \(analysisFamily: EmbeddingSource\) => Promise<void>/);
   assert.match(panelSource, /await handleEmbeddingSearch\(analysisFamily\)/);
   assert.doesNotMatch(panelSource, /handleMertSearch/);
+  assert.match(embeddingTabSource, /seedEmbeddingFamilies\.map/);
+  assert.match(embeddingTabSource, /onAnalysisFamilyChange\(event\.target\.value as SeedEmbeddingFamily\)/);
+  assert.match(embeddingTabSource, /onClick=\{\(\) => void onSearch\(analysisFamily\)\}/);
 });
 
-test("MUQ remains visible at zero coverage and shows a non-blocking current-data reason", () => {
-  assert.match(panelSource, /muq: \{ label: "MUQ"/);
-  assert.match(panelSource, /currentEmbeddingCount=\{embeddingCounts\[activeSearchTab\]\}/);
+test("the selected seed model stays visible at zero coverage with a non-blocking current-data reason", () => {
+  assert.match(panelSource, /currentEmbeddingCount=\{embeddingCounts\[seedEmbeddingFamily\]\}/);
   assert.match(embeddingTabSource, /No current \$\{label\} embeddings are available in the selected catalog/);
   assert.match(embeddingTabSource, /disabled=\{busy \|\| pending \|\| Boolean\(missingReason\)\}/);
   assert.match(embeddingTabSource, /\{error \? <span className="embedding-search-requirement error">\{error\}<\/span> : null\}/);

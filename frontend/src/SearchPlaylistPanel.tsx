@@ -15,10 +15,13 @@ import { playlistPage } from "./playlistView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import {
   genericSearchResultIsCurrent,
+  isSeedEmbeddingFamily,
   primarySearchTabs,
+  seedEmbeddingFamilyPresentation,
   tabAfterKey,
   type GenericSearchTab,
-  type PrimarySearchTab
+  type PrimarySearchTab,
+  type SeedEmbeddingFamily
 } from "./searchSurfaceState";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
@@ -90,13 +93,17 @@ const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
 
 const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
   sonara: { label: "SONARA", title: "SONARA similarity search" },
-  mert: { label: "MERT", title: "MERT seed embedding search" },
-  muq: { label: "MUQ", title: "MuQ seed embedding search" },
-  mulan: { label: "MULAN", title: "MuQ-MuLan seed embedding search" },
+  similarity: { label: "SIMILARITY", title: "Seed embedding similarity search (MERT, MuQ, MuQ-MuLan)" },
   clap: { label: "TEXT", title: "TEXT text search (CLAP or MuQ-MuLan)" },
   class: { label: "CLASS", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }
 };
+
+function searchResultOriginLabel(origin: GenericSearchTab) {
+  return isSeedEmbeddingFamily(origin)
+    ? seedEmbeddingFamilyPresentation[origin].label
+    : primaryTabPresentation[origin].label;
+}
 
 const classifierEmptyStateMessage = "No promoted classifier profiles found. Promote profiles from Rhythm Lab or place model.json + model.joblib under models/classifiers/<profile>/.";
 
@@ -110,6 +117,8 @@ export function SearchPlaylistPanel({
   onClapUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
+  seedEmbeddingFamily,
+  onSeedEmbeddingFamilyChange,
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
@@ -165,6 +174,8 @@ export function SearchPlaylistPanel({
   onClapUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
+  seedEmbeddingFamily: SeedEmbeddingFamily;
+  onSeedEmbeddingFamilyChange: (value: SeedEmbeddingFamily) => void;
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
@@ -290,6 +301,12 @@ export function SearchPlaylistPanel({
     if (target === activeSearchTab) return;
     setActiveSearchTab(target);
     onPrimarySearchTabChange(target);
+  }
+
+  function selectSeedEmbeddingFamily(analysisFamily: SeedEmbeddingFamily) {
+    if (analysisFamily === seedEmbeddingFamily) return;
+    setEmbeddingSearchErrors((current) => ({ ...current, [analysisFamily]: "" }));
+    onSeedEmbeddingFamilyChange(analysisFamily);
   }
 
   async function runEmbeddingSearch(analysisFamily: EmbeddingSource) {
@@ -469,14 +486,15 @@ export function SearchPlaylistPanel({
             </button>
           </div>
         )}
-        {(activeSearchTab === "mert" || activeSearchTab === "muq" || activeSearchTab === "mulan") && (
-          <div id={`search-panel-${activeSearchTab}`} className="search-tab-panel" role="tabpanel" aria-labelledby={`search-tab-${activeSearchTab}`}>
+        {activeSearchTab === "similarity" && (
+          <div id="search-panel-similarity" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-similarity">
             <EmbeddingSearchTab
-              analysisFamily={activeSearchTab}
-              currentEmbeddingCount={embeddingCounts[activeSearchTab]}
+              analysisFamily={seedEmbeddingFamily}
+              onAnalysisFamilyChange={selectSeedEmbeddingFamily}
+              currentEmbeddingCount={embeddingCounts[seedEmbeddingFamily]}
               busy={busy || !seeds.length}
-              pending={Boolean(embeddingSearchPending[activeSearchTab])}
-              error={embeddingSearchErrors[activeSearchTab] || ""}
+              pending={Boolean(embeddingSearchPending[seedEmbeddingFamily])}
+              error={embeddingSearchErrors[seedEmbeddingFamily] || ""}
               limit={filters.limit}
               limitHelp={helpText.limit}
               onLimitChange={(value) => setFilters({ ...filters, limit: value })}
@@ -636,7 +654,7 @@ export function SearchPlaylistPanel({
         {showGenericSearchResults && genericSearchResultOrigin ? (
           <div className="generic-search-results">
             <div className="generic-search-result-provenance" role="status">
-              {primaryTabPresentation[genericSearchResultOrigin].label} results
+              {searchResultOriginLabel(genericSearchResultOrigin)} results
               <span>{results.length}</span>
             </div>
             <div className="results-list">
@@ -664,7 +682,7 @@ export function SearchPlaylistPanel({
                 />
               )) : (
                 <div className="empty-state">
-                  No current {primaryTabPresentation[genericSearchResultOrigin].label} results matched this request.
+                  No current {searchResultOriginLabel(genericSearchResultOrigin)} results matched this request.
                 </div>
               )}
             </div>

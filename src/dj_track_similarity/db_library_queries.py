@@ -18,7 +18,7 @@ from .analysis_models import (
     OUTPUT_KINDS_BY_FAMILY,
     current_embedding_spec,
 )
-from .db_embeddings import EmbeddingTrackIdentity, validate_embedding_row_payload
+from .db_embeddings import EmbeddingTrackIdentity, validate_embedding_row_metadata
 from .db_tracks import utc_now_text
 from .library_models import (
     AnalysisCoverage,
@@ -642,7 +642,11 @@ def _valid_embedding_rows(
             current_embedding_spec(output.analysis_family)
         except ValueError:
             return {}
-    embedding_fields = ", dim, normalization, embedding_blob" if embedding else ""
+    embedding_fields = (
+        ", dim, normalization, length(embedding_blob) AS embedding_bytes"
+        if embedding
+        else ""
+    )
     if drive_from_requested:
         rows = connection.execute(
             f"""
@@ -681,7 +685,7 @@ def _valid_embedding_rows(
         ):
             continue
         if embedding:
-            valid_embedding, _reason = validate_embedding_row_payload(
+            valid_embedding, _reason = validate_embedding_row_metadata(
                 family=output.analysis_family,
                 row=row,
                 expected_track=EmbeddingTrackIdentity(

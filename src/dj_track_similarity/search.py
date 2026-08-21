@@ -124,6 +124,7 @@ class SimilaritySearch:
             if vector_backend is not None
             else ExactVectorSearchBackend()
         )
+        self._full_rows: tuple[AnalysisOutput, tuple[AnalysisVectorRow, ...]] | None = None
         self.active_output()
 
     def active_output(self) -> AnalysisOutput:
@@ -167,12 +168,7 @@ class SimilaritySearch:
 
         requested = _requested_track_ids(track_ids)
         output = self.active_output()
-        rows = self.repository.load_analysis_vectors(output)
-        _validate_rows(
-            rows,
-            output=output,
-            catalog_uuid=self.repository.catalog_uuid,
-        )
+        rows = self._load_full_rows(output)
         target_by_id = {row.target.track_id: row.target for row in rows}
         missing = [
             track_id
@@ -365,6 +361,30 @@ class SimilaritySearch:
             for target, score, _ranking, breakdown in ranked
         ]
 
+    def _load_full_rows(
+        self,
+        output: AnalysisOutput,
+    ) -> tuple[AnalysisVectorRow, ...]:
+        """Load and validate every current vector once per search instance.
+
+        ``resolve_targets`` and ``_load_rows`` both need the whole library
+        matrix, and one instance serves exactly one request, so an uncached
+        second call repeats a full table read plus a full re-validation of
+        rows that were just checked.
+        """
+
+        cached = self._full_rows
+        if cached is not None and cached[0] == output:
+            return cached[1]
+        rows = self.repository.load_analysis_vectors(output, targets=None)
+        _validate_rows(
+            rows,
+            output=output,
+            catalog_uuid=self.repository.catalog_uuid,
+        )
+        self._full_rows = (output, rows)
+        return rows
+
     def _load_rows(
         self,
         *,
@@ -372,9 +392,12 @@ class SimilaritySearch:
         candidate_targets: tuple[AnalysisTarget, ...] | None,
     ) -> tuple[AnalysisOutput, tuple[AnalysisVectorRow, ...]]:
         output = self.active_output()
-        requested: tuple[AnalysisTarget, ...] | None
         if candidate_targets is None:
             if seeds:
+                # The returned rows are unused: this call is the staleness gate
+                # that rejects a seed whose identity no longer matches the
+                # library, which the full load below cannot distinguish from a
+                # seed that simply has no vector.
                 seed_rows = self.repository.load_analysis_vectors(
                     output,
                     targets=seeds,
@@ -384,12 +407,10 @@ class SimilaritySearch:
                     output=output,
                     catalog_uuid=self.repository.catalog_uuid,
                 )
-            requested = None
-        else:
-            requested = _merge_targets(seeds, candidate_targets)
+            return output, self._load_full_rows(output)
         rows = self.repository.load_analysis_vectors(
             output,
-            targets=requested,
+            targets=_merge_targets(seeds, candidate_targets),
         )
         _validate_rows(
             rows,

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
-from .analysis_models import current_embedding_spec
+from .analysis_models import EmbeddingFamilySpec, current_embedding_spec
 from .db_schema import validate_library_schema
 
 
@@ -58,6 +59,7 @@ def _validate_embedding_row_identity(
     row: Mapping[str, object] | sqlite3.Row,
     *,
     expected_track: EmbeddingTrackIdentity,
+    payload_field: str = "embedding_blob",
 ) -> tuple[dict[str, object] | None, str | None]:
     if not isinstance(row, (Mapping, sqlite3.Row)):
         return None, "embedding row is not a mapping"
@@ -67,7 +69,7 @@ def _validate_embedding_row_identity(
         "track_uuid",
         "dim",
         "normalization",
-        "embedding_blob",
+        payload_field,
     }
     if not required_fields.issubset(values):
         return None, "embedding row is missing required fields"
@@ -81,6 +83,65 @@ def _validate_embedding_row_identity(
     if values["track_uuid"] != expected_track.track_uuid:
         return None, "track_uuid mismatch"
     return values, None
+
+
+def _validate_embedding_row_spec(
+    values: Mapping[str, object],
+    *,
+    expected_spec: EmbeddingFamilySpec,
+) -> tuple[int | None, str | None]:
+    """Check the stored dimension and normalization against the family spec."""
+
+    dim = _positive_int(values["dim"])
+    if dim is None:
+        return None, "invalid dim"
+    if dim != expected_spec.dimension:
+        return None, "dim mismatch"
+    if not isinstance(values["normalization"], str):
+        return None, "invalid normalization"
+    if values["normalization"] != expected_spec.normalization:
+        return None, "normalization mismatch"
+    return dim, None
+
+
+def validate_embedding_row_metadata(
+    *,
+    family: str,
+    row: Mapping[str, object] | sqlite3.Row,
+    expected_track: EmbeddingTrackIdentity,
+) -> tuple[bool, str | None]:
+    """Validate one persisted embedding from row metadata alone.
+
+    Analysis-coverage callers only need to know whether a current, well-formed
+    embedding row exists, never what it contains.  Selecting ``embedding_blob``
+    to answer that costs one full vector per track per family, so this variant
+    reads the ``embedding_bytes`` byte count instead and leaves the blob in the
+    database.  Vector contents stay validated by
+    :func:`validate_embedding_row_payload` on the paths that actually read
+    them, and every stored row was already checked by
+    :func:`write_valid_embedding_in_transaction` on write.
+    """
+
+    try:
+        expected_spec = current_embedding_spec(family)
+    except ValueError:
+        return False, "unsupported embedding family"
+    values, reason = _validate_embedding_row_identity(
+        row,
+        expected_track=expected_track,
+        payload_field="embedding_bytes",
+    )
+    if values is None:
+        return False, reason
+    dim, reason = _validate_embedding_row_spec(values, expected_spec=expected_spec)
+    if dim is None:
+        return False, reason
+    stored_bytes = _positive_int(values["embedding_bytes"])
+    if stored_bytes is None:
+        return False, "invalid embedding_bytes"
+    if stored_bytes != dim * 4:
+        return False, "blob length mismatch"
+    return True, None
 
 
 def validate_embedding_row_payload(
@@ -101,16 +162,10 @@ def validate_embedding_row_payload(
     )
     if values is None:
         return False, reason
-    dim = _positive_int(values["dim"])
+    dim, reason = _validate_embedding_row_spec(values, expected_spec=expected_spec)
     if dim is None:
-        return False, "invalid dim"
-    if dim != expected_spec.dimension:
-        return False, "dim mismatch"
-    if not isinstance(values["normalization"], str):
-        return False, "invalid normalization"
+        return False, reason
     normalization = values["normalization"]
-    if normalization != expected_spec.normalization:
-        return False, "normalization mismatch"
     blob = values["embedding_blob"]
     if not isinstance(blob, (bytes, bytearray, memoryview)):
         return False, "embedding_blob is not bytes"
@@ -195,6 +250,63 @@ def read_valid_embedding(
     if not valid:
         return None
     return np.frombuffer(row["embedding_blob"], dtype="<f4").copy()
+
+
+def read_valid_embeddings(
+    *,
+    family: str,
+    identities: Mapping[int, str],
+    catalog_uuid: str,
+    connection: sqlite3.Connection,
+) -> dict[int, np.ndarray]:
+    """Read every valid embedding for *identities* in one statement.
+
+    This is the bulk form of :func:`read_valid_embedding`, applying the same
+    payload validation and the same "skip anything that does not validate"
+    rule.  It takes already-verified current identities instead of re-reading
+    ``library`` and ``tracks`` once per track, so a full-library load costs one
+    query rather than three per track.
+    """
+
+    table = _EMBEDDING_TABLES.get(family)
+    if table is None:
+        raise ValueError(f"unsupported embedding family: {family!r}")
+    if not identities:
+        return {}
+    rows = connection.execute(
+        f"""
+        SELECT track_id, track_uuid,
+               dim, normalization, embedding_blob
+        FROM {table}
+        WHERE track_id IN (
+              SELECT CAST(value AS INTEGER)
+              FROM json_each(?)
+          )
+        """,
+        (json.dumps(sorted(identities)),),
+    )
+    vectors: dict[int, np.ndarray] = {}
+    for row in rows:
+        track_id = int(row["track_id"])
+        expected_track_uuid = identities.get(track_id)
+        if expected_track_uuid is None:
+            continue
+        valid, _reason = validate_embedding_row_payload(
+            family=family,
+            row=row,
+            expected_track=EmbeddingTrackIdentity(
+                catalog_uuid=catalog_uuid,
+                track_id=track_id,
+                track_uuid=expected_track_uuid,
+            ),
+        )
+        if not valid:
+            continue
+        vectors[track_id] = np.frombuffer(
+            row["embedding_blob"],
+            dtype="<f4",
+        ).copy()
+    return vectors
 
 
 def write_valid_embedding_in_transaction(

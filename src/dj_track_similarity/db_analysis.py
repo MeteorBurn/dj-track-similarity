@@ -42,7 +42,7 @@ from .db_analysis_candidates import (
 )
 from .db_embeddings import (
     EmbeddingTrackIdentity,
-    read_valid_embedding,
+    read_valid_embeddings,
     write_valid_embedding_in_transaction,
 )
 from .db_ddl import ClassifierScoreRecord
@@ -802,23 +802,24 @@ class AnalysisRepository:
                     catalog_uuid=catalog_uuid,
                     targets=targets,
                 )
-                rows: list[AnalysisVectorRow] = []
-                for target in selected:
-                    vector = read_valid_embedding(
-                        family=output.analysis_family,
-                        track_id=target.track_id,
-                        connection=connection,
+                vectors = read_valid_embeddings(
+                    family=output.analysis_family,
+                    identities={
+                        target.track_id: target.track_uuid
+                        for target in selected
+                    },
+                    catalog_uuid=catalog_uuid,
+                    connection=connection,
+                )
+                return tuple(
+                    AnalysisVectorRow(
+                        target=target,
+                        output=output,
+                        vector=_readonly_copy(vectors[target.track_id]),
                     )
-                    if vector is None:
-                        continue
-                    rows.append(
-                        AnalysisVectorRow(
-                            target=target,
-                            output=output,
-                            vector=_readonly_copy(vector),
-                        )
-                    )
-                return tuple(rows)
+                    for target in selected
+                    if target.track_id in vectors
+                )
 
     def load_sonara_feature_rows(
         self,

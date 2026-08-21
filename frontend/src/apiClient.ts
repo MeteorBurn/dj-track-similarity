@@ -72,6 +72,7 @@ type TextSearchPayload = {
   positive_queries?: string[];
   negative_queries?: string[];
   adaptive_contrast?: boolean;
+  negative_weight?: number;
   preset?: string | null;
   limit: number;
   min_similarity?: number | null;

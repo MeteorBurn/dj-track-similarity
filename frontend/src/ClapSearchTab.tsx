@@ -1,7 +1,8 @@
-import { Check, ListFilter, Search } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Check, ListFilter, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmbeddingSource } from "./api";
-import type { ClapPromptPreset } from "./clapPrompt";
+import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPromptPresets";
+import { presetByKey } from "./textPromptPresets";
 
 export function ClapSearchTab({
   textQuery,
@@ -12,9 +13,12 @@ export function ClapSearchTab({
   onClapUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
-  clapPresetKey,
-  onClapPresetChange,
-  clapPromptPresets,
+  selectedPresetKeys,
+  onTogglePreset,
+  onClearPresets,
+  promptAxes,
+  promptPresets,
+  negativeWeight,
   limit,
   onLimitChange,
   textPromptHelp,
@@ -32,9 +36,12 @@ export function ClapSearchTab({
   onClapUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
-  clapPresetKey: string;
-  onClapPresetChange: (value: string) => void;
-  clapPromptPresets: ClapPromptPreset[];
+  selectedPresetKeys: string[];
+  onTogglePreset: (key: string) => void;
+  onClearPresets: () => void;
+  promptAxes: TextPromptAxis[];
+  promptPresets: TextPromptPreset[];
+  negativeWeight: number | null;
   limit: number;
   onLimitChange: (value: number) => void;
   textPromptHelp: string;
@@ -44,85 +51,157 @@ export function ClapSearchTab({
   textSearchTitle: string;
   handleTextSearch: () => void;
 }) {
-  const [clapPresetMenuOpen, setClapPresetMenuOpen] = useState(false);
-  const clapPresetMenuRef = useRef<HTMLDivElement>(null);
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false);
+  const [activeAxis, setActiveAxis] = useState(promptAxes[0]?.key ?? "");
+  const presetMenuRef = useRef<HTMLDivElement>(null);
   const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
+  const promptModel: TextPromptModel = textEmbeddingFamily;
+  const axisPresets = useMemo(
+    () => promptPresets.filter((preset) => preset.axis === activeAxis),
+    [promptPresets, activeAxis]
+  );
+  const selectedPresets = useMemo(
+    () => selectedPresetKeys.map((key) => presetByKey(key)).filter(Boolean) as TextPromptPreset[],
+    [selectedPresetKeys]
+  );
+  const promptLineCount = textQuery.split(/\r?\n/).filter((line) => line.trim()).length;
 
   useEffect(() => {
-    if (!clapPresetMenuOpen) return;
+    if (!presetMenuOpen) return;
     function closePresetMenuOnOutsideClick(event: PointerEvent) {
       const target = event.target;
-      if (target instanceof Node && !clapPresetMenuRef.current?.contains(target)) {
-        setClapPresetMenuOpen(false);
+      if (target instanceof Node && !presetMenuRef.current?.contains(target)) {
+        setPresetMenuOpen(false);
       }
     }
     document.addEventListener("pointerdown", closePresetMenuOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closePresetMenuOnOutsideClick);
-  }, [clapPresetMenuOpen]);
-
-  function applyClapPromptPreset(preset: ClapPromptPreset) {
-    onClapPresetChange(preset.key);
-    onTextQueryChange(preset.query.replace(/\s*[\r\n]+\s*/g, " "));
-    onClapNegativeQueryChange(preset.negativeQuery.replace(/\s*[\r\n]+\s*/g, " "));
-    setClapPresetMenuOpen(false);
-  }
+  }, [presetMenuOpen]);
 
   return (
     <div className="search-tab-panel" role="tabpanel">
       <div className="text-search-box clap-text-search-box">
         <div className="clap-prompt-row">
           <label className="clap-query-field" title={textPromptHelp}>
-            Text query
-            <input
-              type="text"
+            Prompt bank
+            <textarea
+              className="clap-query-input"
+              rows={4}
               value={textQuery}
               onChange={(event) => onTextQueryChange(event.target.value)}
-              placeholder="Breakbeat with broken drums and syncopated percussion"
+              placeholder={"A breakbeat track.\nA track with broken drums and syncopated percussion."}
               title={textPromptHelp}
             />
           </label>
-          <div className="clap-prompt-actions" ref={clapPresetMenuRef}>
+          <div className="clap-prompt-actions" ref={presetMenuRef}>
             <button
-              className={`icon-button folder-picker clap-presets-button ${clapPresetMenuOpen ? "active" : ""}`}
-              title="Выбрать prompt preset"
+              className={`icon-button folder-picker clap-presets-button ${presetMenuOpen ? "active" : ""}`}
+              title="Выбрать пресеты по осям. Несколько пресетов складываются в один банк."
               aria-label="Выбрать prompt preset"
-              aria-expanded={clapPresetMenuOpen}
-              onClick={() => setClapPresetMenuOpen((current) => !current)}
+              aria-expanded={presetMenuOpen}
+              onClick={() => setPresetMenuOpen((current) => !current)}
               type="button"
             >
               <ListFilter size={17} />
             </button>
-            {clapPresetMenuOpen ? (
+            {presetMenuOpen ? (
               <div className="clap-preset-menu" role="menu">
-                {clapPromptPresets.map((preset) => (
-                  <button
-                    className={`clap-preset-option-button ${clapPresetKey === preset.key ? "active" : ""}`}
-                    key={preset.key}
-                    title={`Применить preset: ${preset.label}`}
-                    onClick={() => applyClapPromptPreset(preset)}
-                    type="button"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+                <div className="clap-preset-axes">
+                  {promptAxes.map((axis) => (
+                    <button
+                      className={`clap-preset-axis-button ${activeAxis === axis.key ? "active" : ""}`}
+                      key={axis.key}
+                      title={axis.hint}
+                      onClick={() => setActiveAxis(axis.key)}
+                      type="button"
+                    >
+                      {axis.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="clap-preset-options">
+                  {axisPresets.map((preset) => {
+                    const active = selectedPresetKeys.includes(preset.key);
+                    const measured = preset.measured?.[promptModel];
+                    return (
+                      <button
+                        className={`clap-preset-option-button ${active ? "active" : ""}`}
+                        key={preset.key}
+                        title={preset.hint}
+                        onClick={() => onTogglePreset(preset.key)}
+                        type="button"
+                      >
+                        <span className="clap-preset-option-check" aria-hidden="true">
+                          {active ? <Check size={13} strokeWidth={2.6} /> : null}
+                        </span>
+                        <span className="clap-preset-option-label">{preset.label}</span>
+                        {measured ? (
+                          <span
+                            className="clap-preset-option-measured"
+                            title={`Замер ROC-AUC для ${textModelLabel}: ${measured.toFixed(3)}`}
+                          >
+                            {measured.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span
+                            className="clap-preset-option-measured unvalidated"
+                            title="Надёжность не измерена: нет размеченных примеров под этот ярлык. Проверяй ушами."
+                          >
+                            —
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
           </div>
         </div>
+        {selectedPresets.length ? (
+          <div className="clap-preset-chips">
+            {selectedPresets.map((preset) => (
+              <button
+                className="clap-preset-chip"
+                key={preset.key}
+                title={`${preset.hint} Нажмите, чтобы убрать пресет из банка.`}
+                onClick={() => onTogglePreset(preset.key)}
+                type="button"
+              >
+                {preset.label}
+                <X size={12} strokeWidth={2.6} />
+              </button>
+            ))}
+            <button
+              className="clap-preset-chip-clear"
+              title="Убрать все пресеты и очистить банк"
+              onClick={onClearPresets}
+              type="button"
+            >
+              Очистить
+            </button>
+          </div>
+        ) : null}
         <div className="clap-negative-row">
-          <label className="clap-negative-field" title="Hard-negative text description. Type: text. Presets fill this field directly.">
-            Negative
-            <input
-              type="text"
+          <label
+            className="clap-negative-field"
+            title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
+          >
+            {negativeWeight === null ? "Negative" : `Negative · вес ${negativeWeight.toFixed(2)}`}
+            <textarea
               className="clap-negative-input"
+              rows={3}
               value={clapNegativeQuery}
               onChange={(event) => onClapNegativeQueryChange(event.target.value)}
-              placeholder="Vocal pop song or straight four-on-the-floor house track"
-              title="Hard-negative text description. Type: text. Presets fill this field directly."
+              placeholder={"A four-on-the-floor house track.\nA vocal pop song."}
+              title="Hard-negative банк: по одному конкурирующему классу в строке."
               disabled={!clapUseNegativePrompt}
             />
           </label>
-          <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Apply Negative as hard-negative text queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">
+          <label
+            className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`}
+            title="Применять Negative как hard-negative запросы. Тип: чекбокс. Когда выключено, текст остаётся в поле, но в поиск не уходит."
+          >
             <input
               type="checkbox"
               aria-label="Use negative prompt"
@@ -134,6 +213,10 @@ export function ClapSearchTab({
             </span>
           </label>
         </div>
+        <div className="clap-prompt-hint">
+          Каждая строка — отдельный промпт, банк усредняется. Несколько коротких формулировок
+          устойчивее одной длинной. Сейчас в банке: {promptLineCount}.
+        </div>
       </div>
       <div className="search-filter-grid clap-search-filter-grid">
         <label title="Embedding family used for text-to-track retrieval">Model
@@ -141,8 +224,8 @@ export function ClapSearchTab({
             value={textEmbeddingFamily}
             onChange={(event) => onTextEmbeddingFamilyChange(event.target.value as Extract<EmbeddingSource, "clap" | "mulan">)}
           >
-            <option value="clap">CLAP</option>
             <option value="mulan">MuQ-MuLan</option>
+            <option value="clap">CLAP</option>
           </select>
         </label>
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>

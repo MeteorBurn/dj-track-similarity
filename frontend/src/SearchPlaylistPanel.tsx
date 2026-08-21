@@ -9,7 +9,7 @@ import {
   formatClassifierScoredTracks,
   orderPromotedClassifiers,
 } from "./classifierCompatibility";
-import type { ClapPromptPreset } from "./clapPrompt";
+import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { EmbeddingSearchTab } from "./EmbeddingSearchTab";
 import { playlistPage } from "./playlistView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
@@ -119,9 +119,12 @@ export function SearchPlaylistPanel({
   onTextEmbeddingFamilyChange,
   seedEmbeddingFamily,
   onSeedEmbeddingFamilyChange,
-  clapPresetKey,
-  onClapPresetChange,
-  clapPromptPresets,
+  selectedPresetKeys,
+  onTogglePreset,
+  onClearPresets,
+  promptAxes,
+  promptPresets,
+  promptNegativeWeight,
   databaseIdentity,
   busy,
   filters,
@@ -176,9 +179,12 @@ export function SearchPlaylistPanel({
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   seedEmbeddingFamily: SeedEmbeddingFamily;
   onSeedEmbeddingFamilyChange: (value: SeedEmbeddingFamily) => void;
-  clapPresetKey: string;
-  onClapPresetChange: (value: string) => void;
-  clapPromptPresets: ClapPromptPreset[];
+  selectedPresetKeys: string[];
+  onTogglePreset: (key: string) => void;
+  onClearPresets: () => void;
+  promptAxes: TextPromptAxis[];
+  promptPresets: TextPromptPreset[];
+  promptNegativeWeight: number | null;
   databaseIdentity: string | null;
   busy: boolean;
   filters: SearchFiltersState;
@@ -513,9 +519,12 @@ export function SearchPlaylistPanel({
             onClapUseNegativePromptChange={onClapUseNegativePromptChange}
             textEmbeddingFamily={textEmbeddingFamily}
             onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
-            clapPresetKey={clapPresetKey}
-            onClapPresetChange={onClapPresetChange}
-            clapPromptPresets={clapPromptPresets}
+            selectedPresetKeys={selectedPresetKeys}
+            onTogglePreset={onTogglePreset}
+            onClearPresets={onClearPresets}
+            promptAxes={promptAxes}
+            promptPresets={promptPresets}
+            negativeWeight={promptNegativeWeight}
             limit={filters.limit}
             onLimitChange={(value) => setFilters({ ...filters, limit: value })}
             textPromptHelp={helpText.textPrompt}

@@ -22,7 +22,12 @@ import {
   defaultAnalysisSelections,
   type AnalysisSelection
 } from "./analysisSelection";
-import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
+import {
+  composePromptBanks,
+  promptQueriesFromText,
+  textPromptAxes,
+  textPromptPresets
+} from "./textPromptPresets";
 import { classifierIsAvailable, classifierScoringBlockedReason } from "./classifierCompatibility";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
@@ -164,10 +169,11 @@ export function App() {
     togglePlaylist,
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
-  const [clapPresetKey, setClapPresetKey] = useState(defaultClapPromptPresetKey);
+  const [selectedPresetKeys, setSelectedPresetKeys] = useState<string[]>([]);
+  const [promptNegativeWeight, setPromptNegativeWeight] = useState<number | null>(null);
   const [clapNegativeQuery, setClapNegativeQuery] = useState("");
   const [clapUseNegativePrompt, setClapUseNegativePrompt] = useState(true);
-  const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<"clap" | "mulan">("clap");
+  const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<"clap" | "mulan">("mulan");
   const [seedEmbeddingFamily, setSeedEmbeddingFamily] = useState<SeedEmbeddingFamily>("mert");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
@@ -218,6 +224,29 @@ export function App() {
       aggression: 0
     }
   });
+  function applyPromptPresets(keys: string[], model: "clap" | "mulan" = textEmbeddingFamily) {
+    const banks = composePromptBanks(keys, model);
+    setSelectedPresetKeys(keys);
+    setTextQuery(banks.positiveText);
+    setClapNegativeQuery(banks.negativeText);
+    setPromptNegativeWeight(banks.negativeWeight);
+  }
+
+  function togglePromptPreset(key: string) {
+    applyPromptPresets(
+      selectedPresetKeys.includes(key)
+        ? selectedPresetKeys.filter((item) => item !== key)
+        : [...selectedPresetKeys, key]
+    );
+  }
+
+  function changeTextEmbeddingFamily(model: "clap" | "mulan") {
+    setTextEmbeddingFamily(model);
+    // Preset wording and hard-negative weight are calibrated per family, so a
+    // selected bank has to be rebuilt when the model changes under it.
+    if (selectedPresetKeys.length) applyPromptPresets(selectedPresetKeys, model);
+  }
+
   const genericSearchRequestGuard = useRef(createRequestTokenGuard());
   const genericSearchAbortController = useRef<AbortController | null>(null);
   const [genericSearchPending, setGenericSearchPending] = useState(false);
@@ -237,7 +266,8 @@ export function App() {
       text_query: textQuery,
       clap_negative_query: clapNegativeQuery,
       clap_use_negative_prompt: clapUseNegativePrompt,
-      clap_preset_key: clapPresetKey,
+      prompt_preset_keys: selectedPresetKeys,
+      prompt_negative_weight: promptNegativeWeight,
       clap_device: analysisDevice,
       text_embedding_family: textEmbeddingFamily,
       seed_embedding_family: seedEmbeddingFamily,
@@ -245,7 +275,8 @@ export function App() {
     [
       analysisDevice,
       clapNegativeQuery,
-      clapPresetKey,
+      selectedPresetKeys,
+      promptNegativeWeight,
       clapUseNegativePrompt,
       textEmbeddingFamily,
       seedEmbeddingFamily,
@@ -1250,7 +1281,10 @@ export function App() {
         positive_queries: positiveQueries,
         negative_queries: negativeQueries,
         adaptive_contrast: true,
-        preset: clapPresetKey,
+        ...(negativeQueries.length && promptNegativeWeight !== null
+          ? { negative_weight: promptNegativeWeight }
+          : {}),
+        preset: selectedPresetKeys.join("+") || null,
         limit: filters.limit,
         device: analysisDevice
       }, {
@@ -1611,12 +1645,15 @@ export function App() {
           clapUseNegativePrompt={clapUseNegativePrompt}
           onClapUseNegativePromptChange={setClapUseNegativePrompt}
           textEmbeddingFamily={textEmbeddingFamily}
-          onTextEmbeddingFamilyChange={setTextEmbeddingFamily}
+          onTextEmbeddingFamilyChange={changeTextEmbeddingFamily}
           seedEmbeddingFamily={seedEmbeddingFamily}
           onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
-          clapPresetKey={clapPresetKey}
-          onClapPresetChange={setClapPresetKey}
-          clapPromptPresets={clapPromptPresets}
+          selectedPresetKeys={selectedPresetKeys}
+          onTogglePreset={togglePromptPreset}
+          onClearPresets={() => applyPromptPresets([])}
+          promptAxes={textPromptAxes}
+          promptPresets={textPromptPresets}
+          promptNegativeWeight={promptNegativeWeight}
           databaseIdentity={databaseCatalogUuid}
           busy={busy || genericSearchPending || randomSonaraTrackPending || !databasePath}
           filters={filters}

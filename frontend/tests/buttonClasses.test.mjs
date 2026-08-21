@@ -369,16 +369,16 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
 
   assert.match(searchSource, /<ClapSearchTab/);
   assert.match(clapSource, /clap-presets-button/);
-  assert.match(clapSource, /applyClapPromptPreset/);
+  assert.match(clapSource, /onTogglePreset\(preset\.key\)/);
   assert.match(clapSource, /document\.addEventListener\("pointerdown"/);
-  assert.match(clapSource, /clapPresetMenuRef/);
+  assert.match(clapSource, /presetMenuRef/);
   assert.doesNotMatch(clapSource, /clap-generate-button/);
-  assert.match(clapSource, /Text query\s*\n\s*<input\s*\n\s*type="text"/);
-  assert.match(clapSource, />\s*Negative\s*</);
-  assert.match(clapSource, /Negative\s*\n\s*<input\s*\n\s*type="text"\s*\n\s*className="clap-negative-input"/);
-  assert.doesNotMatch(clapSource, /<textarea/);
+  assert.match(clapSource, /Prompt bank\s*\n\s*<textarea/);
+  assert.match(clapSource, /clap-preset-axis-button/);
+  assert.match(clapSource, /clap-preset-chip/);
+  assert.match(clapSource, /clap-prompt-hint/);
   assert.doesNotMatch(clapSource, />\s*Avoid\s*</);
-  assert.match(clapSource, /clap-negative-input/);
+  assert.match(clapSource, /className="clap-negative-input"/);
   assert.match(clapSource, /icon-button add-visible-tracks-button clap-negative-toggle/);
   assert.match(clapSource, /clapUseNegativePrompt \? "intent-add active" : ""/);
   assert.match(clapSource, /aria-label="Use negative prompt"/);
@@ -400,6 +400,10 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(appSource, /analysis_family:\s*textEmbeddingFamily/);
   assert.match(appSource, /const\s+\[clapUseNegativePrompt,\s*setClapUseNegativePrompt\]\s*=\s*useState\(true\)/);
   assert.match(appSource, /promptQueriesFromText\(prompt,\s*clapNegativeQuery,\s*clapUseNegativePrompt\)/);
+  assert.match(appSource, /composePromptBanks\(keys,\s*model\)/);
+  assert.match(appSource, /negative_weight:\s*promptNegativeWeight/);
+  assert.match(apiClientSource, /negative_weight\?:\s*number/);
+  assert.match(schemaSource, /negative_weight:\s*float \| None/);
   assert.match(apiClientSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -45,6 +46,9 @@ class _TextEmbeddingAdapter(Protocol):
     def embed_text(self, text: str) -> FloatArray:
         ...
 
+    def embed_texts(self, texts: Sequence[str]) -> list[FloatArray]:
+        ...
+
 
 @dataclass(frozen=True)
 class _TextPromptBank:
@@ -59,13 +63,17 @@ class _ClapTextSearchPlan:
     filters: SearchFilters
     limit: int
     adaptive_contrast: bool
+    negative_weight: float
 
 
 def register_search_routes(
     app: FastAPI,
     state: AppDatabaseState,
     *,
-    text_embedding_adapter: Callable[..., _TextEmbeddingAdapter],
+    text_embedding_adapter: Callable[
+        ...,
+        AbstractContextManager[_TextEmbeddingAdapter],
+    ],
 ) -> None:
     @app.post(
         "/api/search",
@@ -152,20 +160,20 @@ def register_search_routes(
         database = state.require_db()
         try:
             plan = _clap_text_search_plan(request)
-            adapter = text_embedding_adapter(
+            with text_embedding_adapter(
                 request.analysis_family,
                 device=request.device,
-            )
-            analysis_output = embedding_analysis_output(
-                adapter.embedding_key,
-                adapter,
-            )
-            searcher = SimilaritySearch(
-                database,
-                adapter.embedding_key,
-                analysis_output=analysis_output,
-            )
-            results = _search_clap_text_prompts(searcher, adapter, plan)
+            ) as adapter:
+                analysis_output = embedding_analysis_output(
+                    adapter.embedding_key,
+                    adapter,
+                )
+                searcher = SimilaritySearch(
+                    database,
+                    adapter.embedding_key,
+                    analysis_output=analysis_output,
+                )
+                results = _search_clap_text_prompts(searcher, adapter, plan)
             return _hydrate_similarity_results(database, results)
         except VectorIndexUnavailable as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -188,6 +196,11 @@ def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
         filters=SearchFilters(min_similarity=request.min_similarity),
         limit=request.limit,
         adaptive_contrast=request.adaptive_contrast,
+        negative_weight=(
+            CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT
+            if request.negative_weight is None
+            else request.negative_weight
+        ),
     )
 
 
@@ -200,11 +213,11 @@ def _search_clap_text_prompts(
     negative_queries = plan.prompt_bank.negative_queries
     if plan.adaptive_contrast and (negative_queries or len(positive_queries) > 1):
         return searcher.search_contrast_vectors(
-            positive_vectors=[adapter.embed_text(text) for text in positive_queries],
-            negative_vectors=[adapter.embed_text(text) for text in negative_queries],
+            positive_vectors=adapter.embed_texts(positive_queries),
+            negative_vectors=adapter.embed_texts(negative_queries),
             filters=plan.filters,
             limit=plan.limit,
-            negative_weight=CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
+            negative_weight=plan.negative_weight,
         )
     vector = adapter.embed_text(plan.prompt_bank.primary_query)
     return searcher.search_vector(vector, filters=plan.filters, limit=plan.limit)

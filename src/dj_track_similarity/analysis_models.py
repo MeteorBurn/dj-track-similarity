@@ -37,6 +37,7 @@ MAEST_MODEL_NAME = "discogs-maest-30s-pw-129e-519l"
 MERT_MODEL_NAME = "m-a-p/MERT-v1-95M"
 MUQ_MODEL_NAME = "OpenMuQ/MuQ-large-msd-iter"
 MULAN_MODEL_NAME = "OpenMuQ/MuQ-MuLan-large"
+MULAN_TEXT_MODEL_NAME = "xlm-roberta-base"
 CLAP_MODEL_NAME = "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
 CLAP_TEXT_MODEL_NAME = "roberta-base"
 
@@ -50,6 +51,7 @@ MAEST_MODEL_VERSION = "v0.0.0-beta"
 MERT_MODEL_REVISION = "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5"
 MUQ_MODEL_REVISION = "0562a57814f6f8bbd9fdea0a25921a2fce1a841a"
 MULAN_MODEL_REVISION = "57b8af8e903a6fa28b6ba1d7a1578b4d68fcc918"
+MULAN_TEXT_MODEL_REVISION = "e73636d4f797dec63c3081bb6ed5c7b0bb3f2089"
 CLAP_MODEL_REVISION = "b3708341862f581175dba5c356a4ebf74a9b6651"
 CLAP_TEXT_MODEL_REVISION = "e2da8e2f811d1448a5b465c236feacd80ffbac7b"
 
@@ -101,6 +103,28 @@ MULAN_SNAPSHOT_SHA256 = (
         "8fefc545ef87ecd9bcde7417dd03464370c48c321f36dcff20266a752079e468",
     ),
     ("model.safetensors", MULAN_CHECKPOINT_ID.removeprefix("sha256:")),
+)
+MULAN_TEXT_SNAPSHOT_SHA256 = (
+    (
+        "config.json",
+        "d66ed8cd4f2a93b358c245e50736fa389ed4f35c0bae7aad0b32abb20c62b579",
+    ),
+    (
+        "model.safetensors",
+        "6fd4797bc397c3b8b55d6bb5740366b57e6a3ce91c04c77f22aafc0c128e6feb",
+    ),
+    (
+        "sentencepiece.bpe.model",
+        "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865",
+    ),
+    (
+        "tokenizer.json",
+        "a898ea75433890f6610f4e470b8ebeb0c21dce5c8dd61f892eb09eb5919d2e2c",
+    ),
+    (
+        "tokenizer_config.json",
+        "994f46754c5bf4014f1aa92d34b1374319c3a6b3f702105cd5b742beaecd18ce",
+    ),
 )
 CLAP_TEXT_SNAPSHOT_SHA256 = (
     (

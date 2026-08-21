@@ -24,6 +24,7 @@ from .embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
 from .ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from .logging_config import configure_logging, install_asyncio_exception_logging, install_standard_stream_logging
 from .rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
+from .text_embedding_cache import TextEmbeddingAdapterCache
 
 
 LOGGER = logging.getLogger(__name__)
@@ -141,10 +142,12 @@ def create_app(
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_evaluation_routes(app, state)
     register_reference_compare_routes(app, state)
+    text_adapters = TextEmbeddingAdapterCache(_text_embedding_adapter)
+    app.router.on_shutdown.append(text_adapters.close)
     register_search_routes(
         app,
         state,
-        text_embedding_adapter=_text_embedding_adapter,
+        text_embedding_adapter=text_adapters.acquire,
     )
     register_server_routes(app, stop_rhythm_lab=stop_rhythm_lab)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)

@@ -294,6 +294,7 @@ class TextSearchRequest(BaseModel):
     positive_queries: list[str] = Field(default_factory=list)
     negative_queries: list[str] = Field(default_factory=list)
     adaptive_contrast: bool = True
+    negative_weight: float | None = Field(default=None, ge=0.0, le=2.0)
     preset: str | None = None
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = None

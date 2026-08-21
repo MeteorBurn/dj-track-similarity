@@ -25,12 +25,13 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 
 class FakeClapAdapter(ClapEmbeddingAdapter):
     queries: list[str] = []
+    instances: int = 0
 
     def __init__(self, device: str = "auto") -> None:
         super().__init__(device=device)
+        type(self).instances += 1
 
-    def embed_text(self, query: str):
-        self.queries.append(query)
+    def embed_texts(self, texts):
         vectors = {
             "dark rolling techno": [0.0, 1.0, 0.0],
             "track with vocals and speech": [0.0, 1.0, 0.0],
@@ -39,24 +40,29 @@ class FakeClapAdapter(ClapEmbeddingAdapter):
             "syncopated percussion.": [0.0, 1.0, 0.0],
             "straight house groove.": [0.0, 0.0, 1.0],
         }
-        return _typed_vector(
-            current_embedding_analysis_output("clap"),
-            vectors[query],
-        )
+        output = current_embedding_analysis_output("clap")
+        embedded = []
+        for query in texts:
+            self.queries.append(query)
+            embedded.append(_typed_vector(output, vectors[query]))
+        return embedded
 
 
 class FakeMulanAdapter(MuqMulanEmbeddingAdapter):
     queries: list[str] = []
+    instances: int = 0
 
     def __init__(self, device: str = "auto") -> None:
         super().__init__(device=device)
+        type(self).instances += 1
 
-    def embed_text(self, query: str):
-        self.queries.append(query)
-        return _typed_vector(
-            current_embedding_analysis_output("mulan"),
-            [0.0, 1.0, 0.0],
-        )
+    def embed_texts(self, texts):
+        output = current_embedding_analysis_output("mulan")
+        embedded = []
+        for query in texts:
+            self.queries.append(query)
+            embedded.append(_typed_vector(output, [0.0, 1.0, 0.0]))
+        return embedded
 
 
 def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> None:
@@ -78,6 +84,26 @@ def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> N
     assert [item["track"]["track_id"] for item in payload] == [near_id, far_id]
     assert payload[0]["score"] > payload[1]["score"]
     assert FakeClapAdapter.queries == ["dark rolling techno"]
+
+
+def test_repeated_text_search_reuses_one_loaded_adapter(monkeypatch, tmp_path: Path) -> None:
+    FakeClapAdapter.queries = []
+    FakeClapAdapter.instances = 0
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    _track_with_embedding(db, "near.wav", [0.0, 1.0, 0.0], "clap")
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    client = TestClient(create_app(db_path))
+
+    for _ in range(3):
+        response = client.post(
+            "/api/search/text",
+            json={"query": "dark rolling techno", "limit": 5, "device": "cpu"},
+        )
+        assert response.status_code == 200
+
+    assert FakeClapAdapter.instances == 1
+    assert FakeClapAdapter.queries == ["dark rolling techno"] * 3
 
 
 def test_text_search_uses_persisted_mulan_embeddings_only(
@@ -211,6 +237,48 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
         "negative_weight": 0.35,
     }
     assert FakeClapAdapter.queries == ["broken drums.", "straight house groove."]
+
+
+def test_text_search_applies_a_preset_negative_weight(monkeypatch, tmp_path: Path) -> None:
+    FakeClapAdapter.queries = []
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    positive_id = _track_with_embedding(db, "positive.wav", [1.0, 0.0, 0.0], "clap")
+    negative_aligned_id = _track_with_embedding(
+        db, "negative-aligned.wav", [0.70710677, 0.0, 0.70710677], "clap"
+    )
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search/text",
+        json={
+            "query": "broken drums.",
+            "positive_queries": ["broken drums."],
+            "negative_queries": ["straight house groove."],
+            "adaptive_contrast": True,
+            "negative_weight": 1.0,
+            "limit": 5,
+            "device": "cpu",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["track"]["track_id"] for item in payload] == [
+        positive_id,
+        negative_aligned_id,
+    ]
+    assert payload[1]["score_breakdown"]["negative_weight"] == 1.0
+    assert payload[1]["score"] == pytest.approx(0.0)
+
+
+def test_text_search_rejects_a_negative_weight_outside_the_contract(tmp_path: Path) -> None:
+    response = TestClient(create_app(tmp_path / "library.sqlite")).post(
+        "/api/search/text",
+        json={"query": "broken drums.", "negative_weight": -0.5},
+    )
+
+    assert response.status_code == 422
 
 
 def test_text_search_disabled_adaptive_contrast_uses_single_positive_prompt(monkeypatch, tmp_path: Path) -> None:

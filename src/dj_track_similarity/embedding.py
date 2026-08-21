@@ -48,6 +48,9 @@ from .analysis_models import (
     MULAN_MODEL_REVISION,
     MULAN_PREPROCESSING,
     MULAN_SNAPSHOT_SHA256,
+    MULAN_TEXT_MODEL_NAME,
+    MULAN_TEXT_MODEL_REVISION,
+    MULAN_TEXT_SNAPSHOT_SHA256,
 )
 from .audio_loader import DecodedAudio
 from .genres import rank_maest_genres
@@ -66,6 +69,7 @@ from .verified_assets import (
 
 
 _CLAP_CONSTRUCTION_LOCK = threading.RLock()
+_MULAN_CONSTRUCTION_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -673,6 +677,14 @@ class MuqMulanEmbeddingAdapter:
     normalization = "l2"
     snapshot_files = ("config.json", checkpoint_filename)
     snapshot_sha256 = MULAN_SNAPSHOT_SHA256
+    text_model_name = MULAN_TEXT_MODEL_NAME
+    text_model_revision = MULAN_TEXT_MODEL_REVISION
+    text_snapshot_files = tuple(
+        file_name for file_name, _digest in MULAN_TEXT_SNAPSHOT_SHA256
+    )
+    text_snapshot_sha256 = MULAN_TEXT_SNAPSHOT_SHA256
+    text_checkpoint_filename = "model.safetensors"
+    text_checkpoint_sha256 = dict(text_snapshot_sha256)[text_checkpoint_filename]
 
     def __init__(
         self,
@@ -712,6 +724,13 @@ class MuqMulanEmbeddingAdapter:
             "checkpoint_filename": self.checkpoint_filename,
             "snapshot_files": self.snapshot_files,
             "snapshot_sha256": self.snapshot_sha256,
+            "text_model_name": self.text_model_name,
+            "text_model_revision": self.text_model_revision,
+            "text_snapshot_files": self.text_snapshot_files,
+            "text_snapshot_sha256": self.text_snapshot_sha256,
+            "text_loader_policy": (
+                "verified-private-snapshot-local-files-only"
+            ),
         }
 
     def preflight(self) -> None:
@@ -727,17 +746,37 @@ class MuqMulanEmbeddingAdapter:
         return self._embed_decoded_items(decoded_items)
 
     def embed_text(self, text: str) -> np.ndarray:
+        return self.embed_texts([text])[0]
+
+    def embed_texts(self, texts: Sequence[str]) -> list[np.ndarray]:
+        """Embed a prompt bank one prompt per forward pass.
+
+        The upstream text tower pads a batch to its longest prompt and then
+        mean-pools its own transformer over every position, padding included,
+        so a batched vector shifts with whatever else shares the batch
+        (measured cosine 0.9952 against the unbatched vector). One prompt per
+        forward keeps a prompt's vector identical in every bank it appears in.
+        """
+
+        prompts = list(texts)
+        if not prompts:
+            return []
         self._load_model()
         torch = self._torch
         assert torch is not None and self._model is not None
-        with torch.inference_mode():
-            output = self._model(texts=[text])
-        return _normalized_embedding_rows(
-            output,
-            expected_rows=1,
-            expected_dim=self.dim,
-            model_label="MuQ-MuLan text",
-        )[0]
+        embedded: list[np.ndarray] = []
+        for prompt in prompts:
+            with torch.inference_mode():
+                output = self._model(texts=[prompt])
+            embedded.extend(
+                _normalized_embedding_rows(
+                    output,
+                    expected_rows=1,
+                    expected_dim=self.dim,
+                    model_label="MuQ-MuLan text",
+                )
+            )
+        return embedded
 
     def _embed_decoded_items(
         self,
@@ -795,20 +834,34 @@ class MuqMulanEmbeddingAdapter:
 
         self._torch = torch
         self._torchaudio = torchaudio
-        binding = _download_verified_hf_snapshot(
-            snapshot_download,
-            repo_id=self.model_name,
-            revision=self.model_revision,
-            required_files=self.snapshot_files,
-            expected_sha256=self.snapshot_sha256,
-            checkpoint_filename=self.checkpoint_filename,
-            expected_checkpoint_sha256=self.checkpoint_sha256,
-        )
-        with binding as verified:
+        with ExitStack() as assets:
+            verified = assets.enter_context(
+                _download_verified_hf_snapshot(
+                    snapshot_download,
+                    repo_id=self.model_name,
+                    revision=self.model_revision,
+                    required_files=self.snapshot_files,
+                    expected_sha256=self.snapshot_sha256,
+                    checkpoint_filename=self.checkpoint_filename,
+                    expected_checkpoint_sha256=self.checkpoint_sha256,
+                )
+            )
+            verified_text_snapshot = assets.enter_context(
+                _download_verified_hf_snapshot(
+                    snapshot_download,
+                    repo_id=self.text_model_name,
+                    revision=self.text_model_revision,
+                    required_files=self.text_snapshot_files,
+                    expected_sha256=self.text_snapshot_sha256,
+                    checkpoint_filename=self.text_checkpoint_filename,
+                    expected_checkpoint_sha256=self.text_checkpoint_sha256,
+                )
+            )
             self.device = self._device()
-            model = MuQMuLan.from_pretrained(
-                str(verified.path),
-                local_files_only=True,
+            model = _construct_muq_mulan_with_pinned_text_model(
+                MuQMuLan,
+                snapshot_path=verified.path,
+                text_snapshot_path=verified_text_snapshot.path,
             )
         to_float = getattr(model, "float", None)
         if callable(to_float):
@@ -966,12 +1019,25 @@ class ClapEmbeddingAdapter:
         return vectors
 
     def embed_text(self, text: str) -> np.ndarray:
+        return self.embed_texts([text])[0]
+
+    def embed_texts(self, texts: Sequence[str]) -> list[np.ndarray]:
+        """Embed a whole prompt bank in one forward pass."""
+
+        prompts = list(texts)
+        if not prompts:
+            return []
         self._load_model()
         torch = self._torch
         assert torch is not None and self._model is not None
         with torch.inference_mode():
-            features = self._model.get_text_embedding([text], use_tensor=False)
-        return _normalize_rows(_array_output_to_numpy(features))[0]
+            features = self._model.get_text_embedding(prompts, use_tensor=False)
+        return _normalized_embedding_rows(
+            features,
+            expected_rows=len(prompts),
+            expected_dim=self.dim,
+            model_label="CLAP text",
+        )
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -1281,6 +1347,75 @@ def _construct_clap_module_with_pinned_text_model(
         finally:
             hook_module.RobertaTokenizer = original_tokenizer_loader
             clap_model_module.RobertaModel = original_model_loader
+
+
+def _construct_muq_mulan_with_pinned_text_model(
+    mulan_module_type,
+    *,
+    snapshot_path: Path,
+    text_snapshot_path: Path,
+):
+    """Construct MuQ-MuLan without permitting its floating XLM-R loads.
+
+    The upstream text tower resolves ``xlm-roberta-base`` from the ambient Hub
+    cache twice: the encoder while the model is built, and the tokenizer lazily
+    on the first text embedding. Both are bound to the verified snapshot here,
+    and the tokenizer is materialised while that binding is still installed so
+    no later call can reach the Hub.
+    """
+
+    with _MULAN_CONSTRUCTION_LOCK:
+        text_module = importlib.import_module("muq.muq_mulan.models.text")
+        original_tokenizer_loader = getattr(text_module, "AutoTokenizer", None)
+        original_model_loader = getattr(text_module, "XLMRobertaModel", None)
+        if not callable(
+            getattr(original_tokenizer_loader, "from_pretrained", None)
+        ):
+            raise RuntimeError(
+                "Pinned muq internals do not expose AutoTokenizer"
+            )
+        if not callable(getattr(original_model_loader, "from_pretrained", None)):
+            raise RuntimeError(
+                "Pinned muq internals do not expose XLMRobertaModel"
+            )
+
+        text_module.AutoTokenizer = _local_only_from_pretrained_proxy(
+            original_tokenizer_loader,
+            snapshot_path=text_snapshot_path,
+            expected_source=MULAN_TEXT_MODEL_NAME,
+            description="MuQ-MuLan XLM-R tokenizer",
+        )
+        text_module.XLMRobertaModel = _local_only_from_pretrained_proxy(
+            original_model_loader,
+            snapshot_path=text_snapshot_path,
+            expected_source=MULAN_TEXT_MODEL_NAME,
+            description="MuQ-MuLan XLM-R encoder",
+        )
+        try:
+            model = mulan_module_type.from_pretrained(
+                str(snapshot_path),
+                local_files_only=True,
+            )
+            _materialize_mulan_text_tokenizer(model)
+            return model
+        finally:
+            text_module.AutoTokenizer = original_tokenizer_loader
+            text_module.XLMRobertaModel = original_model_loader
+
+
+def _materialize_mulan_text_tokenizer(model: object) -> None:
+    """Load the lazy tokenizer while the verified loaders are still bound."""
+
+    mulan = getattr(model, "mulan_module", None)
+    text_tower = getattr(mulan, "text", None)
+    if text_tower is None or not hasattr(text_tower, "tokenizer"):
+        raise RuntimeError(
+            "Pinned muq internals do not expose the MuQ-MuLan text tower"
+        )
+    if text_tower.tokenizer is None:
+        raise RuntimeError(
+            "MuQ-MuLan tokenizer did not load from the verified snapshot"
+        )
 
 
 def _local_only_from_pretrained_proxy(

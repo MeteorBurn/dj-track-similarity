@@ -306,13 +306,56 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     monkeypatch,
     tmp_path,
 ) -> None:
-    calls: dict[str, object] = {}
+    calls: dict[str, object] = {"downloads": []}
     snapshot = tmp_path / "mulan-snapshot"
     snapshot.mkdir()
     for file_name in MuqMulanEmbeddingAdapter.snapshot_files:
         (snapshot / file_name).write_bytes(file_name.encode())
+    text_snapshot = tmp_path / "xlm-roberta-snapshot"
+    text_snapshot.mkdir()
+    for file_name in MuqMulanEmbeddingAdapter.text_snapshot_files:
+        (text_snapshot / file_name).write_bytes(file_name.encode())
+
+    text_module = types.ModuleType("muq.muq_mulan.models.text")
+
+    class VerifiedTokenizerLoader:
+        @staticmethod
+        def from_pretrained(source, **kwargs):
+            calls["tokenizer_load"] = (source, kwargs)
+            assert (Path(source) / "tokenizer.json").read_bytes() == b"tokenizer.json"
+            return object()
+
+    class VerifiedEncoderLoader:
+        @staticmethod
+        def from_pretrained(source, **kwargs):
+            calls["encoder_load"] = (source, kwargs)
+            assert (Path(source) / "config.json").read_bytes() == b"config.json"
+            return object()
+
+    text_module.AutoTokenizer = VerifiedTokenizerLoader
+    text_module.XLMRobertaModel = VerifiedEncoderLoader
+
+    class FakeTextTower:
+        def __init__(self) -> None:
+            self.model_name = MuqMulanEmbeddingAdapter.text_model_name
+            self._tokenizer = None
+
+        @property
+        def tokenizer(self):
+            if self._tokenizer is None:
+                self._tokenizer = text_module.AutoTokenizer.from_pretrained(
+                    self.model_name,
+                )
+            return self._tokenizer
+
+    class FakeMuLan:
+        def __init__(self) -> None:
+            self.text = FakeTextTower()
 
     class FakeModel:
+        def __init__(self) -> None:
+            self.mulan_module = FakeMuLan()
+
         def float(self):
             return self
 
@@ -326,12 +369,19 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
         @staticmethod
         def from_pretrained(model_path, **kwargs):
             calls["model"] = (model_path, kwargs)
+            text_module.XLMRobertaModel.from_pretrained(
+                MuqMulanEmbeddingAdapter.text_model_name,
+            )
             return FakeModel()
 
     hf_module = types.ModuleType("huggingface_hub")
 
     def download(*, repo_id, revision, allow_patterns, local_files_only):
-        calls["download"] = (repo_id, revision, allow_patterns, local_files_only)
+        calls["downloads"].append(
+            (repo_id, revision, allow_patterns, local_files_only)
+        )
+        if repo_id == MuqMulanEmbeddingAdapter.text_model_name:
+            return str(text_snapshot)
         return str(snapshot)
 
     hf_module.snapshot_download = download
@@ -341,6 +391,7 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     monkeypatch.setitem(sys.modules, "torchaudio", types.ModuleType("torchaudio"))
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
     monkeypatch.setitem(sys.modules, "muq", muq_module)
+    monkeypatch.setitem(sys.modules, "muq.muq_mulan.models.text", text_module)
     monkeypatch.setattr(
         embedding,
         "_verify_checkpoint_sha256",
@@ -355,18 +406,42 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     adapter.checkpoint_sha256 = dict(adapter.snapshot_sha256)[
         adapter.checkpoint_filename
     ]
+    adapter.text_snapshot_sha256 = tuple(
+        (file_name, hashlib.sha256(file_name.encode()).hexdigest())
+        for file_name in adapter.text_snapshot_files
+    )
+    adapter.text_checkpoint_sha256 = dict(adapter.text_snapshot_sha256)[
+        adapter.text_checkpoint_filename
+    ]
     adapter._load_model()
 
-    assert calls["download"] == (
-        adapter.model_name,
-        adapter.model_revision,
-        list(adapter.snapshot_files),
-        False,
-    )
+    assert calls["downloads"] == [
+        (
+            adapter.model_name,
+            adapter.model_revision,
+            list(adapter.snapshot_files),
+            False,
+        ),
+        (
+            adapter.text_model_name,
+            adapter.text_model_revision,
+            list(adapter.text_snapshot_files),
+            False,
+        ),
+    ]
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
     assert not Path(model_path).exists()
     assert model_kwargs == {"local_files_only": True}
+    tokenizer_path, tokenizer_kwargs = calls["tokenizer_load"]
+    encoder_path, encoder_kwargs = calls["encoder_load"]
+    assert tokenizer_path == encoder_path
+    assert tokenizer_path != str(text_snapshot)
+    assert not Path(tokenizer_path).exists()
+    assert tokenizer_kwargs == {"local_files_only": True}
+    assert encoder_kwargs == {"local_files_only": True}
+    assert text_module.AutoTokenizer is VerifiedTokenizerLoader
+    assert text_module.XLMRobertaModel is VerifiedEncoderLoader
 
 
 def test_clap_loader_uses_verified_checkpoint_and_text_assets(

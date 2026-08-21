@@ -29,6 +29,14 @@ from dj_track_similarity.logging_config import configure_logging
 from dj_track_similarity.maest_windows import MaestWindowContext
 
 
+def _text_embedding_rows(rows: int) -> np.ndarray:
+    """Stand in for the CLAP text branch, which always returns 512 columns."""
+
+    matrix = np.zeros((rows, ClapEmbeddingAdapter.dim), dtype=np.float32)
+    matrix[:, 1] = 2.0
+    return matrix
+
+
 def test_clap_adapter_uses_immutable_music_checkpoint_identity() -> None:
     assert ClapEmbeddingAdapter.embedding_key == "clap"
     assert ClapEmbeddingAdapter.checkpoint_repo == "lukewys/laion_clap"
@@ -205,7 +213,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
 
         def get_text_embedding(self, texts, use_tensor=False):
             calls["texts"] = (texts, use_tensor)
-            return np.array([[0.0, 2.0, 0.0]], dtype=np.float32)
+            return _text_embedding_rows(len(texts))
 
     FakeClapModule.__module__ = "laion_clap.hook"
     hook_module.CLAP_Module = FakeClapModule
@@ -279,7 +287,9 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     assert hook_module.RobertaTokenizer is FloatingTokenizerLoader
     assert clap_model_module.RobertaModel is FloatingModelLoader
     assert calls["texts"] == (["warm minimal house"], False)
-    assert vector.tolist() == [0.0, 1.0, 0.0]
+    expected = np.zeros(ClapEmbeddingAdapter.dim, dtype=np.float32)
+    expected[1] = 1.0
+    assert vector.tolist() == expected.tolist()
 
 
 def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
@@ -336,7 +346,7 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
             print("CLAP warning from stderr", file=sys.stderr)
 
         def get_text_embedding(self, texts, use_tensor=False):
-            return np.array([[0.0, 2.0, 0.0]], dtype=np.float32)
+            return _text_embedding_rows(len(texts))
 
     laion_module.CLAP_Module = FakeClapModule
 

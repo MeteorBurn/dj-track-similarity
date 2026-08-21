@@ -64,13 +64,15 @@ class CrossCheck:
     top_share: float
     base_rate: float
     lift: float
+    independence: str
     verdict: str
 
     def as_row(self) -> str:
+        marker = "echo" if self.independence == "echo" else "orth"
         return (
             f"{self.label:<26}{self.model:<7}{self.reference:<34}"
             f"{self.statistic:>7.3f}{self.top_share:>8.2f}{self.base_rate:>8.2f}"
-            f"{self.lift:>7.1f}  {self.verdict}"
+            f"{self.lift:>7.1f}  {marker:<6}{self.verdict}"
         )
 
 
@@ -128,6 +130,10 @@ def check_family(
         reference = references.get(label)
         if reference is None:
             continue
+        if family in entry.get("blind", ()):
+            # The reference consumed this family's audio embedding during
+            # training, so scoring them together measures self-agreement.
+            continue
         preset = presets[label]
         positives = adapter.embed_texts(resolve_variants(preset.get("positive"), family))
         negatives = adapter.embed_texts(resolve_variants(preset.get("negative"), family))
@@ -152,6 +158,7 @@ def measure(
     scores: FloatArray,
 ) -> CrossCheck:
     direction = float(entry.get("direction", 1))
+    independence = str(entry.get("independence", "orthogonal"))
     oriented = scores * direction
     # The statistic is orientation-aware, but the reported sample must always be
     # the tracks this label ranks highest, whatever direction it expects.
@@ -190,22 +197,31 @@ def measure(
         top_share=top_share,
         base_rate=base_rate,
         lift=lift,
-        verdict=verdict_for(statistic, lift),
+        independence=independence,
+        verdict=verdict_for(statistic, lift, independence),
     )
 
 
-def verdict_for(statistic: float, lift: float) -> str:
+def verdict_for(statistic: float, lift: float, independence: str) -> str:
     """Judge global ordering and the top of the list together.
 
     A label can order the whole library poorly and still be useful: what a DJ
     reads is the first screen. Voice labels here reach a fivefold lift in the
     top 100 while their AUC stays near chance, so AUC alone would reject them.
+
+    An echo reference is capped at "consistent". It is a head carrying this
+    label's own genre name, learned from the same web tag conventions as the
+    text towers, so their errors correlate and agreement shows a shared
+    vocabulary rather than a working label. Disagreement still counts: a label
+    that inverts against its own name is broken whatever the reference is.
     """
 
     strong_lift = lift >= 3.0 if np.isfinite(lift) else False
     weak_lift = lift >= 1.5 if np.isfinite(lift) else False
     if statistic < 0.45 and not weak_lift:
         return "INVERTED"
+    if independence == "echo":
+        return "consistent" if statistic >= BINARY_WEAK or weak_lift else "suspect"
     if statistic >= BINARY_STRONG or strong_lift:
         return "ok"
     if statistic >= BINARY_WEAK or weak_lift:
@@ -278,6 +294,11 @@ def load_references(
     needs_key = any(entry.get("expr") == "key_minor" for entry in spec.values())
     needs_syncopation = any(entry.get("expr") == "syncopated" for entry in spec.values())
     genre_labels = {entry["label"] for entry in spec.values() if entry.get("source") == "maest" and "label" in entry}
+    classifier_keys = {
+        entry["classifier"]
+        for entry in spec.values()
+        if entry.get("source") == "classifier" and "classifier" in entry
+    }
 
     columns: dict[str, NDArray[np.float64]] = {}
     with sqlite3.connect(read_only_uri(db_path), uri=True) as connection:
@@ -317,10 +338,43 @@ def load_references(
                 present = {item["label"] for item in json.loads(payload or "[]")}
                 for name in genre_labels & present:
                     columns[name][index] = 1.0
+        if classifier_keys:
+            # A promoted Rhythm Lab classifier is the only reference this project
+            # has for the instrument and voice axes, which SONARA and MAEST do
+            # not describe. It is still a proxy: it carries the owner's own
+            # labelling decisions, not an external truth.
+            available = {
+                row[0]
+                for row in connection.execute("select distinct classifier_key from classifier_scores")
+            }
+            unknown = sorted(classifier_keys - available)
+            if unknown:
+                # A misspelled key leaves an all-NaN column that the coverage
+                # guard below drops with only a stderr line, so the run would
+                # look healthy while silently losing every label behind it.
+                raise SystemExit(
+                    f"References name classifier keys absent from {db_path.name}: {unknown}. "
+                    f"Scored keys are: {sorted(available) or 'none'}"
+                )
+            for name in classifier_keys:
+                columns[name] = np.full(rows, np.nan)
+            wanted = sorted(classifier_keys)
+            placeholders = ", ".join("?" * len(wanted))
+            for classifier_key, track_id, score in connection.execute(
+                "select classifier_key, track_id, score from classifier_scores "
+                f"where classifier_key in ({placeholders})",
+                wanted,
+            ):
+                index = row_of_track.get(track_id)
+                if index is None or score is None:
+                    continue
+                columns[classifier_key][index] = float(score)
 
     references: dict[str, Reference] = {}
     for label, entry in spec.items():
-        name = entry.get("field") or entry.get("expr") or entry.get("label")
+        name = (
+            entry.get("field") or entry.get("expr") or entry.get("label") or entry.get("classifier")
+        )
         values = columns.get(name)
         if values is None:
             continue
@@ -350,7 +404,7 @@ def read_only_uri(path: Path) -> str:
 def print_report(checks: list[CrossCheck]) -> None:
     header = (
         f"{'label':<26}{'model':<7}{'reference':<34}"
-        f"{'AUC':>7}{'top100':>8}{'lib':>8}{'lift':>7}  verdict"
+        f"{'AUC':>7}{'top100':>8}{'lib':>8}{'lift':>7}  {'ref':<6}verdict"
     )
     print(header)
     print("-" * len(header))
@@ -358,13 +412,20 @@ def print_report(checks: list[CrossCheck]) -> None:
         print(item.as_row())
 
     print()
+    verdicts = ("ok", "consistent", "weak", "suspect", "INVERTED")
     for model in dict.fromkeys(item.model for item in checks):
         subset = [item for item in checks if item.model == model]
         counts = {
-            verdict: sum(1 for item in subset if item.verdict == verdict)
-            for verdict in ("ok", "weak", "suspect", "INVERTED")
+            verdict: sum(1 for item in subset if item.verdict == verdict) for verdict in verdicts
         }
         print(f"{model}: " + ", ".join(f"{name} {count}" for name, count in counts.items()))
+
+    print()
+    print(
+        "'ok' is the only verdict that claims a label works: it needs a reference of a "
+        "different kind than the label name. 'consistent' means the label agrees with a "
+        "head carrying its own genre name, which shows a shared vocabulary, not evidence."
+    )
 
 
 if __name__ == "__main__":

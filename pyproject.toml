@@ -81,3 +81,8 @@ markers = [
   "slow: long-running integration/benchmark tests",
   "evaluation: retrieval/evaluation layer",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

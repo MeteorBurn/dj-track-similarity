@@ -91,14 +91,61 @@ and checks that ranking against SONARA features and MAEST genres.
 This is a cross-check, not ground truth. A weak result can mean the label is weak, or that the
 reference does not describe it.
 
-Measured on a 45,508 track library with MuQ-MuLan, 46 of the labels have a reference. Genre labels
-score highest: `jungle` reaches ROC-AUC `0.975` and fills 41% of its top 100 against a library rate
-of `0.2%`. `disco`, `drum and bass` and `experimental` behave the same way. Rhythm labels also hold
-up, with `breakbeat` at `0.785` against the MAEST syncopation flag.
+### What a reference can prove
 
-Voice labels tell a different story. Their global ROC-AUC sits near chance, yet `male lead` fills
-66% of its top 100 with vocal tracks where the library rate is 13%. The label orders the first
-screen well and the rest of the library poorly, which is what a shortlist needs.
+References are not equal, so each one declares what it is worth.
+
+An **orthogonal** reference measures a different kind of signal than the label names: spectral
+shape, syncopation, chord rate, vocal probability. Agreement there is evidence, and `ok` is
+reserved for it.
+
+An **echo** reference is a MAEST head carrying the label's own genre name. Both the head and the
+text encoders learned genre names from overlapping web tag conventions, so their errors correlate
+and agreement shows a shared vocabulary rather than a working label. Echo results are capped at
+`consistent` and never read as confirmation. Disagreement still counts: a label that ranks against
+its own name is broken whatever the reference is.
+
+This distinction inverts the obvious reading of the numbers. `jungle` reaches ROC-AUC `0.975`
+against the head named "Jungle", while `breakbeat` reaches `0.785` against a rhythm feature, and
+the second is the stronger result.
+
+### Results
+
+Measured on a 45,508 track library, 66 of the 107 labels have a reference.
+
+| Verdict | MuQ-MuLan | CLAP |
+| --- | --- | --- |
+| `ok`, orthogonal reference | 17 | 21 |
+| `consistent`, echo reference | 16 | 15 |
+| `weak` | 19 | 23 |
+| `suspect` | 9 | 1 |
+| `INVERTED` | 5 | 6 |
+
+The two models are not interchangeable, and neither is better everywhere. Measured by the share of
+the reference in the first 100 rows, MuQ-MuLan leads on style, groove, voice and harmony, while
+CLAP leads on instruments, texture, energy and low end. The largest gap is the instrument axis,
+where CLAP reaches `0.719` against MuQ-MuLan's `0.454`.
+
+That gap shows up as outright failures. MuQ-MuLan inverts on `trumpet`, `nylon guitar`,
+`saxophone`, `slap bass` and `strings and brass`: it ranks programmed electronic tracks first for
+labels naming an acoustic instrument. CLAP handles the same labels and inverts elsewhere, on
+`spoken`, `chopped`, `clean` and `glassy`.
+
+Voice labels behave differently again. Their global ROC-AUC sits near chance, yet `male lead` fills
+71% of its top 100 with vocal tracks under CLAP and 66% under MuQ-MuLan, where the library rate is
+13%. The label orders the first screen well and the rest of the library poorly, which is what a
+shortlist needs, so the verdict weighs the top of the list alongside the whole ordering.
+
+### Limits
+
+Twenty one instrument labels share one reference, SONARA acousticness, and eleven voice labels share
+SONARA vocal probability. Those references catch a label that ranks the wrong way. They say nothing
+about whether a label finds a sitar rather than a piano: no stored signal tells the two apart.
+Roughly eighteen labels have a reference specific enough to test their own claim.
+
+Promoted Rhythm Lab classifiers are deliberately not used as references. A classifier carries its
+owner's own labelling, so certifying the text layer with it would test that layer on exactly the
+task where a trained classifier already does better.
 
 Three labels failed and were removed. `minor` and `major` scored at chance on both models: neither
 text tower hears key mode, and SONARA already detects it. `machines` ranked acoustic tracks first,

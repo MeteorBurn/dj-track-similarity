@@ -532,6 +532,11 @@ sonara = [
     { name = "sonara" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "av", specifier = "==17.1.0" },
@@ -564,6 +569,9 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["ann", "sonara", "ml", "rhythm-lab", "dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "easydict"

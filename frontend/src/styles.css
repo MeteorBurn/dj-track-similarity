@@ -2985,9 +2985,12 @@ h2 {
   align-items: center;
   color: var(--text-muted);
   display: flex;
+  /* .text-search-box label stacks its children; this one reads as one line. */
+  flex-direction: row;
   flex: 1;
   font-size: 11px;
   gap: 8px;
+  white-space: nowrap;
 }
 
 .clap-negative-weight-row input[type="range"] {

@@ -216,8 +216,7 @@ export function ClapSearchTab({
             className="clap-negative-field"
             title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
           >
-            Negative · вес {appliedNegativeWeight.toFixed(2)}
-            {negativeWeight === null ? " (по умолчанию)" : null}
+            Negative
             <textarea
               className="clap-negative-input"
               rows={3}

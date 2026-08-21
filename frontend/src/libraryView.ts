@@ -5,8 +5,6 @@ export type LibraryPreset = "all" | "syncopated";
 export type LibrarySortDirection = "forward" | "reverse";
 export type LibrarySearchMode = "like" | "fts";
 
-export const libraryPageSize = 100;
-
 export function appendVisibleTracksToPlaylist(playlist: Track[], visibleTracks: Track[]) {
   const existing = new Set(playlist.map(libraryTrackIdentityKey));
   const additions = visibleTracks.filter((track) => {
@@ -46,19 +44,21 @@ export function nextLibraryPlaybackTrack(
   return alternatives[Math.min(alternatives.length - 1, Math.floor(random() * alternatives.length))] || null;
 }
 
-export function libraryPageCount(total: number, pageSize = libraryPageSize) {
+// `pageSize` is required on purpose: the loader in `libraryLoading` owns the
+// single page size, and a local default here silently disagreed with it.
+export function libraryPageCount(total: number, pageSize: number) {
   if (total <= 0 || pageSize <= 0) return 0;
   return Math.ceil(total / pageSize);
 }
 
-export function libraryCurrentPageNumber(total: number, offset: number, pageSize = libraryPageSize) {
+export function libraryCurrentPageNumber(total: number, offset: number, pageSize: number) {
   const pages = libraryPageCount(total, pageSize);
   if (!pages) return 0;
   const current = Math.floor(Math.max(0, offset) / pageSize) + 1;
   return Math.min(current, pages);
 }
 
-export function libraryPageOffsetForNumber(pageNumber: number, total: number, pageSize = libraryPageSize) {
+export function libraryPageOffsetForNumber(pageNumber: number, total: number, pageSize: number) {
   const pages = libraryPageCount(total, pageSize);
   if (!pages) return 0;
   const requested = Number.isFinite(pageNumber) ? Math.trunc(pageNumber) : 1;

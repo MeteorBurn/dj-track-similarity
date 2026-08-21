@@ -43,7 +43,7 @@ export const textPromptAxes: TextPromptAxis[] = [
   { key: "groove", label: "Грув", hint: "Рисунок ритма: брейки, ровная бочка, халфтайм, свинг, полиритмия." },
   { key: "low", label: "Низ", hint: "Характер баса и низа: саб, кислота, рииз, сухой панч." },
   { key: "texture", label: "Фактура", hint: "Тембр и обработка: даб, металл, глитч, lo-fi, чистый продакшн." },
-  { key: "harmony", label: "Гармония", hint: "Лад и аккорды: минор, мажор, модальность, диссонанс, джазовые расширения." },
+  { key: "harmony", label: "Гармония", hint: "Аккорды и плотность смен: модальность, диссонанс, дрон, джаз. Лад минор-мажор берётся из SONARA: обе текстовые модели на нём на уровне случайности." },
   { key: "voice", label: "Голос", hint: "Присутствие и характер голоса: вокал, речь, нарезки, хор, инструментал." },
   { key: "instruments", label: "Инструменты", hint: "Конкретные инструменты и машины. Самая слабая ось у моделей — сверяйся ушами." },
   { key: "space", label: "Пространство", hint: "Сухо, комната, пещера, дилей, ширина стерео." },
@@ -506,27 +506,6 @@ export const textPromptPresets: TextPromptPreset[] = [
     negativeWeight: 0.35
   },
   {
-    key: "instruments/machines",
-    axis: "instruments",
-    label: "Machines / Synths",
-    hint: "Драм-машины и синтезаторы, полностью запрограммированный звук.",
-    positive: {
-      shared: [
-        "A programmed electronic track.",
-        "A drum machine and synthesizer track.",
-        "A track built on 808 and 909 drum machine sounds.",
-        "A sequenced electronic production with synthetic timbres."
-      ]
-    },
-    negative: {
-      shared: [
-        "An acoustic recording with live instruments.",
-        "A track with natural instrument timbre and human timing."
-      ]
-    },
-    negativeWeight: 0.5
-  },
-  {
     key: "space/dry",
     axis: "space",
     label: "Dry / Close",
@@ -929,38 +908,6 @@ export const textPromptPresets: TextPromptPreset[] = [
       ]
     },
     negativeWeight: 0
-  },
-  {
-    key: "harmony/minor",
-    axis: "harmony",
-    label: "Minor",
-    hint: "Минорная, меланхоличная гармония.",
-    positive: {
-      shared: [
-        "A track in a dark minor key.",
-        "A melancholic minor chord progression."
-      ]
-    },
-    negative: {
-      shared: ["A bright major key track."]
-    },
-    negativeWeight: 0.35
-  },
-  {
-    key: "harmony/major",
-    axis: "harmony",
-    label: "Major",
-    hint: "Мажорная, подъёмная гармония.",
-    positive: {
-      shared: [
-        "A track in a bright major key.",
-        "An uplifting major chord progression."
-      ]
-    },
-    negative: {
-      shared: ["A dark minor key track."]
-    },
-    negativeWeight: 0.35
   },
   {
     key: "harmony/modal",

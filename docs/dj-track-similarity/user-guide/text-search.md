@@ -85,6 +85,29 @@ A higher weight helps when the negatives name a real competing class. Presets wh
 measured as harmful come with no negatives at all and a weight of zero. Presets that were measured
 show their ROC-AUC for the selected model in the picker.
 
+## Label reliability
+
+Most labels have no hand-labelled examples, so their reliability is unknown. Other analysis layers
+describe the same library from a different direction, and comparing against them says whether a
+label points where it claims to. `scripts/text_tag_crosscheck.py` ranks the library with each label
+and checks that ranking against SONARA features and MAEST genres.
+
+This is a cross-check, not ground truth. A weak result can mean the label is weak, or that the
+reference does not describe it.
+
+Measured on a 45,508 track library with MuQ-MuLan, 46 of the labels have a reference. Genre labels
+score highest: `jungle` reaches ROC-AUC `0.975` and fills 41% of its top 100 against a library rate
+of `0.2%`. `disco`, `drum and bass` and `experimental` behave the same way. Rhythm labels also hold
+up, with `breakbeat` at `0.785` against the MAEST syncopation flag.
+
+Voice labels tell a different story. Their global ROC-AUC sits near chance, yet `male lead` fills
+66% of its top 100 with vocal tracks where the library rate is 13%. The label orders the first
+screen well and the rest of the library poorly, which is what a shortlist needs.
+
+Three labels failed and were removed. `minor` and `major` scored at chance on both models: neither
+text tower hears key mode, and SONARA already detects it. `machines` ranked acoustic tracks first,
+because a library that is three quarters tech house offers no contrast for it.
+
 ## Negative prompt
 
 The **Negative** field is a hard-negative bank. Each line is one unwanted audible class. When the

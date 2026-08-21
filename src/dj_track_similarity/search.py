@@ -4,7 +4,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import math
-import secrets
 from typing import Final, Literal, Protocol
 
 import numpy as np
@@ -48,6 +47,14 @@ class AnalysisSearchRepository(Protocol):
         *,
         targets: Sequence[AnalysisTarget] | None = None,
     ) -> tuple[AnalysisVectorRow, ...]:
+        ...
+
+    def random_embedding_target(
+        self,
+        output: AnalysisOutput,
+        *,
+        exclude_track_ids: Sequence[int] = (),
+    ) -> AnalysisTarget | None:
         ...
 
 
@@ -190,23 +197,33 @@ class SimilaritySearch:
     ) -> AnalysisTarget:
         """Choose one unselected current track with a valid embedding.
 
-        The choice is drawn from the same validated rows a search would rank,
-        so the returned reference is always usable as a seed for this family.
+        Selection reads identities only. What makes a track seedable is the
+        presence of its row under the current identity, at the dimension and
+        normalization the current specification declares, and all three are
+        stored columns the repository can match in one query. No vector is
+        read, so the pick costs the same on a library of any size.
         """
 
         excluded = _optional_track_ids(exclude_track_ids)
         output = self.active_output()
-        available = tuple(
-            row.target
-            for row in self._load_full_rows(output)
-            if row.target.track_id not in excluded
+        target = self.repository.random_embedding_target(
+            output,
+            exclude_track_ids=tuple(sorted(excluded)),
         )
-        if not available:
+        if target is None:
             raise VectorIndexUnavailable(
                 "No unselected tracks have current "
                 f"{self.analysis_family} embeddings"
             )
-        return available[secrets.randbelow(len(available))]
+        if target.catalog_uuid != self.repository.catalog_uuid:
+            raise RuntimeError(
+                "Random embedding target returned the wrong catalog identity"
+            )
+        if target.track_id in excluded:
+            raise RuntimeError(
+                "Random embedding target ignored the excluded track IDs"
+            )
+        return target
 
     def search(
         self,

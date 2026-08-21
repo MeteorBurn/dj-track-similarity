@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,7 @@ from dj_track_similarity.analysis_model_runners import (
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
+    AnalysisVectorRow,
     CLAP_EMBEDDING_DIM,
     EmbeddingOutput,
     EmbeddingWrite,
@@ -208,6 +210,64 @@ def test_search_contrast_vectors_use_hard_negative_margin_not_probability(
         "contrast": pytest.approx(0.4596194),
         "negative_weight": 0.35,
     }
+
+
+def test_random_target_skips_seeds_without_reading_any_vector(
+    tmp_path: Path,
+) -> None:
+    db, output = _library(tmp_path, "mert")
+    seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
+    first = _add_track(db, tmp_path, output, "first.wav", [0.0, 1.0, 0.0])
+    second = _add_track(db, tmp_path, output, "second.wav", [0.0, 0.0, 1.0])
+    repository = _VectorLoadCountingRepository(db)
+
+    picked = SimilaritySearch(
+        repository,
+        "mert",
+        analysis_output=output,
+    ).random_target(exclude_track_ids=(seed.track_id,))
+
+    assert picked in {first, second}
+    assert repository.vector_loads == 0
+
+
+class _VectorLoadCountingRepository:
+    """Repository proxy that records every vector read it is asked for."""
+
+    def __init__(self, database: LibraryDatabase) -> None:
+        self._database = database
+        self.vector_loads = 0
+
+    @property
+    def catalog_uuid(self) -> str:
+        return self._database.catalog_uuid
+
+    def active_analysis_output(
+        self,
+        analysis_family: str,
+        output_kind: str,
+    ) -> AnalysisOutput | None:
+        return self._database.active_analysis_output(analysis_family, output_kind)
+
+    def load_analysis_vectors(
+        self,
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[AnalysisVectorRow, ...]:
+        self.vector_loads += 1
+        return self._database.load_analysis_vectors(output, targets=targets)
+
+    def random_embedding_target(
+        self,
+        output: AnalysisOutput,
+        *,
+        exclude_track_ids: Sequence[int] = (),
+    ) -> AnalysisTarget | None:
+        return self._database.random_embedding_target(
+            output,
+            exclude_track_ids=exclude_track_ids,
+        )
 
 
 def _library(root: Path, family: str) -> tuple[LibraryDatabase, AnalysisOutput]:

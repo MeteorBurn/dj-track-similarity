@@ -30,6 +30,7 @@ from .analysis_models import (
     SonaraFeatureRow,
     SonaraWrite,
     StaleAnalysisTargetError,
+    current_embedding_spec,
 )
 from .db_analysis_candidates import (
     collect_analysis_candidates,
@@ -819,6 +820,86 @@ class AnalysisRepository:
                     )
                     for target in selected
                     if target.track_id in vectors
+                )
+
+    def random_embedding_target(
+        self,
+        output: AnalysisOutput,
+        *,
+        exclude_track_ids: Sequence[int] = (),
+    ) -> AnalysisTarget | None:
+        """Pick one current embedded target without reading any vector.
+
+        Row presence under the current identity, dimension, and normalization
+        is what makes a track selectable, and all three are stored columns.
+        The blob itself adds nothing to that decision: its byte length is a
+        table constraint, and its values were validated on write.
+        """
+
+        if output.output_kind != "embedding":
+            raise ValueError("embedding target selection requires an embedding output")
+        table = table_for_output(output)
+        if table is None:
+            raise ValueError("embedding output has no library table")
+        spec = current_embedding_spec(output.analysis_family)
+        excluded_ids = tuple(sorted({int(track_id) for track_id in exclude_track_ids}))
+        excluded_json = json.dumps(excluded_ids, separators=(",", ":"))
+        selectable_sql = f"""
+            FROM {table} AS embeddings
+            JOIN tracks
+              ON tracks.track_id = embeddings.track_id
+             AND tracks.track_uuid = embeddings.track_uuid
+            WHERE tracks.missing_since IS NULL
+              AND embeddings.dim = ?
+              AND embeddings.normalization = ?
+        """
+        spec_parameters = (spec.dimension, spec.normalization)
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                catalog_uuid = _catalog_uuid(connection)
+                require_active_analysis_outputs(
+                    connection,
+                    (output,),
+                )
+                available_track_count = int(
+                    connection.execute(
+                        f"""
+                        SELECT COUNT(*)
+                        {selectable_sql}
+                          AND embeddings.track_id NOT IN (
+                              SELECT CAST(value AS INTEGER)
+                              FROM json_each(?)
+                          )
+                        """,
+                        (*spec_parameters, excluded_json),
+                    ).fetchone()[0]
+                )
+                if available_track_count == 0:
+                    return None
+                offset = secrets.randbelow(available_track_count)
+                row = connection.execute(
+                    f"""
+                    SELECT
+                        tracks.track_id,
+                        tracks.track_uuid
+                    {selectable_sql}
+                      AND embeddings.track_id NOT IN (
+                          SELECT CAST(value AS INTEGER)
+                          FROM json_each(?)
+                      )
+                    ORDER BY embeddings.track_id
+                    LIMIT 1 OFFSET ?
+                    """,
+                    (*spec_parameters, excluded_json, offset),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError(
+                        "current embedding target selection changed during read"
+                    )
+                return AnalysisTarget(
+                    catalog_uuid=catalog_uuid,
+                    track_id=int(row["track_id"]),
+                    track_uuid=str(row["track_uuid"]),
                 )
 
     def load_sonara_feature_rows(

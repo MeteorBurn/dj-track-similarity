@@ -61,22 +61,61 @@ dark rolling techno, low rumble, sparse vocal texture, hypnotic percussion
 broken electro rhythm, syncopated drums, dry bass, metallic synth hits
 ```
 
-The UI treats each line as a separate positive prompt. It averages positive text embeddings before
-searching, within the selected family.
+The **Prompt bank** field takes one prompt per line. Each line is embedded on its own, and the bank
+is averaged before the search runs. Several short prompts are more reliable than one long sentence:
+in the benchmark a single caption scored anywhere between `0.955` and `0.495` ROC-AUC depending on
+its wording, while a bank of four short prompts stayed stable.
+
+Two wording rules come out of the same benchmark:
+
+- Keep words that describe a competing class out of the positive bank. A positive caption that
+  mentioned "instrumental" dropped voice retrieval from `0.873` to `0.640`.
+- Never write `no`, `not` or `without`. The text encoders do not model negation. Name the unwanted
+  class in the negative bank instead.
+
+## Presets
+
+The preset picker groups presets on axes: groove, low end, texture, voice, instruments, space,
+energy, and style. Select several presets and their banks merge into one prompt bank. A "Breakbeat"
+plus "Instrumental" selection covers both at once. Chips above the negative field show the
+current selection. Both fields remain editable after a preset fills them.
+
+Presets carry their own hard-negative weight, because one global value does not fit every concept.
+A higher weight helps when the negatives name a real competing class. Presets whose negatives were
+measured as harmful come with no negatives at all and a weight of zero. Presets that were measured
+show their ROC-AUC for the selected model in the picker.
 
 ## Negative prompt
 
-The **Negative** field is a hard-negative bank. Each line is one unwanted audible class. When the toggle is enabled, the search sends negative queries and adaptive contrast.
+The **Negative** field is a hard-negative bank. Each line is one unwanted audible class. When the
+toggle is enabled, the search sends negative queries and adaptive contrast.
 
 The current UI sends:
 
-- `positive_queries` from the text field,
-- `negative_queries` from the negative field when enabled,
+- `positive_queries` from the prompt bank,
+- `negative_queries` from the negative bank when enabled,
 - `adaptive_contrast: true`,
-- the selected preset key,
+- `negative_weight` from the selected presets when they define one,
+- the selected preset keys,
 - `device` from the analysis device control.
 
 With negative prompts, the visible score is contrast evidence: positive prompt match minus part of the strongest negative match. It is not a probability.
+
+## Model loading and verification
+
+The first text search after the server starts loads the selected family. That load verifies the
+pinned checkpoint digest, copies the verified files into a private temporary directory, and
+deserializes the weights. It takes roughly 40 seconds on a warm disk.
+
+The loaded model then stays in memory and serves later searches in tens of milliseconds per prompt.
+It is released after 10 idle minutes, which returns about `0.8` GB (CLAP) or `2.5` GB (MuQ-MuLan) of
+device memory for analysis jobs. The next search after that reloads the model.
+
+Because the model is reused, its pinned digest is verified once per server process instead of once
+per search. Analysis jobs are unaffected: they still verify their own load.
+
+MuQ-MuLan loads its XLM-R text encoder and tokenizer from a verified pinned snapshot as well. Both
+were previously resolved from the ambient Hugging Face cache at load time and on the first prompt.
 
 ## Score scale
 

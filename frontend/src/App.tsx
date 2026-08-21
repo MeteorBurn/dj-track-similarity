@@ -251,6 +251,7 @@ export function App() {
   const genericSearchAbortController = useRef<AbortController | null>(null);
   const [genericSearchPending, setGenericSearchPending] = useState(false);
   const [randomSonaraTrackPending, setRandomSonaraTrackPending] = useState(false);
+  const [randomEmbeddingTrackPending, setRandomEmbeddingTrackPending] = useState(false);
   const [genericSearchResultState, setGenericSearchResultState] = useState<GenericSearchResultState | null>(null);
 
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -859,6 +860,29 @@ export function App() {
       appendActivity("error", "Не удалось добавить случайный SONARA seed", message);
     } finally {
       setRandomSonaraTrackPending(false);
+    }
+  }
+
+  async function handleAddRandomEmbeddingTrack() {
+    if (randomEmbeddingTrackPending) return;
+    const label = seedEmbeddingFamilyPresentation[seedEmbeddingFamily].label;
+    setRandomEmbeddingTrackPending(true);
+    appendActivity("info", `Добавление случайного ${label} seed`, `Исключено текущих seed: ${seeds.length}`);
+    try {
+      const track = await api.randomEmbeddingTrack({
+        analysis_family: seedEmbeddingFamily,
+        exclude_track_ids: seeds,
+      });
+      addSeed(track);
+      const selected = displayTrack(track);
+      appendActivity("ok", `Добавлен случайный ${label} seed`, selected);
+      setNotice({ kind: "ok", text: `Добавлен seed: ${selected}` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", `Не удалось добавить случайный ${label} seed`, message);
+    } finally {
+      setRandomEmbeddingTrackPending(false);
     }
   }
 
@@ -1655,7 +1679,7 @@ export function App() {
           promptPresets={textPromptPresets}
           promptNegativeWeight={promptNegativeWeight}
           databaseIdentity={databaseCatalogUuid}
-          busy={busy || genericSearchPending || randomSonaraTrackPending || !databasePath}
+          busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}
           filters={filters}
           setFilters={setFilters}
           seeds={seeds}
@@ -1696,6 +1720,7 @@ export function App() {
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleAddRandomSonaraTrack={() => void handleAddRandomSonaraTrack()}
+          handleAddRandomEmbeddingTrack={() => void handleAddRandomEmbeddingTrack()}
           handleEmbeddingSearch={handleEmbeddingSearch}
           addSeed={addSeed}
           toggleLiked={handleToggleTrackLiked}

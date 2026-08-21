@@ -15,6 +15,7 @@ from .analysis_model_runners import (
     embedding_analysis_output,
 )
 from .api_schemas import (
+    EmbeddingRandomTrackRequest,
     SearchRequest,
     SimilaritySearchResultResponse,
     SonaraRandomTrackRequest,
@@ -102,6 +103,33 @@ def register_search_routes(
                 limit=request.limit,
             )
             return _hydrate_similarity_results(database, results)
+        except VectorIndexUnavailable as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/search/random-track",
+        response_model=TrackSummaryResponse,
+    )
+    def random_embedding_track(request: EmbeddingRandomTrackRequest):
+        database = state.require_db()
+        try:
+            analysis_output = current_embedding_analysis_output(
+                request.analysis_family,
+                device="auto",
+            )
+            searcher = SimilaritySearch(
+                database,
+                request.analysis_family,
+                analysis_output=analysis_output,
+            )
+            target = searcher.random_target(
+                exclude_track_ids=request.exclude_track_ids,
+            )
+            return _hydrate_search_target(database, target)
         except VectorIndexUnavailable as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:

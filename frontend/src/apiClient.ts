@@ -8,6 +8,7 @@ import type {
   DatabaseClearResult,
   DatabaseSelection,
   DatabaseValidationJobStatus,
+  EmbeddingRandomTrackPayload,
   EmbeddingSearchPayload,
   GenreTagJobStatus,
   LibrarySummary,
@@ -285,6 +286,12 @@ const searchApi = {
     }),
   randomSonaraTrack: (payload: SonaraRandomTrackPayload, options?: { signal?: AbortSignal }) =>
     request<Track>("/api/search/sonara/random-track", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
+  randomEmbeddingTrack: (payload: EmbeddingRandomTrackPayload, options?: { signal?: AbortSignal }) =>
+    request<Track>("/api/search/random-track", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,

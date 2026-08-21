@@ -265,6 +265,10 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
   await api.randomSonaraTrack({
     exclude_track_ids: [7],
   }, { signal: controller.signal });
+  await api.randomEmbeddingTrack({
+    analysis_family: "mert",
+    exclude_track_ids: [7],
+  }, { signal: controller.signal });
   await api.textSearch({
     query: "broken beat",
     positive_queries: ["broken beat"],
@@ -278,9 +282,20 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
 
   assert.deepEqual(
     calls.map(({ path }) => path),
-    ["/api/tracks/7", "/api/search", "/api/search/sonara", "/api/search/sonara/random-track", "/api/search/text"]
+    [
+      "/api/tracks/7",
+      "/api/search",
+      "/api/search/sonara",
+      "/api/search/sonara/random-track",
+      "/api/search/random-track",
+      "/api/search/text"
+    ]
   );
   assert.deepEqual(JSON.parse(calls[3].options.body), {
+    exclude_track_ids: [7],
+  });
+  assert.deepEqual(JSON.parse(calls[4].options.body), {
+    analysis_family: "mert",
     exclude_track_ids: [7],
   });
   for (const call of calls) {

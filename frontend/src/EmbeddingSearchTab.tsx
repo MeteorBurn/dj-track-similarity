@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Search, Shuffle } from "lucide-react";
 import type { EmbeddingSource } from "./api";
 import {
   seedEmbeddingFamilies,
@@ -13,32 +13,49 @@ export function EmbeddingSearchTab({
   onAnalysisFamilyChange,
   currentEmbeddingCount,
   busy,
+  randomTrackBusy,
   pending,
   error,
   limit,
   limitHelp,
   onLimitChange,
-  onSearch
+  onSearch,
+  onAddRandomTrack
 }: {
   analysisFamily: SeedEmbeddingFamily;
   onAnalysisFamilyChange: (value: SeedEmbeddingFamily) => void;
   currentEmbeddingCount: number;
   busy: boolean;
+  randomTrackBusy: boolean;
   pending: boolean;
   error: string;
   limit: number;
   limitHelp: string;
   onLimitChange: (value: number) => void;
   onSearch: (analysisFamily: EmbeddingSource) => Promise<void>;
+  onAddRandomTrack: () => void;
 }) {
   const label = seedEmbeddingFamilyPresentation[analysisFamily].label;
   const missingReason = currentEmbeddingCount > 0
     ? ""
     : `No current ${label} embeddings are available in the selected catalog. Run ${label} analysis first.`;
   const requestTitle = missingReason || `Find acoustically similar tracks with current ${label} embeddings.`;
+  const randomTrackTitle = missingReason || `Add a random track with a current ${label} embedding as a seed.`;
 
   return (
     <>
+      <div className="embedding-random-track-action">
+        <button
+          className="embedding-random-track-button"
+          title={randomTrackTitle}
+          disabled={randomTrackBusy || Boolean(missingReason)}
+          onClick={onAddRandomTrack}
+          type="button"
+        >
+          <Shuffle size={15} />
+          Add Random Track
+        </button>
+      </div>
       <div className="search-filter-grid embedding-search-grid">
         <label title={modelHelp}>
           Model
@@ -79,7 +96,7 @@ export function EmbeddingSearchTab({
         type="button"
       >
         <Search size={17} />
-        {pending ? `${label} searching...` : `${label} search`}
+        {pending ? "Searching..." : "Search"}
       </button>
       {missingReason ? <span className="embedding-search-requirement">{missingReason}</span> : null}
       {error ? <span className="embedding-search-requirement error">{error}</span> : null}

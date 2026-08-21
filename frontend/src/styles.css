@@ -2988,13 +2988,15 @@ h2 {
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr);
 }
 
-.sonara-random-track-action {
+.sonara-random-track-action,
+.embedding-random-track-action {
   display: flex;
   justify-content: flex-start;
   margin: 8px 0 -4px;
 }
 
-.sonara-random-track-button {
+.sonara-random-track-button,
+.embedding-random-track-button {
   align-items: center;
   background: var(--accent-soft-bg);
   border-color: var(--accent-soft-border);
@@ -3006,7 +3008,8 @@ h2 {
   padding: 4px 8px;
 }
 
-.sonara-random-track-button:hover:not(:disabled) {
+.sonara-random-track-button:hover:not(:disabled),
+.embedding-random-track-button:hover:not(:disabled) {
   background: var(--accent-strong-bg);
   border-color: var(--accent);
 }

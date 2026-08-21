@@ -155,6 +155,7 @@ export function SearchPlaylistPanel({
   handleTextSearch,
   handleSonaraSearch,
   handleAddRandomSonaraTrack,
+  handleAddRandomEmbeddingTrack,
   handleEmbeddingSearch,
   addSeed,
   toggleLiked,
@@ -215,6 +216,7 @@ export function SearchPlaylistPanel({
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleAddRandomSonaraTrack: () => void;
+  handleAddRandomEmbeddingTrack: () => void;
   handleEmbeddingSearch: (analysisFamily: EmbeddingSource) => Promise<void>;
   addSeed: (track: Track) => void;
   toggleLiked: (track: Track) => Promise<Track | null>;
@@ -499,12 +501,14 @@ export function SearchPlaylistPanel({
               onAnalysisFamilyChange={selectSeedEmbeddingFamily}
               currentEmbeddingCount={embeddingCounts[seedEmbeddingFamily]}
               busy={busy || !seeds.length}
+              randomTrackBusy={busy}
               pending={Boolean(embeddingSearchPending[seedEmbeddingFamily])}
               error={embeddingSearchErrors[seedEmbeddingFamily] || ""}
               limit={filters.limit}
               limitHelp={helpText.limit}
               onLimitChange={(value) => setFilters({ ...filters, limit: value })}
               onSearch={runEmbeddingSearch}
+              onAddRandomTrack={handleAddRandomEmbeddingTrack}
             />
           </div>
         )}

@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import math
+import secrets
 from typing import Final, Literal, Protocol
 
 import numpy as np
@@ -181,6 +182,31 @@ class SimilaritySearch:
                 f"{self.analysis_family!r}: {missing}"
             )
         return tuple(target_by_id[track_id] for track_id in requested)
+
+    def random_target(
+        self,
+        *,
+        exclude_track_ids: Sequence[int] = (),
+    ) -> AnalysisTarget:
+        """Choose one unselected current track with a valid embedding.
+
+        The choice is drawn from the same validated rows a search would rank,
+        so the returned reference is always usable as a seed for this family.
+        """
+
+        excluded = _optional_track_ids(exclude_track_ids)
+        output = self.active_output()
+        available = tuple(
+            row.target
+            for row in self._load_full_rows(output)
+            if row.target.track_id not in excluded
+        )
+        if not available:
+            raise VectorIndexUnavailable(
+                "No unselected tracks have current "
+                f"{self.analysis_family} embeddings"
+            )
+        return available[secrets.randbelow(len(available))]
 
     def search(
         self,
@@ -736,6 +762,15 @@ def _requested_track_ids(
     if len(set(requested)) != len(requested):
         raise ValueError("Track IDs must not contain duplicates")
     return requested
+
+
+def _optional_track_ids(
+    track_ids: Sequence[int],
+) -> frozenset[int]:
+    requested = tuple(track_ids)
+    if not requested:
+        return frozenset()
+    return frozenset(_requested_track_ids(requested))
 
 
 def _target_for_hit(

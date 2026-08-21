@@ -241,6 +241,19 @@ class SearchRequest(BaseModel):
         return self
 
 
+class EmbeddingRandomTrackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    analysis_family: Literal["maest", "mert", "muq", "mulan", "clap"] = "mert"
+    exclude_track_ids: list[TrackId] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def reject_duplicate_exclusions(self) -> "EmbeddingRandomTrackRequest":
+        if len(set(self.exclude_track_ids)) != len(self.exclude_track_ids):
+            raise ValueError("exclude_track_ids must be unique")
+        return self
+
+
 class SonaraMixerWeights(BaseModel):
     timbre: float = Field(default=1.0, ge=0.0, le=5.0)
     rhythm: float = Field(default=1.0, ge=0.0, le=5.0)

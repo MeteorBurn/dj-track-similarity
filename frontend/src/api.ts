@@ -210,6 +210,11 @@ export type EmbeddingSearchPayload = {
   noise?: number;
 };
 
+export type EmbeddingRandomTrackPayload = {
+  analysis_family: EmbeddingSource;
+  exclude_track_ids: number[];
+};
+
 export type ReferenceCompareModel = "clap" | "mert" | "muq" | "mulan" | "maest" | "sonara";
 export type ReferenceCompareVerdict = "mood" | "palette" | "instruments" | "groove" | "genre" | "transition" | "miss";
 export type ReferenceComparePayload = {

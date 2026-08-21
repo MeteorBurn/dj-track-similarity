@@ -12,6 +12,7 @@ const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.me
 const panelSource = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
 const trackPanelSource = readFileSync(fileURLToPath(new URL("../src/TrackPanel.tsx", import.meta.url)), "utf8");
 const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf8");
+const embeddingTabSource = readFileSync(fileURLToPath(new URL("../src/EmbeddingSearchTab.tsx", import.meta.url)), "utf8");
 
 async function loadSearchSurfaceState() {
   const sourcePath = new URL("../src/searchSurfaceState.ts", import.meta.url);
@@ -28,8 +29,11 @@ async function loadSearchSurfaceState() {
 }
 
 function cssRule(selector) {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return styles.match(new RegExp(`${escapedSelector}\\s*{([\\s\\S]*?)}`))?.[1] || "";
+  for (const [, selectorList, body] of styles.matchAll(/([^{}]+){([^{}]*)}/g)) {
+    const selectors = selectorList.split(",").map((item) => item.trim());
+    if (selectors.includes(selector)) return body;
+  }
+  return "";
 }
 
 test("set and export is a closed disclosure with 20-track pagination", () => {
@@ -131,6 +135,23 @@ test("SONARA tab can add an unselected random SONARA-ready seed", () => {
   assert.ok(filtersPosition < searchPosition);
   assert.match(cssRule(".sonara-random-track-action"), /justify-content:\s*flex-start/);
   assert.match(cssRule(".sonara-random-track-button"), /min-height:\s*28px/);
+});
+
+test("SIMILARITY tab can add a random seed of the selected embedding family", () => {
+  const addRandomTrackPosition = embeddingTabSource.indexOf("Add Random Track");
+  const filtersPosition = embeddingTabSource.indexOf("embedding-search-grid");
+  const searchPosition = embeddingTabSource.indexOf("embedding-search-button");
+
+  assert.match(panelSource, /onAddRandomTrack=\{handleAddRandomEmbeddingTrack\}/);
+  assert.match(appSource, /api\.randomEmbeddingTrack\(\{\s*analysis_family: seedEmbeddingFamily,/);
+  // The seed count gates the search button, never the button that adds a seed.
+  assert.match(panelSource, /randomTrackBusy=\{busy\}/);
+  assert.match(embeddingTabSource, /disabled=\{randomTrackBusy \|\| Boolean\(missingReason\)\}/);
+  assert.match(embeddingTabSource, /\{pending \? "Searching\.\.\." : "Search"\}/);
+  assert.ok(addRandomTrackPosition < filtersPosition);
+  assert.ok(filtersPosition < searchPosition);
+  assert.match(cssRule(".embedding-random-track-action"), /justify-content:\s*flex-start/);
+  assert.match(cssRule(".embedding-random-track-button"), /min-height:\s*28px/);
 });
 
 test("Left Right Home End navigation wraps across maintained search tabs", async () => {

@@ -207,6 +207,51 @@ def test_random_sonara_track_requires_an_available_sonara_track(
     assert "SONARA Core" in response.json()["detail"]
 
 
+def test_random_embedding_track_uses_an_unselected_embedded_track(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    targets = [
+        _add_embedding_track(db, tmp_path, output, "one.wav", [1.0, 0.0]),
+        _add_embedding_track(db, tmp_path, output, "two.wav", [0.9, 0.1]),
+        _add_embedding_track(db, tmp_path, output, "three.wav", [0.0, 1.0]),
+    ]
+    _track(db, tmp_path, "without-embedding.wav")
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search/random-track",
+        json={"analysis_family": "mert", "exclude_track_ids": [targets[0].track_id]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["track_id"] in {target.track_id for target in targets[1:]}
+    assert payload["analysis_coverage"]["mert"] is True
+
+
+def test_random_embedding_track_requires_an_available_embedded_track(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    only = _add_embedding_track(db, tmp_path, output, "only.wav", [1.0, 0.0])
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search/random-track",
+        json={"analysis_family": "mert", "exclude_track_ids": [only.track_id]},
+    )
+
+    assert response.status_code == 409
+    assert "mert" in response.json()["detail"]
+
+
 def test_search_endpoints_reject_unknown_context_parameter(
     monkeypatch, tmp_path: Path
 ) -> None:

@@ -59,6 +59,40 @@ remove obsolete guidance instead of layering more rules on top of it.
 - Documentation-only changes use the instruction/docs-only verification route
   and must not trigger application test suites.
 
+## Model Layer Ownership
+
+- Work on the models is split by layer so parallel agents do not collide. State
+  the layer before changing shared files.
+- The text-to-track and tagging layer covers CLAP and MuQ-MuLan: `/api/search/text`,
+  `src/dj_track_similarity/text_embedding_cache.py`, the text paths of
+  `src/dj_track_similarity/embedding.py`, `frontend/src/textPromptPresets.ts`,
+  `frontend/src/ClapSearchTab.tsx`, and `scripts/text_prompt_benchmark.py`.
+- The SONARA, MERT, MAEST, and MuQ seed-search layers, their analysis jobs, and the
+  Rhythm Lab training pipeline belong to other agents.
+- Signals cross layer boundaries; logic does not. Any layer may consume stored SONARA
+  features, MAEST genre labels, model embeddings, and promoted classifier scores as
+  evidence, filters, ranking inputs, or expansion vectors. No layer may change how
+  another layer produces them: its adapters, feature computation, scoring formulas,
+  thresholds, defaults, schemas, promoted artifacts, and dedicated UI surfaces are
+  off limits. Route a needed change there back to the user.
+- Shared files that every layer touches, such as `src/dj_track_similarity/search.py`,
+  `analysis_models.py`, `frontend/src/TrackRows.tsx`, and the family unions in
+  `frontend/src/api.ts`, take additive changes only. Prefer a new module over editing
+  another layer's internals.
+- Zero-shot tags from the text layer are an additional evidence channel beside MAEST
+  genres and promoted classifiers. They never replace either, are never written into
+  `classifier_scores`, and are never written into audio files.
+
+## Text Layer Sub-Agents
+
+- Delegate text-to-track search work, prompt-bank drafting, and model choice between
+  CLAP and MuQ-MuLan to a sub-agent using the `\clap-query-workflow` skill.
+- Delegate preset, axis, and zero-shot tag vocabulary work, including reliability
+  measurement through `scripts/text_prompt_benchmark.py`, to a sub-agent using the
+  `\prompt-bank-curator` skill.
+- Both skills state the same layer boundary and must keep it. A vocabulary claim about
+  how well a label works needs a committed benchmark table, not an impression.
+
 ## Source Of Truth
 
 - `dj-track-similarity` is a local-first DJ-library workbench. Keep claims

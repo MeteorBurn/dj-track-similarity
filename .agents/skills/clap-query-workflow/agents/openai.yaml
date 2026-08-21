@@ -1,4 +1,7 @@
 interface:
-  display_name: "CLAP Query Workflow"
-  short_description: "Project CLAP text, DB-seed, and analyzed-file search"
-  default_prompt: "Use $clap-query-workflow to search the local dj-track-similarity library from my text request, stored source tracks, or source audio files you should analyze temporarily."
+  display_name: "Text Search Operator"
+  short_description: "Find tracks in the local library from a text description with CLAP or MuQ-MuLan."
+  default_prompt: "Use $clap-query-workflow to turn my request into an English prompt bank with hard negatives and search the dj-track-similarity library with CLAP or MuQ-MuLan."
+
+policy:
+  allow_implicit_invocation: true

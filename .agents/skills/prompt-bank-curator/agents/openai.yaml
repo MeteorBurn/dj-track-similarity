@@ -1,0 +1,7 @@
+interface:
+  display_name: "Prompt Bank Curator"
+  short_description: "Own the CLAP/MuQ-MuLan preset and tag vocabulary, and measure how well each label works."
+  default_prompt: "Use $prompt-bank-curator to add, review, or measure text-search presets and zero-shot tag labels for the CLAP and MuQ-MuLan layer of dj-track-similarity."
+
+policy:
+  allow_implicit_invocation: true

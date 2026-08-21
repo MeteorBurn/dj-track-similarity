@@ -1,6 +1,7 @@
 import { Heart, Minus, Pause, Play, Plus, Search, Tags } from "lucide-react";
 import type { Track } from "./api";
 import { libraryTrackIdentityKey } from "./libraryLoading";
+import { previewPositionForTrack, usePreviewPosition } from "./previewPosition";
 import { displayTrack } from "./trackDisplay";
 
 type TrackActions = {
@@ -19,8 +20,6 @@ export function TrackList({
   playlistSet,
   playingTrackId,
   previewTrackId,
-  previewCurrentTime,
-  previewDuration,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
@@ -33,8 +32,6 @@ export function TrackList({
   seedSet: Set<number>;
   playlistSet: Set<number>;
   previewTrackId: number | null;
-  previewCurrentTime: number;
-  previewDuration: number;
   onSeekPreview: (track: Track, seconds: number) => void;
 }) {
   return (
@@ -58,8 +55,6 @@ export function TrackList({
             {trackPreviewSelected ? (
               <PlaybackSeekControl
                 track={track}
-                currentTime={previewCurrentTime}
-                duration={previewDuration}
                 onSeek={onSeekPreview}
               />
             ) : null}
@@ -102,17 +97,17 @@ function formatPlaybackTime(seconds: number) {
 
 function PlaybackSeekControl({
   track,
-  currentTime,
-  duration,
   onSeek,
   className = "",
 }: {
   track: Track;
-  currentTime: number;
-  duration: number;
   onSeek: (track: Track, seconds: number) => void;
   className?: string;
 }) {
+  const { currentTime, duration } = previewPositionForTrack(
+    usePreviewPosition(),
+    track.track_id
+  );
   const normalizedDuration = Math.max(duration, 0);
   const progress = normalizedDuration > 0
     ? Math.min(Math.max((currentTime / normalizedDuration) * 100, 0), 100)
@@ -146,8 +141,6 @@ export function ResultRow({
   transition,
   playingTrackId,
   previewTrackId,
-  previewCurrentTime,
-  previewDuration,
   isSeed,
   inPlaylist,
   onSeed,
@@ -174,8 +167,6 @@ export function ResultRow({
     confidence: number;
   };
   previewTrackId: number | null;
-  previewCurrentTime: number;
-  previewDuration: number;
   isSeed: boolean;
   inPlaylist: boolean;
   selected?: boolean;
@@ -216,8 +207,6 @@ export function ResultRow({
       {trackPreviewSelected ? (
         <PlaybackSeekControl
           track={track}
-          currentTime={previewCurrentTime}
-          duration={previewDuration}
           onSeek={onSeekPreview}
           className="result-row-playback"
         />

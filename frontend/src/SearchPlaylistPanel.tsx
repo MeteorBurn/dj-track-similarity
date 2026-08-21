@@ -149,8 +149,6 @@ export function SearchPlaylistPanel({
   togglePlaylist,
   playingTrackId,
   previewTrackId,
-  previewCurrentTime,
-  previewDuration,
   setPreview,
   onSeekPreview,
   setMetadataTrack,
@@ -206,8 +204,6 @@ export function SearchPlaylistPanel({
   togglePlaylist: (track: Track) => void;
   playingTrackId: number | null;
   previewTrackId: number | null;
-  previewCurrentTime: number;
-  previewDuration: number;
   setPreview: (track: Track) => void;
   onSeekPreview: (track: Track, seconds: number) => void;
   setMetadataTrack: (track: Track) => void;
@@ -352,8 +348,6 @@ export function SearchPlaylistPanel({
               playlistSet={playlistSet}
               playingTrackId={playingTrackId}
               previewTrackId={previewTrackId}
-              previewCurrentTime={previewCurrentTime}
-              previewDuration={previewDuration}
               onSeed={addSeed}
               onToggleLiked={toggleLiked}
               onTogglePlaylist={togglePlaylist}
@@ -659,8 +653,6 @@ export function SearchPlaylistPanel({
                   transition={transition}
                   playingTrackId={playingTrackId}
                   previewTrackId={previewTrackId}
-                  previewCurrentTime={previewCurrentTime}
-                  previewDuration={previewDuration}
                   isSeed={seedSet.has(track.track_id)}
                   inPlaylist={playlistSet.has(track.track_id)}
                   onSeed={addSeed}

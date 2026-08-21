@@ -20,8 +20,6 @@ type ReferenceComparePanelProps = {
   playlistSet: Set<number>;
   playingTrackId: number | null;
   previewTrackId: number | null;
-  previewCurrentTime: number;
-  previewDuration: number;
   onSeed: (track: TrackSummary) => void;
   onToggleLiked: (track: TrackSummary) => void;
   onTogglePlaylist: (track: TrackSummary) => void;
@@ -49,8 +47,6 @@ export function ReferenceComparePanel({
   playlistSet,
   playingTrackId,
   previewTrackId,
-  previewCurrentTime,
-  previewDuration,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
@@ -224,8 +220,6 @@ export function ReferenceComparePanel({
               playlistSet={playlistSet}
               playingTrackId={playingTrackId}
               previewTrackId={previewTrackId}
-              previewCurrentTime={previewCurrentTime}
-              previewDuration={previewDuration}
               onSeed={onSeed}
               onToggleLiked={onToggleLiked}
               onTogglePlaylist={onTogglePlaylist}
@@ -254,8 +248,6 @@ function ReferenceCompareGroupCard({
   playlistSet,
   playingTrackId,
   previewTrackId,
-  previewCurrentTime,
-  previewDuration,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
@@ -273,8 +265,6 @@ function ReferenceCompareGroupCard({
   playlistSet: Set<number>;
   playingTrackId: number | null;
   previewTrackId: number | null;
-  previewCurrentTime: number;
-  previewDuration: number;
   onSeed: (track: TrackSummary) => void;
   onToggleLiked: (track: TrackSummary) => void;
   onTogglePlaylist: (track: TrackSummary) => void;
@@ -301,8 +291,6 @@ function ReferenceCompareGroupCard({
               scoreBreakdown={result.score_breakdown}
               playingTrackId={playingTrackId}
               previewTrackId={previewTrackId}
-              previewCurrentTime={previewCurrentTime}
-              previewDuration={previewDuration}
               isSeed={seedSet.has(result.track.track_id)}
               inPlaylist={playlistSet.has(result.track.track_id)}
               onSeed={onSeed}

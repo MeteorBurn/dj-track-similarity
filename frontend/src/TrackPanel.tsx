@@ -31,8 +31,6 @@ export function TrackPanel({
   loadError,
   playingTrackId,
   previewTrackId,
-  previewCurrentTime,
-  previewDuration,
   tracks,
   libraryTotalTracks,
   total,
@@ -72,8 +70,6 @@ export function TrackPanel({
   loadError: string | null;
   playingTrackId: number | null;
   previewTrackId: number | null;
-  previewCurrentTime: number;
-  previewDuration: number;
   tracks: Track[];
   libraryTotalTracks: number;
   total: number;
@@ -288,8 +284,6 @@ export function TrackPanel({
           playlistSet={playlistSet}
           playingTrackId={playingTrackId}
           previewTrackId={previewTrackId}
-          previewCurrentTime={previewCurrentTime}
-          previewDuration={previewDuration}
           onSeed={onSeed}
           onToggleLiked={onToggleLiked}
           onTogglePlaylist={onTogglePlaylist}

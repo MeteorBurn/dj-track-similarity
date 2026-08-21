@@ -29,6 +29,7 @@ import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
 import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
+import { writePreviewPosition } from "./previewPosition";
 import { ScanImportDialog, type ScanImportRequest } from "./ScanImportDialog";
 import { appendVisibleTracksToPlaylist, nextLibraryPlaybackTrack } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
@@ -218,11 +219,7 @@ export function App() {
   const [genericSearchPending, setGenericSearchPending] = useState(false);
   const [randomSonaraTrackPending, setRandomSonaraTrackPending] = useState(false);
   const [genericSearchResultState, setGenericSearchResultState] = useState<GenericSearchResultState | null>(null);
-  const [previewPosition, setPreviewPosition] = useState({
-    trackId: null as number | null,
-    currentTime: 0,
-    duration: 0,
-  });
+
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const genericSearchInputKey = useMemo(
     () => JSON.stringify({
@@ -332,7 +329,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    setPreviewPosition({
+    writePreviewPosition({
       trackId: preview?.track_id ?? null,
       currentTime: 0,
       duration: 0,
@@ -678,7 +675,7 @@ export function App() {
     const audio = previewAudioRef.current;
     if (!audio) return;
     const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
-    setPreviewPosition({
+    writePreviewPosition({
       trackId,
       currentTime: Math.min(Math.max(0, audio.currentTime), duration || 0),
       duration,
@@ -1576,8 +1573,6 @@ export function App() {
           loadError={libraryError}
           playingTrackId={playingTrackId}
           previewTrackId={preview?.track_id ?? null}
-          previewCurrentTime={previewPosition.trackId === preview?.track_id ? previewPosition.currentTime : 0}
-          previewDuration={previewPosition.trackId === preview?.track_id ? previewPosition.duration : 0}
           tracks={orderedTracks}
           libraryTotalTracks={librarySummary.tracks}
           total={libraryTotal}
@@ -1662,8 +1657,6 @@ export function App() {
           togglePlaylist={togglePlaylist}
           playingTrackId={playingTrackId}
           previewTrackId={preview?.track_id ?? null}
-          previewCurrentTime={previewPosition.trackId === preview?.track_id ? previewPosition.currentTime : 0}
-          previewDuration={previewPosition.trackId === preview?.track_id ? previewPosition.duration : 0}
           setPreview={togglePreview}
           onSeekPreview={seekPreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}

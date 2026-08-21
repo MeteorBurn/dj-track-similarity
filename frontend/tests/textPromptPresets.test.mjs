@@ -44,6 +44,63 @@ test("every preset belongs to a declared axis and carries a unique key", () => {
   );
 });
 
+test("an axis only names a model where the measurement can carry the claim", () => {
+  const { textPromptAxes } = loadTextPromptModule();
+
+  const named = Object.fromEntries(
+    textPromptAxes.filter((axis) => axis.model).map((axis) => [axis.key, axis.model]),
+  );
+
+  // Measured by the share of the reference in the first 100 rows. Space has no
+  // reference at all, low has one label, and harmony's two models sit 0.017
+  // apart, so none of the three may claim a winner.
+  assert.deepEqual(named, {
+    groove: "mulan",
+    texture: "clap",
+    voice: "mulan",
+    instruments: "clap",
+    energy: "clap",
+    style: "mulan",
+  });
+  for (const axis of textPromptAxes) {
+    if (!axis.model) continue;
+    assert.ok(["clap", "mulan"].includes(axis.model), `${axis.key} names an unknown model`);
+  }
+});
+
+test("a label overrides its axis only where its own cross-check inverted", () => {
+  const { textPromptPresets, modelForPreset } = loadTextPromptModule();
+
+  const overrides = textPromptPresets
+    .filter((preset) => preset.model)
+    .map((preset) => [preset.key, preset.model]);
+
+  assert.deepEqual(Object.fromEntries(overrides), {
+    "texture/clean": "mulan",
+    "texture/glassy": "mulan",
+    "instruments/steel-drum": "mulan",
+  });
+  // The override has to actually win over the axis, or it is decoration.
+  assert.equal(modelForPreset("texture/glassy"), "mulan");
+  assert.equal(modelForPreset("texture/lo-fi"), "clap");
+  assert.equal(modelForPreset("instruments/steel-drum"), "mulan");
+  assert.equal(modelForPreset("instruments/sitar"), "clap");
+});
+
+test("a selection recommends one model, or none when the axes disagree", () => {
+  const { recommendedModel } = loadTextPromptModule();
+
+  assert.equal(recommendedModel(["instruments/sitar", "instruments/piano"]), "clap");
+  assert.equal(recommendedModel(["style/jungle", "groove/breakbeat"]), "mulan");
+  // Fusion was measured and rejected, so a split selection must not pick a side.
+  assert.equal(recommendedModel(["instruments/sitar", "style/jungle"]), null);
+  // An axis with no measurement neither recommends nor blocks.
+  assert.equal(recommendedModel(["space/wide"]), null);
+  assert.equal(recommendedModel(["space/wide", "style/jungle"]), "mulan");
+  assert.equal(recommendedModel([]), null);
+  assert.equal(recommendedModel(["nope/missing"]), null);
+});
+
 test("a label without measured reliability carries no invented negatives", () => {
   const { textPromptPresets, resolveNegativeWeight } = loadTextPromptModule();
 

@@ -31,24 +31,40 @@ export type TextPromptPreset = {
    */
   negativeWeight: NegativeWeight;
   measured?: MeasuredPreset;
+  /**
+   * Overrides the axis model for this one label, where its own cross-check
+   * contradicts the axis. Used where the axis winner ranks this label the wrong
+   * way round: the axis average hides an outright inversion.
+   */
+  model?: TextPromptModel;
 };
 
 export type TextPromptAxis = {
   key: string;
   label: string;
   hint: string;
+  /**
+   * Model measured to rank this axis best, by the share of the reference in the
+   * first hundred rows (scripts/text_fusion_benchmark.py). Rank fusion was
+   * measured and rejected: mixing drags the stronger model toward the weaker one
+   * on the axes where the gap is widest, so the choice is made per axis instead.
+   *
+   * Absent where the measurement cannot carry the claim: space has no reference
+   * at all, low has one label, and harmony's two models sit 0.017 apart.
+   */
+  model?: TextPromptModel;
 };
 
 export const textPromptAxes: TextPromptAxis[] = [
-  { key: "groove", label: "Грув", hint: "Рисунок ритма: брейки, ровная бочка, халфтайм, свинг, полиритмия." },
-  { key: "low", label: "Низ", hint: "Характер баса и низа: саб, кислота, рииз, сухой панч." },
-  { key: "texture", label: "Фактура", hint: "Тембр и обработка: даб, металл, глитч, lo-fi, чистый продакшн." },
-  { key: "harmony", label: "Гармония", hint: "Аккорды и плотность смен: модальность, диссонанс, дрон, джаз. Лад минор-мажор берётся из SONARA: обе текстовые модели на нём на уровне случайности." },
-  { key: "voice", label: "Голос", hint: "Присутствие и характер голоса: вокал, речь, нарезки, хор, инструментал." },
-  { key: "instruments", label: "Инструменты", hint: "Конкретные инструменты и машины. Самая слабая ось у моделей — сверяйся ушами." },
-  { key: "space", label: "Пространство", hint: "Сухо, комната, пещера, дилей, ширина стерео." },
-  { key: "energy", label: "Энергия", hint: "Интенсивность и роль в сете: разогрев, пик, финал, эмбиент." },
-  { key: "style", label: "Стиль", hint: "Жанры и сцены. Дополняют таксономию MAEST, а не дублируют её." }
+  { key: "groove", label: "Грув", hint: "Рисунок ритма: брейки, ровная бочка, халфтайм, свинг, полиритмия. Замер: MuQ-MuLan 0.630 против CLAP 0.497.", model: "mulan" },
+  { key: "low", label: "Низ", hint: "Характер баса и низа: саб, кислота, рииз, сухой панч. Эталон есть у одной метки — модель не рекомендуется." },
+  { key: "texture", label: "Фактура", hint: "Тембр и обработка: даб, металл, глитч, lo-fi, чистый продакшн. Замер: CLAP 0.343 против MuQ-MuLan 0.230.", model: "clap" },
+  { key: "harmony", label: "Гармония", hint: "Аккорды и плотность смен: модальность, диссонанс, дрон, джаз. Лад минор-мажор берётся из SONARA: обе текстовые модели на нём на уровне случайности. Модели разошлись на 0.017 — рекомендации нет." },
+  { key: "voice", label: "Голос", hint: "Присутствие и характер голоса: вокал, речь, нарезки, хор, инструментал. Замер: MuQ-MuLan 0.479 против CLAP 0.414.", model: "mulan" },
+  { key: "instruments", label: "Инструменты", hint: "Конкретные инструменты и машины. CLAP 0.719 против MuQ-MuLan 0.454 — MuLan инвертирует на трубе, саксофоне и нейлоне. Какой именно инструмент найден, замером не проверяется: сверяйся ушами.", model: "clap" },
+  { key: "space", label: "Пространство", hint: "Сухо, комната, пещера, дилей, ширина стерео. Ни одной метки с эталоном — надёжность неизвестна." },
+  { key: "energy", label: "Энергия", hint: "Интенсивность и роль в сете: разогрев, пик, финал, эмбиент. Замер: CLAP 0.453 против MuQ-MuLan 0.360.", model: "clap" },
+  { key: "style", label: "Стиль", hint: "Жанры и сцены. Дополняют таксономию MAEST, а не дублируют её. Замер: MuQ-MuLan 0.463 против CLAP 0.384.", model: "mulan" }
 ];
 
 export const textPromptPresets: TextPromptPreset[] = [
@@ -313,7 +329,7 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "texture/clean",
     axis: "texture",
     label: "Clean / Hi-fi",
-    hint: "Чистый современный продакшн, широкий прозрачный микс.",
+    hint: "Чистый современный продакшн, широкий прозрачный микс. CLAP инвертирует против спектрального роллоффа (0.372), MuQ-MuLan даёт 0.621 — ось перекрыта.",
     positive: {
       shared: [
         "A clean hi-fi electronic track.",
@@ -328,7 +344,8 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A murky distorted recording with limited bandwidth."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.35,
+    model: "mulan"
   },
   {
     key: "voice/vocal-led",
@@ -861,14 +878,15 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "texture/glassy",
     axis: "texture",
     label: "Glassy",
-    hint: "Стеклянные, кристальные верхи.",
+    hint: "Стеклянные, кристальные верхи. CLAP инвертирует против спектрального центроида (0.294) — ось перекрыта на MuQ-MuLan.",
     positive: {
       shared: [
         "A glassy bright track.",
         "A track with crystalline shimmering synth tones."
       ]
     },
-    negativeWeight: 0
+    negativeWeight: 0,
+    model: "mulan"
   },
   {
     key: "texture/wooden",
@@ -1257,14 +1275,15 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "instruments/steel-drum",
     axis: "instruments",
     label: "Steel drums",
-    hint: "Стил-пэн, карибский металл.",
+    hint: "Стил-пэн, карибский металл. CLAP инвертирует против акустичности (0.427) — ось перекрыта на MuQ-MuLan.",
     positive: {
       shared: [
         "A track with steel drums.",
         "Bright metallic steel pan melodies."
       ]
     },
-    negativeWeight: 0
+    negativeWeight: 0,
+    model: "mulan"
   },
   {
     key: "instruments/congas",
@@ -1727,6 +1746,37 @@ export function presetsForAxis(axisKey: string): TextPromptPreset[] {
 
 export function presetByKey(key: string): TextPromptPreset | undefined {
   return textPromptPresets.find((preset) => preset.key === key);
+}
+
+export function axisByKey(key: string): TextPromptAxis | undefined {
+  return textPromptAxes.find((axis) => axis.key === key);
+}
+
+/** The model measured to rank this one label best, or undefined if untested. */
+export function modelForPreset(key: string): TextPromptModel | undefined {
+  const preset = presetByKey(key);
+  if (!preset) return undefined;
+  return preset.model ?? axisByKey(preset.axis)?.model;
+}
+
+/**
+ * The model measured to rank every selected preset best, or null.
+ *
+ * Rank fusion was measured and rejected, so the two models are never combined:
+ * mixing drags the stronger model toward the weaker one exactly where the gap
+ * is widest. The choice is made per axis instead. A selection spanning axes
+ * with different winners returns null, because one search runs against one
+ * embedding family and no single answer is right for all of them.
+ */
+export function recommendedModel(keys: string[]): TextPromptModel | null {
+  let choice: TextPromptModel | null = null;
+  for (const key of keys) {
+    const model = modelForPreset(key);
+    if (!model) continue;
+    if (choice && choice !== model) return null;
+    choice = model;
+  }
+  return choice;
 }
 
 export function resolvePromptVariants(

@@ -2,7 +2,7 @@ import { Check, ListFilter, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmbeddingSource } from "./api";
 import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPromptPresets";
-import { presetByKey } from "./textPromptPresets";
+import { presetByKey, recommendedModel } from "./textPromptPresets";
 
 export function ClapSearchTab({
   textQuery,
@@ -65,6 +65,10 @@ export function ClapSearchTab({
     [selectedPresetKeys]
   );
   const promptLineCount = textQuery.split(/\r?\n/).filter((line) => line.trim()).length;
+  // Rank fusion was measured and rejected, so the two models are never mixed.
+  // The selection instead points at whichever one was measured to rank it best.
+  const advisedModel = useMemo(() => recommendedModel(selectedPresetKeys), [selectedPresetKeys]);
+  const advisedModelLabel = advisedModel === "mulan" ? "MuQ-MuLan" : "CLAP";
 
   useEffect(() => {
     if (!presetMenuOpen) return;
@@ -179,6 +183,21 @@ export function ClapSearchTab({
               type="button"
             >
               Очистить
+            </button>
+          </div>
+        ) : null}
+        {advisedModel && advisedModel !== textEmbeddingFamily ? (
+          <div className="clap-model-advice">
+            <span>
+              Выбранные оси лучше ранжирует {advisedModelLabel}. Сейчас выбрана {textModelLabel}.
+            </span>
+            <button
+              className="clap-model-advice-switch"
+              title="Переключить на модель, измеренную как лучшую для этих осей. Смешивать модели нельзя: rank fusion проверен и отклонён, он тянет сильную модель к слабой."
+              onClick={() => onTextEmbeddingFamilyChange(advisedModel)}
+              type="button"
+            >
+              Переключить на {advisedModelLabel}
             </button>
           </div>
         ) : null}

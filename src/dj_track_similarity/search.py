@@ -25,7 +25,7 @@ from .vector_index import (
 
 FloatArray = NDArray[np.float32]
 EmbeddingFamily = Literal["maest", "mert", "muq", "mulan", "clap"]
-CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = 0.35
+CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = 0.5
 _EMBEDDING_FAMILIES = frozenset({"maest", "mert", "muq", "mulan", "clap"})
 
 
@@ -660,10 +660,15 @@ def _contrast_vector_scores(
             negative_vectors,
             output=output,
         )
-        negative_scores = np.max(
+        # Averaging the two closest negatives asks a second prompt to agree
+        # before a track is pushed down, which one badly worded negative could
+        # otherwise decide alone. Measured on the labelled pool it beats the
+        # maximum at every weight for both text models. A bank of one negative
+        # keeps the old behaviour, since the two-column slice collapses to it.
+        negative_scores = np.sort(
             matrix @ negative_bank.T,
             axis=1,
-        )
+        )[:, -2:].mean(axis=1)
     else:
         negative_scores = np.zeros_like(positive_scores)
     bounded_weight = _finite_number(

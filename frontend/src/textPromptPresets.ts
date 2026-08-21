@@ -155,7 +155,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A track with stiff mechanical drum timing."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "groove/polyrhythm",
@@ -176,7 +176,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A sparse track with almost no percussion."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "low/sub",
@@ -197,7 +197,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A track with a short, dry, plucked bass."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "low/acid",
@@ -218,7 +218,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A soft ambient track with sustained pads."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "low/dry-punch",
@@ -239,7 +239,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A track with a smooth continuous sub bass."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "texture/dub",
@@ -260,7 +260,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A bright modern track with tight, short sounds."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "texture/metallic",
@@ -281,7 +281,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A gentle acoustic recording with natural timbre."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "texture/granular",
@@ -302,7 +302,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A straightforward club track with conventional drums."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "texture/lo-fi",
@@ -323,7 +323,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A polished modern mix with wide clear high end."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "texture/clean",
@@ -344,7 +344,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A murky distorted recording with limited bandwidth."
       ]
     },
-    negativeWeight: 0.35,
+    negativeWeight: 0.5,
     model: "mulan"
   },
   {
@@ -411,7 +411,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "An instrumental track with drums and bass only."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "voice/instrumental",
@@ -478,7 +478,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A percussion-only track with drums and bass."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "instruments/guitar",
@@ -499,7 +499,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A track with piano as the only melodic instrument."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "instruments/strings-brass",
@@ -520,7 +520,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A synth-only electronic track."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "space/dry",
@@ -541,7 +541,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A washed-out ambient track with huge space."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "space/roomy",
@@ -562,7 +562,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A track with a huge cathedral reverb."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "space/cavernous",
@@ -580,7 +580,7 @@ export const textPromptPresets: TextPromptPreset[] = [
     negative: {
       shared: ["A dry, tight mix with close, controlled sounds."]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "energy/warm-up",
@@ -702,7 +702,7 @@ export const textPromptPresets: TextPromptPreset[] = [
         "An organic acoustic recording with live instruments."
       ]
     },
-    negativeWeight: 0.35
+    negativeWeight: 0.5
   },
   {
     key: "style/experimental",
@@ -1896,7 +1896,7 @@ export const defaultTextPromptModel: TextPromptModel = "mulan";
  * fits every concept, so presets carry their own and this is only the floor for
  * a hand-written bank.
  */
-export const defaultNegativeWeight = 0.35;
+export const defaultNegativeWeight = 0.5;
 
 /** Bounds accepted by TextSearchRequest.negative_weight. */
 export const negativeWeightRange = { min: 0, max: 2, step: 0.05 } as const;

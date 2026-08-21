@@ -173,7 +173,7 @@ def test_search_contrast_vectors_rank_positive_over_negative_match(
         "positive": 1.0,
         "negative": 0.0,
         "contrast": 1.0,
-        "negative_weight": 0.35,
+        "negative_weight": 0.5,
     }
 
 
@@ -203,12 +203,15 @@ def test_search_contrast_vectors_use_hard_negative_margin_not_probability(
         positive_match.track_id,
         margin_match.track_id,
     ]
-    assert results[1].score == pytest.approx(0.4596194)
+    # The track matches one negative and misses the other, so the penalty is the
+    # mean of the two rather than the single closest: 0.707 and 0.0 average to
+    # 0.354, and half of that comes off the positive score.
+    assert results[1].score == pytest.approx(0.53033012)
     assert results[1].score_breakdown == {
         "positive": pytest.approx(0.70710677),
-        "negative": pytest.approx(0.70710677),
-        "contrast": pytest.approx(0.4596194),
-        "negative_weight": 0.35,
+        "negative": pytest.approx(0.35355339),
+        "contrast": pytest.approx(0.53033012),
+        "negative_weight": 0.5,
     }
 
 

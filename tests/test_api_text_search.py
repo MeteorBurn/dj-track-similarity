@@ -177,7 +177,7 @@ def test_text_search_subtracts_a_hard_negative_bank(monkeypatch, tmp_path: Path)
         negative_id,
     ]
     assert payload[0]["score"] > payload[1]["score"] > payload[2]["score"]
-    assert payload[0]["score_breakdown"] == {"positive": 1.0, "negative": 0.0, "contrast": 1.0, "negative_weight": 0.35}
+    assert payload[0]["score_breakdown"] == {"positive": 1.0, "negative": 0.0, "contrast": 1.0, "negative_weight": 0.5}
     assert FakeClapAdapter.queries == ["track with vocals and speech", "instrumental track without voices"]
 
 
@@ -232,12 +232,12 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
         positive_id,
         negative_aligned_id,
     ]
-    assert payload[1]["score"] == pytest.approx(0.4596194)
+    assert payload[1]["score"] == pytest.approx(0.35355339)
     assert payload[1]["score_breakdown"] == {
         "positive": pytest.approx(0.70710677),
         "negative": pytest.approx(0.70710677),
-        "contrast": pytest.approx(0.4596194),
-        "negative_weight": 0.35,
+        "contrast": pytest.approx(0.35355339),
+        "negative_weight": 0.5,
     }
     assert FakeClapAdapter.queries == ["broken drums.", "straight house groove."]
 

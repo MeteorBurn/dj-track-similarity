@@ -29,7 +29,7 @@ from sklearn.metrics import average_precision_score, roc_auc_score
 
 from dj_track_similarity.analysis_model_runners import current_embedding_analysis_output
 from dj_track_similarity.embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
-from dj_track_similarity.search import _contrast_vector_scores
+from dj_track_similarity.search import _contrast_vector_scores, _normalize_matrix
 
 FloatArray = NDArray[np.float32]
 
@@ -59,6 +59,7 @@ class Measurement:
     model: str
     form: str
     space: str
+    pooling: str
     negative_weight: float
     roc_auc: float
     average_precision: float
@@ -68,6 +69,7 @@ class Measurement:
     def as_row(self) -> str:
         return (
             f"{self.concept:<22}{self.model:<7}{self.form:<10}{self.space:<9}"
+            f"{self.pooling:<10}"
             f"{self.negative_weight:>6.2f}{self.roc_auc:>9.3f}"
             f"{self.average_precision:>9.3f}{self.precision_at_k:>9.2f}"
             f"{self.median_library_rank:>12,.0f}"
@@ -164,7 +166,7 @@ def _measure_family(
             positives = adapter.embed_texts(bank["positive"])
             negatives = adapter.embed_texts(bank.get("negative", []))
             for space, scored_matrix in spaces:
-                positive_scores, negative_scores, _contrast, _weight = (
+                positive_scores, negative_max, _contrast, _weight = (
                     _contrast_vector_scores(
                         scored_matrix,
                         output=output,
@@ -173,14 +175,52 @@ def _measure_family(
                         negative_weight=PRODUCTION_WEIGHT,
                     )
                 )
-                for weight in DEFAULT_WEIGHTS:
-                    if weight and not negatives:
-                        continue
-                    scores = positive_scores - weight * negative_scores
-                    measurements.append(
-                        _measure(concept, family, form, space, weight, scores)
-                    )
+                for pooling, negative_scores in _negative_poolings(
+                    scored_matrix,
+                    output=output,
+                    negative_vectors=negatives,
+                    negative_max=negative_max,
+                ):
+                    for weight in DEFAULT_WEIGHTS:
+                        if weight and not negatives:
+                            continue
+                        scores = positive_scores - weight * negative_scores
+                        measurements.append(
+                            _measure(
+                                concept,
+                                family,
+                                form,
+                                space,
+                                pooling,
+                                weight,
+                                scores,
+                            )
+                        )
     return measurements
+
+
+def _negative_poolings(
+    matrix: FloatArray,
+    *,
+    output,
+    negative_vectors: list[FloatArray],
+    negative_max: FloatArray,
+) -> list[tuple[str, FloatArray]]:
+    """Ways of turning a negative bank into one penalty per track.
+
+    Production takes the maximum, which lets the single closest negative decide
+    the whole penalty. Averaging the two closest asks two prompts to agree
+    before a track is pushed down, which should be steadier when one negative is
+    worded badly and noisier when the bank is small.
+    """
+
+    poolings: list[tuple[str, FloatArray]] = [("max", negative_max)]
+    if len(negative_vectors) < 2:
+        return poolings
+    similarities = matrix @ _normalize_matrix(negative_vectors, output=output).T
+    top_two = np.sort(similarities, axis=1)[:, -2:]
+    poolings.append(("top2-mean", top_two.mean(axis=1).astype(np.float32)))
+    return poolings
 
 
 def _measure(
@@ -188,6 +228,7 @@ def _measure(
     family: str,
     form: str,
     space: str,
+    pooling: str,
     weight: float,
     scores: FloatArray,
 ) -> Measurement:
@@ -210,6 +251,7 @@ def _measure(
         model=family,
         form=form,
         space=space,
+        pooling=pooling,
         negative_weight=weight,
         roc_auc=float(roc_auc_score(truth, labelled_scores)),
         average_precision=float(average_precision_score(truth, labelled_scores)),
@@ -320,18 +362,22 @@ def _read_only_uri(path: Path) -> str:
 
 def _print_report(measurements: list[Measurement]) -> None:
     header = (
-        f"{'concept':<22}{'model':<7}{'form':<10}{'space':<9}"
+        f"{'concept':<22}{'model':<7}{'form':<10}{'space':<9}{'pooling':<10}"
         f"{'w':>6}{'ROC-AUC':>9}{'AP':>9}{f'P@{TOP_K}':>9}{'med.rank':>12}"
     )
     print(header)
     print("-" * len(header))
     for concept in dict.fromkeys(item.concept for item in measurements):
         rows = [item for item in measurements if item.concept == concept]
-        for item in sorted(rows, key=lambda row: (row.model, row.form, row.space, row.negative_weight)):
+        for item in sorted(
+            rows,
+            key=lambda row: (row.model, row.form, row.space, row.pooling, row.negative_weight),
+        ):
             print(item.as_row())
         best = max(rows, key=lambda row: row.roc_auc)
         print(
-            f"  best: {best.model} / {best.form} / {best.space} / w={best.negative_weight:.2f} "
+            f"  best: {best.model} / {best.form} / {best.space} / {best.pooling} "
+            f"/ w={best.negative_weight:.2f} "
             f"-> ROC-AUC {best.roc_auc:.3f}"
         )
         print()

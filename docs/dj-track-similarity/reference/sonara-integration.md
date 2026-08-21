@@ -1,8 +1,6 @@
 # SONARA integration
 
-> Audience: Maintainers working with stored SONARA results.
-> Goal: Describe the current decode, output, storage, and update boundaries.
-> Type: reference
+How the project collects SONARA data, what it stores, and where the storage boundaries sit.
 
 ## Current path
 

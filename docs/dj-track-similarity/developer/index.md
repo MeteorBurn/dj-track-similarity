@@ -1,9 +1,5 @@
 # Developer
 
-> Audience: Contributors and future maintainers.
-> Goal: Understand code map and verification expectations.
-> Type: explanation
-
 Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
 
 ## Pages

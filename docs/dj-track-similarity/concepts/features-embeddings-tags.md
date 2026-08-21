@@ -1,9 +1,5 @@
 # Features, embeddings, and tags
 
-> Audience: Users comparing search tabs and metadata panels.
-> Goal: Explain each evidence source and what it should be used for.
-> Type: concept
-
 The UI shows several kinds of information. They are stored together in SQLite, but they come from
 different sources and help with different decisions.
 

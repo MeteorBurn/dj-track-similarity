@@ -1,9 +1,5 @@
 # Build crates for later listening
 
-> Audience: Users collecting candidate pools rather than final ordered sets.
-> Goal: Create useful review lists from filters, seeds, and text prompts.
-> Type: workflow
-
 A crate is useful when you want to collect possibilities before deciding on an order. It can hold a
 sound family or a warmup direction. Difficult-to-name textures and tracks that deserve another
 listening pass also fit here.

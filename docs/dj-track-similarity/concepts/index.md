@@ -1,9 +1,5 @@
 # Concepts
 
-> Audience: Users who want to understand what the UI is showing.
-> Goal: Explain the main data types and score surfaces without turning this into developer docs.
-> Type: concept index
-
 The app combines file metadata, audio features, embeddings, and optional local classifier scores.
 Each source answers a different kind of question. Read them as local ranking and filtering signals,
 not as one universal measure of musical truth.

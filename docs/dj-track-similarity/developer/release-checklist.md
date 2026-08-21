@@ -1,8 +1,6 @@
 # Release checklist
 
-> Audience: Maintainers doing a final audit.
-> Goal: Check safety, interfaces, builds, and public wording before publishing.
-> Type: how-to
+Walk through this before releasing a change that touches docs, the CLI, the API, or SONARA behavior.
 
 ## Checklist
 

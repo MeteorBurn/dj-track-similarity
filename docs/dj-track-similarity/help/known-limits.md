@@ -1,8 +1,7 @@
 # Known limits
 
-> Audience: Users deciding whether behavior is expected.
-> Goal: List current boundaries without pretending they are bugs.
-> Type: help
+What the app cannot do yet, plus the local setup details that decide whether it works at all on your
+machine.
 
 ## Local-first means local setup matters
 

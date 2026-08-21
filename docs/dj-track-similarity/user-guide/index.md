@@ -1,9 +1,5 @@
 # User guide
 
-> Audience: Users working in the browser UI.
-> Goal: Explain daily operations without forcing readers into code or API details.
-> Type: guide index
-
 The UI is a workbench for moving from a large local collection to a smaller list worth hearing.
 Database and analysis controls sit on the left, the library list sits in the middle, and search/set
 tools sit on the right.

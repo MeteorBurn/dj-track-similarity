@@ -1,9 +1,5 @@
 # Classifiers and Rhythm Lab
 
-> Audience: Users building personal classifier scores.
-> Goal: Explain labels, training, promotion, and how scores appear in the main app.
-> Type: concept
-
 Most analysis models arrive with their own general audio representation. A personal classifier asks
 a different question: "can the app reuse a distinction that I make repeatedly?"
 

@@ -1,8 +1,6 @@
 # Optimize a SQLite database
 
-> Audience: Users maintaining local SQLite state.
-> Goal: Run maintenance with backups and integrity checks.
-> Type: guide
+SQLite maintenance that takes a verified backup before it touches anything.
 
 ```powershell
 python scripts\optimize_database.py --db .\data\library.sqlite

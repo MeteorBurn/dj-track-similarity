@@ -1,9 +1,5 @@
 # Rhythm Lab
 
-> Audience: Users creating local classifier profiles.
-> Goal: Label, train, review, and promote without crossing source-audio boundaries.
-> Type: guide
-
 Rhythm Lab is a separate local labeling and training tool. Its labels, predictions, checkpoints, and
 artifacts stay under `tools/rhythm-lab/`. It reads the main library mostly read-only. The explicit
 liked-track toggle is the narrow main-database write path. Rhythm Lab does not rewrite source audio.

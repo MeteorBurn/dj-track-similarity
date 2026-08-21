@@ -1,9 +1,5 @@
 # Reference
 
-> Audience: Users who already know which command, endpoint, or control they need.
-> Goal: Provide concise facts that match the current code surface.
-> Type: reference index
-
 Reference pages are for exact names, ranges, and boundaries. Use the guide and workflow pages when you want task flow.
 
 ## Pages

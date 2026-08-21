@@ -1,8 +1,6 @@
 # Maintain a library safely
 
-> Audience: Users keeping local music state healthy.
-> Goal: Maintain the database bundle without changing source audio.
-> Type: workflow
+A routine you can repeat without putting your audio or your database at risk.
 
 1. Scan after adding files. Scan updates library tracks and tags without writing audio.
 2. Keep `library.sqlite` backed up. Include optional `*.evaluation.sqlite` when it exists.

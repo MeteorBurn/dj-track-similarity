@@ -1,9 +1,5 @@
 # Reanalyze SONARA data
 
-> Audience: Users adopting a SONARA update or changing the analysis they store.
-> Goal: Back up the library and rebuild only the data you choose.
-> Type: workflow
-
 Normal startup never rewrites a legacy split database. To convert that layout, stop every SQLite
 user and run `dj-sim migrate-database --db .\data\library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`;
 it creates a backup and does not start reanalysis.

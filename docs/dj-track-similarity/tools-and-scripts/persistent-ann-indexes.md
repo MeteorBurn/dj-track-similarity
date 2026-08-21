@@ -1,9 +1,5 @@
 # Persistent ANN indexes
 
-> Audience: Users with large analyzed libraries and repeated vector lookup.
-> Goal: Build, verify, benchmark, use, and clear optional sidecar indexes.
-> Type: guide
-
 Persistent ANN indexes are generated sidecar files for stored embeddings. They are optional. Exact search still works without them.
 
 ## What is stored

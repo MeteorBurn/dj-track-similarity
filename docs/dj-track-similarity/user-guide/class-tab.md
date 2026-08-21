@@ -1,9 +1,5 @@
 # Classifier scores and the CLASS tab
 
-> Audience: Users with promoted Rhythm Lab classifier profiles.
-> Goal: Filter, rescore, and use classifier scores without confusing them with analysis families.
-> Type: guide
-
 Use a classifier when you keep making the same personal judgment and ordinary tags do not capture
 it. Examples include a profile you define for vocal-forward versus mostly instrumental tracks, or
 for a specific kind of live instrumentation. Rhythm Lab learns from your labeled examples; the

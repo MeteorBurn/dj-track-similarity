@@ -1,11 +1,7 @@
 # Analyze a library
 
-> Audience: Users running local analysis from the current Python runtime.
-> Goal: Choose safe analysis commands and understand their storage boundary.
-> Type: guide
-
 Analysis reads source audio and writes local SQLite state. It does not modify source audio files.
-Scan first, then select the analysis family that answers your listening question.
+Scan first, then pick the analysis family that answers your listening question.
 
 ## Browser controls
 

@@ -1,9 +1,5 @@
 # Search by text with CLAP or MuQ-MuLan
 
-> Audience: Users who know the sound they want better than the seed track.
-> Goal: Choose a text embedding family, write useful prompts, and read its score scale correctly.
-> Type: guide
-
 Use text search when you can hear an idea in your head but do not have a good reference track. A
 prompt such as "broken drums with metallic synth hits" gives the app an audible direction. Metadata
 filters serve a different purpose.

@@ -1,8 +1,6 @@
 # Architecture map
 
-> Audience: Developers orienting in the repository.
-> Goal: See main components and data flow without reading every module first.
-> Type: explanation
+How the pieces fit together, from the CLI and the API down to the audio decode paths.
 
 ## Map
 

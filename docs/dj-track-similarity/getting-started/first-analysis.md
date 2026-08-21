@@ -1,11 +1,7 @@
 # Run your first analysis
 
-> Audience: Users who have scanned tracks and want model-backed search.
-> Goal: Choose analysis families safely and understand what each unlocks.
-> Type: tutorial
-
 Scanning tells the app what files you own. Analysis gives it several limited ways to compare how
-those files sound. The useful result is not a new audio file: it is local evidence that unlocks
+those files sound. No new audio file comes out of it. What you get is local evidence that unlocks
 shortlists, filters, and ordered previews.
 
 Analysis jobs read audio or stored analysis values and write SQLite results. They do not rewrite

@@ -1,9 +1,5 @@
 # Commands and arguments
 
-> Audience: Users and maintainers who need the complete supported command-line surface.
-> Goal: Find every current public command, positional argument, option, default, and write boundary.
-> Type: reference
-
 This page is the canonical command reference. It covers the installed `dj-sim` command and the
 public scripts located under `tools/` and `scripts/`. It does not list tests, Python APIs, or
 private helpers.

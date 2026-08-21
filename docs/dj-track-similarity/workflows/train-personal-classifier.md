@@ -1,9 +1,5 @@
 # Train a personal classifier
 
-> Audience: Users who want the app to learn a local concept from labels.
-> Goal: Move from review labels to a promoted classifier score.
-> Type: workflow
-
 Train a classifier when you repeatedly sort tracks by a personal concept that metadata and one-off
 searches do not express well. You define the concept and provide examples. Rhythm Lab learns a
 local boundary from those labels, and the main app can later score compatible tracks against it.

@@ -1,9 +1,5 @@
 # Search with seed tracks
 
-> Audience: Users who have one or more reference tracks and want nearby candidates.
-> Goal: Use MERT, MuQ, MuQ-MuLan, SONARA, and Reference Compare search without confusing their scores.
-> Type: guide
-
 Seed search is useful when a real track communicates your intention better than tags or words. The
 app compares stored analysis around that reference and returns candidates to audition. It does not
 claim that the candidates will mix or belong in the same genre.

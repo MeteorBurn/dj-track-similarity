@@ -1,9 +1,5 @@
 # Database reference
 
-> Audience: Users and maintainers who need to know what local SQLite stores.
-> Goal: Explain the database as local state, not a full schema dump.
-> Type: reference
-
 Selecting `library.sqlite` opens one library database. A fresh selected path is
 created directly in the current schema.
 

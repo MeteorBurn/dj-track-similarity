@@ -1,8 +1,7 @@
 # Testing and verification
 
-> Audience: Developers choosing checks after a change.
-> Goal: Run focused verification that matches edit risk.
-> Type: how-to
+Pick the cheapest check that can actually catch the mistake you might have made. The commands below
+cover the usual scopes.
 
 ## Common checks
 

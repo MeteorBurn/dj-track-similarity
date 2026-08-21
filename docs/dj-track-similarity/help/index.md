@@ -1,9 +1,5 @@
 # Help
 
-> Audience: Users diagnosing a local run.
-> Goal: Route symptoms to fixes and explain current limits.
-> Type: help index
-
 Start with the symptom page, then check known limits and FAQ.
 
 ## Pages

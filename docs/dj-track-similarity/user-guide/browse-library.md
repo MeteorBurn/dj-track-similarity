@@ -1,8 +1,7 @@
 # Browse a large library without rendering everything
 
-> Audience: Users navigating the main web UI after scan.
-> Goal: Find tracks, inspect metadata, preview audio, and build seeds or a temporary set.
-> Type: guide
+After a scan you have thousands of rows and one screen. This page covers finding tracks, reading
+their metadata, previewing audio, and turning what you find into seeds or a temporary set.
 
 ## Direct API equivalent
 

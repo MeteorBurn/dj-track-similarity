@@ -1,8 +1,7 @@
 # Development workflow
 
-> Audience: Developers making local changes.
-> Goal: Use setup and build commands for backend, frontend, and docs.
-> Type: how-to
+What you need to run the project from a checkout, and where the moving parts sit while you work on
+it.
 
 ## Setup
 

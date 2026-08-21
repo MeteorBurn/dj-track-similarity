@@ -1,9 +1,5 @@
 # Project guide
 
-> Audience: Readers who want the whole map before choosing a task.
-> Goal: Pick the right page for setup, daily UI use, maintenance, or reference.
-> Type: explanation
-
 DJ Track Similarity helps you explore a local music collection when folders, tags, and memory are
 not enough. Start from a track you already know, a sound you can describe, or a rough set idea. The
 app turns that starting point into a smaller list worth listening to.

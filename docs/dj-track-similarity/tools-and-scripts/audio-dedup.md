@@ -1,9 +1,5 @@
 # Audio Dedup
 
-> Audience: Users looking for duplicate audio candidates.
-> Goal: Run report mode safely and understand apply mode.
-> Type: guide
-
 Audio Dedup reads an existing SQLite library and writes JSON/XLSX/log reports by default. It uses stored analysis data and local paths. It does not scan unknown folders outside the selected root.
 
 ## Requirements

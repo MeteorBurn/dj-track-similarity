@@ -1,9 +1,5 @@
 # Model citations and licenses
 
-> Audience: Users and maintainers checking upstream model and tool sources.
-> Goal: Name the current upstream sources, checkpoints, and license notes.
-> Type: reference
-
 This page lists the optional upstream analysis tools and checkpoints used by the current adapters. It is based on `pyproject.toml`, `sonara_features.py`, `genres.py`, and `embedding.py`.
 
 Because the project does not vendor or redistribute upstream model weights, this page gives attribution and practical license notes rather than legal advice. Optional packages download or load those assets when you run analysis. Check the upstream repositories and model cards before redistribution, hosted service use, commercial use, or published research.

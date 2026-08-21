@@ -1,10 +1,7 @@
 # Install for local analysis
 
-> Audience: Users preparing a checkout for local scanning, UI use, and optional analysis.
-> Goal: Install only what you need and know which tools are required.
-> Type: tutorial
-
-The project is a Python package with optional extras plus a React frontend and VitePress docs. The command examples assume the environment is active.
+Install only what you actually need. The project is a Python package with optional extras, plus a
+React frontend and VitePress docs. The command examples assume the environment is active.
 
 ## Requirements
 
@@ -17,7 +14,7 @@ The project is a Python package with optional extras plus a React frontend and V
 
 The server registers the shared runtime during startup. It requires `ffmpeg.exe` reporting `8.1.1`
 plus the complete compatible shared-library set. A missing, partial, or different runtime fails with
-a clear setup error instead of silently using partial decoding. `ffmpeg.exe` alone is insufficient.
+a clear setup error instead of silently using partial decoding. A bare `ffmpeg.exe` is not enough.
 
 ## Shared FFmpeg runtime
 
@@ -39,9 +36,10 @@ dj-sim serve --host 127.0.0.1 --port 8765
 ```
 
 The main application uses TorchCodec and the shared libraries directly for decoding. The executable
-is used only to verify the selected runtime version during setup. An executable installed for another
-application neither configures nor substitutes for the required shared libraries. The base project
-dependency installs PyAV `17.1.0` into the active Python environment; it is not loaded from `libs`.
+is used only to verify the selected runtime version during setup. An executable installed for some
+other application does not configure the required shared libraries and cannot stand in for them. The
+base project dependency installs PyAV `17.1.0` into the active Python environment; it is not loaded
+from `libs`.
 
 After installation, verify the actual process environment:
 

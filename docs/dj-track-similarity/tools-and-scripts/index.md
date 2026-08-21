@@ -1,9 +1,5 @@
 # Tools and scripts
 
-> Audience: Users running helper workflows outside the main search panel.
-> Goal: Explain what each helper writes and when to use it.
-> Type: guide index
-
 The repository includes helper tools for classifier labeling, reports, maintenance, and faster repeated lookup. Use them deliberately. Some are report-only by default, and some have real apply modes.
 
 ## Pages

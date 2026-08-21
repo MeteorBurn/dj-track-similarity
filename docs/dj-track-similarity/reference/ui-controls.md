@@ -1,9 +1,5 @@
 # Browser controls reference
 
-> Audience: Users looking for current browser control ranges and defaults.
-> Goal: Describe the current UI that is backed by the active API.
-> Type: reference
-
 The browser works with one library database. The database picker selects the library SQLite file;
 the optional `*.evaluation.sqlite` companion is opened only by Evaluation workflows. There are no
 separate Timeline or Representations database controls.

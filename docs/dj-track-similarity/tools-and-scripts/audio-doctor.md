@@ -1,9 +1,5 @@
 # Audio Doctor
 
-> Audience: Users diagnosing audio metadata/container problems.
-> Goal: Run dry-run checks and use repair mode only after review.
-> Type: guide
-
 Audio Doctor inspects audio files for known metadata/container issues and can repair only known safe repairable states. It is dry-run-first.
 
 ## Inputs

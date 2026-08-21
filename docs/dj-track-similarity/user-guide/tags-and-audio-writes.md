@@ -1,10 +1,7 @@
 # Know when audio files can be written
 
-> Audience: Users who want to avoid accidental edits to source files.
-> Goal: Separate read-only workflows from explicit file-writing workflows.
-> Type: guide
-
-Most app workflows are read-only with respect to source audio. The source file exceptions are intentional and narrow.
+Most of what the app does leaves your source audio untouched. The exceptions are intentional and
+narrow, and this page names every one of them.
 
 ## Read-only for audio files
 

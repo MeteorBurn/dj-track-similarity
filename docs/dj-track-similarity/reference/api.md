@@ -1,9 +1,5 @@
 # API reference
 
-> Audience: Users and maintainers scripting against the local FastAPI app.
-> Goal: Summarize endpoint families and key payload rules.
-> Type: reference
-
 The API is local and unauthenticated by design. Bind the server carefully. Use `127.0.0.1` unless you intentionally expose it on a LAN.
 
 The backend schemas below describe the current API. The React client imports matching identities,

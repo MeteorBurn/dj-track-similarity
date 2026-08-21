@@ -1,9 +1,5 @@
 # Workflows
 
-> Audience: Users solving DJ-library tasks rather than reading feature docs.
-> Goal: Provide task recipes that point to the right UI and tool pages.
-> Type: workflow index
-
 Use workflows when you know the outcome you want but do not yet know which model or screen can
 produce it.
 

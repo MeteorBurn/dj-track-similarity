@@ -1,15 +1,12 @@
 # Getting started
 
-> Audience: First-time users setting up a local library.
-> Goal: Move from checkout to a searchable, analyzed SQLite database.
-> Type: tutorial index
+You are here to turn a folder of audio files into something you can actually search. The payoff is
+not a fully automatic DJ set. It is a searchable map of your own music, plus a shortlist of
+candidates you would probably never find by browsing folders alone.
 
-The first useful result is not a fully automatic DJ set. It is a searchable map of your own music
-and a short list of candidates you would probably not find by browsing folders alone.
-
-The shortest path is: install, scan, open the UI, analyze a small batch, search, then decide by ear.
-Your audio stays where it is. Scan and analysis add information to local SQLite databases; they do
-not reorganize or rewrite the source files.
+The shortest path runs install, scan, open the UI, analyze a small batch, search, then decide by ear.
+Your audio stays where it is. Scan and analysis add information to local SQLite databases without
+reorganizing or rewriting the source files.
 
 ## What each step gives you
 
@@ -32,7 +29,7 @@ not reorganize or rewrite the source files.
 - A local SQLite path where the app can create or open the library.
 - FFmpeg `8.1.1` as a full shared build. Discovery checks
   `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, then a valid library directory on `PATH`.
-  `ffmpeg.exe` alone is not enough. Run `dj-sim doctor` after setup.
+  A bare `ffmpeg.exe` is not enough. Run `dj-sim doctor` after setup.
 - Optional model dependencies if you want SONARA, MAEST, MERT, MuQ, or CLAP analysis.
 
 ## Privacy habit

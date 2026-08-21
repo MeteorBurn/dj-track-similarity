@@ -1,9 +1,5 @@
 # Project idea
 
-> Audience: Readers who want to understand why the project exists.
-> Goal: Explain the intent without overstating what the current app can do.
-> Type: concept
-
 `dj-track-similarity` starts from a simple personal problem:
 
 > I have a large folder of music. I want to analyze it locally, rediscover tracks I already own, search by vibe, sound, references, or text, and build DJ sets that mix cleanly and move like a story.

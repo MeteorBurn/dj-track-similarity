@@ -1,9 +1,5 @@
 # Read similarity scores as suggestions
 
-> Audience: Users comparing result scores across tabs.
-> Goal: Prevent score-scale mistakes.
-> Type: concept
-
 Scores answer "which candidates should I inspect first under these settings?" They can tell you that
 one candidate ranked ahead of another inside the same search. They cannot judge musical quality or
 promise that a transition will work. Scores from different tabs also have no shared scale.

@@ -1,8 +1,7 @@
 # Export a playlist preview
 
-> Audience: Users who built a temporary set and want a file outside the app.
-> Goal: Export M3U or CSV and understand what is written.
-> Type: guide
+Once a set is worth keeping, export it as a file your player or your notes can use. This page covers
+what M3U and CSV export actually write.
 
 ## Direct API
 

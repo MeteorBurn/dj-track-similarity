@@ -1,8 +1,7 @@
 # Configuration reference
 
-> Audience: Users setting paths, ports, builds, and generated output locations.
-> Goal: List the practical knobs exposed by the current repo.
-> Type: reference
+Exact names, ports, paths, and build commands. Look here when you need the value rather than the
+explanation.
 
 ## Environment variables
 

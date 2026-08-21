@@ -1,9 +1,5 @@
 # Find compatible tracks around a reference
 
-> Audience: Users who have one track and want candidates nearby.
-> Goal: Use seed and feature search with clear fallback steps.
-> Type: workflow
-
 Here, "compatible" means worth auditioning next to the reference under the search question you
 choose. It does not mean guaranteed harmonic, rhythmic, or stylistic compatibility.
 

@@ -1,9 +1,5 @@
 # Analysis families reference
 
-> Audience: Users choosing which model outputs to compute.
-> Goal: List what each family reads, writes, and unlocks.
-> Type: reference
-
 MAEST, MERT, MuQ, MuQ-MuLan, and CLAP share one decoded input per track. TorchCodec `0.16` reads
 all samples through the configured shared FFmpeg runtime as mono `float32` at the source sample
 rate with `AudioDecoder(path, num_channels=1).get_all_samples()`. The project keeps

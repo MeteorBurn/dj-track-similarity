@@ -1,9 +1,5 @@
 # Local-first safety model
 
-> Audience: Users deciding what data the app touches.
-> Goal: Make read paths, SQLite writes, and source-file writes clear.
-> Type: concept
-
 `dj-track-similarity` is built around local files and local state. Normal workflows do not require uploading audio files or tags to a service.
 
 ## Local state

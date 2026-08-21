@@ -97,7 +97,7 @@ export function ClapSearchTab({
   return (
     <div className="search-tab-panel" role="tabpanel">
       <div className="text-search-box clap-text-search-box">
-        <label className="clap-query-field" title={textPromptHelp}>
+        <label className="clap-query-field clap-group-label" title={textPromptHelp}>
           Prompt bank
           <textarea
             className="clap-query-input"
@@ -111,14 +111,14 @@ export function ClapSearchTab({
         <div className="clap-prompt-toolbar">
           <div className="clap-prompt-actions" ref={presetMenuRef}>
             <button
-              className={`clap-toolbar-button clap-presets-button ${presetMenuOpen ? "active" : ""}`}
+              className={`clap-toolbar-button clap-preset-toolbar-control clap-presets-button ${presetMenuOpen ? "active" : ""}`}
               title="Выбрать пресеты по осям. Несколько пресетов складываются в один банк."
               aria-label="Выбрать prompt preset"
               aria-expanded={presetMenuOpen}
               onClick={() => setPresetMenuOpen((current) => !current)}
               type="button"
             >
-              <ListFilter size={15} />
+              <ListFilter size={12} />
               Пресеты
             </button>
             {selectedPresets.length ? (
@@ -199,7 +199,7 @@ export function ClapSearchTab({
             ) : null}
           </div>
           <label
-            className={`clap-toolbar-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`}
+            className={`clap-toolbar-button clap-negative-toggle clap-preset-toolbar-control ${clapUseNegativePrompt ? "intent-add active" : ""}`}
             title="Применять Negative как hard-negative запросы. Тип: чекбокс. Когда выключено, текст остаётся в поле, но в поиск не уходит."
           >
             <input
@@ -209,7 +209,7 @@ export function ClapSearchTab({
               onChange={(event) => onClapUseNegativePromptChange(event.target.checked)}
             />
             <span className="clap-negative-checkbox" aria-hidden="true">
-              {clapUseNegativePrompt ? <Check size={14} strokeWidth={2.4} /> : null}
+              {clapUseNegativePrompt ? <Check size={12} strokeWidth={2.4} /> : null}
             </span>
             Негативы
           </label>
@@ -246,7 +246,7 @@ export function ClapSearchTab({
           </div>
         ) : null}
         <label
-          className="clap-negative-field"
+          className="clap-negative-field clap-group-label"
           title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
         >
           Negative
@@ -280,7 +280,7 @@ export function ClapSearchTab({
           устойчивее одной длинной. Сейчас в банке: {promptLineCount}.
         </div>
       </div>
-      <div className="search-filter-grid clap-search-filter-grid">
+      <div className="search-filter-grid clap-search-filter-grid clap-group-labels">
         <label title="Embedding family used for text-to-track retrieval">Model
           <select
             value={textEmbeddingFamily}

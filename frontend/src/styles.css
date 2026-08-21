@@ -2715,6 +2715,7 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  justify-content: space-between;
   margin-top: 6px;
 }
 
@@ -2726,6 +2727,33 @@ h2 {
   height: 30px;
   padding: 0 10px;
   white-space: nowrap;
+}
+
+.clap-preset-toolbar-control {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  gap: 4px;
+  height: auto;
+  line-height: 1.15;
+  min-height: 0;
+  padding: 2px 6px;
+}
+
+.clap-presets-button {
+  background: var(--blue-bg);
+  border-color: var(--blue-border);
+  color: var(--blue-text);
+}
+
+.clap-presets-button:hover,
+.clap-presets-button.active {
+  background: var(--blue-bg-hover);
+  border-color: var(--blue-border-hover);
+  color: var(--blue-text-hover);
 }
 
 /* .text-search-box label stacks its children, which is right for a field and
@@ -2740,27 +2768,35 @@ h2 {
   min-width: 0;
 }
 
+.clap-group-label,
+.clap-group-labels label {
+  color: var(--blue-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 /* The toggle moved to the prompt toolbar, so the field owns the full width. */
 
 .clap-negative-toggle {
   align-items: center;
-  background: var(--button-bg);
-  border: 1px solid var(--button-border);
-  border-radius: 6px;
-  color: var(--button-text);
+  background: var(--danger-muted-bg);
+  border: 1px solid var(--danger-muted-border);
+  border-radius: 999px;
+  color: var(--danger-text);
   cursor: pointer;
   display: flex;
   flex-direction: row;
-  font-size: 12px;
-  font-weight: 650;
-  gap: 6px;
-  height: 30px;
+  font-size: 11px;
+  font-weight: 400;
+  gap: 4px;
+  height: auto;
   justify-content: center;
-  min-height: 30px;
-  padding: 0 10px;
+  line-height: 1.15;
+  min-height: 0;
+  padding: 2px 6px;
   position: relative;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-  width: 37px;
+  width: auto;
 }
 
 .clap-negative-toggle input[type="checkbox"] {
@@ -2774,37 +2810,40 @@ h2 {
 }
 
 .clap-negative-toggle.intent-add {
-  background: var(--accent-muted-bg);
-  border-color: var(--accent-muted-border);
-  color: var(--accent);
+  background: var(--danger-soft-bg);
+  border-color: var(--danger-soft-border);
+  color: var(--danger-soft-text);
 }
 
 .clap-negative-toggle:hover {
-  border-color: var(--accent-border-hover);
-  color: var(--accent-hover);
+  background: var(--danger-bg);
+  border-color: var(--danger-border-hover);
+  color: var(--danger-text-hover);
 }
 
 .clap-negative-toggle.active {
-  background: var(--accent-strong-bg);
-  border-color: var(--accent-border);
-  color: var(--accent-active-text);
+  background: var(--danger-soft-bg);
+  border-color: var(--danger-soft-border);
+  color: var(--danger-soft-text);
 }
 
 .clap-negative-checkbox {
   align-items: center;
-  background: var(--surface);
-  border: 1px solid var(--button-border);
-  border-radius: 4px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: flex;
-  flex: 0 0 16px;
-  height: 16px;
+  flex: 0 0 0;
+  height: 0;
   justify-content: center;
-  width: 16px;
+  overflow: hidden;
+  width: 0;
 }
 
 .clap-negative-toggle.active .clap-negative-checkbox {
-  background: var(--accent-active-bg);
-  border-color: var(--accent-active-border);
+  flex-basis: 12px;
+  height: 12px;
+  width: 12px;
 }
 
 .clap-negative-toggle input[type="checkbox"]:focus-visible + .clap-negative-checkbox {
@@ -2818,7 +2857,10 @@ h2 {
 }
 
 .clap-prompt-actions {
+  align-items: center;
   display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
   position: relative;
 }
 
@@ -2858,19 +2900,23 @@ h2 {
 }
 
 .clap-preset-axis-button {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--text-muted);
+  align-items: center;
+  background: var(--accent-muted-bg);
+  border: 1px solid var(--accent-muted-border);
+  border-radius: 999px;
+  color: var(--accent);
   cursor: pointer;
-  font-size: 12px;
-  min-height: 28px;
-  padding: 4px 10px;
-  text-align: left;
+  display: inline-flex;
+  font-size: 13px;
+  height: auto;
+  line-height: 1.15;
+  min-height: 0;
+  padding: 5px 10px;
 }
 
 .clap-preset-axis-button:hover {
-  color: var(--text-track);
+  border-color: var(--accent-border-hover);
+  color: var(--accent-hover);
 }
 
 .clap-preset-axis-button.active {
@@ -2887,12 +2933,14 @@ h2 {
   border: 1px solid var(--accent-muted-border);
   border-radius: 999px;
   color: var(--accent);
+  cursor: pointer;
   display: inline-flex;
   font-size: 11px;
   gap: 5px;
+  height: auto;
   line-height: 1.15;
   min-height: 0;
-  padding: 3px 9px;
+  padding: 2px 6px;
   width: auto;
 }
 
@@ -2932,27 +2980,50 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 6px;
 }
 
-.clap-preset-chip,
-.clap-preset-chip-clear {
+.clap-preset-chip {
   align-items: center;
-  background: var(--accent-soft-bg);
-  border: 1px solid var(--accent-soft-border);
+  background: var(--danger-muted-bg);
+  border: 1px solid var(--danger-muted-border);
   border-radius: 999px;
-  color: var(--accent);
+  color: var(--danger-text);
   cursor: pointer;
   display: inline-flex;
   font-size: 11px;
   gap: 4px;
-  padding: 3px 8px;
+  height: auto;
+  line-height: 1.15;
+  padding: 2px 6px;
 }
 
 .clap-preset-chip-clear {
+  align-items: center;
   background: var(--surface-muted);
-  border-color: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 999px;
   color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 4px;
+  line-height: 1.15;
+  padding: 2px 6px;
+}
+
+/* This overrides the generic toolbar button height so these controls retain
+   the compact MAEST-pill dimensions rather than expanding to 37px. */
+.text-search-box .clap-preset-axis-button,
+.text-search-box .clap-preset-option-button,
+.text-search-box .clap-preset-chip,
+.text-search-box .clap-preset-chip-clear {
+  height: auto;
+  min-height: 0;
+}
+
+.text-search-box .clap-preset-toolbar-control {
+  height: auto;
+  min-height: 0;
 }
 
 .clap-model-advice {

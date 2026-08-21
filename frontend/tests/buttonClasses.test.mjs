@@ -436,6 +436,17 @@ test("selected text presets stay beside the picker with destructive badge intent
   const source = readFileSync(join(srcDir, "ClapSearchTab.tsx"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const chipRule = styles.match(/\.clap-preset-chip\s*{([\s\S]*?)}/)?.[1] || "";
+  const clearRule = styles.match(/\.clap-preset-chip-clear\s*{([\s\S]*?)}/)?.[1] || "";
+  const axisRule = styles.match(/\.clap-preset-axis-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const optionRule = styles.match(/\.clap-preset-option-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const toolbarControlRule = styles.match(/\.clap-preset-toolbar-control\s*{([\s\S]*?)}/)?.[1] || "";
+  const presetsButtonRule = styles.match(/\.clap-presets-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const negativeToggleRule = styles.match(/\.clap-negative-toggle\s*{([\s\S]*?)}/)?.[1] || "";
+  const promptToolbarRule = styles.match(/\.clap-prompt-toolbar\s*{([\s\S]*?)}/)?.[1] || "";
+  const groupLabelRule = styles.match(/\.clap-group-label,\s*\.clap-group-labels label\s*{([\s\S]*?)}/)?.[1] || "";
+  const compactButtonHeightRule =
+    styles.match(/\.text-search-box \.clap-preset-axis-button,[\s\S]*?\.text-search-box \.clap-preset-chip-clear\s*{([\s\S]*?)}/)?.[1] || "";
+  const toolbarButtonHeightRule = styles.match(/\.text-search-box \.clap-preset-toolbar-control\s*{([\s\S]*?)}/)?.[1] || "";
 
   const selectedPresetIndex = source.indexOf("selectedPresets.map");
   const negativeToggleIndex = source.indexOf("clap-toolbar-button clap-negative-toggle");
@@ -446,12 +457,43 @@ test("selected text presets stay beside the picker with destructive badge intent
     selectedPresetIndex < negativeToggleIndex,
     "selected presets render beside the picker before the negative toggle"
   );
+  assert.equal((source.match(/clap-preset-toolbar-control/g) || []).length, 2);
+  assert.match(source, /<ListFilter size=\{12\} \/>/);
+  assert.match(source, /clapUseNegativePrompt \? <Check size=\{12\}/);
+  assert.match(source, /className="clap-query-field clap-group-label"/);
+  assert.match(source, /className="clap-negative-field clap-group-label"/);
+  assert.match(source, /className="search-filter-grid clap-search-filter-grid clap-group-labels"/);
   assert.match(chipRule, /background:\s*var\(--danger-muted-bg\)/);
   assert.match(chipRule, /border:\s*1px solid var\(--danger-muted-border\)/);
   assert.match(chipRule, /color:\s*var\(--danger-text\)/);
   assert.match(chipRule, /line-height:\s*1\.15/);
   assert.match(chipRule, /padding:\s*2px 6px/);
   assert.match(chipRule, /height:\s*auto/);
+  assert.match(clearRule, /line-height:\s*1\.15/);
+  assert.match(clearRule, /padding:\s*2px 6px/);
+  for (const rule of [toolbarControlRule, optionRule]) {
+    assert.match(rule, /border-radius:\s*999px/);
+    assert.match(rule, /font-size:\s*11px/);
+    assert.match(rule, /height:\s*auto/);
+    assert.match(rule, /min-height:\s*0/);
+    assert.match(rule, /line-height:\s*1\.15/);
+    assert.match(rule, /padding:\s*2px 6px/);
+  }
+  assert.match(compactButtonHeightRule, /height:\s*auto/);
+  assert.match(compactButtonHeightRule, /min-height:\s*0/);
+  assert.match(toolbarButtonHeightRule, /height:\s*auto/);
+  assert.match(toolbarButtonHeightRule, /min-height:\s*0/);
+  assert.match(presetsButtonRule, /background:\s*var\(--blue-bg\)/);
+  assert.match(presetsButtonRule, /border-color:\s*var\(--blue-border\)/);
+  assert.match(presetsButtonRule, /color:\s*var\(--blue-text\)/);
+  assert.match(negativeToggleRule, /background:\s*var\(--danger-muted-bg\)/);
+  assert.match(negativeToggleRule, /border:\s*1px solid var\(--danger-muted-border\)/);
+  assert.match(negativeToggleRule, /color:\s*var\(--danger-text\)/);
+  assert.match(promptToolbarRule, /justify-content:\s*space-between/);
+  assert.match(axisRule, /font-size:\s*13px/);
+  assert.match(axisRule, /padding:\s*5px 10px/);
+  assert.match(groupLabelRule, /color:\s*var\(--blue-text\)/);
+  assert.match(groupLabelRule, /font-size:\s*13px/);
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

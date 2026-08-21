@@ -18,7 +18,7 @@ using it.
 The browser TEXT tab is the main interactive flow. The same search is available from the CLI:
 
 ```powershell
-dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --model mulan --limit 20 --db .\data\library.sqlite
+dj-sim text-search "dark hypnotic techno, rolling bass, hazy pads" --model mulan --limit 20 --db .\data\library.sqlite
 ```
 
 API clients can use `POST /api/search/text`; see the current request payload in the
@@ -207,4 +207,6 @@ Options include:
 - `--use-ann-index` for the selected family's persistent sidecar
 - `--index-dir` for a custom sidecar directory
 
-When `--use-ann-index` is set and the sidecar is missing or stale, the command warns and falls back to exact search.
+`--use-ann-index` has no exact-search fallback. A missing, stale, malformed, or unsupported sidecar
+fails the command instead of quietly ranking against something else. Omit the flag to run the exact
+search.

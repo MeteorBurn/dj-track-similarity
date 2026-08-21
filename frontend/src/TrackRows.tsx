@@ -176,6 +176,7 @@ export function ResultRow({
   onSeekPreview: (track: Track, seconds: number) => void;
 }) {
   const breakdownTitle = scoreBreakdownTitle(scoreBreakdown, sonaraGroups, classifierScores, transition);
+  const contrast = contrastParts(scoreBreakdown);
   const trackPreviewActive = playingTrackId === track.track_id;
   const trackPreviewSelected = previewTrackId === track.track_id;
   const selectableClass = onSelect ? "selectable" : "";
@@ -213,7 +214,25 @@ export function ResultRow({
       ) : (
         <>
           <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
-          <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
+          <span className="similarity-score" title={breakdownTitle}>
+            {score.toFixed(3)}
+            {contrast ? (
+              <span className="similarity-contrast">
+                <span
+                  className="contrast-positive"
+                  title="Совпадение с банком позитивных промптов"
+                >
+                  {contrast.positive.toFixed(2)}
+                </span>
+                <span
+                  className="contrast-negative"
+                  title="Совпадение с ближайшим негативом. Вычитается из позитива с весом, показанным в поле Negative."
+                >
+                  {contrast.negative.toFixed(2)}
+                </span>
+              </span>
+            ) : null}
+          </span>
         </>
       )}
       {onToggleLiked && (
@@ -241,6 +260,19 @@ export function ResultRow({
       </button>
     </div>
   );
+}
+
+/** The positive and negative halves of a contrast search, when the row has them.
+ *
+ * Only text search with a negative bank produces these keys, so every other
+ * result surface keeps its single score and its unchanged row layout.
+ */
+function contrastParts(scoreBreakdown?: Record<string, number> | null) {
+  if (!scoreBreakdown) return null;
+  const positive = scoreBreakdown.positive;
+  const negative = scoreBreakdown.negative;
+  if (!Number.isFinite(positive) || !Number.isFinite(negative)) return null;
+  return { positive, negative };
 }
 
 function scoreBreakdownTitle(

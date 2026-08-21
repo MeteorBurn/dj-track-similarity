@@ -3111,6 +3111,26 @@ h2 {
   text-align: right;
 }
 
+/* The contrast pair sits inside the score cell rather than in its own grid
+   columns: the result row grid is shared by every search tab, and only text
+   search with a negative bank has these two numbers to show. */
+.similarity-contrast {
+  display: flex;
+  font-size: 10px;
+  gap: 6px;
+  justify-content: flex-end;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+.contrast-positive {
+  color: var(--accent);
+}
+
+.contrast-negative {
+  color: var(--text-muted);
+}
+
 meter {
   height: 10px;
   width: 86px;

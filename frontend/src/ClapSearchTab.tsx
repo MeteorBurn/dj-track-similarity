@@ -95,28 +95,29 @@ export function ClapSearchTab({
   return (
     <div className="search-tab-panel" role="tabpanel">
       <div className="text-search-box clap-text-search-box">
-        <div className="clap-prompt-row">
-          <label className="clap-query-field" title={textPromptHelp}>
-            Prompt bank
-            <textarea
-              className="clap-query-input"
-              rows={4}
-              value={textQuery}
-              onChange={(event) => onTextQueryChange(event.target.value)}
-              placeholder={"A breakbeat track.\nA track with broken drums and syncopated percussion."}
-              title={textPromptHelp}
-            />
-          </label>
+        <label className="clap-query-field" title={textPromptHelp}>
+          Prompt bank
+          <textarea
+            className="clap-query-input"
+            rows={4}
+            value={textQuery}
+            onChange={(event) => onTextQueryChange(event.target.value)}
+            placeholder={"A breakbeat track.\nA track with broken drums and syncopated percussion."}
+            title={textPromptHelp}
+          />
+        </label>
+        <div className="clap-prompt-toolbar">
           <div className="clap-prompt-actions" ref={presetMenuRef}>
             <button
-              className={`icon-button folder-picker clap-presets-button ${presetMenuOpen ? "active" : ""}`}
+              className={`clap-toolbar-button clap-presets-button ${presetMenuOpen ? "active" : ""}`}
               title="Выбрать пресеты по осям. Несколько пресетов складываются в один банк."
               aria-label="Выбрать prompt preset"
               aria-expanded={presetMenuOpen}
               onClick={() => setPresetMenuOpen((current) => !current)}
               type="button"
             >
-              <ListFilter size={17} />
+              <ListFilter size={15} />
+              Пресеты
             </button>
             {presetMenuOpen ? (
               <div className="clap-preset-menu" role="menu">
@@ -171,6 +172,21 @@ export function ClapSearchTab({
               </div>
             ) : null}
           </div>
+          <label
+            className={`clap-toolbar-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`}
+            title="Применять Negative как hard-negative запросы. Тип: чекбокс. Когда выключено, текст остаётся в поле, но в поиск не уходит."
+          >
+            <input
+              type="checkbox"
+              aria-label="Use negative prompt"
+              checked={clapUseNegativePrompt}
+              onChange={(event) => onClapUseNegativePromptChange(event.target.checked)}
+            />
+            <span className="clap-negative-checkbox" aria-hidden="true">
+              {clapUseNegativePrompt ? <Check size={14} strokeWidth={2.4} /> : null}
+            </span>
+            Негативы
+          </label>
         </div>
         {selectedPresets.length ? (
           <div className="clap-preset-chips">
@@ -211,37 +227,21 @@ export function ClapSearchTab({
             </button>
           </div>
         ) : null}
-        <div className="clap-negative-row">
-          <label
-            className="clap-negative-field"
-            title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
-          >
-            Negative
-            <textarea
-              className="clap-negative-input"
-              rows={3}
-              value={clapNegativeQuery}
-              onChange={(event) => onClapNegativeQueryChange(event.target.value)}
-              placeholder={"A four-on-the-floor house track.\nA vocal pop song."}
-              title="Hard-negative банк: по одному конкурирующему классу в строке."
-              disabled={!clapUseNegativePrompt}
-            />
-          </label>
-          <label
-            className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`}
-            title="Применять Negative как hard-negative запросы. Тип: чекбокс. Когда выключено, текст остаётся в поле, но в поиск не уходит."
-          >
-            <input
-              type="checkbox"
-              aria-label="Use negative prompt"
-              checked={clapUseNegativePrompt}
-              onChange={(event) => onClapUseNegativePromptChange(event.target.checked)}
-            />
-            <span className="clap-negative-checkbox" aria-hidden="true">
-              {clapUseNegativePrompt ? <Check size={14} strokeWidth={2.4} /> : null}
-            </span>
-          </label>
-        </div>
+        <label
+          className="clap-negative-field"
+          title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
+        >
+          Negative
+          <textarea
+            className="clap-negative-input"
+            rows={3}
+            value={clapNegativeQuery}
+            onChange={(event) => onClapNegativeQueryChange(event.target.value)}
+            placeholder={"A four-on-the-floor house track.\nA vocal pop song."}
+            title="Hard-negative банк: по одному конкурирующему классу в строке."
+            disabled={!clapUseNegativePrompt}
+          />
+        </label>
         <div className="clap-negative-weight-row">
           <label title="Насколько сильно вычитать совпадение с негативами. Замер: там, где негативы называют реальный конкурирующий класс, качество растёт до 0.75-1.0; там, где банк негативов выдуман, оно падает монотонно.">
             Вес негативов
@@ -276,7 +276,7 @@ export function ClapSearchTab({
       </div>
       <button className="clap-text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
         <Search size={17} />
-        {textModelLabel} search
+        Search
       </button>
       {!hasStoredTextEmbeddings ? <span className="clap-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
     </div>

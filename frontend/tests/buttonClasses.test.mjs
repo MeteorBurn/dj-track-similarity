@@ -379,7 +379,10 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(clapSource, /clap-prompt-hint/);
   assert.doesNotMatch(clapSource, />\s*Avoid\s*</);
   assert.match(clapSource, /className="clap-negative-input"/);
-  assert.match(clapSource, /icon-button add-visible-tracks-button clap-negative-toggle/);
+  assert.match(clapSource, /clap-toolbar-button clap-negative-toggle/);
+  // The picker and the negative toggle share one toolbar under the prompt bank
+  // instead of floating beside the two textareas.
+  assert.match(clapSource, /className="clap-prompt-toolbar"/);
   assert.match(clapSource, /clapUseNegativePrompt \? "intent-add active" : ""/);
   assert.match(clapSource, /aria-label="Use negative prompt"/);
   assert.match(clapSource, /clap-negative-checkbox/);

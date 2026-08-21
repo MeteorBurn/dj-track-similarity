@@ -404,6 +404,10 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(appSource, /const\s+\[clapUseNegativePrompt,\s*setClapUseNegativePrompt\]\s*=\s*useState\(true\)/);
   assert.match(appSource, /promptQueriesFromText\(prompt,\s*clapNegativeQuery,\s*clapUseNegativePrompt\)/);
   assert.match(appSource, /composePromptBanks\(keys,\s*model\)/);
+  // Selecting a preset carries the model with it where the measurement is
+  // unambiguous, so the choice is not a switch the user has to remember.
+  assert.match(appSource, /const advice = modelAdvice\(keys\)/);
+  assert.match(appSource, /advice\.kind === "single" \? advice\.model : textEmbeddingFamily/);
   assert.match(appSource, /negative_weight:\s*promptNegativeWeight/);
   assert.match(apiClientSource, /negative_weight\?:\s*number/);
   assert.match(schemaSource, /negative_weight:\s*float \| None/);
@@ -426,6 +430,28 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
     assert.doesNotMatch(textRequestSchema, retired);
     assert.doesNotMatch(textSearchPayloadType, retired);
   }
+});
+
+test("selected text presets stay beside the picker with destructive badge intent", () => {
+  const source = readFileSync(join(srcDir, "ClapSearchTab.tsx"), "utf8");
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const chipRule = styles.match(/\.clap-preset-chip\s*{([\s\S]*?)}/)?.[1] || "";
+
+  const selectedPresetIndex = source.indexOf("selectedPresets.map");
+  const negativeToggleIndex = source.indexOf("clap-toolbar-button clap-negative-toggle");
+
+  assert.ok(selectedPresetIndex !== -1, "selected presets are rendered");
+  assert.ok(negativeToggleIndex !== -1, "negative toggle is rendered");
+  assert.ok(
+    selectedPresetIndex < negativeToggleIndex,
+    "selected presets render beside the picker before the negative toggle"
+  );
+  assert.match(chipRule, /background:\s*var\(--danger-muted-bg\)/);
+  assert.match(chipRule, /border:\s*1px solid var\(--danger-muted-border\)/);
+  assert.match(chipRule, /color:\s*var\(--danger-text\)/);
+  assert.match(chipRule, /line-height:\s*1\.15/);
+  assert.match(chipRule, /padding:\s*2px 6px/);
+  assert.match(chipRule, /height:\s*auto/);
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

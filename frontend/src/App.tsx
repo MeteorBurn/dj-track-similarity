@@ -24,6 +24,7 @@ import {
 } from "./analysisSelection";
 import {
   composePromptBanks,
+  modelAdvice,
   promptQueriesFromText,
   textPromptAxes,
   textPromptPresets
@@ -227,17 +228,21 @@ export function App() {
   function applyPromptPresets(keys: string[], model: "clap" | "mulan" = textEmbeddingFamily) {
     const banks = composePromptBanks(keys, model);
     setSelectedPresetKeys(keys);
+    setTextEmbeddingFamily(model);
     setTextQuery(banks.positiveText);
     setClapNegativeQuery(banks.negativeText);
     setPromptNegativeWeight(banks.negativeWeight);
   }
 
   function togglePromptPreset(key: string) {
-    applyPromptPresets(
-      selectedPresetKeys.includes(key)
-        ? selectedPresetKeys.filter((item) => item !== key)
-        : [...selectedPresetKeys, key]
-    );
+    const keys = selectedPresetKeys.includes(key)
+      ? selectedPresetKeys.filter((item) => item !== key)
+      : [...selectedPresetKeys, key];
+    // Where the measurement points at one model the selection follows it, so
+    // the choice stops being a switch to remember. Where it points at two, or
+    // at none, the current model stands and the tab says which case it is.
+    const advice = modelAdvice(keys);
+    applyPromptPresets(keys, advice.kind === "single" ? advice.model : textEmbeddingFamily);
   }
 
   function changeTextEmbeddingFamily(model: "clap" | "mulan") {

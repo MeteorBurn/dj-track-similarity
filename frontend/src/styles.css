@@ -2947,6 +2947,33 @@ h2 {
   color: var(--text-muted);
 }
 
+.clap-model-advice {
+  align-items: center;
+  background: var(--accent-soft-bg);
+  border: 1px solid var(--accent-soft-border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 8px;
+  justify-content: space-between;
+  line-height: 1.4;
+  margin-top: 6px;
+  padding: 6px 9px;
+}
+
+.clap-model-advice-switch {
+  background: transparent;
+  border: 1px solid var(--accent-soft-border);
+  border-radius: 999px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
 .clap-query-input,
 .clap-negative-input {
   font-family: inherit;

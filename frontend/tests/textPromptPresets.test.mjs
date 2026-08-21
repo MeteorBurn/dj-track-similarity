@@ -74,11 +74,16 @@ test("an axis only names a model where the measurement can carry the claim", () 
   // Measured by the share of the reference in the first 100 rows. Space has no
   // reference at all, low has one label, and harmony's two models sit 0.017
   // apart, so none of the three may claim a winner.
+  //
+  // Instruments and voice are withdrawn for a different reason: an axis average
+  // can only choose a model for its labels if its references can tell those
+  // labels apart. All 21 instrument labels were scored against one number,
+  // SONARA acousticness, and all 11 voice labels against one, vocal
+  // probability. Those averages measure "sounds live" and "has a voice", not
+  // which instrument or which kind of voice was found.
   assert.deepEqual(named, {
     groove: "mulan",
     texture: "clap",
-    voice: "mulan",
-    instruments: "clap",
     energy: "clap",
     style: "mulan",
   });
@@ -88,7 +93,7 @@ test("an axis only names a model where the measurement can carry the claim", () 
   }
 });
 
-test("a label overrides its axis only where its own cross-check inverted", () => {
+test("a label overrides its axis only where its own evidence outranks the axis", () => {
   const { textPromptPresets, modelForPreset } = loadTextPromptModule();
 
   const overrides = textPromptPresets
@@ -98,25 +103,33 @@ test("a label overrides its axis only where its own cross-check inverted", () =>
   assert.deepEqual(Object.fromEntries(overrides), {
     "texture/clean": "mulan",
     "texture/glassy": "mulan",
-    "instruments/steel-drum": "mulan",
+    "voice/vocal-led": "clap",
   });
   // The override has to actually win over the axis, or it is decoration.
   assert.equal(modelForPreset("texture/glassy"), "mulan");
   assert.equal(modelForPreset("texture/lo-fi"), "clap");
-  assert.equal(modelForPreset("instruments/steel-drum"), "mulan");
-  assert.equal(modelForPreset("instruments/sitar"), "clap");
+  // Its own hand labels put CLAP ahead, 0.910 to 0.879, on an axis that no
+  // longer names a model at all.
+  assert.equal(modelForPreset("voice/vocal-led"), "clap");
+  // No reference can say which model finds a sitar, so nothing recommends one.
+  assert.equal(modelForPreset("instruments/sitar"), undefined);
+  assert.equal(modelForPreset("instruments/steel-drum"), undefined);
+  assert.equal(modelForPreset("voice/whispered"), undefined);
 });
 
 test("a selection recommends one model, or none when the axes disagree", () => {
   const { recommendedModel } = loadTextPromptModule();
 
-  assert.equal(recommendedModel(["instruments/sitar", "instruments/piano"]), "clap");
+  assert.equal(recommendedModel(["texture/lo-fi", "energy/peak"]), "clap");
   assert.equal(recommendedModel(["style/jungle", "groove/breakbeat"]), "mulan");
   // Fusion was measured and rejected, so a split selection must not pick a side.
-  assert.equal(recommendedModel(["instruments/sitar", "style/jungle"]), null);
-  // An axis with no measurement neither recommends nor blocks.
+  assert.equal(recommendedModel(["texture/lo-fi", "style/jungle"]), null);
+  // An axis with no measurement neither recommends nor blocks. Instruments is
+  // now one of those axes, so a sitar rides whatever the rest of the bank says.
   assert.equal(recommendedModel(["space/wide"]), null);
   assert.equal(recommendedModel(["space/wide", "style/jungle"]), "mulan");
+  assert.equal(recommendedModel(["instruments/sitar"]), null);
+  assert.equal(recommendedModel(["instruments/sitar", "style/jungle"]), "mulan");
   assert.equal(recommendedModel([]), null);
   assert.equal(recommendedModel(["nope/missing"]), null);
 });

@@ -125,6 +125,7 @@ export function SearchPlaylistPanel({
   promptAxes,
   promptPresets,
   promptNegativeWeight,
+  onPromptNegativeWeightChange,
   databaseIdentity,
   busy,
   filters,
@@ -186,6 +187,7 @@ export function SearchPlaylistPanel({
   promptAxes: TextPromptAxis[];
   promptPresets: TextPromptPreset[];
   promptNegativeWeight: number | null;
+  onPromptNegativeWeightChange: (value: number) => void;
   databaseIdentity: string | null;
   busy: boolean;
   filters: SearchFiltersState;
@@ -529,6 +531,7 @@ export function SearchPlaylistPanel({
             promptAxes={promptAxes}
             promptPresets={promptPresets}
             negativeWeight={promptNegativeWeight}
+            onNegativeWeightChange={onPromptNegativeWeightChange}
             limit={filters.limit}
             onLimitChange={(value) => setFilters({ ...filters, limit: value })}
             textPromptHelp={helpText.textPrompt}

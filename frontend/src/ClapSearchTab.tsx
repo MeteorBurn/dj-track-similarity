@@ -2,7 +2,12 @@ import { Check, ListFilter, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmbeddingSource } from "./api";
 import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPromptPresets";
-import { presetByKey, recommendedModel } from "./textPromptPresets";
+import {
+  defaultNegativeWeight,
+  negativeWeightRange,
+  presetByKey,
+  recommendedModel
+} from "./textPromptPresets";
 
 export function ClapSearchTab({
   textQuery,
@@ -19,6 +24,7 @@ export function ClapSearchTab({
   promptAxes,
   promptPresets,
   negativeWeight,
+  onNegativeWeightChange,
   limit,
   onLimitChange,
   textPromptHelp,
@@ -42,6 +48,7 @@ export function ClapSearchTab({
   promptAxes: TextPromptAxis[];
   promptPresets: TextPromptPreset[];
   negativeWeight: number | null;
+  onNegativeWeightChange: (value: number) => void;
   limit: number;
   onLimitChange: (value: number) => void;
   textPromptHelp: string;
@@ -65,6 +72,9 @@ export function ClapSearchTab({
     [selectedPresetKeys]
   );
   const promptLineCount = textQuery.split(/\r?\n/).filter((line) => line.trim()).length;
+  // A preset carries the weight measured for it; with a hand-written bank the
+  // server default applies until the slider moves.
+  const appliedNegativeWeight = negativeWeight ?? defaultNegativeWeight;
   // Rank fusion was measured and rejected, so the two models are never mixed.
   // The selection instead points at whichever one was measured to rank it best.
   const advisedModel = useMemo(() => recommendedModel(selectedPresetKeys), [selectedPresetKeys]);
@@ -206,7 +216,8 @@ export function ClapSearchTab({
             className="clap-negative-field"
             title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
           >
-            {negativeWeight === null ? "Negative" : `Negative · вес ${negativeWeight.toFixed(2)}`}
+            Negative · вес {appliedNegativeWeight.toFixed(2)}
+            {negativeWeight === null ? " (по умолчанию)" : null}
             <textarea
               className="clap-negative-input"
               rows={3}
@@ -231,6 +242,21 @@ export function ClapSearchTab({
               {clapUseNegativePrompt ? <Check size={14} strokeWidth={2.4} /> : null}
             </span>
           </label>
+        </div>
+        <div className="clap-negative-weight-row">
+          <label title="Насколько сильно вычитать совпадение с негативами. Замер: там, где негативы называют реальный конкурирующий класс, качество растёт до 0.75-1.0; там, где банк негативов выдуман, оно падает монотонно.">
+            Вес негативов
+            <input
+              type="range"
+              min={negativeWeightRange.min}
+              max={negativeWeightRange.max}
+              step={negativeWeightRange.step}
+              value={appliedNegativeWeight}
+              disabled={!clapUseNegativePrompt}
+              onChange={(event) => onNegativeWeightChange(Number(event.target.value))}
+            />
+          </label>
+          <span className="clap-negative-weight-value">{appliedNegativeWeight.toFixed(2)}</span>
         </div>
         <div className="clap-prompt-hint">
           Каждая строка — отдельный промпт, банк усредняется. Несколько коротких формулировок

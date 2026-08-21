@@ -1675,6 +1675,7 @@ export function App() {
           promptAxes={textPromptAxes}
           promptPresets={textPromptPresets}
           promptNegativeWeight={promptNegativeWeight}
+          onPromptNegativeWeightChange={setPromptNegativeWeight}
           databaseIdentity={databaseCatalogUuid}
           busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}
           filters={filters}

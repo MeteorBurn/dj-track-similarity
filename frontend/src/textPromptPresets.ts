@@ -1740,6 +1740,19 @@ export const textPromptPresets: TextPromptPreset[] = [
 
 export const defaultTextPromptModel: TextPromptModel = "mulan";
 
+/**
+ * Weight applied to hard negatives when the request carries none.
+ *
+ * Mirrors CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT in src/dj_track_similarity/search.py,
+ * which is what the server falls back to. The benchmark showed no single value
+ * fits every concept, so presets carry their own and this is only the floor for
+ * a hand-written bank.
+ */
+export const defaultNegativeWeight = 0.35;
+
+/** Bounds accepted by TextSearchRequest.negative_weight. */
+export const negativeWeightRange = { min: 0, max: 2, step: 0.05 } as const;
+
 export function presetsForAxis(axisKey: string): TextPromptPreset[] {
   return textPromptPresets.filter((preset) => preset.axis === axisKey);
 }

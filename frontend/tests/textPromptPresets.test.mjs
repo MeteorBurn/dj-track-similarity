@@ -21,6 +21,26 @@ function loadTextPromptModule() {
   return module.exports;
 }
 
+test("the default negative weight tracks the server constant", () => {
+  const { defaultNegativeWeight, negativeWeightRange } = loadTextPromptModule();
+  const searchSource = readFileSync(
+    join(srcDir, "..", "..", "src", "dj_track_similarity", "search.py"),
+    "utf8",
+  );
+
+  // The slider shows a number before the request is sent, so a drift between
+  // the two constants would show the user a weight the server never applied.
+  const declared = searchSource.match(/CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = ([0-9.]+)/);
+  assert.ok(declared, "search.py no longer declares the default negative weight");
+  assert.equal(defaultNegativeWeight, Number(declared[1]));
+
+  // TextSearchRequest bounds negative_weight to 0..2; the slider must not
+  // offer a value the API rejects.
+  assert.equal(negativeWeightRange.min, 0);
+  assert.equal(negativeWeightRange.max, 2);
+  assert.ok(negativeWeightRange.step > 0);
+});
+
 test("every preset belongs to a declared axis and carries a unique key", () => {
   const { textPromptAxes, textPromptPresets } = loadTextPromptModule();
 

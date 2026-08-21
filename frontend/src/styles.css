@@ -2974,6 +2974,35 @@ h2 {
   white-space: nowrap;
 }
 
+.clap-negative-weight-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.clap-negative-weight-row label {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex: 1;
+  font-size: 11px;
+  gap: 8px;
+}
+
+.clap-negative-weight-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.clap-negative-weight-value {
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: right;
+}
+
 .clap-query-input,
 .clap-negative-input {
   font-family: inherit;

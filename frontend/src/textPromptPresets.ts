@@ -736,7 +736,8 @@ export const textPromptPresets: TextPromptPreset[] = [
       shared: [
         "An amen break track.",
         "A track built on a chopped amen drum break.",
-        "Jungle drums cut from a fast breakbeat sample."
+        "Jungle drums cut from a fast breakbeat sample.",
+        "Rapid snare rolls and ghost notes cut from sampled vinyl drums."
       ]
     },
     negativeWeight: 0
@@ -750,7 +751,8 @@ export const textPromptPresets: TextPromptPreset[] = [
       shared: [
         "A two-step garage track.",
         "A track with a skipping two-step drum pattern.",
-        "Garage drums with a clipped kick and snare."
+        "Garage drums with a clipped kick and snare.",
+        "The kick skips beats while the snare lands on two and four."
       ]
     },
     negativeWeight: 0
@@ -764,7 +766,8 @@ export const textPromptPresets: TextPromptPreset[] = [
       shared: [
         "A boom bap track.",
         "A hip hop beat with a dusty kick and snare.",
-        "A slow swung drum pattern with vinyl texture."
+        "A slow swung drum pattern with vinyl texture.",
+        "A heavy kick and a cracking snare over sampled vinyl noise."
       ]
     },
     negativeWeight: 0
@@ -777,7 +780,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A galloping rhythm track.",
-        "A track with a triplet galloping drum pattern."
+        "A track with a triplet galloping drum pattern.",
+        "A rolling three-note figure drives the drums forward.",
+        "Drums canter in a repeated triplet pattern."
       ]
     },
     negativeWeight: 0
@@ -790,7 +795,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A triplet swing groove.",
-        "A track with rolling triplet hi-hats."
+        "A track with rolling triplet hi-hats.",
+        "The hi-hats roll in threes with a loose swing.",
+        "A shuffled groove where every beat divides into three."
       ]
     },
     negativeWeight: 0
@@ -804,7 +811,8 @@ export const textPromptPresets: TextPromptPreset[] = [
       shared: [
         "A broken techno track.",
         "A techno track with an off-grid kick pattern.",
-        "Club techno with a stumbling, irregular beat."
+        "Club techno with a stumbling, irregular beat.",
+        "The kick lands off the grid and the groove stumbles forward."
       ]
     },
     negativeWeight: 0
@@ -817,7 +825,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A reese bass track.",
-        "A track with a wide detuned growling bassline."
+        "A track with a wide detuned growling bassline.",
+        "A menacing low growl built from two detuned saw waves beating against each other.",
+        "The bassline snarls and modulates slowly under the drums."
       ]
     },
     negativeWeight: 0
@@ -830,7 +840,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a distorted overdriven bass.",
-        "A club track with a gritty saturated low end."
+        "A club track with a gritty saturated low end.",
+        "The low end clips and fuzzes into harmonic grit.",
+        "A crunchy bass tone with broken, torn edges."
       ]
     },
     negativeWeight: 0
@@ -843,7 +855,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a walking bassline.",
-        "A jazzy bassline moving in steady quarter notes."
+        "A jazzy bassline moving in steady quarter notes.",
+        "An upright bass walks a steady line under the chords.",
+        "The bass steps note by note through the changes."
       ]
     },
     negativeWeight: 0
@@ -856,7 +870,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a metallic FM bass.",
-        "A bassline with a sharp digital FM timbre."
+        "A bassline with a sharp digital FM timbre.",
+        "A hard bell-like bass with a glassy digital edge.",
+        "The bass tone rings with metallic overtones and a fast decay."
       ]
     },
     negativeWeight: 0
@@ -869,7 +885,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A saturated overdriven mix.",
-        "A track pushed into warm analog distortion."
+        "A track pushed into warm analog distortion.",
+        "The mix is pushed hard into tape and tube warmth.",
+        "Everything is compressed and glued into one thick driven sound."
       ]
     },
     negativeWeight: 0
@@ -882,7 +900,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A glassy bright track.",
-        "A track with crystalline shimmering synth tones."
+        "A track with crystalline shimmering synth tones.",
+        "High bell-like tones ring with a clear brittle sheen.",
+        "Chimes and glass-toned synths sparkle in the high register."
       ]
     },
     negativeWeight: 0,
@@ -896,7 +916,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with wooden acoustic percussion timbre.",
-        "Dry knocking wooden hits carry the rhythm."
+        "Dry knocking wooden hits carry the rhythm.",
+        "Woodblock, rimshot and hollow tom sounds carry the pulse.",
+        "Short dry mallet hits with a mid-range knock and a quick decay."
       ]
     },
     negativeWeight: 0
@@ -909,7 +931,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A resonant filtered track.",
-        "A track with sharp resonant filter sweeps."
+        "A track with sharp resonant filter sweeps.",
+        "A filter sweep sings as its resonance peaks.",
+        "A whistling filter peak rides over the chords."
       ]
     },
     negativeWeight: 0
@@ -922,7 +946,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A hazy blurred track.",
-        "A track where every element sits behind a soft filter."
+        "A track where every element sits behind a soft filter.",
+        "The high end is rolled off and everything sounds veiled.",
+        "A smeared foggy mix where edges blur together."
       ]
     },
     negativeWeight: 0
@@ -935,7 +961,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A modal track.",
-        "A track built on one scale with a dorian colour."
+        "A track built on one scale with a dorian colour.",
+        "The harmony stays inside one mode with a raised sixth.",
+        "Chords circle inside a single scale for the whole track."
       ]
     },
     negativeWeight: 0
@@ -948,7 +976,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A dissonant atonal track.",
-        "A track with clashing unresolved harmony."
+        "A track with clashing unresolved harmony.",
+        "Notes rub against each other in tense unresolved clusters.",
+        "Sharp clashing intervals hold the harmony in tension."
       ]
     },
     negativeWeight: 0
@@ -961,7 +991,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A single chord drone track.",
-        "A track that stays on one sustained harmony."
+        "A track that stays on one sustained harmony.",
+        "One sustained chord holds under the whole arrangement.",
+        "A continuous held tone anchors the track."
       ]
     },
     negativeWeight: 0
@@ -974,7 +1006,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with extended jazz chords.",
-        "Lush seventh and ninth chord voicings."
+        "Lush seventh and ninth chord voicings.",
+        "Rich seventh, ninth and thirteenth voicings colour the chords.",
+        "Complex jazz harmony moves under the melody."
       ]
     },
     negativeWeight: 0
@@ -987,7 +1021,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A bluesy track.",
-        "A track with blue notes and a twelve bar feel."
+        "A track with blue notes and a twelve bar feel.",
+        "Bent blue notes over a shuffling twelve bar progression.",
+        "A gritty blues feel with flattened thirds and sevenths."
       ]
     },
     negativeWeight: 0
@@ -1000,7 +1036,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A detuned track.",
-        "A track with microtonal drifting tuning."
+        "A track with microtonal drifting tuning.",
+        "Oscillators drift slightly out of tune against each other.",
+        "The pitch wavers and slides, sounding slightly warped."
       ]
     },
     negativeWeight: 0
@@ -1013,7 +1051,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a female lead vocal.",
-        "A woman sings the lead melody."
+        "A woman sings the lead melody.",
+        "A high female voice carries the main melody.",
+        "A female singer is the focus of the arrangement."
       ]
     },
     negative: {
@@ -1029,7 +1069,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a male lead vocal.",
-        "A man sings the lead melody."
+        "A man sings the lead melody.",
+        "A low male voice carries the main melody.",
+        "A male singer is the focus of the arrangement."
       ]
     },
     negative: {
@@ -1045,7 +1087,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a choir.",
-        "Layered voices sing sustained harmony."
+        "Layered voices sing sustained harmony.",
+        "A group of singers holds long chords together.",
+        "Massed choral voices swell behind the music."
       ]
     },
     negativeWeight: 0
@@ -1058,7 +1102,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a repeated vocal chant.",
-        "A crowd chants a short phrase over the beat."
+        "A crowd chants a short phrase over the beat.",
+        "A short vocal line is repeated like a football chant.",
+        "Group voices shout the same phrase again and again."
       ]
     },
     negativeWeight: 0
@@ -1071,7 +1117,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with whispered vocals.",
-        "A breathy close whisper over the beat."
+        "A breathy close whisper over the beat.",
+        "An intimate whispered voice sits close to the microphone.",
+        "Soft breathy speech murmurs through the track."
       ]
     },
     negativeWeight: 0
@@ -1084,7 +1132,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with vocoder vocals.",
-        "A robotic talkbox voice carries the melody."
+        "A robotic talkbox voice carries the melody.",
+        "A synthesised voice sings through a vocoder.",
+        "Machine-processed vocals with a robotic formant tone."
       ]
     },
     negativeWeight: 0
@@ -1097,7 +1147,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a sampled movie dialogue.",
-        "A spoken film line sits over the music."
+        "A spoken film line sits over the music.",
+        "A spoken line from a film is sampled into the track.",
+        "Recorded speech from a movie plays over the music."
       ]
     },
     negativeWeight: 0
@@ -1110,7 +1162,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a Rhodes electric piano.",
-        "Warm tremolo electric piano chords."
+        "Warm tremolo electric piano chords.",
+        "A soft electric piano with a bell-like attack.",
+        "Tremolo keys comp warm chords under the melody."
       ]
     },
     negativeWeight: 0
@@ -1123,7 +1177,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a Hammond organ.",
-        "Swirling drawbar organ chords."
+        "Swirling drawbar organ chords.",
+        "A drawbar organ with a rotary speaker swirl.",
+        "Sustained organ chords with a warm rotating tone."
       ]
     },
     negativeWeight: 0
@@ -1136,7 +1192,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with marimba.",
-        "Wooden mallet melodies ring through the track."
+        "Wooden mallet melodies ring through the track.",
+        "Wooden bars struck with mallets play a rolling melody.",
+        "Round warm mallet tones bounce through the arrangement."
       ]
     },
     negativeWeight: 0
@@ -1149,7 +1207,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with vibraphone.",
-        "Soft metallic mallet chords with slow vibrato."
+        "Soft metallic mallet chords with slow vibrato.",
+        "Metal bars struck with mallets ring with slow vibrato.",
+        "Shimmering mallet chords with a long metallic sustain."
       ]
     },
     negativeWeight: 0
@@ -1162,7 +1222,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with kalimba.",
-        "Plucked thumb piano notes carry the melody."
+        "Plucked thumb piano notes carry the melody.",
+        "Small metal tines plucked by thumbs ring out.",
+        "A tiny bright plucked tone repeats a simple figure."
       ]
     },
     negativeWeight: 0
@@ -1175,7 +1237,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with nylon string guitar.",
-        "Fingerpicked classical guitar lines."
+        "Fingerpicked classical guitar lines.",
+        "Soft nylon strings plucked close to the bridge.",
+        "A warm mellow acoustic guitar plays arpeggios."
       ]
     },
     negativeWeight: 0
@@ -1188,7 +1252,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with slap bass.",
-        "A funk bassline played with thumb slaps."
+        "A funk bassline played with thumb slaps.",
+        "A percussive popped and slapped electric bass.",
+        "The bass snaps and pops with a bright funk attack."
       ]
     },
     negativeWeight: 0
@@ -1201,7 +1267,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with an upright double bass.",
-        "A woody acoustic bass plays the groove."
+        "A woody acoustic bass plays the groove.",
+        "A large acoustic bass plucked with fingers.",
+        "A round woody acoustic bass tone underpins the chords."
       ]
     },
     negativeWeight: 0
@@ -1214,7 +1282,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with saxophone.",
-        "A breathy sax melody over the groove."
+        "A breathy sax melody over the groove.",
+        "A reed instrument plays a warm expressive solo.",
+        "A saxophone line breathes over the arrangement."
       ]
     },
     negativeWeight: 0
@@ -1227,7 +1297,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with trumpet.",
-        "A bright brass trumpet line."
+        "A bright brass trumpet line.",
+        "A brass instrument plays a bright piercing line.",
+        "A muted or open trumpet cuts through the mix."
       ]
     },
     negativeWeight: 0
@@ -1240,7 +1312,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with flute.",
-        "An airy flute melody floats over the beat."
+        "An airy flute melody floats over the beat.",
+        "A woodwind plays a light breathy melody.",
+        "A soft airy pipe tone floats above the groove."
       ]
     },
     negativeWeight: 0
@@ -1253,7 +1327,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with sitar.",
-        "A buzzing plucked string drone from a sitar."
+        "A buzzing plucked string drone from a sitar.",
+        "A long-necked plucked instrument with sympathetic string buzz.",
+        "A twanging Indian string tone with heavy resonance."
       ]
     },
     negativeWeight: 0
@@ -1266,7 +1342,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with kora or ngoni.",
-        "West African plucked string patterns."
+        "West African plucked string patterns.",
+        "A gourd harp is plucked in cascading patterns.",
+        "Rolling West African string figures ripple over the groove."
       ]
     },
     negativeWeight: 0
@@ -1279,7 +1357,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with steel drums.",
-        "Bright metallic steel pan melodies."
+        "Bright metallic steel pan melodies.",
+        "Tuned metal pans struck with rubber sticks.",
+        "Bright ringing Caribbean pan tones carry the melody."
       ]
     },
     negativeWeight: 0,
@@ -1293,7 +1373,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with congas and bongos.",
-        "Hand drums drive the percussion."
+        "Hand drums drive the percussion.",
+        "Hand-struck barrel drums drive a rolling pattern.",
+        "Open and muted hand drum tones layer over the beat."
       ]
     },
     negativeWeight: 0
@@ -1306,7 +1388,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with tabla.",
-        "Indian hand drum patterns carry the rhythm."
+        "Indian hand drum patterns carry the rhythm.",
+        "Tuned hand drums with sliding bass strokes.",
+        "Fast intricate Indian hand drum phrasing."
       ]
     },
     negativeWeight: 0
@@ -1319,7 +1403,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with a live drum kit.",
-        "A drummer plays with human timing and dynamics."
+        "A drummer plays with human timing and dynamics.",
+        "An acoustic kit recorded in a room with real cymbals.",
+        "Kick, snare and hats breathe with a human feel."
       ]
     },
     negative: {
@@ -1335,7 +1421,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with 808 drums.",
-        "Booming 808 kicks and crisp claps."
+        "Booming 808 kicks and crisp claps.",
+        "A long sliding sub kick with a sharp snap.",
+        "Deep sustained drum machine bass tones."
       ]
     },
     negativeWeight: 0
@@ -1348,7 +1436,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with 909 drums.",
-        "A classic 909 kick, clap and open hat."
+        "A classic 909 kick, clap and open hat.",
+        "A punchy analog drum machine with a bright clap.",
+        "Crisp machine hats and a tight tuned kick."
       ]
     },
     negativeWeight: 0
@@ -1361,7 +1451,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with modular synthesis.",
-        "Patched analog bleeps and evolving modular sequences."
+        "Patched analog bleeps and evolving modular sequences.",
+        "Self-generating patch sequences shift over time.",
+        "Unstable analog voltages create evolving electronic textures."
       ]
     },
     negativeWeight: 0
@@ -1374,7 +1466,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track soaked in dub delay.",
-        "Echoes repeat and fade across the mix."
+        "Echoes repeat and fade across the mix.",
+        "A single hit repeats and dissolves into feedback.",
+        "Tape echo trails wander across the stereo field."
       ]
     },
     negativeWeight: 0
@@ -1387,7 +1481,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track with gated reverb.",
-        "Reverb tails cut off abruptly."
+        "Reverb tails cut off abruptly.",
+        "A big reverb slams shut right after each hit.",
+        "Short bursts of room sound clipped tight to the beat."
       ]
     },
     negativeWeight: 0
@@ -1400,7 +1496,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A wide stereo track.",
-        "Sounds spread far across the stereo field."
+        "Sounds spread far across the stereo field.",
+        "Synths and pads stretch to the far left and right.",
+        "A very broad stereo image with movement across the field."
       ]
     },
     negativeWeight: 0
@@ -1413,7 +1511,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A track that slowly builds tension.",
-        "Layers add up toward a release."
+        "Layers add up toward a release.",
+        "Elements enter one by one and the pressure rises.",
+        "The arrangement grows steadily toward a peak."
       ]
     },
     negativeWeight: 0
@@ -1426,7 +1526,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A hypnotic looping track.",
-        "A repeating pattern barely changes for minutes."
+        "A repeating pattern barely changes for minutes.",
+        "A single loop repeats with tiny gradual changes.",
+        "The groove locks in and stays there, trance-like."
       ]
     },
     negativeWeight: 0
@@ -1439,7 +1541,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "An aggressive hard track.",
-        "Distorted drums hit with force."
+        "Distorted drums hit with force.",
+        "Loud harsh drums and a driving forceful energy.",
+        "A hard-hitting track with sharp attacking sounds."
       ]
     },
     negative: {
@@ -1455,7 +1559,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A sparse minimal track.",
-        "Few elements with wide space between them."
+        "Few elements with wide space between them.",
+        "Only a few sounds, with long gaps between them.",
+        "An open arrangement with plenty of silence."
       ]
     },
     negative: {
@@ -1471,7 +1577,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A tech house track.",
-        "Tight tech house drums with a rolling bassline."
+        "Tight tech house drums with a rolling bassline.",
+        "A groovy club track with punchy drums and a bouncing bassline.",
+        "Stripped back house with a techno edge."
       ]
     },
     negativeWeight: 0
@@ -1484,7 +1592,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A deep house track.",
-        "Warm chords over a soft swung house beat."
+        "Warm chords over a soft swung house beat.",
+        "Deep pads and jazzy chords over a laid-back beat.",
+        "A smooth club track with a mellow deep atmosphere."
       ]
     },
     negativeWeight: 0
@@ -1497,7 +1607,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A jazzy house track.",
-        "House drums with jazz chords and live instrument samples."
+        "House drums with jazz chords and live instrument samples.",
+        "House rhythms under improvised jazz keys and horns.",
+        "A club track coloured by acoustic jazz playing."
       ]
     },
     negativeWeight: 0
@@ -1510,7 +1622,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "An afro house track.",
-        "House drums with African percussion and chants."
+        "House drums with African percussion and chants.",
+        "Layered hand percussion over a rolling four four groove.",
+        "Tribal drums and call and response vocals in a club track."
       ]
     },
     negativeWeight: 0
@@ -1523,7 +1637,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A progressive house track.",
-        "Long evolving builds with melodic synth layers."
+        "Long evolving builds with melodic synth layers.",
+        "A long arrangement that unfolds gradually over many minutes.",
+        "Melodic synth layers build and recede in slow waves."
       ]
     },
     negativeWeight: 0
@@ -1536,7 +1652,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "An ambient techno track.",
-        "Soft pads over a distant steady pulse."
+        "Soft pads over a distant steady pulse.",
+        "Washed pads drift over a muted machine pulse.",
+        "A dreamy electronic track with a gentle steady beat."
       ]
     },
     negativeWeight: 0
@@ -1549,7 +1667,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "An industrial track.",
-        "Harsh machine noise and pounding drums."
+        "Harsh machine noise and pounding drums.",
+        "Metallic clanging percussion and distorted machine textures.",
+        "A brutal mechanical track built out of noise."
       ]
     },
     negativeWeight: 0
@@ -1562,7 +1682,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "An EBM track.",
-        "Stiff sequenced bass with cold vocals."
+        "Stiff sequenced bass with cold vocals.",
+        "Rigid sequenced synth bass with a marching beat.",
+        "Cold body music with shouted processed vocals."
       ]
     },
     negativeWeight: 0
@@ -1575,7 +1697,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "An IDM track.",
-        "Intricate programmed drums and odd melodic patterns."
+        "Intricate programmed drums and odd melodic patterns.",
+        "Glitched complex drum programming with melodic detail.",
+        "Experimental electronic music with intricate rhythmic edits."
       ]
     },
     negativeWeight: 0
@@ -1588,7 +1712,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A jungle track.",
-        "Fast chopped breakbeats with deep sub bass."
+        "Fast chopped breakbeats with deep sub bass.",
+        "Chopped amen breaks race over a heavy sub bassline.",
+        "Ragga-influenced breakbeat music at high tempo."
       ]
     },
     negativeWeight: 0
@@ -1601,7 +1727,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A drum and bass track.",
-        "Fast two-step breaks with a rolling sub bassline."
+        "Fast two-step breaks with a rolling sub bassline.",
+        "Fast breakbeats at high tempo over a deep bassline.",
+        "Rolling drums around one hundred seventy beats per minute."
       ]
     },
     negativeWeight: 0
@@ -1614,7 +1742,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A UK garage track.",
-        "Swung garage drums with clipped vocal chops."
+        "Swung garage drums with clipped vocal chops.",
+        "Shuffled syncopated drums with pitched vocal cuts.",
+        "A bouncy garage groove with a skipping snare."
       ]
     },
     negativeWeight: 0
@@ -1627,7 +1757,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A footwork track.",
-        "Fast stuttering triplet drum patterns."
+        "Fast stuttering triplet drum patterns.",
+        "Rapid triplet kick patterns with chopped vocal samples.",
+        "Frantic Chicago dance rhythms at high tempo."
       ]
     },
     negativeWeight: 0
@@ -1640,7 +1772,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A broken beat track.",
-        "Jazzy syncopated club rhythms with a live feel."
+        "Jazzy syncopated club rhythms with a live feel.",
+        "Syncopated club drums with a loose jazzy swing.",
+        "West London style broken rhythms with soulful chords."
       ]
     },
     negativeWeight: 0
@@ -1653,7 +1787,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A trip hop track.",
-        "Slow dusty beats with a smoky atmosphere."
+        "Slow dusty beats with a smoky atmosphere.",
+        "Slow heavy drums under a hazy cinematic mood.",
+        "Downtempo beats with sampled strings and vinyl crackle."
       ]
     },
     negativeWeight: 0
@@ -1666,7 +1802,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A downtempo track.",
-        "A slow electronic groove made for listening."
+        "A slow electronic groove made for listening.",
+        "A relaxed electronic groove at a slow tempo.",
+        "Chilled beats made for listening rather than dancing."
       ]
     },
     negativeWeight: 0
@@ -1679,7 +1817,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A bass music track.",
-        "Sparse drums with heavy weighted low end."
+        "Sparse drums with heavy weighted low end.",
+        "Wide open drums with an enormous low end focus.",
+        "Sound system music built around weight and space."
       ]
     },
     negativeWeight: 0
@@ -1692,7 +1832,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A dub reggae track.",
-        "Offbeat skank chords with heavy echo and bass."
+        "Offbeat skank chords with heavy echo and bass.",
+        "Offbeat guitar chops drenched in spring reverb.",
+        "A heavy reggae bassline with delay-soaked drops."
       ]
     },
     negativeWeight: 0
@@ -1705,7 +1847,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A disco track.",
-        "Live strings, four on the floor drums and funk guitar."
+        "Live strings, four on the floor drums and funk guitar.",
+        "Live drums, funk guitar and lush string arrangements.",
+        "A groovy seventies dance track played by a real band."
       ]
     },
     negativeWeight: 0
@@ -1718,7 +1862,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A funk track.",
-        "Syncopated live bass and guitar with tight drums."
+        "Syncopated live bass and guitar with tight drums.",
+        "Tight live drums with a slapping bass and rhythm guitar.",
+        "A groove-driven band track with horn stabs."
       ]
     },
     negativeWeight: 0
@@ -1731,7 +1877,9 @@ export const textPromptPresets: TextPromptPreset[] = [
     positive: {
       shared: [
         "A cinematic soundtrack piece.",
-        "Orchestral tension written for picture."
+        "Orchestral tension written for picture.",
+        "Orchestral textures written to underscore a scene.",
+        "Filmic strings and brass building dramatic tension."
       ]
     },
     negativeWeight: 0

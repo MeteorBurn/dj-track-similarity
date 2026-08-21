@@ -137,6 +137,24 @@ test("a label without measured reliability carries no invented negatives", () =>
   }
 });
 
+test("every preset bank holds the same four prompts", () => {
+  const { textPromptPresets, resolvePromptVariants } = loadTextPromptModule();
+
+  // The benchmark measured an ensemble of three to five short captions as one
+  // of the two stable forms, while a bank of one or two behaves like the single
+  // caption that ranged from 0.955 to 0.495 on wording alone. Equal length also
+  // keeps one preset comparable with another when their reliability is measured.
+  for (const preset of textPromptPresets) {
+    for (const model of ["clap", "mulan"]) {
+      assert.equal(
+        resolvePromptVariants(preset.positive, model).length,
+        4,
+        `${preset.key} does not carry four positive prompts`,
+      );
+    }
+  }
+});
+
 test("prompt lines stay short enough for the CLAP token ceiling and avoid negation", () => {
   const { textPromptPresets } = loadTextPromptModule();
 

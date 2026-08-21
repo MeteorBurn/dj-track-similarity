@@ -1012,7 +1012,8 @@ export const textPromptPresets: TextPromptPreset[] = [
         "Complex jazz harmony moves under the melody."
       ]
     },
-    negativeWeight: 0
+    negativeWeight: 0,
+    model: "mulan"
   },
   {
     key: "harmony/blues",
@@ -1929,15 +1930,30 @@ export function modelForPreset(key: string): TextPromptModel | undefined {
  * with different winners returns null, because one search runs against one
  * embedding family and no single answer is right for all of them.
  */
-export function recommendedModel(keys: string[]): TextPromptModel | null {
-  let choice: TextPromptModel | null = null;
+export type ModelAdvice =
+  | { kind: "single"; model: TextPromptModel }
+  | { kind: "conflict"; models: TextPromptModel[] }
+  | { kind: "unmeasured" };
+
+/**
+ * What the measurements say about the model for a selection, or why they say
+ * nothing.
+ *
+ * The two silent cases are different and used to look identical. "conflict"
+ * means the selected axes were each measured, and measured onto opposite
+ * models, so no single answer exists and mixing them was measured and
+ * rejected. "unmeasured" means no selected label has a reference behind it at
+ * all, which covers a third of the vocabulary and every pair drawn from it.
+ */
+export function modelAdvice(keys: string[]): ModelAdvice {
+  const models = new Set<TextPromptModel>();
   for (const key of keys) {
     const model = modelForPreset(key);
-    if (!model) continue;
-    if (choice && choice !== model) return null;
-    choice = model;
+    if (model) models.add(model);
   }
-  return choice;
+  if (models.size === 1) return { kind: "single", model: [...models][0] };
+  if (models.size > 1) return { kind: "conflict", models: [...models].sort() };
+  return { kind: "unmeasured" };
 }
 
 export function resolvePromptVariants(

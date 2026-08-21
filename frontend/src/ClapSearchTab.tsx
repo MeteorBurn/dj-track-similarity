@@ -4,9 +4,9 @@ import type { EmbeddingSource } from "./api";
 import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPromptPresets";
 import {
   defaultNegativeWeight,
+  modelAdvice,
   negativeWeightRange,
-  presetByKey,
-  recommendedModel
+  presetByKey
 } from "./textPromptPresets";
 
 export function ClapSearchTab({
@@ -76,8 +76,10 @@ export function ClapSearchTab({
   // server default applies until the slider moves.
   const appliedNegativeWeight = negativeWeight ?? defaultNegativeWeight;
   // Rank fusion was measured and rejected, so the two models are never mixed.
-  // The selection instead points at whichever one was measured to rank it best.
-  const advisedModel = useMemo(() => recommendedModel(selectedPresetKeys), [selectedPresetKeys]);
+  // The selection instead points at whichever one was measured to rank it best,
+  // and says plainly when the measurements cannot point anywhere.
+  const advice = useMemo(() => modelAdvice(selectedPresetKeys), [selectedPresetKeys]);
+  const advisedModel = advice.kind === "single" ? advice.model : null;
   const advisedModelLabel = advisedModel === "mulan" ? "MuQ-MuLan" : "CLAP";
 
   useEffect(() => {
@@ -119,6 +121,30 @@ export function ClapSearchTab({
               <ListFilter size={15} />
               Пресеты
             </button>
+            {selectedPresets.length ? (
+              <div className="clap-preset-chips">
+                {selectedPresets.map((preset) => (
+                  <button
+                    className="clap-preset-chip"
+                    key={preset.key}
+                    title={`${preset.hint} Нажмите, чтобы убрать пресет из банка.`}
+                    onClick={() => onTogglePreset(preset.key)}
+                    type="button"
+                  >
+                    {preset.label}
+                    <X size={12} strokeWidth={2.6} />
+                  </button>
+                ))}
+                <button
+                  className="clap-preset-chip-clear"
+                  title="Убрать все пресеты и очистить банк"
+                  onClick={onClearPresets}
+                  type="button"
+                >
+                  Очистить
+                </button>
+              </div>
+            ) : null}
             {presetMenuOpen ? (
               <div className="clap-preset-menu" role="menu">
                 <div className="clap-preset-axes">
@@ -188,31 +214,7 @@ export function ClapSearchTab({
             Негативы
           </label>
         </div>
-        {selectedPresets.length ? (
-          <div className="clap-preset-chips">
-            {selectedPresets.map((preset) => (
-              <button
-                className="clap-preset-chip"
-                key={preset.key}
-                title={`${preset.hint} Нажмите, чтобы убрать пресет из банка.`}
-                onClick={() => onTogglePreset(preset.key)}
-                type="button"
-              >
-                {preset.label}
-                <X size={12} strokeWidth={2.6} />
-              </button>
-            ))}
-            <button
-              className="clap-preset-chip-clear"
-              title="Убрать все пресеты и очистить банк"
-              onClick={onClearPresets}
-              type="button"
-            >
-              Очистить
-            </button>
-          </div>
-        ) : null}
-        {advisedModel && advisedModel !== textEmbeddingFamily ? (
+        {selectedPresets.length && advisedModel && advisedModel !== textEmbeddingFamily ? (
           <div className="clap-model-advice">
             <span>
               Выбранные оси лучше ранжирует {advisedModelLabel}. Сейчас выбрана {textModelLabel}.
@@ -225,6 +227,22 @@ export function ClapSearchTab({
             >
               Переключить на {advisedModelLabel}
             </button>
+          </div>
+        ) : null}
+        {selectedPresets.length && advice.kind === "conflict" ? (
+          <div className="clap-model-advice">
+            <span>
+              Оси разошлись: часть меряна на MuQ-MuLan, часть на CLAP. Одного верного ответа нет,
+              а смешивать модели нельзя — фьюжн проверен и отклонён.
+            </span>
+          </div>
+        ) : null}
+        {selectedPresets.length && advice.kind === "unmeasured" ? (
+          <div className="clap-model-advice">
+            <span>
+              Надёжность этих меток не измерена: подходящего эталона под них нет. Модель выбирай
+              ушами, а выдачу проверяй на слух.
+            </span>
           </div>
         ) : null}
         <label

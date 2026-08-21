@@ -103,8 +103,13 @@ test("a label overrides its axis only where its own evidence outranks the axis",
   assert.deepEqual(Object.fromEntries(overrides), {
     "texture/clean": "mulan",
     "texture/glassy": "mulan",
+    "harmony/jazz": "mulan",
     "voice/vocal-led": "clap",
   });
+  // CLAP ranks jazz against chord changes per second the wrong way round, and
+  // the harmony axis names no model, so nothing else would have warned.
+  assert.equal(modelForPreset("harmony/jazz"), "mulan");
+  assert.equal(modelForPreset("harmony/drone"), undefined);
   // The override has to actually win over the axis, or it is decoration.
   assert.equal(modelForPreset("texture/glassy"), "mulan");
   assert.equal(modelForPreset("texture/lo-fi"), "clap");
@@ -117,21 +122,48 @@ test("a label overrides its axis only where its own evidence outranks the axis",
   assert.equal(modelForPreset("voice/whispered"), undefined);
 });
 
-test("a selection recommends one model, or none when the axes disagree", () => {
-  const { recommendedModel } = loadTextPromptModule();
+test("advice names a model, or says which kind of silence this is", () => {
+  const { modelAdvice } = loadTextPromptModule();
+  // The module runs in its own realm, so its objects fail a strict deep compare
+  // against literals written here. Copy them into this realm first.
+  const advice = (keys) => {
+    const result = modelAdvice(keys);
+    return result.kind === "conflict"
+      ? { kind: result.kind, models: [...result.models] }
+      : { ...result };
+  };
 
-  assert.equal(recommendedModel(["texture/lo-fi", "energy/peak"]), "clap");
-  assert.equal(recommendedModel(["style/jungle", "groove/breakbeat"]), "mulan");
-  // Fusion was measured and rejected, so a split selection must not pick a side.
-  assert.equal(recommendedModel(["texture/lo-fi", "style/jungle"]), null);
+  assert.deepEqual(advice(["texture/lo-fi", "energy/peak"]), {
+    kind: "single",
+    model: "clap",
+  });
+  assert.deepEqual(advice(["style/jungle", "groove/breakbeat"]), {
+    kind: "single",
+    model: "mulan",
+  });
+
+  // Fusion was measured and rejected, so a split selection must not pick a
+  // side. It must also not stay quiet: the two silent cases used to look the
+  // same, and a third of the vocabulary falls into the second one.
+  assert.deepEqual(advice(["texture/lo-fi", "style/jungle"]), {
+    kind: "conflict",
+    models: ["clap", "mulan"],
+  });
+
   // An axis with no measurement neither recommends nor blocks. Instruments is
   // now one of those axes, so a sitar rides whatever the rest of the bank says.
-  assert.equal(recommendedModel(["space/wide"]), null);
-  assert.equal(recommendedModel(["space/wide", "style/jungle"]), "mulan");
-  assert.equal(recommendedModel(["instruments/sitar"]), null);
-  assert.equal(recommendedModel(["instruments/sitar", "style/jungle"]), "mulan");
-  assert.equal(recommendedModel([]), null);
-  assert.equal(recommendedModel(["nope/missing"]), null);
+  assert.deepEqual(advice(["space/wide"]), { kind: "unmeasured" });
+  assert.deepEqual(advice(["instruments/sitar"]), { kind: "unmeasured" });
+  assert.deepEqual(advice(["space/wide", "style/jungle"]), {
+    kind: "single",
+    model: "mulan",
+  });
+  assert.deepEqual(advice(["instruments/sitar", "style/jungle"]), {
+    kind: "single",
+    model: "mulan",
+  });
+  assert.deepEqual(advice([]), { kind: "unmeasured" });
+  assert.deepEqual(advice(["nope/missing"]), { kind: "unmeasured" });
 });
 
 test("a label without measured reliability carries no invented negatives", () => {

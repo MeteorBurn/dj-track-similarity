@@ -6,8 +6,8 @@ separate Timeline or Representations database controls.
 
 ## Database and library
 
-- **Choose database** selects or creates the Core file. An older or incomplete catalog is rejected
-  instead of being migrated in place.
+- **Choose database** selects or creates the library SQLite file. An older or incomplete catalog is
+  rejected instead of being migrated in place.
 - **Load tracks into the database** opens an import dialog. Its server-side folder picker selects
   the root, and its format badges select the formats to scan. Scan and **Refresh Tags** update
   catalog rows without rewriting source audio.

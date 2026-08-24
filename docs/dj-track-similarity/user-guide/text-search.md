@@ -8,10 +8,15 @@ The result is a ranked shortlist to audition. It can reveal tracks with incomple
 it does not prove that every word in the prompt is present. Rewording the prompt changes the
 question and often changes the useful part of the list.
 
+Browser text search is rank-only. **Limit** controls how many rows are returned, scores remain in
+descending order, and the browser does not apply a minimum-similarity threshold. API and CLI
+thresholds are separate workflows.
+
 The **TEXT** tab calls `/api/search/text`. Its **Model** control selects CLAP or MuQ-MuLan. The
 selected adapter embeds text and compares that vector only against stored audio embeddings from the
 same family. Results from either selection appear in the TEXT tab. Run the matching analysis before
-using it.
+using it. The browser keeps CLAP and MuQ-MuLan in separate score spaces rather than fusing their
+results.
 
 ## CLI and direct API
 
@@ -91,6 +96,10 @@ and checks that ranking against SONARA features and MAEST genres.
 This is a cross-check, not ground truth. A weak result can mean the label is weak, or that the
 reference does not describe it.
 
+Treat these figures as diagnostic cross-checks, not a prompt-bank reliability benchmark. A claim
+that one bank is reliable or outperforms another requires a committed result table from
+`scripts/text_prompt_benchmark.py`.
+
 ### What a reference can prove
 
 References are not equal, so each one declares what it is worth.
@@ -154,16 +163,19 @@ because a library that is three quarters tech house offers no contrast for it.
 ## Negative prompt
 
 The **Negative** field is a hard-negative bank. Each line is one unwanted audible class. When the
-toggle is enabled, the search sends negative queries and adaptive contrast.
+toggle is enabled, the search sends those lines as hard-negative queries for weighted contrast.
 
 The current UI sends:
 
 - `positive_queries` from the prompt bank,
 - `negative_queries` from the negative bank when enabled,
-- `adaptive_contrast: true`,
-- `negative_weight` from the selected presets when they define one,
-- the selected preset keys,
+- `negative_weight` when enabled negatives have a selected preset weight,
+- `analysis_family` from the Model control,
+- `limit` from **Limit**,
 - `device` from the analysis device control.
+
+There is no `query`, `preset`, or `adaptive_contrast` request field. Presets prepare the editable
+prompt fields in the browser. Their keys are not part of the API request.
 
 With negative prompts, the visible score is contrast evidence: positive prompt match minus part of the strongest negative match. It is not a probability.
 
@@ -195,6 +207,9 @@ Do not compare CLAP or MuQ-MuLan text scores directly with:
 - Audio Dedup `min_similarity`.
 
 Those are different scoring surfaces.
+
+Text search reads stored embeddings and library rows. It does not modify source audio, tags,
+analysis rows, or classifier scores.
 
 ## CLI text-search options
 

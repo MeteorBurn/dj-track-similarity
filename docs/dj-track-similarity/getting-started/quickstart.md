@@ -80,8 +80,8 @@ commands use only the arguments you pass. The server keeps its terminal busy, so
 in a second activated terminal.
 
 Without `--db`, the server starts with no database selected and creates no SQLite files. Pick an
-existing compatible bundle in the database picker, or give it a new `.sqlite` path to create one
-library database in the current schema.
+existing compatible library SQLite file in the database picker, or give it a new `.sqlite` path to
+create one library database in the current schema.
 
 Open the printed live UI URL. The browser reads the current typed database, track, analysis, search,
 set, classifier, Lab, and exact-identity mutation responses.

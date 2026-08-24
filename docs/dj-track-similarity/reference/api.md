@@ -17,9 +17,10 @@ endpoint ranges and validation rules.
 
 `/api/database/clear` does not delete audio files.
 
-Database state returns `path`, `artifacts_path`, `evaluation_path`, `catalog_uuid`, and `selected`.
-A fresh path creates Core plus mandatory Artifacts. Evaluation remains optional. Structurally
-incompatible or incomplete bundles are rejected rather than migrated during normal startup.
+Database state returns `path`, `evaluation_path`, `catalog_uuid`, and `selected`. A fresh path
+creates one library database. The adjacent Evaluation database remains optional and is created only
+by Evaluation workflows. Incompatible legacy layouts are rejected rather than migrated during
+normal startup.
 
 ## Library and media
 
@@ -113,7 +114,7 @@ MERT, MuQ, MuQ-MuLan, CLAP, likes, and compatible classifiers. Per-track `analys
 embedding counts.
 
 Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`, `mulan`, `clap`). The typed
-response returns `core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`.
+response returns `feature_rows_deleted`, `embedding_rows_deleted`, and `classifier_rows_deleted`.
 Classifier-score reset uses `{ "classifier_key": "live_instrumentation" }`.
 SONARA removes only dependent classifier rows; labels, feedback, and embedding-only results remain.
 
@@ -129,11 +130,28 @@ SONARA removes only dependent classifier rows; labels, feedback, and embedding-o
 
 Search limits are usually `1..500`.
 
-`POST /api/search/text` accepts `analysis_family: "clap" | "mulan"` and defaults to `clap`. It
-embeds text with the selected family and searches only that family's stored audio vectors.
-`positive_queries` is required and holds the whole prompt bank: every entry is embedded and the
-bank is averaged. Optional `negative_queries` are subtracted with `negative_weight` (`0..2`,
-server default when omitted). Unknown fields are rejected.
+`POST /api/search/text` accepts this JSON contract:
+
+| Field | Required | Current behavior |
+| --- | --- | --- |
+| `positive_queries` | yes | Non-empty prompt array. Blank entries are removed, every remaining prompt is embedded, and the bank is mean-pooled and normalized. |
+| `analysis_family` | no | `"clap"` or `"mulan"`. Defaults to `"clap"`. Search uses only stored audio embeddings from that family. |
+| `negative_queries` | no | Prompt array for competing audible classes. Blank entries are removed before contrast scoring. |
+| `negative_weight` | no | Number from `0..2`. Defaults to `0.5`. The contrast score subtracts the weighted negative match. |
+| `limit` | no | `1..500`. Defaults to `10`. |
+| `min_similarity` | no | Optional API score threshold. There is no default threshold. |
+| `device` | no | `"auto"`, `"cpu"`, or `"cuda"`. Selects the text adapter device. |
+
+Unknown fields are rejected. There is no `query`, `preset`, or `adaptive_contrast` field. Results
+contain `track`, `score`, and nullable `score_breakdown`. Contrast searches report
+`positive`, `negative`, `contrast`, and `negative_weight` in that breakdown. Results stay in
+descending score order.
+
+Text-search scores are cosine or contrast ranking evidence, not probabilities. Compare them only
+within one selected family and prompt bank, not with seed-search scores, SONARA, MERT, or the other
+text family. The endpoint reads stored embeddings and track rows; it does not modify source audio,
+tags, analysis rows, or classifier scores. Browser search does not send `min_similarity`: it uses
+`Limit` and keeps the full descending rank. API and CLI threshold workflows remain separate.
 
 Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `mert`, `muq`, `mulan`, `maest`, and `sonara`, and `limit=1..100`. When `models` is omitted, it returns six separate default groups in that order, including `mulan`. Verdicts use `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`. They persist as local pair feedback under `reference_compare:<model>`.
 

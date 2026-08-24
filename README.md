@@ -297,12 +297,15 @@ You need:
 - Node.js only when you build the frontend or docs from source
 - `uv` when installing optional dependencies that include the `ml` extra
 
-Install the base package:
+Install the base package and the frontend dependencies used by the development
+launcher:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+npm --prefix .\frontend install
+dj-sim doctor
 ```
 
 Create a database and scan a music folder:
@@ -339,7 +342,7 @@ use only the arguments supplied on the command line.
 
 ## 🧠 Add model-backed analysis
 
-The base install is enough for scan, backend serving, a fresh database bundle, and set export. Install
+The base install is enough for scan, backend serving, a fresh library database, and set export. Install
 optional analysis dependencies when you want the model jobs:
 
 ```powershell
@@ -486,24 +489,32 @@ Start here:
 
 ## 🧪 Development checks
 
-Run backend tests:
+Use the smallest check that covers the changed behavior. The root Pytest
+configuration collects only `tests/`; Rhythm Lab and script tests must be named
+explicitly.
 
 ```powershell
-python -m pytest
+python -m pytest tests/test_sonara_features.py
+python -m pytest tools/rhythm-lab/tests/test_rhythm_lab.py
 ```
 
-Build the frontend bundle served by the backend:
+For frontend changes, run type checking and the focused Node tests. The static
+bundle build is required before a commit.
 
 ```powershell
-cd frontend
-npm run build
+npm --prefix .\frontend run typecheck
+npm --prefix .\frontend test
+npm --prefix .\frontend run build
 ```
 
-Check and build the docs:
+For maintained documentation changes, run:
 
 ```powershell
-cd docs/dj-track-similarity
-npm run check
+npm --prefix .\docs\dj-track-similarity run check
 ```
 
 Run `npm run vale:sync` once after a fresh checkout or when `.vale.ini` packages change.
+After a behavior change, also exercise the matching browser, HTTP API, CLI, or
+library surface with a happy path and a relevant failure path. See
+[Testing and verification](docs/dj-track-similarity/developer/testing-and-verification.md)
+for the full routing matrix.

@@ -121,7 +121,7 @@ python -m pip install -e ".[ann,dev]"
 For Rhythm Lab training:
 
 ```powershell
-python -m pip install -e ".[rhythm-lab,dev]"
+uv sync --locked --extra rhythm-lab --extra dev
 ```
 
 ## Build the frontend bundle

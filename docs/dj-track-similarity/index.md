@@ -25,9 +25,9 @@
 
 It does not upload your collection. It does not decide what is a good mix. It helps you narrow a large folder into candidates worth hearing together.
 
-The Python backend, CLI, and React client use a structurally validated bundle with Core plus
-mandatory Artifacts and optional Evaluation. Normal startup refuses incompatible layouts and never
-migrates them automatically.
+The Python backend, CLI, and React client use one structurally validated library database. The
+adjacent Evaluation database is optional and is created only by Evaluation workflows. Normal
+startup refuses incompatible legacy layouts and never migrates them automatically.
 
 ## The Project Idea
 

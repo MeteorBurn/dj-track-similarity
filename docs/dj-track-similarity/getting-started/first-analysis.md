@@ -26,12 +26,12 @@ which families deserve a full-library run.
 | Family | Writes | Unlocks |
 | --- | --- | --- |
 | SONARA | Core feature row, a dedicated 48D embedding row, and a versioned acoustic fingerprint row | Core-backed feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs; the fingerprint has no current UI, search, classifier, or dedup use |
-| MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
-| MERT | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
-| MuQ | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup, classifier input |
+| MAEST | `maest_genres` rows and a `maest_embeddings` row | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
+| MERT | a row in `mert_embeddings` | seed search, LAB Reference Compare, Audio Dedup, classifier input |
+| MuQ | a row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup, classifier input |
 | MuQ-MuLan | separate 512D L2-normalized audio embedding | seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
-| CLAP | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup, classifier input |
-| CLASSIFIERS | Core `classifier_scores` rows | CLASS filters |
+| CLAP | a row in `clap_embeddings` | seed and text search, LAB Reference Compare, Audio Dedup, classifier input |
+| CLASSIFIERS | rows in `classifier_scores` | CLASS filters |
 
 Classifier scoring is a separate stage. Each promoted manifest defines its exact SONARA and
 MAEST/MERT/MuQ/MuQ-MuLan/CLAP requirements. Incomplete tracks are counted as not ready rather than failed.

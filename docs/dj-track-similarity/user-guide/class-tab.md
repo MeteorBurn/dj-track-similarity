@@ -56,9 +56,9 @@ Missing classifier scores do not pass a positive minimum filter.
 
 The play button on a classifier row resets and rescans that one classifier key. The UI calls the reset path first, then starts `/api/classifiers/{classifier_key}/analyze`.
 
-Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP/MuQ inputs declared
-by the promoted manifest and writes Core `classifier_scores`. It never decodes audio and never runs
-inside a SONARA or ML job.
+Classifier scoring is database-only. It reads exactly the SONARA and
+MAEST/MERT/MuQ/MuQ-MuLan/CLAP inputs declared by the promoted manifest and writes rows in
+`classifier_scores`. It never decodes audio and never runs inside a SONARA or ML job.
 
 Scoring is blocked when the promoted artifact's ordered feature recipe does not match the stored
 inputs for a track. Retrain and promote affected SONARA profiles after a chosen reanalysis. Labels

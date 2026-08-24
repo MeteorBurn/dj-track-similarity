@@ -24,12 +24,12 @@ only uses shared-library recovery after its own decode failure.
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
 | SONARA | source paths in Direct Mode or temporary paths in Staged Mode; normally decoded by SONARA/Symphonia, with per-file direct shared-library recovery only after a native decode or codec failure | Core feature rows and a dedicated 48D embedding | Core-backed SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
-| MAEST | shared ML decode | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MERT | shared ML decode | Artifacts embedding | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MuQ | shared ML decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MAEST | shared ML decode | `maest_genres` rows and a `maest_embeddings` row | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MERT | shared ML decode | a row in `mert_embeddings` | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MuQ | shared ML decode, resampled to 24 kHz `float32` | a row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MuQ-MuLan | shared ML decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
-| CLAP | shared ML decode | Artifacts audio embedding | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters |
+| CLAP | shared ML decode | a row in `clap_embeddings` | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| CLASSIFIERS | exact stored inputs from each promoted manifest | rows in `classifier_scores` | CLASS filters |
 
 ## Device behavior
 

@@ -35,7 +35,7 @@ Audio-to-audio seed search is out of scope here. It lives in the SIMILARITY tab 
   Changing that vocabulary is the `prompt-bank-curator` skill's job, not this one.
 - Current scoring: normalized positive text embeddings are mean-pooled, normalized, compared to
   stored audio embeddings, then hard negatives are subtracted with the preset's `negative_weight`
-  (`CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT = 0.35` applies only when the request omits one).
+  (`CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT = 0.5` applies only when the request omits one).
 - Text-search scores are text-to-audio cosine or contrast scores, not probabilities, and not
   comparable to MERT/SONARA seed similarity or to the other text model's scores.
 - The server keeps one loaded text adapter per family and device, so the first search of a process

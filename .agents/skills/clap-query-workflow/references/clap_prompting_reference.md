@@ -130,7 +130,7 @@ final = sim(audio, positive_label) - alpha * max(sim(audio, hard_negative_i))
 Calibrate `alpha` per label rather than globally. Measured on this project's library, a
 negative bank that names a real competing class keeps improving up to `alpha = 0.75-1.0`,
 while an invented negative bank lowers ROC-AUC at every `alpha`, so such labels ship with
-no negatives and `alpha = 0`. The server default of `0.35` applies only when a request
+no negatives and `alpha = 0`. The server default of `0.5` applies only when a request
 sends no weight of its own.
 
 ## Audio segmentation for full tracks

@@ -1,5 +1,6 @@
 /* Theme tokens and global foundation */
 :root {
+  --font-size-compact-selector: 10px;
   --app-bg: #f2f4ef;
   --app-text: #222421;
   --accent: #176c5a;
@@ -2859,8 +2860,10 @@ h2 {
 .clap-prompt-actions {
   align-items: center;
   display: inline-flex;
+  flex: 1 1 320px;
   flex-wrap: wrap;
   gap: 4px;
+  min-width: 0;
   position: relative;
 }
 
@@ -2871,30 +2874,31 @@ h2 {
   box-shadow: 0 10px 26px var(--shadow-dialog);
   display: grid;
   gap: 6px;
-  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   padding: 6px;
   position: absolute;
   /* The button that opens this menu sits at the left edge of the toolbar, so
      the panel has to grow rightwards or it hangs off the section. */
   left: 0;
   top: calc(100% + 6px);
-  width: min(420px, calc(100vw - 32px));
+  width: min(420px, 100%);
   z-index: 30;
 }
 
 .clap-preset-axes {
-  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   display: grid;
   gap: 3px;
   grid-auto-rows: max-content;
-  padding-right: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-bottom: 6px;
 }
 
 .clap-preset-options {
   align-content: flex-start;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 4px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   max-height: 320px;
   overflow-y: auto;
 }
@@ -2911,7 +2915,9 @@ h2 {
   height: auto;
   line-height: 1.15;
   min-height: 0;
+  min-width: 0;
   padding: 5px 10px;
+  white-space: normal;
 }
 
 .clap-preset-axis-button:hover {
@@ -2929,25 +2935,36 @@ h2 {
    two carry different meanings and should be free to diverge. */
 .clap-preset-option-button {
   align-items: center;
-  background: var(--accent-muted-bg);
-  border: 1px solid var(--accent-muted-border);
+  background: var(--blue-bg);
+  border: 1px solid var(--blue-border);
   border-radius: 999px;
-  color: var(--accent);
+  color: var(--blue-text);
   cursor: pointer;
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   font-size: 11px;
-  gap: 5px;
+  gap: 1px;
   height: auto;
+  justify-content: center;
   line-height: 1.15;
   min-height: 0;
+  min-width: 0;
   padding: 2px 6px;
-  width: auto;
+  position: relative;
+  text-align: center;
+  width: 100%;
+}
+
+.clap-preset-option-button:hover:not(:disabled) {
+  background: var(--blue-bg-hover);
+  border-color: var(--blue-border-hover);
+  color: var(--blue-text-hover);
 }
 
 .clap-preset-option-button.active {
-  background: var(--accent-soft-bg);
-  border-color: var(--accent-soft-border);
-  color: var(--accent);
+  background: var(--blue-bg-active);
+  border-color: var(--blue-border-active);
+  color: var(--blue-text-active);
 }
 
 .clap-preset-option-check {
@@ -2955,6 +2972,9 @@ h2 {
   display: inline-flex;
   height: 13px;
   justify-content: center;
+  left: 3px;
+  position: absolute;
+  top: 3px;
   width: 0;
 }
 
@@ -2963,17 +2983,29 @@ h2 {
 }
 
 .clap-preset-option-label {
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: normal;
+  white-space: normal;
+  width: 100%;
 }
 
 .clap-preset-option-measured {
   color: var(--text-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+  width: 100%;
 }
 
 .clap-preset-option-measured.unvalidated {
   opacity: 0.45;
+}
+
+@media (max-width: 600px) {
+  .clap-preset-axis-button {
+    font-size: var(--font-size-compact-selector);
+    line-height: 1.1;
+    padding: 4px 2px;
+  }
 }
 
 .clap-preset-chips {

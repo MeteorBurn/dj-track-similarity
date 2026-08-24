@@ -146,11 +146,12 @@ export function ClapSearchTab({
               </div>
             ) : null}
             {presetMenuOpen ? (
-              <div className="clap-preset-menu" role="menu">
+              <div className="clap-preset-menu">
                 <div className="clap-preset-axes">
                   {promptAxes.map((axis) => (
                     <button
                       className={`clap-preset-axis-button ${activeAxis === axis.key ? "active" : ""}`}
+                      aria-pressed={activeAxis === axis.key}
                       key={axis.key}
                       title={axis.hint}
                       onClick={() => setActiveAxis(axis.key)}
@@ -167,6 +168,7 @@ export function ClapSearchTab({
                     return (
                       <button
                         className={`clap-preset-option-button ${active ? "active" : ""}`}
+                        aria-pressed={active}
                         key={preset.key}
                         title={preset.hint}
                         onClick={() => onTogglePreset(preset.key)}

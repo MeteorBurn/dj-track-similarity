@@ -10,7 +10,7 @@ Use the CSS custom properties in `frontend/src/styles.css` as the source of trut
 
 ## 3. Typography
 
-The app uses the existing system sans stack declared on `:root`. UI text is compact: panel titles use the existing `.panel-title` pattern, labels use 12px bold copy, and row content uses inherited body sizing.
+The app uses the existing system sans stack declared on `:root`. UI text is compact: panel titles use the existing `.panel-title` pattern, labels use 12px bold copy, and row content uses inherited body sizing. Dense mobile selectors may use `--font-size-compact-selector` when four-column controls must preserve complete labels without overlap.
 
 ## 4. Layout
 

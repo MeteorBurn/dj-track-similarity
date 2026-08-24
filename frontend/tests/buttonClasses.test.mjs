@@ -463,6 +463,9 @@ test("selected text presets stay beside the picker with destructive badge intent
   assert.match(source, /className="clap-query-field clap-group-label"/);
   assert.match(source, /className="clap-negative-field clap-group-label"/);
   assert.match(source, /className="search-filter-grid clap-search-filter-grid clap-group-labels"/);
+  assert.doesNotMatch(source, /className="clap-preset-menu" role="menu"/);
+  assert.match(source, /aria-pressed=\{activeAxis === axis\.key\}/);
+  assert.match(source, /aria-pressed=\{active\}/);
   assert.match(chipRule, /background:\s*var\(--danger-muted-bg\)/);
   assert.match(chipRule, /border:\s*1px solid var\(--danger-muted-border\)/);
   assert.match(chipRule, /color:\s*var\(--danger-text\)/);
@@ -479,6 +482,13 @@ test("selected text presets stay beside the picker with destructive badge intent
     assert.match(rule, /line-height:\s*1\.15/);
     assert.match(rule, /padding:\s*2px 6px/);
   }
+  assert.match(optionRule, /background:\s*var\(--blue-bg\)/);
+  assert.match(optionRule, /border:\s*1px solid var\(--blue-border\)/);
+  assert.match(optionRule, /color:\s*var\(--blue-text\)/);
+  assert.match(optionRule, /flex-direction:\s*column/);
+  assert.match(optionRule, /gap:\s*1px/);
+  assert.match(optionRule, /min-height:\s*0/);
+  assert.match(optionRule, /padding:\s*2px 6px/);
   assert.match(compactButtonHeightRule, /height:\s*auto/);
   assert.match(compactButtonHeightRule, /min-height:\s*0/);
   assert.match(toolbarButtonHeightRule, /height:\s*auto/);
@@ -491,9 +501,34 @@ test("selected text presets stay beside the picker with destructive badge intent
   assert.match(negativeToggleRule, /color:\s*var\(--danger-text\)/);
   assert.match(promptToolbarRule, /justify-content:\s*space-between/);
   assert.match(axisRule, /font-size:\s*13px/);
+  assert.match(axisRule, /min-width:\s*0/);
   assert.match(axisRule, /padding:\s*5px 10px/);
+  assert.match(axisRule, /white-space:\s*normal/);
   assert.match(groupLabelRule, /color:\s*var\(--blue-text\)/);
   assert.match(groupLabelRule, /font-size:\s*13px/);
+});
+
+test("text preset options use a four-column grid to keep the picker within three rows", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const optionsRule = styles.match(/\.clap-preset-options\s*{([\s\S]*?)}/)?.[1] || "";
+  const actionsRule = styles.match(/\.clap-prompt-actions\s*{([\s\S]*?)}/)?.[1] || "";
+  const menuRule = styles.match(/\.clap-preset-menu\s*{([\s\S]*?)}/)?.[1] || "";
+  const labelRule = styles.match(/\.clap-preset-option-label\s*{([\s\S]*?)}/)?.[1] || "";
+  const measuredRule = styles.match(/\.clap-preset-option-measured\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(actionsRule, /flex:\s*1 1 320px/);
+  assert.match(actionsRule, /min-width:\s*0/);
+  assert.match(menuRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(menuRule, /width:\s*min\(420px,\s*100%\)/);
+  assert.match(optionsRule, /display:\s*grid/);
+  assert.match(optionsRule, /grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(labelRule, /min-width:\s*0/);
+  assert.match(labelRule, /overflow-wrap:\s*normal/);
+  assert.match(labelRule, /width:\s*100%/);
+  assert.match(measuredRule, /width:\s*100%/);
+  assert.match(styles, /\.clap-preset-axes\s*{[\s\S]*?grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(styles, /--font-size-compact-selector:\s*10px/);
+  assert.match(styles, /@media\s*\(max-width:\s*600px\)[\s\S]*?\.clap-preset-axis-button\s*{[\s\S]*?font-size:\s*var\(--font-size-compact-selector\)/);
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

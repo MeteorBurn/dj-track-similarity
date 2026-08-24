@@ -1,195 +1,206 @@
-# Agent Instructions
+# PROJECT KNOWLEDGE BASE
 
-This is the single project instruction file for `dj-track-similarity`.
-Do not add nested `AGENTS.md` files for local notes unless the user explicitly
-asks for a new instruction boundary. Keep this file short, current, and useful;
-remove obsolete guidance instead of layering more rules on top of it.
+This is the single instruction file for `dj-track-similarity`. Do not add nested
+`AGENTS.md` files unless the user explicitly asks for a new instruction boundary.
+Keep this file current by replacing obsolete guidance rather than layering rules.
 
-## Operating Model
+## OVERVIEW
 
-- The project is under active development. File layout, schemas, API shapes,
-  field order, model sets, weights, defaults, commands, ports, and UI structure
-  describe the current checkout, not permanent contracts.
-- Do not preserve incidental structure with compatibility aliases, duplicated
-  registries, version gates, hidden legacy branches, or tests that freeze field
-  order. Prefer one discoverable source of truth and tests of observable
-  behavior.
-- Add backward compatibility or migrations only for real persisted data,
-  external consumers, or an explicit user request.
-- Keep work scoped. Preserve unrelated user changes. Do not create broad plans,
-  specs, test profiles, or infrastructure unless they directly reduce current
-  risk or complexity.
-- Treat the requested target behavior as the new source of truth.
-  Update affected source, types, migrations, and tests together when they really
-  change. Keep maintained documentation aligned through the independent
-  documentation workflow below.
+Local-first DJ-library workbench with a Python/FastAPI backend, SQLite, React/Vite,
+and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 
-## Documentation Workflow
+## NEW CONTRIBUTOR START
 
-- Documentation is maintained independently from the main implementation flow
-  and must not block completion of code changes, verification, commits, or
-  subsequent user tasks.
-- When a completed code or product-behavior change affects maintained
-  documentation, delegate the documentation update to a dedicated docs
-  sub-agent.
-- The docs sub-agent must use the `\codebase-documentation-writer` skill for
-  documentation work.
-- Pass the docs sub-agent the implemented behavior, relevant changed paths, and
-  any constraints needed to describe the actual current state of the project.
-- The main agent must not wait for the docs sub-agent to finish. It may complete
-  verification, commit the implementation, report completion, and continue with
-  later tasks independently.
-- The docs sub-agent owns its documentation changes through verification and a
-  separate documentation commit when its execution context allows safe
-  independent commits; otherwise it leaves only its scoped documentation
-  changes for later commit.
-- Documentation changes may be committed separately from the implementation
-  that triggered them.
-- The maintained documentation surface is limited to `README.md` and
-  `docs/dj-track-similarity/` unless the user explicitly requests another
-  documentation artifact.
-- Documentation must describe the current implemented behavior, not planned,
-  speculative, or superseded behavior.
-- Executable sources remain authoritative when documentation disagrees with the
-  current checkout.
-- Do not create additional architecture notes, plans, changelogs, migration
-  documents, or local documentation files unless explicitly requested.
-- Multiple pending documentation updates should be consolidated when practical
-  so closely related changes do not repeatedly rewrite the same documentation.
-- Documentation-only changes use the instruction/docs-only verification route
-  and must not trigger application test suites.
+- Development is Windows-first. Use Python `>=3.10`, Node/npm for frontend or
+  docs work, and FFmpeg `8.1.1` as a full shared build; `ffmpeg.exe` alone is
+  insufficient.
+- Base checkout setup from the repository root:
 
-## Model Layer Ownership
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+npm --prefix .\frontend install
+dj-sim doctor
+```
 
-- Work on the models is split by layer so parallel agents do not collide. State
-  the layer before changing shared files.
-- The text-to-track and tagging layer covers CLAP and MuQ-MuLan: `/api/search/text`,
-  `src/dj_track_similarity/text_embedding_cache.py`, the text paths of
-  `src/dj_track_similarity/embedding.py`, `frontend/src/textPromptPresets.ts`,
-  `frontend/src/ClapSearchTab.tsx`, and `scripts/text_prompt_benchmark.py`.
-- The SONARA, MERT, MAEST, and MuQ seed-search layers, their analysis jobs, and the
-  Rhythm Lab training pipeline belong to other agents.
-- Signals cross layer boundaries; logic does not. Any layer may consume stored SONARA
-  features, MAEST genre labels, model embeddings, and promoted classifier scores as
-  evidence, filters, ranking inputs, or expansion vectors. No layer may change how
-  another layer produces them: its adapters, feature computation, scoring formulas,
-  thresholds, defaults, schemas, promoted artifacts, and dedicated UI surfaces are
-  off limits. Route a needed change there back to the user.
-- Shared files that every layer touches, such as `src/dj_track_similarity/search.py`,
-  `analysis_models.py`, `frontend/src/TrackRows.tsx`, and the family unions in
-  `frontend/src/api.ts`, take additive changes only. Prefer a new module over editing
-  another layer's internals.
-- Zero-shot tags from the text layer are an additional evidence channel beside MAEST
-  genres and promoted classifiers. They never replace either, are never written into
-  `classifier_scores`, and are never written into audio files.
+- Use `uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev`
+  for model-backed or Rhythm Lab development. Do not install the `ml` extra with
+  pip because pip does not apply the PyTorch source declared in `pyproject.toml`.
+- `run_server.cmd` starts backend `127.0.0.1:8765` and Vite `127.0.0.1:5173`;
+  Rhythm Lab uses `127.0.0.1:8777`. Check for an existing project process before
+  claiming a fixed port.
+- Read `README.md` for product setup, then `docs/dj-track-similarity/developer/`
+  for architecture, development, and verification details.
 
-## Text Layer Sub-Agents
+## STRUCTURE
 
-- Delegate text-to-track search work, prompt-bank drafting, and model choice between
-  CLAP and MuQ-MuLan to a sub-agent using the `\clap-query-workflow` skill.
-- Delegate preset, axis, and zero-shot tag vocabulary work, including reliability
-  measurement through `scripts/text_prompt_benchmark.py`, to a sub-agent using the
-  `\prompt-bank-curator` skill.
-- Both skills state the same layer boundary and must keep it. A vocabulary claim about
-  how well a label works needs a committed benchmark table, not an impression.
+| Area | Purpose |
+|---|---|
+| `src/dj_track_similarity/` | Python package: CLI, API, database, search, analysis, model adapters |
+| `frontend/src/` | React UI; `main.tsx` mounts the controller in `App.tsx` |
+| `tests/` | Primary Python unit/integration suite |
+| `frontend/tests/` | Node tests for frontend behavior and API contracts |
+| `scripts/` | Launch, benchmarks, database QA, and text-layer evaluation |
+| `tools/` | Separately scoped Audio Doctor, Audio Dedup, Rhythm Lab, and helper tools |
+| `docs/dj-track-similarity/` | Maintained VitePress documentation and docs tooling |
+| `.agents/skills/` | Project-specific agent workflows |
+| `database/`, `logs/`, `reports/` | Local user state; never use as automated-test fixtures |
+| `frontend/dist/`, `graphify-out/` | Generated output; do not hand-edit |
 
-## Source Of Truth
+## WHERE TO LOOK
 
-- `dj-track-similarity` is a local-first DJ-library workbench. Keep claims
-  modest: model outputs are ranking signals for listening-led shortlisting, not
-  objective truth or finished automatic DJ generation.
-- Browser search tabs are rank-only: do not add or submit a minimum-similarity
-  threshold there. Use `Limit` for result count and preserve descending score
-  order. API/CLI thresholds and the Audio Dedup content gate are separate.
-- Executable sources beat prose when they disagree: `pyproject.toml`,
-  `frontend/package.json`, `docs/dj-track-similarity/package.json`, tests,
-  schemas, routes, and current source are authoritative.
-- Project databases live under `C:\projects\dj-track-similarity\database`.
-  Never use a real project database in automated tests.
+| Task | Location |
+|---|---|
+| Installed command surface | `pyproject.toml` -> `dj_track_similarity.cli:app` |
+| API composition and static UI mount | `src/dj_track_similarity/api.py:create_app` |
+| Database access and write locking | `src/dj_track_similarity/database.py:LibraryDatabase` |
+| Shared ranking/search | `src/dj_track_similarity/search.py:SimilaritySearch` |
+| Analysis contracts and model identities | `src/dj_track_similarity/analysis_models.py` |
+| Analysis orchestration | `src/dj_track_similarity/analysis_jobs.py`, `analysis_pipeline.py`, `analysis_model_runners.py` |
+| Model-specific embedding production | `src/dj_track_similarity/embedding.py` |
+| Frontend API contracts | `frontend/src/api.ts`, `frontend/src/apiClient.ts` |
+| Windows app launcher | `run_server.cmd`, `scripts/run_server_launcher.py` |
+| Maintained product documentation | `README.md`, `docs/dj-track-similarity/` |
 
-## Safety Baseline
+## CODE MAP
 
-These rules apply unless the user explicitly asks to redesign that workflow. A
-redesign must state the new risk model, confirmation/recovery behavior, and
-direct verification.
+| Symbol | Role / blast radius |
+|---|---|
+| `cli.app` / `cli.serve` | Typer entry; server path reaches `create_app()` and Uvicorn |
+| `api.create_app` | Registers route modules, database state, and built frontend assets |
+| `LibraryDatabase` | Required gateway for library SQLite reads/writes and locking policy |
+| `SimilaritySearch` | Shared seed, vector, and contrast-vector ranking boundary |
+| `AnalysisJobManager` | Coordinates model runners, staging, writes, progress, and cancellation |
+| `analysis_models` contracts | Shared family/output/reset types; changes affect backend, tests, and UI |
+| `frontend App` | Main UI controller for database, jobs, search, preview, and export |
+| `frontend api` | High-centrality client used by the UI; keep backend types aligned |
 
-- Treat source audio as user data. Scan, tag refresh preview, analysis, search,
-  preview, reset, relocation preview, export, graph export, classifier scoring,
-  and routine verification must not modify audio files.
-- The normal tag-write workflow is explicit and genre-only. It preserves
-  existing normal tags. Do not add incidental audio writes.
-- Browser preview may transcode AIFF to temporary WAV for streaming but must
-  not rewrite or cache source audio.
-- SQLite writes go through `LibraryDatabase` and the active locking/WAL/busy
-  timeout policy or an explicitly verified replacement. Destructive maintenance
-  on a real DB requires backup/copy first plus integrity/orphan checks.
-- Startup must not silently mutate older database structures. Explicit
-  migration workflows must be intentional, recoverable, and verified.
-- The Windows launcher should preserve safe list-based argument forwarding with
-  `shell=False` unless it is deliberately redesigned with equivalent injection
-  protection.
-- Audio Doctor is dry-run-first. Apply is limited to prior repairable findings,
-  uses explicit confirmation, creates backups by default, verifies results, and
-  restores on verification failure.
-- Audio Dedup is report-first. Apply requires explicit confirmation, deletes
-  only qualified targets inside the selected root, and removes DB rows only for
-  files actually deleted. Never run apply mode for routine verification.
-- Rhythm Lab keeps its labels, predictions, queues, checkpoints, and artifacts
-  separate from the source database. Its only narrow source-DB write path is
-  the explicit liked-track toggle. Promotion must keep runtime model/manifest
-  reads atomic.
-- Promoted classifier scoring is database-only, scoped by classifier key, and
-  writes only that classifier's scores.
-- Keep CLAP text-search scores separate from audio-to-audio CLAP signals used
-  by SET, Hybrid, Audio Dedup, and classifiers. Do not substitute MuQ, MERT,
-  MAEST, CLAP, or SONARA evidence for another family.
+## CHANGE ROUTING
 
-## Development Workflow
+- Add or change HTTP endpoints in the matching `api_routes_*.py` module; keep
+  `api.py:create_app` focused on application composition and shared state.
+- Database changes belong in `database.py` plus the focused `db_*.py` storage,
+  schema, or identity module. Preserve `LibraryDatabase` as the public gateway.
+- When an API payload changes, update the backend contract, `frontend/src/api.ts`,
+  `frontend/src/apiClient.ts`, UI callers, and focused Python/Node contract tests
+  together.
+- Keep frontend state coordination in the existing hooks/helpers rather than
+  growing `App.tsx`; use `App.tsx` to compose workflows and panels.
+- Tool-specific code under `tools/` and script code under `scripts/` have their
+  own focused suites. Root pytest configuration collects only `tests/`.
+- Dependency changes use the owning package manager and lockfile: `uv.lock` for
+  Python and `frontend/package-lock.json` for the frontend. Do not hand-edit locks.
 
-- Work directly on `main` for this project unless the user asks for another
-  branch/worktree.
-- Preserve unrelated dirty work. This repository may be dirty.
-- Do not stage generated or local state unless the user explicitly requests
-  it. Respect ignore rules and inspect exact staged paths before delivery.
-- Before every commit, run `npm run build` from `frontend/` to verify the
-  static frontend bundle.
+## OPERATING MODEL
 
-## Verification Routing
+- The checkout is under active development. Current schemas, model sets,
+  weights, defaults, commands, ports, and UI structure are not permanent APIs.
+- Treat requested behavior as the new source of truth. Add compatibility or
+  migrations only for persisted data, external consumers, or explicit requests.
+- Prefer one discoverable source of truth. Do not add aliases, duplicate
+  registries, version gates, hidden legacy branches, or tests of incidental
+  field order.
+- Keep work scoped and preserve unrelated dirty changes. Work on `main` unless
+  the user asks for a branch or worktree.
+- Inspect `git status` and the scoped diff before delivery. Do not stage local
+  databases, audio, logs, reports, model artifacts, or generated output.
+- Executable sources and tests beat prose when they disagree.
 
-Use the cheapest check that can actually catch a mistake in the touched scope.
-Do not run full backend, frontend, docs, tool, or repository suites merely as a
-precaution.
+## MODEL LAYER OWNERSHIP
 
-- **Instruction/docs-only:** inspect the scoped diff, run
-  `git diff --check -- <paths>`, and use targeted `rg` sentinels for required
-  safety/process wording. Do not run application tests.
-- **Backend/source change:** run the focused pytest file or test selection that
-  covers the touched path. Widen only when shared behavior or a focused failure
-  justifies it.
-- **Model/audio/database tests:** use temporary SQLite/WAV fixtures and stubs;
-  do not call real SONARA, CLAP, MERT, MuQ, MAEST, or the user's music library.
-- **Frontend change:** run `npm run typecheck`. The Windows launcher starts the
-  Vite live UI so source changes are visible without rebuilding `frontend/dist`.
-  The static bundle check is mandatory before every commit; otherwise run
-  `npm run build` only when explicitly checking the generated static bundle.
-  Add `npm test` when touched logic warrants it.
-- **Docs site change:** from `docs/dj-track-similarity/`, run `npm run check`
-  only for maintained docs-site content or docs tooling changes.
-- **Real DB maintenance:** use backups/copies, integrity checks, row-count or
-  semantic comparisons, and disposable benchmark clones when performance claims
-  matter.
-- **Release, broad refactor, migration, cross-module API/schema change, or
-  explicit user request:** broaden verification deliberately and report why.
+- State the model layer before changing shared files.
+- Text-to-track/tagging owns CLAP and MuQ-MuLan text paths, `/api/search/text`,
+  `src/dj_track_similarity/text_embedding_cache.py`,
+  `frontend/src/textPromptPresets.ts`, `frontend/src/ClapSearchTab.tsx`, and
+  `scripts/text_prompt_benchmark.py`.
+- SONARA, MERT, MAEST, MuQ seed search, their analysis jobs, and Rhythm Lab
+  training are separate layers. Signals may cross boundaries; production logic
+  may not. Route changes to another layer back to the user.
+- Shared surfaces such as `search.py`, `analysis_models.py`, `TrackRows.tsx`,
+  and family unions in `frontend/src/api.ts` take additive, scoped changes only.
+- Keep CLAP text scores separate from audio-to-audio CLAP signals. Never
+  substitute MuQ, MERT, MAEST, CLAP, MuQ-MuLan, or SONARA evidence for another.
+- Zero-shot text tags are additional evidence, not replacements for MAEST or
+  classifier scores; never write them to `classifier_scores` or audio files.
+- Browser search tabs are rank-only: use `Limit`, preserve descending scores,
+  and do not add a minimum-similarity threshold. API/CLI thresholds and Audio
+  Dedup content gates are separate workflows.
+- Delegate text-search/model-choice work with `clap-query-workflow`; delegate
+  preset/axis/tag vocabulary work with `prompt-bank-curator`. Reliability claims
+  require a committed `scripts/text_prompt_benchmark.py` table.
 
-## graphify
+## SAFETY INVARIANTS
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+- Treat source audio as user data. Scan, preview, analysis, search, reset,
+  relocation preview, export, graph export, classifier scoring, and routine
+  verification must not modify it.
+- Normal tag writing is explicit and genre-only. Browser AIFF preview may use a
+  temporary WAV but must not rewrite or cache the source.
+- Route SQLite writes through `LibraryDatabase`; preserve WAL, busy-timeout,
+  and per-database locking. Real-database destructive work requires a backup or
+  disposable copy plus integrity and orphan checks.
+- Startup must not silently migrate old databases. Migrations are explicit,
+  recoverable workflows; reanalysis remains a separate user choice.
+- Keep launcher subprocess arguments list-based with `shell=False`. Local mode
+  binds `127.0.0.1`; LAN exposure must be explicit.
+- Audio Doctor is dry-run-first, confirmation-gated, backup-first, verified,
+  and rollback-capable. Audio Dedup is report-first and deletes only confirmed,
+  qualified targets inside the selected root. Never run apply modes for QA.
+- Rhythm Lab state remains separate from the source database except its explicit
+  liked-track toggle. Classifier scoring is database-only, scoped by classifier
+  key, and must validate promoted manifest feature order and artifact hashes.
+- Automated model/audio/database tests use temporary SQLite/WAV fixtures and
+  stubs, never real project databases, music files, or downloaded model runs.
 
-When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+## DOCUMENTATION WORKFLOW
 
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- Maintained docs are only `README.md` and `docs/dj-track-similarity/` unless the
+  user requests another artifact.
+- Docs have their own npm environment. From `docs/dj-track-similarity/`, run
+  `npm install`; run `npm run vale:sync` after a fresh checkout or Vale-package
+  change. Never edit generated `site/` output.
+- After behavior changes, delegate documentation to a dedicated sub-agent using
+  `codebase-documentation-writer`. Pass implemented behavior and changed paths.
+- Documentation is independent and must not block implementation, verification,
+  commits, or later tasks. It describes current behavior, not plans.
+- Do not create architecture notes, changelogs, migration documents, or local
+  docs unless explicitly requested. Docs-only changes use docs-only checks.
+
+## VERIFICATION ROUTING
+
+- Use the cheapest targeted check that can catch an error; widen only for a
+  shared contract, migration, broad refactor, release, or focused-test failure.
+- Instructions/docs only: inspect the scoped diff, run `git diff --check --
+  <paths>`, and use targeted `rg` sentinels. Do not run application suites.
+- Backend: run the focused `python -m pytest <file-or-selection>`.
+- Root pytest collects only `tests/`. Run `tools/rhythm-lab/tests` and
+  `scripts/tests` explicitly when those areas change. Use the `ml`, `slow`, and
+  `evaluation` markers only when the touched behavior requires them.
+- Frontend: run `npm run typecheck`; add `npm test` when touched logic warrants.
+  Run `npm run build` before every commit.
+- Docs site: run `npm run check` from `docs/dj-track-similarity/` only for
+  maintained docs content or docs tooling changes.
+- After source edits, run `graphify update .` to refresh generated graph data.
+- For behavior changes, finish by exercising the matching surface: browser for
+  UI, live HTTP request for API, CLI invocation for commands, or a minimal import
+  driver for library code. Cover one happy path and one relevant failure path.
+
+## COMMANDS
+
+```powershell
+run_server.cmd                         # interactive backend + Vite UI
+run_server.cmd local --db C:/db/library.sqlite
+python -m pytest tests/test_sonara_features.py
+python -m pytest tools/rhythm-lab/tests/test_rhythm_lab.py
+npm --prefix .\frontend run typecheck
+npm --prefix .\frontend test
+npm --prefix .\frontend run build      # mandatory before a commit
+npm --prefix .\docs\dj-track-similarity run check
+```
+
+## GRAPHIFY
+
+When the user types `/graphify`, use the graphify skill first. Prefer scoped
+`graphify query`, `path`, and `explain` commands, then `graphify-out/wiki/index.md`.
+Read `GRAPH_REPORT.md` only when needed; dirty generated graph files are expected.

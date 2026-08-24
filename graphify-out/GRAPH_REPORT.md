@@ -1,11 +1,10 @@
 # Graph Report - dj-track-similarity  (2026-08-24)
 
 ## Corpus Check
-- 444 files · ~447,866 words
-- Verdict: corpus is large enough that graph structure adds value.
+- cluster-only mode — file stats not available
 
 ## Summary
-- 6809 nodes · 19169 edges · 306 communities (276 shown, 30 thin omitted)
+- 6809 nodes · 19169 edges · 304 communities (274 shown, 30 thin omitted)
 - Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 1611 edges (avg confidence: 0.55)
 - Token cost: 0 input · 0 output
 
@@ -59,7 +58,7 @@
 - TrackIdentity
 - MLStagingConfig
 - db_analysis.py
-- SourceTrack
+- SourceDatabase
 - classifier_manifest.py
 - test_multi_model_analysis_jobs.py
 - transition_diagnostics.py
@@ -86,7 +85,7 @@
 - score_profile_optimizer.py
 - test_embedding.py
 - labels.py
-- test_vector_index.py
+- current_embedding_analysis_output
 - frontend/package.json
 - artifact_io.py
 - ffmpeg_runtime.py
@@ -128,7 +127,7 @@
 - connect_evaluation_sidecar
 - media_preview.py
 - SonaraStagingConfig
-- audio_loader.py
+- _move_maest_runtime_modules
 - DJ Track Similarity Banner
 - MaestWindowContext
 - tests/test_cli.py
@@ -155,10 +154,10 @@
 - api_routes_search.py
 - Q: Есть ли смысл сделать копию всех треков в самом низком и оптимизированном качестве для быстрой прогрузки, прослушивания и переноски вместе с базой, оставив анализ на оригиналах?
 - Q: Как сейчас реализована передача аудиоданных в ML-модели и как перевести ее на TorchCodec 0.16 CUDA без смены preprocessing revisions?
-- test_break_energy.py
+- Russian Project Overview
 - models.py
 - Classifier Workflow
-- Russian Project Overview
+- api_routes_reference_compare.py
 - AnalysisOutput
 - RhythmLabCollections
 - run-vale.mjs
@@ -188,7 +187,6 @@
 - mlAnalysisSettings.test.mjs
 - Response
 - Codebase Documentation Writer
-- OptimizerExample
 - buttonClasses.test.mjs
 - libraryView.test.mjs
 - searchPlaylistLayout.test.mjs
@@ -265,7 +263,7 @@
 - Q: Можно ли добиться идентичного декодирования FFmpeg или другим декодером с SONARA/Symphonia?
 - LibraryDatabase
 - test_api_tracks.py
-- AnalysisCandidate
+- ml_staging.py
 - Q: Убери глобальный барьер и ожидание считывания всех файлов
 - Q: Анализ MULAN как декодируется?
 - Q: Проанализируй изменения TorchCodec 0.16.0 и CUDA-производительность применительно к аудио-анализу и отдельному SONARA fallback.
@@ -292,7 +290,6 @@
 - test_config.py
 - test_classifier_manifest.py
 - install_standard_stream_logging
-- api_routes_database.py
 - db_search_fts.py
 - _ReadyClassifier
 - Exception
@@ -340,11 +337,11 @@
 ## Import Cycles
 - 2-file cycle: `frontend/src/api.ts -> frontend/src/apiClient.ts -> frontend/src/api.ts`
 
-## Communities (306 total, 30 thin omitted)
+## Communities (304 total, 30 thin omitted)
 
 ### Community 0 - "AnalysisJobManager"
-Cohesion: 0.07
-Nodes (39): AnalysisJobStatus, Item, RunnerFactory, AnalysisJobStatus, AnalysisLogEvent, AnalysisModelProgress, AnalysisTrackError, AnalysisTrackOutcome (+31 more)
+Cohesion: 0.06
+Nodes (43): AnalysisJobStatus, Item, RunnerFactory, decode_analysis_batch(), DecodeAudio, AnalysisJobStatus, AnalysisLogEvent, AnalysisModelProgress (+35 more)
 
 ### Community 1 - "sonara_similarity_scoring.py"
 Cohesion: 0.12
@@ -355,8 +352,8 @@ Cohesion: 0.08
 Nodes (104): _absolute_lexical_path(), _backup_restore_target(), _build_parser(), build_rebound_bundle(), _build_restore_plan(), _canonical_json_bytes(), _canonical_json_text(), canonical_path_key() (+96 more)
 
 ### Community 3 - "source_db.py"
-Cohesion: 0.05
-Nodes (73): _attach_labels(), _base_track_query(), _clean_path_text(), _count_sonara_features(), _embedding_family(), _embedding_vector(), _feature_counts(), _feature_source_states() (+65 more)
+Cohesion: 0.06
+Nodes (60): _attach_labels(), _base_track_query(), _clean_path_text(), _count_sonara_features(), _embedding_vector(), _feature_counts(), _feature_source_states(), _feature_status_payload() (+52 more)
 
 ### Community 4 - "FileTags"
 Cohesion: 0.17
@@ -395,8 +392,8 @@ Cohesion: 0.13
 Nodes (34): ScanStats, Scan one root through the sole TrackRepository write path., scan_library(), Aggregate result returned by the synchronous scanner., ScanStats, _library_roots(), _mert_output(), MonkeyPatch (+26 more)
 
 ### Community 13 - "web_app.py"
-Cohesion: 0.08
-Nodes (48): ClassifierProfile, _artifact_feature(), _artifact_feature_summary(), _artifact_groups(), _artifact_metrics_path(), _artifact_summary(), CalibrateRequest, _calibration_readiness() (+40 more)
+Cohesion: 0.07
+Nodes (49): ClassifierProfile, _artifact_feature(), _artifact_feature_summary(), _artifact_groups(), _artifact_metrics_path(), _artifact_summary(), CalibrateRequest, _calibration_readiness() (+41 more)
 
 ### Community 14 - "ann_index.py"
 Cohesion: 0.09
@@ -424,7 +421,7 @@ Nodes (61): AnalysisCoverage, AnalysisJobStatus, AnalysisPipelineRequest, Analys
 
 ### Community 20 - "AnalysisBatchItem"
 Cohesion: 0.06
-Nodes (25): ArrayLike, AnalysisBatchItem, _LibrarySummary, Protocol, _SonaraStatusRepository, AnalysisWriteRepository, _decoded_items(), default_model_runners() (+17 more)
+Nodes (24): ArrayLike, AnalysisBatchItem, _LibrarySummary, Protocol, _SonaraStatusRepository, AnalysisWriteRepository, _decoded_items(), default_model_runners() (+16 more)
 
 ### Community 21 - "TrackInput"
 Cohesion: 0.09
@@ -479,8 +476,8 @@ Cohesion: 0.13
 Nodes (40): _average_score(), _binary_label(), brier_score(), build_calibration_report(), _calibration_report(), _calibration_samples(), _calibration_status(), CalibrationSample (+32 more)
 
 ### Community 34 - "api.py"
-Cohesion: 0.10
-Nodes (21): open_database_file_dialog(), open_folder_dialog(), FastAPI, Path, Open Windows Explorer with the supplied audio file selected., reveal_track_file(), FastAPI, Path (+13 more)
+Cohesion: 0.13
+Nodes (16): FastAPI, FastAPI, Path, register_docs_routes(), FastAPI, register_server_routes(), FastAPI, Path (+8 more)
 
 ### Community 35 - "DecodedAudio"
 Cohesion: 0.11
@@ -511,23 +508,23 @@ Cohesion: 0.13
 Nodes (34): SonaraFeatureRow, CsvRow, _optional_number(), _optional_text(), CsvRow, TrackIdentity, TrackSummary, Resolve tempo from one current summary and optional SONARA row. (+26 more)
 
 ### Community 42 - "MLStagingConfig"
-Cohesion: 0.14
+Cohesion: 0.15
 Nodes (22): AnalysisJobConfig, build_analysis_job_config(), _int_in_range(), normalize_analysis_device(), normalize_analysis_models(), _normalize_limit(), normalize_sonara_mode(), MLStagingConfig (+14 more)
 
 ### Community 43 - "db_analysis.py"
 Cohesion: 0.08
 Nodes (52): AnalysisResetResult, AnalysisWriteResult, RuntimeError, Raised when a write target no longer names the current track content., StaleAnalysisTargetError, AnalysisRepository, collect_analysis_candidates(), current_sonara_target_keys() (+44 more)
 
-### Community 44 - "SourceTrack"
-Cohesion: 0.18
-Nodes (23): build_feature_matrix(), build_labeled_feature_matrix(), build_labeled_feature_matrix_from_sources(), _cached_embedding_vectors(), _feature_names(), FeatureMatrix, _finite_float(), _parse_feature_names() (+15 more)
+### Community 44 - "SourceDatabase"
+Cohesion: 0.08
+Nodes (35): build_feature_matrix(), build_labeled_feature_matrix(), build_labeled_feature_matrix_from_sources(), _cached_embedding_vectors(), _feature_names(), FeatureMatrix, _finite_float(), _parse_feature_names() (+27 more)
 
 ### Community 45 - "classifier_manifest.py"
 Cohesion: 0.13
 Nodes (24): current_classifier_specifications(), classifier_manifest_api_fields(), classifier_manifest_from_info(), ClassifierArtifactPaths, ClassifierManifestSummary, _clean_classifier_key(), _feature_sources(), _invalid_manifest() (+16 more)
 
 ### Community 46 - "test_multi_model_analysis_jobs.py"
-Cohesion: 0.18
+Cohesion: 0.19
 Nodes (14): _candidate(), _decoded(), _maest_output(), _mert_output(), Exception, Path, _Repository, _Runner (+6 more)
 
 ### Community 47 - "transition_diagnostics.py"
@@ -535,16 +532,16 @@ Cohesion: 0.08
 Nodes (61): _active_sonara_rows(), _analysis_target(), load_all_transition_tracks(), _load_transition_tracks(), load_transition_tracks_for_ids(), load_transition_tracks_for_targets(), TrackIdentity, Identity-bound typed track views for evaluation workflows. (+53 more)
 
 ### Community 48 - "current_embedding_spec"
-Cohesion: 0.11
-Nodes (33): current_embedding_spec(), _hydrate_similarity_results(), Attach current typed library summaries to validated search identities., _validate_feature_inputs(), _apply_epsilon(), _contrast_score_breakdown(), _contrast_vector_scores(), _finite_number() (+25 more)
+Cohesion: 0.17
+Nodes (25): current_embedding_spec(), _hydrate_similarity_results(), Attach current typed library summaries to validated search identities., _validate_feature_inputs(), _apply_epsilon(), _contrast_score_breakdown(), _contrast_vector_scores(), _finite_number() (+17 more)
 
 ### Community 49 - "export_seed_sample"
 Cohesion: 0.25
 Nodes (21): _weighted_candidate_seed_track_ids(), export_seed_sample(), SeedSampleResult, _ml_outputs(), ndarray, Path, TrackIdentity, _save_complete_analysis() (+13 more)
 
 ### Community 50 - "create_app"
-Cohesion: 0.20
-Nodes (20): create_app(), FakeClapAdapter, FakeMulanAdapter, ndarray, Path, A multi-line bank is never reduced to its first line. The removed…, test_repeated_text_search_reuses_one_loaded_adapter(), test_text_search_applies_a_requested_negative_weight() (+12 more)
+Cohesion: 0.16
+Nodes (25): create_app(), open_database_file_dialog(), open_folder_dialog(), Path, Open Windows Explorer with the supplied audio file selected., reveal_track_file(), FakeClapAdapter, FakeMulanAdapter (+17 more)
 
 ### Community 51 - "test_sonara_storage.py"
 Cohesion: 0.19
@@ -615,20 +612,20 @@ Cohesion: 0.04
 Nodes (59): AnalysisSelection, analysisSelectionOrder, analysisStartBlockedByMissingSonara(), audioAnalysisModelOrder, defaultAnalysisSelections, mlAnalysisModelOrder, defaultNotice, DeviceMode (+51 more)
 
 ### Community 68 - "score_profile_optimizer.py"
-Cohesion: 0.14
-Nodes (40): _assert_normalized_weights(), _base_report(), build_saved_score_profile_payload(), _clean_k_values(), _grid_step(), _guardrails(), _int_value(), _matched_optimizer_examples() (+32 more)
+Cohesion: 0.10
+Nodes (57): _assert_normalized_weights(), _base_report(), _bootstrap_stability(), build_saved_score_profile_payload(), _candidate_tie_break(), _clean_k_values(), _example_score(), _examples_by_seed() (+49 more)
 
 ### Community 69 - "test_embedding.py"
-Cohesion: 0.05
-Nodes (35): adapter_factories(), _move_maest_runtime_modules(), BatchMaestAdapter, FakeClapAudioModel, FakeMaestModel, FakeMertModel, FakeMertProcessor, FakeMulanModel (+27 more)
+Cohesion: 0.06
+Nodes (31): adapter_factories(), BatchMaestAdapter, FakeClapAudioModel, FakeMertModel, FakeMertProcessor, FakeMulanModel, FakeMuqAudioModel, ndarray (+23 more)
 
 ### Community 70 - "labels.py"
 Cohesion: 0.22
 Nodes (22): _json_object(), _load_csv_labels(), _load_jsonl_labels(), load_pair_feedback_labels(), load_transition_feedback_labels(), _optional_text(), PairFeedbackLabel, _parse_pair_feedback_row() (+14 more)
 
-### Community 71 - "test_vector_index.py"
-Cohesion: 0.22
-Nodes (17): ExactVectorSearchBackend, Deterministic exact cosine search over validated unit vectors., _add_track(), _mert_unit_vector(), MonkeyPatch, ndarray, Path, TrackIdentity (+9 more)
+### Community 71 - "current_embedding_analysis_output"
+Cohesion: 0.12
+Nodes (26): current_embedding_analysis_output(), Build current adapter identity without loading model weights., _search_source(), _insert_track(), _mert_output(), _mert_vector(), ndarray, Path (+18 more)
 
 ### Community 72 - "frontend/package.json"
 Cohesion: 0.07
@@ -756,19 +753,19 @@ Nodes (17): _add_track(), _identity_payload(), Path, TrackIdentity, test_rhythm_
 
 ### Community 103 - "AppDatabaseState"
 Cohesion: 0.13
-Nodes (12): FastAPI, register_reference_compare_routes(), ReferenceCompareRequest, ReferenceCompareVerdictRequest, AppDatabaseState, DatabaseBusy, DatabaseNotSelected, Path (+4 more)
+Nodes (13): FastAPI, Path, register_database_routes(), DatabaseStateResponse, DatabaseSwitchRequest, AppDatabaseState, DatabaseBusy, DatabaseNotSelected (+5 more)
 
 ### Community 104 - "select_torch_device"
 Cohesion: 0.11
 Nodes (16): Any, select_torch_device(), collapsed(), load_score_prompt_bank_module(), Path, Compare wording, not line wrapping., test_checkpoint_loading_fails_closed_when_torch_lacks_weights_only(), test_checkpoint_loading_forces_weights_only() (+8 more)
 
 ### Community 105 - "AnalysisTarget"
-Cohesion: 0.14
-Nodes (26): AnalysisTarget, HnswPersistentIndexSearcher, PersistentIndexSearcher, ndarray, _vector_content_hash(), _hydrate_search_target(), Return one current track summary after checking its exact identity., _hnsw_hits() (+18 more)
+Cohesion: 0.12
+Nodes (29): AnalysisTarget, HnswPersistentIndexSearcher, PersistentIndexSearcher, ndarray, _vector_content_hash(), _hydrate_search_target(), Return one current track summary after checking its exact identity., EmbeddingFamily (+21 more)
 
 ### Community 106 - "SimilaritySearch"
-Cohesion: 0.38
-Nodes (17): Cosine search over one current ML embedding family., SimilaritySearch, _add_track(), _library(), _output(), ndarray, Path, _query() (+9 more)
+Cohesion: 0.21
+Nodes (22): _optional_track_ids(), Cosine search over one current ML embedding family., Resolve and validate the current embedding output., Resolve request IDs to current, search-ready identities. The result preserves…, Choose one unselected current track with a valid embedding. Selection reads…, _requested_track_ids(), SimilaritySearch, _add_track() (+14 more)
 
 ### Community 107 - "main"
 Cohesion: 0.13
@@ -794,9 +791,9 @@ Nodes (9): FileResponse, AudioPreviewError, _delete_temp_file(), _is_browser_saf
 Cohesion: 0.10
 Nodes (35): LogCaptureFixture, ProcessPoolExecutor, analyze_and_store_staged_sonara(), cleanup_orphaned_sonara_staging(), _initialize_sonara_process(), _process_exists(), Any, Path (+27 more)
 
-### Community 113 - "audio_loader.py"
-Cohesion: 0.19
-Nodes (21): ml, load_decoded_audio(), load_decoded_audio_with_ffmpeg(), _load_with_shared_ffmpeg(), _load_with_torchcodec(), Path, Tensor, Decode one ML recovery source through shared FFmpeg into a tensor-backed value. (+13 more)
+### Community 113 - "_move_maest_runtime_modules"
+Cohesion: 0.28
+Nodes (4): _move_maest_runtime_modules(), FakeMaestModel, MovableModule, test_maest_initializes_only_missing_melspectrogram()
 
 ### Community 114 - "DJ Track Similarity Banner"
 Cohesion: 0.16
@@ -902,9 +899,9 @@ Nodes (4): Answer, Outcome, Q: Есть ли смысл сделать копи�
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: Как сейчас реализована передача аудиоданных в ML-модели и как перевести ее на TorchCodec 0.16 CUDA без смены preprocessing revisions?, Source Nodes
 
-### Community 140 - "test_break_energy.py"
-Cohesion: 0.31
-Nodes (11): _FixedProbabilityModel, _insert_track(), _mert_output(), ndarray, Path, test_break_energy_job_scores_tracks_with_required_rows(), test_break_energy_public_scorer_preserves_probability_precision(), test_classifier_artifact_loads_without_version_or_contract_identity() (+3 more)
+### Community 140 - "Russian Project Overview"
+Cohesion: 0.25
+Nodes (8): Accepted Project Vocabulary, Report-First Maintenance Tools, Rhythm Lab Personal Classifiers, Russian CLAP Text Search Explanation, Russian Multi-Model Similarity Explanation, Russian Project Overview, Russian Report-First Helper Tools, Russian Rhythm Lab Explanation
 
 ### Community 141 - "models.py"
 Cohesion: 0.15
@@ -914,13 +911,13 @@ Nodes (23): _artists(), _label(), Beatport v4 Catalog Search adapter using docum
 Cohesion: 0.22
 Nodes (13): Benchmark Variants, Broken vs Straight Beat Classifier, Classifier Workflow, Collect Labels, Local Music Library, Music Attribute Classifiers, Personal Music Classifiers, Production Readiness (+5 more)
 
-### Community 143 - "Russian Project Overview"
-Cohesion: 0.25
-Nodes (8): Accepted Project Vocabulary, Report-First Maintenance Tools, Rhythm Lab Personal Classifiers, Russian CLAP Text Search Explanation, Russian Multi-Model Similarity Explanation, Russian Project Overview, Russian Report-First Helper Tools, Russian Rhythm Lab Explanation
+### Community 143 - "api_routes_reference_compare.py"
+Cohesion: 0.70
+Nodes (4): FastAPI, register_reference_compare_routes(), ReferenceCompareRequest, ReferenceCompareVerdictRequest
 
 ### Community 144 - "AnalysisOutput"
 Cohesion: 0.06
-Nodes (17): EmbeddingModelRunner, AnalysisOutput, AnalysisVectorRow, AnalysisSearchRepository, EmbeddingFamily, Protocol, Public repository surface required by embedding search., Protocol (+9 more)
+Nodes (19): EmbeddingModelRunner, AnalysisOutput, AnalysisVectorRow, AnalysisSearchRepository, _merge_targets(), Protocol, Public repository surface required by embedding search., Load and validate every current vector once per search instance.… (+11 more)
 
 ### Community 145 - "RhythmLabCollections"
 Cohesion: 0.27
@@ -1029,10 +1026,6 @@ Nodes (3): OAuth token requests must send fields as a form, not URL query data.,
 ### Community 172 - "Codebase Documentation Writer"
 Cohesion: 0.29
 Nodes (7): Documentation Writer Agent Interface, Codebase Documentation Writer, Documentation Verification Workflow, Maintained Documentation Surface, Source-Grounded Documentation, VitePress Documentation Information Architecture, VitePress Documentation Pointer
-
-### Community 173 - "OptimizerExample"
-Cohesion: 0.20
-Nodes (17): _bootstrap_stability(), _candidate_tie_break(), _example_score(), _examples_by_seed(), _examples_for_seeds(), _is_better_candidate(), _mean(), _metrics_for_examples() (+9 more)
 
 ### Community 175 - "libraryView.test.mjs"
 Cohesion: 0.62
@@ -1252,15 +1245,15 @@ Nodes (4): Answer, Outcome, Q: Можно ли добиться идентичн
 
 ### Community 257 - "LibraryDatabase"
 Cohesion: 0.08
-Nodes (52): current_embedding_analysis_output(), Build current adapter identity without loading model weights., EmbeddingOutput, EmbeddingWrite, LibraryDatabase, Connection, EvaluationRepository, ndarray (+44 more)
+Nodes (52): EmbeddingOutput, EmbeddingWrite, LibraryDatabase, Connection, EvaluationRepository, ndarray, TrackIdentity, _client() (+44 more)
 
 ### Community 258 - "test_api_tracks.py"
 Cohesion: 0.32
 Nodes (18): _add_track(), _client(), _liked_payload(), Path, TestClient, TrackIdentity, test_delete_track_removes_catalog_data_but_keeps_source_audio(), test_media_endpoint_reports_missing_audio_file_without_traceback() (+10 more)
 
-### Community 259 - "AnalysisCandidate"
-Cohesion: 0.06
-Nodes (49): decode_analysis_batch(), DecodeFailure, DecodeAudio, A full-track decode error deferred to a model-specific recovery path., AnalysisCandidate, analyze_and_store_staged_ml(), cleanup_orphaned_ml_staging(), _decode_staged() (+41 more)
+### Community 259 - "ml_staging.py"
+Cohesion: 0.04
+Nodes (67): ml, DecodeFailure, A full-track decode error deferred to a model-specific recovery path., load_decoded_audio(), load_decoded_audio_with_ffmpeg(), _load_with_shared_ffmpeg(), _load_with_torchcodec(), Path (+59 more)
 
 ### Community 260 - "Q: Убери глобальный барьер и ожидание считывания всех файлов"
 Cohesion: 0.40
@@ -1362,10 +1355,6 @@ Nodes (7): _manifest_payload(), Path, test_manifest_derives_input_families_from_
 Cohesion: 0.33
 Nodes (7): Handler, Logger, _detach_standard_stream_file_handler(), _detach_standard_stream_file_handlers(), install_standard_stream_logging(), Mirror direct stdout/stderr writes into the configured app file log., _wrap_standard_stream()
 
-### Community 286 - "api_routes_database.py"
-Cohesion: 0.53
-Nodes (5): FastAPI, Path, register_database_routes(), DatabaseStateResponse, DatabaseSwitchRequest
-
 ### Community 287 - "db_search_fts.py"
 Cohesion: 0.25
 Nodes (12): delete_track_search_fts(), _file_genres_text(), _maest_genres_text(), Connection, Track-search FTS maintenance. The FTS index contains only text a person can…, Delete one track from the live FTS index without committing., Refresh one track's human-text FTS row without committing., Rebuild the human-text FTS index atomically. If the caller already owns a… (+4 more)
@@ -1415,23 +1404,23 @@ Nodes (9): Axes, Genres, Granularity Honesty, Layer Boundary, Prompt Bank Curato
   tools/rhythm-lab/rhythm_lab/static/favicon.svg · relation: references
 
 ## Knowledge Gaps
-- **506 isolated node(s):** `DatabaseValidationEvent`, `_UnusedClassifierJobs`, `SizeLike`, `TooltipPlacement`, `ActiveTooltip` (+501 more)
+- **506 isolated node(s):** `SizeLike`, `TooltipPlacement`, `ActiveTooltip`, `DatabaseValidationEvent`, `SidebarSection` (+501 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **30 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Work-memory lessons
 
 **Preferred sources** — corroborated by past sessions; start here.
-- `DecodedAudio` (9× useful, score=7.269177866)
-- `EmbeddingModelRunner` (9× useful, score=7.262935176)
-- `MaestEmbeddingAdapter` (5× useful, score=4.043629368)
-- `ClassifierScoreWrite` (5× useful, score=3.926268937)
-- `ScanJobManager` (4× useful, score=3.425973683)
-- `MertEmbeddingAdapter` (4× useful, score=3.23211728)
-- `MuqEmbeddingAdapter` (4× useful, score=3.23211728)
-- `load_decoded_audio()` (4× useful, score=3.23110518)
-- `scanner.py` (3× useful, score=2.574885712)
-- `scan_jobs.py` (3× useful, score=2.566144268)
+- `EmbeddingModelRunner` (9× useful, score=7.245395323)
+- `ClassifierScoreWrite` (5× useful, score=3.916787071)
+- `ScanJobManager` (4× useful, score=3.41770002)
+- `ClapEmbeddingAdapter` (4× useful, score=3.224311777)
+- `MuqEmbeddingAdapter` (4× useful, score=3.224311777)
+- `load_decoded_audio()` (4× useful, score=3.223302121)
+- `scanner.py` (3× useful, score=2.568667411)
+- `scan_jobs.py` (3× useful, score=2.559947077)
+- `_analysis_mapping_with_ffmpeg_fallback()` (3× useful, score=2.408998684)
+- `SonaraModelRunner` (3× useful, score=2.392481085)
 
 **Known dead ends** — questions that led nowhere; don't re-derive.
 - "Что значит, что docs/superpowers намеренно игнорируется репозиторием, и почему ему желательно не игнорировать staging?" -> `docsRoot`
@@ -1441,12 +1430,12 @@ _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `Recording Indicator` and `Rhythm Lab Favicon`?**
   _Edge tagged AMBIGUOUS (relation: references) - confidence is low._
-- **Why does `LibraryDatabase` connect `LibraryDatabase` to `test_api_tracks.py`, `run_report`, `test_scan_jobs.py`, `ClassifierSpecification`, `SonaraSimilaritySearch`, `FileTags`, `api_routes_search.py`, `test_audio_dedup.py`, `reports.py`, `test_break_energy.py`, `scan_library`, `test_api_runtime.py`, `AnalysisOutput`, `source_profile.py`, `score_profiles.py`, `database.py`, `test_classifier_jobs.py`, `evaluation/ablation.py`, `tags.py`, `risk_sweep.py`, `collect_repository_paths`, `calibration.py`, `test_api_sonara_search.py`, `test_repair_audio_metadata.py`, `storage_database_paths`, `test_qa_database_script.py`, `db_connection.py`, `TrackIdentity`, `_scan_track`, `db_analysis.py`, `transition_diagnostics.py`, `current_embedding_spec`, `export_seed_sample`, `create_app`, `test_sonara_storage.py`, `EvaluationRepository`, `benchmark_search.py`, `classifier_production.py`, `AnalysisPipelineManager`, `DatabaseValidationJobManager`, `rhythm_lab/cli.py`, `score_profile_optimizer.py`, `test_vector_index.py`, `test_classifier_scoring.py`, `test_api_reference_compare.py`, `candidates.py`, `seed_sampling.py`, `build_score_profile_optimizer_report`, `classifier_scoring.py`, `EmbeddingTrackIdentity`, `test_api_rhythm_lab.py`, `AppDatabaseState`, `dj_track_similarity/cli.py`, `AnalysisTarget`, `SimilaritySearch`, `main`, `recorded_sessions.py`, `tests/test_cli.py`, `ClassifierJobManager`, `track_models.py`, `test_api_database_selection.py`?**
-  _High betweenness centrality (0.083) - this node is a cross-community bridge._
-- **Why does `TrackIdentity` connect `TrackIdentity` to `LibraryDatabase`, `test_api_tracks.py`, `FileTags`, `ClassifierSpecification`, `api_schemas.py`, `AnalysisOutput`, `tags.py`, `database.py`, `api_routes_rhythm_lab.py`, `rhythm_lab_impact_payload`, `_scan_track`, `compute_transition_diagnostics`, `transition_diagnostics.py`, `export_seed_sample`, `EvaluationRepository`, `_required_text`, `test_vector_index.py`, `TrackSummary`, `candidates.py`, `tempo_resolution.py`, `db_library_queries.py`, `EvaluationRepository`, `test_api_rhythm_lab.py`, `AppDatabaseState`, `main`, `recorded_sessions.py`, `rhythm_lab_collections.py`, `track_models.py`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
-- **Why does `AnalysisOutput` connect `AnalysisOutput` to `AnalysisJobManager`, `LibraryDatabase`, `api_routes_analysis.py`, `sonara_similarity_scoring.py`, `AnalysisCandidate`, `ClassifierSpecification`, `SonaraSimilaritySearch`, `test_break_energy.py`, `ann_index.py`, `PersistentAnnVectorSearchBackend`, `AnalysisBatchItem`, `test_consumers.py`, `test_classifier_jobs.py`, `_coverage_and_classifiers`, `test_api_sonara_search.py`, `db_analysis.py`, `classifier_manifest.py`, `test_multi_model_analysis_jobs.py`, `current_embedding_spec`, `export_seed_sample`, `create_app`, `test_sonara_storage.py`, `sonara_features.py`, `benchmark_search.py`, `test_vector_index.py`, `artifact_io.py`, `test_classifier_scoring.py`, `test_api_reference_compare.py`, `sonara_storage.py`, `candidates.py`, `analysis_models.py`, `db_library_queries.py`, `classifier_scoring.py`, `EvaluationRepository`, `AnalysisTarget`, `SimilaritySearch`, `recorded_sessions.py`, `SonaraStagingConfig`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+- **Why does `LibraryDatabase` connect `LibraryDatabase` to `test_api_tracks.py`, `run_report`, `test_scan_jobs.py`, `ClassifierSpecification`, `SonaraSimilaritySearch`, `FileTags`, `api_routes_search.py`, `test_audio_dedup.py`, `reports.py`, `scan_library`, `test_api_runtime.py`, `AnalysisOutput`, `source_profile.py`, `score_profiles.py`, `database.py`, `test_classifier_jobs.py`, `evaluation/ablation.py`, `tags.py`, `risk_sweep.py`, `collect_repository_paths`, `calibration.py`, `test_api_sonara_search.py`, `test_repair_audio_metadata.py`, `storage_database_paths`, `test_qa_database_script.py`, `db_connection.py`, `TrackIdentity`, `_scan_track`, `db_analysis.py`, `transition_diagnostics.py`, `current_embedding_spec`, `export_seed_sample`, `create_app`, `test_sonara_storage.py`, `EvaluationRepository`, `benchmark_search.py`, `classifier_production.py`, `AnalysisPipelineManager`, `DatabaseValidationJobManager`, `rhythm_lab/cli.py`, `score_profile_optimizer.py`, `current_embedding_analysis_output`, `test_classifier_scoring.py`, `test_api_reference_compare.py`, `candidates.py`, `seed_sampling.py`, `build_score_profile_optimizer_report`, `classifier_scoring.py`, `EmbeddingTrackIdentity`, `test_api_rhythm_lab.py`, `AppDatabaseState`, `dj_track_similarity/cli.py`, `AnalysisTarget`, `SimilaritySearch`, `main`, `recorded_sessions.py`, `tests/test_cli.py`, `ClassifierJobManager`, `track_models.py`, `test_api_database_selection.py`?**
+  _High betweenness centrality (0.094) - this node is a cross-community bridge._
+- **Why does `AnalysisOutput` connect `AnalysisOutput` to `AnalysisJobManager`, `api_routes_analysis.py`, `sonara_similarity_scoring.py`, `ml_staging.py`, `LibraryDatabase`, `ClassifierSpecification`, `SonaraSimilaritySearch`, `ann_index.py`, `PersistentAnnVectorSearchBackend`, `AnalysisBatchItem`, `test_consumers.py`, `test_classifier_jobs.py`, `_coverage_and_classifiers`, `test_api_sonara_search.py`, `db_analysis.py`, `classifier_manifest.py`, `test_multi_model_analysis_jobs.py`, `current_embedding_spec`, `export_seed_sample`, `create_app`, `test_sonara_storage.py`, `sonara_features.py`, `benchmark_search.py`, `current_embedding_analysis_output`, `artifact_io.py`, `test_classifier_scoring.py`, `test_api_reference_compare.py`, `sonara_storage.py`, `candidates.py`, `analysis_models.py`, `db_library_queries.py`, `classifier_scoring.py`, `EvaluationRepository`, `AnalysisTarget`, `SimilaritySearch`, `recorded_sessions.py`, `SonaraStagingConfig`?**
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
+- **Why does `RhythmLabDatabase` connect `RhythmLabDatabase` to `rhythm_lab/cli.py`, `label_transfer.py`, `SourceDatabase`, `web_app.py`, `training.py`, `test_consumers.py`, `test_rhythm_lab.py`, `rhythm_lab/ablation.py`?**
+  _High betweenness centrality (0.024) - this node is a cross-community bridge._
 - **Are the 120 inferred relationships involving `LibraryDatabase` (e.g. with `_active_embedding_output()` and `_insert_synthetic_tracks()`) actually correct?**
   _`LibraryDatabase` has 120 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 94 inferred relationships involving `AnalysisOutput` (e.g. with `_active_embedding_output()` and `_store_synthetic_embeddings()`) actually correct?**

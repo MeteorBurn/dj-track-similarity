@@ -270,6 +270,27 @@ def test_search_endpoints_reject_unknown_context_parameter(
     assert sonara_response.status_code == 422
 
 
+def test_sonara_search_enforces_the_shared_seed_contract(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    too_many = client.post(
+        "/api/search/sonara", json={"seed_track_ids": [1, 2, 3, 4, 5, 6]}
+    )
+    duplicates = client.post(
+        "/api/search/sonara", json={"seed_track_ids": [1, 1]}
+    )
+    non_positive = client.post(
+        "/api/search/sonara", json={"seed_track_ids": [0]}
+    )
+
+    assert too_many.status_code == 422
+    assert duplicates.status_code == 422
+    assert non_positive.status_code == 422
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -318,6 +339,9 @@ def _add_sonara_track(
             "mfcc_mean_blob": _blob(features.get("mfcc_mean"), 13),
             "chroma_mean_blob": _blob(None, 12),
             "spectral_contrast_mean_blob": _blob(None, 7),
+            "analysis_schema_version": 6,
+            "bpm_min": 70.0,
+            "bpm_max": 180.0,
             "analyzed_at": _NOW,
         }
     )

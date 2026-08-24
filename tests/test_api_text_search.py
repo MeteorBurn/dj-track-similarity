@@ -282,6 +282,25 @@ def test_text_search_rejects_a_negative_weight_outside_the_contract(tmp_path: Pa
     assert response.status_code == 422
 
 
+def test_text_search_rejects_a_min_similarity_outside_the_contract(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    assert (
+        client.post(
+            "/api/search/text",
+            json={"positive_queries": ["broken drums."], "min_similarity": 1.5},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/search/text",
+            json={"positive_queries": ["broken drums."], "min_similarity": -0.1},
+        ).status_code
+        == 422
+    )
+
+
 def test_text_search_embeds_every_prompt_of_a_negated_bank(monkeypatch, tmp_path: Path) -> None:
     """A multi-line bank is never reduced to its first line.
 

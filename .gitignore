@@ -67,8 +67,14 @@ docs-legacy/
 .superpowers/
 docs/superpowers/
 
+# Local browser and generated report artifacts
+/.playwright-mcp/
+/reports/
+
 # Local Graphify artifacts
 graphify-out/*
+frontend/graphify-out/cache/
+frontend/graphify-out/????-??-??/
 
 # Vale package cache
 .vale/styles/*

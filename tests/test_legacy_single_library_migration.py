@@ -91,10 +91,11 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
             """
             INSERT INTO sonara(
                 track_id, mfcc_mean_blob, chroma_mean_blob,
-                spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?)
+                spectral_contrast_mean_blob, analysis_schema_version,
+                bpm_min, bpm_max, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (7, bytes(13 * 4), bytes(12 * 4), bytes(7 * 4), _TIMESTAMP),
+            (7, bytes(13 * 4), bytes(12 * 4), bytes(7 * 4), 6, 70.0, 180.0, _TIMESTAMP),
         )
         connection.execute(
             """

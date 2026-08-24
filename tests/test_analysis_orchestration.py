@@ -581,14 +581,18 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
             """
                 INSERT INTO sonara_features(
                 track_id, mfcc_mean_blob, chroma_mean_blob,
-                spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?)
+                spectral_contrast_mean_blob, analysis_schema_version,
+                bpm_min, bpm_max, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 mutation.identity.track_id,
                 np.zeros(13, dtype="<f4").tobytes(),
                 np.zeros(12, dtype="<f4").tobytes(),
                 np.zeros(7, dtype="<f4").tobytes(),
+                6,
+                70.0,
+                180.0,
                 "2026-07-30T00:00:00.000000Z",
             ),
         )
@@ -643,14 +647,18 @@ def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(
             """
                 INSERT INTO sonara_features(
                 track_id, mfcc_mean_blob, chroma_mean_blob,
-                spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?)
+                spectral_contrast_mean_blob, analysis_schema_version,
+                bpm_min, bpm_max, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 mutation.identity.track_id,
                 np.zeros(13, dtype="<f4").tobytes(),
                 np.zeros(12, dtype="<f4").tobytes(),
                 np.zeros(7, dtype="<f4").tobytes(),
+                6,
+                70.0,
+                180.0,
                 "2026-07-30T00:00:00.000000Z",
             ),
         )

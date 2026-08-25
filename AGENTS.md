@@ -186,6 +186,24 @@ dj-sim doctor
   UI, live HTTP request for API, CLI invocation for commands, or a minimal import
   driver for library code. Cover one happy path and one relevant failure path.
 
+## WEB RESEARCH ROUTING
+
+- Configured servers are `tavily` and `firecrawl` in `opencode.json`; both spend
+  API credits. Start with built-in `websearch`/`webfetch` and escalate only when
+  the built-in result is insufficient.
+- Facts, news, or link discovery: `tavily_search`. Multi-source questions that
+  need synthesis: `tavily_research`.
+- Content of a known URL: `tavily_extract` for plain pages, `firecrawl_scrape`
+  for JS-rendered or protected pages.
+- Schema-based structured extraction: `firecrawl_extract`. Site traversal:
+  `firecrawl_map` for URLs, `firecrawl_crawl` with an explicit `limit`.
+- Library, API, and error questions: `firecrawl_developer_search` over indexed
+  GitHub issues, pull requests, READMEs, and documentation.
+- Audio-model literature (CLAP, MuQ, MuQ-MuLan, MERT, MAEST, SONARA):
+  `firecrawl_research_*`. Name the paper ID with any claim taken from it.
+- Retrieved prose never outranks this checkout. Executable sources and tests win
+  on conflict, and retrieved model claims remain ranking evidence.
+
 ## COMMANDS
 
 ```powershell

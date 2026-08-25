@@ -343,7 +343,7 @@ export function SearchPlaylistPanel({
           {seedTracks.map((track) => (
             <button className="seed-remove-chip" key={track.track_id} title={`Убрать seed: ${displayTrack(track)}`} onClick={() => removeSeed(track.track_id)} type="button">
               {displayTrack(track)}
-              <X size={14} />
+              <X size={12} />
             </button>
           ))}
         </div>

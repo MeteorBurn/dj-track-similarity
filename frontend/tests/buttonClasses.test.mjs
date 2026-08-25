@@ -432,7 +432,7 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   }
 });
 
-test("selected text presets stay beside the picker with destructive badge intent", () => {
+test("selected text presets stay beside the picker with green accent badge intent", () => {
   const source = readFileSync(join(srcDir, "ClapSearchTab.tsx"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const chipRule = styles.match(/\.clap-preset-chip\s*{([\s\S]*?)}/)?.[1] || "";
@@ -466,9 +466,9 @@ test("selected text presets stay beside the picker with destructive badge intent
   assert.doesNotMatch(source, /className="clap-preset-menu" role="menu"/);
   assert.match(source, /aria-pressed=\{activeAxis === axis\.key\}/);
   assert.match(source, /aria-pressed=\{active\}/);
-  assert.match(chipRule, /background:\s*var\(--danger-muted-bg\)/);
-  assert.match(chipRule, /border:\s*1px solid var\(--danger-muted-border\)/);
-  assert.match(chipRule, /color:\s*var\(--danger-text\)/);
+  assert.match(chipRule, /background:\s*var\(--preset-selected-bg\)/);
+  assert.match(chipRule, /border:\s*1px solid var\(--preset-selected-border\)/);
+  assert.match(chipRule, /color:\s*var\(--preset-selected-text\)/);
   assert.match(chipRule, /line-height:\s*1\.15/);
   assert.match(chipRule, /padding:\s*2px 6px/);
   assert.match(chipRule, /height:\s*auto/);
@@ -695,4 +695,19 @@ test("database validation is disabled until the library has tracks", () => {
   const validationButton = source.match(/<button className="icon-button database-validation-button"[\s\S]*?<\/button>/)?.[0] || "";
 
   assert.match(validationButton, /disabled=\{busy \|\| stageRunning \|\| !hasTracks\}/);
+});
+
+test("seed chips use compact pill sizing and a compact removal icon", () => {
+  const source = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const chipRule = styles.match(/\.seed-remove-chip\s*{([\s\S]*?)}/)?.[1] || "";
+  const seedChip = source.match(/<button className="seed-remove-chip"[\s\S]*?<\/button>/)?.[0] || "";
+
+  assert.match(chipRule, /border-radius:\s*999px;/);
+  assert.match(chipRule, /font-size:\s*11px;/);
+  assert.match(chipRule, /line-height:\s*1\.15;/);
+  assert.match(chipRule, /padding:\s*2px 6px;/);
+  assert.match(chipRule, /min-height:\s*0;/);
+  assert.match(chipRule, /gap:\s*4px;/);
+  assert.match(seedChip, /<X size=\{12\} \/>/);
 });

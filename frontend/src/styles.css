@@ -17,6 +17,9 @@
   --accent-active-bg: #c8efdf;
   --accent-active-border: #3d9f7b;
   --accent-active-text: #0f5c4b;
+  --preset-selected-bg: #e7f3ed;
+  --preset-selected-border: #9ccfbd;
+  --preset-selected-text: #176c5a;
   --modifier-accent: #8b5ca7;
   --button-bg: #f8f9f4;
   --button-border: #c9cec2;
@@ -128,6 +131,9 @@
   --accent-active-bg: #0e3a56;
   --accent-active-border: #38bdf8;
   --accent-active-text: #bae6fd;
+  --preset-selected-bg: #0b2f24;
+  --preset-selected-border: #2f7d5f;
+  --preset-selected-text: #86efac;
   --modifier-accent: #c4b5fd;
   --button-bg: #0d1320;
   --button-border: #263448;
@@ -3016,10 +3022,10 @@ h2 {
 
 .clap-preset-chip {
   align-items: center;
-  background: var(--danger-muted-bg);
-  border: 1px solid var(--danger-muted-border);
+  background: var(--preset-selected-bg);
+  border: 1px solid var(--preset-selected-border);
   border-radius: 999px;
-  color: var(--danger-text);
+  color: var(--preset-selected-text);
   cursor: pointer;
   display: inline-flex;
   font-size: 11px;
@@ -3142,7 +3148,13 @@ h2 {
 .seed-remove-chip {
   background: var(--warning-soft-bg);
   border-color: var(--warning-soft-border);
+  border-radius: 999px;
+  font-size: 11px;
+  gap: 4px;
+  line-height: 1.15;
   max-width: 100%;
+  min-height: 0;
+  padding: 2px 6px;
 }
 
 .search-filter-grid {

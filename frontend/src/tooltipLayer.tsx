@@ -11,6 +11,19 @@ export function useGlobalTooltip() {
 
   useEffect(() => {
     let activeTarget: HTMLElement | null = null;
+    // This layer draws the title itself. Leaving the attribute in place makes
+    // the browser draw the same text a second time after its own hover delay,
+    // so the attribute is held here for as long as the tooltip is up.
+    let suppressedTitle: string | null = null;
+
+    const restoreTitle = () => {
+      // A re-render may have written a fresh title while the old one was held;
+      // that newer value wins.
+      if (activeTarget && suppressedTitle !== null && !activeTarget.hasAttribute("title")) {
+        activeTarget.setAttribute("title", suppressedTitle);
+      }
+      suppressedTitle = null;
+    };
 
     const tooltipTarget = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return null;
@@ -21,12 +34,16 @@ export function useGlobalTooltip() {
 
     const showTooltip = (event: Event) => {
       const target = tooltipTarget(event.target);
-      if (!target) return;
+      if (!target || target.element === activeTarget) return;
+      restoreTitle();
       activeTarget = target.element;
+      suppressedTitle = target.element.getAttribute("title");
+      target.element.removeAttribute("title");
       setTooltip({ text: target.text, trigger: rectToPlainObject(target.element.getBoundingClientRect()) });
     };
 
     const hideTooltip = () => {
+      restoreTitle();
       activeTarget = null;
       setTooltip(null);
     };
@@ -44,6 +61,7 @@ export function useGlobalTooltip() {
     window.addEventListener("resize", hideTooltip);
 
     return () => {
+      restoreTitle();
       document.removeEventListener("pointerover", showTooltip);
       document.removeEventListener("focusin", showTooltip);
       document.removeEventListener("pointerout", hideOnPointerOut);

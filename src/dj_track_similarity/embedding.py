@@ -10,6 +10,7 @@ from pathlib import Path
 import threading
 import time
 from typing import TYPE_CHECKING
+import warnings
 
 import numpy as np
 
@@ -70,6 +71,7 @@ from .verified_assets import (
 
 _CLAP_CONSTRUCTION_LOCK = threading.RLock()
 _MULAN_CONSTRUCTION_LOCK = threading.RLock()
+_MUQ_WEIGHT_NORM_WARNING_SILENCED = False
 
 
 @dataclass(frozen=True)
@@ -630,6 +632,7 @@ class MuqEmbeddingAdapter:
         from huggingface_hub import snapshot_download
         from muq import MuQ
 
+        _silence_muq_weight_norm_deprecation()
         self._torch = torch
         self._torchaudio = torchaudio
         binding = _download_verified_hf_snapshot(
@@ -832,6 +835,7 @@ class MuqMulanEmbeddingAdapter:
         from huggingface_hub import snapshot_download
         from muq import MuQMuLan
 
+        _silence_muq_weight_norm_deprecation()
         self._torch = torch
         self._torchaudio = torchaudio
         with ExitStack() as assets:
@@ -1082,7 +1086,7 @@ class ClapEmbeddingAdapter:
                 tmodel=self.tmodel,
                 device=torch.device(self.device),
             )
-            model.load_ckpt(str(verified_checkpoint.path))
+            model.load_ckpt(str(verified_checkpoint.path), verbose=False)
         self._model = model
 
     def _device(self) -> str:
@@ -1090,6 +1094,20 @@ class ClapEmbeddingAdapter:
         if self.device:
             return self.device
         return select_torch_device(self._torch, self.requested_device)
+
+
+def _silence_muq_weight_norm_deprecation() -> None:
+    """muq builds its conformer with the deprecated torch weight_norm helper."""
+
+    global _MUQ_WEIGHT_NORM_WARNING_SILENCED
+    if _MUQ_WEIGHT_NORM_WARNING_SILENCED:
+        return
+    warnings.filterwarnings(
+        "ignore",
+        message=r".*torch\.nn\.utils\.weight_norm.* is deprecated.*",
+        category=FutureWarning,
+    )
+    _MUQ_WEIGHT_NORM_WARNING_SILENCED = True
 
 
 def _ensure_verified_maest_checkpoint(

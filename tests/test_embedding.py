@@ -208,7 +208,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
             hook_module.RobertaTokenizer.from_pretrained("roberta-base")
             clap_model_module.RobertaModel.from_pretrained("roberta-base")
 
-        def load_ckpt(self, checkpoint_path):
+        def load_ckpt(self, checkpoint_path, verbose=True):
             calls["checkpoint"] = checkpoint_path
 
         def get_text_embedding(self, texts, use_tensor=False):
@@ -341,7 +341,7 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
         def __init__(self, *, enable_fusion, amodel, tmodel, device):
             print("[transformers] RobertaModel LOAD REPORT from: roberta-base")
 
-        def load_ckpt(self, checkpoint_path):
+        def load_ckpt(self, checkpoint_path, verbose=True):
             print(f"Load the specified checkpoint {checkpoint_path} from users.")
             print("CLAP warning from stderr", file=sys.stderr)
 

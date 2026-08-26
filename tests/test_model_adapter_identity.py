@@ -480,7 +480,7 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
         def __init__(self, *, enable_fusion, amodel, tmodel, device):
             calls["module"] = (enable_fusion, amodel, tmodel, device)
 
-        def load_ckpt(self, path):
+        def load_ckpt(self, path, verbose=True):
             calls["checkpoint"] = path
 
     clap_module = types.ModuleType("laion_clap")

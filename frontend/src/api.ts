@@ -308,6 +308,7 @@ export type ScanStats = {
   job_id?: string;
   state?: string;
   root?: string;
+  limit?: number | null;
   total?: number;
   processed?: number;
   added: number;

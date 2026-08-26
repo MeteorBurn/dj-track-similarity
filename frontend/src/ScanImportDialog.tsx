@@ -167,10 +167,10 @@ export function ScanImportDialog({
         </div>
         <div className="scan-import-settings">
           <div className="worker-control scan-import-limit-control">
-            <span>Scan limit</span>
+            <span title="Сканирование останавливается, когда в базу добавлено столько новых треков. 0 = без ограничения.">Scan limit</span>
             <div className="stepper">
               <button className="icon-button scan-import-limit-decrement-button" title="Уменьшить Scan limit" disabled={disabled || settings.scanLimit <= 0} onClick={() => setSettings((current) => ({ ...current, scanLimit: Math.max(0, current.scanLimit - 1) }))} type="button"><Minus size={15} /></button>
-              <input type="number" min={0} max={100000} value={settings.scanLimit} aria-label="Scan limit, 0 = все подходящие треки" disabled={disabled} onChange={(event) => setSettings((current) => ({ ...current, scanLimit: Math.min(100000, Math.max(0, Number(event.target.value) || 0)) }))} />
+              <input type="number" min={0} max={100000} value={settings.scanLimit} aria-label="Scan limit: сколько новых треков добавить в базу, 0 = все подходящие" disabled={disabled} onChange={(event) => setSettings((current) => ({ ...current, scanLimit: Math.min(100000, Math.max(0, Number(event.target.value) || 0)) }))} />
               <button className="icon-button scan-import-limit-increment-button" title="Увеличить Scan limit" disabled={disabled || settings.scanLimit >= 100000} onClick={() => setSettings((current) => ({ ...current, scanLimit: current.scanLimit + 1 }))} type="button"><Plus size={15} /></button>
             </div>
           </div>

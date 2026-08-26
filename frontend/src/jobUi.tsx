@@ -152,7 +152,8 @@ function ScanProcessStatus({ job }: { job: ScanStats | null }) {
   if (!job) {
     return <div className="process-box">Сканирование не запущено</div>;
   }
-  const total = job.total || 0;
+  // A limited scan stops at its limit of added tracks, so that is the target.
+  const total = job.limit && job.limit > 0 ? job.limit : job.total || 0;
   const processed = job.processed || 0;
   const percent = calculateProgressPercent(processed, total);
   const running = isJobActive(job.state || "");

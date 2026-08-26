@@ -262,6 +262,7 @@ def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, t
 
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
+    monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: tmp_path / "logs" / "rhythm-lab.log")
     monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda *_args: None)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
@@ -309,6 +310,7 @@ def test_rhythm_lab_launcher_clears_pid_when_launch_process_exits(monkeypatch, t
 
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
+    monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: tmp_path / "logs" / "rhythm-lab.log")
     monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda *_args: None)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
@@ -336,6 +338,7 @@ def test_rhythm_lab_launcher_restores_existing_pid_when_launch_process_exits(mon
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 11111)
+    monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: tmp_path / "logs" / "rhythm-lab.log")
     monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda *_args: None)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)

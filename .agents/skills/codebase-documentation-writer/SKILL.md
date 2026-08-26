@@ -89,7 +89,9 @@ For maintained docs-site changes, run from `docs/dj-track-similarity/`:
 npm run check
 ```
 
-For this skill itself, run the local skill validator when available:
+For this skill itself, run a skill validator against
+`.agents\skills\codebase-documentation-writer` when the running harness ships one,
+and skip the step when it does not. Under Codex that validator is:
 
 ```powershell
 python "$env:CODEX_HOME\skills\.system\skill-creator\scripts\quick_validate.py" .agents\skills\codebase-documentation-writer

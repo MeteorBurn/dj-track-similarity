@@ -3282,13 +3282,32 @@ h2 {
 }
 
 /* What the axis under the cursor does to the model, said before a label is
-   picked rather than left to a silent change in the select below. */
+   picked rather than left to a silent change in the select below, with the
+   legend for the dots on the axis row beside it. */
 .text-preset-axis-note {
+  align-items: center;
   border-bottom: 1px solid var(--border-soft);
   color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
   font-size: 11px;
+  gap: 6px 14px;
+  justify-content: space-between;
   line-height: 1.4;
   padding-bottom: 8px;
+}
+
+.text-preset-legend {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+  /* Holds the right edge on its own line too, once the note wraps. */
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.text-preset-legend .text-preset-axis-dot + .text-preset-axis-dot {
+  margin-left: 5px;
 }
 
 .text-search-box .text-preset-axis-button:hover:not(:disabled) {
@@ -3425,12 +3444,15 @@ h2 {
   gap: 6px;
 }
 
+/* The chips are what the picker produced, so they wear its blue - one step
+   stronger than the button, so the selection reads louder than the control
+   that made it. */
 .text-preset-chip {
   align-items: center;
-  background: var(--preset-selected-bg);
-  border: 1px solid var(--preset-selected-border);
+  background: var(--blue-bg-active);
+  border: 1px solid var(--blue-border-active);
   border-radius: 999px;
-  color: var(--preset-selected-text);
+  color: var(--blue-text-active);
   cursor: pointer;
   display: inline-flex;
   font-size: 11.5px;

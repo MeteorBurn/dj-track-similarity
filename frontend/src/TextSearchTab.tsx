@@ -255,11 +255,24 @@ export function TextSearchTab({
                 ))}
               </div>
               <div className="text-preset-axis-note">
-                {activeAxisEntry?.model
-                  ? `Ось измерена на ${activeAxisModelLabel} — модель переключится сама.`
-                  : activeAxisPinned.length
-                    ? `Замера у оси нет, но отдельные метки закреплены: ${activeAxisPinned.join(", ")}.`
-                    : "Замера у оси нет: размеченных примеров под её метки не набрано. Модель останется прежней — проверяй ушами."}
+                <span>
+                  {activeAxisEntry?.model
+                    ? `Ось измерена на ${activeAxisModelLabel} — модель переключится сама.`
+                    : activeAxisPinned.length
+                      ? `Замера у оси нет, но отдельные метки закреплены: ${activeAxisPinned.join(", ")}.`
+                      : "Замера у оси нет — модель останется прежней. Проверяй ушами."}
+                </span>
+                {/* The dots on the axis row mean nothing without this, and the
+                    hints no longer explain them. */}
+                <span
+                  className="text-preset-legend"
+                  title="Точка отмечает ось или метку, под которую есть замер: при её выборе модель переключится сама. Цвет — на какую именно."
+                >
+                  <span className="text-preset-axis-dot" data-model="mulan" aria-hidden="true" />
+                  MuQ-MuLan
+                  <span className="text-preset-axis-dot" data-model="clap" aria-hidden="true" />
+                  CLAP
+                </span>
               </div>
               <div className="text-preset-options">
                 {axisPresets.map((preset) => {

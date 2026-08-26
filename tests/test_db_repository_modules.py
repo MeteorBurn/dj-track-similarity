@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 
 from dj_track_similarity.database import LibraryDatabase
 
@@ -12,6 +11,9 @@ REPOSITORY_MODULES = {
     "dj_track_similarity.db_summary": "SummaryRepository",
 }
 
+# LibraryDatabase owns connection setup, so it may redefine this one.
+FACADE_OWNED = {"connect"}
+
 
 def test_database_repositories_are_split_behind_library_database_facade() -> None:
     for module_name, class_name in REPOSITORY_MODULES.items():
@@ -21,9 +23,12 @@ def test_database_repositories_are_split_behind_library_database_facade() -> Non
         assert issubclass(LibraryDatabase, repository_class)
 
 
-def test_database_facade_no_longer_defines_repository_methods_inline() -> None:
-    source = Path("src/dj_track_similarity/database.py").read_text(encoding="utf-8")
+def test_library_database_inherits_repository_methods_instead_of_redefining_them() -> None:
+    for module_name, class_name in REPOSITORY_MODULES.items():
+        repository_class = getattr(importlib.import_module(module_name), class_name)
 
-    assert "def list_tracks_page(" not in source
-    assert "def save_embedding(" not in source
-    assert "def library_summary(" not in source
+        for name, member in vars(repository_class).items():
+            if name.startswith("_") or name in FACADE_OWNED or not callable(member):
+                continue
+
+            assert getattr(LibraryDatabase, name) is member

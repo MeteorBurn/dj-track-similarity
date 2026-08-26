@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
+
+from dj_track_similarity.api import create_app
 
 
 ROUTE_MODULES = {
@@ -23,8 +24,19 @@ def test_api_routes_are_split_into_registration_modules() -> None:
         assert callable(getattr(module, function_name))
 
 
-def test_api_app_factory_does_not_define_route_handlers_inline() -> None:
-    source = Path("src/dj_track_similarity/api.py").read_text(encoding="utf-8")
+def test_every_registered_route_comes_from_a_route_module() -> None:
+    app = create_app()
 
-    assert "@app.get" not in source
-    assert "@app.post" not in source
+    endpoint_modules = {
+        route.endpoint.__module__
+        for route in app.routes
+        if getattr(route, "endpoint", None) is not None
+    }
+    project_modules = {
+        name for name in endpoint_modules if name.startswith("dj_track_similarity.")
+    }
+
+    assert project_modules
+    assert all(
+        name.startswith("dj_track_similarity.api_routes_") for name in project_modules
+    )

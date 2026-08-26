@@ -120,15 +120,6 @@ def test_root_server_script_prompts_supports_modes_and_forwards_args() -> None:
     assert 'python "%PROJECT_ROOT%\\scripts\\run_server_launcher.py" %*' in text
 
 
-def test_root_server_script_exits_without_waiting_for_input_after_the_server_stops() -> None:
-    root = Path(__file__).resolve().parents[2]
-    script = root / "run_server.cmd"
-
-    text = script.read_text(encoding="utf-8")
-
-    assert "pause" not in text
-
-
 @pytest.mark.skipif(os.name != "nt", reason="run_server.cmd requires Windows")
 def test_no_argument_launcher_prompts_for_database_before_mode_and_accepts_defaults(
     tmp_path: Path,

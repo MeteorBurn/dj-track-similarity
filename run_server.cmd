@@ -10,7 +10,6 @@ set "MODE="
 set "FRONTEND_HOST="
 set "FRONTEND_URL="
 set "INTERACTIVE_START=0"
-set "PROMPT_ON_EXIT=0"
 
 if "%~1"=="" set "INTERACTIVE_START=1"
 
@@ -38,7 +37,6 @@ goto :mode_selected
 
 :mode_selected
 if not defined MODE (
-    set "PROMPT_ON_EXIT=1"
     echo DJ Track Similarity UI server
     echo.
     if "%INTERACTIVE_START%"=="1" call :prompt_database
@@ -133,7 +131,6 @@ set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.
 echo Server stopped with exit code %EXIT_CODE%.
-if "%PROMPT_ON_EXIT%"=="1" pause
 exit /b %EXIT_CODE%
 
 :prompt_database
@@ -184,5 +181,4 @@ exit /b 0
 
 :setup_error
 echo.
-if "%PROMPT_ON_EXIT%"=="1" pause
 exit /b 1

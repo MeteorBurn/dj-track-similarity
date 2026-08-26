@@ -164,7 +164,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. SONARA 0.3.6 Core rows also retain the analysis schema version and BPM analysis range as provenance, which track detail exposes for inspection. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A native decode or codec failure for one file recovers through in-process TorchCodec decoding with the configured shared FFmpeg libraries, then SONARA signal analysis. An unrecovered failure is recorded only for that track.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. SONARA 0.3.6 Core rows also retain the analysis schema version and BPM analysis range as provenance, which track detail exposes for inspection. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A native decode or codec failure for one file recovers through in-process PyAV decoding with the configured shared FFmpeg libraries, then SONARA signal analysis. An unrecovered failure is recorded only for that track.
 
 The BPM range SONARA analyses with belongs to the library rather than to a single run.
 
@@ -190,9 +190,11 @@ the configured shared FFmpeg libraries in process and returns mono `float32` at 
 rate through `AudioDecoder(path, num_channels=1).get_all_samples()`. Its `AudioSamples.data[0]`
 stays a 1D CPU `torch.float32` tensor inside `DecodedAudio` and passes directly to each adapter
 without a shared Tensor-to-NumPy-to-Tensor round-trip. If that full-track decode fails, the
-affected ML family makes a separate in-process TorchCodec recovery decode through the same shared
-libraries and downmixes it to mono `float32`. No `ffmpeg.exe` process is started. This is a
-recovery path, not a repair of an invalid audio file. Each adapter still applies its own window
+affected ML family retries with a different decoder: PyAV `17.1.0` reading the same shared FFmpeg
+libraries in process, opened tolerantly so a malformed packet is discarded and the valid frames
+around it are kept, then downmixed to mono `float32`. A file the primary decoder refuses outright
+can still be analyzed from its intact audio. No `ffmpeg.exe` process is started. This is
+a recovery path, not a repair of an invalid audio file. Each adapter still applies its own window
 preparation and Torchaudio resampling. The selected CPU or CUDA device applies to model inference,
 not decoding.
 
@@ -430,8 +432,8 @@ own temporary folder and copy/decode workers. It copies selected ML candidates r
 copy, decode, and inference. ML StageSize bounds the active staging window rather than the whole
 job. Each completed track has its staging copy deleted, and the window refills until every candidate
 in the current ML job has finished. Without ML Staged Mode, ML analysis reads original source paths
-and uses its separate full-TorchCodec decode. It then falls back to direct shared-library recovery
-if that decode fails. The recovery does not start `ffmpeg.exe`.
+and uses its separate full-TorchCodec decode. It then falls back to the tolerant PyAV
+shared-library decode if that decode fails. The recovery does not start `ffmpeg.exe`.
 Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
 relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
 and CLASSIFIERS reports the selected profile count.

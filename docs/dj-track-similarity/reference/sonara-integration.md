@@ -36,8 +36,9 @@ and copy worker pools exit. Every Staged session creates a new unique job direct
 so, it removes an owner-marked staging directory only if its recorded owner process is gone, and
 also removes an empty `sonara-stage-*` residue that has no valid owner marker. It preserves a
 directory with a live owner and a nonempty directory without a valid marker. Staged Mode is
-SONARA-only. Generic ML reads original source paths and uses a separate in-process shared-library
-TorchCodec recovery after a full TorchCodec failure. Preview and other non-SONARA functions keep
+SONARA-only. Generic ML reads original source paths and uses the same in-process tolerant PyAV
+shared-library decode for recovery after a full TorchCodec failure. Preview and other non-SONARA
+functions keep
 their own decode paths.
 
 The application requests a fixed output set. It contains scalar and compact fixed-vector Core data

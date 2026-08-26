@@ -5,21 +5,32 @@ all samples through the configured shared FFmpeg runtime as mono `float32` at th
 rate with `AudioDecoder(path, num_channels=1).get_all_samples()`. The project keeps
 `AudioSamples.data[0]` as a 1D CPU `torch.float32` tensor in `DecodedAudio` and passes it directly
 to the adapters, without a shared Tensor-to-NumPy-to-Tensor round-trip. If the full-track decode
-fails, the selected ML family makes a separate in-process TorchCodec decode through the same shared
-libraries and uses an arithmetic channel mean for mono `float32`. It can still fail on invalid
-audio. Each adapter applies its own resampling and window preparation after either decode path.
+fails, the selected ML family retries with PyAV over the same shared libraries and uses an
+arithmetic channel mean for mono `float32`. It can still fail on invalid audio. Each adapter
+applies its own resampling and window preparation after either decode path.
 On the input path, NumPy conversion occurs only at the MERT feature-extractor and CLAP model-API
 boundaries that require arrays.
 
 ## ML decode recovery
 
-The initial ML decode remains one full-track TorchCodec read shared by the selected ML families. A
-failed read is recovered independently for MAEST, MERT, MuQ, MuQ-MuLan, or CLAP through another
-in-process TorchCodec `AudioDecoder` read backed by the configured shared FFmpeg libraries. It
-does not launch `ffmpeg.exe`, `ffprobe.exe`, or a shell command. This recovery route neither repairs
-the source file nor changes the model preprocessing: MAEST, MERT, MuQ, MuQ-MuLan, and CLAP retain
-their existing resampling and window policies. SONARA has a separate native/Symphonia decoder and
-only uses shared-library recovery after its own decode failure.
+The initial ML decode remains one full-track TorchCodec read shared by the selected ML families.
+The decode chain for a track is TorchCodec, then PyAV over the shared FFmpeg libraries, then a
+recorded decode failure. A failed TorchCodec read is recovered independently for MAEST, MERT, MuQ,
+MuQ-MuLan, or CLAP by a second decoder rather than a second attempt at the same one: pinned PyAV
+`17.1.0` opens the file in process with `fflags=+discardcorrupt+genpts` and `err_detect=ignore_err`
+against the configured shared FFmpeg `8.1.1` libraries. It does not launch `ffmpeg.exe`,
+`ffprobe.exe`, or a shell command.
+
+Because the recovery decoder is tolerant, a packet that fails its checksum is discarded and the
+valid frames before and after it are kept, so a file the primary decoder refuses outright can
+still be analyzed from its intact audio. The discarded packets are counted in the decode
+detail string, each one is recorded at `DEBUG`, and one `WARNING` per file reports the total. A
+track is failed only when both decoders fail.
+
+This recovery route neither repairs the source file nor changes the model preprocessing: MAEST,
+MERT, MuQ, MuQ-MuLan, and CLAP retain their existing resampling and window policies. SONARA has a
+separate native/Symphonia decoder and uses the same tolerant PyAV decode after its own decode
+failure.
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |

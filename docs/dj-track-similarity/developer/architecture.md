@@ -13,7 +13,10 @@ flowchart LR
     Audio --> Stage[Optional read-only SSD staging]
     Stage --> Sonara
     SharedFFmpeg["System shared FFmpeg runtime"] --> TorchCodec[TorchCodec 0.16 in-process decode]
+    SharedFFmpeg --> PyAV["Tolerant PyAV decode (recovery)"]
     Audio --> TorchCodec
+    TorchCodec -. decode failure .-> PyAV
+    PyAV --> Queue
     Sonara --> Queue[Sequential analysis queue]
     TorchCodec --> Queue
     Queue --> DB
@@ -37,16 +40,18 @@ flowchart LR
   `AudioDecoder(path, num_channels=1).get_all_samples()`. It returns the whole track as mono
   `float32` at its source sample rate, keeps `AudioSamples.data[0]` as a 1D CPU `torch.float32`
   tensor in `DecodedAudio`, and passes that tensor directly to the adapters. When the full decode
-  fails, the model runner makes a second in-process TorchCodec read using the same shared FFmpeg
-  libraries, then takes the arithmetic channel mean for mono `float32` PCM; the adapter still owns
-  resampling and window selection. `WavDecoder` is not used because it
-  cannot request channel remixing in TorchCodec `0.16`.
+  fails, `_load_with_shared_ffmpeg` hands the file to `shared_ffmpeg_decoder.load_tolerant_mono_audio`,
+  which decodes with PyAV over the same shared FFmpeg libraries, discards malformed packets, and
+  takes the arithmetic channel mean for mono `float32` PCM before it is wrapped back into a tensor;
+  the adapter still owns resampling and window selection. The recovery step is a different decoder
+  from the primary one, so a file TorchCodec rejects is not simply retried the same way.
+  `WavDecoder` is not used because it cannot request channel remixing in TorchCodec `0.16`.
 - `analysis_jobs.py`, `analysis_model_runners.py`, `sonara_staging.py`, and `sonara_features.py`:
   separate ML jobs plus Direct or Staged native SONARA capture. Direct Mode reads source paths in
   configured native batches. Staged Mode copies source files read-only to a user-selected temporary
   directory and runs a bounded, barrier-free ready queue through configurable Rayon-limited worker
-  processes. Both modes use per-file direct shared-library PCM recovery only after native SONARA
-  decode or codec failures. Results
+  processes. Both modes use the same per-file tolerant PyAV shared-library PCM recovery only after
+  native SONARA decode or codec failures. Results
   retain source identity; SONARA Core and embedding data use one transaction with a savepoint per
   track.
 - `analysis_pipeline.py`: fixed SONARA then ML parent/child orchestration.

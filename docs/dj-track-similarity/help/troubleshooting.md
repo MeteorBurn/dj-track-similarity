@@ -56,6 +56,26 @@ embedding, or fingerprint rows is missing.
 Rebuild and promote an artifact whose ordered feature names and required inputs match your current
 data. Classifier scoring stays database-only and remains scoped by `classifier_key`.
 
+## One track fails ML analysis while the rest of the job succeeds
+
+Each ML track passes through two decoders before it is failed. TorchCodec reads it first. If that
+read fails, a tolerant PyAV decode over the same shared FFmpeg libraries drops the damaged packet
+and keeps the valid frames around it. A `Track failed` event whose text names both a TorchCodec
+failure and an FFmpeg fallback failure means neither decoder found usable audio, so the file itself
+is the problem rather than the model or
+the device. `[ffmpeg] Track analyzed` is the opposite result: the recovery decoder read the file. If
+it had to drop damaged packets to do so, `logs/dj-track-similarity.log` carries one warning naming
+the file and the number discarded. The app never rewrites the source file in either case; repair it
+with your own tool if you want a clean copy.
+
+## The app log no longer shows the HTTP requests I used to see
+
+Uvicorn access records go to the console only, because the browser polls job endpoints
+continuously and those lines otherwise fill `logs/dj-track-similarity.log`. Watch the server console
+window for request traffic. See
+[Runtime log](../reference/configuration.md#runtime-log) for the rest of what the file keeps and
+drops.
+
 ## CUDA was requested but analysis fails
 
 Run `dj-sim doctor`, then try `--device cpu`. If the CPU run succeeds, the problem lies in device

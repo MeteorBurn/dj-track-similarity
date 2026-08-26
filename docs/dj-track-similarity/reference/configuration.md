@@ -46,10 +46,31 @@ keeping profiles, labels, predictions, queues, and checkpoints in this Lab datab
 
 Generated local artifacts are ignored by Git unless explicitly tracked by policy.
 
+## Runtime log
+
 The active main runtime log is `logs/dj-track-similarity.log`. If that file starts with an older
 logged date when the app launches, the project runtime logs are archived with that date suffix and a
-new active log is opened. A server that stays running through midnight keeps writing to the same
-active log until it is restarted.
+new active log is opened. One dated archive is kept. A server that stays running through midnight
+keeps writing to the same active log until it is restarted, so the file also rolls over once it
+passes 8 MiB and keeps one numbered backup, `dj-track-similarity.log.1`. Startup pruning matches
+dated archives only and leaves the numbered backup alone.
+
+The file holds the application's own records plus whatever the process writes to standard output and
+standard error. Both streams are mirrored into it at `INFO`, because the libraries that print them
+already state their own severity in the text. ANSI color codes are stripped before a line is
+matched or stored.
+
+Three kinds of console output are dropped instead of stored:
+
+- Uvicorn HTTP access records, which stay on the console. The browser polls job endpoints while a
+  job runs, and those records otherwise crowd out everything else in the file.
+- Progress bars, including model weight loading and file-download redraws, which would otherwise be
+  recorded once per redraw.
+- The `LOAD REPORT` block that `transformers` prints when it loads a model, together with its table,
+  separator row, and trailing notes. The filter applies to whichever model class was instantiated.
+
+A scan or analysis failure for one track is written to the file once. The job event stream shown in
+the browser process log is separate and unchanged.
 
 ## Ports
 

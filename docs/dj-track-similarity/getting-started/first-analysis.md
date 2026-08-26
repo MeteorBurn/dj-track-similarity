@@ -158,9 +158,10 @@ registering the validated FFmpeg `8.1.1` full shared runtime. It opens the same 
 decoded frames, discards only a malformed `AVERROR_INVALIDDATA` packet, downmixes the PCM by the
 arithmetic channel mean to mono `float32`, resamples for SONARA when necessary, and retries through
 `analyze_signal()`. If that retry fails, only that track is reported as failed and other ready work
-continues. ML models keep a separate recovery path: after a failed full TorchCodec decode, the
-requested family makes its own in-process shared-library TorchCodec recovery. Neither recovery path
-starts `ffmpeg.exe` or repairs an invalid source file.
+continues. ML models reach the same tolerant decoder by their own route: after a failed full
+TorchCodec decode, the requested family retries the file with PyAV over the shared libraries and
+uses the frames it recovers. Neither recovery path starts `ffmpeg.exe` or repairs an invalid source
+file.
 
 Staging files are normally released when their native analysis and any fallback finish. If Windows
 reports `WinError 32` or `WinError 64` for a completed copy, the runner logs the error at warning
@@ -176,8 +177,9 @@ SONARA staging settings, and their adapters retain model-specific resampling and
 After each successful database store or finalized track failure, the existing UI Process Log
 immediately shows one decode label for ML analysis: `[torchcodec] Track analyzed`, `[ffmpeg] Track
 analyzed`, or `Track failed`. The first label means the initial full-track TorchCodec read
-succeeded. The second is the existing recovery label and means direct shared-library TorchCodec
-recovery was used, not that an `ffmpeg.exe` process ran. SONARA keeps its own event convention: a
+succeeded. The second is the existing recovery label and means the tolerant PyAV shared-library
+decode was used, not that an `ffmpeg.exe` process ran. `Track failed` means both decoders
+failed. SONARA keeps its own event convention: a
 normal Direct or Staged success is `Track analyzed`, while its PyAV/FFmpeg shared-library recovery
 is `[ffmpeg] Track analyzed`. Events use the original source file and do not wait for the whole
 staging queue. Staging does not add a separate UI panel.

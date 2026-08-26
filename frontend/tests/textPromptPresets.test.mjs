@@ -58,13 +58,15 @@ test("every preset belongs to a declared axis and carries a unique key", () => {
     const onAxis = textPromptPresets.filter((preset) => preset.axis === axis.key);
     assert.ok(onAxis.length >= 3, `axis ${axis.key} has only ${onAxis.length} labels`);
   }
+  // The set of axes is the contract; the order they are rendered in is not, and
+  // it is expected to move as the picker is arranged.
   assert.deepEqual(
-    [...textPromptAxes.map((axis) => axis.key)],
+    [...textPromptAxes.map((axis) => axis.key)].sort(),
     [
-      "groove", "rhythm", "percussion", "bass", "synths", "instruments",
-      "organic", "texture", "timbre", "space", "harmony", "movement",
-      "density", "complexity", "mood", "energy", "tension", "abstract",
-      "voice", "function", "style",
+      "abstract", "bass", "complexity", "density", "energy", "function",
+      "groove", "harmony", "instruments", "mood", "movement", "organic",
+      "percussion", "rhythm", "space", "style", "synths", "tension",
+      "texture", "timbre", "voice",
     ],
   );
 });

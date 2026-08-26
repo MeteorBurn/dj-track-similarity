@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 from dj_track_similarity.analysis_job_batch import DecodeFailure, decode_analysis_batch
 from dj_track_similarity.analysis_models import AnalysisCandidate, AnalysisOutput, AnalysisTarget

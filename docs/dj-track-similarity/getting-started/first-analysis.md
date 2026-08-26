@@ -61,11 +61,16 @@ guarantees about the defaults in every product version:
 | Mixed In Key | 79 to 192 |
 | rekordbox | 70 to 180 |
 | Serato | 96 to 190 |
+| VirtualDJ | 80 to 240 |
 
-For a cross-genre collection, begin with the project range of 70 to 180 BPM. It was chosen from the
-70 to 180 BPM rekordbox reference range and is recorded in [SONARA BPM range](../reference/analysis-families.md#sonara-bpm-range).
-Decide later whether your collection needs a different interpretation window. Keep one convention within a
-workflow when practical: otherwise an apparent BPM mismatch may only be a half/double-time representation.
+Pick the range in the track-import dialog before the first SONARA analysis. The dialog offers the
+rekordbox `70-180`, VirtualDJ `80-240`, and Mixed In Key `79-192` presets, and it accepts your own
+pair as well. The rekordbox range suits a cross-genre collection. Whatever you pick, the first
+SONARA analysis fixes it for the whole library, so a later change means resetting SONARA analysis.
+Details are in [SONARA BPM range](../reference/analysis-families.md#sonara-bpm-range).
+
+Keep one convention within a workflow when practical. Otherwise an apparent BPM mismatch may only
+be a half/double-time representation.
 
 ## CLI analysis
 

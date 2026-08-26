@@ -1,12 +1,9 @@
 """Tests for ML staging pipeline."""
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, Mock
 
-import numpy as np
 import pytest
-import torch
 
 from dj_track_similarity.analysis_models import AnalysisCandidate, AnalysisTarget, AnalysisOutput
 from dj_track_similarity.audio_loader import DecodedAudio
@@ -120,6 +117,8 @@ def mock_model_runner() -> MagicMock:
 @pytest.fixture
 def mock_decode_fn(tmp_path: Path) -> Mock:
     """Create mock audio decode function."""
+    torch = pytest.importorskip("torch")
+
     def decode_audio(path: Path) -> DecodedAudio:
         # Return dummy DecodedAudio with correct structure
         return DecodedAudio(

@@ -16,12 +16,15 @@ from .analysis_config import (
     MAX_ANALYSIS_TOP_K,
     MAX_ANALYSIS_TRACK_BATCH_SIZE,
     MAX_SONARA_BATCH_SIZE,
+    MAX_SONARA_BPM,
     MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
     MIN_SONARA_BATCH_SIZE,
+    MIN_SONARA_BPM,
 )
 from .scanner import SUPPORTED_AUDIO_EXTENSIONS
+from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 
 
 EmbeddingSource = Literal["mert", "maest", "muq", "mulan", "clap"]
@@ -133,6 +136,16 @@ class AnalysisJobRequest(BaseModel):
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
     )
+    sonara_bpm_min: float = Field(
+        default=DEFAULT_SONARA_BPM_MIN,
+        ge=MIN_SONARA_BPM,
+        le=MAX_SONARA_BPM,
+    )
+    sonara_bpm_max: float = Field(
+        default=DEFAULT_SONARA_BPM_MAX,
+        ge=MIN_SONARA_BPM,
+        le=MAX_SONARA_BPM,
+    )
 
 
 class ClassifierAnalyzeRequest(BaseModel):
@@ -157,6 +170,16 @@ class SonaraPipelineSettings(BaseModel):
         default=DEFAULT_SONARA_BATCH_SIZE,
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
+    )
+    bpm_min: float = Field(
+        default=DEFAULT_SONARA_BPM_MIN,
+        ge=MIN_SONARA_BPM,
+        le=MAX_SONARA_BPM,
+    )
+    bpm_max: float = Field(
+        default=DEFAULT_SONARA_BPM_MAX,
+        ge=MIN_SONARA_BPM,
+        le=MAX_SONARA_BPM,
     )
     staged: SonaraStagedSettings = Field(default_factory=SonaraStagedSettings)
 
@@ -692,6 +715,8 @@ class LibrarySummaryResponse(_ResponseModel):
     clap: int
     liked: int
     classifiers: int
+    sonara_bpm_min: float | None = None
+    sonara_bpm_max: float | None = None
 
 
 class AnalysisResetResponse(_ResponseModel):

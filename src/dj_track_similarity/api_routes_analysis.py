@@ -57,6 +57,8 @@ def register_analysis_routes(
                 track_batch_size=request.track_batch_size,
                 inference_batch_size=request.inference_batch_size,
                 sonara_batch_size=request.sonara_batch_size,
+                sonara_bpm_min=request.sonara_bpm_min,
+                sonara_bpm_max=request.sonara_bpm_max,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -69,6 +71,8 @@ def register_analysis_routes(
                     track_batch_size=config.track_batch_size,
                     inference_batch_size=config.inference_batch_size,
                     sonara_batch_size=config.sonara_batch_size,
+                    sonara_bpm_min=config.sonara_bpm_min,
+                    sonara_bpm_max=config.sonara_bpm_max,
                     device=config.device,
                     top_k=config.top_k,
                 )
@@ -139,15 +143,24 @@ def register_analysis_routes(
                     if request.sonara.mode == "staged"
                     else request.sonara.direct_batch_size
                 )
+                # Reject a range the library cannot accept now, rather than at
+                # the moment the stage starts running.
+                resolved_range = state.require_analysis_jobs().resolve_sonara_range(
+                    request.sonara.bpm_min,
+                    request.sonara.bpm_max,
+                )
                 sonara_config = build_analysis_job_config(
                     models=["sonara"],
                     sonara_mode=request.sonara.mode,
                     sonara_batch_size=effective_batch_size,
                     sonara_staging_config=staging_config,
+                    **resolved_range,
                 )
                 sonara_settings = {
                     "mode": sonara_config.sonara_mode,
                     "batch_size": sonara_config.sonara_batch_size,
+                    "bpm_min": sonara_config.sonara_bpm_min,
+                    "bpm_max": sonara_config.sonara_bpm_max,
                     "staging_config": sonara_config.sonara_staging_config,
                 }
 

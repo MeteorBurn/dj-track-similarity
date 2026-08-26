@@ -80,6 +80,8 @@ def test_pipeline_forwards_staged_sonara_configuration_to_child_job(tmp_path) ->
                 "limit": None,
                 "sonara_mode": "staged",
                 "sonara_batch_size": 4,
+                "sonara_bpm_min": None,
+                "sonara_bpm_max": None,
                 "sonara_staging_config": staging,
             },
         )

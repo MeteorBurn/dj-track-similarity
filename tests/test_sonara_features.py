@@ -16,7 +16,12 @@ from dj_track_similarity.analysis_models import (
     SonaraWrite,
 )
 from dj_track_similarity.sonara_runtime import (
+    DEFAULT_SONARA_BPM_MAX,
+    DEFAULT_SONARA_BPM_MIN,
+    SONARA_ANALYSIS_MODE,
     SONARA_CORE_REQUESTED_FEATURES,
+    SONARA_SAMPLE_RATE,
+    SONARA_VOCALNESS_MODEL_SELECTOR,
     sonara_requested_features,
 )
 from dj_track_similarity.sonara_features import (
@@ -225,10 +230,13 @@ def test_default_batch_requests_registers_and_writes_core_with_embedding() -> No
 
     call = FakeSonara.calls[-1]
     assert call["paths"] == [candidate.file_path for candidate in candidates]
-    assert call["sr"] == 22_050
-    assert call["mode"] == "playlist"
-    assert (call["bpm_min"], call["bpm_max"]) == (70, 180)
-    assert call["vocalness_model"] == "bundled"
+    # Assert the configured runtime values reach SONARA, not one particular
+    # analysis range. SONARA accepts any BPM bounds, and a different library may
+    # want a different pair; that is a settings change, not a test change.
+    assert call["sr"] == SONARA_SAMPLE_RATE
+    assert call["mode"] == SONARA_ANALYSIS_MODE
+    assert (call["bpm_min"], call["bpm_max"]) == (DEFAULT_SONARA_BPM_MIN, DEFAULT_SONARA_BPM_MAX)
+    assert call["vocalness_model"] == SONARA_VOCALNESS_MODEL_SELECTOR
     assert tuple(call["features"]) == (
         *SONARA_CORE_REQUESTED_FEATURES,
         "embedding",
@@ -295,12 +303,12 @@ def test_batch_recovers_native_sonara_failure_with_ffmpeg_pcm_and_logs(
     assert results[0].used_ffmpeg_fallback
     assert len(repository.save_calls[0]) == 1
     assert FallbackSonara.resample_calls == [
-        {"audio": decoded_pcm, "orig_sr": 44_100, "target_sr": 22_050}
+        {"audio": decoded_pcm, "orig_sr": 44_100, "target_sr": SONARA_SAMPLE_RATE}
     ]
     assert len(FallbackSonara.signal_calls) == 1
     signal_call = FallbackSonara.signal_calls[0]
-    assert signal_call["sr"] == 22_050
-    assert signal_call["mode"] == "playlist"
+    assert signal_call["sr"] == SONARA_SAMPLE_RATE
+    assert signal_call["mode"] == SONARA_ANALYSIS_MODE
     assert tuple(signal_call["features"]) == (
         *SONARA_CORE_REQUESTED_FEATURES,
         "embedding",

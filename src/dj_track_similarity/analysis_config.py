@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .sonara_staging import SonaraStagingConfig
 from .ml_staging import MLStagingConfig
 
@@ -25,6 +26,11 @@ MIN_ANALYSIS_INFERENCE_BATCH_SIZE = 1
 MAX_ANALYSIS_INFERENCE_BATCH_SIZE = 128
 MIN_SONARA_BATCH_SIZE = 1
 MAX_SONARA_BATCH_SIZE = 16
+# Outer bounds for a user-supplied analysis range. The pair must also span at
+# least one octave, which `sonara_features` stores as provenance and both the
+# schema and the Core validator enforce on write.
+MIN_SONARA_BPM = 20.0
+MAX_SONARA_BPM = 400.0
 
 
 @dataclass(frozen=True)
@@ -38,6 +44,8 @@ class AnalysisJobConfig:
     inference_batch_size: int
     sonara_batch_size: int
     sonara_mode: str
+    sonara_bpm_min: float
+    sonara_bpm_max: float
     sonara_staging_config: SonaraStagingConfig | None
     ml_staging_config: MLStagingConfig | None
 
@@ -81,6 +89,37 @@ def normalize_sonara_mode(mode: str | None) -> str:
     return text
 
 
+def normalize_sonara_bpm_range(
+    bpm_min: float | None,
+    bpm_max: float | None,
+) -> tuple[float, float]:
+    """Validate a SONARA analysis range and return it as a float pair."""
+    low = _finite_bpm(bpm_min, name="sonara_bpm_min", default=DEFAULT_SONARA_BPM_MIN)
+    high = _finite_bpm(bpm_max, name="sonara_bpm_max", default=DEFAULT_SONARA_BPM_MAX)
+    # Tempo folding needs an octave to resolve half/double detections, which is
+    # why the stored Core row requires it too. Reject it here so the run fails
+    # on its settings instead of on the first successful analysis.
+    if high < 2 * low:
+        raise ValueError(
+            "sonara_bpm_max must be at least twice sonara_bpm_min "
+            f"({high} is below {2 * low})"
+        )
+    return low, high
+
+
+def _finite_bpm(value: float | None, *, name: str, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number")
+    number = float(value)
+    if number != number or number in (float("inf"), float("-inf")):
+        raise ValueError(f"{name} must be a finite number")
+    if number < MIN_SONARA_BPM or number > MAX_SONARA_BPM:
+        raise ValueError(f"{name} must be between {MIN_SONARA_BPM} and {MAX_SONARA_BPM}")
+    return number
+
+
 def build_analysis_job_config(
     *,
     models: Sequence[str] | None = None,
@@ -91,6 +130,8 @@ def build_analysis_job_config(
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
     sonara_mode: str = DEFAULT_SONARA_ANALYSIS_MODE,
+    sonara_bpm_min: float = DEFAULT_SONARA_BPM_MIN,
+    sonara_bpm_max: float = DEFAULT_SONARA_BPM_MAX,
     sonara_staging_config: SonaraStagingConfig | None = None,
     ml_staging_config: MLStagingConfig | None = None,
     allow_empty_models: bool = False,
@@ -103,6 +144,7 @@ def build_analysis_job_config(
     normalized_sonara_mode = normalize_sonara_mode(sonara_mode)
     if normalized_sonara_mode == "staged" and sonara_staging_config is None:
         raise ValueError("Staged SONARA mode requires staging settings")
+    bpm_min, bpm_max = normalize_sonara_bpm_range(sonara_bpm_min, sonara_bpm_max)
     return AnalysisJobConfig(
         models=normalized_models,
         require_current_sonara=bool(
@@ -132,6 +174,8 @@ def build_analysis_job_config(
             maximum=MAX_SONARA_BATCH_SIZE,
         ),
         sonara_mode=normalized_sonara_mode,
+        sonara_bpm_min=bpm_min,
+        sonara_bpm_max=bpm_max,
         sonara_staging_config=(
             sonara_staging_config if normalized_sonara_mode == "staged" else None
         ),

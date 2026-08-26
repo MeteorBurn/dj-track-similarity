@@ -316,6 +316,13 @@ export function App() {
       || (databaseValidationJob?.events || []).some((event) => event.level === "error");
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
   }, [activityLog, analysisJob, databaseValidationJob, genreTagJob, scanJob]);
+  // The library reports the range its stored SONARA rows were analysed with.
+  // Once it has one, the range is fixed until that analysis is reset.
+  const sonaraBpmRangeLocked = librarySummary.sonara_bpm_min != null
+    && librarySummary.sonara_bpm_max != null;
+  const sonaraBpmRange = sonaraBpmRangeLocked
+    ? { bpmMin: librarySummary.sonara_bpm_min as number, bpmMax: librarySummary.sonara_bpm_max as number }
+    : { bpmMin: sonaraSettings.bpmMin, bpmMax: sonaraSettings.bpmMax };
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
     maest: librarySummary.maest_analysis,
@@ -1189,6 +1196,8 @@ export function App() {
           sonara: {
             mode: sonaraSettings.mode,
             direct_batch_size: sonaraSettings.directBatchSize,
+            bpm_min: sonaraBpmRange.bpmMin,
+            bpm_max: sonaraBpmRange.bpmMax,
             staged: {
               folder: sonaraSettings.staged.folder,
               processes: sonaraSettings.staged.processes,
@@ -1789,6 +1798,9 @@ export function App() {
           busy={busy}
           stageRunning={stageRunning}
           maxWorkers={maxScanWorkers}
+          sonaraBpmRange={sonaraBpmRange}
+          sonaraBpmRangeLocked={sonaraBpmRangeLocked}
+          onSonaraBpmRangeChange={(range) => setSonaraSettings((current) => ({ ...current, ...range }))}
           onChooseFolder={handleChooseScanFolder}
           onClose={() => setScanImportOpen(false)}
           onStart={handleStartScan}

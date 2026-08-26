@@ -46,18 +46,25 @@ def register_database_routes(
     @app.post("/api/database/validation/jobs")
     def start_validation():
         try:
-            with state.job_start(): return state.require_database_validation_jobs().start()
-        except RuntimeError as error: raise HTTPException(status_code=409, detail=str(error)) from error
+            with state.job_start():
+                return state.require_database_validation_jobs().start()
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.get("/api/database/validation/jobs/latest")
-    def latest_validation(): return state.require_database_validation_jobs().latest()
+    def latest_validation():
+        return state.require_database_validation_jobs().latest()
 
     @app.get("/api/database/validation/jobs/{job_id}")
     def validation_job(job_id: str):
-        try: return state.require_database_validation_jobs().get(job_id)
-        except KeyError as error: raise HTTPException(status_code=404, detail=str(error)) from error
+        try:
+            return state.require_database_validation_jobs().get(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.post("/api/database/validation/jobs/{job_id}/cancel")
     def cancel_validation(job_id: str):
-        try: return state.require_database_validation_jobs().cancel(job_id)
-        except KeyError as error: raise HTTPException(status_code=404, detail=str(error)) from error
+        try:
+            return state.require_database_validation_jobs().cancel(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error

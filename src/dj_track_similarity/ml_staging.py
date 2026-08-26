@@ -10,13 +10,13 @@ import uuid
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .analysis_job_batch import AnalysisBatchItem, DecodeFailure
 from .analysis_models import AnalysisCandidate
-from .audio_loader import DecodedAudio, load_decoded_audio, load_decoded_audio_with_ffmpeg
+from .audio_loader import DecodedAudio, load_decoded_audio_with_ffmpeg
 
 
 LOGGER = logging.getLogger(__name__)

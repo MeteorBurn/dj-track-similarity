@@ -253,8 +253,12 @@ class LibrarySummary:
     clap: int
     liked: int
     classifiers: int
+    # The BPM range stored SONARA rows were analysed with, or None when the
+    # library has no SONARA analysis yet or was analysed with mixed settings.
+    sonara_bpm_min: float | None = None
+    sonara_bpm_max: float | None = None
 
-    def as_dict(self) -> dict[str, int]:
+    def as_dict(self) -> dict[str, float | int | None]:
         return {
             "tracks": self.tracks,
             "sonara": self.sonara,
@@ -266,4 +270,6 @@ class LibrarySummary:
             "clap": self.clap,
             "liked": self.liked,
             "classifiers": self.classifiers,
+            "sonara_bpm_min": self.sonara_bpm_min,
+            "sonara_bpm_max": self.sonara_bpm_max,
         }

@@ -278,6 +278,8 @@ export type LibrarySummary = {
   clap: number;
   liked: number;
   classifiers: number;
+  sonara_bpm_min: number | null;
+  sonara_bpm_max: number | null;
 };
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
@@ -366,6 +368,8 @@ export type AnalysisJobStatus = {
   inference_batch_size?: number;
   sonara_batch_size?: number;
   sonara_mode?: "direct" | "staged";
+  sonara_bpm_min?: number;
+  sonara_bpm_max?: number;
   top_k?: number;
   readiness?: Record<string, { candidates: number; ready: number; not_ready: number; selected: number }>;
   blockers?: Record<string, string[]>;
@@ -509,6 +513,8 @@ export type SonaraStagedSettings = {
 export type SonaraPipelineSettings = {
   mode: "direct" | "staged";
   direct_batch_size: number;
+  bpm_min: number;
+  bpm_max: number;
   staged: SonaraStagedSettings;
 };
 

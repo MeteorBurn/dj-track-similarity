@@ -111,6 +111,7 @@ def test_load_decoded_audio_does_not_bypass_torchcodec_failure(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    pytest.importorskip("torch")
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"encoded audio")
 

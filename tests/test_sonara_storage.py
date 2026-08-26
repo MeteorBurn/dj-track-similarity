@@ -17,6 +17,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.sonara_runtime import (
+    DEFAULT_SONARA_BPM_MAX,
     SONARA_UNIT_INTERVAL_FIELDS,
 )
 from dj_track_similarity.sonara_storage import (
@@ -449,7 +450,13 @@ def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -
 @pytest.mark.parametrize(
     ("field_name", "bad_value", "message"),
     [
-        ("bpm", 200.0, "at most 180"),
+        # Anchored to the configured ceiling, so changing the analysis range
+        # does not turn this into a failing test.
+        (
+            "bpm",
+            float(DEFAULT_SONARA_BPM_MAX) + 20.0,
+            f"at most {float(DEFAULT_SONARA_BPM_MAX)}",
+        ),
         ("energy_level", 11, "at most 10"),
         ("duration_sec", float("nan"), "finite number"),
         ("intro_end_sec", 181.0, "must not exceed duration"),
@@ -519,3 +526,120 @@ def test_nested_bounded_values_are_clamped_without_clamping_bpm_scores() -> None
     assert write.core.energy_curve_max == 1.0
     assert json.loads(write.core.key_candidates_json or "null")[0]["score"] == 1.0
     assert json.loads(write.core.bpm_candidates_json or "null")[0]["score"] == 1.5
+
+
+def test_library_range_is_derived_from_stored_rows_and_locks_analysis(
+    tmp_path: Path,
+) -> None:
+    """The analysis range is a property of the data, chosen once and then fixed."""
+    from dj_track_similarity.analysis_jobs import AnalysisJobManager
+
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = AnalysisJobManager(database)
+
+    # A library with no SONARA analysis is free to choose.
+    assert database.sonara_analysis_ranges() == []
+    summary = database.library_summary()
+    assert summary.sonara_bpm_min is None
+    assert summary.sonara_bpm_max is None
+
+    with closing(database.connect()) as connection, connection:
+        track_id = int(
+            connection.execute(
+                """
+                INSERT INTO tracks(
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.UUID(int=11)),
+                    (tmp_path / "track.wav").as_posix(),
+                    1,
+                    1,
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                ),
+            ).lastrowid
+        )
+        connection.execute(
+            """
+            INSERT INTO sonara_features(
+                track_id, mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analysis_schema_version,
+                bpm_min, bpm_max, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                track_id,
+                bytes(13 * 4),
+                bytes(12 * 4),
+                bytes(7 * 4),
+                6,
+                79.0,
+                192.0,
+                "2026-07-23T12:00:00.000000Z",
+            ),
+        )
+
+    # Once analysed, the library reports its range and holds every later run to it.
+    assert database.sonara_analysis_ranges() == [(79.0, 192.0)]
+    summary = database.library_summary()
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (79.0, 192.0)
+
+    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
+    manager.create_job(models=["sonara"])
+
+    with pytest.raises(ValueError, match="Reset SONARA analysis"):
+        manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
+
+
+def test_reset_frees_the_library_to_take_a_new_range(tmp_path: Path) -> None:
+    from dj_track_similarity.analysis_models import AnalysisOutput
+
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    with closing(database.connect()) as connection, connection:
+        track_id = int(
+            connection.execute(
+                """
+                INSERT INTO tracks(
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.UUID(int=12)),
+                    (tmp_path / "track.wav").as_posix(),
+                    1,
+                    1,
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                ),
+            ).lastrowid
+        )
+        connection.execute(
+            """
+            INSERT INTO sonara_features(
+                track_id, mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analysis_schema_version,
+                bpm_min, bpm_max, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                track_id,
+                bytes(13 * 4),
+                bytes(12 * 4),
+                bytes(7 * 4),
+                6,
+                79.0,
+                192.0,
+                "2026-07-23T12:00:00.000000Z",
+            ),
+        )
+    assert database.sonara_analysis_ranges() == [(79.0, 192.0)]
+
+    database.reset_analysis_outputs((AnalysisOutput("sonara", "core"),))
+
+    assert database.sonara_analysis_ranges() == []

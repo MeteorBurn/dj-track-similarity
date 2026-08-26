@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from io import BytesIO
 
 from metadata_enrichment.http import post_form_json
 

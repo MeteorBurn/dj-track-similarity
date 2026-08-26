@@ -16,9 +16,9 @@ from typing import Any
 
 from .analysis_models import AnalysisCandidate
 from .sonara_runtime import (
+    DEFAULT_SONARA_BPM_MAX,
+    DEFAULT_SONARA_BPM_MIN,
     SONARA_ANALYSIS_MODE,
-    SONARA_BPM_MAX,
-    SONARA_BPM_MIN,
     SONARA_SAMPLE_RATE,
     SONARA_VOCALNESS_MODEL_SELECTOR,
     sonara_requested_features,
@@ -313,6 +313,9 @@ def sonara_process_executor(config: SonaraStagingConfig) -> ProcessPoolExecutor:
 
 def analyze_staged_sonara_group(
     staged: Sequence[StagedSonaraCandidate],
+    *,
+    bpm_min: float = DEFAULT_SONARA_BPM_MIN,
+    bpm_max: float = DEFAULT_SONARA_BPM_MAX,
 ) -> tuple[StagedSonaraResult, ...]:
     """Analyze one mini-batch inside a persistent child process."""
 
@@ -324,8 +327,8 @@ def analyze_staged_sonara_group(
         [str(item.path) for item in staged],
         sr=SONARA_SAMPLE_RATE,
         mode=SONARA_ANALYSIS_MODE,
-        bpm_min=SONARA_BPM_MIN,
-        bpm_max=SONARA_BPM_MAX,
+        bpm_min=bpm_min,
+        bpm_max=bpm_max,
         features=list(sonara_requested_features()),
         vocalness_model=SONARA_VOCALNESS_MODEL_SELECTOR,
     )
@@ -340,6 +343,8 @@ def analyze_staged_sonara_group(
                 item.candidate,
                 raw_result,
                 decode_path=str(item.path),
+                bpm_min=bpm_min,
+                bpm_max=bpm_max,
             )
             results.append(
                 StagedSonaraResult(

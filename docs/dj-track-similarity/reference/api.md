@@ -82,8 +82,10 @@ A pipeline request uses separate browser SONARA settings:
   "sonara": {
     "mode": "staged",
     "direct_batch_size": 8,
+    "bpm_min": 70,
+    "bpm_max": 180,
     "staged": {
-      "folder": "C:\\TracksTemp",
+      "folder": "D:/Staging",
       "processes": 4,
       "threads": 4,
       "batch_size": 4,

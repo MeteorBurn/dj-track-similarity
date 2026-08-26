@@ -18,9 +18,9 @@ from .analysis_models import (
 )
 from .timestamps import utc_timestamp
 from .sonara_runtime import (
+    DEFAULT_SONARA_BPM_MAX,
+    DEFAULT_SONARA_BPM_MIN,
     SONARA_ANALYSIS_MODE,
-    SONARA_BPM_MAX,
-    SONARA_BPM_MIN,
     SONARA_SAMPLE_RATE,
     SONARA_VOCALNESS_MODEL_SELECTOR,
     sonara_requested_features,
@@ -88,6 +88,8 @@ def analyze_and_store_sonara_batch(
     sonara_module: Any | None = None,
     progress: Callable[[int, int], None] | None = None,
     metrics: Callable[[SonaraBatchMetrics], None] | None = None,
+    bpm_min: float = DEFAULT_SONARA_BPM_MIN,
+    bpm_max: float = DEFAULT_SONARA_BPM_MAX,
 ) -> list[SonaraBatchTrackResult]:
     """Analyze one native batch and persist successful results in input order.
 
@@ -114,8 +116,8 @@ def analyze_and_store_sonara_batch(
         [candidate.file_path for candidate in selected_candidates],
         sr=SONARA_SAMPLE_RATE,
         mode=SONARA_ANALYSIS_MODE,
-        bpm_min=SONARA_BPM_MIN,
-        bpm_max=SONARA_BPM_MAX,
+        bpm_min=bpm_min,
+        bpm_max=bpm_max,
         features=list(sonara_requested_features()),
         vocalness_model=SONARA_VOCALNESS_MODEL_SELECTOR,
         progress=progress,
@@ -133,6 +135,8 @@ def analyze_and_store_sonara_batch(
                 sonara,
                 candidate,
                 raw_result,
+                bpm_min=bpm_min,
+                bpm_max=bpm_max,
             )
             if used_ffmpeg_fallback:
                 fallback_track_ids.add(candidate.target.track_id)
@@ -202,6 +206,8 @@ def _analysis_mapping_with_ffmpeg_fallback(
     raw_result: object,
     *,
     decode_path: str | None = None,
+    bpm_min: float = DEFAULT_SONARA_BPM_MIN,
+    bpm_max: float = DEFAULT_SONARA_BPM_MAX,
 ) -> tuple[dict[str, object], bool]:
     native_error: RuntimeError
     try:
@@ -230,8 +236,8 @@ def _analysis_mapping_with_ffmpeg_fallback(
                 audio,
                 sr=SONARA_SAMPLE_RATE,
                 mode=SONARA_ANALYSIS_MODE,
-                bpm_min=SONARA_BPM_MIN,
-                bpm_max=SONARA_BPM_MAX,
+                bpm_min=bpm_min,
+                bpm_max=bpm_max,
                 features=list(sonara_requested_features()),
                 vocalness_model=SONARA_VOCALNESS_MODEL_SELECTOR,
             )

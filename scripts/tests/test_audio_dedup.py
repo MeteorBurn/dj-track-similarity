@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import sqlite3
 import sys
@@ -16,13 +15,15 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 def _load_dedup_module():
-    path = Path(__file__).resolve().parents[2] / "tools" / "audio-dedup" / "audio_dedup" / "core.py"
-    spec = importlib.util.spec_from_file_location("audio_dedup", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    # `core` imports its siblings relatively, so it has to load as part of the
+    # `audio_dedup` package. Loading the file on its own leaves `__package__`
+    # empty and the relative import fails.
+    tool_root = Path(__file__).resolve().parents[2] / "tools" / "audio-dedup"
+    if str(tool_root) not in sys.path:
+        sys.path.insert(0, str(tool_root))
+    from audio_dedup import core
+
+    return core
 
 
 def _create_library_db(path: Path) -> None:
@@ -137,10 +138,12 @@ def _insert_track(
                     acousticness_score, spectral_centroid_hz,
                     integrated_loudness_lufs, dynamic_range_db,
                     mfcc_mean_blob, chroma_mean_blob,
-                    spectral_contrast_mean_blob, analyzed_at
+                    spectral_contrast_mean_blob, analysis_schema_version,
+                    bpm_min, bpm_max, analyzed_at
                 ) VALUES(
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     zeroblob(52), zeroblob(48), zeroblob(28),
+                    6, 70.0, 180.0,
                     '2026-07-24T00:00:00.000000Z'
                 )
                 """,

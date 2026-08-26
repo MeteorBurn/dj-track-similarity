@@ -142,6 +142,8 @@ class AnalysisPipelineManager:
                 limit=payload.limit,
                 sonara_mode=str(payload.sonara.get("mode") or "direct"),
                 sonara_batch_size=cast(int | None, payload.sonara.get("batch_size")),
+                sonara_bpm_min=cast(float | None, payload.sonara.get("bpm_min")),
+                sonara_bpm_max=cast(float | None, payload.sonara.get("bpm_max")),
                 sonara_staging_config=cast(
                     SonaraStagingConfig | None,
                     payload.sonara.get("staging_config"),

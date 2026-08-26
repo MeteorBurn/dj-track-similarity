@@ -93,7 +93,9 @@ def _load_audio_file(audio_path: Path) -> TrackInput:
     except Exception:
         metadata = None
     tags = metadata.tags if metadata and metadata.tags else {}
-    value = lambda name: tags.get(name, [None])[0] if isinstance(tags.get(name), list) else None
+    def value(name: str):
+        return tags.get(name, [None])[0] if isinstance(tags.get(name), list) else None
+
     fallback_artist, fallback_title = _split_track_line(audio_path.stem)
     tagged_artist, tagged_title = value("artist"), value("title")
     title = tagged_title or fallback_title or audio_path.stem

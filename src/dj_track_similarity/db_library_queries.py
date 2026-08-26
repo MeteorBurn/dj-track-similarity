@@ -1640,6 +1640,21 @@ class LibraryQueryRepository:
                 )
             return tuple(result)
 
+    def sonara_analysis_ranges(self) -> list[tuple[float, float]]:
+        """Return the distinct BPM ranges stored SONARA rows were analysed with.
+
+        The range is a property of the analysed data rather than a stored
+        setting: every Core row records the pair its run used. An empty list
+        means the library has no SONARA analysis yet and is free to choose.
+        More than one pair means the library was analysed with mixed settings.
+        """
+
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT bpm_min, bpm_max FROM sonara_features LIMIT 2"
+            ).fetchall()
+        return [(float(row[0]), float(row[1])) for row in rows]
+
     def library_summary(self) -> LibrarySummary:
         def count_rows(connection: sqlite3.Connection, table: str) -> int:
             return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
@@ -1656,4 +1671,20 @@ class LibraryQueryRepository:
                 clap=count_rows(connection, "clap_embeddings"),
                 liked=count_rows(connection, "likes"),
                 classifiers=count_rows(connection, "classifier_scores"),
+                **_sonara_range_fields(connection),
             )
+
+
+def _sonara_range_fields(
+    connection: sqlite3.Connection,
+) -> dict[str, float | None]:
+    """Expose the library range only when stored rows agree on one pair."""
+    rows = connection.execute(
+        "SELECT DISTINCT bpm_min, bpm_max FROM sonara_features LIMIT 2"
+    ).fetchall()
+    if len(rows) != 1:
+        return {"sonara_bpm_min": None, "sonara_bpm_max": None}
+    return {
+        "sonara_bpm_min": float(rows[0][0]),
+        "sonara_bpm_max": float(rows[0][1]),
+    }

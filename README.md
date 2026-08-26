@@ -164,7 +164,20 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. SONARA 0.3.6 Core rows also retain the analysis schema version and BPM analysis range as provenance, which track detail exposes for inspection. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A native decode or codec failure for one file recovers through in-process TorchCodec decoding with the configured shared FFmpeg libraries, then SONARA signal analysis; an unrecovered failure is recorded only for that track. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. SONARA 0.3.6 Core rows also retain the analysis schema version and BPM analysis range as provenance, which track detail exposes for inspection. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A native decode or codec failure for one file recovers through in-process TorchCodec decoding with the configured shared FFmpeg libraries, then SONARA signal analysis. An unrecovered failure is recorded only for that track.
+
+The BPM range SONARA analyses with belongs to the library rather than to a single run.
+
+- Pick it once in the track-import dialog, from a preset or as your own pair.
+- The first SONARA analysis fixes it for the whole library.
+- Any later run must reuse that range. To move to another one, reset SONARA analysis first.
+- The upper bound must be at least twice the lower one, because SONARA folds estimated tempos by octaves into the range.
+
+| Preset | Range |
+| --- | ---: |
+| Rekordbox | 70 to 180 |
+| VirtualDJ | 80 to 240 |
+| Mixed In Key | 79 to 192 |
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
@@ -393,8 +406,9 @@ not stop the next stage. A fatal initialization error or cancellation does.
 Browser SONARA analysis starts in Direct Mode with BatchSize `8`; it reads the selected source files
 without making staging copies. Staged Mode is available for libraries on slower disks. Its folder
 starts empty and must be selected before analysis. Its editable defaults are Processes `4`, Threads
-`4`, BatchSize `4`, and StageSize `32`. The values and selected folder are kept in browser
-`localStorage`.
+`4`, BatchSize `4`, and StageSize `32`. Those numbers are kept in browser `localStorage`. The
+staging folder is not, because it receives temporary copies of your audio, so every session asks
+for it again. ML Staged Mode keeps its own folder the same way.
 
 In Staged Mode, StageSize bounds the copy, ready, and analysis window. Completed copies join one
 shared ready queue, where each process takes up to BatchSize files without cross-process batch

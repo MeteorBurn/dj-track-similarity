@@ -246,6 +246,8 @@ def test_reset_and_summary_use_analysis_family_names(
         "clap": 0,
         "liked": 0,
         "classifiers": 0,
+        "sonara_bpm_min": None,
+        "sonara_bpm_max": None,
     }
 
 

@@ -33,6 +33,7 @@ The initial analysis values are:
 | **Track batch** | `8` | `1..64` |
 | **Inference batch** | `16` | `1..128` |
 | **SONARA Mode** | `Direct` | `Direct` or `Staged` |
+| **BPM analysis range** (track-import dialog) | Rekordbox `70-180` | `20` to `400`, upper bound at least twice the lower one. Presets are Rekordbox `70-180`, VirtualDJ `80-240`, and Mixed In Key `79-192`. The first SONARA analysis fixes the range. Reset SONARA analysis to choose again |
 | **Direct BatchSize** | `8` | `1..16` source paths per native batch |
 | **Staged Folder** | empty | Existing temporary folder selected with **Choose Folder** |
 | **Staged Processes** | `4` | `1..16` |

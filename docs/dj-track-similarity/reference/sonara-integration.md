@@ -49,7 +49,13 @@ exposed.
 For SONARA 0.3.6 Core results, `sonara_features` also persists the analysis provenance returned by
 SONARA: `analysis_schema_version`, `bpm_min`, and `bpm_max`. The track-detail API exposes those
 values in `sonara_core`. In the Track Metadata dialog, `BPM analysis range` is the final Tempo row
-(`70–180 BPM`), and `Analysis schema` is the final SONARA Core provenance row (`v6`).
+(such as `70-180 BPM`), and `Analysis schema` is the final SONARA Core provenance row (`v6`).
+
+Those stored `bpm_min` and `bpm_max` values also define the range of the library itself. The
+application reads them back instead of keeping a separate setting, so the recorded range cannot
+drift from the data it describes. Any range is available to a library without SONARA rows. Once
+rows exist, their pair becomes the only range the library accepts until SONARA analysis is
+reset.
 
 The Full-only `time_signature` metrogram is excluded from current SONARA storage. It is not a ranking
 or classifier input, and Beatgrid uses SONARA's normal fallback when a meter estimate is unavailable.

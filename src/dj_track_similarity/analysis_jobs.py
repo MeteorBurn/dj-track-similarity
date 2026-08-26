@@ -45,6 +45,7 @@ from .analysis_model_runners import (
     RunnerFactory,
     SonaraModelRunner,
 )
+from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .sonara_staging import SonaraStagingConfig, StagedSonaraResult
 from .ml_staging import MLStagingConfig, MLStagedResult, analyze_and_store_staged_ml
 from .analysis_models import (
@@ -190,6 +191,44 @@ class AnalysisJobManager:
             unknown_label="analysis job",
         )
 
+    def resolve_sonara_range(
+        self,
+        requested_min: float | None,
+        requested_max: float | None,
+    ) -> dict[str, float]:
+        """Bind the run to the range the library was already analysed with.
+
+        The range is chosen once, before the first SONARA analysis. Every later
+        run reuses it so one library stays internally comparable; changing it
+        means deleting the stored SONARA analysis first.
+        """
+        stored = self.db.sonara_analysis_ranges()
+        if len(stored) > 1:
+            raise ValueError(
+                "This library holds SONARA analysis from more than one BPM range. "
+                "Reset SONARA analysis before analysing again."
+            )
+        if not stored:
+            return {
+                "sonara_bpm_min": (
+                    DEFAULT_SONARA_BPM_MIN if requested_min is None else requested_min
+                ),
+                "sonara_bpm_max": (
+                    DEFAULT_SONARA_BPM_MAX if requested_max is None else requested_max
+                ),
+            }
+        library_min, library_max = stored[0]
+        requested = (
+            requested_min if requested_min is not None else library_min,
+            requested_max if requested_max is not None else library_max,
+        )
+        if requested != (library_min, library_max):
+            raise ValueError(
+                f"This library is analysed with the BPM range {library_min:g}-{library_max:g}. "
+                f"Reset SONARA analysis before switching to {requested[0]:g}-{requested[1]:g}."
+            )
+        return {"sonara_bpm_min": library_min, "sonara_bpm_max": library_max}
+
     def create_job(
         self,
         *,
@@ -199,6 +238,8 @@ class AnalysisJobManager:
         inference_batch_size: int | None = None,
         sonara_batch_size: int | None = None,
         sonara_mode: str = "direct",
+        sonara_bpm_min: float | None = None,
+        sonara_bpm_max: float | None = None,
         sonara_staging_config: SonaraStagingConfig | None = None,
         ml_staging_config: MLStagingConfig | None = None,
         device: str = "auto",
@@ -223,6 +264,7 @@ class AnalysisJobManager:
                 else sonara_batch_size
             ),
             sonara_mode=sonara_mode,
+            **self.resolve_sonara_range(sonara_bpm_min, sonara_bpm_max),
             sonara_staging_config=sonara_staging_config,
             ml_staging_config=ml_staging_config,
         )
@@ -248,6 +290,8 @@ class AnalysisJobManager:
             inference_batch_size=config.inference_batch_size,
             sonara_batch_size=config.sonara_batch_size,
             sonara_mode=config.sonara_mode,
+            sonara_bpm_min=config.sonara_bpm_min,
+            sonara_bpm_max=config.sonara_bpm_max,
             top_k=config.top_k,
         )
         self._store.add(
@@ -429,6 +473,8 @@ class AnalysisJobManager:
             except Exception as error:
                 raise _RunnerInitializationError(model, error) from error
             if isinstance(runner, SonaraModelRunner):
+                runner.bpm_min = config.sonara_bpm_min
+                runner.bpm_max = config.sonara_bpm_max
                 runner.progress = lambda done, total: self._sonara_progress(
                     job_id,
                     done,

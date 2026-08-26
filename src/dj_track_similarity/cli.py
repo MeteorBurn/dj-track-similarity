@@ -34,6 +34,8 @@ from .analysis_config import (
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
     MIN_SONARA_BATCH_SIZE,
+    MIN_SONARA_BPM,
+    MAX_SONARA_BPM,
     build_analysis_job_config,
     normalize_analysis_device,
     parse_analysis_models_text,
@@ -45,6 +47,7 @@ from .analysis_model_runners import (
 )
 from .analysis_pipeline import AnalysisPipelineManager
 from .analysis_queue import AnalysisStageQueue
+from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
@@ -1054,6 +1057,20 @@ def analyze(
         max=MAX_SONARA_BATCH_SIZE,
         help="Native SONARA/Symphonia file batch size; independent from ML batching.",
     ),
+    sonara_bpm_min: float = typer.Option(
+        DEFAULT_SONARA_BPM_MIN,
+        "--sonara-bpm-min",
+        min=MIN_SONARA_BPM,
+        max=MAX_SONARA_BPM,
+        help="Lower bound of the SONARA BPM analysis range.",
+    ),
+    sonara_bpm_max: float = typer.Option(
+        DEFAULT_SONARA_BPM_MAX,
+        "--sonara-bpm-max",
+        min=MIN_SONARA_BPM,
+        max=MAX_SONARA_BPM,
+        help="Upper bound of the SONARA BPM analysis range; must be at least twice the lower bound.",
+    ),
     ml_staged: bool = typer.Option(False, "--ml-staged", help="Enable ML Staged Mode (copy→decode→inference pipeline for HDD optimization)."),
     ml_staging_path: Optional[str] = typer.Option(None, "--ml-staging-path", help="ML staging folder (SSD recommended). Required when --ml-staged is enabled."),
     ml_copy_workers: int = typer.Option(4, "--ml-copy-workers", min=1, max=16, help="ML staged: parallel copy workers (HDD→SSD)."),
@@ -1099,6 +1116,8 @@ def analyze(
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
             sonara_batch_size=sonara_batch_size,
+            sonara_bpm_min=sonara_bpm_min,
+            sonara_bpm_max=sonara_bpm_max,
             ml_staging_config=ml_staging_config,
         )
     except ValueError as error:
@@ -1113,6 +1132,8 @@ def analyze(
             track_batch_size=config.track_batch_size,
             inference_batch_size=config.inference_batch_size,
             sonara_batch_size=config.sonara_batch_size,
+            sonara_bpm_min=config.sonara_bpm_min,
+            sonara_bpm_max=config.sonara_bpm_max,
             ml_staging_config=config.ml_staging_config,
         )
         status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
@@ -1124,7 +1145,10 @@ def analyze(
         f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)}"
     )
     if config.models == ("sonara",):
-        result_summary += f" sonara_batch_size={config.sonara_batch_size}"
+        result_summary += (
+            f" sonara_batch_size={config.sonara_batch_size}"
+            f" sonara_bpm={config.sonara_bpm_min:g}-{config.sonara_bpm_max:g}"
+        )
     else:
         result_summary += (
             f" device={status.device} top_k={status.top_k}"
@@ -1143,6 +1167,8 @@ def analyze_pipeline(
     track_batch_size: int = typer.Option(DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, "--track-batch-size", min=1, max=MAX_ANALYSIS_TRACK_BATCH_SIZE),
     inference_batch_size: int = typer.Option(DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, "--inference-batch-size", min=1, max=MAX_ANALYSIS_INFERENCE_BATCH_SIZE),
     sonara_batch_size: int = typer.Option(DEFAULT_SONARA_BATCH_SIZE, "--sonara-batch-size", min=1, max=MAX_SONARA_BATCH_SIZE),
+    sonara_bpm_min: float = typer.Option(DEFAULT_SONARA_BPM_MIN, "--sonara-bpm-min", min=MIN_SONARA_BPM, max=MAX_SONARA_BPM),
+    sonara_bpm_max: float = typer.Option(DEFAULT_SONARA_BPM_MAX, "--sonara-bpm-max", min=MIN_SONARA_BPM, max=MAX_SONARA_BPM),
 ) -> None:
     selected_stages = [item.strip().lower() for item in stages.split(",") if item.strip()]
     selected_ml_models = list(parse_analysis_models_text(ml_models))
@@ -1163,6 +1189,8 @@ def analyze_pipeline(
             limit=limit,
             sonara={
                 "batch_size": sonara_batch_size,
+                "bpm_min": sonara_bpm_min,
+                "bpm_max": sonara_bpm_max,
             },
             ml={
                 "models": selected_ml_models,

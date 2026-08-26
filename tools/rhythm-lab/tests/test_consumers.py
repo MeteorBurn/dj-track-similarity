@@ -165,14 +165,18 @@ def _insert_complete_rhythm_lab_rows(
                 """
                 INSERT INTO sonara_features(
                     track_id, mfcc_mean_blob, chroma_mean_blob,
-                    spectral_contrast_mean_blob, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    spectral_contrast_mean_blob, analysis_schema_version,
+                    bpm_min, bpm_max, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     track_id,
                     bytes(13 * 4),
                     bytes(12 * 4),
                     bytes(7 * 4),
+                    6,
+                    70.0,
+                    180.0,
                     NOW,
                 ),
             )
@@ -647,14 +651,18 @@ def test_source_feature_counts_trust_existing_rows_without_blob_validation(
             """
             INSERT INTO sonara_features(
                 track_id, mfcc_mean_blob, chroma_mean_blob,
-                spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?)
+                spectral_contrast_mean_blob, analysis_schema_version,
+                bpm_min, bpm_max, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 track_id,
                 np.full(13, np.nan, dtype="<f4").tobytes(),
                 bytes(12 * 4),
                 bytes(7 * 4),
+                6,
+                70.0,
+                180.0,
                 NOW,
             ),
         )

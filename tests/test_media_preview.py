@@ -4,9 +4,12 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-import torch
+import pytest
 
 from dj_track_similarity import media_preview
+
+torch = pytest.importorskip("torch")
+pytestmark = pytest.mark.ml
 
 
 def test_transcoded_wav_preview_uses_torchcodec_without_executable(

@@ -16,11 +16,7 @@ from .analysis_models import (
     SonaraWrite,
 )
 from .db_ddl import SonaraRow
-from .sonara_runtime import (
-    SONARA_BPM_MAX,
-    SONARA_BPM_MIN,
-    SONARA_UNIT_INTERVAL_EPSILON,
-)
+from .sonara_runtime import SONARA_UNIT_INTERVAL_EPSILON
 
 _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS = frozenset(
     {
@@ -116,11 +112,15 @@ def _sonara_core_row(
         "provenance.bpm_max",
         minimum=2 * bpm_min,
     )
+    # Bound the detected value by the range this run actually analysed with,
+    # which provenance carries above, not by a project-wide constant. SONARA
+    # accepts any bounds, so a library analysed with a different range must not
+    # have its own results rejected.
     detected_bpm = _optional_float(
         analysis,
         "bpm",
-        minimum=float(SONARA_BPM_MIN),
-        maximum=float(SONARA_BPM_MAX),
+        minimum=bpm_min,
+        maximum=bpm_max,
     )
     raw_bpm = _optional_float(analysis, "bpm_raw", minimum=0.0, strict_minimum=True)
     bpm_confidence = _optional_unit_interval(

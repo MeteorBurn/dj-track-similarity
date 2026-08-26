@@ -937,6 +937,70 @@ h2 {
   min-width: 0;
 }
 
+.scan-import-bpm-range {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.scan-import-bpm-title {
+  align-items: center;
+  color: var(--text);
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.scan-import-bpm-presets {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scan-import-bpm-preset-chip {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 28px;
+  padding: 4px 9px;
+}
+
+.scan-import-bpm-preset-chip.selected {
+  background: var(--accent-active-bg);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.scan-import-bpm-preset-custom {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.scan-import-bpm-preset-custom.selected {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.scan-import-bpm-controls {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.scan-import-bpm-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin: 0;
+}
+
 .models-analysis-block .analysis-actions {
   margin-bottom: 6px;
 }

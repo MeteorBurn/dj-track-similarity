@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .db_ddl import create_library_schema
-from .db_schema import validate_library_schema
 from .db_search_fts import rebuild_track_search_fts
 
 

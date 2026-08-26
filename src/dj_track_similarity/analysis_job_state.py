@@ -11,6 +11,7 @@ from .analysis_config import (
     DEFAULT_SONARA_BATCH_SIZE,
 )
 from .analysis_models import AnalysisCandidate
+from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 
 
 DecodeMethod = Literal["torchcodec", "ffmpeg"]
@@ -84,6 +85,8 @@ class AnalysisJobStatus:
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE
     sonara_mode: str = "direct"
+    sonara_bpm_min: float = DEFAULT_SONARA_BPM_MIN
+    sonara_bpm_max: float = DEFAULT_SONARA_BPM_MAX
     top_k: int = 3
 
 
@@ -208,5 +211,7 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         inference_batch_size=status.inference_batch_size,
         sonara_batch_size=status.sonara_batch_size,
         sonara_mode=status.sonara_mode,
+        sonara_bpm_min=status.sonara_bpm_min,
+        sonara_bpm_max=status.sonara_bpm_max,
         top_k=status.top_k,
     )

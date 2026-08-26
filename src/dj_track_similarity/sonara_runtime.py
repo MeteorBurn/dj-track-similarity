@@ -4,8 +4,11 @@ from __future__ import annotations
 
 SONARA_ANALYSIS_MODE = "playlist"
 SONARA_SAMPLE_RATE = 22_050
-SONARA_BPM_MIN = 70
-SONARA_BPM_MAX = 180
+# Default analysis range only. SONARA accepts any bounds, and each run passes
+# its own pair, so these are a starting point rather than a fixed project value.
+# 70-180 matches the Rekordbox range.
+DEFAULT_SONARA_BPM_MIN = 70.0
+DEFAULT_SONARA_BPM_MAX = 180.0
 SONARA_VOCALNESS_MODEL_SELECTOR = "bundled"
 SONARA_UNIT_INTERVAL_EPSILON = 0.001
 SONARA_UNIT_INTERVAL_FIELDS = (

@@ -179,6 +179,13 @@ dj-sim doctor
   `evaluation` markers only when the touched behavior requires them.
 - Frontend: run `npm run typecheck`; add `npm test` when touched logic warrants.
   Run `npm run build` before every commit.
+- A frontend test must load the module it checks as running code, through
+  `ssrLoadModule`, `transpileModule`, or a direct `../src/` import. Asserting on
+  source text pins how a component is written instead of what it does.
+  `frontend/tests/testsExecuteCode.test.mjs` enforces this and carries the
+  shrinking list of files that predate the rule.
+- `.github/workflows/ci.yml` runs the cheap tier on a clean machine, by manual
+  trigger only. Pushing to `main` starts nothing.
 - Docs site: run `npm run check` from `docs/dj-track-similarity/` only for
   maintained docs content or docs tooling changes.
 - After source edits, run `graphify update .` to refresh generated graph data.

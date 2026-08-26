@@ -37,7 +37,9 @@ export const emptyLibrarySummary: LibrarySummary = {
   mulan: 0,
   clap: 0,
   liked: 0,
-  classifiers: 0
+  classifiers: 0,
+  sonara_bpm_min: null,
+  sonara_bpm_max: null
 };
 
 type RefreshLibraryOptions = {

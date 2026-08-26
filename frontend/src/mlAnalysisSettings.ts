@@ -23,6 +23,9 @@ export const defaultMLAnalysisSettings: MLAnalysisSettings = {
   },
 };
 
+// The staging folder is a deliberate per-session choice: it receives temporary
+// read-only copies of source audio. It is never restored from storage, and a
+// previously stored path is overwritten on the next save.
 export function loadMLAnalysisSettings(
   storage: StorageReader | null = browserLocalStorage(),
 ): MLAnalysisSettings {
@@ -35,7 +38,7 @@ export function loadMLAnalysisSettings(
     return {
       mode: parsed.mode === "staged" ? "staged" : "direct",
       staged: {
-        folder: typeof staged.folder === "string" ? staged.folder : "",
+        folder: "",
         workers: boundedInteger(staged.workers, 1, 16, 4),
         stageSize: boundedInteger(staged.stageSize, 1, 512, 64),
       },
@@ -51,7 +54,10 @@ export function saveMLAnalysisSettings(
 ) {
   if (!storage) return;
   try {
-    storage.setItem(mlAnalysisSettingsStorageKey, JSON.stringify(settings));
+    storage.setItem(
+      mlAnalysisSettingsStorageKey,
+      JSON.stringify({ ...settings, staged: { ...settings.staged, folder: "" } }),
+    );
   } catch {
     // Persistence is optional; analysis remains available when storage is blocked.
   }

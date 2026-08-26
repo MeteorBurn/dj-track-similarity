@@ -147,6 +147,8 @@ def test_database_switch_creates_selected_current_bundle(tmp_path: Path) -> None
         "clap": 0,
         "liked": 0,
         "classifiers": 0,
+        "sonara_bpm_min": None,
+        "sonara_bpm_max": None,
     }
 
 

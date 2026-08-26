@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any, Protocol, TypeVar, cast
 
 import numpy as np
@@ -32,6 +33,7 @@ from .audio_loader import (
 )
 from .embedding import (
     ClapEmbeddingAdapter,
+    MaestAnalysisResult,
     MaestEmbeddingAdapter,
     MertEmbeddingAdapter,
     MuqEmbeddingAdapter,
@@ -44,6 +46,7 @@ from .sonara_features import (
     analysis_outputs_for_sonara_runtime,
     analyze_and_store_sonara_batch,
 )
+from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .sonara_staging import (
     SonaraStagingConfig,
     StagedSonaraResult,
@@ -124,8 +127,12 @@ class SonaraModelRunner:
         *,
         sonara_module: Any | None = None,
         staging_config: SonaraStagingConfig | None = None,
+        bpm_min: float = DEFAULT_SONARA_BPM_MIN,
+        bpm_max: float = DEFAULT_SONARA_BPM_MAX,
     ) -> None:
         self._sonara_module = sonara_module
+        self.bpm_min = float(bpm_min)
+        self.bpm_max = float(bpm_max)
         self._active_outputs = analysis_outputs_for_sonara_runtime()
         self._candidate_outputs = self._active_outputs
         self.progress: Callable[[int, int], None] | None = None
@@ -167,6 +174,8 @@ class SonaraModelRunner:
                 sonara_module=self._sonara_module,
                 progress=self.progress,
                 metrics=self._capture_metrics,
+                bpm_min=self.bpm_min,
+                bpm_max=self.bpm_max,
             )
         else:
             self.incremental_results_emitted = True
@@ -174,7 +183,13 @@ class SonaraModelRunner:
                 repository,
                 candidates,
                 config=self.staging_config,
-                analyze_group=analyze_staged_sonara_group,
+                # partial() keeps the range with the callable so it survives the
+                # trip into the staging child processes.
+                analyze_group=partial(
+                    analyze_staged_sonara_group,
+                    bpm_min=self.bpm_min,
+                    bpm_max=self.bpm_max,
+                ),
                 prepare_write=lambda candidate, analysis: prepare_sonara_write(
                     candidate,
                     analysis,

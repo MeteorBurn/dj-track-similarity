@@ -51,7 +51,8 @@ def _first_label(value: object) -> str | None:
 
 
 def _track_title(value: object, title: str) -> str | None:
-    if not isinstance(value, list): return None
+    if not isinstance(value, list):
+        return None
     for item in value:
         if isinstance(item, Mapping) and item.get("title") == title:
             return item["title"] if isinstance(item["title"], str) else None

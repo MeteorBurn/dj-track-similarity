@@ -38,7 +38,8 @@ def build_report_contract(
             row[field] = local_values[field]
         for name in source_names:
             result = by_name.get(name)
-            if result is None or result.record is None: continue
+            if result is None or result.record is None:
+                continue
             record = result.record
             values = {"Title": _clean(record.title), "Artist": _clean(record.artist), "Album": _clean(record.album), "Year": str(record.year or ""), "Country": _clean(record.country), "Label": _clean(record.label), "Tags": _join(record.tags)}
             row[_column(name, "Genres")] = _join(record.genres)

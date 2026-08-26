@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { FolderOpen, Minus, Play, Plus, X } from "lucide-react";
+import { FolderOpen, Lock, Minus, Play, Plus, X } from "lucide-react";
+
+import {
+  applySonaraBpmChange,
+  matchingSonaraBpmPreset,
+  maxSonaraBpm,
+  minSonaraBpm,
+  sonaraBpmPresets,
+} from "./sonaraAnalysisSettings";
 
 export type ScanImportRequest = {
   root: string;
@@ -57,6 +65,9 @@ export function ScanImportDialog({
   busy,
   stageRunning,
   maxWorkers,
+  sonaraBpmRange,
+  sonaraBpmRangeLocked,
+  onSonaraBpmRangeChange,
   onChooseFolder,
   onClose,
   onStart,
@@ -64,6 +75,11 @@ export function ScanImportDialog({
   busy: boolean;
   stageRunning: boolean;
   maxWorkers: number;
+  sonaraBpmRange: { bpmMin: number; bpmMax: number };
+  // The library fixes its range with the first SONARA analysis; until then the
+  // dialog is where it is chosen.
+  sonaraBpmRangeLocked: boolean;
+  onSonaraBpmRangeChange: (range: { bpmMin: number; bpmMax: number }) => void;
   onChooseFolder: () => Promise<string | null>;
   onClose: () => void;
   onStart: (request: ScanImportRequest) => Promise<void>;
@@ -79,6 +95,7 @@ export function ScanImportDialog({
     || (minDurationSeconds != null && maxDurationSeconds != null && minDurationSeconds > maxDurationSeconds),
   );
   const canStart = Boolean(settings.root && settings.selectedFormats.length && !hasInvalidBound && !disabled);
+  const activeBpmPreset = matchingSonaraBpmPreset(sonaraBpmRange);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -167,6 +184,50 @@ export function ScanImportDialog({
               <button className="icon-button scan-import-workers-increment-button" title="Увеличить workers" disabled={disabled || settings.workers >= maxWorkers} onClick={() => setSettings((current) => ({ ...current, workers: current.workers + 1 }))} type="button"><Plus size={15} /></button>
             </div>
           </div>
+        </div>
+        <div className="scan-import-bpm-range">
+          <div className="scan-import-bpm-title">
+            <span>Диапазон BPM для анализа SONARA</span>
+            {sonaraBpmRangeLocked && <Lock size={13} aria-hidden="true" />}
+          </div>
+          <div className="scan-import-bpm-presets" aria-label="Пресеты диапазона BPM">
+            {sonaraBpmPresets.map((preset) => {
+              const selected = activeBpmPreset?.key === preset.key;
+              return <button
+                key={preset.key}
+                className={`scan-import-bpm-preset-chip ${selected ? "selected" : ""}`}
+                aria-pressed={selected}
+                disabled={disabled || sonaraBpmRangeLocked}
+                title={`${preset.label}: ${preset.bpmMin}–${preset.bpmMax} BPM`}
+                onClick={() => onSonaraBpmRangeChange({ bpmMin: preset.bpmMin, bpmMax: preset.bpmMax })}
+                type="button"
+              >{preset.label}</button>;
+            })}
+            <span className={`scan-import-bpm-preset-custom ${activeBpmPreset ? "" : "selected"}`}>
+              {activeBpmPreset ? `${activeBpmPreset.bpmMin}–${activeBpmPreset.bpmMax}` : "Свой диапазон"}
+            </span>
+          </div>
+          <div className="scan-import-bpm-controls">
+            <label>BPM Min<input
+              type="number"
+              min={minSonaraBpm}
+              max={Math.floor(maxSonaraBpm / 2)}
+              value={sonaraBpmRange.bpmMin}
+              disabled={disabled || sonaraBpmRangeLocked}
+              onChange={(event) => onSonaraBpmRangeChange(applySonaraBpmChange(sonaraBpmRange, { bpmMin: Number(event.target.value) || minSonaraBpm }))}
+            /></label>
+            <label>BPM Max<input
+              type="number"
+              min={2 * minSonaraBpm}
+              max={maxSonaraBpm}
+              value={sonaraBpmRange.bpmMax}
+              disabled={disabled || sonaraBpmRangeLocked}
+              onChange={(event) => onSonaraBpmRangeChange(applySonaraBpmChange(sonaraBpmRange, { bpmMax: Number(event.target.value) || 2 * minSonaraBpm }))}
+            /></label>
+          </div>
+          <p className="scan-import-bpm-hint">{sonaraBpmRangeLocked
+            ? "База уже проанализирована этим диапазоном. Чтобы задать другой, сбросьте анализ SONARA."
+            : "Выберите пресет или введите свой диапазон. Задаётся один раз: первый анализ SONARA закрепит его за всей базой. Верхняя граница должна быть минимум вдвое больше нижней."}</p>
         </div>
         <p className="scan-import-description">Выберите папку как источник для загрузки треков в базу: сканирование папок выполняется рекурсивно.</p>
         <div className="path-row scan-import-path-row">

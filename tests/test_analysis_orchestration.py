@@ -198,6 +198,12 @@ def test_job_registers_exact_outputs_before_candidate_selection() -> None:
     )
     assert status.state == "completed"
     assert status.total == 1
+    assert status.phase == "analyzing"
+    messages = [event.message for event in status.events]
+    assert messages.index("Model warm-up started: mert, clap") < messages.index(
+        "Analysis candidates ready: 1"
+    )
+    assert all(runner.preflight_calls == 1 for runner in runners.values())
     assert status.processed == 1
     assert status.analyzed == 1
     assert status.failed == 0

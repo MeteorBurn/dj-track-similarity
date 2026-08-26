@@ -15,6 +15,7 @@ from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 
 
 DecodeMethod = Literal["torchcodec", "ffmpeg"]
+AnalysisPhase = Literal["preparing", "warmup", "analyzing"]
 
 _DECODE_METHOD_PRIORITY: dict[DecodeMethod, int] = {
     "torchcodec": 1,
@@ -61,6 +62,7 @@ class AnalysisTrackOutcome:
 class AnalysisJobStatus:
     job_id: str
     state: str
+    phase: AnalysisPhase = "preparing"
     adapter_name: str = "multi"
     models: list[str] = field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER))
     current_model: str | None = None
@@ -178,6 +180,7 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
     return AnalysisJobStatus(
         job_id=status.job_id,
         state=status.state,
+        phase=status.phase,
         adapter_name=status.adapter_name,
         models=list(status.models),
         current_model=status.current_model,

@@ -232,6 +232,7 @@ export function stageIndicatorLabel(
   genreTagJob?: GenreTagJobStatus | null,
 ) {
   if (scanJob?.state && ["queued", "running"].includes(scanJob.state)) return "Идет сканирование";
+  if (analysisJob?.state === "running" && analysisJob.phase === "warmup") return "Прогрев моделей";
   if (analysisJob && ["queued", "running"].includes(analysisJob.state)) return "Идет анализ";
   if (genreTagJob && ["queued", "running"].includes(genreTagJob.state)) return "Идет запись жанров";
   if (scanJob?.state === "cancelled" || analysisJob?.state === "cancelled" || genreTagJob?.state === "cancelled") return "Этап остановлен";
@@ -255,12 +256,35 @@ function analysisRuntimeLabel(job: AnalysisJobStatus) {
   return `${model} · ${job.device || `${job.device_requested} pending`}`;
 }
 
+function AnalysisWarmupStatus({ job }: { job: AnalysisJobStatus }) {
+  const models = job.models || [];
+  const warmed = models.findIndex((model) => model === job.current_model) + 1;
+  return (
+    <div className="process-box">
+      <div className="process-head">
+        <strong>{job.state}</strong>
+        <span>Прогрев моделей</span>
+      </div>
+      <progress max={models.length || 1} value={warmed} />
+      <div className="process-grid">
+        <span>{warmed}/{models.length}</span>
+        {job.current_model ? <span>{job.current_model.toUpperCase()}</span> : null}
+        <span>{job.device || `${job.device_requested} pending`}</span>
+      </div>
+      <span className="analysis-muted">Загрузка моделей в память. Декодирование треков еще не начато.</span>
+    </div>
+  );
+}
+
 function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
   if (!job) {
     return <div className="process-box">Анализ не запущен</div>;
   }
   const percent = calculateProgressPercent(job.processed, job.total);
   const running = isJobActive(job.state);
+  if (running && job.phase === "warmup") {
+    return <AnalysisWarmupStatus job={job} />;
+  }
   const etaSeconds = calculateEta(running, job.avg_seconds_per_track, job.total, job.processed);
   const classifierJob = Boolean(job.classifier_keys?.length);
   const sonaraJob = job.adapter_name === "sonara" || (job.models?.length === 1 && job.models[0] === "sonara");

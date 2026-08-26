@@ -336,6 +336,7 @@ export type ScanRequest = {
 export type AnalysisJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  phase?: "preparing" | "warmup" | "analyzing";
   adapter_name: string;
   models?: AnalysisModel[];
   classifier_keys?: string[];

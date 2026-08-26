@@ -488,15 +488,7 @@ class AnalysisJobManager:
             lifecycle.runners[model] = runner
             lifecycle.handles[model] = handle
 
-        for model in config.models:
-            try:
-                handle = lifecycle.handles[model]
-                with handle.lock:
-                    if not handle.preflight_complete:
-                        handle.runner.preflight()
-                        handle.preflight_complete = True
-            except Exception as error:
-                raise _RunnerPreflightError(model, error) from error
+        self._warm_up_models(job_id, config.models, lifecycle)
 
         active_outputs = tuple(
             output
@@ -577,6 +569,61 @@ class AnalysisJobManager:
             job_id,
             "info",
             f"Analysis candidates ready: {len(candidates)}",
+        )
+
+    def _warm_up_models(
+        self,
+        job_id: str,
+        models: Sequence[str],
+        lifecycle: _RunnerLifecycle,
+    ) -> None:
+        """Load every selected model before any track is decoded."""
+
+        warm_up_started = time.time()
+        self._update(job_id, phase="warmup")
+        self._append_event(
+            job_id,
+            "info",
+            f"Model warm-up started: {', '.join(models)}",
+        )
+        for position, model in enumerate(models, start=1):
+            handle = lifecycle.handles[model]
+            runner = lifecycle.runners[model]
+            self._update(job_id, current_model=model, model_name=runner.model_name)
+            model_started = time.time()
+            try:
+                with handle.lock:
+                    if handle.preflight_complete:
+                        loaded = False
+                    else:
+                        self._append_event(
+                            job_id,
+                            "info",
+                            f"Warming up {model} ({position}/{len(models)})",
+                            model=model,
+                        )
+                        handle.runner.preflight()
+                        handle.preflight_complete = True
+                        loaded = True
+            except Exception as error:
+                raise _RunnerPreflightError(model, error) from error
+            self._update(job_id, device=runner.device)
+            self._append_event(
+                job_id,
+                "info",
+                (
+                    f"{model} ready on {runner.device} "
+                    f"in {time.time() - model_started:.1f}s"
+                    if loaded
+                    else f"{model} already resident on {runner.device}"
+                ),
+                model=model,
+            )
+        self._update(job_id, phase="analyzing", current_model=None)
+        self._append_event(
+            job_id,
+            "info",
+            f"Model warm-up completed in {time.time() - warm_up_started:.1f}s",
         )
 
     def _process_batch(

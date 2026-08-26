@@ -20,6 +20,13 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_tracks import canonical_file_path
 from dj_track_similarity.track_models import TrackIdentity
 
+from .fingerprints import (
+    FingerprintSketch,
+    fingerprint_candidate_pairs,
+    fingerprint_match_scores,
+    load_fingerprint_sketches,
+)
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TOOL_ROOT = SCRIPT_DIR.parent
@@ -30,6 +37,7 @@ DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
 SUPPORTED_EMBEDDINGS = ("mert", "maest", "muq", "clap")
 TRACK_LOAD_CHUNK_SIZE = 200
 EMBEDDING_LOAD_CHUNK_SIZE = 200
+FINGERPRINT_REVIEW_MIN_SIMILARITY = 0.45
 DEFAULT_SOURCE_WEIGHTS = {
     "mert": 0.43,
     "maest": 0.32,
@@ -73,6 +81,11 @@ SCORE_SEMANTICS = {
         "range": "-1..1",
         "text_search_comparable": False,
         "notes": "Cosine similarity between stored CLAP audio embeddings; not comparable to CLAP text-to-audio search scores.",
+    },
+    "fingerprint_similarity": {
+        "kind": "sonara_native_fingerprint_match",
+        "range": "0..1",
+        "notes": "Exact native SONARA fingerprint comparison, run only after version-separated fingerprint LSH retrieval. A score of 0.45 or above creates a manual-review candidate; it never independently authorizes deletion.",
     },
 }
 ProgressCallback = Callable[[int, int, str], None]
@@ -193,6 +206,8 @@ class PairEvidence:
     duration_diff_seconds: float | None
     duration_diff_ratio: float | None
     blocked_reasons: tuple[str, ...]
+    fingerprint_similarity: float | None = None
+    candidate_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -277,9 +292,9 @@ def main(argv: list[str] | None = None) -> int:
             f"groups={result.groups} safe_candidates={_safe_candidate_count(result.payload)}"
         )
     print(rhythm_lab_cli_summary(result.payload))
-    print(f"json={result.json_path}")
-    print(f"xlsx={result.xlsx_path}")
-    print(f"log={result.log_path}")
+    print(f"json={result.json_path.resolve()}")
+    print(f"xlsx={result.xlsx_path.resolve()}")
+    print(f"log={result.log_path.resolve()}")
     return 0
 
 
@@ -476,11 +491,64 @@ def run_report(
     )
     _raise_if_cancelled(should_cancel)
     _report_progress(progress_callback, 0, max(1, len(tracks)), f"Loaded {len(tracks)} scoped tracks")
+    track_uuids = {
+        track.track_id: track.track_uuid
+        for track in tracks
+        if track.track_uuid
+    }
+    _report_progress(progress_callback, 0, max(1, len(tracks)), "Loading saved SONARA fingerprint sketches")
+    connection = selected_database.connect()
+    try:
+        fingerprint_load = load_fingerprint_sketches(connection, track_uuids)
+    finally:
+        connection.close()
+    candidate_sources = _candidate_pair_sources(
+        tracks,
+        config,
+        source_config,
+        fingerprint_sketches=fingerprint_load.sketches,
+    )
+    fingerprint_lsh_pairs = {
+        pair
+        for pair, sources_for_pair in candidate_sources.items()
+        if "fingerprint_lsh" in sources_for_pair
+    }
+    fingerprint_exact_pairs = _fingerprint_exact_candidate_pairs(candidate_sources)
+    _report_progress(progress_callback, 0, max(1, len(fingerprint_exact_pairs)), "Verifying SONARA fingerprint candidates")
+    connection = selected_database.connect()
+    try:
+        fingerprint_scores = fingerprint_match_scores(
+            connection,
+            fingerprint_exact_pairs,
+            track_uuids,
+            progress_callback=lambda completed, total: _report_progress(
+                progress_callback,
+                completed,
+                total,
+                "Verifying SONARA fingerprint candidates",
+            ),
+        )
+    finally:
+        connection.close()
+    fingerprint_retrieval = {
+        "valid_stored_fingerprint_count": len(fingerprint_load.sketches),
+        "rejected_stored_fingerprint_count": fingerprint_load.rejected_rows,
+        "fingerprint_lsh_candidate_pair_count": len(fingerprint_lsh_pairs),
+        "fingerprint_exact_candidate_pair_count": len(fingerprint_exact_pairs),
+        "exact_fingerprint_pair_count": len(fingerprint_scores),
+        "fingerprint_review_pair_count": sum(
+            score >= FINGERPRINT_REVIEW_MIN_SIMILARITY
+            for score in fingerprint_scores.values()
+        ),
+        "fingerprint_review_min_similarity": FINGERPRINT_REVIEW_MIN_SIMILARITY,
+    }
     groups = find_duplicate_groups(
         tracks,
         config,
         limit_groups=limit_groups,
         source_config=source_config,
+        candidate_sources=candidate_sources,
+        fingerprint_scores=fingerprint_scores,
         progress_callback=progress_callback,
         should_cancel=should_cancel,
     )
@@ -495,6 +563,7 @@ def run_report(
         root=root,
         path_contains=path_contains,
         source_config=source_config,
+        fingerprint_retrieval=fingerprint_retrieval,
     )
     payload["rhythm_lab"] = rhythm_lab_impact_payload(
         DEFAULT_RHYTHM_LAB_DB,
@@ -678,6 +747,8 @@ def find_duplicate_groups(
     *,
     limit_groups: int | None,
     source_config: SourceConfig | None = None,
+    candidate_sources: Mapping[tuple[int, int], tuple[str, ...]] | None = None,
+    fingerprint_scores: Mapping[tuple[int, int], float] | None = None,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancelCheck | None = None,
 ) -> list[DuplicateGroup]:
@@ -687,21 +758,29 @@ def find_duplicate_groups(
         return []
     by_id = {track.track_id: track for track in tracks}
     _report_progress(progress_callback, 0, 0, "Building candidate pairs")
-    candidate_pairs = _candidate_pair_ids(
-        tracks,
-        config,
-        selected_sources,
+    selected_candidate_sources = dict(
+        candidate_sources
+        if candidate_sources is not None
+        else _candidate_pair_sources(tracks, config, selected_sources)
     )
-    pair_total = len(candidate_pairs)
+    pair_total = len(selected_candidate_sources)
     if pair_total == 0:
         _report_progress(progress_callback, 1, 1, "No candidate pairs")
         return []
     edges: list[PairEvidence] = []
-    for index, (left_id, right_id) in enumerate(candidate_pairs, start=1):
+    selected_fingerprint_scores = fingerprint_scores or {}
+    for index, ((left_id, right_id), sources_for_pair) in enumerate(
+        sorted(selected_candidate_sources.items()),
+        start=1,
+    ):
         _raise_if_cancelled(should_cancel)
         left = by_id[left_id]
         right = by_id[right_id]
-        if not _candidate_duration_compatible(left, right, config):
+        fingerprint_similarity = selected_fingerprint_scores.get((left_id, right_id))
+        if (
+            "fingerprint_lsh" not in sources_for_pair
+            and not _candidate_duration_compatible(left, right, config)
+        ):
             if index == pair_total or index % 50 == 0:
                 _report_progress(progress_callback, index, pair_total, "Searching duplicate pairs")
             continue
@@ -710,8 +789,19 @@ def find_duplicate_groups(
             right,
             config,
             source_config=selected_sources,
+            fingerprint_similarity=fingerprint_similarity,
+            candidate_sources=sources_for_pair,
         )
-        if evidence.score >= config.min_score and _passes_content_similarity(evidence, config):
+        conventional_match = (
+            _candidate_duration_compatible(left, right, config)
+            and evidence.score >= config.min_score
+            and _passes_content_similarity(evidence, config)
+        )
+        fingerprint_match = (
+            fingerprint_similarity is not None
+            and fingerprint_similarity >= FINGERPRINT_REVIEW_MIN_SIMILARITY
+        )
+        if conventional_match or fingerprint_match:
             edges.append(evidence)
         if index == pair_total or index % 50 == 0:
             _report_progress(progress_callback, index, pair_total, "Searching duplicate pairs")
@@ -741,15 +831,54 @@ def _candidate_pair_ids(
     tracks: list[TrackRecord],
     config: PresetConfig,
     source_config: SourceConfig,
+    *,
+    fingerprint_sketches: Iterable[FingerprintSketch] = (),
 ) -> list[tuple[int, int]]:
-    high_dim_pairs = _signature_candidate_pairs(
+    return sorted(
+        _candidate_pair_sources(
+            tracks,
+            config,
+            source_config,
+            fingerprint_sketches=fingerprint_sketches,
+        )
+    )
+
+
+def _candidate_pair_sources(
+    tracks: list[TrackRecord],
+    config: PresetConfig,
+    source_config: SourceConfig,
+    *,
+    fingerprint_sketches: Iterable[FingerprintSketch] = (),
+) -> dict[tuple[int, int], tuple[str, ...]]:
+    sources_by_pair: dict[tuple[int, int], set[str]] = {}
+    signature_sources = _signature_candidate_pair_sources(
         tracks,
         config,
         source_config,
     )
-    if high_dim_pairs:
-        return sorted(high_dim_pairs)
-    return _duration_window_candidate_pairs(tracks, config)
+    for pair, sources in signature_sources.items():
+        sources_by_pair.setdefault(pair, set()).update(sources)
+    if not signature_sources:
+        for pair in _duration_window_candidate_pairs(tracks, config):
+            sources_by_pair.setdefault(pair, set()).add("duration_window")
+    for pair in fingerprint_candidate_pairs(list(fingerprint_sketches)):
+        sources_by_pair.setdefault(pair, set()).add("fingerprint_lsh")
+    return {
+        pair: tuple(sorted(sources))
+        for pair, sources in sources_by_pair.items()
+    }
+
+
+def _fingerprint_exact_candidate_pairs(
+    candidate_sources: Mapping[tuple[int, int], tuple[str, ...]],
+) -> set[tuple[int, int]]:
+    return {
+        pair
+        for pair, sources_for_pair in candidate_sources.items()
+        if "fingerprint_lsh" in sources_for_pair
+        or any(source in {"mert_lsh", "maest_lsh"} for source in sources_for_pair)
+    }
 
 
 def _duration_window_candidate_pairs(tracks: list[TrackRecord], config: PresetConfig) -> list[tuple[int, int]]:
@@ -778,7 +907,15 @@ def _signature_candidate_pairs(
     config: PresetConfig,
     source_config: SourceConfig,
 ) -> set[tuple[int, int]]:
-    pairs: set[tuple[int, int]] = set()
+    return set(_signature_candidate_pair_sources(tracks, config, source_config))
+
+
+def _signature_candidate_pair_sources(
+    tracks: list[TrackRecord],
+    config: PresetConfig,
+    source_config: SourceConfig,
+) -> dict[tuple[int, int], set[str]]:
+    sources_by_pair: dict[tuple[int, int], set[str]] = {}
     for embedding_key in ("mert", "maest"):
         if embedding_key not in source_config.sources:
             continue
@@ -807,8 +944,12 @@ def _signature_candidate_pairs(
         for ids in buckets.values():
             if len(ids) < 2:
                 continue
-            pairs.update(_duration_window_candidate_pairs([by_id[track_id] for track_id in ids], config))
-    return pairs
+            for pair in _duration_window_candidate_pairs(
+                [by_id[track_id] for track_id in ids],
+                config,
+            ):
+                sources_by_pair.setdefault(pair, set()).add(f"{embedding_key}_lsh")
+    return sources_by_pair
 
 
 def score_pair(
@@ -817,6 +958,8 @@ def score_pair(
     config: PresetConfig,
     *,
     source_config: SourceConfig | None = None,
+    fingerprint_similarity: float | None = None,
+    candidate_sources: Iterable[str] = (),
 ) -> PairEvidence:
     selected_sources = source_config or resolve_source_config()
     similarities = {
@@ -933,6 +1076,8 @@ def score_pair(
         duration_diff_seconds=duration_diff,
         duration_diff_ratio=duration_ratio,
         blocked_reasons=tuple(blocked),
+        fingerprint_similarity=fingerprint_similarity,
+        candidate_sources=tuple(sorted(set(candidate_sources))),
     )
 
 
@@ -946,6 +1091,7 @@ def build_report(
     root: Path,
     path_contains: list[str],
     source_config: SourceConfig | None = None,
+    fingerprint_retrieval: Mapping[str, int | float] | None = None,
 ) -> dict[str, object]:
     selected_sources = source_config or resolve_source_config()
     by_id = {track.track_id: track for track in tracks}
@@ -1020,6 +1166,7 @@ def build_report(
         "min_score": config.min_score,
         "min_similarity": config.min_similarity,
         "score_semantics": score_semantics_payload(),
+        "fingerprint_retrieval": dict(fingerprint_retrieval or {}),
         "database_track_count": database_track_count if database_track_count is not None else len(tracks),
         "scoped_track_count": len(tracks),
         "track_count": len(tracks),
@@ -1091,6 +1238,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         if isinstance(weights, dict)
         else str(weights)
     )
+    fingerprint_retrieval = payload.get("fingerprint_retrieval", {})
     rows: list[list[object]] = [
         ["Audio Dedup Report", "", "", "", ""],
         [
@@ -1112,6 +1260,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Source weights", weight_text, "Raw weights are renormalized over available enabled evidence.", "", ""],
         ["Min score", payload["min_score"], "Overall duplicate score threshold.", "", ""],
         ["Min content similarity", payload["min_similarity"], "Audio-to-audio embedding gate over enabled MERT, MAEST, MuQ, and CLAP sources; not CLAP text-search score.", "", ""],
+        ["Fingerprint review threshold", fingerprint_retrieval.get("fingerprint_review_min_similarity", "") if isinstance(fingerprint_retrieval, dict) else "", "Exact SONARA scores at or above this threshold add manual-review candidates only.", "", ""],
         [],
         ["Decision summary", "Count", "Meaning", "Next action", ""],
         [
@@ -1130,6 +1279,8 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ],
         ["Duplicate groups", payload["group_count"], "Potential duplicate clusters found.", "Open the Groups sheet.", ""],
         ["Duplicate candidates", stats.get("candidate_count", 0), "Tracks proposed for delete or manual review.", "Open the Candidates sheet.", ""],
+        ["Valid stored fingerprints", fingerprint_retrieval.get("valid_stored_fingerprint_count", 0) if isinstance(fingerprint_retrieval, dict) else 0, "Identity-bound SONARA fingerprints used for independent LSH retrieval.", "Reference only.", ""],
+        ["Fingerprint review pairs", fingerprint_retrieval.get("fingerprint_review_pair_count", 0) if isinstance(fingerprint_retrieval, dict) else 0, "Exact SONARA matches that met the review threshold.", "Open Pair Evidence.", ""],
         [
             "Safe delete candidates",
             stats.get("safe_candidate_count", 0),
@@ -1184,6 +1335,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "maest_similarity",
             "muq_similarity",
             "clap_similarity",
+            "fingerprint_similarity",
         ):
             item = semantics.get(key, {})
             if isinstance(item, dict):
@@ -1244,6 +1396,7 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "maest_similarity",
             "muq_similarity",
             "sonara_similarity",
+            "fingerprint_similarity",
             "clap_similarity",
             "duration_diff_seconds",
             "duration_diff_ratio",
@@ -1274,6 +1427,7 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     evidence.get("maest_similarity"),
                     evidence.get("muq_similarity"),
                     evidence.get("sonara_similarity"),
+                    evidence.get("fingerprint_similarity"),
                     evidence.get("clap_similarity"),
                     evidence.get("duration_diff_seconds"),
                     evidence.get("duration_diff_ratio"),
@@ -1296,7 +1450,9 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "maest_similarity",
             "muq_similarity",
             "sonara_similarity",
+            "fingerprint_similarity",
             "clap_similarity",
+            "candidate_sources",
             "duration_diff_seconds",
             "duration_diff_ratio",
             "blocked_reasons",
@@ -1317,7 +1473,9 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     evidence["maest_similarity"],
                     evidence["muq_similarity"],
                     evidence["sonara_similarity"],
+                    evidence.get("fingerprint_similarity"),
                     evidence["clap_similarity"],
+                    "; ".join(str(item) for item in evidence.get("candidate_sources", [])),
                     evidence["duration_diff_seconds"],
                     evidence["duration_diff_ratio"],
                     "; ".join(str(item) for item in evidence.get("blocked_reasons", [])),
@@ -2153,6 +2311,8 @@ def pair_payload(pair: PairEvidence) -> dict[str, object]:
         "muq_similarity": _round_float(pair.muq_similarity),
         "clap_similarity": _round_float(pair.clap_similarity),
         "sonara_similarity": _round_float(pair.sonara_similarity),
+        "fingerprint_similarity": _round_float(pair.fingerprint_similarity),
+        "candidate_sources": list(pair.candidate_sources),
         "duration_diff_seconds": _round_float(pair.duration_diff_seconds),
         "duration_diff_ratio": _round_float(pair.duration_diff_ratio),
         "blocked_reasons": list(pair.blocked_reasons),
@@ -2522,6 +2682,8 @@ def _candidate_safety(pair: PairEvidence | None, config: PresetConfig, *, ambigu
     if pair is None:
         reasons.append("weak direct keeper match")
     else:
+        if pair.candidate_sources == ("fingerprint_lsh",):
+            reasons.append("SONARA fingerprint-only candidate requires manual review")
         if pair.score < config.direct_keeper_score:
             reasons.append("weak direct keeper match")
         if not _passes_content_similarity(pair, config):

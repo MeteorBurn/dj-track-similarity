@@ -8,6 +8,11 @@ Audio Dedup needs stored audio-to-audio evidence. The available embedding source
 `maest`, `muq`, and `clap`. The reader accepts vectors whose dimensions, encoding, and track
 identity match the current structural requirements.
 
+When the library has saved SONARA fingerprints, Audio Dedup also uses them as an independent
+candidate-retrieval signal. It reads only fingerprints whose stored `track_uuid`, positive
+version, timestamp, and Base64 payload validate against the current track. It does not analyse
+audio again or keep full fingerprint payloads on track records.
+
 The `min_similarity` value is an audio-to-audio content gate. It is not the CLAP text-search score scale, and none of these values are probabilities.
 
 ## Sources and weights
@@ -30,6 +35,40 @@ Validation is fail-closed:
 - `sources` must be nonempty, unique, and limited to the four supported families.
 - When `weights` is supplied, its keys must exactly match the enabled sources.
 - Every weight must be finite and nonnegative, and at least one must be positive.
+
+## Candidate retrieval and fingerprint review
+
+Candidate construction takes a set union rather than applying one signal after another.
+
+| Signal | Candidate-retrieval role |
+| --- | --- |
+| MERT/MAEST LSH | Used for suitable high-dimensional embeddings. |
+| Duration window | Used when embedding LSH produces no candidate pairs. |
+| SONARA fingerprint LSH | Uses compact descriptors from valid stored fingerprints. A pair must share one 24-bit key made from two adjacent 12-bit bands. Comparisons stay inside one fingerprint version. |
+
+The native SONARA matcher then verifies pairs retrieved by either fingerprint LSH or MERT/MAEST
+LSH. Pairs found only by the duration window do not trigger native fingerprint matching. This
+keeps the expensive comparison out of the broad duration fallback. The 24-bit fingerprint key
+also filters accidental LSH collisions before native verification, while either LSH signal can
+still contribute fingerprint evidence.
+
+An exact native fingerprint score of at least `0.45` can create a **manual-review** candidate,
+even when embeddings or duration data are absent. A pair retrieved only by `fingerprint_lsh`
+never becomes an automatic delete candidate: it carries an explicit manual-review blocker. The
+normal MERT/MAEST, content-similarity, duration, identity, and confirmation requirements for
+safe deletion remain in force.
+
+The order in which the two independent LSH paths are scheduled changes latency only, not their
+union of candidate pairs. A synthetic comparison is available for recall and cost checks:
+
+```powershell
+python tools\audio-dedup\benchmark_fingerprint_candidates.py --groups 32 --distractors 128
+```
+
+It uses known synthetic duplicate groups, reports retrieval recall, candidate-pair counts, and
+timing for fingerprint LSH, embedding LSH, and their union. It does not estimate precision on a
+real music library. Run Audio Dedup in report-only mode and listen to the fingerprint-review pairs
+before changing the review threshold.
 
 To disable MuQ and reproduce the exact legacy source profile, select only MERT, MAEST, and CLAP. Omitting explicit weights gives those sources their legacy raw weights:
 
@@ -94,6 +133,6 @@ Do not run apply mode during routine tests. Review the report first and keep bac
 
 ## Output
 
-Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `sources` and `weights`. Pair evidence and the XLSX candidate/evidence sheets include `muq_similarity`. Safety failures appear in `blocked_reasons`.
+Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `sources`, `weights`, and `fingerprint_retrieval` metrics: validated and rejected stored fingerprints, LSH/exact candidate counts, the review-pair count, and the threshold. Pair evidence records `fingerprint_similarity` and `candidate_sources`; the XLSX Pair Evidence sheet exposes the same provenance, while its Summary sheet lists valid fingerprints and fingerprint-review pairs. Safety failures appear in `blocked_reasons`.
 
 Reports are local private artifacts.

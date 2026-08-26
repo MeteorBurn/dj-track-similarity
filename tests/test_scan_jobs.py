@@ -237,7 +237,9 @@ def test_limited_scan_does_not_mark_unseen_tracks_missing(tmp_path: Path) -> Non
     status = manager.run_sync(music, limit=1)
 
     assert status.limit == 1
-    assert status.total == 1
+    assert status.total == 0
+    assert status.added == 0
+    assert status.unchanged == 0
     assert status.events[0].message == "Scan queued · workers 1 · limit 1"
     with database.connect() as connection:
         missing_count = connection.execute(
@@ -320,6 +322,43 @@ def test_duration_filtered_scan_limit_counts_only_eligible_tracks(
 
     assert status.added == 1
     assert len(database.list_track_paths()) == 1
+
+
+def test_scan_stops_once_the_limit_of_added_tracks_is_reached(
+    tmp_path: Path,
+) -> None:
+    music = tmp_path / "music"
+    music.mkdir()
+    stored = _audio(music, "a-stored.wav")
+    for index in range(6):
+        _audio(music, f"b-new-{index}.wav")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    manager = ScanJobManager(database)
+    assert scanner.scan_audio_file(database, stored).action == "added"
+
+    status = manager.run_sync(music, limit=2)
+    resumed = manager.run_sync(music, limit=2)
+
+    # Stored paths never consume the limit, and the walk ends with the limit.
+    assert status.added == 2
+    assert status.processed == 2
+    assert status.total == 2
+    assert status.unchanged == 0
+    assert status.events[-2].message == "Scan limit 2 reached, scanning stopped"
+    # The next run excludes what is stored and continues with new paths only.
+    assert resumed.added == 2
+    assert resumed.processed == 2
+    assert resumed.unchanged == 0
+    assert [item.file_path for item in database.list_track_paths()] == [
+        path.resolve().as_posix()
+        for path in [
+            stored,
+            music / "b-new-0.wav",
+            music / "b-new-1.wav",
+            music / "b-new-2.wav",
+            music / "b-new-3.wav",
+        ]
+    ]
 
 
 def test_scan_job_can_be_cancelled_then_rerun(

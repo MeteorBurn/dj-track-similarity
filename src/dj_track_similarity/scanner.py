@@ -6,13 +6,13 @@ import math
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Collection, Iterable
+from typing import Callable, Collection, Iterator
 
 from mutagen import File as MutagenFile
 
 from .db_tracks import (
     TrackRepository,
-    canonical_file_path,
+    ordinal_path_key,
     resolved_file_path,
 )
 from .ffmpeg_runtime import load_project_pyav
@@ -319,8 +319,13 @@ def iter_audio_files(
     root: Path,
     *,
     extensions: Collection[str] | None = None,
-) -> Iterable[Path]:
-    """Yield deterministic absolute audio paths, deduplicated after resolve."""
+) -> Iterator[Path]:
+    """Stream deterministic absolute audio paths, deduplicated after resolve.
+
+    Directories are walked depth-first in name order and every path is yielded
+    as soon as it is found, so a limited scan can abandon the walk early instead
+    of paying for the whole tree first.
+    """
 
     root_path = _resolved_directory(root)
     selected_extensions = (
@@ -332,31 +337,39 @@ def iter_audio_files(
             if extension.lower() in SUPPORTED_AUDIO_EXTENSIONS
         }
     )
-    paths_by_identity: dict[str, Path] = {}
+    seen_identities: set[str] = set()
 
-    def scan_directory(directory: Path) -> None:
+    def scan_directory(directory: Path) -> Iterator[Path]:
         try:
             with os.scandir(directory) as entries:
-                for entry in entries:
-                    try:
-                        if entry.is_file() and (
-                            Path(entry.name).suffix.lower() in selected_extensions
-                        ) and not entry.name.startswith("._"):
-                            resolved = Path(entry.path).resolve(strict=False)
-                            paths_by_identity.setdefault(
-                                canonical_file_path(resolved),
-                                resolved,
-                            )
-                        elif entry.is_dir(follow_symlinks=False):
-                            scan_directory(Path(entry.path))
-                    except OSError:
-                        continue
+                sorted_entries = sorted(
+                    entries,
+                    key=lambda entry: (entry.name.lower(), entry.name),
+                )
         except OSError:
             return
+        for entry in sorted_entries:
+            try:
+                if entry.is_file() and (
+                    Path(entry.name).suffix.lower() in selected_extensions
+                ) and not entry.name.startswith("._"):
+                    resolved = Path(entry.path).resolve(strict=False)
+                    # resolve() already ran, so the key is built without a
+                    # second resolve per discovered file.
+                    identity = ordinal_path_key(resolved.as_posix())
+                    if identity in seen_identities:
+                        continue
+                    seen_identities.add(identity)
+                elif entry.is_dir(follow_symlinks=False):
+                    yield from scan_directory(Path(entry.path))
+                    continue
+                else:
+                    continue
+            except OSError:
+                continue
+            yield resolved
 
-    scan_directory(root_path)
-    for identity in sorted(paths_by_identity):
-        yield paths_by_identity[identity]
+    yield from scan_directory(root_path)
 
 
 def read_ffmpeg_audio_duration_seconds(path: str | Path) -> float | None:

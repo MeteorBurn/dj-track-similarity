@@ -15,9 +15,9 @@ from concurrent.futures import (
 from dataclasses import dataclass, field
 from itertools import islice
 from pathlib import Path
-from typing import Callable, Collection, cast
+from typing import Callable, Collection, Iterable, Iterator, cast
 
-from .db_tracks import TrackRepository, canonical_file_path
+from .db_tracks import TrackRepository, canonical_file_path, ordinal_path_key
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure, log_job_event
 from .scanner import (
@@ -72,7 +72,7 @@ class ScanJobStatus:
 
 @dataclass
 class ScanJobPayload:
-    paths: list[Path]
+    paths: Iterable[Path]
     track_states: dict[str, TrackFileState] = field(default_factory=dict)
     reconcile_missing: bool = True
     min_duration_seconds: int | None = None
@@ -94,6 +94,22 @@ class ScanJobPayload:
                 return False
             self._accepted_count += 1
             return True
+
+    def release_scan_slot(self) -> None:
+        """Return a claimed slot when the track never reached the database."""
+
+        if self.scan_limit is None:
+            return
+        with self._accepted_lock:
+            self._accepted_count = max(0, self._accepted_count - 1)
+
+    def next_scan_batch_size(self, batch_size: int) -> int:
+        """Pull no more paths than the limit can still take."""
+
+        if self.scan_limit is None:
+            return batch_size
+        with self._accepted_lock:
+            return max(0, min(batch_size, self.scan_limit - self._accepted_count))
 
     def scan_limit_reached(self) -> bool:
         if self.scan_limit is None:
@@ -135,47 +151,51 @@ class ScanJobManager:
             raise NotADirectoryError(root_path)
         _validate_duration_bounds(min_duration_seconds, max_duration_seconds)
         selected_extensions = _selected_extensions(extensions)
-        duration_filter_active = (
-            min_duration_seconds is not None
-            or max_duration_seconds is not None
-        )
-        paths: list[Path] = []
-        extension_filtered_count = 0
-        for path in iter_audio_files(
-            root_path,
-            extensions=SUPPORTED_AUDIO_EXTENSIONS,
-        ):
-            if path.suffix.lower() not in selected_extensions:
-                extension_filtered_count += 1
-                continue
-            if duration_filter_active or limit is None or len(paths) < limit:
-                paths.append(path)
         job_id = str(uuid.uuid4())
+        payload = ScanJobPayload(
+            paths=[],
+            reconcile_missing=(
+                limit is None
+                and selected_extensions == SUPPORTED_AUDIO_EXTENSIONS
+                and min_duration_seconds is None
+                and max_duration_seconds is None
+            ),
+            min_duration_seconds=min_duration_seconds,
+            max_duration_seconds=max_duration_seconds,
+            scan_limit=limit,
+        )
+        if limit is None:
+            payload.paths = list(
+                self._iter_scan_paths(payload, root_path, selected_extensions)
+            )
+            total = len(payload.paths)
+        else:
+            # A limited scan adds new tracks only, so paths already stored are
+            # dropped before the limit counts them, and discovery stays lazy so
+            # the walk can stop as soon as the limit is filled.
+            payload.paths = self._iter_scan_paths(
+                payload,
+                root_path,
+                selected_extensions,
+                known_path_keys={
+                    # Stored paths are already resolved, so no path in the
+                    # library is resolved again to build this set.
+                    ordinal_path_key(item.file_path)
+                    for item in self.repository.list_track_paths(
+                        include_missing=True,
+                    )
+                },
+            )
+            total = 0
         status = ScanJobStatus(
             job_id=job_id,
             state="queued",
             root=str(root_path),
-            total=len(paths),
+            total=total,
             workers=max(1, workers),
             limit=limit,
         )
-        self._store.add(
-            job_id,
-            status,
-            payload=ScanJobPayload(
-                paths=paths,
-                reconcile_missing=(
-                    limit is None
-                    and selected_extensions == SUPPORTED_AUDIO_EXTENSIONS
-                    and min_duration_seconds is None
-                    and max_duration_seconds is None
-                ),
-                min_duration_seconds=min_duration_seconds,
-                max_duration_seconds=max_duration_seconds,
-                scan_limit=limit if duration_filter_active else None,
-                extension_filtered_count=extension_filtered_count,
-            ),
-        )
+        self._store.add(job_id, status, payload=payload)
         self._append_event(
             job_id,
             "info",
@@ -342,6 +362,13 @@ class ScanJobManager:
         if self.get(job_id).cancel_requested:
             return self._finish_cancelled(job_id, "Scan cancelled")
 
+        if payload.scan_limit_reached():
+            self._append_event(
+                job_id,
+                "info",
+                f"Scan limit {payload.scan_limit} reached, scanning stopped",
+            )
+
         if payload.reconcile_missing:
             try:
                 self.repository.mark_unseen_missing(
@@ -378,7 +405,7 @@ class ScanJobManager:
     def _run_parallel(
         self,
         job_id: str,
-        paths: list[Path],
+        paths: Iterable[Path],
         workers: int,
         action: Callable[[str, Path], None],
     ) -> None:
@@ -406,10 +433,35 @@ class ScanJobManager:
                     futures.pop(future, None)
                     future.result()
 
+    @staticmethod
+    def _iter_scan_paths(
+        payload: ScanJobPayload,
+        root_path: Path,
+        selected_extensions: set[str],
+        *,
+        known_path_keys: set[str] | None = None,
+    ) -> Iterator[Path]:
+        """Stream scannable paths and count what the selection dropped."""
+
+        for path in iter_audio_files(
+            root_path,
+            extensions=SUPPORTED_AUDIO_EXTENSIONS,
+        ):
+            if path.suffix.lower() not in selected_extensions:
+                payload.extension_filtered_count += 1
+                continue
+            if (
+                known_path_keys is not None
+                # iter_audio_files already yields resolved paths.
+                and ordinal_path_key(path.as_posix()) in known_path_keys
+            ):
+                continue
+            yield path
+
     def _run_parallel_scan(
         self,
         job_id: str,
-        paths: list[Path],
+        paths: Iterable[Path],
         workers: int,
     ) -> None:
         """Prepare bounded path batches and write ready results on this thread."""
@@ -420,22 +472,32 @@ class ScanJobManager:
         futures = {}
         input_exhausted = False
         actual_total = 0
-        skipped_count = payload.extension_filtered_count
-        self._update(job_id, total=actual_total, skipped=skipped_count)
+        filtered_count_total = 0
+        self._update(
+            job_id,
+            total=actual_total,
+            skipped=payload.extension_filtered_count,
+        )
         with ProcessPoolExecutor(max_workers=workers) as executor:
             while not input_exhausted or futures:
                 if self.get(job_id).cancel_requested:
                     for future in futures:
                         future.cancel()
                     return
+                if payload.scan_limit_reached():
+                    for future in futures:
+                        future.cancel()
+                    return
 
                 while not input_exhausted and len(futures) < max_in_flight:
+                    batch_size = payload.next_scan_batch_size(
+                        _SCAN_PREPARE_BATCH_SIZE,
+                    )
+                    if batch_size == 0:
+                        break
                     path_group = [
                         str(path)
-                        for path in islice(
-                            pending_paths,
-                            _SCAN_PREPARE_BATCH_SIZE,
-                        )
+                        for path in islice(pending_paths, batch_size)
                     ]
                     if not path_group:
                         input_exhausted = True
@@ -461,11 +523,14 @@ class ScanJobManager:
                         future.result(),
                     )
                     actual_total += len(prepared_group)
-                    skipped_count += filtered_count
+                    filtered_count_total += filtered_count
                     self._update(
                         job_id,
                         total=actual_total,
-                        skipped=skipped_count,
+                        skipped=(
+                            payload.extension_filtered_count
+                            + filtered_count_total
+                        ),
                     )
                     for start in range(
                         0,
@@ -504,6 +569,8 @@ class ScanJobManager:
         skipped_count = 0
         payload = cast(ScanJobPayload, self._store.payload(job_id))
         for result in results:
+            if payload.scan_limit_reached():
+                break
             path = Path(result.path)
             self._update(job_id, current_path=str(path))
             if result.error_message is not None:
@@ -522,18 +589,8 @@ class ScanJobManager:
                     path=str(path),
                 )
                 continue
-            if (
-                payload.scan_limit is not None
-                and not payload.claim_scan_slot()
-            ):
-                skipped_count += 1
-                self._append_event(
-                    job_id,
-                    "info",
-                    "Track skipped by duration filter or scan limit",
-                    path=str(path),
-                )
-                continue
+            if not payload.claim_scan_slot():
+                break
             prepared_group.append((path, result.prepared))
         return prepared_group, skipped_count
 
@@ -560,6 +617,7 @@ class ScanJobManager:
                 path=str(path),
             )
             return
+        payload = cast(ScanJobPayload, self._store.payload(job_id))
         try:
             current_stat = Path(prepared.file.file_path).stat()
             if (
@@ -574,8 +632,11 @@ class ScanJobManager:
                 tags=prepared.tags,
             )
         except Exception as error:
+            payload.release_scan_slot()
             self._record_scan_failure(job_id, path, error)
             return
+        if mutation.action != "added":
+            payload.release_scan_slot()
         counters = {
             "added": 1 if mutation.action == "added" else 0,
             "updated": 1 if mutation.action == "updated" else 0,

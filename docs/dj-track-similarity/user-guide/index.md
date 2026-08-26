@@ -8,7 +8,7 @@ tools sit on the right.
 
 | What you already have | Open | What you will get |
 | --- | --- | --- |
-| A track that points in the right direction | MERT or SONARA | Nearby candidates ranked around the seed |
+| A track that points in the right direction | SIMILARITY or SONARA | Nearby candidates ranked around the seed |
 | A sound you can describe in words | CLAP or MuQ-MuLan | A text-matched listening shortlist |
 | Useful candidates from several searches | Current Set | An editable working list for preview and export |
 | A recurring personal judgment | CLASS and Rhythm Lab | A reusable score for filtering or steering results |
@@ -21,7 +21,7 @@ and the current set remain local UI state until you explicitly add or export tra
 
 - [Browse library](./browse-library.md): pagination, search, metadata, preview, seeds, and set actions.
 - [Analyze library](./analyze-library.md): choose analysis by purpose, then configure limits, device, progress, cancellation, and reset.
-- [Search with seed tracks](./search-with-seeds.md): MERT, MuQ, MuQ-MuLan, SONARA, and LAB Reference Compare seed workflows.
+- [Search with seed tracks](./search-with-seeds.md): MAEST, MERT, MuQ, MuQ-MuLan, SONARA, and LAB Reference Compare seed workflows.
 - [Text search](./text-search.md): CLAP or MuQ-MuLan prompts, negative prompts, presets, and score scale.
 - [CLASS tab](./class-tab.md): use a personal learned concept as a library filter.
 - [Export playlists](./export-playlists.md): M3U, CSV, output folder, and Rhythm Lab collections.

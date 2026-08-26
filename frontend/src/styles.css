@@ -2917,12 +2917,12 @@ h2 {
   color: var(--accent);
   cursor: pointer;
   display: inline-flex;
-  font-size: 13px;
+  font-size: 11px;
   height: auto;
   line-height: 1.15;
   min-height: 0;
   min-width: 0;
-  padding: 5px 10px;
+  padding: 2px 6px;
   white-space: normal;
 }
 
@@ -2932,9 +2932,9 @@ h2 {
 }
 
 .clap-preset-axis-button.active {
-  background: var(--accent-soft-bg);
-  border-color: var(--accent-soft-border);
-  color: var(--accent);
+  background: var(--blue-bg-hover);
+  border-color: var(--blue-border-hover);
+  color: var(--blue-text-hover);
 }
 
 /* Badge shape, declared here rather than by reusing the MAEST genre pill: the
@@ -2996,10 +2996,17 @@ h2 {
 }
 
 .clap-preset-option-measured {
-  color: var(--text-muted);
+  align-items: center;
+  align-self: center;
+  background: var(--preset-selected-bg);
+  border: 1px solid var(--preset-selected-border);
+  border-radius: 999px;
+  color: var(--preset-selected-text);
+  display: inline-flex;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  width: 100%;
+  padding: 1px 4px;
+  width: max-content;
 }
 
 .clap-preset-option-measured.unvalidated {

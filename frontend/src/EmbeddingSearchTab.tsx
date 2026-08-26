@@ -6,7 +6,7 @@ import {
   type SeedEmbeddingFamily
 } from "./searchSurfaceState";
 
-const modelHelp = "Embedding family used for seed-to-track similarity search. MERT, MuQ, and MuQ-MuLan stay separate score spaces.";
+const modelHelp = "Embedding family used for seed-to-track similarity search. MAEST, MERT, MuQ, and MuQ-MuLan stay separate score spaces.";
 
 export function EmbeddingSearchTab({
   analysisFamily,

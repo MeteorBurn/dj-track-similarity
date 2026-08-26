@@ -9,8 +9,9 @@ ranked listening list, not an automatic crate.
 
 ## Browser and API entry points
 
-The browser provides MERT, MUQ, MULAN, SONARA, and LAB tabs. Direct clients can use `POST /api/search` for
-`maest`, `mert`, `muq`, `mulan`, or `clap` seed search, `POST /api/search/sonara` for SONARA, and
+The browser provides a **SIMILARITY** tab with MAEST, MERT, MuQ, and MuQ-MuLan model options, plus
+SONARA and LAB seed-search tabs. Direct clients can use `POST /api/search` for `maest`, `mert`,
+`muq`, `mulan`, or `clap` seed search, `POST /api/search/sonara` for SONARA, and
 `POST /api/reference/compare` for per-model comparison. Request fields, limits, and response
 identity are documented in the [API reference](../reference/api.md).
 
@@ -18,27 +19,28 @@ identity are documented in the [API reference](../reference/api.md).
 
 | Use | When it helps | What you can change |
 | --- | --- | --- |
+| MAEST | You want to search the MAEST embedding space | Result limit |
 | MERT | You want a broad learned audio neighborhood with few decisions | Result limit |
 | MuQ | You want a second generic acoustic embedding neighborhood | Result limit |
 | MuQ-MuLan | You want a music-text-aligned audio neighborhood without mixing it into another family | Result limit |
 | SONARA | You know which audible qualities should stay close or move | Feature mode, mixer weights, and directional modifiers |
 | LAB | You want to hear how separate model families disagree | Model columns, result limit, and listening verdicts |
 
-MERT, MuQ, and MuQ-MuLan ask the quicker question: "what is near these tracks in this model's audio space?"
+MAEST, MERT, MuQ, and MuQ-MuLan ask the quicker question: "what is near these tracks in this model's audio space?"
 SONARA asks the more explicit question: "what is near them according to the qualities I care about
 now?"
 
 ## Choose seeds
 
 In the library list, add tracks to the seed strip. The search panel uses the selected seed IDs for
-MERT, MuQ, MuQ-MuLan, SONARA, and the LAB Reference Compare panel.
+MAEST, MERT, MuQ, MuQ-MuLan, SONARA, and the LAB Reference Compare panel.
 
-## MERT, MUQ, and MULAN tabs
+## SIMILARITY model selector
 
-Both tabs call `/api/search` with selected seed IDs and the matching `analysis_family`. They compare
-only exact-current stored embeddings for that family and return scored candidates.
+The **SIMILARITY** tab calls `/api/search` with selected seed IDs and the selected `analysis_family`. It compares
+only exact-current stored embeddings for that family and returns scored candidates.
 
-Use MERT, MuQ, or MuQ-MuLan when you want audio-to-audio similarity from a learned embedding
+Use MAEST, MERT, MuQ, or MuQ-MuLan when you want audio-to-audio similarity from a learned embedding
 space. MERT is a broad musical representation. MuQ adds a separate generic acoustic view.
 MuQ-MuLan uses its own 512D audio space that also supports text retrieval. None knows your exact DJ
 intention, and their scores are not one shared scale.

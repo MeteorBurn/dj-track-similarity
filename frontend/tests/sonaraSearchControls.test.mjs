@@ -74,7 +74,7 @@ test("SONARA mode and limit share one compact styled row", () => {
   assert.match(stylesSource, /\.sonara-mode-select:focus-visible/);
 });
 
-test("MERT, MuQ, and MuQ-MuLan share one SIMILARITY tab with a seed model switcher", () => {
+test("MAEST, MERT, MuQ, and MuQ-MuLan share one SIMILARITY tab with a seed model switcher", () => {
   assert.match(panelSource, /activeSearchTab === "similarity"/);
   assert.match(panelSource, /<EmbeddingSearchTab/);
   assert.match(panelSource, /analysisFamily=\{seedEmbeddingFamily\}/);

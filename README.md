@@ -416,9 +416,10 @@ In the CLI, omit `--limit` to analyze the whole library.
 
 ## 🖥️ Frontend status
 
-The React source uses the current backend responses. Its main search tabs are LAB, SONARA, MERT,
-MUQ, CLAP, and CLASS. Search results provide individual current-set actions, and the shared Current
-Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.
+The React source uses the current backend responses. Its main search tabs are LAB, SONARA,
+SIMILARITY, TEXT, and CLASS. The SIMILARITY model selector searches separate MAEST, MERT, MuQ,
+and MuQ-MuLan embedding spaces. Search results provide individual current-set actions, and the shared
+Current Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.
 Database changes clear catalog-bound state; exact-identity writes carry catalog UUID, track UUID,
 and content generation.
 

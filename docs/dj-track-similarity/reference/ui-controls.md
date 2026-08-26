@@ -85,13 +85,14 @@ first, then select the ML families to analyze.
 
 ## Search tabs
 
-The primary tab list is **LAB**, **SONARA**, **MERT**, **MUQ**, **MULAN**, **TEXT**, and **CLASS**.
+The primary tab list is **LAB**, **SONARA**, **SIMILARITY**, **TEXT**, and **CLASS**.
 Use `ArrowLeft` and `ArrowRight` to move between tabs; `Home` and `End` jump to the first and last
 tab.
 
-MERT, MUQ, and MULAN use the same generic seed-search shape. All accept a `1..500` result limit and
-selected seed tracks. A tab with zero current embeddings is disabled with a source-specific reason.
-Request failures stay visible in that tab instead of being replaced by an empty successful result.
+The **SIMILARITY** tab selects MAEST, MERT, MuQ, or MuQ-MuLan for generic seed search. All four
+options accept a `1..500` result limit and selected seed tracks. An option with zero current
+embeddings is disabled with a source-specific reason. Request failures stay visible in the tab
+instead of being replaced by an empty successful result.
 
 ## CLASS, LAB, and Rhythm Lab
 

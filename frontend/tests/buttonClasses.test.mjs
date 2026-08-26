@@ -500,9 +500,9 @@ test("selected text presets stay beside the picker with green accent badge inten
   assert.match(negativeToggleRule, /border:\s*1px solid var\(--danger-muted-border\)/);
   assert.match(negativeToggleRule, /color:\s*var\(--danger-text\)/);
   assert.match(promptToolbarRule, /justify-content:\s*space-between/);
-  assert.match(axisRule, /font-size:\s*13px/);
+  assert.match(axisRule, /font-size:\s*11px/);
   assert.match(axisRule, /min-width:\s*0/);
-  assert.match(axisRule, /padding:\s*5px 10px/);
+  assert.match(axisRule, /padding:\s*2px 6px/);
   assert.match(axisRule, /white-space:\s*normal/);
   assert.match(groupLabelRule, /color:\s*var\(--blue-text\)/);
   assert.match(groupLabelRule, /font-size:\s*13px/);
@@ -525,10 +525,36 @@ test("text preset options use a four-column grid to keep the picker within three
   assert.match(labelRule, /min-width:\s*0/);
   assert.match(labelRule, /overflow-wrap:\s*normal/);
   assert.match(labelRule, /width:\s*100%/);
-  assert.match(measuredRule, /width:\s*100%/);
+  assert.match(measuredRule, /width:\s*max-content/);
   assert.match(styles, /\.clap-preset-axes\s*{[\s\S]*?grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(styles, /--font-size-compact-selector:\s*10px/);
   assert.match(styles, /@media\s*\(max-width:\s*600px\)[\s\S]*?\.clap-preset-axis-button\s*{[\s\S]*?font-size:\s*var\(--font-size-compact-selector\)/);
+});
+
+test("active text preset axis matches the compact blue Presets control", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const axisRule = styles.match(/\.clap-preset-axis-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const activeAxisRule = styles.match(/\.clap-preset-axis-button\.active\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(axisRule, /font-size:\s*11px/);
+  assert.match(axisRule, /padding:\s*2px 6px/);
+  assert.match(activeAxisRule, /background:\s*var\(--blue-bg-hover\)/);
+  assert.match(activeAxisRule, /border-color:\s*var\(--blue-border-hover\)/);
+  assert.match(activeAxisRule, /color:\s*var\(--blue-text-hover\)/);
+});
+
+test("text preset measurements render as compact green badges", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const measuredRule = styles.match(/\.clap-preset-option-measured\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(measuredRule, /align-self:\s*center/);
+  assert.match(measuredRule, /background:\s*var\(--preset-selected-bg\)/);
+  assert.match(measuredRule, /border:\s*1px solid var\(--preset-selected-border\)/);
+  assert.match(measuredRule, /border-radius:\s*999px/);
+  assert.match(measuredRule, /color:\s*var\(--preset-selected-text\)/);
+  assert.match(measuredRule, /display:\s*inline-flex/);
+  assert.match(measuredRule, /padding:\s*1px 4px/);
+  assert.match(measuredRule, /width:\s*max-content/);
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

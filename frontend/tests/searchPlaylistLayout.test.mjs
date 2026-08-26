@@ -90,10 +90,10 @@ test("primary search tabs expose the five maintained workflows with roving ARIA 
   assert.match(panelSource, /aria-controls=\{`search-panel-\$\{tab\}`\}/);
   assert.match(panelSource, /tabIndex=\{activeSearchTab === tab \? 0 : -1\}/);
   assert.match(panelSource, /onKeyDown=\{handlePrimaryTabKeyDown\}/);
-  assert.match(panelSource, /similarity: \{ label: "SIMILARITY", title: "Seed embedding similarity search \(MERT, MuQ, MuQ-MuLan\)" \}/);
+  assert.match(panelSource, /similarity: \{ label: "SIMILARITY", title: "Seed embedding similarity search \(MAEST, MERT, MuQ, MuQ-MuLan\)" \}/);
 });
 
-test("one SIMILARITY tab switches seed models and keeps per-model result provenance", async () => {
+test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", async () => {
   const {
     genericSearchResultIsCurrent,
     searchTabForResultOrigin,
@@ -101,11 +101,12 @@ test("one SIMILARITY tab switches seed models and keeps per-model result provena
     seedEmbeddingFamilyPresentation
   } = await loadSearchSurfaceState();
 
-  assert.deepEqual([...seedEmbeddingFamilies], ["mert", "muq", "mulan"]);
+  assert.deepEqual([...seedEmbeddingFamilies], ["maest", "mert", "muq", "mulan"]);
   assert.deepEqual(
     seedEmbeddingFamilies.map((family) => seedEmbeddingFamilyPresentation[family].label),
-    ["MERT", "MuQ", "MuQ-MuLan"]
+    ["MAEST", "MERT", "MuQ", "MuQ-MuLan"]
   );
+  assert.equal(searchTabForResultOrigin("maest"), "similarity");
   assert.equal(searchTabForResultOrigin("mulan"), "similarity");
   assert.equal(searchTabForResultOrigin("clap"), "clap");
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "key", "key"), true);

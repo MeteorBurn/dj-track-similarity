@@ -93,7 +93,7 @@ const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
 
 const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
   sonara: { label: "SONARA", title: "SONARA similarity search" },
-  similarity: { label: "SIMILARITY", title: "Seed embedding similarity search (MERT, MuQ, MuQ-MuLan)" },
+  similarity: { label: "SIMILARITY", title: "Seed embedding similarity search (MAEST, MERT, MuQ, MuQ-MuLan)" },
   clap: { label: "TEXT", title: "TEXT text search (CLAP or MuQ-MuLan)" },
   class: { label: "CLASS", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }

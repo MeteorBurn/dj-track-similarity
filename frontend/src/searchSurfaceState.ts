@@ -1,5 +1,5 @@
 export type PrimarySearchTab = "sonara" | "similarity" | "clap" | "class" | "lab";
-export type SeedEmbeddingFamily = "mert" | "muq" | "mulan";
+export type SeedEmbeddingFamily = "maest" | "mert" | "muq" | "mulan";
 export type GenericSearchTab = Extract<PrimarySearchTab, "sonara" | "clap"> | SeedEmbeddingFamily;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
 
@@ -11,9 +11,10 @@ export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "class"
 ];
 
-export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["mert", "muq", "mulan"];
+export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert", "muq", "mulan"];
 
 export const seedEmbeddingFamilyPresentation: Record<SeedEmbeddingFamily, { label: string; title: string }> = {
+  maest: { label: "MAEST", title: "MAEST seed embedding search" },
   mert: { label: "MERT", title: "MERT seed embedding search" },
   muq: { label: "MuQ", title: "MuQ seed embedding search" },
   mulan: { label: "MuQ-MuLan", title: "MuQ-MuLan seed embedding search" }

@@ -339,7 +339,7 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
 
     class FakeClapModule:
         def __init__(self, *, enable_fusion, amodel, tmodel, device):
-            print("[transformers] RobertaModel LOAD REPORT from: roberta-base")
+            print(f"Loading CLAP {amodel} on {device}")
 
         def load_ckpt(self, checkpoint_path, verbose=True):
             print(f"Load the specified checkpoint {checkpoint_path} from users.")
@@ -388,7 +388,7 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
     for handler in logging.getLogger("dj_track_similarity").handlers:
         handler.flush()
     contents = log_path.read_text(encoding="utf-8")
-    assert "[transformers] RobertaModel LOAD REPORT from: roberta-base" in contents
+    assert "Loading CLAP " in contents
     assert "Load the specified checkpoint " in contents
     assert "djts-verified-model-" in contents
     assert "CLAP warning from stderr" in contents

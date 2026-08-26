@@ -4,6 +4,7 @@ import asyncio
 import errno
 import sys
 import logging
+import logging.handlers
 import os
 import re
 import threading
@@ -20,6 +21,7 @@ DEFAULT_LOG_PATH = Path("logs") / "dj-track-similarity.log"
 FILE_HANDLER_NAME = "dj_track_similarity_file"
 PROJECT_LOGGER_NAME = "dj_track_similarity"
 FILE_BACKUP_COUNT = 1
+FILE_MAX_BYTES = 8 * 1024 * 1024
 LOG_DATE_FORMAT = "%Y-%m-%d] [%H:%M:%S"
 FILE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
 CONSOLE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(message)s"
@@ -29,16 +31,17 @@ _ANALYSIS_DIAGNOSTICS: bool | None = None
 _ASYNCIO_HANDLER_MARKER = "_dj_track_similarity_asyncio_exception_logging"
 _STREAM_MIRROR_MARKER = "_dj_track_similarity_stream_mirror"
 _STREAM_LOGGING_STATE = threading.local()
+_ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _WEIGHT_LOADING_PROGRESS_PATTERN = re.compile(r"Loading weights:\s*\d+%")
-_XLM_ROBERTA_LOAD_REPORT_HEADER = re.compile(
-    r"^\[transformers\]\s+XLMRobertaModel\s+LOAD REPORT from:"
-)
-_XLM_ROBERTA_LOAD_REPORT_TABLE_LINE = re.compile(
-    r"^(?:Key\s+\|\s+Status\s+\||[-+| ]+$|\S.*\|\s+[A-Z_]+\s+\|)$"
-)
+_PROGRESS_BAR_PATTERN = re.compile(r"\d+%\||\[\d{2}:\d{2}[<,]")
+_MODEL_LOAD_REPORT_HEADER = re.compile(r"^\[transformers\]\s+\S+\s+LOAD REPORT\s+from:")
+_MODEL_LOAD_REPORT_BODY = re.compile(r"^(?:.*\||[-+]{3,}|Notes:|-\s)")
+# Both streams mirror at INFO. Libraries print progress, load reports and their own
+# already-levelled lines to stderr, so a WARNING here labelled ordinary output as a
+# problem and left the level useless as a filter.
 _STANDARD_STREAM_LOGGERS = {
     "stdout": ("dj_track_similarity.console.stdout", logging.INFO),
-    "stderr": ("dj_track_similarity.console.stderr", logging.WARNING),
+    "stderr": ("dj_track_similarity.console.stderr", logging.INFO),
 }
 
 
@@ -179,8 +182,12 @@ class StandardStreamLogMirror:
         self._level = level
         self._buffer = ""
         self._lock = threading.RLock()
-        self._suppress_xlm_roberta_load_report = False
+        self._suppress_load_report = False
         setattr(self, _STREAM_MIRROR_MARKER, True)
+
+    @property
+    def raw_stream(self):
+        return self._stream
 
     @property
     def encoding(self):
@@ -234,7 +241,7 @@ class StandardStreamLogMirror:
             self._emit(line)
 
     def _emit(self, line: str) -> None:
-        cleaned = line.rstrip()
+        cleaned = _ANSI_ESCAPE_PATTERN.sub("", line).rstrip()
         if not cleaned:
             return
         if self._is_suppressed_model_loading_line(cleaned):
@@ -248,16 +255,45 @@ class StandardStreamLogMirror:
             _STREAM_LOGGING_STATE.active = False
 
     def _is_suppressed_model_loading_line(self, line: str) -> bool:
+        """Drop model-loading chatter that says nothing about this run.
+
+        Progress bars redraw themselves many times a second and every redraw would
+        become its own file record. A load report is the same table for every run of
+        the same model, and it is written for whichever class transformers happens to
+        instantiate, so the class name is not part of the match.
+        """
+
         if _WEIGHT_LOADING_PROGRESS_PATTERN.search(line):
             return True
-        if _XLM_ROBERTA_LOAD_REPORT_HEADER.match(line):
-            self._suppress_xlm_roberta_load_report = True
+        if _PROGRESS_BAR_PATTERN.search(line):
             return True
-        if self._suppress_xlm_roberta_load_report:
-            if _XLM_ROBERTA_LOAD_REPORT_TABLE_LINE.match(line):
+        if _MODEL_LOAD_REPORT_HEADER.match(line):
+            self._suppress_load_report = True
+            return True
+        if self._suppress_load_report:
+            if _MODEL_LOAD_REPORT_BODY.match(line):
                 return True
-            self._suppress_xlm_roberta_load_report = False
+            self._suppress_load_report = False
         return False
+
+
+def _unmirrored_console_stream():
+    stream = sys.stdout
+    while isinstance(stream, StandardStreamLogMirror):
+        stream = stream.raw_stream
+    return stream if stream is not None else sys.__stdout__
+
+
+class ConsoleAccessHandler(logging.StreamHandler):
+    """Write HTTP access records to the console and nowhere else.
+
+    The standard stream mirror copies everything written to ``sys.stdout`` into the
+    file log. Access records are UI polling of one job endpoint, hundreds of identical
+    lines per job, and they crowded out everything the file log exists to hold.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(_unmirrored_console_stream())
 
 
 def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
@@ -291,9 +327,8 @@ def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
                 "stream": "ext://sys.stderr",
             },
             "access": {
-                "class": "logging.StreamHandler",
+                "()": f"{__name__}.ConsoleAccessHandler",
                 "formatter": "access",
-                "stream": "ext://sys.stdout",
             },
         },
         "loggers": {
@@ -463,10 +498,21 @@ def log_failure(logger: logging.Logger, message: str, *args: object, **kwargs: o
     logger.debug(message, *args, exc_info=True, **kwargs)
 
 
-class ProjectStartupFileHandler(logging.FileHandler):
+class ProjectStartupFileHandler(logging.handlers.RotatingFileHandler):
+    """Project log rolled by date at startup, with a size backstop.
+
+    :func:`_rollover_project_logs_at_startup` archives the previous day under a dated
+    name. ``maxBytes`` only catches a single run that outgrows one day, and its
+    numbered backups stay out of the dated namespace the startup rollover prunes.
+    """
+
     def __init__(self, filename: str | Path, *, backup_count: int, encoding: str) -> None:
-        self.backupCount = backup_count
-        super().__init__(filename, encoding=encoding)
+        super().__init__(
+            filename,
+            maxBytes=FILE_MAX_BYTES,
+            backupCount=backup_count,
+            encoding=encoding,
+        )
 
 
 def _rollover_project_logs_at_startup(active_path: Path, backup_count: int) -> None:
@@ -548,7 +594,9 @@ def _rollover_project_sibling_logs(log_paths: list[Path], suffix: str, backup_co
 
 
 def _delete_old_log_backups(active_path: Path, backup_count: int) -> None:
-    backups = sorted(active_path.parent.glob(f"{active_path.name}.*"))
+    backups = sorted(
+        active_path.parent.glob(f"{active_path.name}.[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]")
+    )
     if backup_count <= 0:
         old_backups = backups
     else:

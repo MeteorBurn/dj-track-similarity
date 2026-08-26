@@ -670,6 +670,7 @@ class ScanJobManager:
             message=f"Track failed: {error_text}",
             level="error",
             path=str(path),
+            log=False,
         )
 
     def _refresh_tags_one(self, job_id: str, path: Path) -> None:
@@ -795,6 +796,7 @@ class ScanJobManager:
         unchanged: int = 0,
         skipped: int = 0,
         failed: int = 0,
+        log: bool = True,
     ) -> None:
         with self._store.locked(job_id) as status:
             status.processed += 1
@@ -813,6 +815,7 @@ class ScanJobManager:
             message,
             path=path,
             track_event=True,
+            log=log,
         )
 
     def _update(self, job_id: str, **changes: object) -> None:
@@ -826,16 +829,18 @@ class ScanJobManager:
         *,
         path: str | None = None,
         track_event: bool = False,
+        log: bool = True,
     ) -> None:
-        log_job_event(
-            LOGGER,
-            level,
-            "%s job_id=%s path=%s",
-            message,
-            job_id,
-            path,
-            track_event=track_event,
-        )
+        if log:
+            log_job_event(
+                LOGGER,
+                level,
+                "%s job_id=%s path=%s",
+                message,
+                job_id,
+                path,
+                track_event=track_event,
+            )
         self._store.append_event(
             job_id,
             ScanLogEvent(

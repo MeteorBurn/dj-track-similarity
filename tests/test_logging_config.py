@@ -172,22 +172,45 @@ def test_configure_logging_defaults_to_info_and_higher(tmp_path):
     assert "important warning" in contents
 
 
-def test_standard_stream_logging_omits_xlm_roberta_weight_loading_noise(tmp_path):
+def test_standard_stream_logging_omits_model_loading_noise(tmp_path):
+    """Library chatter arrives coloured and redrawn, not as tidy plain text.
+
+    transformers and huggingface_hub wrap their output in ANSI sequences and repaint
+    progress bars many times a second, so the filters are exercised against those
+    shapes: escapes, a load report for whichever model class transformers happened to
+    instantiate, and download bars.
+    """
+
+    escape = chr(27)
     log_path = tmp_path / "app.log"
     configure_logging(log_path)
 
-    print("Loading weights: 100%|█████████████████████████████████████████████████████████████| 199/199 [00:00<00:00, 5143.40it/s]")
-    print("[transformers] XLMRobertaModel LOAD REPORT from: xlm-roberta-base")
-    print("Key                       | Status     |")
-    print("lm_head.bias              | UNEXPECTED |")
+    print("Loading weights: 100%|███| 199/199 [00:00<00:00, 5143.40it/s]")
+    print("Fetching 5 files:   0%|          | 0/5 [00:00<?, ?it/s]")
+    print("Download complete: : 0.00B [00:02, ?B/s]")
+    print(
+        f"[transformers] {escape}[1mRobertaModel{escape}[0m "
+        f"LOAD REPORT{escape}[0m from: roberta-base"
+    )
+    print("Key                       | Status     |  |")
+    print("--------------------------+------------+--+-")
+    print(f"lm_head.bias              | {escape}[38;5;208mUNEXPECTED{escape}[0m |  |")
+    print(f"pooler.dense.weight       | {escape}[31mMISSING{escape}[0m    |  |")
+    print("Notes:")
+    print(f"- {escape}[38;5;208mUNEXPECTED:{escape}[0m can be ignored for another task")
     print("Model loading completed")
     for handler in logging.getLogger("dj_track_similarity").handlers:
         handler.flush()
 
     contents = log_path.read_text(encoding="utf-8")
     assert "Loading weights:" not in contents
-    assert "XLMRobertaModel LOAD REPORT" not in contents
+    assert "Fetching 5 files" not in contents
+    assert "Download complete" not in contents
+    assert "LOAD REPORT" not in contents
     assert "lm_head.bias" not in contents
+    assert "pooler.dense.weight" not in contents
+    assert "Notes:" not in contents
+    assert escape not in contents
     assert "Model loading completed" in contents
 
 

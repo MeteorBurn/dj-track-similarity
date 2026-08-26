@@ -1054,6 +1054,7 @@ class AnalysisJobManager:
                 path=candidate.file_path,
                 track_id=track_id,
                 model=model,
+                log=False,
             )
 
     def _mark_track_processed(
@@ -1158,18 +1159,26 @@ class AnalysisJobManager:
         path: str | None = None,
         track_id: int | None = None,
         model: str | None = None,
+        log: bool = True,
     ) -> None:
-        log_job_event(
-            LOGGER,
-            level,
-            "%s job_id=%s model=%s track_id=%s path=%s",
-            message,
-            job_id,
-            model,
-            track_id,
-            path,
-            track_event=level == "ok",
-        )
+        """Record one job event for the UI, and by default for the app log too.
+
+        Callers that already wrote a structured record pass ``log=False`` so the
+        failure reaches the log once instead of twice.
+        """
+
+        if log:
+            log_job_event(
+                LOGGER,
+                level,
+                "%s job_id=%s model=%s track_id=%s path=%s",
+                message,
+                job_id,
+                model,
+                track_id,
+                path,
+                track_event=level == "ok",
+            )
         self._store.append_event(
             job_id,
             AnalysisLogEvent(

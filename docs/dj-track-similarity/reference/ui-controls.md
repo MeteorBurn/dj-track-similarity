@@ -117,10 +117,10 @@ family’s score space and appear on the TEXT tab.
 
 The top-bar Rhythm Lab action calls `/api/rhythm-lab/launch` and opens the returned local URL. The
 current set can be saved as a Lab review collection. Standalone Rhythm Lab shows current, missing,
-or stale state for SONARA, MERT, MAEST, CLAP, and MuQ; its page sizes are `50`, `100`, `200`, and
-`500`. For a binary profile, a configured training label appears immediately after **TRAINED** with
-its display name: positive is green and negative is red. The **Training recipe** selector supports
-MuQ and explicit source combinations.
+or stale state for SONARA, MERT, MAEST, CLAP, MuQ, and MuQ-MuLan; its page sizes are `50`, `100`,
+`200`, and `500`. For a binary profile, a configured training label appears immediately after
+**TRAINED** with its display name: positive is green and negative is red. The **Training recipe**
+selector supports explicit combinations of all six sources.
 
 The top-bar power button calls `/api/server/shutdown` for the current app session. After the
 backend acknowledges the request, the UI swaps to a final "servers stopped" page and asks the

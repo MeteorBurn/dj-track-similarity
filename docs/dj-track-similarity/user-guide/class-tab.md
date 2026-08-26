@@ -23,7 +23,8 @@ The backend reads promoted local profiles only when their manifest is valid and 
 current scoring inputs. The browser lists those profiles in **CLASS**, shows each profile's blocker
 when scoring is unavailable, serializes the minimum-score filters into the library query, and
 keeps per-profile rescore actions scoped to the selected `classifier_key`. Standalone Rhythm Lab
-also exposes MuQ-aware training recipes and source-readiness explanations.
+also exposes training recipes over every supported feature source and source-readiness
+explanations.
 
 ## How a promoted classifier is stored
 
@@ -42,7 +43,8 @@ manifest, or model hash mismatch.
 
 The manifest describes the classifier key, labels, model id, calibration status, ordered feature
 names, and required inputs. A SONARA-dependent feature set names
-the SONARA values it uses, while `muq:<index>` features require the expected vector dimension.
+the SONARA values it uses, while `muq:<index>` and `mulan:<index>` features require the expected
+vector dimension.
 Artifacts with an incomplete or changed feature recipe remain visible with a blocker until that
 profile is retrained and promoted.
 

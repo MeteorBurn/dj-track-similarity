@@ -29,7 +29,7 @@ which families deserve a full-library run.
 | MAEST | `maest_genres` rows and a `maest_embeddings` row | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
 | MERT | a row in `mert_embeddings` | seed search, LAB Reference Compare, Audio Dedup, classifier input |
 | MuQ | a row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup, classifier input |
-| MuQ-MuLan | separate 512D L2-normalized audio embedding | seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
+| MuQ-MuLan | separate 512D L2-normalized audio embedding | seed search, text-to-track retrieval, optional ANN, one of the six separate LAB Reference Compare groups, and classifier input |
 | CLAP | a row in `clap_embeddings` | seed and text search, LAB Reference Compare, Audio Dedup, classifier input |
 | CLASSIFIERS | rows in `classifier_scores` | CLASS filters |
 

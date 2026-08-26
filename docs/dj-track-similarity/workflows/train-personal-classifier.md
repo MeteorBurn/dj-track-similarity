@@ -41,10 +41,11 @@ dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert --db .\data\library.sqlite
 ```
 
-If a selected feature set contains MuQ, store its current embedding first:
+If a selected feature set contains MuQ or MuQ-MuLan, store the current embedding for that family
+first:
 
 ```powershell
-dj-sim analyze --models muq --db .\data\library.sqlite
+dj-sim analyze --models muq,mulan --db .\data\library.sqlite
 ```
 
 Benchmark variants can also use CLAP when CLAP embeddings already exist. The single current
@@ -96,10 +97,12 @@ variant after the usable-row gate is met: at least 100 total examples, including
 the active source catalog unless the CLI receives the experimental
 `--allow-uncalibrated` override.
 
-CLI and UI training default to the current full recipe,
-`sonara+mert+maest+clap+muq`. The **Training recipe** selector also exposes
-individual sources and supported combinations. Readiness is calculated from
-labels that have every current output required by the selected recipe.
+CLI and UI training default to the current default recipe,
+`sonara+mert+maest+clap+muq+mulan`, which combines all six feature sources,
+including MuQ-MuLan (`mulan`). The **Training recipe** selector also exposes
+individual sources and supported combinations, such as the five-source
+`sonara+mert+maest+clap+muq`. Readiness is calculated from labels that have
+every current output required by the selected recipe.
 
 After training, listen to high-scoring, low-scoring, and borderline candidates. Useful mistakes
 often reveal that the concept or the label set needs refinement before promotion.
@@ -113,9 +116,9 @@ profile:
 python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\profiles\live-instrumentation\ablation.json
 ```
 
-The Training tab benchmarks all 31 non-empty combinations of SONARA, MERT,
-MAEST, CLAP, and MuQ, then identifies the best trained variant for the active
-profile before promotion.
+The Training tab benchmarks all 63 non-empty combinations of SONARA, MERT,
+MAEST, CLAP, MuQ, and MuQ-MuLan, then identifies the best trained variant for
+the active profile before promotion.
 
 For any other combination, repeat the CLI option:
 
@@ -198,9 +201,9 @@ profiles. A promoted artifact with a mismatched ordered feature recipe cannot sc
 Use [Migrate and reanalyze SONARA storage](./reanalyze-sonara-split-storage.md) when the source
 analysis update changes stored structure or the classifier's feature recipe.
 
-A promoted artifact may declare ordered `muq:<index>` features and the expected MuQ vector
-dimension. Backend scoring loads those values from SQLite without decoding audio. A profile whose
-ordered feature recipe no longer matches must be retrained and promoted.
+A promoted artifact may declare ordered `muq:<index>` or `mulan:<index>` features and the expected
+vector dimension for each family. Backend scoring loads those values from SQLite without decoding
+audio. A profile whose ordered feature recipe no longer matches must be retrained and promoted.
 
 ## Safety
 

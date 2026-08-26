@@ -47,10 +47,12 @@ Training uses the feature families declared by the selected profile artifact. A 
 SONARA, MERT, and MAEST requires their current outputs; a feature set that includes CLAP also
 requires stored CLAP audio embeddings.
 
-MuQ is a normal embedding feature source. The `muq` set emits ordered `muq:<index>` features from
-the dimension expected by the current feature recipe. It can be combined with other sources, for
-example as `sonara+muq`, `mert+muq`, or `sonara+mert+maest+clap+muq`. Missing required values make
-a track ineligible. Required values are not zero-imputed.
+MuQ and MuQ-MuLan are normal embedding feature sources. The `muq` and `mulan` sets emit ordered
+`muq:<index>` and `mulan:<index>` features from the dimension expected by the current feature
+recipe. They can be combined with other sources, such as `sonara+muq`, `mert+muq`, or
+`sonara+mert+maest+clap+muq`. The default training recipe is the six-source
+`sonara+mert+maest+clap+muq+mulan`, so MuQ-MuLan is part of default training. Missing
+required values make a track ineligible. Required values are not zero-imputed.
 
 SONARA inputs must provide the ordered feature recipe selected for training. A row missing a
 requested opt-in field is skipped rather than zero-imputed.
@@ -65,7 +67,7 @@ that profile is retrained and promoted.
 ## Scoring
 
 Promoted classifier scoring is database-only. Each manifest identifies the exact current SONARA and
-MERT/MAEST/CLAP/MuQ inputs it needs. The aggregate job writes `classifier_scores` for every
+MERT/MAEST/CLAP/MuQ/MuQ-MuLan inputs it needs. The aggregate job writes `classifier_scores` for every
 selected compatible classifier-track pair without reading audio.
 
 Readiness is computed before the job total. Missing manifest inputs make a track not ready, not
@@ -83,7 +85,7 @@ Labels, feedback, and unrelated artifacts remain available.
 ## Current UI status
 
 The static Rhythm Lab UI shows current/missing/stale state for every source and provides a
-**Training recipe** selector for MuQ and arbitrary supported source combinations. Use
+**Training recipe** selector for any supported source combination. Use
 `benchmark-ablation` with explicit `--feature-set` values when you need a repeatable CLI matrix.
 
 The main frontend lists promoted profiles in CLASS and serializes minimum-score filters. It also

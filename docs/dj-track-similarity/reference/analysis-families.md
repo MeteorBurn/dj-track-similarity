@@ -38,7 +38,7 @@ failure.
 | MAEST | shared ML decode | `maest_genres` rows and a `maest_embeddings` row | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MERT | shared ML decode | a row in `mert_embeddings` | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MuQ | shared ML decode, resampled to 24 kHz `float32` | a row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MuQ-MuLan | shared ML decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, and one of the six separate LAB Reference Compare groups |
+| MuQ-MuLan | shared ML decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, one of the six separate LAB Reference Compare groups, and classifier input |
 | CLAP | shared ML decode | a row in `clap_embeddings` | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | CLASSIFIERS | exact stored inputs from each promoted manifest | rows in `classifier_scores` | CLASS filters |
 
@@ -234,6 +234,8 @@ L2-normalized audio vector per current track to `mulan_embeddings`. Existing `mu
 neither copied nor transformed. Seed and text queries use only the selected family table and its
 matching runtime identity.
 
-The new family is not added to the existing default Evaluation source profile or Audio Dedup source
-weights. Those mixed-score defaults remain unchanged. Choose MuQ-MuLan explicitly for
-its own seed or text search, or explicitly in a workflow that accepts a model-family choice.
+The family is not added to the existing default Evaluation source profile or Audio Dedup
+source weights. Those mixed-score defaults remain unchanged. It is part of the default Rhythm
+Lab training recipe, `sonara+mert+maest+clap+muq+mulan`. Elsewhere, choose MuQ-MuLan
+explicitly: as its own seed or text search, or in another workflow that accepts a model-family
+choice.

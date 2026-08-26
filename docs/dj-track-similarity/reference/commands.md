@@ -364,7 +364,8 @@ real project database.
 The Rhythm Lab wrapper is `python tools/rhythm-lab/rhythm_lab_cli.py`. Where used, the default
 source database is `C:\db\abstracted.sqlite`. The default labels database is
 `tools\rhythm-lab\database\rhythm_lab.sqlite`. The default feature set is
-`sonara+mert+maest+clap+muq`.
+`sonara+mert+maest+clap+muq+mulan`. `--feature-set` accepts any non-empty `+`-joined combination of
+`sonara`, `mert`, `maest`, `clap`, `muq`, and `mulan`, in any order.
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels .\data\rhythm_lab.sqlite

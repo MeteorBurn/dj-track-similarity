@@ -181,7 +181,7 @@ The BPM range SONARA analyses with belongs to the library rather than to a singl
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
-- **MuQ-MuLan** stores a separate 512-dimensional L2-normalized audio embedding in `mulan_embeddings`. It supports its own seed-search space and text-to-track retrieval. It does not convert or reuse MuQ embeddings.
+- **MuQ-MuLan** stores a separate 512-dimensional L2-normalized audio embedding in `mulan_embeddings`. It supports its own seed-search space and text-to-track retrieval, and compatible Rhythm Lab classifier feature sets can use it. It does not convert or reuse MuQ embeddings.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
 
@@ -263,7 +263,7 @@ CLAP text-search scores are not the same scale as seed-based audio-to-audio scor
 Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier
 scores. The backend has routes to launch or reuse it at `127.0.0.1:8777` and to save review
 collections. The main frontend exposes both actions, and the standalone Lab UI reports
-current/missing/stale source state plus MuQ-aware training recipes.
+current/missing/stale source state plus training recipes over every supported feature source.
 
 A new Rhythm Lab labels database starts without a built-in classifier profile. Create or select the profile you want to train. Profile-specific CLI commands use an explicit `--profile`.
 

@@ -13,7 +13,7 @@ different sources and help with different decisions.
 | Which tracks fit a written sound description? | CLAP | Text-search rankings |
 | What genre-like and audio evidence does another model add? | MAEST | Display labels, LAB comparison, Audio Dedup, and classifier input |
 | How does another general audio model rank this seed? | MuQ | Seed search, a separate LAB group, Audio Dedup, and classifier input |
-| Which audio tracks fit a text-aligned music space? | MuQ-MuLan | Separate seed and text-to-track rankings |
+| Which audio tracks fit a text-aligned music space? | MuQ-MuLan | Separate seed and text-to-track rankings, and classifier input |
 | How strongly does a track match my own labeled idea? | Classifier score | CLASS filters |
 
 An embedding is a compact model representation used for comparison. You do not need to interpret
@@ -90,7 +90,9 @@ Use the MULAN tab for audio-to-audio seed search. In the TEXT tab, choose
 **MuQ-MuLan** to embed text and retrieve only `mulan_embeddings`. Its text and seed scores stay
 separate from MuQ and CLAP scores. MuQ-MuLan is available as an explicit Evaluation candidate
 source, but it is not added automatically to the default profile or Audio Dedup weights. LAB
-Reference Compare includes MuQ-MuLan in its six separate default groups.
+Reference Compare includes MuQ-MuLan in its six separate default groups. Rhythm Lab classifier
+feature sets that name `mulan` use the stored vector, and the default training recipe
+`sonara+mert+maest+clap+muq+mulan` includes it.
 
 ## CLAP audio embedding
 
@@ -98,7 +100,7 @@ CLAP analysis stores audio embeddings. The TEXT tab embeds a text prompt at sear
 
 ## Classifier scores
 
-Promoted Rhythm Lab classifiers write scores under a `classifier_key`. A manifest can require current SONARA, MERT, MAEST, MuQ, and/or CLAP inputs. Scores are optional and are consumed by the selected CLASS profile.
+Promoted Rhythm Lab classifiers write scores under a `classifier_key`. A manifest can require current SONARA, MERT, MAEST, MuQ, MuQ-MuLan, and/or CLAP inputs. Scores are optional and are consumed by the selected CLASS profile.
 
 ## Why separation matters
 

@@ -20,13 +20,15 @@ Classifier artifacts must record the ordered feature recipe and inputs they use.
 changed recipe is blocked until that profile is retrained and promoted. Missing inputs are
 incompatible rather than zero-filled.
 
-Normal training now includes the `muq` feature set. MuQ can also participate in arbitrary
-source combinations accepted by the backend and CLI.
+The supported feature sources are SONARA, MERT, MAEST, CLAP, MuQ, and MuQ-MuLan (`mulan`).
+The default training recipe is `sonara+mert+maest+clap+muq+mulan`, combining all six sources.
+Any non-empty source combination is accepted by the backend and CLI, including the five-source
+`sonara+mert+maest+clap+muq`.
 
-The default `benchmark-ablation` matrix evaluates all 31 non-empty combinations of SONARA, MERT,
-MAEST, CLAP, and MuQ. Repeat `--feature-set` only to narrow the benchmark to an explicit subset.
+The default `benchmark-ablation` matrix evaluates all 63 non-empty combinations of those six
+sources. Repeat `--feature-set` only to narrow the benchmark to an explicit subset.
 Promoted artifacts record exact ordered feature names, and runtime scoring accepts `muq:<index>`
-features when the stored vector has the expected dimension.
+and `mulan:<index>` features when the stored vector has the expected dimension.
 
 When a SONARA update changes data you want to replace, reset and reanalyze intentionally.
 Retraining, promotion, and rescoring remain separate choices for affected profiles.
@@ -42,12 +44,12 @@ The main set panel can also save its current ordered tracks as a Lab collection.
 `catalog_uuid` and `track_uuid` for every item. It does not change labels or
 source audio.
 
-## MuQ-aware standalone UI
+## Standalone UI source readiness
 
-The standalone UI reports `current`, `missing`, or `stale` state for SONARA, MERT, MAEST, CLAP, and
-MuQ. Coverage counts do not make a stale source trainable. The **Training recipe** selector exposes
-MuQ alone and every supported source combination; readiness and blocker text are recalculated for
-the selected recipe only.
+The standalone UI reports `current`, `missing`, or `stale` state for SONARA, MERT, MAEST, CLAP,
+MuQ, and MuQ-MuLan. Coverage counts do not make a stale source trainable. The **Training recipe**
+selector exposes each source alone and every supported source combination; readiness and blocker
+text are recalculated for the selected recipe only.
 
 Only tracks with a configured positive or negative training label in a binary profile display a
 **LABEL** badge immediately after **TRAINED**, using that label's display name in green for positive

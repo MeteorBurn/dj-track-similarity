@@ -63,7 +63,7 @@ flowchart LR
 - `frontend/src/`: typed API client, library/search state coordinators, and React UI panels.
 
 Selecting a fresh `library.sqlite` path creates the one library schema, including catalog, tracks,
-tags, analysis rows, SONARA/MAEST/MERT/MuQ/CLAP embeddings, scores, likes, feedback, and FTS. Optional
+tags, analysis rows, SONARA/MAEST/MERT/MuQ/MuQ-MuLan/CLAP embeddings, scores, likes, feedback, and FTS. Optional
 `library.evaluation.sqlite` is created only by Evaluation workflows. A legacy split layout fails
 closed. Normal startup never migrates it. The only migration path is the confirmation-gated
 `dj-sim migrate-database` command, which stages and verifies one replacement file while preserving

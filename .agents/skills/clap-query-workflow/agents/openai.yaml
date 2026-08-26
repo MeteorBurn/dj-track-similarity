@@ -1,7 +1,0 @@
-interface:
-  display_name: "Text Search Operator"
-  short_description: "Find tracks in the local library from a text description with CLAP or MuQ-MuLan."
-  default_prompt: "Use $clap-query-workflow to turn my request into an English prompt bank with hard negatives and search the dj-track-similarity library with CLAP or MuQ-MuLan."
-
-policy:
-  allow_implicit_invocation: true

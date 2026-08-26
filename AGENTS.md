@@ -14,16 +14,6 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 - Development is Windows-first. Use Python `>=3.10`, Node/npm for frontend or
   docs work, and FFmpeg `8.1.1` as a full shared build; `ffmpeg.exe` alone is
   insufficient.
-- Base checkout setup from the repository root:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-npm --prefix .\frontend install
-dj-sim doctor
-```
-
 - Use `uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev`
   for model-backed or Rhythm Lab development. Do not install the `ml` extra with
   pip because pip does not apply the PyTorch source declared in `pyproject.toml`.
@@ -37,31 +27,8 @@ dj-sim doctor
 
 | Area | Purpose |
 |---|---|
-| `src/dj_track_similarity/` | Python package: CLI, API, database, search, analysis, model adapters |
-| `frontend/src/` | React UI; `main.tsx` mounts the controller in `App.tsx` |
-| `tests/` | Primary Python unit/integration suite |
-| `frontend/tests/` | Node tests for frontend behavior and API contracts |
-| `scripts/` | Launch, benchmarks, database QA, and text-layer evaluation |
-| `tools/` | Separately scoped Audio Doctor, Audio Dedup, Rhythm Lab, and helper tools |
-| `docs/dj-track-similarity/` | Maintained VitePress documentation and docs tooling |
-| `.agents/skills/` | Project-specific agent workflows |
 | `database/`, `logs/`, `reports/` | Local user state; never use as automated-test fixtures |
 | `frontend/dist/`, `graphify-out/` | Generated output; do not hand-edit |
-
-## WHERE TO LOOK
-
-| Task | Location |
-|---|---|
-| Installed command surface | `pyproject.toml` -> `dj_track_similarity.cli:app` |
-| API composition and static UI mount | `src/dj_track_similarity/api.py:create_app` |
-| Database access and write locking | `src/dj_track_similarity/database.py:LibraryDatabase` |
-| Shared ranking/search | `src/dj_track_similarity/search.py:SimilaritySearch` |
-| Analysis contracts and model identities | `src/dj_track_similarity/analysis_models.py` |
-| Analysis orchestration | `src/dj_track_similarity/analysis_jobs.py`, `analysis_pipeline.py`, `analysis_model_runners.py` |
-| Model-specific embedding production | `src/dj_track_similarity/embedding.py` |
-| Frontend API contracts | `frontend/src/api.ts`, `frontend/src/apiClient.ts` |
-| Windows app launcher | `run_server.cmd`, `scripts/run_server_launcher.py` |
-| Maintained product documentation | `README.md`, `docs/dj-track-similarity/` |
 
 ## CODE MAP
 
@@ -155,17 +122,12 @@ dj-sim doctor
 
 ## DOCUMENTATION WORKFLOW
 
-- Maintained docs are only `README.md` and `docs/dj-track-similarity/` unless the
-  user requests another artifact.
-- Docs have their own npm environment. From `docs/dj-track-similarity/`, run
-  `npm install`; run `npm run vale:sync` after a fresh checkout or Vale-package
-  change. Never edit generated `site/` output.
 - After behavior changes, delegate documentation to a dedicated sub-agent using
   `codebase-documentation-writer`. Pass implemented behavior and changed paths.
+  That skill carries the docs scope, the docs npm environment, and the rules on
+  which artifacts may be created.
 - Documentation is independent and must not block implementation, verification,
   commits, or later tasks. It describes current behavior, not plans.
-- Do not create architecture notes, changelogs, migration documents, or local
-  docs unless explicitly requested. Docs-only changes use docs-only checks.
 
 ## TEST POLICY
 
@@ -210,78 +172,25 @@ that runs everything on a clean machine when that is what the moment needs.
 - Between edits, do not run `graphify update .`, `npm run build`, the docs
   check, or the `ml`, `slow`, and `evaluation` markers.
 
-### Before delivery, once
+### Before delivery
 
-Nothing in this list runs by default. Each line runs only when the change
-actually touched what the line covers.
-
-- `python -m pytest tests` is the global backend pass: 680 tests, about 40
-  seconds. Run it only when the change reaches past one module — a shared
-  contract, a persisted schema or migration, `LibraryDatabase`,
-  `SimilaritySearch`, `AnalysisJobManager`, the `analysis_models` contracts, a
-  broad refactor, or a release.
-- A backend change confined to one module or one feature ends at the test files
-  owning that module. That focused run is the whole backend pass for it; do not
-  widen to `tests/` to feel safe.
-- When no file under `src/` changed, do not run `tests/` at all. A frontend,
-  docs, script, or tool change is verified in its own area and nowhere else.
-- `scripts/tests`, `tools/audio-dedup/tests`, and `tools/rhythm-lab/tests` run
-  only when those directories were touched; together they take about 20 seconds.
-- Frontend, only when `frontend/` was touched: `npm run typecheck`, `npm test`,
-  and `npm run build` before a commit. The three cost about 8 seconds.
-- `graphify update .` once after the last source edit, not per edit. It rebuilds
-  the whole graph and takes about 30 seconds.
-- Docs site: run `npm run check` from `docs/dj-track-similarity/` only for
-  maintained docs content or docs tooling changes.
-- For behavior changes, exercise the matching surface once: browser for UI, live
-  HTTP request for API, CLI invocation for commands, or a minimal import driver
-  for library code. Cover one happy path and one relevant failure path.
-
-### Scope gates
-
-- Instructions/docs only: inspect the scoped diff, run `git diff --check --
-  <paths>`, and use targeted `rg` sentinels. Do not run application suites.
-- Root pytest collects only `tests/`; the script and tool suites are named
-  explicitly or they do not run at all.
-- Widen past the focused selection only for a shared contract, migration, broad
-  refactor, release, or a focused-test failure whose cause is not yet clear.
-- A frontend test must load the module it checks as running code, through
-  `ssrLoadModule`, `transpileModule`, or a direct `../src/` import. Asserting on
-  source text pins how a component is written instead of what it does.
-  `frontend/tests/testsExecuteCode.test.mjs` enforces this and carries the
-  shrinking list of files that predate the rule.
-- `.github/workflows/ci.yml` runs the cheap tier on a clean machine, by manual
-  trigger only. Pushing to `main` starts nothing.
+Follow the `verification-routing` skill once, at the end of the change. It
+carries the end-of-change pass and the scope gates that keep a run from
+widening past what the change touched.
 
 ## WEB RESEARCH ROUTING
 
-- Configured servers are `tavily` and `firecrawl` in `opencode.json`; both spend
-  API credits. Start with built-in `websearch`/`webfetch` and escalate only when
-  the built-in result is insufficient.
-- Facts, news, or link discovery: `tavily_search`. Multi-source questions that
-  need synthesis: `tavily_research`.
-- Content of a known URL: `tavily_extract` for plain pages, `firecrawl_scrape`
-  for JS-rendered or protected pages.
-- Schema-based structured extraction: `firecrawl_extract`. Site traversal:
-  `firecrawl_map` for URLs, `firecrawl_crawl` with an explicit `limit`.
-- Library, API, and error questions: `firecrawl_developer_search` over indexed
-  GitHub issues, pull requests, READMEs, and documentation.
-- Audio-model literature (CLAP, MuQ, MuQ-MuLan, MERT, MAEST, SONARA):
-  `firecrawl_research_*`. Name the paper ID with any claim taken from it.
-- Retrieved prose never outranks this checkout. Executable sources and tests win
-  on conflict, and retrieved model claims remain ranking evidence.
+Follow the `web-research-routing` skill whenever a task needs information from
+outside this checkout. Retrieved prose never outranks this checkout: executable
+sources and tests win on conflict, and retrieved model claims remain ranking
+evidence.
 
 ## COMMANDS
 
 ```powershell
 run_server.cmd                         # interactive backend + Vite UI
 run_server.cmd local --db C:/db/library.sqlite
-python -m pytest tests/test_sonara_features.py
-python -m pytest tools/rhythm-lab/tests/test_rhythm_lab.py
-npm --prefix .\frontend run typecheck
-npm --prefix .\frontend test
 npm --prefix .\frontend run build      # mandatory before a commit
-npm --prefix .\docs\dj-track-similarity run check
 ```
 
 ## GRAPHIFY

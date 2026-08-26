@@ -58,6 +58,10 @@ A small limit confirms the model stack before you analyze every track. What each
 - MuQ-MuLan also enables its seed-search view. It stores separate 512D L2-normalized embeddings
   and does not transform MuQ vectors. Existing Audio Dedup weights remain unchanged.
 
+Each job loads its models before it reads the first track and reports that as a warm-up phase. On a
+new machine that phase also downloads the model weights, so the first run pauses there before the
+track counter moves. See [Model warm-up](../reference/analysis-families.md#model-warm-up).
+
 Omit `--limit` in the CLI to take the whole library. In the browser, **Analyze limit** `0` means the
 same whole-eligible-library thing.
 

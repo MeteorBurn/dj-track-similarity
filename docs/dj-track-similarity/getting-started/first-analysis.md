@@ -101,6 +101,16 @@ MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/
 
 In the CLI, omit `--limit` for the whole library.
 
+## The first run loads models first
+
+Any analysis job loads every selected model before it decodes a track, and reports that as a warm-up
+phase. Weights are fetched on first use rather than during installation, and no prefetch command
+exists, so the first job for a family spends this phase downloading and verifying its weights into
+the local cache as well as loading them. A quiet stretch before the track counter moves is normally
+this. Later jobs in the same server session reuse the loaded models and pass warm-up without loading
+again. Details and the job log entries are in
+[Model warm-up](../reference/analysis-families.md#model-warm-up).
+
 ## Analyze in the browser
 
 Use the browser model checkboxes to start the same jobs. **Analyze limit** starts at `0` for the

@@ -31,6 +31,37 @@ only uses shared-library recovery after its own decode failure.
 | CLAP | shared ML decode | a row in `clap_embeddings` | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | CLASSIFIERS | exact stored inputs from each promoted manifest | rows in `classifier_scores` | CLASS filters |
 
+## Model warm-up
+
+An analysis job loads every selected model before it decodes a track. The job reports that work as
+its `warmup` phase, and switches to `analyzing` afterwards. Registering analysis outputs and
+selecting candidates both happen after the phase switch, so no track is read while a model is still
+loading. A model that fails to load fails the whole job during warm-up.
+
+Warm-up visits the selected models in their configured order and writes these entries to the job
+log:
+
+| Entry | Meaning |
+| --- | --- |
+| `Model warm-up started: <models>` | The phase began for the listed ordered selection |
+| `Warming up <model> (<n>/<total>)` | That model is being loaded now |
+| `<model> ready on <device> in <seconds>s` | The model finished loading on the resolved device |
+| `<model> already resident on <device>` | A runner loaded by an earlier job in the same server process was reused, so this model loaded nothing |
+| `Model warm-up completed in <seconds>s` | Every selected model is loaded |
+| `Analysis candidates ready: <n>` | Candidate selection ran, after warm-up finished |
+
+ML runners are cached per model, requested device, inference batch size, and `top_k` for the life of
+the server process. A later job with the same combination reuses the loaded runner, so its warm-up
+reports `already resident` for that model rather than loading again. Restarting the backend clears
+the cache, and the next job loads the models once more.
+
+Model weights are fetched on first use rather than during installation, and there is no separate
+prefetch command. On a machine that has not analyzed with a family yet, that family's first warm-up
+also covers the download and checksum verification into the local cache.
+
+SONARA has no model to preflight. It still appears in the warm-up sequence and reports its CPU
+runner, without loading a model.
+
 ## Device behavior
 
 - `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU.

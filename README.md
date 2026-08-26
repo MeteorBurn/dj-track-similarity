@@ -399,6 +399,12 @@ Useful options from the current CLI and API are:
 - `--inference-batch-size 1..128`; default `16`
 - `--diagnostics` to write decoder and batch timing details to the file log
 
+Every analysis job loads its selected models before it decodes a track, and reports that as a warm-up
+phase in the job status and in the browser process box. Weights download on first use rather than at
+install time, so the first job for a family waits here instead of mid-run. Loaded models are reused
+for the life of the server process. See
+[Model warm-up](docs/dj-track-similarity/reference/analysis-families.md#model-warm-up).
+
 CLI and API pipeline stages share one in-memory queue, so only one SONARA or ML stage
 runs at a time. The pipeline fixes the order to SONARA, then ML. Per-file failures are retained in job status and do
 not stop the next stage. A fatal initialization error or cancellation does.

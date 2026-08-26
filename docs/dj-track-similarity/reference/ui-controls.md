@@ -48,6 +48,12 @@ fixed output set. There are no output checkboxes. The ML selection contains MAES
 SONARA and CLASSIFIERS remain separate stages. The UI also shows queued/running progress, per-file
 failures, blockers, cancellation, and reset actions from the typed job responses.
 
+While a running job reports the `warmup` phase, the process box replaces per-track progress with a
+warm-up view. That view has a progress bar over the selected model count, the current model name,
+and its resolved device. The stage indicator names model warm-up until the phase becomes
+`analyzing`, when the per-track box returns. See
+[Model warm-up](./analysis-families.md#model-warm-up).
+
 The staging-folder field is read-only. It and **Choose Folder** stay visible but disabled in Direct
 Mode, and both become active in Staged Mode. No staging path or placeholder is supplied on first
 use, so Staged Mode cannot start until the user selects a folder. Mode, both BatchSize values, the

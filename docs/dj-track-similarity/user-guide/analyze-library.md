@@ -17,6 +17,23 @@ when the CLI or API ML model list is omitted, its normal ordered default is MAES
 MuQ-MuLan, then CLAP. Progress, per-file failures, blockers, cancellation, and reset
 results come from the typed job responses.
 
+## What happens after you press Analyze
+
+A started job loads its models before it reads the first track. For that stretch the process box
+shows a warm-up view instead of per-track progress. The view has a progress bar over the number of
+selected models, the current model name, and its resolved device. A line under them states that
+track decoding has not begun. The stage indicator names model warm-up rather than analysis while
+this lasts. When loading finishes, the usual per-track progress box replaces it and the track
+counters start moving. The analysis stage of a **FULL** or pipeline run shows the same view, because
+the browser follows the running stage's job.
+
+An empty-looking gap at the start of a first run is normally this phase. Model weights download on
+first use, so the first job for a family waits for that download here rather than in the middle of
+track work. A model that cannot load fails the job during warm-up, before any track is read. Once a
+model is loaded it stays in memory for the life of the server process, so a repeated job with the
+same models, device, and batch settings passes warm-up without loading again. The job log entries
+are listed in [Model warm-up](../reference/analysis-families.md#model-warm-up).
+
 ## Run a family
 
 SONARA can run alone and writes its fixed Core, embedding, and fingerprint output set:

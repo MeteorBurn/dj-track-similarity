@@ -74,6 +74,17 @@ Audio analysis payload fields include `models` and `limit`. ML requests add `dev
 `sonara_batch_size`. There is no output selector, and `classifier_keys` is not accepted. Standalone
 SONARA runs in Direct Mode and passes source paths to native `analyze_batch()`.
 
+The status payload returned by `GET /api/analysis/jobs/latest` and `GET /api/analysis/jobs/{job_id}`
+carries a `phase` field with the values `preparing`, `warmup`, and `analyzing`. A job starts at
+`preparing`, becomes `warmup` while it loads the selected models, and becomes `analyzing` once every
+selected model is loaded. During `warmup` the ordered `models` list is already final, and
+`current_model` and `model_name` name the model being loaded. `device` is written as each model
+resolves its device, so it holds `null` until the first one finishes.
+`current_model` returns to `null` when the phase becomes `analyzing`. Candidate selection runs after
+warm-up, so `total` stays `0` and `model_progress` stays empty for the whole warm-up phase. See
+[Model warm-up](./analysis-families.md#model-warm-up) for the job log entries and the runner reuse
+that phase reports.
+
 A pipeline request uses separate browser SONARA settings:
 
 ```json

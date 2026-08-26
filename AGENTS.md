@@ -79,7 +79,7 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 - State the model layer before changing shared files.
 - Text-to-track/tagging owns CLAP and MuQ-MuLan text paths, `/api/search/text`,
   `src/dj_track_similarity/text_embedding_cache.py`,
-  `frontend/src/textPromptPresets.ts`, `frontend/src/ClapSearchTab.tsx`, and
+  `frontend/src/textPromptPresets.ts`, `frontend/src/TextSearchTab.tsx`, and
   `scripts/text_prompt_benchmark.py`.
 - SONARA, MERT, MAEST, MuQ seed search, their analysis jobs, and Rhythm Lab
   training are separate layers. Signals may cross boundaries; production logic

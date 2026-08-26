@@ -108,19 +108,19 @@ test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", as
   );
   assert.equal(searchTabForResultOrigin("maest"), "similarity");
   assert.equal(searchTabForResultOrigin("mulan"), "similarity");
-  assert.equal(searchTabForResultOrigin("clap"), "clap");
+  assert.equal(searchTabForResultOrigin("text"), "text");
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "key", "key"), true);
-  assert.equal(genericSearchResultIsCurrent("clap", "muq", "key", "key"), false);
+  assert.equal(genericSearchResultIsCurrent("text", "muq", "key", "key"), false);
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "stale", "key"), false);
   assert.match(panelSource, /searchResultOriginLabel\(genericSearchResultOrigin\)/);
   assert.match(appSource, /seed_embedding_family: seedEmbeddingFamily/);
 });
 
 test("TEXT tab keeps results from both text embedding models visible", () => {
-  assert.match(panelSource, /clap: \{ label: "TEXT", title: "TEXT text search \(CLAP or MuQ-MuLan\)" \}/);
+  assert.match(panelSource, /text: \{ label: "TEXT", title: "Text-to-track search \(CLAP or MuQ-MuLan\)" \}/);
   assert.match(
     appSource,
-    /commitGenericSearchResults\(ticket, "clap", value\)/
+    /commitGenericSearchResults\(ticket, "text", value\)/
   );
 });
 
@@ -158,10 +158,10 @@ test("SIMILARITY tab can add a random seed of the selected embedding family", ()
 test("Left Right Home End navigation wraps across maintained search tabs", async () => {
   const { primarySearchTabs, tabAfterKey } = await loadSearchSurfaceState();
 
-  assert.deepEqual(primarySearchTabs, ["lab", "sonara", "similarity", "clap", "class"]);
+  assert.deepEqual(primarySearchTabs, ["lab", "sonara", "similarity", "text", "class"]);
   assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowLeft"), "class");
   assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowRight"), "sonara");
   assert.equal(tabAfterKey(primarySearchTabs, "similarity", "Home"), "lab");
-  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "ArrowRight"), "clap");
+  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "ArrowRight"), "text");
   assert.equal(tabAfterKey(primarySearchTabs, "similarity", "End"), "class");
 });

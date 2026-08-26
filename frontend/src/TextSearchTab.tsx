@@ -9,13 +9,13 @@ import {
   presetByKey
 } from "./textPromptPresets";
 
-export function ClapSearchTab({
+export function TextSearchTab({
   textQuery,
   onTextQueryChange,
-  clapNegativeQuery,
-  onClapNegativeQueryChange,
-  clapUseNegativePrompt,
-  onClapUseNegativePromptChange,
+  textNegativeQuery,
+  onTextNegativeQueryChange,
+  textUseNegativePrompt,
+  onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
   selectedPresetKeys,
@@ -36,10 +36,10 @@ export function ClapSearchTab({
 }: {
   textQuery: string;
   onTextQueryChange: (value: string) => void;
-  clapNegativeQuery: string;
-  onClapNegativeQueryChange: (value: string) => void;
-  clapUseNegativePrompt: boolean;
-  onClapUseNegativePromptChange: (value: boolean) => void;
+  textNegativeQuery: string;
+  onTextNegativeQueryChange: (value: string) => void;
+  textUseNegativePrompt: boolean;
+  onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   selectedPresetKeys: string[];
@@ -96,22 +96,22 @@ export function ClapSearchTab({
 
   return (
     <div className="search-tab-panel" role="tabpanel">
-      <div className="text-search-box clap-text-search-box">
-        <label className="clap-query-field clap-group-label" title={textPromptHelp}>
+      <div className="text-search-box text-prompt-box">
+        <label className="text-prompt-field text-group-label" title={textPromptHelp}>
           Prompt bank
           <textarea
-            className="clap-query-input"
+            className="text-prompt-input"
             rows={4}
             value={textQuery}
             onChange={(event) => onTextQueryChange(event.target.value)}
-            placeholder={"A breakbeat track.\nA track with broken drums and syncopated percussion."}
+            placeholder={"breakbeat.\nsyncopated drums, off-grid rhythm, shuffled hits."}
             title={textPromptHelp}
           />
         </label>
-        <div className="clap-prompt-toolbar">
-          <div className="clap-prompt-actions" ref={presetMenuRef}>
+        <div className="text-prompt-toolbar">
+          <div className="text-prompt-actions" ref={presetMenuRef}>
             <button
-              className={`clap-toolbar-button clap-preset-toolbar-control clap-presets-button ${presetMenuOpen ? "active" : ""}`}
+              className={`text-toolbar-button text-search-toolbar-control text-preset-menu-button ${presetMenuOpen ? "active" : ""}`}
               title="Выбрать пресеты по осям. Несколько пресетов складываются в один банк."
               aria-label="Выбрать prompt preset"
               aria-expanded={presetMenuOpen}
@@ -119,13 +119,13 @@ export function ClapSearchTab({
               type="button"
             >
               <ListFilter size={12} />
-              Пресеты
+              Presets
             </button>
             {selectedPresets.length ? (
-              <div className="clap-preset-chips">
+              <div className="text-preset-chips">
                 {selectedPresets.map((preset) => (
                   <button
-                    className="clap-preset-chip"
+                    className="text-preset-chip"
                     key={preset.key}
                     title={`${preset.hint} Нажмите, чтобы убрать пресет из банка.`}
                     onClick={() => onTogglePreset(preset.key)}
@@ -136,21 +136,30 @@ export function ClapSearchTab({
                   </button>
                 ))}
                 <button
-                  className="clap-preset-chip-clear"
+                  className="text-preset-chip-clear"
                   title="Убрать все пресеты и очистить банк"
                   onClick={onClearPresets}
                   type="button"
                 >
-                  Очистить
+                  Clear
                 </button>
               </div>
             ) : null}
             {presetMenuOpen ? (
-              <div className="clap-preset-menu">
-                <div className="clap-preset-axes">
+              <div className="text-preset-menu">
+                <div className="text-preset-menu-header">
+                  <span className="text-preset-menu-title">Prompt presets</span>
+                  <span
+                    className="text-preset-menu-count"
+                    title={`Выбрано пресетов из ${promptPresets.length} в словаре. Каждый добавляет свои строки в банк.`}
+                  >
+                    {selectedPresets.length} / {promptPresets.length}
+                  </span>
+                </div>
+                <div className="text-preset-axes">
                   {promptAxes.map((axis) => (
                     <button
-                      className={`clap-preset-axis-button ${activeAxis === axis.key ? "active" : ""}`}
+                      className={`text-preset-axis-button ${activeAxis === axis.key ? "active" : ""}`}
                       aria-pressed={activeAxis === axis.key}
                       key={axis.key}
                       title={axis.hint}
@@ -161,33 +170,33 @@ export function ClapSearchTab({
                     </button>
                   ))}
                 </div>
-                <div className="clap-preset-options">
+                <div className="text-preset-options">
                   {axisPresets.map((preset) => {
                     const active = selectedPresetKeys.includes(preset.key);
                     const measured = preset.measured?.[promptModel];
                     return (
                       <button
-                        className={`clap-preset-option-button ${active ? "active" : ""}`}
+                        className={`text-preset-option-button ${active ? "active" : ""}`}
                         aria-pressed={active}
                         key={preset.key}
                         title={preset.hint}
                         onClick={() => onTogglePreset(preset.key)}
                         type="button"
                       >
-                        <span className="clap-preset-option-check" aria-hidden="true">
-                          {active ? <Check size={13} strokeWidth={2.6} /> : null}
+                        <span className="text-preset-option-check" aria-hidden="true">
+                          {active ? <Check size={12} strokeWidth={2.8} /> : null}
                         </span>
-                        <span className="clap-preset-option-label">{preset.label}</span>
+                        <span className="text-preset-option-label">{preset.label}</span>
                         {measured ? (
                           <span
-                            className="clap-preset-option-measured"
+                            className="text-preset-option-measured"
                             title={`Замер ROC-AUC для ${textModelLabel}: ${measured.toFixed(3)}`}
                           >
                             {measured.toFixed(2)}
                           </span>
                         ) : (
                           <span
-                            className="clap-preset-option-measured unvalidated"
+                            className="text-preset-option-measured unvalidated"
                             title="Надёжность не измерена: нет размеченных примеров под этот ярлык. Проверяй ушами."
                           >
                             —
@@ -201,28 +210,28 @@ export function ClapSearchTab({
             ) : null}
           </div>
           <label
-            className={`clap-toolbar-button clap-negative-toggle clap-preset-toolbar-control ${clapUseNegativePrompt ? "intent-add active" : ""}`}
+            className={`text-toolbar-button text-negative-toggle text-search-toolbar-control ${textUseNegativePrompt ? "intent-add active" : ""}`}
             title="Применять Negative как hard-negative запросы. Тип: чекбокс. Когда выключено, текст остаётся в поле, но в поиск не уходит."
           >
             <input
               type="checkbox"
               aria-label="Use negative prompt"
-              checked={clapUseNegativePrompt}
-              onChange={(event) => onClapUseNegativePromptChange(event.target.checked)}
+              checked={textUseNegativePrompt}
+              onChange={(event) => onTextUseNegativePromptChange(event.target.checked)}
             />
-            <span className="clap-negative-checkbox" aria-hidden="true">
-              {clapUseNegativePrompt ? <Check size={12} strokeWidth={2.4} /> : null}
+            <span className="text-negative-checkbox" aria-hidden="true">
+              {textUseNegativePrompt ? <Check size={12} strokeWidth={2.4} /> : null}
             </span>
-            Негативы
+            Negatives
           </label>
         </div>
         {selectedPresets.length && advisedModel && advisedModel !== textEmbeddingFamily ? (
-          <div className="clap-model-advice">
+          <div className="text-model-advice">
             <span>
               Выбранные оси лучше ранжирует {advisedModelLabel}. Сейчас выбрана {textModelLabel}.
             </span>
             <button
-              className="clap-model-advice-switch"
+              className="text-model-advice-switch"
               title="Переключить на модель, измеренную как лучшую для этих осей. Смешивать модели нельзя: rank fusion проверен и отклонён, он тянет сильную модель к слабой."
               onClick={() => onTextEmbeddingFamilyChange(advisedModel)}
               type="button"
@@ -232,7 +241,7 @@ export function ClapSearchTab({
           </div>
         ) : null}
         {selectedPresets.length && advice.kind === "conflict" ? (
-          <div className="clap-model-advice">
+          <div className="text-model-advice">
             <span>
               Оси разошлись: часть меряна на MuQ-MuLan, часть на CLAP. Одного верного ответа нет,
               а смешивать модели нельзя — фьюжн проверен и отклонён.
@@ -240,7 +249,7 @@ export function ClapSearchTab({
           </div>
         ) : null}
         {selectedPresets.length && advice.kind === "unmeasured" ? (
-          <div className="clap-model-advice">
+          <div className="text-model-advice">
             <span>
               Надёжность этих меток не измерена: подходящего эталона под них нет. Модель выбирай
               ушами, а выдачу проверяй на слух.
@@ -248,21 +257,21 @@ export function ClapSearchTab({
           </div>
         ) : null}
         <label
-          className="clap-negative-field clap-group-label"
+          className="text-negative-field text-group-label"
           title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
         >
           Negative
           <textarea
-            className="clap-negative-input"
+            className="text-negative-input"
             rows={3}
-            value={clapNegativeQuery}
-            onChange={(event) => onClapNegativeQueryChange(event.target.value)}
-            placeholder={"A four-on-the-floor house track.\nA vocal pop song."}
+            value={textNegativeQuery}
+            onChange={(event) => onTextNegativeQueryChange(event.target.value)}
+            placeholder={"four-on-the-floor, house, techno.\nvocal pop song."}
             title="Hard-negative банк: по одному конкурирующему классу в строке."
-            disabled={!clapUseNegativePrompt}
+            disabled={!textUseNegativePrompt}
           />
         </label>
-        <div className="clap-negative-weight-row">
+        <div className="text-negative-weight-row">
           <label title="Насколько сильно вычитать совпадение с негативами. Замер: там, где негативы называют реальный конкурирующий класс, качество растёт до 0.75-1.0; там, где банк негативов выдуман, оно падает монотонно.">
             Вес негативов
             <input
@@ -271,18 +280,18 @@ export function ClapSearchTab({
               max={negativeWeightRange.max}
               step={negativeWeightRange.step}
               value={appliedNegativeWeight}
-              disabled={!clapUseNegativePrompt}
+              disabled={!textUseNegativePrompt}
               onChange={(event) => onNegativeWeightChange(Number(event.target.value))}
             />
           </label>
-          <span className="clap-negative-weight-value">{appliedNegativeWeight.toFixed(2)}</span>
+          <span className="text-negative-weight-value">{appliedNegativeWeight.toFixed(2)}</span>
         </div>
-        <div className="clap-prompt-hint">
+        <div className="text-prompt-hint">
           Каждая строка — отдельный промпт, банк усредняется. Несколько коротких формулировок
           устойчивее одной длинной. Сейчас в банке: {promptLineCount}.
         </div>
       </div>
-      <div className="search-filter-grid clap-search-filter-grid clap-group-labels">
+      <div className="search-filter-grid text-search-filter-grid text-group-labels">
         <label title="Embedding family used for text-to-track retrieval">Model
           <select
             value={textEmbeddingFamily}
@@ -294,11 +303,11 @@ export function ClapSearchTab({
         </label>
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
-      <button className="clap-text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
+      <button className="text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
         <Search size={17} />
         Search
       </button>
-      {!hasStoredTextEmbeddings ? <span className="clap-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
+      {!hasStoredTextEmbeddings ? <span className="text-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
     </div>
   );
 }

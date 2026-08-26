@@ -1690,6 +1690,28 @@ h2 {
 }
 
 .liked-filter-button,
+/* Preset relevance verdicts on text-search rows: green marks "matches the
+   selected presets", danger marks "misses them". Neutral until clicked. */
+.result-feedback-button {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text-faint);
+}
+
+.result-feedback-button.intent-relevant:hover:not(:disabled),
+.result-feedback-button.intent-relevant.active {
+  background: var(--preset-selected-bg);
+  border-color: var(--preset-selected-border);
+  color: var(--preset-selected-text);
+}
+
+.result-feedback-button.intent-irrelevant:hover:not(:disabled),
+.result-feedback-button.intent-irrelevant.active {
+  background: var(--danger-muted-bg);
+  border-color: var(--danger-muted-border);
+  color: var(--danger-text);
+}
+
 .track-liked-button {
   background: var(--pink-bg);
   border-color: var(--pink-border);
@@ -2950,7 +2972,7 @@ h2 {
   height: 37px;
 }
 
-.clap-prompt-toolbar {
+.text-prompt-toolbar {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
@@ -2959,7 +2981,7 @@ h2 {
   margin-top: 6px;
 }
 
-.clap-toolbar-button {
+.text-toolbar-button {
   align-items: center;
   display: inline-flex;
   font-size: 12px;
@@ -2969,7 +2991,7 @@ h2 {
   white-space: nowrap;
 }
 
-.clap-preset-toolbar-control {
+.text-search-toolbar-control {
   background: var(--surface-muted);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -2983,14 +3005,14 @@ h2 {
   padding: 2px 6px;
 }
 
-.clap-presets-button {
+.text-preset-menu-button {
   background: var(--blue-bg);
   border-color: var(--blue-border);
   color: var(--blue-text);
 }
 
-.clap-presets-button:hover,
-.clap-presets-button.active {
+.text-preset-menu-button:hover,
+.text-preset-menu-button.active {
   background: var(--blue-bg-hover);
   border-color: var(--blue-border-hover);
   color: var(--blue-text-hover);
@@ -2998,18 +3020,18 @@ h2 {
 
 /* .text-search-box label stacks its children, which is right for a field and
    wrong for a control that reads as one button. */
-.clap-prompt-toolbar label {
+.text-prompt-toolbar label {
   flex-direction: row;
   gap: 6px;
 }
 
-.clap-query-field,
-.clap-negative-field {
+.text-prompt-field,
+.text-negative-field {
   min-width: 0;
 }
 
-.clap-group-label,
-.clap-group-labels label {
+.text-group-label,
+.text-group-labels label {
   color: var(--blue-text);
   font-size: 13px;
   font-weight: 600;
@@ -3017,7 +3039,7 @@ h2 {
 
 /* The toggle moved to the prompt toolbar, so the field owns the full width. */
 
-.clap-negative-toggle {
+.text-negative-toggle {
   align-items: center;
   background: var(--danger-muted-bg);
   border: 1px solid var(--danger-muted-border);
@@ -3039,7 +3061,7 @@ h2 {
   width: auto;
 }
 
-.clap-negative-toggle input[type="checkbox"] {
+.text-negative-toggle input[type="checkbox"] {
   height: 1px;
   margin: 0;
   opacity: 0;
@@ -3049,25 +3071,25 @@ h2 {
   width: 1px;
 }
 
-.clap-negative-toggle.intent-add {
+.text-negative-toggle.intent-add {
   background: var(--danger-soft-bg);
   border-color: var(--danger-soft-border);
   color: var(--danger-soft-text);
 }
 
-.clap-negative-toggle:hover {
+.text-negative-toggle:hover {
   background: var(--danger-bg);
   border-color: var(--danger-border-hover);
   color: var(--danger-text-hover);
 }
 
-.clap-negative-toggle.active {
+.text-negative-toggle.active {
   background: var(--danger-soft-bg);
   border-color: var(--danger-soft-border);
   color: var(--danger-soft-text);
 }
 
-.clap-negative-checkbox {
+.text-negative-checkbox {
   align-items: center;
   background: transparent;
   border: 0;
@@ -3080,23 +3102,23 @@ h2 {
   width: 0;
 }
 
-.clap-negative-toggle.active .clap-negative-checkbox {
+.text-negative-toggle.active .text-negative-checkbox {
   flex-basis: 12px;
   height: 12px;
   width: 12px;
 }
 
-.clap-negative-toggle input[type="checkbox"]:focus-visible + .clap-negative-checkbox {
+.text-negative-toggle input[type="checkbox"]:focus-visible + .text-negative-checkbox {
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
-.clap-negative-input:disabled {
+.text-negative-input:disabled {
   background: var(--surface-disabled);
   border-color: var(--surface-disabled-border);
   color: var(--text-disabled);
 }
 
-.clap-prompt-actions {
+.text-prompt-actions {
   align-items: center;
   display: inline-flex;
   flex: 1 1 320px;
@@ -3106,131 +3128,172 @@ h2 {
   position: relative;
 }
 
-.clap-preset-menu {
+/* Prompt preset picker. The bank it fills is shared by CLAP and MuQ-MuLan, so
+   nothing under this prefix is named after one model. */
+.text-preset-menu {
   background: var(--surface);
-  border: 1px solid var(--button-border);
-  border-radius: 6px;
-  box-shadow: 0 10px 26px var(--shadow-dialog);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px var(--shadow-dialog-strong);
   display: grid;
-  gap: 6px;
+  gap: 10px;
   grid-template-columns: minmax(0, 1fr);
-  padding: 6px;
-  position: absolute;
   /* The button that opens this menu sits at the left edge of the toolbar, so
-     the panel has to grow rightwards or it hangs off the section. */
+     the panel grows rightwards and stops at the width of the row it hangs from,
+     which keeps it inside the scrolling search panel. */
   left: 0;
+  min-width: 240px;
+  padding: 12px;
+  position: absolute;
   top: calc(100% + 6px);
-  width: min(420px, 100%);
+  width: 100%;
   z-index: 30;
 }
 
-.clap-preset-axes {
-  border-bottom: 1px solid var(--border);
-  display: grid;
-  gap: 3px;
-  grid-auto-rows: max-content;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding-bottom: 6px;
+.text-preset-menu-header {
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  gap: 8px;
+  padding-bottom: 8px;
 }
 
-.clap-preset-options {
-  align-content: flex-start;
+.text-preset-menu-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.text-preset-menu-count {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-chip);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-left: auto;
+  padding: 1px 8px;
+}
+
+.text-preset-axes {
   display: grid;
   gap: 4px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  max-height: 320px;
-  overflow-y: auto;
+  grid-auto-rows: max-content;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
 }
 
-.clap-preset-axis-button {
+/* Blue marks where you are, green marks what is in the bank: the axis row is
+   navigation, the option rows and the chips below the toolbar are selection. */
+.text-preset-axis-button {
   align-items: center;
-  background: var(--accent-muted-bg);
-  border: 1px solid var(--accent-muted-border);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  color: var(--accent);
+  color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
   font-size: 11px;
-  height: auto;
-  line-height: 1.15;
-  min-height: 0;
-  min-width: 0;
-  padding: 2px 6px;
-  white-space: normal;
-}
-
-.clap-preset-axis-button:hover {
-  border-color: var(--accent-border-hover);
-  color: var(--accent-hover);
-}
-
-.clap-preset-axis-button.active {
-  background: var(--blue-bg-hover);
-  border-color: var(--blue-border-hover);
-  color: var(--blue-text-hover);
-}
-
-/* Badge shape, declared here rather than by reusing the MAEST genre pill: the
-   two carry different meanings and should be free to diverge. */
-.clap-preset-option-button {
-  align-items: center;
-  background: var(--blue-bg);
-  border: 1px solid var(--blue-border);
-  border-radius: 999px;
-  color: var(--blue-text);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  font-size: 11px;
-  gap: 1px;
+  font-weight: 600;
   height: auto;
   justify-content: center;
   line-height: 1.15;
   min-height: 0;
   min-width: 0;
-  padding: 2px 6px;
-  position: relative;
-  text-align: center;
-  width: 100%;
+  padding: 4px 8px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  white-space: nowrap;
 }
 
-.clap-preset-option-button:hover:not(:disabled) {
-  background: var(--blue-bg-hover);
-  border-color: var(--blue-border-hover);
-  color: var(--blue-text-hover);
+.text-preset-axis-button:hover {
+  background: var(--blue-bg);
+  border-color: var(--blue-border);
+  color: var(--blue-text);
 }
 
-.clap-preset-option-button.active {
+.text-preset-axis-button.active {
   background: var(--blue-bg-active);
   border-color: var(--blue-border-active);
   color: var(--blue-text-active);
 }
 
-.clap-preset-option-check {
+.text-preset-options {
+  align-content: flex-start;
+  display: grid;
+  gap: 3px;
+  /* Narrow enough that two columns survive the scrollbar the longer axes need,
+     and capped against the viewport so the menu does not hang past the panel. */
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  max-height: min(300px, 38vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* A menu row, not a badge: box, label and measured score keep their own column
+   so a long label never pushes the score out of line. */
+.text-preset-option-button {
   align-items: center;
-  display: inline-flex;
-  height: 13px;
-  justify-content: center;
-  left: 3px;
-  position: absolute;
-  top: 3px;
-  width: 0;
-}
-
-.clap-preset-option-button.active .clap-preset-option-check {
-  width: 13px;
-}
-
-.clap-preset-option-label {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  font-size: 11px;
+  gap: 6px;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  height: auto;
+  line-height: 1.2;
+  min-height: 26px;
   min-width: 0;
-  overflow-wrap: normal;
-  white-space: normal;
+  padding: 3px 6px;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
   width: 100%;
 }
 
-.clap-preset-option-measured {
+.text-preset-option-button:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text-strong);
+}
+
+.text-preset-option-button.active {
+  background: var(--preset-selected-bg);
+  border-color: var(--preset-selected-border);
+  color: var(--preset-selected-text);
+}
+
+.text-preset-option-check {
   align-items: center;
-  align-self: center;
+  color: var(--preset-selected-text);
+  display: inline-flex;
+  height: 14px;
+  justify-content: center;
+  width: 14px;
+}
+
+/* An empty checkbox holds the column, so a checked and an unchecked row sit on
+   the same grid instead of shifting their labels sideways. */
+.text-preset-option-button:not(.active) .text-preset-option-check::before {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  content: "";
+  height: 12px;
+  width: 12px;
+}
+
+.text-preset-option-label {
+  min-width: 0;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.text-preset-option-measured {
+  align-items: center;
   background: var(--preset-selected-bg);
   border: 1px solid var(--preset-selected-border);
   border-radius: 999px;
@@ -3238,29 +3301,42 @@ h2 {
   display: inline-flex;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  padding: 1px 4px;
-  width: max-content;
+  justify-content: center;
+  min-width: 26px;
+  padding: 0 4px;
 }
 
-.clap-preset-option-measured.unvalidated {
-  opacity: 0.45;
+.text-preset-option-button.active .text-preset-option-measured {
+  background: var(--surface);
+}
+
+/* No reference stands behind this label, so the slot stays quiet instead of
+   wearing the badge that means "measured". */
+.text-preset-option-measured.unvalidated {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-faint);
 }
 
 @media (max-width: 600px) {
-  .clap-preset-axis-button {
+  .text-preset-axis-button {
     font-size: var(--font-size-compact-selector);
     line-height: 1.1;
     padding: 4px 2px;
   }
+
+  .text-preset-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-.clap-preset-chips {
+.text-preset-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
 
-.clap-preset-chip {
+.text-preset-chip {
   align-items: center;
   background: var(--preset-selected-bg);
   border: 1px solid var(--preset-selected-border);
@@ -3273,9 +3349,17 @@ h2 {
   height: auto;
   line-height: 1.15;
   padding: 2px 6px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-.clap-preset-chip-clear {
+/* Clicking a chip drops the preset, so hovering one reads as removal. */
+.text-preset-chip:hover {
+  background: var(--danger-muted-bg);
+  border-color: var(--danger-muted-border);
+  color: var(--danger-text);
+}
+
+.text-preset-chip-clear {
   align-items: center;
   background: var(--surface-muted);
   border: 1px solid var(--border);
@@ -3287,24 +3371,35 @@ h2 {
   gap: 4px;
   line-height: 1.15;
   padding: 2px 6px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-/* This overrides the generic toolbar button height so these controls retain
-   the compact MAEST-pill dimensions rather than expanding to 37px. */
-.text-search-box .clap-preset-axis-button,
-.text-search-box .clap-preset-option-button,
-.text-search-box .clap-preset-chip,
-.text-search-box .clap-preset-chip-clear {
+.text-preset-chip-clear:hover {
+  background: var(--danger-muted-bg);
+  border-color: var(--danger-muted-border);
+  color: var(--danger-text);
+}
+
+/* This overrides the generic 37px height of a button inside the search box so
+   these controls keep their compact pill dimensions. */
+.text-search-box .text-preset-axis-button,
+.text-search-box .text-preset-option-button,
+.text-search-box .text-preset-chip,
+.text-search-box .text-preset-chip-clear {
   height: auto;
   min-height: 0;
 }
 
-.text-search-box .clap-preset-toolbar-control {
+.text-search-box .text-preset-option-button {
+  min-height: 26px;
+}
+
+.text-search-box .text-search-toolbar-control {
   height: auto;
   min-height: 0;
 }
 
-.clap-model-advice {
+.text-model-advice {
   align-items: center;
   background: var(--accent-soft-bg);
   border: 1px solid var(--accent-soft-border);
@@ -3320,7 +3415,7 @@ h2 {
   padding: 6px 9px;
 }
 
-.clap-model-advice-switch {
+.text-model-advice-switch {
   background: transparent;
   border: 1px solid var(--accent-soft-border);
   border-radius: 999px;
@@ -3331,14 +3426,14 @@ h2 {
   white-space: nowrap;
 }
 
-.clap-negative-weight-row {
+.text-negative-weight-row {
   align-items: center;
   display: flex;
   gap: 8px;
   margin-top: 6px;
 }
 
-.clap-negative-weight-row label {
+.text-negative-weight-row label {
   align-items: center;
   color: var(--text-muted);
   display: flex;
@@ -3350,12 +3445,12 @@ h2 {
   white-space: nowrap;
 }
 
-.clap-negative-weight-row input[type="range"] {
+.text-negative-weight-row input[type="range"] {
   flex: 1;
   min-width: 0;
 }
 
-.clap-negative-weight-value {
+.text-negative-weight-value {
   color: var(--text);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -3363,22 +3458,22 @@ h2 {
   text-align: right;
 }
 
-.clap-query-input,
-.clap-negative-input {
+.text-prompt-input,
+.text-negative-input {
   font-family: inherit;
   line-height: 1.45;
   resize: vertical;
   width: 100%;
 }
 
-.clap-prompt-hint {
+.text-prompt-hint {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.4;
   margin-top: 6px;
 }
 
-.clap-search-requirement {
+.text-search-requirement {
   color: var(--warning-muted-text);
   display: block;
   font-size: 12px;
@@ -3436,12 +3531,12 @@ h2 {
   border-color: var(--accent);
 }
 
-.clap-search-filter-grid {
+.text-search-filter-grid {
   grid-template-columns: repeat(2, minmax(92px, 160px));
 }
 
-.clap-search-filter-grid select,
-.clap-search-filter-grid input {
+.text-search-filter-grid select,
+.text-search-filter-grid input {
   height: 34px;
 }
 
@@ -3479,7 +3574,7 @@ h2 {
 .scan-import-submit-button,
 .analyze-selected-button,
 .sonara-search-button,
-.clap-text-search-button,
+.text-search-button,
 .confirmation-confirm-button {
   background: var(--accent-deep-bg);
   border-color: var(--accent-deep-bg);
@@ -3498,7 +3593,7 @@ h2 {
 .scan-import-submit-button:hover:not(:disabled),
 .analyze-selected-button:hover:not(:disabled),
 .sonara-search-button:hover:not(:disabled),
-.clap-text-search-button:hover:not(:disabled),
+.text-search-button:hover:not(:disabled),
 .confirmation-confirm-button:hover:not(:disabled) {
   background: var(--accent-deep-hover);
   border-color: var(--accent-deep-hover);

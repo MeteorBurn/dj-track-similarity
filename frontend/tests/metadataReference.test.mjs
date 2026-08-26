@@ -285,9 +285,15 @@ test("SONARA feature descriptions are inline comments, except for candidate list
   const labels = findAllByType(sonaraGrid, "dt");
   const values = findAllByType(sonaraGrid, "dd");
   const bpmIndex = labels.findIndex((node) => nodeText(node) === "BPM");
+  const bpmConfidenceIndex = labels.findIndex((node) => nodeText(node) === "BPM confidence");
   const bpmCandidatesIndex = labels.findIndex((node) => nodeText(node) === "BPM candidates");
+  const bpmRangeIndex = labels.findIndex((node) => nodeText(node) === "BPM range");
   assert.ok(bpmIndex >= 0);
+  assert.ok(bpmConfidenceIndex >= 0);
   assert.ok(bpmCandidatesIndex >= 0);
+  assert.ok(bpmConfidenceIndex > bpmIndex);
+  assert.ok(bpmRangeIndex > bpmConfidenceIndex);
+  assert.ok(bpmCandidatesIndex > bpmRangeIndex);
 
   assert.equal(labels[bpmIndex].props.title, undefined);
   assert.equal(values[bpmIndex].props.title, undefined);
@@ -297,6 +303,10 @@ test("SONARA feature descriptions are inline comments, except for candidate list
   );
   assert.equal(findByClassName(values[bpmCandidatesIndex], "sonara-feature-description sonara-feature-description-separated"), null);
   assert.ok(findByClassName(values[bpmCandidatesIndex], "sonara-feature-value sonara-feature-value-candidates"));
+  assert.equal(
+    nodeText(findByClassName(values[bpmRangeIndex], "sonara-feature-description sonara-feature-description-separated sonara-feature-description-aligned")),
+    " # BPM interval to which the detected tempo is normalized; octave-related estimates are folded into this range.",
+  );
 });
 
 test("track display uses the file path stem instead of tags", () => {
@@ -405,7 +415,7 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
   assert.equal(new Map(model.audioEntries).get("Audio Format"), "audio/flac");
 });
 
-test("SONARA BPM candidates begin with the analysis range label", () => {
+test("SONARA displays BPM confidence and BPM range before BPM candidates", () => {
   const features = sonaraFeatures({
     detected_bpm: 127.45889282226563,
     raw_bpm: 63.72944641113281,
@@ -430,15 +440,17 @@ test("SONARA BPM candidates begin with the analysis range label", () => {
   assert.equal(features.get("bpm_confidence").value, "0.92");
   assert.equal(
     features.get("bpm_candidates").value,
-    "Analysis range (70–180 BPM): #1 129.20 (score 7.95)",
+    "#1 129.20 (score 7.95)",
   );
+  assert.equal(features.get("bpm_analysis_range").label, "BPM range");
+  assert.equal(features.get("bpm_analysis_range").value, "70–180 BPM");
   assert.equal(features.get("onset_density_per_second").value, "5.58/s");
   assert.equal(features.get("beat_count").value, "1,280");
   assert.equal(features.get("tempo_variability").value, "0.90%");
   assert.equal(features.get("beat_grid_offset_seconds").value, "488 ms");
   assert.equal(features.get("beat_grid_stability").value, "98.8%");
   assert.equal(features.get("analyzed_duration_seconds").value, "7:39");
-  assert.equal(features.has("bpm_analysis_range"), false);
+  assert.ok(features.has("bpm_analysis_range"));
 
   const model = metadataDialog.metadataDialogModel({
     ...detail(),

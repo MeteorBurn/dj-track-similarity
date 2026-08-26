@@ -13,7 +13,7 @@ type CoreFeature = {
   description: string;
 };
 type CoreFeatureDescriptor = {
-  key: CoreFeatureKey;
+  key: CoreFeatureKey | "bpm_analysis_range";
   label: string;
   description: string;
 };
@@ -31,9 +31,13 @@ const twoDecimalSonaraScoreKeys = new Set<keyof SonaraCore>([
   "acousticness_score",
 ]);
 
-const sonaraFeatureDescriptionExcludedKeys = new Set<CoreFeatureKey>([
+const sonaraCandidateListKeys = new Set<CoreFeatureKey>([
   "bpm_candidates",
   "key_candidates",
+]);
+
+const sonaraFeatureDescriptionExcludedKeys = new Set<string>([
+  ...sonaraCandidateListKeys,
 ]);
 
 const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
@@ -42,6 +46,7 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     features: [
       feature("detected_bpm", "BPM", "Estimated tempo in beats per minute after any active BPM-range alignment."),
       feature("bpm_confidence", "BPM confidence", "Confidence of the detected tempo."),
+      { key: "bpm_analysis_range", label: "BPM range", description: "BPM interval to which the detected tempo is normalized; octave-related estimates are folded into this range." },
       feature("bpm_candidates", "BPM candidates", "Ranked tempo candidates for the detected tempo."),
       feature("onset_density_per_second", "Onset density", "Detected onsets per second."),
       feature("beat_count", "Beat count", "Number of detected beats."),
@@ -357,8 +362,8 @@ export function TrackMetadataDialog({
                       <Fragment key={coreFeature.key}>
                         <dt>{coreFeature.label}</dt>
                         <dd>
-                          <span className={`sonara-feature-value${sonaraFeatureDescriptionExcludedKeys.has(coreFeature.key as CoreFeatureKey) ? " sonara-feature-value-candidates" : ""}`}>{coreFeature.value}</span>
-                          {!sonaraFeatureDescriptionExcludedKeys.has(coreFeature.key as CoreFeatureKey) ? (
+                          <span className={`sonara-feature-value${sonaraCandidateListKeys.has(coreFeature.key as CoreFeatureKey) ? " sonara-feature-value-candidates" : ""}`}>{coreFeature.value}</span>
+                          {!sonaraFeatureDescriptionExcludedKeys.has(coreFeature.key) ? (
                             <span className="sonara-feature-description sonara-feature-description-separated sonara-feature-description-aligned"> # {coreFeature.description}</span>
                           ) : null}
                         </dd>
@@ -511,12 +516,19 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
       title: group.title,
       features: group.features
         .flatMap((descriptor) => {
+          if (descriptor.key === "bpm_analysis_range") {
+            if (core.bpm_min == null || core.bpm_max == null) return [];
+            return [{
+              ...descriptor,
+              value: `${formatOptionalNumber(core.bpm_min)}–${formatOptionalNumber(core.bpm_max)} BPM`,
+            }];
+          }
           const value = core[descriptor.key];
           if (value == null || (Array.isArray(value) && value.length === 0)) return [];
           if (descriptor.key === "bpm_candidates" && Array.isArray(value)) {
             return [{
               ...descriptor,
-              value: formatBpmCandidates(value, core.bpm_min, core.bpm_max),
+              value: formatBpmCandidates(value),
             }];
           }
           if (descriptor.key === "vector_summaries" && Array.isArray(value)) {
@@ -621,13 +633,8 @@ function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof So
 
 function formatBpmCandidates(
   value: Record<string, unknown>[],
-  bpmMin: number | null,
-  bpmMax: number | null,
 ) {
-  const range = bpmMin != null && bpmMax != null
-    ? `Analysis range (${formatOptionalNumber(bpmMin)}–${formatOptionalNumber(bpmMax)} BPM): `
-    : "";
-  return range + value.map((candidate, index) => {
+  return value.map((candidate, index) => {
     const rank = candidateRank(candidate, index);
     const bpm = typeof candidate.bpm === "number"
       ? candidate.bpm.toFixed(2)

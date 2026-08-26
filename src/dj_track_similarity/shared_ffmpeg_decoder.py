@@ -43,11 +43,9 @@ def load_tolerant_mono_audio(path: str | Path) -> tuple[np.ndarray, int, str]:
             for packet in container.demux(stream):
                 try:
                     decoded_frames = packet.decode()
-                except av.FFmpegError as error:
-                    if error.errno != av.error.INVALIDDATA:
-                        raise
+                except av.error.InvalidDataError as error:
                     discarded_packets += 1
-                    LOGGER.warning(
+                    LOGGER.debug(
                         "Discarding malformed audio packet path=%s error=%s",
                         audio_path,
                         error,
@@ -66,6 +64,11 @@ def load_tolerant_mono_audio(path: str | Path) -> tuple[np.ndarray, int, str]:
     detail = "PyAV shared FFmpeg tolerant decode (mono float32)"
     if discarded_packets:
         detail += f"; discarded_corrupt_packets={discarded_packets}"
+        LOGGER.warning(
+            "Recovered audio after discarding malformed packets path=%s discarded=%d",
+            audio_path,
+            discarded_packets,
+        )
     return np.concatenate(chunks), sample_rate, detail
 
 

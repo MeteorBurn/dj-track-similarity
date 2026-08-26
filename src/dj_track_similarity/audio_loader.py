@@ -26,7 +26,12 @@ def load_decoded_audio(path: str | Path) -> DecodedAudio:
 
 
 def load_decoded_audio_with_ffmpeg(path: str | Path) -> DecodedAudio:
-    """Decode one ML recovery source through shared FFmpeg into a tensor-backed value."""
+    """Decode one ML recovery source through shared FFmpeg into a tensor-backed value.
+
+    TorchCodec has already failed on this path, so the recovery attempt has to reach a
+    different decoder. Corrupt packets are discarded and the surrounding valid frames
+    are kept.
+    """
 
     audio, sample_rate, detail = _load_with_shared_ffmpeg(Path(path))
     return DecodedAudio(
@@ -71,19 +76,6 @@ def _load_with_torchcodec(path: Path) -> tuple[Tensor, int, str]:
 
 def _load_with_shared_ffmpeg(path: Path) -> tuple[Tensor, int, str]:
     import torch
-    from torchcodec.decoders import AudioDecoder
 
-    decoded = AudioDecoder(str(path)).get_all_samples()
-    if decoded.data.ndim != 2 or decoded.data.shape[0] <= 0:
-        raise RuntimeError(
-            f"TorchCodec produced an unexpected audio shape: {decoded.data.shape}"
-        )
-    if decoded.data.dtype != torch.float32:
-        raise RuntimeError(f"TorchCodec produced an unexpected audio dtype: {decoded.data.dtype}")
-    audio = decoded.data.mean(dim=0)
-    if audio.numel() == 0:
-        raise RuntimeError("TorchCodec produced no decoded audio")
-    sample_rate = int(decoded.sample_rate)
-    if sample_rate <= 0:
-        raise RuntimeError("TorchCodec produced an invalid sample rate")
-    return audio, sample_rate, "torchcodec shared FFmpeg decode (arithmetic channel mean)"
+    audio, sample_rate, detail = load_tolerant_mono_audio(path)
+    return torch.from_numpy(np.ascontiguousarray(audio, dtype=np.float32)), sample_rate, detail

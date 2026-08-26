@@ -1,3 +1,4 @@
+from fractions import Fraction
 from pathlib import Path
 import sys
 import types
@@ -7,12 +8,12 @@ import wave
 import numpy as np
 import pytest
 
-import dj_track_similarity.audio_loader as audio_loader
 from dj_track_similarity.audio_loader import (
     load_audio_mono_with_ffmpeg,
     load_decoded_audio,
     load_decoded_audio_with_ffmpeg,
 )
+from dj_track_similarity.ffmpeg_runtime import load_project_pyav
 
 
 def _write_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:
@@ -53,6 +54,44 @@ def _write_identical_stereo_pcm_wav(path: Path, *, sample_rate: int = 44_100) ->
         audio.writeframes(samples.tobytes())
     return mono.astype(np.float32) / 32768.0
 
+
+def _write_flac_with_corrupt_packet(path: Path, *, sample_rate: int = 44_100) -> int:
+    """Write a FLAC file whose middle packet fails its checksum.
+
+    FLAC checksums every frame, so flipping payload bytes damages exactly one packet
+    and leaves the frames around it decodable.
+    """
+
+    av = load_project_pyav()
+    total = sample_rate
+    tone = np.arange(total, dtype=np.float32) / sample_rate
+    samples = (np.sin(2 * np.pi * 440 * tone) * 0.5 * 32767).astype("<i2")
+
+    intact = path.with_name(f"{path.stem}-intact.flac")
+    with av.open(str(intact), mode="w") as container:
+        stream = container.add_stream("flac", rate=sample_rate)
+        stream.format = "s16"
+        stream.layout = "mono"
+        for start in range(0, total, 4096):
+            frame = av.AudioFrame.from_ndarray(
+                samples[start : start + 4096].reshape(1, -1),
+                format="s16",
+                layout="mono",
+            )
+            frame.sample_rate = sample_rate
+            frame.pts = start
+            frame.time_base = Fraction(1, sample_rate)
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
+
+    encoded = bytearray(intact.read_bytes())
+    middle = len(encoded) // 2
+    for offset in range(middle, middle + 64):
+        encoded[offset] ^= 0xFF
+    path.write_bytes(bytes(encoded))
+    return total
 
 def test_load_decoded_audio_preserves_native_sample_rate(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
@@ -184,33 +223,27 @@ def test_installed_torchcodec_cuda_wheel_decodes_real_wav(tmp_path: Path) -> Non
     assert result.detail == "torchcodec 0.16 decode (num_channels=1)"
 
 
-def test_shared_torchcodec_ml_fallback_uses_manual_arithmetic_mean_without_subprocess(
-    monkeypatch, tmp_path: Path
+def test_ml_fallback_recovers_audio_when_torchcodec_rejects_a_corrupt_packet(
+    tmp_path: Path,
 ) -> None:
+    """The ML recovery decoder has to survive what the primary decoder rejects.
+
+    TorchCodec aborts the whole file on the first malformed packet, so the fallback
+    must reach a different decoder and keep the valid frames around the damage.
+    """
+
     torch = pytest.importorskip("torch")
-    audio_path = tmp_path / "track.flac"
-    audio_path.write_bytes(b"encoded audio")
+    AudioDecoder = pytest.importorskip("torchcodec.decoders").AudioDecoder
+    audio_path = tmp_path / "corrupt.flac"
+    intact_samples = _write_flac_with_corrupt_packet(audio_path)
 
-    class FakeAudioDecoder:
-        def __init__(self, source: str) -> None:
-            assert source == str(audio_path)
+    with pytest.raises(Exception):
+        AudioDecoder(str(audio_path), num_channels=1).get_all_samples()
 
-        @staticmethod
-        def get_all_samples():
-            return SimpleNamespace(
-                data=torch.tensor([[0.25, -0.5], [0.25, 0.5]], dtype=torch.float32),
-                sample_rate=48_000,
-            )
-
-    torchcodec_module = types.ModuleType("torchcodec")
-    decoders_module = types.ModuleType("torchcodec.decoders")
-    decoders_module.AudioDecoder = FakeAudioDecoder
-    torchcodec_module.decoders = decoders_module
-    monkeypatch.setitem(sys.modules, "torchcodec", torchcodec_module)
-    monkeypatch.setitem(sys.modules, "torchcodec.decoders", decoders_module)
     decoded = load_decoded_audio_with_ffmpeg(audio_path)
 
-    assert not hasattr(audio_loader, "subprocess")
-    assert torch.equal(decoded.audio, torch.tensor([0.25, 0.0], dtype=torch.float32))
-    assert decoded.sample_rate == 48_000
-    assert decoded.detail == "torchcodec shared FFmpeg decode (arithmetic channel mean)"
+    assert isinstance(decoded.audio, torch.Tensor)
+    assert decoded.audio.dtype == torch.float32
+    assert decoded.sample_rate == 44_100
+    assert 0 < decoded.audio.numel() < intact_samples
+    assert "discarded_corrupt_packets=" in decoded.detail

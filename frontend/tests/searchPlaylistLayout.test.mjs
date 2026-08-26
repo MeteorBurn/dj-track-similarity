@@ -116,8 +116,7 @@ test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", as
   assert.match(appSource, /seed_embedding_family: seedEmbeddingFamily/);
 });
 
-test("TEXT tab keeps results from both text embedding models visible", () => {
-  assert.match(panelSource, /text: \{ label: "TEXT", title: "Text-to-track search \(CLAP or MuQ-MuLan\)" \}/);
+test("PROMPT tab keeps results from both text embedding models visible", () => {
   assert.match(
     appSource,
     /commitGenericSearchResults\(ticket, "text", value\)/

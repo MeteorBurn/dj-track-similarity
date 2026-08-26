@@ -2470,7 +2470,7 @@ h2 {
 
 .search-tab-panel {
   display: grid;
-  gap: 10px;
+  gap: 14px;
   min-width: 0;
 }
 
@@ -2955,7 +2955,7 @@ h2 {
 .text-search-box {
   align-items: end;
   display: grid;
-  gap: 8px;
+  gap: 12px;
   grid-template-columns: minmax(0, 1fr);
   margin: 0;
 }
@@ -2972,57 +2972,88 @@ h2 {
   height: 37px;
 }
 
-.text-prompt-toolbar {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
+/* The picker is the panel's primary action and leads it, so the trigger is a
+   full-width button rather than the pill it wore inside the old toolbar. */
+.text-preset-picker {
+  display: grid;
   gap: 8px;
-  justify-content: space-between;
-  margin-top: 6px;
+  min-width: 0;
+  position: relative;
 }
 
-.text-toolbar-button {
+.text-preset-button {
   align-items: center;
-  display: inline-flex;
-  font-size: 12px;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px;
-  white-space: nowrap;
-}
-
-.text-search-toolbar-control {
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 400;
-  gap: 4px;
-  height: auto;
-  line-height: 1.15;
-  min-height: 0;
-  padding: 2px 6px;
-}
-
-.text-preset-menu-button {
   background: var(--blue-bg);
-  border-color: var(--blue-border);
+  border: 1px solid var(--blue-border);
+  border-radius: 8px;
   color: var(--blue-text);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  font-weight: 650;
+  gap: 8px;
+  padding: 0 12px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  white-space: nowrap;
+  width: 100%;
 }
 
-.text-preset-menu-button:hover,
-.text-preset-menu-button.active {
+/* Taller than the 37px every other button in the box gets, because this one
+   opens the shortest path to a working bank. */
+.text-search-box .text-preset-button {
+  height: 40px;
+}
+
+.text-search-box .text-preset-button:hover:not(:disabled),
+.text-search-box .text-preset-button.active {
   background: var(--blue-bg-hover);
   border-color: var(--blue-border-hover);
   color: var(--blue-text-hover);
 }
 
-/* .text-search-box label stacks its children, which is right for a field and
-   wrong for a control that reads as one button. */
-.text-prompt-toolbar label {
-  flex-direction: row;
+.text-preset-button-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The selection count rides on the trigger, so the bank's state is readable
+   without opening the menu. */
+.text-preset-button-state {
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: auto;
+  opacity: 0.85;
+}
+
+.text-preset-button-caret {
+  flex: 0 0 auto;
+  transition: transform 140ms ease;
+}
+
+.text-preset-button.active .text-preset-button-caret {
+  transform: rotate(180deg);
+}
+
+/* The field label carries its own live counter, so the size of the bank reads
+   at the field instead of in a sentence below it. */
+.text-field-head {
+  align-items: center;
+  display: flex;
   gap: 6px;
+}
+
+.text-field-count {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-chip);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 20px;
+  padding: 0 6px;
+  text-align: center;
 }
 
 .text-prompt-field,
@@ -3030,60 +3061,63 @@ h2 {
   min-width: 0;
 }
 
-.text-group-label,
 .text-group-labels label {
   color: var(--blue-text);
   font-size: 13px;
   font-weight: 600;
 }
 
-/* The toggle moved to the prompt toolbar, so the field owns the full width. */
+.text-negative-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
 
+/* The switch that renders the field under it: a button at the left of the
+   section rather than a bar across it. */
 .text-negative-toggle {
   align-items: center;
-  background: var(--danger-muted-bg);
-  border: 1px solid var(--danger-muted-border);
-  border-radius: 999px;
-  color: var(--danger-text);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   flex-direction: row;
-  font-size: 11px;
-  font-weight: 400;
-  gap: 4px;
-  height: auto;
-  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  justify-self: start;
   line-height: 1.15;
-  min-height: 0;
-  padding: 2px 6px;
-  position: relative;
+  padding: 0 12px 0 10px;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
   width: auto;
 }
 
-.text-negative-toggle input[type="checkbox"] {
-  height: 1px;
-  margin: 0;
-  opacity: 0;
-  position: absolute;
-  padding: 0;
-  pointer-events: none;
-  width: 1px;
+.text-search-box .text-negative-toggle {
+  height: 34px;
 }
 
-.text-negative-toggle.intent-add {
-  background: var(--danger-soft-bg);
-  border-color: var(--danger-soft-border);
-  color: var(--danger-soft-text);
+.text-negative-toggle-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.text-negative-toggle:hover {
-  background: var(--danger-bg);
-  border-color: var(--danger-border-hover);
-  color: var(--danger-text-hover);
+.text-negative-toggle-state {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  opacity: 0.85;
 }
 
-.text-negative-toggle.active {
+.text-search-box .text-negative-toggle:hover:not(:disabled) {
+  background: var(--danger-muted-bg);
+  border-color: var(--danger-muted-border);
+  color: var(--danger-text);
+}
+
+.text-search-box .text-negative-toggle.active {
   background: var(--danger-soft-bg);
   border-color: var(--danger-soft-border);
   color: var(--danger-soft-text);
@@ -3091,41 +3125,34 @@ h2 {
 
 .text-negative-checkbox {
   align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
   display: flex;
-  flex: 0 0 0;
-  height: 0;
+  flex: 0 0 16px;
+  height: 16px;
   justify-content: center;
-  overflow: hidden;
-  width: 0;
+  width: 16px;
 }
 
+/* The header already wears the soft danger fill, so a checked box keeps the
+   panel surface behind the mark instead of blending into the bar. */
 .text-negative-toggle.active .text-negative-checkbox {
-  flex-basis: 12px;
-  height: 12px;
-  width: 12px;
+  background: var(--surface);
+  border-color: var(--danger-soft-text);
+  color: var(--danger-soft-text);
 }
 
-.text-negative-toggle input[type="checkbox"]:focus-visible + .text-negative-checkbox {
+.text-negative-toggle:focus-visible {
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
-.text-negative-input:disabled {
-  background: var(--surface-disabled);
-  border-color: var(--surface-disabled-border);
-  color: var(--text-disabled);
-}
-
-.text-prompt-actions {
-  align-items: center;
-  display: inline-flex;
-  flex: 1 1 320px;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-  position: relative;
+/* What the switched-off bank still holds, said in one line instead of a
+   greyed-out field nobody can act on. */
+.text-negative-parked {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 /* Prompt preset picker. The bank it fills is shared by CLAP and MuQ-MuLan, so
@@ -3135,18 +3162,24 @@ h2 {
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   box-shadow: 0 18px 48px var(--shadow-dialog-strong);
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr);
-  /* The button that opens this menu sits at the left edge of the toolbar, so
-     the panel grows rightwards and stops at the width of the row it hangs from,
-     which keeps it inside the scrolling search panel. */
-  left: 0;
-  min-width: 240px;
+  /* The axis grid is a fixed 21 buttons, so the menu is bounded here and the
+     option list absorbs the difference instead of running past the panel. The
+     250px is the chrome above and below the search panel at the default
+     layout; overshooting it only makes the panel scroll, never hides a row. */
+  max-height: max(320px, min(620px, calc(100vh - 250px)));
+  /* The search panel is the narrow right-hand column, and 21 axis buttons plus
+     an option list do not fit its width in the height the viewport leaves. The
+     menu is anchored to the panel's right edge and grows leftwards over the
+     library instead, which turns rows into columns in both grids. */
+  min-width: 100%;
   padding: 12px;
   position: absolute;
+  right: 0;
   top: calc(100% + 6px);
-  width: 100%;
+  width: min(560px, calc(100vw - 24px));
   z-index: 30;
 }
 
@@ -3178,11 +3211,35 @@ h2 {
   padding: 1px 8px;
 }
 
+.text-preset-menu-close {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  padding: 0;
+  width: 22px;
+}
+
+.text-search-box .text-preset-menu-close:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text-strong);
+}
+
+.text-search-box .text-preset-menu-close {
+  height: 22px;
+  min-height: 0;
+}
+
 .text-preset-axes {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   grid-auto-rows: max-content;
-  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
 }
 
 /* Blue marks where you are, green marks what is in the bank: the axis row is
@@ -3195,19 +3252,46 @@ h2 {
   color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
+  gap: 5px;
   height: auto;
   justify-content: center;
-  line-height: 1.15;
-  min-height: 0;
+  line-height: 1.2;
+  min-height: 28px;
   min-width: 0;
-  padding: 4px 8px;
+  padding: 5px 10px;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
   white-space: nowrap;
 }
 
-.text-preset-axis-button:hover {
+/* Two models, two dots. The axis hint carries the measurement behind each. */
+.text-preset-axis-dot {
+  border-radius: 50%;
+  flex: 0 0 6px;
+  height: 6px;
+  width: 6px;
+}
+
+.text-preset-axis-dot[data-model="mulan"] {
+  background: var(--accent);
+}
+
+.text-preset-axis-dot[data-model="clap"] {
+  background: var(--warning-muted-text);
+}
+
+/* What the axis under the cursor does to the model, said before a label is
+   picked rather than left to a silent change in the select below. */
+.text-preset-axis-note {
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  padding-bottom: 8px;
+}
+
+.text-search-box .text-preset-axis-button:hover:not(:disabled) {
   background: var(--blue-bg);
   border-color: var(--blue-border);
   color: var(--blue-text);
@@ -3225,8 +3309,10 @@ h2 {
   gap: 3px;
   /* Narrow enough that two columns survive the scrollbar the longer axes need,
      and capped against the viewport so the menu does not hang past the panel. */
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  max-height: min(300px, 38vh);
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  /* Shrinks when the menu hits its cap, never grows past its own content. */
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
@@ -3241,14 +3327,14 @@ h2 {
   color: var(--text);
   cursor: pointer;
   display: grid;
-  font-size: 11px;
-  gap: 6px;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  font-size: 12.5px;
+  gap: 8px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   height: auto;
-  line-height: 1.2;
-  min-height: 26px;
+  line-height: 1.25;
+  min-height: 32px;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 5px 8px;
   text-align: left;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
   width: 100%;
@@ -3270,9 +3356,9 @@ h2 {
   align-items: center;
   color: var(--preset-selected-text);
   display: inline-flex;
-  height: 14px;
+  height: 18px;
   justify-content: center;
-  width: 14px;
+  width: 18px;
 }
 
 /* An empty checkbox holds the column, so a checked and an unchecked row sit on
@@ -3280,13 +3366,16 @@ h2 {
 .text-preset-option-button:not(.active) .text-preset-option-check::before {
   background: var(--surface-muted);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: 5px;
   content: "";
-  height: 12px;
-  width: 12px;
+  height: 16px;
+  width: 16px;
 }
 
 .text-preset-option-label {
+  align-items: center;
+  display: flex;
+  gap: 5px;
   min-width: 0;
   overflow-wrap: break-word;
   white-space: normal;
@@ -3299,11 +3388,11 @@ h2 {
   border-radius: 999px;
   color: var(--preset-selected-text);
   display: inline-flex;
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   justify-content: center;
-  min-width: 26px;
-  padding: 0 4px;
+  min-width: 30px;
+  padding: 1px 6px;
 }
 
 .text-preset-option-button.active .text-preset-option-measured {
@@ -3333,7 +3422,7 @@ h2 {
 .text-preset-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
 
 .text-preset-chip {
@@ -3344,16 +3433,33 @@ h2 {
   color: var(--preset-selected-text);
   cursor: pointer;
   display: inline-flex;
-  font-size: 11px;
-  gap: 4px;
+  font-size: 11.5px;
+  gap: 5px;
   height: auto;
-  line-height: 1.15;
-  padding: 2px 6px;
+  line-height: 1.2;
+  padding: 3px 8px;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
+/* The same label lives on more than one axis, so the chip carries the axis it
+   came from rather than leaving the bank ambiguous. Brackets set it apart from
+   the label without a second box inside the pill: [Rhythm] Halftime. */
+.text-preset-chip-axis {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+.text-preset-chip-axis::before {
+  content: "[";
+}
+
+.text-preset-chip-axis::after {
+  content: "]";
+}
+
 /* Clicking a chip drops the preset, so hovering one reads as removal. */
-.text-preset-chip:hover {
+.text-search-box .text-preset-chip:hover:not(:disabled) {
   background: var(--danger-muted-bg);
   border-color: var(--danger-muted-border);
   color: var(--danger-text);
@@ -3374,7 +3480,7 @@ h2 {
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-.text-preset-chip-clear:hover {
+.text-search-box .text-preset-chip-clear:hover:not(:disabled) {
   background: var(--danger-muted-bg);
   border-color: var(--danger-muted-border);
   color: var(--danger-text);
@@ -3391,28 +3497,42 @@ h2 {
 }
 
 .text-search-box .text-preset-option-button {
-  min-height: 26px;
+  min-height: 32px;
 }
 
-.text-search-box .text-search-toolbar-control {
-  height: auto;
-  min-height: 0;
+.text-search-box .text-preset-axis-button {
+  min-height: 28px;
 }
 
+/* The evidence panel: what stands behind the current selection, in the one
+   place a selection is judged. Hints describe the sound, this describes the
+   ground under it. */
 .text-model-advice {
-  align-items: center;
   background: var(--accent-soft-bg);
   border: 1px solid var(--accent-soft-border);
   border-radius: 8px;
   color: var(--text-muted);
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   font-size: 11px;
-  gap: 8px;
-  justify-content: space-between;
+  gap: 6px;
   line-height: 1.4;
-  margin-top: 6px;
-  padding: 6px 9px;
+  padding: 8px 10px;
+}
+
+.text-evidence-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.text-evidence-key {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.text-evidence-value {
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .text-model-advice-switch {
@@ -3422,62 +3542,47 @@ h2 {
   color: var(--accent);
   cursor: pointer;
   font-size: 11px;
+  justify-self: start;
   padding: 3px 9px;
   white-space: nowrap;
 }
 
-.text-negative-weight-row {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  margin-top: 6px;
+.text-search-box .text-model-advice-switch {
+  height: auto;
+  min-height: 0;
 }
 
-.text-negative-weight-row label {
-  align-items: center;
+.text-negative-hint {
   color: var(--text-muted);
-  display: flex;
-  /* .text-search-box label stacks its children; this one reads as one line. */
-  flex-direction: row;
-  flex: 1;
   font-size: 11px;
-  gap: 8px;
-  white-space: nowrap;
+  line-height: 1.4;
 }
 
-.text-negative-weight-row input[type="range"] {
-  flex: 1;
-  min-width: 0;
-}
-
-.text-negative-weight-value {
-  color: var(--text);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  min-width: 30px;
-  text-align: right;
-}
-
+/* One rule for both banks: the negative field no longer sits inside a label,
+   so without an explicit size it fell back to the browser default and the two
+   textareas rendered at different type sizes. */
 .text-prompt-input,
 .text-negative-input {
   font-family: inherit;
+  font-size: 13px;
   line-height: 1.45;
   resize: vertical;
   width: 100%;
 }
 
+/* A caption for the field above it, so it sits inside the rhythm rather
+   than a full step away from what it describes. */
 .text-prompt-hint {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.4;
-  margin-top: 6px;
+  margin-top: -4px;
 }
 
 .text-search-requirement {
   color: var(--warning-muted-text);
   display: block;
   font-size: 12px;
-  margin: -2px 0 8px;
 }
 
 .seed-remove-chip {
@@ -3532,6 +3637,7 @@ h2 {
 }
 
 .text-search-filter-grid {
+  margin: 0;
   grid-template-columns: repeat(2, minmax(92px, 160px));
 }
 

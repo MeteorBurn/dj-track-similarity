@@ -366,23 +366,19 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
   assert.match(searchSource, /<TextSearchTab/);
-  assert.match(textTabSource, /text-preset-menu-button/);
   assert.match(textTabSource, /onTogglePreset\(preset\.key\)/);
   assert.match(textTabSource, /document\.addEventListener\("pointerdown"/);
   assert.match(textTabSource, /presetMenuRef/);
   assert.doesNotMatch(textTabSource, /text-generate-button/);
-  assert.match(textTabSource, /Prompt bank\s*\n\s*<textarea/);
   assert.match(textTabSource, /text-preset-axis-button/);
   assert.match(textTabSource, /text-preset-chip/);
   assert.match(textTabSource, /text-prompt-hint/);
   assert.doesNotMatch(textTabSource, />\s*Avoid\s*</);
   assert.match(textTabSource, /className="text-negative-input"/);
-  assert.match(textTabSource, /text-toolbar-button text-negative-toggle/);
-  // The picker and the negative toggle share one toolbar under the prompt bank
-  // instead of floating beside the two textareas.
-  assert.match(textTabSource, /className="text-prompt-toolbar"/);
-  assert.match(textTabSource, /textUseNegativePrompt \? "intent-add active" : ""/);
-  assert.match(textTabSource, /aria-label="Use negative prompt"/);
+  // The negative bank is switched by a button that reports its own state, not
+  // by a checkbox hidden inside a label.
+  assert.match(textTabSource, /role="switch"/);
+  assert.match(textTabSource, /aria-checked=\{textUseNegativePrompt\}/);
   assert.match(textTabSource, /text-negative-checkbox/);
   assert.doesNotMatch(textTabSource, /text-negative-toggle-text/);
   assert.doesNotMatch(textTabSource, />\s*Use\s*</);

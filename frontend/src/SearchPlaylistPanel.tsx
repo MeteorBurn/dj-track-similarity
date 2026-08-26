@@ -94,7 +94,7 @@ const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
 const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
   sonara: { label: "SONARA", title: "SONARA similarity search" },
   similarity: { label: "SIMILARITY", title: "Seed embedding similarity search (MAEST, MERT, MuQ, MuQ-MuLan)" },
-  text: { label: "TEXT", title: "Text-to-track search (CLAP or MuQ-MuLan)" },
+  text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
   class: { label: "CLASS", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }
 };
@@ -125,7 +125,6 @@ export function SearchPlaylistPanel({
   promptAxes,
   promptPresets,
   promptNegativeWeight,
-  onPromptNegativeWeightChange,
   databaseIdentity,
   busy,
   filters,
@@ -188,7 +187,6 @@ export function SearchPlaylistPanel({
   promptAxes: TextPromptAxis[];
   promptPresets: TextPromptPreset[];
   promptNegativeWeight: number | null;
-  onPromptNegativeWeightChange: (value: number) => void;
   databaseIdentity: string | null;
   busy: boolean;
   filters: SearchFiltersState;
@@ -521,7 +519,7 @@ export function SearchPlaylistPanel({
           </div>
         )}
         {activeSearchTab === "text" && (
-          <div id="search-panel-clap" className="search-tab-panel-wrapper" role="tabpanel" aria-labelledby="search-tab-clap">
+          <div id="search-panel-text" className="search-tab-panel-wrapper" role="tabpanel" aria-labelledby="search-tab-text">
           <TextSearchTab
             textQuery={textQuery}
             onTextQueryChange={onTextQueryChange}
@@ -537,7 +535,6 @@ export function SearchPlaylistPanel({
             promptAxes={promptAxes}
             promptPresets={promptPresets}
             negativeWeight={promptNegativeWeight}
-            onNegativeWeightChange={onPromptNegativeWeightChange}
             limit={filters.limit}
             onLimitChange={(value) => setFilters({ ...filters, limit: value })}
             textPromptHelp={helpText.textPrompt}

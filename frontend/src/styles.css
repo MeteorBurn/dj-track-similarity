@@ -2291,6 +2291,10 @@ h2 {
   border: 1px solid var(--border-muted);
   border-radius: 6px;
   display: grid;
+  /* The lists these sit in are scrolling flex columns. Without this a row that
+     needs a second line is still held at min-height and the second line draws
+     over the row below. */
+  flex: 0 0 auto;
   gap: 8px;
   min-height: 48px;
   padding: 6px;
@@ -2322,6 +2326,92 @@ h2 {
 
 .result-row.has-row-index {
   grid-template-columns: 26px 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
+}
+
+/* Preset feedback puts two more buttons in the trailing group. Without their
+   own columns they wrapped onto a second implicit row and sat under the title. */
+.result-row.has-feedback {
+  grid-template-columns: 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px 34px 34px;
+}
+
+.result-row.has-row-index.has-feedback {
+  grid-template-columns: 26px 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px 34px 34px;
+}
+
+/* The search panel is one third of the workspace, so how much of a row fits
+   depends on the window width and not on any viewport breakpoint: at 1280px the
+   panel is 355px wide and at 1920px it is 570px. The list measures itself and
+   the row follows, which is why these are container queries and not media
+   queries. The same two things are given up here, in the same order, as in the
+   narrow-viewport block at the end of this file. */
+.results-list {
+  container-type: inline-size;
+  container-name: results;
+}
+
+/* First the verdict pair leaves the line, taking its own row under the trailing
+   icons: eleven columns need 454px of fixed width before the title gets any. */
+@container results (max-width: 560px) {
+  .result-row.has-feedback {
+    grid-template-columns: 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-row-index.has-feedback {
+    grid-template-columns: 26px 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-feedback .result-feedback-button.intent-relevant {
+    grid-column: -3 / -2;
+    grid-row: 2;
+  }
+
+  .result-row.has-feedback .result-feedback-button.intent-irrelevant {
+    grid-column: -2 / -1;
+    grid-row: 2;
+  }
+}
+
+/* Then the meter: it says what the score already says, less exactly, and costs
+   more width. */
+@container results (max-width: 520px) {
+  .result-row meter {
+    display: none;
+  }
+
+  .result-row {
+    grid-template-columns: 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-row-index {
+    grid-template-columns: 26px 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-feedback {
+    grid-template-columns: 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-row-index.has-feedback {
+    grid-template-columns: 26px 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
+  }
+}
+
+/* Narrower still, and the score goes too: the list is ranked, so the order and
+   the row number carry it, while a title cut to a few characters carries
+   nothing. */
+@container results (max-width: 400px) {
+  .result-row .similarity-score {
+    display: none;
+  }
+
+  .result-row {
+    grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-row-index,
+  .result-row.has-feedback,
+  .result-row.has-row-index.has-feedback {
+    grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px;
+  }
 }
 
 .result-row.selectable {
@@ -4209,6 +4299,20 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 
   .result-row.has-row-index {
     grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px;
+  }
+
+  .result-row.has-feedback {
+    grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px 34px 34px 34px;
+  }
+
+  .result-row.has-row-index.has-feedback {
+    grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px 34px 34px;
+  }
+
+  .result-row.has-feedback .result-feedback-button.intent-relevant,
+  .result-row.has-feedback .result-feedback-button.intent-irrelevant {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .result-row meter,

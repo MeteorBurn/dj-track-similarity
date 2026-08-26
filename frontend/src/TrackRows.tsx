@@ -188,7 +188,7 @@ export function ResultRow({
   const selectedClass = selected ? "selected" : "";
   return (
     <div
-      className={`result-row ${rowIndex != null ? "has-row-index" : ""} ${selectableClass} ${selectedClass}`}
+      className={`result-row ${rowIndex != null ? "has-row-index" : ""} ${onFeedback ? "has-feedback" : ""} ${selectableClass} ${selectedClass}`}
       title={selectTitle}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}

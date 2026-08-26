@@ -175,7 +175,7 @@ def test_serve_creates_selected_current_database_and_passes_log_config(
     assert kwargs["port"] == 8877
     log_config = kwargs["log_config"]
     assert log_config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
-    assert log_config["handlers"]["file"]["filename"] == str(log_path.resolve())
+    assert log_config["loggers"]["uvicorn"]["level"] == "WARNING"
 
 
 def test_serve_opens_existing_selected_current_database(

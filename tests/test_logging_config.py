@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import logging.config
 import re
+import sys
 import time
 
 import dj_track_similarity.logging_config as logging_config
@@ -60,17 +62,25 @@ def test_uvicorn_log_config_wraps_console_date_time_and_level_in_brackets():
     assert config["loggers"]["rhythm_lab"] == {"handlers": ["default"], "level": "WARNING", "propagate": False}
 
 
-def test_uvicorn_log_config_uses_only_stream_handlers_to_avoid_duplicate_file_logs(tmp_path):
+def test_serve_logging_writes_every_record_to_the_file_once(tmp_path):
     log_path = tmp_path / "app.log"
+    configure_logging(log_path, level=logging.INFO)
 
-    config = logging_config.uvicorn_log_config("info", log_path=log_path)
+    # The server applies the uvicorn log config and mirrors the streams on startup.
+    logging.config.dictConfig(logging_config.uvicorn_log_config("info"))
+    logging_config.install_standard_stream_logging(logging.INFO)
 
-    assert config["formatters"]["file"]["format"] == "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
-    assert config["handlers"]["file"]["filename"] == str(log_path.resolve())
-    assert config["loggers"]["uvicorn"]["handlers"] == ["default"]
-    assert config["loggers"]["uvicorn.error"]["handlers"] == ["default"]
-    assert config["loggers"]["uvicorn.access"]["handlers"] == ["access"]
-    assert config["loggers"]["dj_track_similarity"]["handlers"] == ["file"]
+    logging.warning("third-party root record")
+    logging.getLogger("dj_track_similarity.test").info("project serve record")
+    print("third-party progress 42%", file=sys.stderr)
+    sys.stderr.flush()
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
+
+    contents = log_path.read_text(encoding="utf-8")
+    assert contents.count("project serve record") == 1
+    assert contents.count("third-party root record") == 1
+    assert contents.count("third-party progress 42%") == 1
 
 
 def test_asyncio_transport_reset_is_logged_without_default_traceback(caplog):

@@ -1398,5 +1398,5 @@ def serve(
         ),
         host=host,
         port=port,
-        log_config=uvicorn_log_config(log_level, log_path=log_path),
+        log_config=uvicorn_log_config(log_level),
     )

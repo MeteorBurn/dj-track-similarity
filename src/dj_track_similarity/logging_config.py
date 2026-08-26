@@ -18,6 +18,7 @@ LOG_TRACK_EVENTS_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS"
 ANALYSIS_DIAGNOSTICS_ENV_VAR = "DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS"
 DEFAULT_LOG_PATH = Path("logs") / "dj-track-similarity.log"
 FILE_HANDLER_NAME = "dj_track_similarity_file"
+PROJECT_LOGGER_NAME = "dj_track_similarity"
 FILE_BACKUP_COUNT = 1
 LOG_DATE_FORMAT = "%Y-%m-%d] [%H:%M:%S"
 FILE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
@@ -55,16 +56,16 @@ def configure_logging(
     path.parent.mkdir(parents=True, exist_ok=True)
     numeric_level = parse_log_level(level or os.environ.get(LOG_LEVEL_ENV_VAR) or "info")
 
-    logger = logging.getLogger("dj_track_similarity")
+    logger = logging.getLogger(PROJECT_LOGGER_NAME)
     logger.setLevel(numeric_level)
     logger.propagate = True
 
-    file_handler: logging.Handler | None = None
+    file_handler: ProjectStartupFileHandler | None = None
     created_handler = False
     for handler in list(logger.handlers):
-        if getattr(handler, "name", "") != FILE_HANDLER_NAME:
+        if not isinstance(handler, ProjectStartupFileHandler):
             continue
-        if Path(getattr(handler, "baseFilename", "")).resolve() == path:
+        if Path(handler.baseFilename).resolve() == path:
             handler.setLevel(numeric_level)
             file_handler = handler
             break
@@ -79,6 +80,7 @@ def configure_logging(
         logger.addHandler(file_handler)
         created_handler = True
     _install_standard_stream_logging(file_handler, numeric_level)
+    _claim_root_logger(file_handler)
     if created_handler:
         logger.info("File logging configured path=%s", path)
     return path
@@ -88,8 +90,8 @@ def install_standard_stream_logging(level: int | str | None = None) -> None:
     """Mirror direct stdout/stderr writes into the configured app file log."""
 
     numeric_level = parse_log_level(level or os.environ.get(LOG_LEVEL_ENV_VAR) or "info")
-    logger = logging.getLogger("dj_track_similarity")
-    handler = next((item for item in logger.handlers if getattr(item, "name", "") == FILE_HANDLER_NAME), None)
+    logger = logging.getLogger(PROJECT_LOGGER_NAME)
+    handler = next((item for item in logger.handlers if isinstance(item, ProjectStartupFileHandler)), None)
     if handler is None:
         configure_logging(level=numeric_level)
         return
@@ -129,8 +131,38 @@ def _detach_standard_stream_file_handlers(logger: logging.Logger, *, keep: loggi
     for handler in list(logger.handlers):
         if handler is keep:
             continue
-        if getattr(handler, "name", "") == FILE_HANDLER_NAME:
+        if isinstance(handler, ProjectStartupFileHandler):
             logger.removeHandler(handler)
+
+
+def _claim_root_logger(file_handler: logging.Handler) -> None:
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        if not isinstance(handler, ForeignRecordFileHandler):
+            continue
+        if handler.file_handler is file_handler:
+            return
+        root_logger.removeHandler(handler)
+    root_logger.addHandler(ForeignRecordFileHandler(file_handler))
+
+
+class ForeignRecordFileHandler(logging.Handler):
+    """Keep third-party ``logging`` records in the project file log.
+
+    Holding the root logger also stops libraries that log through ``logging.info``
+    and friends from installing a console handler of their own, whose output the
+    standard stream mirror would write to the file a second time. Project records
+    are skipped because the project logger already writes them itself.
+    """
+
+    def __init__(self, file_handler: logging.Handler) -> None:
+        super().__init__(logging.NOTSET)
+        self.file_handler = file_handler
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.name == PROJECT_LOGGER_NAME or record.name.startswith(f"{PROJECT_LOGGER_NAME}."):
+            return
+        self.file_handler.handle(record)
 
 
 def _wrap_standard_stream(stream, stream_name: str):
@@ -228,7 +260,14 @@ class StandardStreamLogMirror:
         return False
 
 
-def uvicorn_log_config(level: int | str = "info", log_path: str | Path | None = None) -> dict[str, object]:
+def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
+    """Console logging for the server's own loggers.
+
+    The project logger is left out on purpose: ``dictConfig`` would replace the file
+    handler installed by :func:`configure_logging` with a second handler on the same
+    file, and every project record would reach the log twice.
+    """
+
     normalized_level = logging.getLevelName(parse_log_level(level))
     config: dict[str, object] = {
         "version": 1,
@@ -264,29 +303,6 @@ def uvicorn_log_config(level: int | str = "info", log_path: str | Path | None = 
             "rhythm_lab": {"handlers": ["default"], "level": normalized_level, "propagate": False},
         },
     }
-    if log_path is not None:
-        resolved_log_path = Path(log_path).resolve()
-        formatters = config["formatters"]
-        handlers = config["handlers"]
-        loggers = config["loggers"]
-        assert isinstance(formatters, dict)
-        assert isinstance(handlers, dict)
-        assert isinstance(loggers, dict)
-        formatters["file"] = {
-            "class": "logging.Formatter",
-            "format": FILE_LOG_FORMAT,
-            "datefmt": LOG_DATE_FORMAT,
-        }
-        handlers["file"] = {
-            "()": "dj_track_similarity.logging_config.project_file_handler",
-            "filename": str(resolved_log_path),
-            "formatter": "file",
-            "level": normalized_level,
-        }
-        loggers["uvicorn"] = {"handlers": ["default"], "level": normalized_level, "propagate": False}
-        loggers["uvicorn.error"] = {"handlers": ["default"], "level": normalized_level, "propagate": False}
-        loggers["uvicorn.access"] = {"handlers": ["access"], "level": normalized_level, "propagate": False}
-        loggers["dj_track_similarity"] = {"handlers": ["file"], "level": normalized_level, "propagate": True}
     return config
 
 

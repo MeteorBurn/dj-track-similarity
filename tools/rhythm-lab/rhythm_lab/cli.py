@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     ablation_parser = subcommands.add_parser("benchmark-ablation", help="Run per-profile feature-combination ablation benchmarks.")
     _add_data_options(ablation_parser)
     ablation_parser.add_argument("--profile", action="append", default=None, help="Classifier profile key. Repeat to benchmark multiple profiles; omit for all trainable active profiles.")
-    ablation_parser.add_argument("--feature-set", action="append", default=None, help="Feature set to evaluate, such as sonara+muq or sonara+mert+maest+clap+muq. Repeat to override the default ablation matrix.")
+    ablation_parser.add_argument("--feature-set", action="append", default=None, help="Feature set to evaluate, such as sonara+muq or sonara+mert+maest+clap+muq+mulan. Repeat to override the default ablation matrix.")
     ablation_parser.add_argument("--artifacts-root", type=Path, default=None, help="Override profile artifact directories with <root>/<artifact-prefix>.")
     ablation_parser.add_argument("--output", type=Path, default=None, help="Write the combined JSON report to this path.")
     ablation_parser.add_argument("--random-state", type=int, default=42)

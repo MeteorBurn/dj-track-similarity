@@ -1171,7 +1171,7 @@ def test_calibration_gate_failure_does_not_write_uncalibrated_artifact(
 
 
 def test_default_training_recipe_uses_current_sonara_and_all_embeddings() -> None:
-    expected = "sonara+mert+maest+clap+muq"
+    expected = "sonara+mert+maest+clap+muq+mulan"
 
     assert getattr(feature_module, "DEFAULT_TRAINING_FEATURE_SET", None) == expected
     assert expected in FEATURE_RECIPE_OPTIONS
@@ -1182,6 +1182,7 @@ def test_default_training_recipe_uses_current_sonara_and_all_embeddings() -> Non
         "maest",
         "clap",
         "muq",
+        "mulan",
     )
 
 

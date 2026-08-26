@@ -38,7 +38,7 @@ const newProfileTypeEl = document.getElementById("newProfileType");
 const binaryLabelGridEl = document.getElementById("binaryLabelGrid");
 const multiclassLabelEditorEl = document.getElementById("multiclassLabelEditor");
 const multiclassLabelRowsEl = document.getElementById("multiclassLabelRows");
-const DEFAULT_TRAINING_FEATURE_SET = "sonara+mert+maest+clap+muq";
+const DEFAULT_TRAINING_FEATURE_SET = "sonara+mert+maest+clap+muq+mulan";
 const TRAINING_RECIPE_OPTIONS = [
   { value: DEFAULT_TRAINING_FEATURE_SET, label: "Combined" },
   { value: "sonara", label: "Sonara" },
@@ -1838,7 +1838,7 @@ function featuresIndicator(track) {
 }
 
 function requiredFeatureSources() {
-  return latestTrainingReadiness?.feature_recipe?.required_sources || ["sonara", "mert", "maest", "clap", "muq"];
+  return latestTrainingReadiness?.feature_recipe?.required_sources || ["sonara", "mert", "maest", "clap", "muq", "mulan"];
 }
 
 function featureStateStatus(state) {

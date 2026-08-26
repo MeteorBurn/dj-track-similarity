@@ -1036,7 +1036,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert 'label: "Combined"' in script
         assert '"muq"' in script
         assert "source_data_ready" in script
-        assert '"sonara+mert+maest+clap+muq"' in script
+        assert '"sonara+mert+maest+clap+muq+mulan"' in script
         assert "async function calibrateClassifier()" in script
         assert "/training/calibrate" in script
         assert "async function refreshCandidates()" in script
@@ -1084,7 +1084,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert 'startTrainingProgressPolling(activeProfile.classifier_key, "calibrate");' in calibrate_script
         assert 'stage: "Calibration complete", percent: 100' in calibrate_script
         assert "feature_group_weights" in script
-        assert '["sonara", "mert", "maest", "clap", "muq"]' in script
+        assert '["sonara", "mert", "maest", "clap", "muq", "mulan"]' in script
         assert "Loading Training" in script
         assert "Training could not load" in script
         assert "if (!selected) return" in script

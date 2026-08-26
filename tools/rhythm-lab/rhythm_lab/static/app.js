@@ -1101,7 +1101,7 @@ function renderTrainingWorkflow(data, planText) {
         number: 3,
         title: "Benchmark variants",
         status: winner ? "done" : data?.labels_ready ? "ready" : "blocked",
-        body: winner ? `Current winner: ${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)}.` : "Compare SONARA, MERT, MAEST, CLAP, and MuQ feature-source combinations.",
+        body: winner ? `Current winner: ${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)}.` : "Compare SONARA, MERT, MAEST, CLAP, MuQ, and MuQ-MuLan feature-source combinations.",
         action: workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark", !data?.labels_ready, data?.labels_ready ? "Run benchmark" : trainingBlocked)
       })}
       ${renderWorkflowStep({

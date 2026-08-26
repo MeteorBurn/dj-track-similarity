@@ -77,6 +77,18 @@ type TextSearchPayload = {
   device?: "auto" | "cpu" | "cuda";
 };
 
+type TextSearchFeedbackPayload = {
+  track_uuid: string;
+  preset_keys: string[];
+  analysis_family: "clap" | "mulan";
+  verdict: -1 | 0 | 1;
+};
+
+type TextSearchFeedbackResult = {
+  presets: number;
+  verdict: number;
+};
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -317,6 +329,11 @@ const searchApi = {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,
+    }),
+  textSearchFeedback: (payload: TextSearchFeedbackPayload) =>
+    request<TextSearchFeedbackResult>("/api/search/text/feedback", {
+      method: "POST",
+      body: JSON.stringify(payload),
     })
 };
 

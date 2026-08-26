@@ -9,6 +9,10 @@ from numbers import Integral, Real
 import sqlite3
 from typing import Any
 
+from .db_ddl import (
+    TEXT_PRESET_FEEDBACK_INDEX_DDL,
+    TEXT_PRESET_FEEDBACK_TABLE_DDL,
+)
 from .track_models import TrackIdentity
 
 
@@ -40,6 +44,89 @@ class EvaluationRepository:
             if connection is None:
                 raise RuntimeError("Failed to open the Evaluation database")
             connection.close()
+
+    def record_text_preset_feedback(
+        self,
+        *,
+        track_uuid: str,
+        preset_keys: Sequence[str],
+        analysis_family: str,
+        verdict: int,
+    ) -> int:
+        """Store one relevance verdict per selected preset for a text-search hit.
+
+        ``verdict`` is +1 (relevant) or -1 (irrelevant); 0 removes the stored
+        verdicts for the given presets. This is the raw reinforcement signal
+        that ``scripts/text_preset_tune.py`` reads. It lives in the library
+        database beside ``likes``; trained classifier outputs never enter it.
+        """
+        clean_uuid = _required_text(track_uuid, "Track uuid")
+        clean_keys: list[str] = []
+        for preset_key in preset_keys:
+            clean_key = _required_text(preset_key, "Preset key")
+            if clean_key not in clean_keys:
+                clean_keys.append(clean_key)
+        if not clean_keys:
+            raise ValueError("At least one preset key is required")
+        if analysis_family not in ("clap", "mulan"):
+            raise ValueError(f"Unknown text embedding family: {analysis_family}")
+        if verdict not in (-1, 0, 1):
+            raise ValueError("Verdict must be -1, 0 or 1")
+        timestamp = _utc_timestamp()
+        with self._write_lock:
+            with closing(self.connect()) as connection, connection:
+                # Libraries created before this table gain it on the first
+                # explicit verdict click: an additive capability, not a
+                # migration of existing data.
+                connection.execute(TEXT_PRESET_FEEDBACK_TABLE_DDL)
+                connection.execute(TEXT_PRESET_FEEDBACK_INDEX_DDL)
+                row = connection.execute(
+                    """
+                    SELECT track_id FROM tracks
+                    WHERE track_uuid = ? AND missing_since IS NULL
+                    """,
+                    (clean_uuid,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(f"Unknown track uuid: {clean_uuid}")
+                track_id = int(row[0])
+                placeholders = ", ".join("?" for _ in clean_keys)
+                if verdict == 0:
+                    cursor = connection.execute(
+                        f"""
+                        DELETE FROM text_preset_feedback
+                        WHERE track_id = ?
+                          AND analysis_family = ?
+                          AND preset_key IN ({placeholders})
+                        """,
+                        (track_id, analysis_family, *clean_keys),
+                    )
+                    return int(cursor.rowcount)
+                connection.executemany(
+                    """
+                    INSERT INTO text_preset_feedback(
+                        track_id, preset_key, analysis_family, verdict,
+                        created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(track_id, preset_key, analysis_family)
+                    DO UPDATE SET
+                        verdict = excluded.verdict,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        (
+                            track_id,
+                            preset_key,
+                            analysis_family,
+                            verdict,
+                            timestamp,
+                            timestamp,
+                        )
+                        for preset_key in clean_keys
+                    ),
+                )
+                return len(clean_keys)
 
     def list_search_sessions_with_events(self) -> list[dict[str, Any]]:
         connection = self.connect_evaluation(create=False)

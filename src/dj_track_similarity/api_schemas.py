@@ -349,6 +349,26 @@ class TextSearchRequest(BaseModel):
     )
 
 
+class TextSearchFeedbackRequest(BaseModel):
+    """One relevance verdict for a text-search hit, credited to each preset.
+
+    ``verdict`` +1 marks the track relevant for the presets that built the
+    bank, -1 marks it irrelevant, and 0 withdraws the stored verdicts.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    track_uuid: str = Field(min_length=1)
+    preset_keys: list[str] = Field(min_length=1)
+    analysis_family: Literal["clap", "mulan"]
+    verdict: Literal[-1, 0, 1]
+
+
+class TextSearchFeedbackResponse(BaseModel):
+    presets: int
+    verdict: int
+
+
 class TrackIdentityRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 

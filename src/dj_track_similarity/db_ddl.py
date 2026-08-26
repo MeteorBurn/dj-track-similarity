@@ -19,7 +19,8 @@ Tables (emission order matches FK dependency order):
   13. likes                 — user like per track
   14. pair_feedback         — candidate pair ratings with reason_tags_json
   15. transition_feedback   — transition ratings with risk_tags_json
-  16. track_search_fts      — FTS5 virtual table (human text only)
+  16. text_preset_feedback  — per-preset relevance verdicts from text search
+  17. track_search_fts      — FTS5 virtual table (human text only)
 
 """
 
@@ -324,6 +325,32 @@ CREATE INDEX idx_transition_feedback_outgoing ON transition_feedback(outgoing_tr
 CREATE INDEX idx_transition_feedback_incoming ON transition_feedback(incoming_track_id, outgoing_track_id);
 """
 
+# The raw reinforcement signal for tuning text-search presets: one relevance
+# verdict per (track, preset, text model). Written on an explicit user click,
+# read by scripts/text_preset_tune.py. IF NOT EXISTS is deliberate: libraries
+# created before this table gain it additively on the first verdict, which is
+# a new capability, not a migration of existing data.
+TEXT_PRESET_FEEDBACK_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS text_preset_feedback (
+    track_id         INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+    preset_key       TEXT    NOT NULL,
+    analysis_family  TEXT    NOT NULL CHECK(analysis_family IN ('clap', 'mulan')),
+    verdict          INTEGER NOT NULL CHECK(verdict IN (-1, 1)),
+    created_at       TEXT    NOT NULL,
+    updated_at       TEXT    NOT NULL,
+    PRIMARY KEY(track_id, preset_key, analysis_family)
+);
+"""
+
+TEXT_PRESET_FEEDBACK_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS idx_text_preset_feedback_pool "
+    "ON text_preset_feedback(preset_key, analysis_family, verdict, track_id);"
+)
+
+_DDL_TEXT_PRESET_FEEDBACK = (
+    TEXT_PRESET_FEEDBACK_TABLE_DDL + "\n" + TEXT_PRESET_FEEDBACK_INDEX_DDL
+)
+
 _DDL_TRACK_SEARCH_FTS = """
 CREATE VIRTUAL TABLE track_search_fts USING fts5(
     track_id       UNINDEXED,
@@ -360,6 +387,7 @@ _ALL_DDL: list[str] = [
     _DDL_LIKES,
     _DDL_PAIR_FEEDBACK,
     _DDL_TRANSITION_FEEDBACK,
+    _DDL_TEXT_PRESET_FEEDBACK,
     _DDL_TRACK_SEARCH_FTS,
 ]
 

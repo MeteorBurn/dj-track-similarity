@@ -1,7 +1,7 @@
 import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useState } from "react";
 import { Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
-import { ClapSearchTab } from "./ClapSearchTab";
+import { TextSearchTab } from "./TextSearchTab";
 import {
   classifierIsAvailable,
   classifierProfileStatus,
@@ -94,7 +94,7 @@ const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
 const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
   sonara: { label: "SONARA", title: "SONARA similarity search" },
   similarity: { label: "SIMILARITY", title: "Seed embedding similarity search (MAEST, MERT, MuQ, MuQ-MuLan)" },
-  clap: { label: "TEXT", title: "TEXT text search (CLAP or MuQ-MuLan)" },
+  text: { label: "TEXT", title: "Text-to-track search (CLAP or MuQ-MuLan)" },
   class: { label: "CLASS", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }
 };
@@ -111,10 +111,10 @@ export function SearchPlaylistPanel({
   seedTracks,
   textQuery,
   onTextQueryChange,
-  clapNegativeQuery,
-  onClapNegativeQueryChange,
-  clapUseNegativePrompt,
-  onClapUseNegativePromptChange,
+  textNegativeQuery,
+  onTextNegativeQueryChange,
+  textUseNegativePrompt,
+  onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
   seedEmbeddingFamily,
@@ -135,6 +135,7 @@ export function SearchPlaylistPanel({
   genericSearchInputKey,
   genericSearchResultKey,
   genericSearchResultOrigin,
+  textFeedback,
   onPrimarySearchTabChange,
   seedSet,
   playlistSet,
@@ -173,10 +174,10 @@ export function SearchPlaylistPanel({
   seedTracks: Track[];
   textQuery: string;
   onTextQueryChange: (value: string) => void;
-  clapNegativeQuery: string;
-  onClapNegativeQueryChange: (value: string) => void;
-  clapUseNegativePrompt: boolean;
-  onClapUseNegativePromptChange: (value: boolean) => void;
+  textNegativeQuery: string;
+  onTextNegativeQueryChange: (value: string) => void;
+  textUseNegativePrompt: boolean;
+  onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   seedEmbeddingFamily: SeedEmbeddingFamily;
@@ -197,6 +198,11 @@ export function SearchPlaylistPanel({
   genericSearchInputKey: string;
   genericSearchResultKey: string;
   genericSearchResultOrigin: GenericSearchTab | null;
+  /** Verdict state for text-search rows; null when no preset built the list. */
+  textFeedback: {
+    verdicts: Record<string, 1 | -1>;
+    onVerdict: (track: Track, verdict: 1 | -1) => void;
+  } | null;
   onPrimarySearchTabChange: (tab: PrimarySearchTab) => void;
   seedSet: Set<number>;
   playlistSet: Set<number>;
@@ -514,15 +520,15 @@ export function SearchPlaylistPanel({
             />
           </div>
         )}
-        {activeSearchTab === "clap" && (
+        {activeSearchTab === "text" && (
           <div id="search-panel-clap" className="search-tab-panel-wrapper" role="tabpanel" aria-labelledby="search-tab-clap">
-          <ClapSearchTab
+          <TextSearchTab
             textQuery={textQuery}
             onTextQueryChange={onTextQueryChange}
-            clapNegativeQuery={clapNegativeQuery}
-            onClapNegativeQueryChange={onClapNegativeQueryChange}
-            clapUseNegativePrompt={clapUseNegativePrompt}
-            onClapUseNegativePromptChange={onClapUseNegativePromptChange}
+            textNegativeQuery={textNegativeQuery}
+            onTextNegativeQueryChange={onTextNegativeQueryChange}
+            textUseNegativePrompt={textUseNegativePrompt}
+            onTextUseNegativePromptChange={onTextUseNegativePromptChange}
             textEmbeddingFamily={textEmbeddingFamily}
             onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
             selectedPresetKeys={selectedPresetKeys}
@@ -695,6 +701,8 @@ export function SearchPlaylistPanel({
                   onPreview={setPreview}
                   onSeekPreview={onSeekPreview}
                   onDetails={setMetadataTrack}
+                  feedbackVerdict={textFeedback ? textFeedback.verdicts[track.track_uuid] ?? null : null}
+                  onFeedback={textFeedback ? textFeedback.onVerdict : undefined}
                 />
               )) : (
                 <div className="empty-state">

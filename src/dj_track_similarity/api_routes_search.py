@@ -21,6 +21,8 @@ from .api_schemas import (
     SonaraRandomTrackRequest,
     SonaraSearchRequest,
     TrackSummaryResponse,
+    TextSearchFeedbackRequest,
+    TextSearchFeedbackResponse,
     TextSearchRequest,
 )
 from .api_state import AppDatabaseState
@@ -208,6 +210,28 @@ def register_search_routes(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/search/text/feedback",
+        response_model=TextSearchFeedbackResponse,
+    )
+    def text_search_feedback(request: TextSearchFeedbackRequest):
+        database = state.require_db()
+        try:
+            presets = database.record_text_preset_feedback(
+                track_uuid=request.track_uuid,
+                preset_keys=request.preset_keys,
+                analysis_family=request.analysis_family,
+                verdict=request.verdict,
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return TextSearchFeedbackResponse(
+            presets=presets,
+            verdict=request.verdict,
+        )
 
 def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
     positive_queries = _clean_text_queries(request.positive_queries)

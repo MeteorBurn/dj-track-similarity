@@ -441,3 +441,79 @@ def _typed_vector(
     vector = np.zeros(dimensions[output.analysis_family], dtype=np.float32)
     vector[: len(values)] = values
     return vector / np.linalg.norm(vector)
+
+
+def test_text_search_feedback_stores_updates_and_withdraws_verdicts(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _track_with_embedding(db, "judged.wav", [0.0, 1.0, 0.0], "clap")
+    with db.connect() as connection:
+        track_uuid = connection.execute(
+            "SELECT track_uuid FROM tracks WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+    client = TestClient(create_app(db_path))
+
+    stored = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": track_uuid,
+            "preset_keys": ["mood/dark", "tension/uneasy"],
+            "analysis_family": "clap",
+            "verdict": 1,
+        },
+    )
+    assert stored.status_code == 200
+    assert stored.json() == {"presets": 2, "verdict": 1}
+
+    flipped = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": track_uuid,
+            "preset_keys": ["mood/dark"],
+            "analysis_family": "clap",
+            "verdict": -1,
+        },
+    )
+    assert flipped.status_code == 200
+    with db.connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT preset_key, verdict FROM text_preset_feedback
+            ORDER BY preset_key
+            """
+        ).fetchall()
+    assert [(row[0], row[1]) for row in rows] == [
+        ("mood/dark", -1),
+        ("tension/uneasy", 1),
+    ]
+
+    withdrawn = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": track_uuid,
+            "preset_keys": ["mood/dark", "tension/uneasy"],
+            "analysis_family": "clap",
+            "verdict": 0,
+        },
+    )
+    assert withdrawn.status_code == 200
+    assert withdrawn.json() == {"presets": 2, "verdict": 0}
+    with db.connect() as connection:
+        remaining = connection.execute(
+            "SELECT COUNT(*) FROM text_preset_feedback"
+        ).fetchone()[0]
+    assert remaining == 0
+
+    missing = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": "no-such-track",
+            "preset_keys": ["mood/dark"],
+            "analysis_family": "clap",
+            "verdict": 1,
+        },
+    )
+    assert missing.status_code == 404

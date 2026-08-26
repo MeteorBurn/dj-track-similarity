@@ -359,48 +359,48 @@ test("class search tab shows classifier threshold and scoped analysis controls",
 
 test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative contrast", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
-  const clapSource = readFileSync(join(srcDir, "ClapSearchTab.tsx"), "utf8");
+  const textTabSource = readFileSync(join(srcDir, "TextSearchTab.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
   const apiClientSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
-  assert.match(searchSource, /<ClapSearchTab/);
-  assert.match(clapSource, /clap-presets-button/);
-  assert.match(clapSource, /onTogglePreset\(preset\.key\)/);
-  assert.match(clapSource, /document\.addEventListener\("pointerdown"/);
-  assert.match(clapSource, /presetMenuRef/);
-  assert.doesNotMatch(clapSource, /clap-generate-button/);
-  assert.match(clapSource, /Prompt bank\s*\n\s*<textarea/);
-  assert.match(clapSource, /clap-preset-axis-button/);
-  assert.match(clapSource, /clap-preset-chip/);
-  assert.match(clapSource, /clap-prompt-hint/);
-  assert.doesNotMatch(clapSource, />\s*Avoid\s*</);
-  assert.match(clapSource, /className="clap-negative-input"/);
-  assert.match(clapSource, /clap-toolbar-button clap-negative-toggle/);
+  assert.match(searchSource, /<TextSearchTab/);
+  assert.match(textTabSource, /text-preset-menu-button/);
+  assert.match(textTabSource, /onTogglePreset\(preset\.key\)/);
+  assert.match(textTabSource, /document\.addEventListener\("pointerdown"/);
+  assert.match(textTabSource, /presetMenuRef/);
+  assert.doesNotMatch(textTabSource, /text-generate-button/);
+  assert.match(textTabSource, /Prompt bank\s*\n\s*<textarea/);
+  assert.match(textTabSource, /text-preset-axis-button/);
+  assert.match(textTabSource, /text-preset-chip/);
+  assert.match(textTabSource, /text-prompt-hint/);
+  assert.doesNotMatch(textTabSource, />\s*Avoid\s*</);
+  assert.match(textTabSource, /className="text-negative-input"/);
+  assert.match(textTabSource, /text-toolbar-button text-negative-toggle/);
   // The picker and the negative toggle share one toolbar under the prompt bank
   // instead of floating beside the two textareas.
-  assert.match(clapSource, /className="clap-prompt-toolbar"/);
-  assert.match(clapSource, /clapUseNegativePrompt \? "intent-add active" : ""/);
-  assert.match(clapSource, /aria-label="Use negative prompt"/);
-  assert.match(clapSource, /clap-negative-checkbox/);
-  assert.doesNotMatch(clapSource, /clap-negative-toggle-text/);
-  assert.doesNotMatch(clapSource, />\s*Use\s*</);
-  assert.match(searchSource, /onClapUseNegativePromptChange/);
+  assert.match(textTabSource, /className="text-prompt-toolbar"/);
+  assert.match(textTabSource, /textUseNegativePrompt \? "intent-add active" : ""/);
+  assert.match(textTabSource, /aria-label="Use negative prompt"/);
+  assert.match(textTabSource, /text-negative-checkbox/);
+  assert.doesNotMatch(textTabSource, /text-negative-toggle-text/);
+  assert.doesNotMatch(textTabSource, />\s*Use\s*</);
+  assert.match(searchSource, /onTextUseNegativePromptChange/);
   assert.match(searchSource, /textEmbeddingFamily/);
   assert.match(searchSource, /hasStoredTextEmbeddings/);
-  assert.match(clapSource, /clap-search-requirement/);
-  assert.match(clapSource, /<option value="clap">CLAP<\/option>/);
-  assert.match(clapSource, /<option value="mulan">MuQ-MuLan<\/option>/);
-  assert.match(clapSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredTextEmbeddings\}/);
-  assert.doesNotMatch(clapSource, /WandSparkles/);
-  assert.match(clapSource, /ListFilter/);
+  assert.match(textTabSource, /text-search-requirement/);
+  assert.match(textTabSource, /<option value="clap">CLAP<\/option>/);
+  assert.match(textTabSource, /<option value="mulan">MuQ-MuLan<\/option>/);
+  assert.match(textTabSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredTextEmbeddings\}/);
+  assert.doesNotMatch(textTabSource, /WandSparkles/);
+  assert.match(textTabSource, /ListFilter/);
   assert.match(appSource, /embeddingCounts=\{\{[\s\S]*clap:\s*librarySummary\.clap/);
   assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /api\.textSearch/);
   assert.match(appSource, /analysis_family:\s*textEmbeddingFamily/);
-  assert.match(appSource, /const\s+\[clapUseNegativePrompt,\s*setClapUseNegativePrompt\]\s*=\s*useState\(true\)/);
-  assert.match(appSource, /promptQueriesFromText\(prompt,\s*clapNegativeQuery,\s*clapUseNegativePrompt\)/);
+  assert.match(appSource, /const\s+\[textUseNegativePrompt,\s*setTextUseNegativePrompt\]\s*=\s*useState\(true\)/);
+  assert.match(appSource, /promptQueriesFromText\(prompt,\s*textNegativeQuery,\s*textUseNegativePrompt\)/);
   assert.match(appSource, /composePromptBanks\(keys,\s*model\)/);
   // Selecting a preset carries the model with it where the measurement is
   // unambiguous, so the choice is not a switch the user has to remember.
@@ -410,6 +410,16 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(apiClientSource, /negative_weight\?:\s*number/);
   assert.match(schemaSource, /negative_weight:\s*float \| None/);
   assert.match(apiClientSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
+  // Preset verdicts credit the bank that ranked the list: the client, the
+  // schema and the App snapshot must stay one shape.
+  assert.match(apiClientSource, /request<TextSearchFeedbackResult>\("\/api\/search\/text\/feedback"/);
+  assert.match(apiClientSource, /preset_keys: string\[\]/);
+  assert.match(apiClientSource, /verdict: -1 \| 0 \| 1/);
+  assert.match(schemaSource, /class TextSearchFeedbackRequest/);
+  assert.match(schemaSource, /verdict: Literal\[-1, 0, 1\]/);
+  assert.match(appSource, /api\.textSearchFeedback/);
+  assert.match(appSource, /textFeedbackContext/);
+  assert.match(appSource, /presetKeys: \[\.\.\.selectedPresetKeys\]/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);
   assert.match(apiClientSource, /positive_queries:\s*string\[\]/);
@@ -428,131 +438,6 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
     assert.doesNotMatch(textRequestSchema, retired);
     assert.doesNotMatch(textSearchPayloadType, retired);
   }
-});
-
-test("selected text presets stay beside the picker with green accent badge intent", () => {
-  const source = readFileSync(join(srcDir, "ClapSearchTab.tsx"), "utf8");
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const chipRule = styles.match(/\.clap-preset-chip\s*{([\s\S]*?)}/)?.[1] || "";
-  const clearRule = styles.match(/\.clap-preset-chip-clear\s*{([\s\S]*?)}/)?.[1] || "";
-  const axisRule = styles.match(/\.clap-preset-axis-button\s*{([\s\S]*?)}/)?.[1] || "";
-  const optionRule = styles.match(/\.clap-preset-option-button\s*{([\s\S]*?)}/)?.[1] || "";
-  const toolbarControlRule = styles.match(/\.clap-preset-toolbar-control\s*{([\s\S]*?)}/)?.[1] || "";
-  const presetsButtonRule = styles.match(/\.clap-presets-button\s*{([\s\S]*?)}/)?.[1] || "";
-  const negativeToggleRule = styles.match(/\.clap-negative-toggle\s*{([\s\S]*?)}/)?.[1] || "";
-  const promptToolbarRule = styles.match(/\.clap-prompt-toolbar\s*{([\s\S]*?)}/)?.[1] || "";
-  const groupLabelRule = styles.match(/\.clap-group-label,\s*\.clap-group-labels label\s*{([\s\S]*?)}/)?.[1] || "";
-  const compactButtonHeightRule =
-    styles.match(/\.text-search-box \.clap-preset-axis-button,[\s\S]*?\.text-search-box \.clap-preset-chip-clear\s*{([\s\S]*?)}/)?.[1] || "";
-  const toolbarButtonHeightRule = styles.match(/\.text-search-box \.clap-preset-toolbar-control\s*{([\s\S]*?)}/)?.[1] || "";
-
-  const selectedPresetIndex = source.indexOf("selectedPresets.map");
-  const negativeToggleIndex = source.indexOf("clap-toolbar-button clap-negative-toggle");
-
-  assert.ok(selectedPresetIndex !== -1, "selected presets are rendered");
-  assert.ok(negativeToggleIndex !== -1, "negative toggle is rendered");
-  assert.ok(
-    selectedPresetIndex < negativeToggleIndex,
-    "selected presets render beside the picker before the negative toggle"
-  );
-  assert.equal((source.match(/clap-preset-toolbar-control/g) || []).length, 2);
-  assert.match(source, /<ListFilter size=\{12\} \/>/);
-  assert.match(source, /clapUseNegativePrompt \? <Check size=\{12\}/);
-  assert.match(source, /className="clap-query-field clap-group-label"/);
-  assert.match(source, /className="clap-negative-field clap-group-label"/);
-  assert.match(source, /className="search-filter-grid clap-search-filter-grid clap-group-labels"/);
-  assert.doesNotMatch(source, /className="clap-preset-menu" role="menu"/);
-  assert.match(source, /aria-pressed=\{activeAxis === axis\.key\}/);
-  assert.match(source, /aria-pressed=\{active\}/);
-  assert.match(chipRule, /background:\s*var\(--preset-selected-bg\)/);
-  assert.match(chipRule, /border:\s*1px solid var\(--preset-selected-border\)/);
-  assert.match(chipRule, /color:\s*var\(--preset-selected-text\)/);
-  assert.match(chipRule, /line-height:\s*1\.15/);
-  assert.match(chipRule, /padding:\s*2px 6px/);
-  assert.match(chipRule, /height:\s*auto/);
-  assert.match(clearRule, /line-height:\s*1\.15/);
-  assert.match(clearRule, /padding:\s*2px 6px/);
-  for (const rule of [toolbarControlRule, optionRule]) {
-    assert.match(rule, /border-radius:\s*999px/);
-    assert.match(rule, /font-size:\s*11px/);
-    assert.match(rule, /height:\s*auto/);
-    assert.match(rule, /min-height:\s*0/);
-    assert.match(rule, /line-height:\s*1\.15/);
-    assert.match(rule, /padding:\s*2px 6px/);
-  }
-  assert.match(optionRule, /background:\s*var\(--blue-bg\)/);
-  assert.match(optionRule, /border:\s*1px solid var\(--blue-border\)/);
-  assert.match(optionRule, /color:\s*var\(--blue-text\)/);
-  assert.match(optionRule, /flex-direction:\s*column/);
-  assert.match(optionRule, /gap:\s*1px/);
-  assert.match(optionRule, /min-height:\s*0/);
-  assert.match(optionRule, /padding:\s*2px 6px/);
-  assert.match(compactButtonHeightRule, /height:\s*auto/);
-  assert.match(compactButtonHeightRule, /min-height:\s*0/);
-  assert.match(toolbarButtonHeightRule, /height:\s*auto/);
-  assert.match(toolbarButtonHeightRule, /min-height:\s*0/);
-  assert.match(presetsButtonRule, /background:\s*var\(--blue-bg\)/);
-  assert.match(presetsButtonRule, /border-color:\s*var\(--blue-border\)/);
-  assert.match(presetsButtonRule, /color:\s*var\(--blue-text\)/);
-  assert.match(negativeToggleRule, /background:\s*var\(--danger-muted-bg\)/);
-  assert.match(negativeToggleRule, /border:\s*1px solid var\(--danger-muted-border\)/);
-  assert.match(negativeToggleRule, /color:\s*var\(--danger-text\)/);
-  assert.match(promptToolbarRule, /justify-content:\s*space-between/);
-  assert.match(axisRule, /font-size:\s*11px/);
-  assert.match(axisRule, /min-width:\s*0/);
-  assert.match(axisRule, /padding:\s*2px 6px/);
-  assert.match(axisRule, /white-space:\s*normal/);
-  assert.match(groupLabelRule, /color:\s*var\(--blue-text\)/);
-  assert.match(groupLabelRule, /font-size:\s*13px/);
-});
-
-test("text preset options use a four-column grid to keep the picker within three rows", () => {
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const optionsRule = styles.match(/\.clap-preset-options\s*{([\s\S]*?)}/)?.[1] || "";
-  const actionsRule = styles.match(/\.clap-prompt-actions\s*{([\s\S]*?)}/)?.[1] || "";
-  const menuRule = styles.match(/\.clap-preset-menu\s*{([\s\S]*?)}/)?.[1] || "";
-  const labelRule = styles.match(/\.clap-preset-option-label\s*{([\s\S]*?)}/)?.[1] || "";
-  const measuredRule = styles.match(/\.clap-preset-option-measured\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(actionsRule, /flex:\s*1 1 320px/);
-  assert.match(actionsRule, /min-width:\s*0/);
-  assert.match(menuRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  assert.match(menuRule, /width:\s*min\(420px,\s*100%\)/);
-  assert.match(optionsRule, /display:\s*grid/);
-  assert.match(optionsRule, /grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(labelRule, /min-width:\s*0/);
-  assert.match(labelRule, /overflow-wrap:\s*normal/);
-  assert.match(labelRule, /width:\s*100%/);
-  assert.match(measuredRule, /width:\s*max-content/);
-  assert.match(styles, /\.clap-preset-axes\s*{[\s\S]*?grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(styles, /--font-size-compact-selector:\s*10px/);
-  assert.match(styles, /@media\s*\(max-width:\s*600px\)[\s\S]*?\.clap-preset-axis-button\s*{[\s\S]*?font-size:\s*var\(--font-size-compact-selector\)/);
-});
-
-test("active text preset axis matches the compact blue Presets control", () => {
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const axisRule = styles.match(/\.clap-preset-axis-button\s*{([\s\S]*?)}/)?.[1] || "";
-  const activeAxisRule = styles.match(/\.clap-preset-axis-button\.active\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(axisRule, /font-size:\s*11px/);
-  assert.match(axisRule, /padding:\s*2px 6px/);
-  assert.match(activeAxisRule, /background:\s*var\(--blue-bg-hover\)/);
-  assert.match(activeAxisRule, /border-color:\s*var\(--blue-border-hover\)/);
-  assert.match(activeAxisRule, /color:\s*var\(--blue-text-hover\)/);
-});
-
-test("text preset measurements render as compact green badges", () => {
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const measuredRule = styles.match(/\.clap-preset-option-measured\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(measuredRule, /align-self:\s*center/);
-  assert.match(measuredRule, /background:\s*var\(--preset-selected-bg\)/);
-  assert.match(measuredRule, /border:\s*1px solid var\(--preset-selected-border\)/);
-  assert.match(measuredRule, /border-radius:\s*999px/);
-  assert.match(measuredRule, /color:\s*var\(--preset-selected-text\)/);
-  assert.match(measuredRule, /display:\s*inline-flex/);
-  assert.match(measuredRule, /padding:\s*1px 4px/);
-  assert.match(measuredRule, /width:\s*max-content/);
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

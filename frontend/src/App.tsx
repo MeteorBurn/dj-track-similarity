@@ -173,9 +173,16 @@ export function App() {
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
   const [selectedPresetKeys, setSelectedPresetKeys] = useState<string[]>([]);
+  // Snapshot of the presets that built the last text search: verdicts credit
+  // the bank that actually ranked the list, not whatever the picker holds now.
+  const [textFeedbackContext, setTextFeedbackContext] = useState<{
+    presetKeys: string[];
+    family: "clap" | "mulan";
+  } | null>(null);
+  const [textFeedbackVerdicts, setTextFeedbackVerdicts] = useState<Record<string, 1 | -1>>({});
   const [promptNegativeWeight, setPromptNegativeWeight] = useState<number | null>(null);
-  const [clapNegativeQuery, setClapNegativeQuery] = useState("");
-  const [clapUseNegativePrompt, setClapUseNegativePrompt] = useState(true);
+  const [textNegativeQuery, setTextNegativeQuery] = useState("");
+  const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(true);
   const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<"clap" | "mulan">("mulan");
   const [seedEmbeddingFamily, setSeedEmbeddingFamily] = useState<SeedEmbeddingFamily>("mert");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
@@ -233,7 +240,7 @@ export function App() {
     setSelectedPresetKeys(keys);
     setTextEmbeddingFamily(model);
     setTextQuery(banks.positiveText);
-    setClapNegativeQuery(banks.negativeText);
+    setTextNegativeQuery(banks.negativeText);
     setPromptNegativeWeight(banks.negativeWeight);
   }
 
@@ -273,20 +280,20 @@ export function App() {
       })),
       filters,
       text_query: textQuery,
-      clap_negative_query: clapNegativeQuery,
-      clap_use_negative_prompt: clapUseNegativePrompt,
+      text_negative_query: textNegativeQuery,
+      text_use_negative_prompt: textUseNegativePrompt,
       prompt_preset_keys: selectedPresetKeys,
       prompt_negative_weight: promptNegativeWeight,
-      clap_device: analysisDevice,
+      analysis_device: analysisDevice,
       text_embedding_family: textEmbeddingFamily,
       seed_embedding_family: seedEmbeddingFamily,
     }),
     [
       analysisDevice,
-      clapNegativeQuery,
+      textNegativeQuery,
       selectedPresetKeys,
       promptNegativeWeight,
-      clapUseNegativePrompt,
+      textUseNegativePrompt,
       textEmbeddingFamily,
       seedEmbeddingFamily,
       databaseCatalogUuid,
@@ -1314,7 +1321,7 @@ export function App() {
       setNotice({ kind: "error", text: `Введите текстовый запрос для ${label}` });
       return;
     }
-    const manualQueries = promptQueriesFromText(prompt, clapNegativeQuery, clapUseNegativePrompt);
+    const manualQueries = promptQueriesFromText(prompt, textNegativeQuery, textUseNegativePrompt);
     const positiveQueries = manualQueries.positiveQueries;
     const negativeQueries = manualQueries.negativeQueries;
     const ticket = beginGenericSearchRequest();
@@ -1332,7 +1339,13 @@ export function App() {
       }, {
         signal: ticket.controller.signal,
       });
-      if (commitGenericSearchResults(ticket, "clap", value)) {
+      if (commitGenericSearchResults(ticket, "text", value)) {
+        setTextFeedbackContext(
+          selectedPresetKeys.length
+            ? { presetKeys: [...selectedPresetKeys], family: textEmbeddingFamily }
+            : null
+        );
+        setTextFeedbackVerdicts({});
         appendActivity("ok", `${label} search завершен`, `Найдено: ${value.length}`);
         setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }
@@ -1343,6 +1356,30 @@ export function App() {
       appendActivity("error", `${label} search недоступен`, message);
     } finally {
       finishGenericSearchRequest(ticket);
+    }
+  }
+
+  async function handleTextResultFeedback(track: Track, verdict: 1 | -1) {
+    if (!textFeedbackContext) return;
+    const current = textFeedbackVerdicts[track.track_uuid];
+    const next: -1 | 0 | 1 = current === verdict ? 0 : verdict;
+    try {
+      await api.textSearchFeedback({
+        track_uuid: track.track_uuid,
+        preset_keys: textFeedbackContext.presetKeys,
+        analysis_family: textFeedbackContext.family,
+        verdict: next
+      });
+      setTextFeedbackVerdicts((previous) => {
+        const updated = { ...previous };
+        if (next === 0) delete updated[track.track_uuid];
+        else updated[track.track_uuid] = next;
+        return updated;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Preset feedback не записан", message);
     }
   }
 
@@ -1697,10 +1734,10 @@ export function App() {
           seedTracks={seedTracks}
           textQuery={textQuery}
           onTextQueryChange={setTextQuery}
-          clapNegativeQuery={clapNegativeQuery}
-          onClapNegativeQueryChange={setClapNegativeQuery}
-          clapUseNegativePrompt={clapUseNegativePrompt}
-          onClapUseNegativePromptChange={setClapUseNegativePrompt}
+          textNegativeQuery={textNegativeQuery}
+          onTextNegativeQueryChange={setTextNegativeQuery}
+          textUseNegativePrompt={textUseNegativePrompt}
+          onTextUseNegativePromptChange={setTextUseNegativePrompt}
           textEmbeddingFamily={textEmbeddingFamily}
           onTextEmbeddingFamilyChange={changeTextEmbeddingFamily}
           seedEmbeddingFamily={seedEmbeddingFamily}
@@ -1721,6 +1758,11 @@ export function App() {
           genericSearchInputKey={genericSearchInputKey}
           genericSearchResultKey={genericSearchResultState?.requestKey || ""}
           genericSearchResultOrigin={genericSearchResultState?.origin || null}
+          textFeedback={
+            genericSearchResultState?.origin === "text" && textFeedbackContext
+              ? { verdicts: textFeedbackVerdicts, onVerdict: handleTextResultFeedback }
+              : null
+          }
           onPrimarySearchTabChange={handlePrimarySearchTabChange}
           seedSet={seedSet}
           playlistSet={playlistSet}

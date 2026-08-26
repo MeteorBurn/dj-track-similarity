@@ -1,4 +1,4 @@
-import { Heart, Minus, Pause, Play, Plus, Search, Tags } from "lucide-react";
+import { Heart, Minus, Pause, Play, Plus, Search, Tags, ThumbsDown, ThumbsUp } from "lucide-react";
 import type { Track } from "./api";
 import { libraryTrackIdentityKey } from "./libraryLoading";
 import { previewPositionForTrack, usePreviewPosition } from "./previewPosition";
@@ -152,7 +152,9 @@ export function ResultRow({
   rowIndex,
   selected = false,
   onSelect,
-  selectTitle
+  selectTitle,
+  feedbackVerdict = null,
+  onFeedback
 }: TrackActions & {
   track: Track;
   score: number;
@@ -174,6 +176,9 @@ export function ResultRow({
   selectTitle?: string;
   rowIndex?: number;
   onSeekPreview: (track: Track, seconds: number) => void;
+  /** +1 relevant / -1 irrelevant verdict stored for the active preset bank. */
+  feedbackVerdict?: 1 | -1 | null;
+  onFeedback?: (track: Track, verdict: 1 | -1) => void;
 }) {
   const breakdownTitle = scoreBreakdownTitle(scoreBreakdown, sonaraGroups, classifierScores, transition);
   const contrast = contrastParts(scoreBreakdown);
@@ -233,6 +238,30 @@ export function ResultRow({
               </span>
             ) : null}
           </span>
+        </>
+      )}
+      {onFeedback && (
+        <>
+          <button
+            className={`icon-button result-feedback-button intent-relevant ${feedbackVerdict === 1 ? "active" : ""}`}
+            title="По делу: трек соответствует выбранным пресетам. Вердикт пишется в базу и питает тюнер пресетов; повторный клик снимает его."
+            aria-label={`Отметить ${displayTrack(track)} как соответствующий пресетам`}
+            aria-pressed={feedbackVerdict === 1}
+            onClick={(event) => { event.stopPropagation(); onFeedback(track, 1); }}
+            type="button"
+          >
+            <ThumbsUp size={14} />
+          </button>
+          <button
+            className={`icon-button result-feedback-button intent-irrelevant ${feedbackVerdict === -1 ? "active" : ""}`}
+            title="Мимо: трек не соответствует выбранным пресетам. Вердикт пишется в базу и питает тюнер пресетов; повторный клик снимает его."
+            aria-label={`Отметить ${displayTrack(track)} как не соответствующий пресетам`}
+            aria-pressed={feedbackVerdict === -1}
+            onClick={(event) => { event.stopPropagation(); onFeedback(track, -1); }}
+            type="button"
+          >
+            <ThumbsDown size={14} />
+          </button>
         </>
       )}
       {onToggleLiked && (

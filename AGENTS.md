@@ -99,8 +99,8 @@ dj-sim doctor
 - Treat requested behavior as the new source of truth. Add compatibility or
   migrations only for persisted data, external consumers, or explicit requests.
 - Prefer one discoverable source of truth. Do not add aliases, duplicate
-  registries, version gates, hidden legacy branches, or tests of incidental
-  field order.
+  registries, version gates, or hidden legacy branches. TEST POLICY governs what
+  the suite is allowed to pin.
 - Keep work scoped and preserve unrelated dirty changes. Work on `main` unless
   the user asks for a branch or worktree.
 - Inspect `git status` and the scoped diff before delivery. Do not stage local
@@ -167,18 +167,84 @@ dj-sim doctor
 - Do not create architecture notes, changelogs, migration documents, or local
   docs unless explicitly requested. Docs-only changes use docs-only checks.
 
+## TEST POLICY
+
+The suite is a set of standing contracts, not a log of past edits. It should
+stay roughly the same size from one feature to the next. A change does not earn
+a test by existing, and a growing test count is a defect, not progress.
+
+- Add a test only for something durable: a persisted schema, migration, or
+  on-disk format; an HTTP payload, CLI contract, or other cross-boundary shape;
+  a scoring, ranking, or safety invariant; or a reproduced bug whose cause is
+  understood, asserted at the cause rather than the symptom.
+- Add no test for cosmetics, labels, copy, tooltips, colors, class names, the
+  order of fields, rows, or menu entries, or a default, threshold, or option
+  that is expected to keep moving.
+- Add no test for wiring that the type checker, the import graph, or an existing
+  focused run already covers.
+- Never assert on the text of a source file. Reading a module, script, or
+  `.cmd` file and matching strings pins how the code is written instead of what
+  it does. Drive the running module and assert its behavior.
+  `frontend/tests/testsExecuteCode.test.mjs` enforces this on the frontend.
+- When behavior changes, edit the existing test that owns that contract instead
+  of adding a second one. Two tests over one contract mean one is redundant.
+- Delete a test whose contract is gone, and delete a test that blocks an
+  intentional change while pinning only an incidental detail. Removing a test is
+  a normal part of a change, not a regression.
+
 ## VERIFICATION ROUTING
 
-- Use the cheapest targeted check that can catch an error; widen only for a
-  shared contract, migration, broad refactor, release, or focused-test failure.
+Verification runs in two phases. While iterating, run the smallest selection
+that can fail. At the end, run one pass scoped to what the change touched. The
+global suites are for global changes; `.github/workflows/ci.yml` is the backstop
+that runs everything on a clean machine when that is what the moment needs.
+
+### While iterating
+
+- Run only the tests covering the lines just edited: `python -m pytest
+  tests/test_<area>.py`, narrowed further with `-k` when the file is large.
+  One file is the normal unit; the whole suite is not.
+- Do not re-run a selection that already passed while its code was untouched.
+- Reading the scoped diff, `rg` sentinels, `git diff --check`, and a minimal
+  import driver are cheaper than any suite. Reach for them first.
+- Between edits, do not run `graphify update .`, `npm run build`, the docs
+  check, or the `ml`, `slow`, and `evaluation` markers.
+
+### Before delivery, once
+
+Nothing in this list runs by default. Each line runs only when the change
+actually touched what the line covers.
+
+- `python -m pytest tests` is the global backend pass: 680 tests, about 40
+  seconds. Run it only when the change reaches past one module — a shared
+  contract, a persisted schema or migration, `LibraryDatabase`,
+  `SimilaritySearch`, `AnalysisJobManager`, the `analysis_models` contracts, a
+  broad refactor, or a release.
+- A backend change confined to one module or one feature ends at the test files
+  owning that module. That focused run is the whole backend pass for it; do not
+  widen to `tests/` to feel safe.
+- When no file under `src/` changed, do not run `tests/` at all. A frontend,
+  docs, script, or tool change is verified in its own area and nowhere else.
+- `scripts/tests`, `tools/audio-dedup/tests`, and `tools/rhythm-lab/tests` run
+  only when those directories were touched; together they take about 20 seconds.
+- Frontend, only when `frontend/` was touched: `npm run typecheck`, `npm test`,
+  and `npm run build` before a commit. The three cost about 8 seconds.
+- `graphify update .` once after the last source edit, not per edit. It rebuilds
+  the whole graph and takes about 30 seconds.
+- Docs site: run `npm run check` from `docs/dj-track-similarity/` only for
+  maintained docs content or docs tooling changes.
+- For behavior changes, exercise the matching surface once: browser for UI, live
+  HTTP request for API, CLI invocation for commands, or a minimal import driver
+  for library code. Cover one happy path and one relevant failure path.
+
+### Scope gates
+
 - Instructions/docs only: inspect the scoped diff, run `git diff --check --
   <paths>`, and use targeted `rg` sentinels. Do not run application suites.
-- Backend: run the focused `python -m pytest <file-or-selection>`.
-- Root pytest collects only `tests/`. Run `tools/rhythm-lab/tests` and
-  `scripts/tests` explicitly when those areas change. Use the `ml`, `slow`, and
-  `evaluation` markers only when the touched behavior requires them.
-- Frontend: run `npm run typecheck`; add `npm test` when touched logic warrants.
-  Run `npm run build` before every commit.
+- Root pytest collects only `tests/`; the script and tool suites are named
+  explicitly or they do not run at all.
+- Widen past the focused selection only for a shared contract, migration, broad
+  refactor, release, or a focused-test failure whose cause is not yet clear.
 - A frontend test must load the module it checks as running code, through
   `ssrLoadModule`, `transpileModule`, or a direct `../src/` import. Asserting on
   source text pins how a component is written instead of what it does.
@@ -186,12 +252,6 @@ dj-sim doctor
   shrinking list of files that predate the rule.
 - `.github/workflows/ci.yml` runs the cheap tier on a clean machine, by manual
   trigger only. Pushing to `main` starts nothing.
-- Docs site: run `npm run check` from `docs/dj-track-similarity/` only for
-  maintained docs content or docs tooling changes.
-- After source edits, run `graphify update .` to refresh generated graph data.
-- For behavior changes, finish by exercising the matching surface: browser for
-  UI, live HTTP request for API, CLI invocation for commands, or a minimal import
-  driver for library code. Cover one happy path and one relevant failure path.
 
 ## WEB RESEARCH ROUTING
 

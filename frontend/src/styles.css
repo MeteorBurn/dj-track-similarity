@@ -329,12 +329,20 @@ button {
   height: min(900px, calc(100vh - 32px));
   overflow: hidden;
   padding: 14px;
+  position: relative;
   width: min(1440px, calc(100vw - 32px));
 }
 
 .log-frame-title {
   border-bottom: 1px solid var(--border-soft);
   padding-bottom: 10px;
+  padding-right: 44px;
+}
+
+.close-log-frame-button {
+  position: absolute;
+  right: 14px;
+  top: 14px;
 }
 
 .log-frame-title span {

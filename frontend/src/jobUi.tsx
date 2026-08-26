@@ -3,7 +3,7 @@ import { basename, formatEta } from "./trackDisplay";
 
 const ACTIVE_JOB_STATES = ["queued", "running"] as const;
 const AUDIO_MODELS: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
-const MAX_LOG_EVENTS = 120;
+const MAX_LOG_EVENTS = 200;
 const SECONDS_TO_MS = 1000;
 
 function calculateProgressPercent(processed: number, total: number): number {

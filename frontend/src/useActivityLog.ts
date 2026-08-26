@@ -10,7 +10,7 @@ export function useActivityLog() {
     setActivityLog((current) => [
       { id: Date.now() + Math.random(), time: Date.now(), level, message, detail },
       ...current
-    ].slice(0, 80));
+    ].slice(0, 200));
   }
 
   return {

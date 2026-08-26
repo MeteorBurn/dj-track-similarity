@@ -5,8 +5,12 @@
     "negative_label": "straight",
     "forms": {
       "label": {
-        "positive": ["A breakbeat track."],
-        "negative": ["A four-on-the-floor house track."]
+        "positive": [
+          "A breakbeat track."
+        ],
+        "negative": [
+          "A four-on-the-floor house track."
+        ]
       },
       "caption": {
         "positive": [
@@ -37,6 +41,32 @@
         "negative": [
           "This audio is a straight four-on-the-floor house track. This audio has a steady minimal kick pattern. This audio is a smooth regular house groove. This audio has simple even drum timing and a steady kick."
         ]
+      },
+      "tags": {
+        "positive": [
+          "breakbeat.",
+          "breakbeat, broken beat, chopped drum breaks.",
+          "syncopated drums, off-grid rhythm, shuffled hits.",
+          "breaks, jungle drums, uneven drum pattern."
+        ],
+        "negative": [
+          "four-on-the-floor, house, techno.",
+          "steady kick, straight beat, even drum timing.",
+          "minimal house groove, regular kick pattern."
+        ]
+      },
+      "scene": {
+        "positive": [
+          "A recording of chopped drum breaks with syncopated, uneven percussion hits.",
+          "The sound of a broken, stuttering drum groove landing off the grid.",
+          "Drums tumble in irregular accents while snares hit between the beats.",
+          "A sampled drum break, cut up and rearranged into a restless rhythm."
+        ],
+        "negative": [
+          "The sound of a steady kick drum hitting evenly on every beat.",
+          "A recording of a smooth, regular dance groove with even drum timing.",
+          "A drum machine plays an unchanging straight four-count pattern."
+        ]
       }
     }
   },
@@ -46,8 +76,12 @@
     "negative_label": "no_voice",
     "forms": {
       "label": {
-        "positive": ["A vocal music track."],
-        "negative": ["An instrumental electronic dance track."]
+        "positive": [
+          "A vocal music track."
+        ],
+        "negative": [
+          "An instrumental electronic dance track."
+        ]
       },
       "caption": {
         "positive": [
@@ -78,6 +112,32 @@
         "negative": [
           "This audio is an instrumental electronic dance track. This audio is an instrumental club track focused on drums, bass, and texture. This audio is a rhythm-focused electronic track with percussion and low-end as the main elements. This audio is an instrumental ambient or club recording."
         ]
+      },
+      "tags": {
+        "positive": [
+          "vocals.",
+          "vocal, vocals, singing.",
+          "female vocal, male vocal, singer.",
+          "vocal music, sung lyrics, voice."
+        ],
+        "negative": [
+          "instrumental.",
+          "instrumental, instrumental music.",
+          "instrumental club track, drums and bass only."
+        ]
+      },
+      "scene": {
+        "positive": [
+          "A recording where a human voice sings clearly over the music.",
+          "The sound of a person singing, the voice sitting on top of the mix.",
+          "Spoken words and sung phrases carried over an instrumental backing.",
+          "A close human voice, breath and words audible over the track."
+        ],
+        "negative": [
+          "A recording of drums, bass and synthesizers with nobody singing.",
+          "The sound of an instrumental electronic groove, machines only.",
+          "An electronic track of pure instrumental texture."
+        ]
       }
     }
   },
@@ -87,8 +147,12 @@
     "negative_label": "no_instrument",
     "forms": {
       "label": {
-        "positive": ["An acoustic music track."],
-        "negative": ["A programmed electronic track."]
+        "positive": [
+          "An acoustic music track."
+        ],
+        "negative": [
+          "A programmed electronic track."
+        ]
       },
       "caption": {
         "positive": [
@@ -119,6 +183,32 @@
         "negative": [
           "This audio is a synthetic electronic club track. This audio is digital drum machine music. This audio has an industrial electronic sound. This audio is a heavily programmed electronic dance track."
         ]
+      },
+      "tags": {
+        "positive": [
+          "acoustic.",
+          "acoustic, live instruments, band.",
+          "guitar, piano, strings, brass.",
+          "live drums, organic, unplugged."
+        ],
+        "negative": [
+          "electronic, drum machine, synthesizer.",
+          "programmed beats, sequenced synths.",
+          "edm, club, digital production."
+        ]
+      },
+      "scene": {
+        "positive": [
+          "A recording of musicians playing real acoustic instruments in a room.",
+          "The sound of fingers on strings and sticks on real drums.",
+          "A live performance with natural instrument timbre and human timing.",
+          "Real instruments recorded with room air and natural dynamics around them."
+        ],
+        "negative": [
+          "A recording of a drum machine and synthesizers, fully programmed.",
+          "The sound of a sequenced digital club production.",
+          "A grid-locked electronic track built entirely in software."
+        ]
       }
     }
   },
@@ -128,8 +218,12 @@
     "negative_label": "negative",
     "forms": {
       "label": {
-        "positive": ["A minimal tech house track."],
-        "negative": ["A dense busy dance track."]
+        "positive": [
+          "A minimal tech house track."
+        ],
+        "negative": [
+          "A dense busy dance track."
+        ]
       },
       "caption": {
         "positive": [
@@ -152,6 +246,32 @@
           "A melodic progressive house track with big chords.",
           "An ambient beatless track."
         ]
+      },
+      "tags": {
+        "positive": [
+          "minimal tech house.",
+          "minimal house, deep tech, micro house.",
+          "tech house, minimal techno, groovy.",
+          "stripped-back club track, rolling bassline, dry drums."
+        ],
+        "negative": [
+          "big room, progressive house, trance.",
+          "hard techno, industrial.",
+          "ambient, beatless."
+        ]
+      },
+      "scene": {
+        "positive": [
+          "A recording of a stripped-back club groove with dry, tight percussion.",
+          "The sound of crisp hi-hats and a rolling bassline in a spacious mix.",
+          "A quiet, funky machine groove with air between the hits.",
+          "Dry drums click and shuffle over a deep rolling bass."
+        ],
+        "negative": [
+          "The sound of a loud, dense arrangement with big synth leads.",
+          "A recording of a maximal peak-time dance track.",
+          "A hard pounding industrial club track."
+        ]
       }
     }
   },
@@ -162,8 +282,12 @@
     "control": true,
     "forms": {
       "label": {
-        "positive": ["An experimental electronic track."],
-        "negative": ["A functional club track."]
+        "positive": [
+          "An experimental electronic track."
+        ],
+        "negative": [
+          "A functional club track."
+        ]
       },
       "caption": {
         "positive": [
@@ -185,6 +309,32 @@
           "A straightforward house track for the dance floor.",
           "A conventional techno track with a steady beat.",
           "A mainstream electronic dance track."
+        ]
+      },
+      "tags": {
+        "positive": [
+          "experimental.",
+          "experimental electronic, abstract, avant-garde.",
+          "idm, glitch, leftfield.",
+          "weird electronic music, unconventional rhythm."
+        ],
+        "negative": [
+          "house, techno, club.",
+          "dance music, dj tools.",
+          "mainstream edm."
+        ]
+      },
+      "scene": {
+        "positive": [
+          "A recording of fractured rhythms and strange, unfamiliar textures.",
+          "The sound of an electronic piece drifting away from a steady dance groove.",
+          "Odd noises move in unsettled, irregular patterns.",
+          "An abstract arrangement of broken sounds and shifting pulses."
+        ],
+        "negative": [
+          "The sound of a steady, functional club groove.",
+          "A recording of a conventional dance track with a regular beat.",
+          "A straightforward DJ tool with a standard steady rhythm."
         ]
       }
     }

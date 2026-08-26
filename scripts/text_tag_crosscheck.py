@@ -243,7 +243,8 @@ def load_presets() -> list[dict]:
         ["node", "-e", script, str(PRESETS_TS)],
         cwd=str(REPO_ROOT / "frontend"),
         capture_output=True,
-        text=True,
+        # node prints UTF-8; without this the Windows locale codec decodes it.
+        encoding="utf-8",
         check=True,
     )
     return json.loads(completed.stdout)

@@ -60,7 +60,12 @@ test("every preset belongs to a declared axis and carries a unique key", () => {
   }
   assert.deepEqual(
     [...textPromptAxes.map((axis) => axis.key)],
-    ["groove", "low", "texture", "harmony", "voice", "instruments", "space", "energy", "style"],
+    [
+      "groove", "rhythm", "percussion", "bass", "synths", "instruments",
+      "organic", "texture", "timbre", "space", "harmony", "movement",
+      "density", "complexity", "mood", "energy", "tension", "abstract",
+      "voice", "function", "style",
+    ],
   );
 });
 
@@ -82,9 +87,8 @@ test("an axis only names a model where the measurement can carry the claim", () 
   // probability. Those averages measure "sounds live" and "has a voice", not
   // which instrument or which kind of voice was found.
   assert.deepEqual(named, {
-    groove: "mulan",
+    rhythm: "mulan",
     texture: "clap",
-    energy: "clap",
     style: "mulan",
   });
   for (const axis of textPromptAxes) {
@@ -102,20 +106,20 @@ test("a label overrides its axis only where its own evidence outranks the axis",
 
   assert.deepEqual(Object.fromEntries(overrides), {
     "texture/clean": "mulan",
-    "texture/glassy": "mulan",
+    "timbre/glassy": "mulan",
     "harmony/jazz": "mulan",
-    "voice/vocal-led": "clap",
+    "abstract/experimental": "clap",
   });
   // CLAP ranks jazz against chord changes per second the wrong way round, and
   // the harmony axis names no model, so nothing else would have warned.
   assert.equal(modelForPreset("harmony/jazz"), "mulan");
   assert.equal(modelForPreset("harmony/drone"), undefined);
   // The override has to actually win over the axis, or it is decoration.
-  assert.equal(modelForPreset("texture/glassy"), "mulan");
+  assert.equal(modelForPreset("timbre/glassy"), "mulan");
   assert.equal(modelForPreset("texture/lo-fi"), "clap");
-  // Its own hand labels put CLAP ahead, 0.910 to 0.879, on an axis that no
-  // longer names a model at all.
-  assert.equal(modelForPreset("voice/vocal-led"), "clap");
+  // On volumes.sqlite its hand labels put the two models 0.007 apart, so the
+  // former CLAP override is withdrawn and the axis still names no model.
+  assert.equal(modelForPreset("voice/vocal-led"), undefined);
   // No reference can say which model finds a sitar, so nothing recommends one.
   assert.equal(modelForPreset("instruments/sitar"), undefined);
   assert.equal(modelForPreset("instruments/steel-drum"), undefined);
@@ -133,11 +137,11 @@ test("advice names a model, or says which kind of silence this is", () => {
       : { ...result };
   };
 
-  assert.deepEqual(advice(["texture/lo-fi", "energy/peak"]), {
+  assert.deepEqual(advice(["texture/lo-fi", "function/peak"]), {
     kind: "single",
     model: "clap",
   });
-  assert.deepEqual(advice(["style/jungle", "groove/breakbeat"]), {
+  assert.deepEqual(advice(["style/jungle", "rhythm/breakbeat"]), {
     kind: "single",
     model: "mulan",
   });
@@ -256,22 +260,24 @@ test("model variants fall back to the shared bank", () => {
 test("composing presets merges banks, drops duplicates and keeps the safest weight", () => {
   const { composePromptBanks } = loadTextPromptModule();
 
-  const composed = composePromptBanks(["groove/breakbeat", "voice/vocal-led"], "mulan");
+  const composed = composePromptBanks(["rhythm/breakbeat", "voice/vocal-led"], "mulan");
 
   const positive = composed.positiveText.split("\n");
-  assert.ok(positive.includes("A breakbeat track."));
-  assert.ok(positive.includes("A vocal music track."));
+  assert.ok(positive.includes("breakbeat."));
+  assert.ok(positive.includes("vocals."));
   assert.equal(new Set(positive).size, positive.length);
-  assert.ok(composed.negativeText.split("\n").includes("An instrumental electronic dance track."));
-  assert.equal(composed.negativeWeight, 0.45);
+  assert.ok(composed.negativeText.split("\n").includes("instrumental."));
+  // breakbeat carries 1.0 and vocal-led 0.75 for MuQ-MuLan; the merge keeps
+  // the safest contributing weight.
+  assert.equal(composed.negativeWeight, 0.75);
 });
 
 test("a preset with a zero weight contributes prompts but no negatives", () => {
   const { composePromptBanks } = loadTextPromptModule();
 
-  const composed = composePromptBanks(["style/minimal-deep-tech"], "mulan");
+  const composed = composePromptBanks(["style/tech-house"], "mulan");
 
-  assert.match(composed.positiveText, /A minimal tech house track\./);
+  assert.match(composed.positiveText, /A tech house track\./);
   assert.equal(composed.negativeText, "");
   assert.equal(composed.negativeWeight, null);
 });

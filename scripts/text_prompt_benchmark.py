@@ -288,26 +288,39 @@ def _load_concepts(
         track_id_of_uuid = dict(
             connection.execute("select track_uuid, track_id from tracks")
         )
+        track_id_of_path = {
+            _path_key(file_path): track_id
+            for track_id, file_path in connection.execute(
+                "select track_id, file_path from tracks"
+            )
+        }
     with sqlite3.connect(_read_only_uri(labels_path), uri=True) as connection:
         label_rows = connection.execute(
-            "select classifier_key, label, track_uuid from classifier_labels"
+            "select classifier_key, label, track_uuid, selected_path"
+            " from classifier_labels"
         ).fetchall()
 
-    by_key: dict[tuple[str, str], list[str]] = {}
-    for classifier_key, label, track_uuid in label_rows:
-        by_key.setdefault((classifier_key, label), []).append(track_uuid)
+    # A rescan regenerates track UUIDs, so a labelled pool outlives the UUIDs
+    # it was written against. The label row keeps selected_path exactly for
+    # this: resolve by UUID first and fall back to the file path.
+    by_key: dict[tuple[str, str], list[int]] = {}
+    for classifier_key, label, track_uuid, selected_path in label_rows:
+        track_id = track_id_of_uuid.get(track_uuid)
+        if track_id is None and selected_path:
+            track_id = track_id_of_path.get(_path_key(selected_path))
+        if track_id is None:
+            continue
+        by_key.setdefault((classifier_key, label), []).append(track_id)
 
     concepts: list[LabelledConcept] = []
     for name, spec in prompts.items():
         key = spec["classifier_key"]
         positives = _rows_for(
             by_key.get((key, spec["positive_label"]), []),
-            track_id_of_uuid,
             row_of_track,
         )
         negatives = _rows_for(
             by_key.get((key, spec["negative_label"]), []),
-            track_id_of_uuid,
             row_of_track,
         )
         if positives.size == 0 or negatives.size == 0:
@@ -330,17 +343,19 @@ def _load_concepts(
 
 
 def _rows_for(
-    track_uuids: list[str],
-    track_id_of_uuid: dict[str, int],
+    track_ids: list[int],
     row_of_track: dict[int, int],
 ) -> NDArray[np.int64]:
     rows = [
-        row_of_track[track_id_of_uuid[track_uuid]]
-        for track_uuid in track_uuids
-        if track_uuid in track_id_of_uuid
-        and track_id_of_uuid[track_uuid] in row_of_track
+        row_of_track[track_id]
+        for track_id in track_ids
+        if track_id in row_of_track
     ]
     return np.asarray(sorted(set(rows)), dtype=np.int64)
+
+
+def _path_key(file_path: str) -> str:
+    return file_path.replace("\\", "/").casefold()
 
 
 def _normalized(matrix: FloatArray) -> FloatArray:

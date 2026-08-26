@@ -2,77 +2,288 @@
   "_note": "Reference signals for text-layer labels. SONARA, MAEST and promoted Rhythm Lab classifiers are proxies, not ground truth: a poor score can mean the label is weak or that the proxy does not describe it. Direction 1 means the label should rank the reference high, -1 means low.",
   "_independence": "What a reference can prove. 'orthogonal' means it measures a different kind of signal than the label name, so agreement is evidence. 'echo' means the reference is a head carrying the label's own genre name, learned from the same web tag conventions as the text towers: their errors correlate, so agreement shows a shared vocabulary rather than a working label, and the verdict is capped at 'consistent'.",
   "_blind": "Text families that must not be scored against this reference. A promoted classifier trained on CLAP audio features is not independent of a CLAP text label, so scoring them together measures self-agreement. Listed families are skipped for that label in both the cross-check and the fusion benchmark.",
-
-  "harmony/dissonant": { "kind": "numeric", "source": "sonara", "field": "dissonance_score", "direction": 1, "independence": "orthogonal" },
-  "harmony/drone": { "kind": "numeric", "source": "sonara", "field": "chord_changes_per_second", "direction": -1, "independence": "orthogonal" },
-  "harmony/jazz": { "kind": "numeric", "source": "sonara", "field": "chord_changes_per_second", "direction": 1, "independence": "orthogonal" },
-
-  "groove/breakbeat": { "kind": "binary", "source": "maest", "expr": "syncopated", "direction": 1, "independence": "orthogonal" },
-  "groove/four-on-the-floor": { "kind": "binary", "source": "maest", "expr": "syncopated", "direction": -1, "independence": "orthogonal" },
-  "groove/polyrhythm": { "kind": "numeric", "source": "sonara", "field": "onset_density_per_second", "direction": 1, "independence": "orthogonal" },
-  "groove/halftime": { "kind": "numeric", "source": "sonara", "field": "detected_bpm", "direction": -1, "independence": "orthogonal" },
-
-  "voice/vocal-led": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/instrumental": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": -1, "independence": "orthogonal" },
-  "voice/spoken": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/chopped": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/female-lead": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/male-lead": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/choir": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/chant": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/whispered": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/vocoder": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "voice/dialogue": { "kind": "numeric", "source": "sonara", "field": "vocal_probability", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-
-  "instruments/live": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/piano": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/guitar": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/strings-brass": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/rhodes": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/organ": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/marimba": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/vibraphone": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/kalimba": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/nylon-guitar": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/slap-bass": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/upright-bass": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/saxophone": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/trumpet": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/flute": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/sitar": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/kora": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/steel-drum": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/congas": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/tabla": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-  "instruments/live-drums": { "kind": "numeric", "source": "sonara", "field": "acousticness_score", "threshold": 0.5, "direction": 1, "independence": "orthogonal" },
-
-  "texture/lo-fi": { "kind": "numeric", "source": "sonara", "field": "spectral_rolloff_hz", "direction": -1, "independence": "orthogonal" },
-  "texture/clean": { "kind": "numeric", "source": "sonara", "field": "spectral_rolloff_hz", "direction": 1, "independence": "orthogonal" },
-  "texture/glassy": { "kind": "numeric", "source": "sonara", "field": "spectral_centroid_hz", "direction": 1, "independence": "orthogonal" },
-  "texture/hazy": { "kind": "numeric", "source": "sonara", "field": "spectral_centroid_hz", "direction": -1, "independence": "orthogonal" },
-  "texture/metallic": { "kind": "numeric", "source": "sonara", "field": "spectral_flatness", "direction": 1, "independence": "orthogonal" },
-
-  "energy/peak": { "kind": "numeric", "source": "sonara", "field": "energy_score", "direction": 1, "independence": "orthogonal" },
-  "energy/warm-up": { "kind": "numeric", "source": "sonara", "field": "energy_score", "direction": -1, "independence": "orthogonal" },
-  "energy/aggressive": { "kind": "numeric", "source": "sonara", "field": "mood_aggressive_score", "threshold": 0.6, "direction": 1, "independence": "orthogonal" },
-  "energy/ambient": { "kind": "numeric", "source": "sonara", "field": "onset_density_per_second", "direction": -1, "independence": "orthogonal" },
-  "energy/sparse": { "kind": "numeric", "source": "sonara", "field": "onset_density_per_second", "direction": -1, "independence": "orthogonal" },
-  "energy/closing": { "kind": "numeric", "source": "sonara", "field": "mood_relaxed_score", "threshold": 0.6, "direction": 1, "independence": "orthogonal" },
-
-  "style/minimal-deep-tech": { "kind": "binary", "source": "maest", "label": "Electronic---Minimal", "direction": 1, "independence": "echo" },
-  "style/tech-house": { "kind": "binary", "source": "maest", "label": "Electronic---Tech House", "direction": 1, "independence": "echo" },
-  "style/deep-house": { "kind": "binary", "source": "maest", "label": "Electronic---Deep House", "direction": 1, "independence": "echo" },
-  "style/electro": { "kind": "binary", "source": "maest", "label": "Electronic---Electro", "direction": 1, "independence": "echo" },
-  "style/progressive": { "kind": "binary", "source": "maest", "label": "Electronic---Progressive House", "direction": 1, "independence": "echo" },
-  "style/ambient-techno": { "kind": "binary", "source": "maest", "label": "Electronic---Ambient", "direction": 1, "independence": "echo" },
-  "style/downtempo": { "kind": "binary", "source": "maest", "label": "Electronic---Downtempo", "direction": 1, "independence": "echo" },
-  "style/idm": { "kind": "binary", "source": "maest", "label": "Electronic---IDM", "direction": 1, "independence": "echo" },
-  "style/disco": { "kind": "binary", "source": "maest", "label": "Electronic---Disco", "direction": 1, "independence": "echo" },
-  "style/jungle": { "kind": "binary", "source": "maest", "label": "Electronic---Jungle", "direction": 1, "independence": "echo" },
-  "style/drum-and-bass": { "kind": "binary", "source": "maest", "label": "Electronic---Drum n Bass", "direction": 1, "independence": "echo" },
-  "style/uk-garage": { "kind": "binary", "source": "maest", "label": "Electronic---UK Garage", "direction": 1, "independence": "echo" },
-  "style/broken-beat": { "kind": "binary", "source": "maest", "label": "Electronic---Broken Beat", "direction": 1, "independence": "echo" },
-  "style/experimental": { "kind": "binary", "source": "maest", "label": "Electronic---Experimental", "direction": 1, "independence": "echo" },
-  "low/acid": { "kind": "binary", "source": "maest", "label": "Electronic---Acid", "direction": 1, "independence": "echo" },
-  "texture/dub": { "kind": "binary", "source": "maest", "label": "Electronic---Dub Techno", "direction": 1, "independence": "echo" }
+  "harmony/dissonant": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "dissonance_score",
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "harmony/drone": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "chord_changes_per_second",
+    "direction": -1,
+    "independence": "orthogonal"
+  },
+  "harmony/jazz": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "chord_changes_per_second",
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "rhythm/polyrhythm": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "onset_density_per_second",
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "rhythm/halftime": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "detected_bpm",
+    "direction": -1,
+    "independence": "orthogonal"
+  },
+  "_retired_vocal_probability": "The eleven voice labels used to be scored against SONARA vocal probability. That feature does not report whether a track actually has a voice, so the comparison measured the reference rather than the label. The voice axis now carries no reference at all: its labels are checked by ear, and no model recommendation may be drawn for them.",
+  "organic/acoustic": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/piano": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/guitar": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/strings-brass": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/rhodes": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/organ": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/marimba": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/vibraphone": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/kalimba": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/nylon-guitar": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/slap-bass": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/upright-bass": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/saxophone": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/trumpet": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/flute": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/sitar": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/kora": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/steel-drum": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/congas": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/tabla": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "instruments/live-drums": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "acousticness_score",
+    "threshold": 0.5,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "texture/lo-fi": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "spectral_rolloff_hz",
+    "direction": -1,
+    "independence": "orthogonal"
+  },
+  "texture/clean": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "spectral_rolloff_hz",
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "timbre/glassy": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "spectral_centroid_hz",
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "texture/hazy": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "spectral_centroid_hz",
+    "direction": -1,
+    "independence": "orthogonal"
+  },
+  "timbre/metallic": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "spectral_flatness",
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "function/peak": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "energy_score",
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "function/warm-up": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "energy_score",
+    "direction": -1,
+    "independence": "orthogonal"
+  },
+  "energy/aggressive": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "mood_aggressive_score",
+    "threshold": 0.6,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "function/ambient": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "onset_density_per_second",
+    "direction": -1,
+    "independence": "orthogonal"
+  },
+  "density/sparse": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "onset_density_per_second",
+    "direction": -1,
+    "independence": "orthogonal"
+  },
+  "function/closing": {
+    "kind": "numeric",
+    "source": "sonara",
+    "field": "mood_relaxed_score",
+    "threshold": 0.6,
+    "direction": 1,
+    "independence": "orthogonal"
+  },
+  "_retired_genre_references": "The MAEST genre-head references are retired together with file metadata as evidence: file genre tags are MAEST output, and the owner ruled that track metadata and genres must not be relied on in the text layer. Every echo verdict they produced is withdrawn. Only orthogonal SONARA signal references remain."
 }

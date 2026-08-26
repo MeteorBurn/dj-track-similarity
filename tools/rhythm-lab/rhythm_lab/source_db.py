@@ -27,10 +27,10 @@ from dj_track_similarity.library_models import (
 )
 
 
-EmbeddingFamily: TypeAlias = Literal["maest", "mert", "muq", "clap"]
-AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert", "muq", "clap"]
+EmbeddingFamily: TypeAlias = Literal["maest", "mert", "muq", "mulan", "clap"]
+AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert", "muq", "mulan", "clap"]
 OutputKind: TypeAlias = Literal["core", "analysis", "embedding"]
-FeatureSource: TypeAlias = Literal["sonara", "mert", "maest", "clap", "muq"]
+FeatureSource: TypeAlias = Literal["sonara", "mert", "maest", "clap", "muq", "mulan"]
 FeatureStateStatus: TypeAlias = Literal["current", "missing"]
 
 _EMBEDDING_TABLES: Mapping[EmbeddingFamily, str] = MappingProxyType(
@@ -38,6 +38,7 @@ _EMBEDDING_TABLES: Mapping[EmbeddingFamily, str] = MappingProxyType(
         "maest": "maest_embeddings",
         "mert": "mert_embeddings",
         "muq": "muq_embeddings",
+        "mulan": "mulan_embeddings",
         "clap": "clap_embeddings",
     }
 )
@@ -85,6 +86,7 @@ MAEST_ANALYSIS_OUTPUT = SourceOutput("maest", "analysis")
 MAEST_EMBEDDING_OUTPUT = SourceOutput("maest", "embedding")
 MERT_EMBEDDING_OUTPUT = SourceOutput("mert", "embedding")
 MUQ_EMBEDDING_OUTPUT = SourceOutput("muq", "embedding")
+MULAN_EMBEDDING_OUTPUT = SourceOutput("mulan", "embedding")
 CLAP_EMBEDDING_OUTPUT = SourceOutput("clap", "embedding")
 
 EMBEDDING_OUTPUTS: Mapping[EmbeddingFamily, SourceOutput] = MappingProxyType(
@@ -92,6 +94,7 @@ EMBEDDING_OUTPUTS: Mapping[EmbeddingFamily, SourceOutput] = MappingProxyType(
         "maest": MAEST_EMBEDDING_OUTPUT,
         "mert": MERT_EMBEDDING_OUTPUT,
         "muq": MUQ_EMBEDDING_OUTPUT,
+        "mulan": MULAN_EMBEDDING_OUTPUT,
         "clap": CLAP_EMBEDDING_OUTPUT,
     }
 )
@@ -101,6 +104,7 @@ SOURCE_OUTPUTS = (
     MAEST_EMBEDDING_OUTPUT,
     MERT_EMBEDDING_OUTPUT,
     MUQ_EMBEDDING_OUTPUT,
+    MULAN_EMBEDDING_OUTPUT,
     CLAP_EMBEDDING_OUTPUT,
 )
 FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
@@ -110,6 +114,7 @@ FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
         "maest": MAEST_EMBEDDING_OUTPUT,
         "clap": CLAP_EMBEDDING_OUTPUT,
         "muq": MUQ_EMBEDDING_OUTPUT,
+        "mulan": MULAN_EMBEDDING_OUTPUT,
     }
 )
 _FEATURE_TABLES: Mapping[FeatureSource, str] = MappingProxyType(
@@ -119,6 +124,7 @@ _FEATURE_TABLES: Mapping[FeatureSource, str] = MappingProxyType(
         "maest": "maest_embeddings",
         "clap": "clap_embeddings",
         "muq": "muq_embeddings",
+        "mulan": "mulan_embeddings",
     }
 )
 
@@ -369,6 +375,7 @@ class SourceDatabase:
                     JOIN maest_embeddings AS maest USING(track_id)
                     JOIN clap_embeddings AS clap USING(track_id)
                     JOIN muq_embeddings AS muq USING(track_id)
+                    JOIN mulan_embeddings AS mulan USING(track_id)
                     WHERE t.missing_since IS NULL
                     ORDER BY t.track_id
                     """
@@ -475,6 +482,10 @@ class SourceDatabase:
                       )
                       AND EXISTS (
                           SELECT 1 FROM muq_embeddings AS data
+                          WHERE data.track_id = t.track_id
+                      )
+                      AND EXISTS (
+                          SELECT 1 FROM mulan_embeddings AS data
                           WHERE data.track_id = t.track_id
                       )
                     """,
@@ -1069,6 +1080,7 @@ def _source_track_from_row(
         maest_embedding=track_id in ready_embeddings.get("maest", set()),
         mert=track_id in ready_embeddings.get("mert", set()),
         muq=track_id in ready_embeddings.get("muq", set()),
+        mulan=track_id in ready_embeddings.get("mulan", set()),
         clap=track_id in ready_embeddings.get("clap", set()),
     )
     return SourceTrack(
@@ -1801,6 +1813,7 @@ def _track_feature_states(
         "maest": coverage.maest_embedding,
         "clap": coverage.clap,
         "muq": coverage.muq,
+        "mulan": coverage.mulan,
     }
     return MappingProxyType(
         {

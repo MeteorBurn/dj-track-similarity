@@ -541,12 +541,13 @@ def create_app(
             "maest": 0,
             "clap": 0,
             "muq": 0,
+            "mulan": 0,
             "feature_states": {
                 source_name: {
                     "status": "missing",
                     "reason": "Source database is not selected.",
                 }
-                for source_name in ("sonara", "mert", "maest", "clap", "muq")
+                for source_name in ("sonara", "mert", "maest", "clap", "muq", "mulan")
             },
             "liked": 0,
             "source": source_state.current(),
@@ -1611,7 +1612,7 @@ def _training_readiness(
                 "status": "missing",
                 "reason": "Source database is not selected.",
             }
-            for source_name in ("sonara", "mert", "maest", "clap", "muq")
+            for source_name in ("sonara", "mert", "maest", "clap", "muq", "mulan")
         }
     recipe = feature_recipe_readiness(feature_set, source_states)
     usable_counts = dict(counts)

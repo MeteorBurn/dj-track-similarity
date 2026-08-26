@@ -282,7 +282,7 @@ class _FeatureSource:
         )
         self.specifications = {
             family: current_embedding_spec(family)
-            for family in ("mert", "maest", "clap", "muq")
+            for family in ("mert", "maest", "clap", "muq", "mulan")
         }
 
     def list_tracks(self) -> list[SourceTrack]:
@@ -295,7 +295,7 @@ class _FeatureSource:
         track_ids: object | None = None,
     ) -> SourceEmbeddingMatrix:
         specification = self.specifications[family]
-        family_value = float(("mert", "maest", "clap", "muq").index(family) + 2)
+        family_value = float(("mert", "maest", "clap", "muq", "mulan").index(family) + 2)
         tracks = (
             (self.track,)
             if track_ids is None or self.track.track_id in set(track_ids)  # type: ignore[arg-type]
@@ -327,6 +327,10 @@ class _FeatureSource:
             "sonara+mert+maest+clap+muq",
             ("sonara", "mert", "maest", "clap", "muq"),
         ),
+        (
+            "sonara+mert+maest+clap+muq+mulan",
+            ("sonara", "mert", "maest", "clap", "muq", "mulan"),
+        ),
     ),
 )
 def test_muq_feature_sets_extract_current_structural_dimensions(
@@ -351,7 +355,7 @@ def test_muq_feature_sets_extract_current_structural_dimensions(
         assert sum(name.startswith("sonara:") for name in result.feature_names) == (
             sonara_count
         )
-    for family in ("mert", "maest", "clap", "muq"):
+    for family in ("mert", "maest", "clap", "muq", "mulan"):
         expected_count = (
             source.specifications[family].dimension
             if family in expected_sources
@@ -369,7 +373,7 @@ def test_muq_feature_sets_extract_current_structural_dimensions(
 
 def test_ablation_selection_uses_the_single_current_sonara_source() -> None:
     assert ABLATION_FEATURE_SETS == FEATURE_RECIPE_OPTIONS
-    assert len(ABLATION_FEATURE_SETS) == 31
+    assert len(ABLATION_FEATURE_SETS) == 63
     assert all("sonara2" not in feature_set for feature_set in ABLATION_FEATURE_SETS)
     assert all("sonara2" not in feature_set for feature_set in FEATURE_RECIPE_OPTIONS)
     assert all(feature_set != "combined" for feature_set in (*ABLATION_FEATURE_SETS, *FEATURE_RECIPE_OPTIONS))
@@ -1263,13 +1267,13 @@ class _ReadyFeatureSource:
     def feature_states(self) -> dict[str, SourceFeatureState]:
         return {
             source: SourceFeatureState(status="current", reason=None)
-            for source in ("sonara", "mert", "maest", "clap", "muq")
+            for source in ("sonara", "mert", "maest", "clap", "muq", "mulan")
         }
 
     def feature_counts(self) -> dict[str, int]:
         return {
             source: self.track_count
-            for source in ("sonara", "mert", "maest", "clap", "muq")
+            for source in ("sonara", "mert", "maest", "clap", "muq", "mulan")
         }
 
     def tracks_by_identities(

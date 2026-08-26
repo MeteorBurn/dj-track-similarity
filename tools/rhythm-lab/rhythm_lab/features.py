@@ -19,7 +19,7 @@ from .lab_db import RhythmLabDatabase, TrackIdentity, track_identity
 from .source_db import SourceDatabase, SourceTrack
 
 
-EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap", "muq")
+EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap", "muq", "mulan")
 BASE_FEATURE_SOURCES = ("sonara", *EMBEDDING_FEATURE_SOURCES)
 SUPPORTED_FEATURE_SOURCES = BASE_FEATURE_SOURCES
 MODERN_FULL_FEATURE_SET = "sonara+mert+maest+clap+muq"

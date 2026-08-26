@@ -180,7 +180,7 @@ def _insert_complete_rhythm_lab_rows(
                     NOW,
                 ),
             )
-        for family in ("mert", "maest", "clap", "muq"):
+        for family in ("mert", "maest", "clap", "muq", "mulan"):
             if family == missing_source:
                 continue
             specification = current_embedding_spec(family)
@@ -929,9 +929,11 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             "maest",
             "clap",
             "muq",
+            "mulan",
         }
         assert first["feature_status"]["mert"]["status"] == "current"
         assert first["feature_status"]["muq"]["status"] == "current"
+        assert first["feature_status"]["mulan"]["status"] == "current"
 
         mert_readiness = client.get(
             "/api/profiles/focused/training/readiness",

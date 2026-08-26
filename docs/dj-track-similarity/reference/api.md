@@ -178,4 +178,7 @@ The genre API rejects per-track writes. Current behavior writes all available st
 | `POST` | `/api/rhythm-lab/collections` | save main UI set as collection |
 | `POST` | `/api/server/shutdown` | request server shutdown |
 
-Server shutdown requires the `X-DJ-Track-Similarity-Action: shutdown-server` header.
+Server shutdown requires the `X-DJ-Track-Similarity-Action: shutdown-server` header. On success the
+route returns `{"status":"shutdown_requested"}`, then schedules dependent cleanup in the
+background. When a managed Rhythm Lab server is active, shutdown attempts to stop it before the main
+backend process. A Rhythm Lab cleanup failure is logged, but the backend shutdown still proceeds.

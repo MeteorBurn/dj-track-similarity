@@ -560,6 +560,37 @@ h2 {
   padding: 10px 12px 12px;
 }
 
+.shutdown-complete-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.shutdown-complete-card {
+  max-width: 520px;
+  padding: 28px;
+  text-align: center;
+  color: var(--text-strong);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px var(--shadow-dialog);
+}
+
+.shutdown-complete-card svg {
+  color: var(--danger-text);
+}
+
+.shutdown-complete-card h1 {
+  margin: 12px 0 8px;
+}
+
+.shutdown-complete-card p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .topbar {
   align-items: center;
   display: flex;

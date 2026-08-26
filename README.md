@@ -326,6 +326,12 @@ path or type a replacement. The next prompt selects local or LAN mode. The launc
 backend plus the Vite live UI. Open the printed `5173` UI URL; frontend source changes are visible
 without rebuilding `frontend/dist`.
 
+When you are done with a launcher-managed browser session, click the top-bar power button. The UI
+requests `/api/server/shutdown`, the backend tries to stop a managed Rhythm Lab first, the launcher
+stops its Vite child after `dj-sim serve` exits, and the browser is asked to close the tab. If the
+browser blocks script-driven tab close, the app shows a final fallback page that says the servers
+have stopped and the tab can be closed manually.
+
 Supplying `--db` opens an existing compatible library or creates one new library database at that
 path. If you omit `--db`, the server starts without a selected database and does not create any
 SQLite file. You can then choose an existing database or create a new one with the database picker.

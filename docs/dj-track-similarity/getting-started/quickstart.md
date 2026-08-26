@@ -79,6 +79,12 @@ To skip the prompts, run `run_server.cmd local --db .\database\volumes.sqlite`. 
 commands use only the arguments you pass. The server keeps its terminal busy, so run later CLI jobs
 in a second activated terminal.
 
+To stop that launcher-managed session cleanly, use the top-bar power button in the browser. It asks
+the backend to shut down, attempts managed Rhythm Lab cleanup first, then lets the launcher stop its
+Vite dev child after the backend exits. The UI also asks the browser to close the tab; if that is
+blocked, a final fallback page confirms that the servers stopped and the tab can be closed
+manually.
+
 Without `--db`, the server starts with no database selected and creates no SQLite files. Pick an
 existing compatible library SQLite file in the database picker, or give it a new `.sqlite` path to
 create one library database in the current schema.

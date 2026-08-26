@@ -316,6 +316,10 @@ Start the API and Vite development UI together. With no argument it asks for a d
 | `help`, `--help`, or `/?` | Print launcher usage. |
 | Remaining `dj-sim serve` options | Forwarded to `dj-sim serve`. See its options above. The launcher supplies its selected `--host` and `--port 8765`, and passes the prompted database when one was chosen. |
 
+The browser top-bar power button calls the shutdown API for the current backend. After
+`dj-sim serve` exits, the Python launcher stops its Vite child process before returning control to
+the terminal.
+
 ### `python scripts/optimize_database.py`
 
 | Option | Meaning |

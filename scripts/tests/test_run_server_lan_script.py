@@ -307,3 +307,32 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         "check": False,
         "shell": False,
     }
+
+
+def test_python_launcher_stops_frontend_after_backend_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    module_path = root / "scripts" / "run_server_launcher.py"
+    spec = importlib.util.spec_from_file_location("run_server_launcher_cleanup", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    frontend_process = object()
+    stopped: list[object] = []
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_HOST", "127.0.0.1")
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_PORT", "8765")
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV", "1")
+    monkeypatch.setattr(module, "resolve_npm_executable", lambda: "npm.cmd")
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *_args, **_kwargs: frontend_process)
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0),
+    )
+    monkeypatch.setattr(module, "stop_process", lambda process: stopped.append(process))
+
+    assert module.main(("local",)) == 0
+    assert stopped == [frontend_process]

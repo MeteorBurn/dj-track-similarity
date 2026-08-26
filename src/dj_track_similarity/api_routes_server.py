@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import threading
@@ -10,6 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 
 
 SHUTDOWN_ACTION_HEADER = "shutdown-server"
+LOGGER = logging.getLogger(__name__)
 
 
 def shutdown_current_process(delay_seconds: float = 0.25) -> None:
@@ -19,6 +21,20 @@ def shutdown_current_process(delay_seconds: float = 0.25) -> None:
     timer = threading.Timer(delay_seconds, terminate)
     timer.daemon = True
     timer.start()
+
+
+def shutdown_server_and_dependents(
+    *,
+    shutdown_server: Callable[[], None],
+    stop_rhythm_lab: Callable[[], dict[str, object]] | None,
+) -> None:
+    try:
+        if stop_rhythm_lab is not None:
+            stop_rhythm_lab()
+    except Exception:
+        LOGGER.exception("Dependent Rhythm Lab server cleanup failed during application shutdown")
+    finally:
+        shutdown_server()
 
 
 def register_server_routes(
@@ -34,7 +50,9 @@ def register_server_routes(
     ):
         if action != SHUTDOWN_ACTION_HEADER:
             raise HTTPException(status_code=403, detail="Server shutdown requires the explicit shutdown action header")
-        if stop_rhythm_lab is not None:
-            stop_rhythm_lab()
-        background_tasks.add_task(shutdown_server)
+        background_tasks.add_task(
+            shutdown_server_and_dependents,
+            shutdown_server=shutdown_server,
+            stop_rhythm_lab=stop_rhythm_lab,
+        )
         return {"status": "shutdown_requested"}

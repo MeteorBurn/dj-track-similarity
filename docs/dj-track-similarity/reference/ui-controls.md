@@ -115,5 +115,11 @@ or stale state for SONARA, MERT, MAEST, CLAP, and MuQ; its page sizes are `50`, 
 its display name: positive is green and negative is red. The **Training recipe** selector supports
 MuQ and explicit source combinations.
 
+The top-bar power button calls `/api/server/shutdown` for the current app session. After the
+backend acknowledges the request, the UI swaps to a final "servers stopped" page and asks the
+browser to close the tab. If the browser blocks script-driven tab close, that fallback page remains
+visible so you can close the tab manually. Backend shutdown also attempts managed Rhythm Lab cleanup
+before the main server exits.
+
 For analysis semantics, see [Analyze a library](../user-guide/analyze-library.md). For
 source-file boundaries, see [Local-first safety](../concepts/local-first-safety.md).

@@ -39,6 +39,7 @@ import { writePreviewPosition } from "./previewPosition";
 import { ScanImportDialog, type ScanImportRequest } from "./ScanImportDialog";
 import { appendVisibleTracksToPlaylist, nextLibraryPlaybackTrack } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
+import { shutdownApplication } from "./shutdownApplication";
 import {
   loadSonaraAnalysisSettings,
   saveSonaraAnalysisSettings,
@@ -202,6 +203,7 @@ export function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   const [busy, setBusy] = useState(false);
+  const [serverShutdownAccepted, setServerShutdownAccepted] = useState(false);
   const [libraryPlaybackShuffle, setLibraryPlaybackShuffle] = useState(false);
   const [filters, setFilters] = useState<SearchFiltersState>({
     limit: 20,
@@ -1384,8 +1386,11 @@ export function App() {
     setBusy(true);
     appendActivity("warn", "Остановка сервера запрошена");
     try {
-      await api.shutdownServer();
-      setNotice({ kind: "idle", text: "Сервер останавливается" });
+      await shutdownApplication({
+        requestShutdown: api.shutdownServer,
+        onAcknowledged: () => setServerShutdownAccepted(true),
+        closeWindow: () => window.close(),
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
@@ -1505,6 +1510,18 @@ export function App() {
     }
   }
 
+  if (serverShutdownAccepted) {
+    return (
+      <main className="app-shell shutdown-complete-screen">
+        <section className="shutdown-complete-card" role="status">
+          <Power size={30} />
+          <h1>Серверы остановлены</h1>
+          <p>Если браузер не закрыл вкладку автоматически, её можно закрыть вручную.</p>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -1549,8 +1566,8 @@ export function App() {
           </button>
           <button
             className="icon-button server-shutdown-button"
-            title="Остановить текущий сервер"
-            aria-label="Остановить текущий сервер"
+            title="Остановить все серверы и закрыть вкладку"
+            aria-label="Остановить все серверы и закрыть вкладку"
             disabled={busy}
             onClick={() => void handleShutdownServer()}
             type="button"

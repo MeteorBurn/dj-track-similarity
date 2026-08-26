@@ -93,6 +93,27 @@ function jsonResponse(value = {}) {
   };
 }
 
+test("a dropped connection retries a read once and never repeats a write", async () => {
+  const attempts = [];
+  const { api } = loadApiModule(async (path, options = {}) => {
+    attempts.push(path);
+    if (attempts.filter((seen) => seen === path).length === 1) {
+      throw new TypeError("Failed to fetch");
+    }
+    return jsonResponse({ job_id: "job-1", state: "running" });
+  });
+
+  const job = await api.analysisJob("job-1");
+  assert.equal(job.state, "running");
+  assert.deepEqual(attempts, ["/api/analysis/jobs/job-1", "/api/analysis/jobs/job-1"]);
+
+  await assert.rejects(
+    api.launchRhythmLab(),
+    (error) => error instanceof TypeError && error.message === "Failed to fetch",
+  );
+  assert.equal(attempts.filter((seen) => seen === "/api/rhythm-lab/launch").length, 1);
+});
+
 test("rhythm lab client uses status and launch endpoints", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options = {}) => {

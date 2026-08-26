@@ -472,13 +472,17 @@ export function App() {
 
   useEffect(() => {
     if (!analysisPipelineJob || !["queued", "running"].includes(analysisPipelineJob.state)) return;
+    // Each stage child is adopted once; its own poller keeps it current.
+    let adoptedChildJobId: string | null = null;
     const timer = window.setInterval(() => {
       void api.analysisPipeline(analysisPipelineJob.job_id).then((job) => {
         setAnalysisPipelineJob(job);
         const currentStage = job.current_stage;
         const childJobId = currentStage ? job.stages[currentStage]?.child_job_id : null;
-        if (childJobId) {
+        if (childJobId && childJobId !== adoptedChildJobId) {
+          adoptedChildJobId = childJobId;
           void api.analysisJob(childJobId).then(setAnalysisJob).catch((error) => {
+            adoptedChildJobId = null;
             setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
           });
         }

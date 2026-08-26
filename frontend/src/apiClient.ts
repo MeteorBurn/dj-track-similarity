@@ -105,7 +105,7 @@ function responseErrorMessage(text: string, fallback: string): string {
   return text;
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function requestOnce<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
@@ -118,6 +118,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     );
   }
   return response.json() as Promise<T>;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+// A pooled connection can be closed between two polls, so the next request
+// fails before it reaches the server. Reading again immediately opens a fresh
+// connection instead of surfacing that as a transfer error.
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const method = (options?.method ?? "GET").toUpperCase();
+  const retryable = method === "GET" || method === "HEAD";
+  try {
+    return await requestOnce<T>(path, options);
+  } catch (error) {
+    if (!retryable || error instanceof ApiError || isAbortError(error)) throw error;
+    if (options?.signal?.aborted) throw error;
+    return requestOnce<T>(path, options);
+  }
 }
 
 const databaseApi = {

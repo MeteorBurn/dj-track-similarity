@@ -20,6 +20,7 @@ import {
   analysisSelectionOrder,
   analysisStartBlockedByMissingSonara,
   defaultAnalysisSelections,
+  describeAnalysisStart,
   type AnalysisSelection
 } from "./analysisSelection";
 import {
@@ -1228,7 +1229,7 @@ export function App() {
       (job) => {
         setAnalysisPipelineJob(job);
         appendActivity("ok", "Анализ поставлен в очередь", settings.join(" | "));
-        return `Анализ: ${job.order.join(" → ")}`;
+        return describeAnalysisStart(job.order, mlModels, limit);
       }
     );
   }

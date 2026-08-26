@@ -147,7 +147,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
 test("class tab exposes per-classifier missing-score analysis controls", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const selectionSource = readFileSync(join(srcDir, "analysisSelection.ts"), "utf8");
   const librarySource = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
 
   assert.match(searchSource, /classifier-controls/);
@@ -185,7 +184,6 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(appSource, /api\.resetClassifier/);
   assert.doesNotMatch(appSource, /classifierRequiredModels/);
   assert.doesNotMatch(appSource, /setPendingClassifierAfterAnalysis/);
-  assert.doesNotMatch(selectionSource, /"classifiers"/);
   assert.match(appSource, /analysisSelectionOrder/);
   assert.match(librarySource, /mlAnalysisModelOrder/);
   assert.equal(librarySource.includes("classifier" + "Available"), false);

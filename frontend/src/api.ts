@@ -1,5 +1,6 @@
 export type EmbeddingSource = "mert" | "maest" | "muq" | "mulan" | "clap";
 export type AnalysisModel = "sonara" | EmbeddingSource;
+export type AnalysisPipelineStage = "sonara" | "ml" | "classifiers";
 export type SonaraStatusOutput = {
   output_kind: "core" | "embedding" | "fingerprint";
   present_count: number;
@@ -380,7 +381,7 @@ export type AnalysisJobStatus = {
 export type AnalysisPipelineStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
-  order: Array<"sonara" | "ml" | "classifiers">;
+  order: AnalysisPipelineStage[];
   stages: Record<string, { name: string; state: string; child_job_id?: string | null; error?: string | null }>;
   current_stage?: string | null;
   started_at?: number | null;
@@ -540,7 +541,7 @@ export type MlPipelineSettings = {
 };
 
 export type AnalysisPipelineRequest = {
-  stages: Array<"sonara" | "ml" | "classifiers">;
+  stages: AnalysisPipelineStage[];
   limit?: number;
   sonara?: SonaraPipelineSettings;
   ml?: MlPipelineSettings;

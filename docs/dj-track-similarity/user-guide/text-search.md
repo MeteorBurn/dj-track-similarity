@@ -67,6 +67,11 @@ is averaged before the search runs. Several short prompts are more reliable than
 in the benchmark a single caption scored anywhere between `0.955` and `0.495` ROC-AUC depending on
 its wording, while a bank of four short prompts stayed stable.
 
+The strongest measured wording is a short tag line: genre, mood, instrument and tempo words, the
+vocabulary both text towers were trained on. On the hand-labelled pools, tag banks beat the older
+sentence banks on four concepts out of five, on both models, by `+0.04` to `+0.14` ROC-AUC, and
+long scene descriptions ranked worst everywhere. The presets carry the winning form.
+
 Two wording rules come out of the same benchmark:
 
 - Keep words that describe a competing class out of the positive bank. A positive caption that
@@ -76,8 +81,12 @@ Two wording rules come out of the same benchmark:
 
 ## Presets
 
-The preset picker groups presets on axes: groove, low end, texture, voice, instruments, space,
-energy, and style. Select several presets and their banks merge into one prompt bank. A "Breakbeat"
+The preset picker groups 151 presets on 21 semantic spaces, ordered from rhythm to utility:
+groove (swing and microtiming), rhythm (beat pattern), percussion, bass, synths, instruments,
+organic (acoustic against synthetic), texture (surface processing), timbre (tone colour), space,
+harmony, movement, density, complexity, mood, energy, tension, abstract, vocals, function (set
+role), and style. Style is the deliberate outlier: a coarse genre shelf on top of the fine
+perceptual spaces. Select several presets and their banks merge into one prompt bank. A "Breakbeat"
 plus "Instrumental" selection covers both at once. Chips above the negative field show the
 current selection. Both fields remain editable after a preset fills them.
 
@@ -86,12 +95,29 @@ A higher weight helps when the negatives name a real competing class. Presets wh
 measured as harmful come with no negatives at all and a weight of zero. Presets that were measured
 show their ROC-AUC for the selected model in the picker.
 
+## Preset feedback and tuning
+
+When at least one preset built the search, every result row grows two verdict buttons: relevant
+("this is what the presets mean") and irrelevant. A verdict is stored per (track, preset, model)
+in the `text_preset_feedback` table of the library database, beside `likes`; clicking the same
+button again withdraws it. The verdicts credit the preset selection that ranked the list, not
+whatever the picker holds at click time.
+
+The accumulated verdicts are the reinforcement signal for `scripts/text_preset_tune.py`. Once a
+preset collects enough verdicts of both kinds (five per class by default), the script scores the
+current bank across the weight grid and every leave-one-out variant of its positive and negative
+lines, on the frozen stored embeddings. The report puts a measured marginal value next to each
+line: a positive gain on a "drop" variant means that line hurts the preset on your own verdicts.
+The script is report-first and opens both databases read-only; applying a winning change means
+editing `textPromptPresets.ts`, the same as any other bank change. Verdict pools are the
+operator's own ears. Trained classifier outputs play no part in the text layer.
+
 ## Label reliability
 
-Most labels have no hand-labelled examples, so their reliability is unknown. Other analysis layers
-describe the same library from a different direction, and comparing against them says whether a
-label points where it claims to. `scripts/text_tag_crosscheck.py` ranks the library with each label
-and checks that ranking against SONARA features and MAEST genres.
+Most labels have no hand-labelled examples, so their reliability is unknown. SONARA describes the
+same library from a different direction, and comparing against it says whether a label points where
+it claims to. `scripts/text_tag_crosscheck.py` ranks the library with each label and checks that
+ranking against SONARA signal features.
 
 This is a cross-check, not ground truth. A weak result can mean the label is weak, or that the
 reference does not describe it.
@@ -105,52 +131,49 @@ that one bank is reliable or outperforms another requires a committed result tab
 References are not equal, so each one declares what it is worth.
 
 An **orthogonal** reference measures a different kind of signal than the label names: spectral
-shape, syncopation, chord rate, vocal probability. Agreement there is evidence, and `ok` is
-reserved for it.
+shape, onset density, chord rate. Agreement there is evidence, and `ok` is reserved for it.
 
-An **echo** reference is a MAEST head carrying the label's own genre name. Both the head and the
-text encoders learned genre names from overlapping web tag conventions, so their errors correlate
-and agreement shows a shared vocabulary rather than a working label. Echo results are capped at
-`consistent` and never read as confirmation. Disagreement still counts: a label that ranks against
-its own name is broken whatever the reference is.
-
-This distinction inverts the obvious reading of the numbers. `jungle` reaches ROC-AUC `0.975`
-against the head named "Jungle", while `breakbeat` reaches `0.785` against a rhythm feature, and
-the second is the stronger result.
+Two whole reference families were retired. MAEST genre heads used to serve as **echo** references,
+but file genre tags are MAEST's own output, and track metadata and genres are ruled out as evidence
+for the text layer, so every verdict they produced is withdrawn. SONARA vocal probability went the
+same way earlier: its number does not reflect whether a track actually carries a voice.
 
 ### Results
 
-Measured on a 45,508 track library, 66 of the 107 labels have a reference.
+Measured on the 45,109-track library, after retiring the genre-head and vocal-probability
+references, 37 of the 117 labels keep an orthogonal SONARA reference.
 
 | Verdict | MuQ-MuLan | CLAP |
 | --- | --- | --- |
-| `ok`, orthogonal reference | 17 | 21 |
-| `consistent`, echo reference | 16 | 15 |
-| `weak` | 19 | 23 |
-| `suspect` | 9 | 1 |
-| `INVERTED` | 5 | 6 |
+| `ok` | 11 | 18 |
+| `weak` | 13 | 16 |
+| `suspect` | 6 | 0 |
+| `INVERTED` | 7 | 3 |
 
-The two models are not interchangeable, and neither is better everywhere. Measured by the share of
-the reference in the first 100 rows, MuQ-MuLan leads on style, groove, voice and harmony, while
-CLAP leads on instruments, texture, energy and low end. The largest gap is the instrument axis,
-where CLAP reaches `0.719` against MuQ-MuLan's `0.454`.
+The two models are not interchangeable, and neither is better everywhere. The model that an axis
+recommends now rests on hand-labelled pools where they exist: MuQ-MuLan carries rhythm
+(`breakbeat` 0.949 against 0.853) and style (`minimal deep-tech` 0.928 against 0.781), while the
+texture and energy recommendations rest on the SONARA cross-check, where CLAP leads.
 
-That gap shows up as outright failures. MuQ-MuLan inverts on `trumpet`, `nylon guitar`,
-`saxophone`, `slap bass` and `strings and brass`: it ranks programmed electronic tracks first for
-labels naming an acoustic instrument. CLAP handles the same labels and inverts elsewhere, on
-`spoken`, `chopped`, `clean` and `glassy`.
+The failures stay characteristic of each model. MuQ-MuLan inverts on labels naming an acoustic
+instrument, `piano`, `strings and brass`, `nylon guitar`, `slap bass`, `saxophone` and `trumpet`:
+it ranks programmed electronic tracks first for them. CLAP inverts on `jazz chords`, `clean` and
+`glassy`, which is exactly why those three labels are pinned to MuQ-MuLan in the preset picker.
 
-Voice labels behave differently again. Their global ROC-AUC sits near chance, yet `male lead` fills
-71% of its top 100 with vocal tracks under CLAP and 66% under MuQ-MuLan, where the library rate is
-13%. The label orders the first screen well and the rest of the library poorly, which is what a
-shortlist needs, so the verdict weighs the top of the list alongside the whole ordering.
+Voice labels are no longer cross-checked at all. Their old reference, SONARA vocal probability,
+does not reflect whether a track actually carries a voice. A comparison against it measured the
+reference rather than the label, and its verdicts were withdrawn. The one voice number that stands
+is `vocal-led`, measured against hand labels by `scripts/text_prompt_benchmark.py`, not against
+SONARA.
 
 ### Limits
 
-Twenty one instrument labels share one reference, SONARA acousticness, and eleven voice labels share
-SONARA vocal probability. Those references catch a label that ranks the wrong way. They say nothing
-about whether a label finds a sitar rather than a piano: no stored signal tells the two apart.
-Roughly eighteen labels have a reference specific enough to test their own claim.
+Twenty one instrument labels share one reference, SONARA acousticness. It catches a label that
+ranks the wrong way, but says nothing about whether a label finds a sitar rather than a piano: no
+stored signal tells the two apart. The eleven voice labels had shared SONARA vocal probability the
+same way, until that feature proved unreliable as a voice signal and was excluded from the text
+cross-check entirely. The voice axis now has no reference and is checked by ear. Roughly eighteen
+labels have a reference specific enough to test their own claim.
 
 Promoted Rhythm Lab classifiers are deliberately not used as references. A classifier carries its
 owner's own labelling, so certifying the text layer with it would test that layer on exactly the

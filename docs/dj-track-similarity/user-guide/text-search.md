@@ -88,18 +88,27 @@ Two wording rules come out of the same benchmark:
 
 ## Presets
 
-The preset picker groups 151 presets on 21 semantic spaces, ordered the way a track gets
+The preset picker groups 153 presets on 21 semantic spaces, ordered the way a track gets
 described: rhythm (beat pattern), groove (swing and microtiming), percussion, bass, synths,
 instruments, vocals, harmony, movement, timbre (tone colour), texture (surface processing),
 organic (acoustic against synthetic), space, density, complexity, energy, tension, mood, abstract,
-function (set role), and style. Style is the deliberate outlier: a coarse genre shelf on top of
-the fine perceptual spaces. Its banks are built from genre names rather than sound descriptions,
-because genre-tag wording measured stronger than captions for genre concepts on both models. Each
-style bank holds four lines. The first is the bare genre tag, the second lists sibling genres,
-the third reaches for adjacent or parent scenes plus a few supporting descriptors, and the last
-is the anchor caption "A `<genre>` track." The axis holds
-genres only: "Broken beat" and "Boom bap" name drum patterns, so they live on the rhythm axis
-instead.
+function (set role), and genres. The picker labels the last axis **Genres**; its internal key
+stays `style`, and it still recommends MuQ-MuLan. Genres is the deliberate outlier: a coarse
+genre shelf on top of the fine perceptual spaces. Its banks are built from genre names rather
+than sound descriptions, because genre-tag wording measured stronger than captions for genre
+concepts on both models. Each genre bank holds four lines. The first is the bare genre tag, the
+second lists sibling genres, the third reaches for adjacent or parent scenes plus a few
+supporting descriptors, and the last is the anchor caption "A `<genre>` track."
+
+Each axis carries one kind of label. Genres holds genres only: "Broken beat" and "Boom bap"
+name drum patterns, so they live on the rhythm axis instead. "Gallop" sits on rhythm too, not on
+groove: a repeating triplet figure is a drum pattern, not microtiming. Anchor sentences of the
+form "A `<genre>` track." live only on the Genres axis; banks on other axes, such as Acid 303,
+Dubby / Tape and Metallic / Industrial, open with a tag line describing the sound instead of a
+genre sentence. The groove axis names both poles of its claim: "Rigid / Quantized" and
+"Laid-back / Loose" describe opposite microtiming extremes, and each carries the other as its
+hard negative at weight `0.5`. The Function axis names set roles, so its beatless preset is
+labelled "Interlude / Beatless" rather than a genre word.
 
 Select several presets and their banks merge into one prompt bank. A "Breakbeat" plus
 "Instrumental" selection covers both at once. Chips above the negative field show the current
@@ -171,26 +180,28 @@ same way earlier: its number does not reflect whether a track actually carries a
 ### Results
 
 Measured on the 45,109-track library, after retiring the genre-head and vocal-probability
-references, 37 of the 117 labels keep an orthogonal SONARA reference.
+references, 37 of the 153 labels keep an orthogonal SONARA reference.
 
 | Verdict | MuQ-MuLan | CLAP |
 | --- | --- | --- |
 | `ok` | 11 | 18 |
 | `weak` | 13 | 16 |
-| `suspect` | 6 | 0 |
-| `INVERTED` | 7 | 3 |
+| `suspect` | 7 | 0 |
+| `INVERTED` | 6 | 3 |
 
 The two models are not interchangeable, and neither is better everywhere. The model that an axis
 recommends now rests on hand-labelled pools where they exist: MuQ-MuLan carries rhythm
-(`breakbeat` 0.975 against 0.854) and style (`minimal deep-tech` 0.928 against 0.851), while the
+(`breakbeat` 0.975 against 0.854) and genres (`minimal deep-tech` 0.928 against 0.851), while the
 texture recommendation rests on the SONARA cross-check, where CLAP leads.
 
 The failures stay characteristic of each model. MuQ-MuLan inverts on labels naming an acoustic
 instrument, `piano`, `strings and brass`, `nylon guitar`, `slap bass`, `saxophone` and `trumpet`:
-it ranks programmed electronic tracks first for them. It also ranks `metallic` against SONARA
-spectral flatness the wrong way round, which pins that label to CLAP. CLAP inverts on
-`jazz chords`, `clean` and `glassy`, which is exactly why those three labels are pinned to
-MuQ-MuLan in the preset picker.
+it ranks programmed electronic tracks first for them. On `metallic` it no longer inverts since
+the bank was reworded to open with a metallic-percussion tag line instead of a genre sentence,
+but it stays near chance against SONARA spectral flatness (`0.436` to `0.450`), while the same
+reword lifted CLAP from `0.593` to `0.675`; no other referenced label moved, and the label stays
+pinned to CLAP. CLAP inverts on `jazz chords`, `clean` and `glassy`, which is exactly why those
+three labels are pinned to MuQ-MuLan in the preset picker.
 
 Voice labels are no longer cross-checked at all. Their old reference, SONARA vocal probability,
 does not reflect whether a track actually carries a voice. A comparison against it measured the

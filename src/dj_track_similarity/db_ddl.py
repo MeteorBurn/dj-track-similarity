@@ -327,7 +327,7 @@ CREATE INDEX idx_transition_feedback_incoming ON transition_feedback(incoming_tr
 
 # The raw reinforcement signal for tuning text-search presets: one relevance
 # verdict per (track, preset, text model). Written on an explicit user click,
-# read by scripts/text_preset_tune.py. IF NOT EXISTS is deliberate: libraries
+# read by scripts/prompt_preset_tune.py. IF NOT EXISTS is deliberate: libraries
 # created before this table gain it additively on the first verdict, which is
 # a new capability, not a migration of existing data.
 TEXT_PRESET_FEEDBACK_TABLE_DDL = """

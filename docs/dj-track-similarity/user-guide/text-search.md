@@ -142,7 +142,7 @@ in the `text_preset_feedback` table of the library database, beside `likes`; cli
 button again withdraws it. The verdicts credit the preset selection that ranked the list, not
 whatever the picker holds at click time.
 
-The accumulated verdicts are the reinforcement signal for `scripts/text_preset_tune.py`. Once a
+The accumulated verdicts are the reinforcement signal for `scripts/prompt_preset_tune.py`. Once a
 preset collects enough verdicts of both kinds (five per class by default), the script scores the
 current bank across the weight grid and every leave-one-out variant of its positive and negative
 lines, on the frozen stored embeddings. The report puts a measured marginal value next to each

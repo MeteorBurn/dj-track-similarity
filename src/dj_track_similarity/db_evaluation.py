@@ -57,7 +57,7 @@ class EvaluationRepository:
 
         ``verdict`` is +1 (relevant) or -1 (irrelevant); 0 removes the stored
         verdicts for the given presets. This is the raw reinforcement signal
-        that ``scripts/text_preset_tune.py`` reads. It lives in the library
+        that ``scripts/prompt_preset_tune.py`` reads. It lives in the library
         database beside ``likes``; trained classifier outputs never enter it.
         """
         clean_uuid = _required_text(track_uuid, "Track uuid")

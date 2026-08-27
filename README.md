@@ -215,8 +215,9 @@ Each successful SONARA analysis writes its Core row, an unnormalized 48-dimensio
 embedding row, and a versioned native-base64 acoustic fingerprint row together under the original
 track identity. The fingerprint row in `sonara_fingerprints` contains `track_id`, `track_uuid`,
 `fingerprint_version`, `fingerprint_base64`, and `analyzed_at`. Timeline collection remains disabled.
-Neither the stored SONARA embedding nor fingerprint is a current similarity, search, classifier, or
-Audio Dedup input. Those SONARA workflows continue to use Core fields.
+The stored SONARA embedding is not a current similarity, search, classifier, or Audio Dedup input,
+and SONARA similarity workflows continue to use Core fields. The stored fingerprint has one current
+consumer: the Audio Dedup tool reads it for candidate retrieval and manual-review verification.
 
 Promoted classifier artifacts must describe the feature names and inputs they actually use. If an
 analysis update changes that recipe, retrain and promote the affected profile before scoring it
@@ -457,7 +458,7 @@ signals for review, not objective musical truth or automatic performance decisio
 ## 🛠️ Maintenance tools
 
 - **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
-- **Audio Dedup** reports duplicate candidates from stored MERT, MAEST, MuQ, and CLAP analysis data. Its source list and weights are configurable; MuQ alone never authorizes deletion. Apply mode still requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
+- **Audio Dedup** reports duplicate candidates from saved SONARA fingerprints and stored MERT, MAEST, MuQ, and CLAP analysis data. Its default `--fingerprint` mode decides duplicates from exact fingerprint matches alone and keeps every candidate manual-review. The secondary `--embedding` mode scores the enabled sources with configurable weights and is the only mode that can mark safe delete candidates; MuQ alone never authorizes deletion. Apply mode still requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
 - **Persistent ANN indexes** are optional generated sidecars for repeated vector lookup. Exact search remains available without an ANN flag; explicit ANN use fails when the sidecar is missing, stale, or unsupported. See [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md).
 - **Database optimization** supports the main library database and the Rhythm Lab labels database. It backs up the SQLite file, checks integrity, and then runs SQLite maintenance commands. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
 

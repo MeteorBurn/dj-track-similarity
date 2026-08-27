@@ -25,7 +25,7 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | Core feature row, a dedicated 48D embedding row, and a versioned acoustic fingerprint row | Core-backed feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs; the fingerprint has no current UI, search, classifier, or dedup use |
+| SONARA | Core feature row, a dedicated 48D embedding row, and a versioned acoustic fingerprint row | Core-backed feature search, confidence-aware tempo, Camelot resolution, Evaluation transition diagnostics, Audio Dedup, classifier inputs; the fingerprint's only current use is Audio Dedup candidate retrieval and manual review |
 | MAEST | `maest_genres` rows and a `maest_embeddings` row | genre display, genre tag apply, LAB Reference Compare, Audio Dedup, classifier input |
 | MERT | a row in `mert_embeddings` | seed search, LAB Reference Compare, Audio Dedup, classifier input |
 | MuQ | a row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup, classifier input |

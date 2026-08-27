@@ -15,9 +15,24 @@ audio again or keep full fingerprint payloads on track records.
 
 The `min_similarity` value is an audio-to-audio content gate. It is not the CLAP text-search score scale, and none of these values are probabilities.
 
+## Search modes
+
+The CLI has two mutually exclusive search modes:
+
+- `--fingerprint` is the primary mode and the default, so a run without a mode flag behaves
+  identically. Duplicates are decided from exact SONARA fingerprint matches alone, and every
+  reported candidate stays manual-review.
+- `--embedding` is the secondary mode and the previous default behavior. Duplicates are scored
+  from the enabled embedding families with the preset gates, and exact fingerprint checks of
+  embedding-shortlisted pairs still add manual-review pairs. It is the only mode that can produce
+  safe delete candidates for `--apply`.
+
+Passing both flags is a CLI argument error. `--source` and `--weight` require `--embedding`.
+The JSON report records the selected mode as `search_mode`.
+
 ## Sources and weights
 
-The default CLI profile enables all four embedding sources:
+`--embedding` mode enables all four embedding sources by default:
 
 | Source | Raw weight |
 | --- | ---: |
@@ -28,22 +43,24 @@ The default CLI profile enables all four embedding sources:
 
 Raw weights are configuration coefficients, not percentages. The scorer divides by the total weight of the enabled evidence that is available for a pair. The duplicate score can also include stored SONARA and duration evidence.
 
-The CLI accepts repeatable `--source` and `--weight FAMILY=VALUE` options.
+In `--embedding` mode the CLI accepts repeatable `--source` and `--weight FAMILY=VALUE` options.
 
 Validation is fail-closed:
 
+- `--source` and `--weight` require `--embedding`.
 - `sources` must be nonempty, unique, and limited to the four supported families.
 - When `weights` is supplied, its keys must exactly match the enabled sources.
 - Every weight must be finite and nonnegative, and at least one must be positive.
 
 ## Candidate retrieval and fingerprint review
 
-Candidate construction takes a set union rather than applying one signal after another.
+In `--embedding` mode, candidate construction takes a set union rather than applying one signal
+after another. Fingerprint mode instead retrieves from fingerprint LSH alone.
 
 | Signal | Candidate-retrieval role |
 | --- | --- |
-| MERT/MAEST LSH | Used for suitable high-dimensional embeddings. |
-| Duration window | Used when embedding LSH produces no candidate pairs. |
+| MERT/MAEST LSH | Used in `--embedding` mode for suitable high-dimensional embeddings. |
+| Duration window | Used in `--embedding` mode when embedding LSH produces no candidate pairs. |
 | SONARA fingerprint LSH | Uses compact descriptors from valid stored fingerprints. A pair must share one 24-bit key made from two adjacent 12-bit bands. Comparisons stay inside one fingerprint version. |
 
 The native SONARA matcher then verifies pairs retrieved by either fingerprint LSH or MERT/MAEST
@@ -74,10 +91,34 @@ To disable MuQ and reproduce the exact legacy source profile, select only MERT, 
 
 ```powershell
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music `
-  --source mert --source maest --source clap
+  --embedding --source mert --source maest --source clap
 ```
 
 This exact profile uses MERT 0.43, MAEST 0.32, and CLAP 0.04. Any other source or weight configuration uses the non-legacy deletion-safety rules below.
+
+## Fingerprint mode
+
+`--fingerprint` decides duplicates from stored SONARA fingerprints alone. It is the default, so
+this run selects it without a mode flag:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music
+```
+
+In this mode no embeddings are loaded. Candidate retrieval uses only the version-separated
+fingerprint LSH, and neither embedding signature LSH nor the duration-window fallback runs. The
+exact native SONARA matcher then verifies every shortlisted pair, and only exact scores at or
+above the `0.45` review threshold form duplicate groups.
+
+Every candidate in a fingerprint-mode report is `REVIEW MANUALLY`. The report carries no embedding
+scoring evidence, and per-pair MERT, MAEST, and content similarities stay null. Fingerprint
+evidence never authorizes deletion, so `--apply` on such a report finds no safe delete candidates.
+
+`--source` or `--weight` in fingerprint mode fails before any database read, and the CLI exits
+with code `2`. Fingerprint mode is the one report configuration without scoring sources. Its
+report payload records `"search_mode": "fingerprint"` with `"sources": []` and `"weights": {}`,
+while `fingerprint_retrieval` and the per-pair `candidate_sources` value `["fingerprint_lsh"]`
+record the retrieval path.
 
 ## CLI report mode
 
@@ -85,8 +126,11 @@ This exact profile uses MERT 0.43, MAEST 0.32, and CLAP 0.04. Any other source o
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
 ```
 
+Omitting `--db` selects `database\volumes.sqlite` under the repository root, the same default the
+launcher suggests.
+
 The CLI updates one console line while it runs. It loads track records and only
-the selected embedding families in SQLite chunks of 200 tracks, showing the
+the embedding families the selected mode needs in SQLite chunks of 200 tracks, showing the
 phase, percentage, and processed items as `N/M`. During pair scoring, `N/M`
 refers to candidate pairs.
 
@@ -96,17 +140,17 @@ Optional examples:
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --path-contains wav --limit-groups 50
 ```
 
-An explicit default source profile looks like this:
+An explicit embedding-mode default source profile looks like this:
 
 ```powershell
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music `
-  --source mert --source maest --source muq --source clap `
+  --embedding --source mert --source maest --source muq --source clap `
   --weight mert=0.43 --weight maest=0.32 --weight muq=0.12 --weight clap=0.04
 ```
 
 ## Safe-delete corroboration
 
-MuQ and CLAP can affect ranking and report candidates, but they cannot replace MERT plus MAEST evidence for automatic deletion.
+Safe deletion exists only in `--embedding` mode. MuQ and CLAP can affect ranking and report candidates, but they cannot replace MERT plus MAEST evidence for automatic deletion.
 
 The exact legacy profile keeps its previous aggregate gate. Every non-legacy source or weight configuration requires:
 
@@ -133,6 +177,6 @@ Do not run apply mode during routine tests. Review the report first and keep bac
 
 ## Output
 
-Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `sources`, `weights`, and `fingerprint_retrieval` metrics: validated and rejected stored fingerprints, LSH/exact candidate counts, the review-pair count, and the threshold. Pair evidence records `fingerprint_similarity` and `candidate_sources`; the XLSX Pair Evidence sheet exposes the same provenance, while its Summary sheet lists valid fingerprints and fingerprint-review pairs. Safety failures appear in `blocked_reasons`.
+Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `search_mode`, `sources`, `weights`, and `fingerprint_retrieval` metrics: validated and rejected stored fingerprints, LSH/exact candidate counts, the review-pair count, and the threshold. Pair evidence records `fingerprint_similarity` and `candidate_sources`; the XLSX Pair Evidence sheet exposes the same provenance, while its Summary sheet lists the search mode, valid fingerprints, and fingerprint-review pairs. The text log carries a matching `search_mode=` line. Safety failures appear in `blocked_reasons`.
 
 Reports are local private artifacts.

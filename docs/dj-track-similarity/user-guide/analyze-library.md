@@ -57,8 +57,10 @@ MuQ, MuQ-MuLan, and CLAP. SONARA uses its native CPU path.
 SONARA writes Core feature rows to `sonara_features`, unnormalized 48-dimensional `float32`
 embeddings to the dedicated `sonara_embeddings` table, and versioned native-base64 acoustic
 fingerprints to `sonara_fingerprints`. A successful SONARA pass stores all three rows together.
-Timeline collection remains disabled. The SONARA embedding and fingerprint are persisted data only;
-they are not current UI, similarity, search, classifier, or Audio Dedup inputs. MAEST, MERT, MuQ,
+Timeline collection remains disabled. The SONARA embedding is persisted data only; it is not a
+current UI, similarity, search, classifier, or Audio Dedup input. The fingerprint is not a UI,
+similarity, search, or classifier input. The Audio Dedup tool reads it for candidate retrieval and
+manual review. MAEST, MERT, MuQ,
 MuQ-MuLan, and CLAP embeddings live in their own dedicated tables in the same library database.
 MuQ-MuLan analysis reads mono 24 kHz `float32` audio in 10-second windows and writes its own
 L2-normalized 512-dimensional rows to `mulan_embeddings`. It never converts existing MuQ rows.

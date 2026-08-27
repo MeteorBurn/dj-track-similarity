@@ -43,8 +43,9 @@ Regular track rows use `TrackSummaryResponse`: stable identity (`catalog_uuid`,
 `track_id`, `track_uuid`), `file_path`, compact tags, `analysis_coverage`, and
 classifier-score summaries. Detailed rows expose SONARA Core, MAEST, embedding summaries for the
 active ML families, and classifier details. The stored SONARA embedding and acoustic fingerprint
-are not part of a track response or current similarity, search, classifier, or Audio Dedup input.
-Timeline fields are also absent.
+are not part of a track response, and neither is a current similarity, search, or classifier
+input. The fingerprint's one consumer is the standalone Audio Dedup tool. Timeline fields are
+also absent.
 
 `DELETE /api/tracks/{track_id}` requires the current track identity in its JSON body:
 `catalog_uuid` and `track_uuid`. It removes the matching SQLite catalog row, its FTS entry, and

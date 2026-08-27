@@ -47,9 +47,10 @@ Restart `dj-sim serve` and any running Rhythm Lab process after you change the e
 
 Timeline collection remains disabled. A complete SONARA analysis stores its embedding in
 `sonara_embeddings` and its versioned native-base64 acoustic fingerprint in `sonara_fingerprints`.
-Neither raw value reaches track responses, and neither is a current UI, similarity, search,
-classifier, or Audio Dedup input. Run normal SONARA analysis again whenever any of its Core,
-embedding, or fingerprint rows is missing.
+Neither raw value reaches track responses, and neither is a current UI, similarity, search, or
+classifier input. The Audio Dedup tool is the fingerprint's one consumer: it reads stored
+fingerprints for candidate retrieval and manual-review verification. Run normal SONARA analysis
+again whenever any of its Core, embedding, or fingerprint rows is missing.
 
 ## A classifier is incompatible
 

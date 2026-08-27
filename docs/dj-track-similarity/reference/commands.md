@@ -428,8 +428,9 @@ python tools\rhythm-lab\rhythm_lab\label_transfer.py preview --bundle .\exports\
 <details>
 <summary>Duplicate report and confirmed deletion</summary>
 
-Run `python tools/audio-dedup/audio_dedup_cli.py`. It finds candidates from stored embeddings;
-the default mode writes a report only.
+Run `python tools/audio-dedup/audio_dedup_cli.py`. It finds candidates from stored embeddings
+and saved SONARA fingerprints. Every run writes a report, and deletion needs `--apply`. The
+default search mode is `--fingerprint`.
 
 ```powershell
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
@@ -437,14 +438,16 @@ python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:
 
 | Option | Meaning |
 | --- | --- |
-| `--db PATH` | Project SQLite database. Default: `C:\db\abstracted.sqlite`. |
+| `--db PATH` | Project SQLite database. Default: `database\volumes.sqlite` under the repository root. |
 | `--root PATH` | **Required.** Include only stored tracks beneath this root. |
 | `--path-contains TEXT` | Additional case-insensitive stored-path substring filter. Repeatable. |
 | `--preset safe\|balanced\|aggressive` | Threshold preset. Default: `safe`. |
 | `--min-score FLOAT` | Override the preset duplicate-score threshold. |
 | `--min-similarity FLOAT` | Override the preset content-similarity threshold. |
-| `--source mert\|maest\|muq\|clap` | Enable one embedding family. Repeatable. Omit for all supported families. |
-| `--weight FAMILY=VALUE` | Override every enabled-source weight. Repeat once for each enabled `--source`. |
+| `--source mert\|maest\|muq\|clap` | Enable one embedding family. Requires `--embedding`. Repeatable. Omit for all supported families. |
+| `--weight FAMILY=VALUE` | Override every enabled-source weight. Requires `--embedding`. Repeat once for each enabled `--source`. |
+| `--fingerprint` | Primary search mode, also the default. Search runs exclusively over stored SONARA fingerprints with no embedding loading. Candidate pairs come from fingerprint LSH only, and duplicate groups form from the exact native fingerprint score alone. Every reported candidate stays manual-review. Mutually exclusive with `--embedding`. |
+| `--embedding` | Secondary search mode. Score duplicates from the enabled embedding families with the preset gates. The only mode that can produce safe delete candidates for `--apply`. Mutually exclusive with `--fingerprint`. |
 | `--limit-groups INTEGER` | Maximum duplicate groups written. |
 | `--out-dir PATH` | Report directory. Default: `tools\audio-dedup\data\reports`. |
 | `--apply` | After reports are written, prompt for exact confirmation, delete safe candidates inside `--root`, and remove only their matching database rows. |

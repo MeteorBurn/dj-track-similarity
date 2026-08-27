@@ -98,7 +98,9 @@ separate.
 
 ## Scoring boundary
 
-Search, Evaluation diagnostics, Audio Dedup, and classifiers continue to use stored SONARA Core
-values. The dedicated SONARA embedding and acoustic fingerprint are persisted but are not current
-similarity, search, classifier, or Audio Dedup inputs. MERT, MuQ, MuQ-MuLan, MAEST, and CLAP remain
+Search, Evaluation diagnostics, Audio Dedup scoring, and classifiers continue to use stored SONARA
+Core values. The dedicated SONARA embedding is persisted but is not a current similarity, search,
+classifier, or Audio Dedup input. The acoustic fingerprint is not a similarity, search, or
+classifier input either. The Audio Dedup tool reads it for candidate retrieval and manual-review
+verification, including its default fingerprint search mode. MERT, MuQ, MuQ-MuLan, MAEST, and CLAP remain
 separate analysis sources. Every result is a ranking or diagnostic signal, not an automatic DJ decision.

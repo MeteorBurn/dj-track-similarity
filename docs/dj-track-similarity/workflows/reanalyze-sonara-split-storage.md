@@ -45,8 +45,8 @@ dj-sim analyze --models sonara --db .\data\library.sqlite
 SONARA writes Core rows to `sonara_features`, unnormalized 48-dimensional `float32` embeddings to
 the dedicated `sonara_embeddings` table, and versioned native-base64 acoustic fingerprints to
 `sonara_fingerprints`. Each successful pass writes all three outputs together. Timeline collection
-remains disabled. The stored embedding and fingerprint are not current similarity, search,
-classifier, or Audio Dedup inputs.
+remains disabled. The stored embedding is not a current similarity, search, classifier, or Audio
+Dedup input. The stored fingerprint feeds only Audio Dedup candidate retrieval and manual review.
 
 ## 6. Refresh affected classifiers
 

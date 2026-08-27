@@ -16,7 +16,7 @@ git diff --check
 ```
 
 The root Pytest configuration targets only `tests/`. Run helper-tool suites explicitly with
-`python -m pytest tools/rhythm-lab/tests scripts/tests`.
+`python -m pytest tools/rhythm-lab/tests tools/audio-dedup/tests scripts/tests`.
 
 Use the `ml`, `slow`, and `evaluation` markers only when the changed behavior
 requires those optional dependencies or long-running paths.
@@ -28,7 +28,7 @@ change. Use `npm run lint:style` when you want the same style report without fai
 ## Focused examples
 
 - Audio Doctor: `scripts\tests\test_repair_audio_metadata.py` and `tests\test_api_audio_doctor.py`.
-- Audio Dedup: `scripts\tests\test_audio_dedup.py`.
+- Audio Dedup: `scripts\tests\test_audio_dedup.py` and `tools\audio-dedup\tests`.
 - Rhythm Lab: `tools\rhythm-lab\tests\test_rhythm_lab.py`.
 - SONARA runtime and storage: `tests\test_sonara_features.py`, `tests\test_sonara_native_batch.py`, and `tests\test_sonara_storage.py`.
 - Tempo, Camelot, and transitions: `tests\test_tempo_resolution.py`, `tests\test_track_resolution.py`, and `tests\test_transition_diagnostics.py`.

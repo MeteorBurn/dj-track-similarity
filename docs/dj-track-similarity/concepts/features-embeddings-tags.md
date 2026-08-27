@@ -49,8 +49,10 @@ SONARA analysis stores compact Core scalars and fixed vectors in `sonara_feature
 acoustic fingerprint in `sonara_fingerprints`. A successful SONARA pass writes all three rows
 together. A fingerprint row contains `track_id`, `track_uuid`, `fingerprint_version`,
 `fingerprint_base64`, and `analyzed_at`. Its base64 value is SONARA's native representation.
-Timeline collection remains disabled. The stored SONARA embedding and fingerprint are not current
-similarity, search, classifier, or Audio Dedup inputs. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP vectors
+Timeline collection remains disabled. The stored SONARA embedding is not a current similarity,
+search, classifier, or Audio Dedup input. The stored fingerprint is not a similarity, search, or
+classifier input either. Its one current consumer is the Audio Dedup tool, which reads it for
+candidate retrieval and manual-review verification. MAEST, MERT, MuQ, MuQ-MuLan, and CLAP vectors
 use their own dedicated tables in the same library database.
 
 SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current

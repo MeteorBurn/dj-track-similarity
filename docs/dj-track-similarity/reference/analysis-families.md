@@ -118,8 +118,8 @@ structure/beat-grid values, vocalness, mood, aggression, and silence in `sonara_
 unnormalized 48-dimensional `float32` embedding is stored separately in `sonara_embeddings`; the
 versioned acoustic fingerprint is stored in `sonara_fingerprints` as SONARA's native base64 value.
 
-Timeline collection remains disabled. The fingerprint is stored but is not a current UI, search,
-classifier, or Audio Dedup input.
+Timeline collection remains disabled. The fingerprint is not a current UI, search, or classifier
+input. The Audio Dedup tool reads it for candidate retrieval and manual-review verification.
 
 `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
 
@@ -163,8 +163,9 @@ scalars and vocalness; momentary loudness maximum and loudness range remain avai
 existing SONARA dynamics comparison, and vocalness remains an explicit search modifier.
 
 MAEST, MERT, MuQ, MuQ-MuLan, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
-Core features rather than the stored SONARA embedding or fingerprint, which are not current
-similarity, search, classifier, or Audio Dedup inputs.
+Core features rather than the stored SONARA embedding or fingerprint. The embedding is not a
+current similarity, search, classifier, or Audio Dedup input. The fingerprint's only current
+consumer is the Audio Dedup tool.
 
 ## ML prerequisite and MAEST windows
 

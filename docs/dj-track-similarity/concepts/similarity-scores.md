@@ -40,6 +40,8 @@ Saved LAB verdicts are manual pair-feedback labels for a specific model source. 
 
 Audio Dedup `min_similarity` is an audio-to-audio content gate over the enabled stored MERT, MAEST, MuQ, and CLAP audio embeddings. It is not comparable to CLAP text-search similarity. MuQ evidence alone does not satisfy the separate safe-delete corroboration rules.
 
+The `fingerprint_similarity` value in dedup reports is another separate scale: a native SONARA fingerprint match from `0` to `1`. At `0.45` or above it creates manual-review candidates and never authorizes deletion.
+
 ## Practical reading
 
 - Compare scores inside the same tab and same settings.

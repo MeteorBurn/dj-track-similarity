@@ -187,6 +187,45 @@ def test_fingerprint_matching_reports_progress_after_each_chunk() -> None:
     assert progress == [(250, 251), (251, 251)]
 
 
+def test_fingerprint_sketch_loading_reports_progress_after_each_chunk() -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.executescript(
+        """
+        CREATE TABLE sonara_fingerprints (
+            track_id INTEGER PRIMARY KEY,
+            track_uuid TEXT NOT NULL,
+            fingerprint_version INTEGER NOT NULL,
+            fingerprint_base64 TEXT NOT NULL,
+            analyzed_at TEXT NOT NULL
+        );
+        """
+    )
+    identities = {track_id: f"track-{track_id}" for track_id in range(1, 451)}
+    value = _fingerprint_base64(np.arange(128, dtype=np.uint32))
+    connection.executemany(
+        """
+        INSERT INTO sonara_fingerprints (
+            track_id, track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (track_id, track_uuid, 1, value, "2026-08-26T00:00:00+00:00")
+            for track_id, track_uuid in identities.items()
+        ],
+    )
+    progress: list[tuple[int, int]] = []
+
+    loaded = load_fingerprint_sketches(
+        connection,
+        identities,
+        progress_callback=lambda completed, total: progress.append((completed, total)),
+    )
+
+    assert len(loaded.sketches) == 450
+    assert progress == [(200, 450), (400, 450), (450, 450)]
+
+
 def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding_gate() -> (
     None
 ):
@@ -242,9 +281,10 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
     )
     group_payload = payload["groups"][0]
     assert group_payload["candidate_deletes"][0]["decision"] == "review"
-    assert (
-        "SONARA fingerprint-only candidate requires manual review"
-        in group_payload["candidate_deletes"][0]["blocked_reasons"]
+    blocked_reasons = group_payload["candidate_deletes"][0]["blocked_reasons"]
+    assert any(
+        "SONARA fingerprint-only candidate" in reason and "0.880000" in reason
+        for reason in blocked_reasons
     )
     assert group_payload["pairwise_evidence"][0]["candidate_sources"] == [
         "fingerprint_lsh"

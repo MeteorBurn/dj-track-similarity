@@ -100,12 +100,18 @@ def fingerprint_candidate_pairs(
 def load_fingerprint_sketches(
     connection: sqlite3.Connection,
     track_uuids: Mapping[int, str],
+    *,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> FingerprintLoadResult:
     """Read and validate saved fingerprints one database chunk at a time."""
+    total_tracks = len(track_uuids)
     if not _has_fingerprint_table(connection):
+        if progress_callback is not None:
+            progress_callback(total_tracks, total_tracks)
         return FingerprintLoadResult((), 0)
     sketches: list[FingerprintSketch] = []
     rejected_rows = 0
+    processed_tracks = 0
     for track_ids in _chunks(sorted(track_uuids), 200):
         for row in _fingerprint_rows(connection, track_ids):
             track_id = int(row["track_id"])
@@ -124,6 +130,9 @@ def load_fingerprint_sketches(
                 )
             except ValueError:
                 rejected_rows += 1
+        processed_tracks += len(track_ids)
+        if progress_callback is not None:
+            progress_callback(processed_tracks, total_tracks)
     return FingerprintLoadResult(tuple(sketches), rejected_rows)
 
 

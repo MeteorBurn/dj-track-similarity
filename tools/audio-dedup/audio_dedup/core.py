@@ -556,7 +556,16 @@ def run_report(
     _report_progress(progress_callback, 0, max(1, len(tracks)), "Loading saved SONARA fingerprint sketches")
     connection = selected_database.connect()
     try:
-        fingerprint_load = load_fingerprint_sketches(connection, track_uuids)
+        fingerprint_load = load_fingerprint_sketches(
+            connection,
+            track_uuids,
+            progress_callback=lambda completed, total: _report_progress(
+                progress_callback,
+                completed,
+                total,
+                "Loading saved SONARA fingerprint sketches",
+            ),
+        )
     finally:
         connection.close()
     candidate_sources = _candidate_pair_sources(
@@ -1473,6 +1482,16 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "",
         ],
         [
+            "Fake-bitrate duplicate candidates",
+            stats.get("fake_bitrate_candidate_count", 0),
+            (
+                "Duplicate copies (not the keeper) that look transcoded, across "
+                f"{stats.get('fake_bitrate_group_count', 0)} group(s)."
+            ),
+            "Open the Groups sheet; those rows are highlighted amber.",
+            "",
+        ],
+        [
             "Spectral checks",
             (
                 f"{spectral_analysis.get('analyzed_track_count', 0)}/{spectral_analysis.get('checked_track_count', 0)}"
@@ -1546,6 +1565,9 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     return rows
 
 
+GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX = 8
+
+
 def _groups_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     rows: list[list[object]] = [
         [
@@ -1557,10 +1579,12 @@ def _groups_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "candidate_count",
             "safe_candidates",
             "review_candidates",
+            "fake_bitrate_candidates",
             "why_keep",
             "blocked_reasons",
         ]
     ]
+    assert rows[0][GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX] == "fake_bitrate_candidates"
     for group in payload["groups"]:  # type: ignore[index]
         assert isinstance(group, dict)
         keeper = group["suggested_keeper"]
@@ -1576,11 +1600,16 @@ def _groups_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                 len(candidates),
                 sum(1 for candidate in candidates if candidate.get("decision") == "delete_candidate"),
                 sum(1 for candidate in candidates if candidate.get("decision") != "delete_candidate"),
+                sum(1 for candidate in candidates if candidate.get("suspected_transcode")),
                 "; ".join(str(item) for item in keeper.get("why_keep", [])),
                 "; ".join(str(item) for item in group.get("blocked_reasons", [])),
             ]
         )
     return rows
+
+
+CANDIDATES_SHEET_SUSPECTED_TRANSCODE_COLUMN = 10
+CANDIDATES_SHEET_KEEPER_SUSPECTED_TRANSCODE_COLUMN = 12
 
 
 def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
@@ -1611,6 +1640,8 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "why_delete_or_review",
         ]
     ]
+    assert rows[0][CANDIDATES_SHEET_SUSPECTED_TRANSCODE_COLUMN - 1] == "suspected_transcode"
+    assert rows[0][CANDIDATES_SHEET_KEEPER_SUSPECTED_TRANSCODE_COLUMN - 1] == "keeper_suspected_transcode"
     for group in payload["groups"]:  # type: ignore[index]
         assert isinstance(group, dict)
         keeper = group["suggested_keeper"]
@@ -1806,7 +1837,7 @@ def _xlsx_workbook_rels(sheet_count: int) -> str:
 def _xlsx_styles_xml() -> str:
     return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="7">
+<fonts count="8">
 <font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>
 <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
 <font><b/><sz val="18"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
@@ -1814,8 +1845,9 @@ def _xlsx_styles_xml() -> str:
 <font><b/><sz val="11"/><color rgb="FFB71C1C"/><name val="Calibri"/></font>
 <font><sz val="11"/><color rgb="FF374151"/><name val="Calibri"/></font>
 <font><b/><sz val="12"/><color rgb="FF111827"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><color rgb="FF92400E"/><name val="Calibri"/></font>
 </fonts>
-<fills count="10">
+<fills count="11">
 <fill><patternFill patternType="none"/></fill>
 <fill><patternFill patternType="gray125"/></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF263238"/><bgColor indexed="64"/></patternFill></fill>
@@ -1826,13 +1858,14 @@ def _xlsx_styles_xml() -> str:
 <fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE0F2FE"/><bgColor indexed="64"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFFFF7ED"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/><bgColor indexed="64"/></patternFill></fill>
 </fills>
 <borders count="2">
 <border><left/><right/><top/><bottom/><diagonal/></border>
 <border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="10">
+<cellXfs count="11">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="2" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
@@ -1843,6 +1876,7 @@ def _xlsx_styles_xml() -> str:
 <xf numFmtId="0" fontId="6" fillId="8" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf>
 <xf numFmtId="0" fontId="0" fillId="9" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
 <xf numFmtId="0" fontId="0" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+<xf numFmtId="0" fontId="7" fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>'''
@@ -1930,10 +1964,17 @@ def _xlsx_style_id(value: object, row: list[object], row_index: int, col_index: 
         return 2
     if row_index == 1:
         return 1
+    if sheet_name == "Groups":
+        fake_bitrate_count = row[GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX] if len(row) > GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX else 0
+        if isinstance(fake_bitrate_count, (int, float)) and fake_bitrate_count > 0:
+            return 10
+        return 5
     if value == "DELETE CANDIDATE":
         return 3
     if value == "REVIEW MANUALLY":
         return 4
+    if sheet_name == "Candidates" and value is True and col_index in {CANDIDATES_SHEET_SUSPECTED_TRANSCODE_COLUMN, CANDIDATES_SHEET_KEEPER_SUSPECTED_TRANSCODE_COLUMN}:
+        return 10
     return 5
 
 
@@ -2547,7 +2588,9 @@ def report_statistics(report_groups: list[dict[str, object]], tracks: list[Track
     safe_candidates = 0
     review_candidates = 0
     candidate_count = 0
+    fake_bitrate_candidate_count = 0
     duplicate_track_ids: set[int] = set()
+    fake_bitrate_group_ids: set[int] = set()
     for group in report_groups:
         confidence = str(group.get("confidence", "review"))
         if confidence in confidence_counts:
@@ -2561,6 +2604,9 @@ def report_statistics(report_groups: list[dict[str, object]], tracks: list[Track
                 safe_candidates += 1
             else:
                 review_candidates += 1
+            if candidate.get("suspected_transcode"):
+                fake_bitrate_candidate_count += 1
+                fake_bitrate_group_ids.add(int(group["group_id"]))
     embedding_coverage = {
         key: sum(1 for track in tracks if key in track.embeddings)
         for key in SUPPORTED_EMBEDDINGS
@@ -2570,6 +2616,8 @@ def report_statistics(report_groups: list[dict[str, object]], tracks: list[Track
         "duplicate_track_count": len(duplicate_track_ids),
         "safe_candidate_count": safe_candidates,
         "review_candidate_count": review_candidates,
+        "fake_bitrate_candidate_count": fake_bitrate_candidate_count,
+        "fake_bitrate_group_count": len(fake_bitrate_group_ids),
         "confidence_counts": confidence_counts,
         "embedding_coverage": embedding_coverage,
     }
@@ -2910,7 +2958,14 @@ def _candidate_safety(pair: PairEvidence | None, config: PresetConfig, *, ambigu
         reasons.append("weak direct keeper match")
     else:
         if pair.candidate_sources == ("fingerprint_lsh",):
-            reasons.append("SONARA fingerprint-only candidate requires manual review")
+            if pair.fingerprint_similarity is not None:
+                reasons.append(
+                    f"SONARA fingerprint-only candidate: exact fingerprint match "
+                    f"{_format_float(pair.fingerprint_similarity)} is strong duplicate evidence, but "
+                    "fingerprint evidence alone never authorizes automatic deletion"
+                )
+            else:
+                reasons.append("SONARA fingerprint-only candidate requires manual review")
         if pair.score < config.direct_keeper_score:
             reasons.append("weak direct keeper match")
         if not _passes_content_similarity(pair, config):

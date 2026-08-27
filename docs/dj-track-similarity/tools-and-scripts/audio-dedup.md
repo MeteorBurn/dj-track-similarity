@@ -33,6 +33,34 @@ The CLI has two mutually exclusive search modes:
 Passing both flags is a CLI argument error. `--source` and `--weight` require `--embedding`.
 The JSON report records the selected mode as `search_mode`.
 
+## Fingerprint mode
+
+`--fingerprint` decides duplicates from stored SONARA fingerprints alone. It is the default, so
+this run selects it without a mode flag:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music
+```
+
+In this mode no embeddings are loaded. Candidate retrieval uses only the version-separated
+fingerprint LSH, and neither embedding signature LSH nor the duration-window fallback runs. The
+exact native SONARA matcher then verifies every shortlisted pair, and only exact scores at or
+above the `0.45` review threshold form duplicate groups.
+
+Every candidate in a fingerprint-mode report is `REVIEW MANUALLY`. The report carries no embedding
+scoring evidence, and per-pair MERT, MAEST, and content similarities stay null. Fingerprint
+evidence never authorizes deletion, so `--apply` on such a report finds no safe delete candidates.
+The `blocked_reasons` and `why_delete_or_review` text still states how confident the match is: a
+candidate carries its exact fingerprint similarity score inline, such as "exact fingerprint match
+0.987654 is strong duplicate evidence". A `0.98` match reads differently from one that only just
+cleared the `0.45` review threshold, even though both stay manual-review.
+
+`--source` or `--weight` in fingerprint mode fails before any database read, and the CLI exits
+with code `2`. Fingerprint mode is the one report configuration without scoring sources. Its
+report payload records `"search_mode": "fingerprint"` with `"sources": []` and `"weights": {}`,
+while `fingerprint_retrieval` and the per-pair `candidate_sources` value `["fingerprint_lsh"]`
+record the retrieval path.
+
 ## Sources and weights
 
 `--embedding` mode enables all four embedding sources by default:
@@ -99,30 +127,6 @@ python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:
 
 This exact profile uses MERT 0.43, MAEST 0.32, and CLAP 0.04. Any other source or weight configuration uses the non-legacy deletion-safety rules below.
 
-## Fingerprint mode
-
-`--fingerprint` decides duplicates from stored SONARA fingerprints alone. It is the default, so
-this run selects it without a mode flag:
-
-```powershell
-python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music
-```
-
-In this mode no embeddings are loaded. Candidate retrieval uses only the version-separated
-fingerprint LSH, and neither embedding signature LSH nor the duration-window fallback runs. The
-exact native SONARA matcher then verifies every shortlisted pair, and only exact scores at or
-above the `0.45` review threshold form duplicate groups.
-
-Every candidate in a fingerprint-mode report is `REVIEW MANUALLY`. The report carries no embedding
-scoring evidence, and per-pair MERT, MAEST, and content similarities stay null. Fingerprint
-evidence never authorizes deletion, so `--apply` on such a report finds no safe delete candidates.
-
-`--source` or `--weight` in fingerprint mode fails before any database read, and the CLI exits
-with code `2`. Fingerprint mode is the one report configuration without scoring sources. Its
-report payload records `"search_mode": "fingerprint"` with `"sources": []` and `"weights": {}`,
-while `fingerprint_retrieval` and the per-pair `candidate_sources` value `["fingerprint_lsh"]`
-record the retrieval path.
-
 ## Spectral transcode check
 
 In both search modes, the report step decodes every file that belongs to a duplicate group (only
@@ -153,6 +157,13 @@ ear`.
 Unreachable files, decode failures, and unknown sample rates are skipped with an explicit
 per-file note, never guessed. When `ffmpeg` is not on `PATH`, the whole check is skipped with the
 note `ffmpeg unavailable`. `--skip-spectral` disables the check.
+
+The per-file verdict also rolls up to group and report level: `report_statistics` counts
+`fake_bitrate_candidate_count` (duplicate candidates, not keepers, that are suspected transcodes)
+and `fake_bitrate_group_count` (distinct groups containing at least one of them). The XLSX Groups
+sheet exposes a `fake_bitrate_candidates` count per group and highlights any row where it is above
+zero in amber, separate from the sheet's existing green safe-delete and red review-manually
+highlighting, so transcoded duplicates stand out as deletion candidates at a glance.
 
 ## CLI report mode
 
@@ -274,6 +285,6 @@ Do not run apply mode during routine tests. Review the report first and keep bac
 
 Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `search_mode`, `sources`, `weights`, and `fingerprint_retrieval` metrics: validated and rejected stored fingerprints, LSH/exact candidate counts, the review-pair count, and the threshold. Pair evidence records `fingerprint_similarity` and `candidate_sources`; the XLSX Pair Evidence sheet exposes the same provenance, while its Summary sheet lists the search mode, valid fingerprints, and fingerprint-review pairs. The text log carries a matching `search_mode=` line. Safety failures appear in `blocked_reasons`.
 
-Spectral evidence has its own surfaces. Track rows carry `spectral_cutoff_hz`, `spectral_sharpness_db`, `suspected_transcode`, and `spectral_note`. Candidate rows repeat the cutoff, flag, and note, and the keeper and candidate explanations state when a spectrum looks transcoded. A top-level `spectral_analysis` block counts checked, analyzed, skipped, and suspected files. The XLSX Candidates sheet adds `suspected_transcode`, `spectral_note`, `keeper_suspected_transcode`, and `keeper_spectral_note` columns. The Summary sheet adds "Suspected transcodes in groups" and "Spectral checks" rows, and the text log carries a `suspected_transcodes=` line.
+Spectral evidence has its own surfaces. Track rows carry `spectral_cutoff_hz`, `spectral_sharpness_db`, `suspected_transcode`, and `spectral_note`. Candidate rows repeat the cutoff, flag, and note, and the keeper and candidate explanations state when a spectrum looks transcoded. A top-level `spectral_analysis` block counts checked, analyzed, skipped, and suspected files. The `statistics` block also carries `fake_bitrate_candidate_count` and `fake_bitrate_group_count`, the duplicate-candidate roll-up described in the spectral transcode check above. The XLSX Candidates sheet adds `suspected_transcode`, `spectral_note`, `keeper_suspected_transcode`, and `keeper_spectral_note` columns, and highlights a `true` `suspected_transcode`/`keeper_suspected_transcode` cell in amber. The Groups sheet adds a `fake_bitrate_candidates` column and highlights the whole row in amber when it is above zero. The Summary sheet adds "Suspected transcodes in groups", "Fake-bitrate duplicate candidates", and "Spectral checks" rows, and the text log carries a `suspected_transcodes=` line.
 
 Reports are local private artifacts.

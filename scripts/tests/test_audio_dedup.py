@@ -1141,6 +1141,60 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert not list(out_dir.glob("audio_dedup_report_*.png"))
 
 
+def test_fake_bitrate_duplicate_candidates_are_counted_and_surfaced_in_report(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/one.flac", size=20_000_000, vectors=vectors)
+    _insert_track(db_path, track_id=2, path="M:/Volumes/Abstracted/two.mp3", size=8_000_000, vectors=vectors)
+
+    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    config = dedup.resolve_preset("safe", min_score=None)
+    groups = dedup.find_duplicate_groups(tracks, config, limit_groups=None)
+    assert len(groups) == 1
+    group_tracks = [track for track in tracks if track.track_id in groups[0].track_ids]
+    keeper_id = dedup.choose_keeper(group_tracks).track_id
+    duplicate_id = next(track_id for track_id in groups[0].track_ids if track_id != keeper_id)
+    # Injected directly so the check does not need a real ffmpeg decode of a
+    # transcoded fixture file; the spectral math itself is covered by
+    # tools/audio-dedup/tests/test_spectral.py.
+    spectral_results = {
+        keeper_id: dedup.SpectralResult(
+            cutoff_hz=21_500.0, sharpness_db=None, sample_rate=44_100,
+            suspected_transcode=False, note="full band",
+        ),
+        duplicate_id: dedup.SpectralResult(
+            cutoff_hz=16_000.0, sharpness_db=20.0, sample_rate=44_100,
+            suspected_transcode=True, note="brickwall at 16.0 kHz (~128 kbps class)",
+        ),
+    }
+
+    payload = dedup.build_report(
+        groups,
+        tracks,
+        config,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+        spectral_results=spectral_results,
+    )
+
+    assert payload["statistics"]["fake_bitrate_candidate_count"] == 1
+    assert payload["statistics"]["fake_bitrate_group_count"] == 1
+    candidate = payload["groups"][0]["candidate_deletes"][0]
+    assert candidate["track_id"] == duplicate_id
+    assert candidate["suspected_transcode"] is True
+
+    xlsx_path = tmp_path / "dedup.xlsx"
+    dedup.write_xlsx_report(xlsx_path, payload)
+    with zipfile.ZipFile(xlsx_path) as archive:
+        summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        groups_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+
+    assert "Fake-bitrate duplicate candidates" in summary_xml
+    assert "fake_bitrate_candidates" in groups_xml
+
+
 def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"

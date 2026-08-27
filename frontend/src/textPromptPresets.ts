@@ -82,7 +82,7 @@ export const textPromptAxes: TextPromptAxis[] = [
   { key: "mood", label: "Mood", hint: "Настроение: мрак, эйфория, меланхолия, жуть, игривость." },
   { key: "abstract", label: "Abstract", hint: "Функциональность ↔ абстракция: от прямого танцевального инструмента до звука, который слушают, а не танцуют." },
   { key: "function", label: "Function", hint: "Роль в сете: разогрев, пик, финал, интерлюдия, DJ tool. Слышима косвенно — через энергию, плотность и настроение." },
-  { key: "style", label: "Style", hint: "Жанры и сцены — грубый слой поверх тонких осей. Описан звучанием, а не файловыми тегами.", model: "mulan" }
+  { key: "style", label: "Style", hint: "Жанры и сцены — грубый слой поверх тонких осей. Банки собраны из имён жанров и соседних сцен: жанровые теги измеренно ранжируют лучше описаний звучания.", model: "mulan" }
 ];
 
 export const textPromptPresets: TextPromptPreset[] = [
@@ -90,13 +90,19 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "rhythm/breakbeat",
     axis: "rhythm",
     label: "Breakbeat",
-    hint: "Ломаные драмы: рубленые брейки, синкопы, доли мимо сетки. Ровный кик уходит в негативы, поэтому хаус и техно из выдачи вымываются.",
+    hint: "Ломаные драмы: рубленые брейки, синкопы, доли мимо сетки. Для MuLan банк жанровый — breaks и breakbeat как имена жанров ранжируют лучше, чем описание рисунка. Ровный кик уходит в негативы.",
     positive: {
       shared: [
         "breakbeat.",
         "breakbeat, broken beat, chopped drum breaks.",
         "syncopated drums, off-grid rhythm, shuffled hits.",
         "breaks, jungle drums, uneven drum pattern."
+      ],
+      mulan: [
+        "breakbeat.",
+        "breaks, breakbeat, big beat.",
+        "breakbeat, nu skool breaks, jungle, drum and bass.",
+        "A breakbeat track."
       ]
     },
     negative: {
@@ -106,8 +112,8 @@ export const textPromptPresets: TextPromptPreset[] = [
         "minimal house groove, regular kick pattern."
       ]
     },
-    negativeWeight: 1.0,
-    measured: { mulan: 0.949, clap: 0.853 }
+    negativeWeight: { clap: 1.0, mulan: 0.75 },
+    measured: { mulan: 0.975, clap: 0.854 }
   },
   {
     key: "rhythm/four-on-the-floor",
@@ -283,7 +289,7 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "timbre/metallic",
     axis: "timbre",
     label: "Metallic / Industrial",
-    hint: "Металлическая перкуссия, скрежет, машинная грязь. Пересекается с Industrial: здесь тембр, там жанр.",
+    hint: "Металлическая перкуссия, скрежет, машинная грязь. Пересекается с Industrial: здесь тембр, там жанр. MuLan ранжирует метку против спектральной плоскостности задом наперёд, поэтому метка закреплена за CLAP.",
     positive: {
       shared: [
         "An industrial techno track.",
@@ -298,7 +304,8 @@ export const textPromptPresets: TextPromptPreset[] = [
         "A gentle acoustic recording with natural timbre."
       ]
     },
-    negativeWeight: 0.5
+    negativeWeight: 0.5,
+    model: "clap"
   },
   {
     key: "texture/granular",
@@ -368,13 +375,19 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "voice/vocal-led",
     axis: "voice",
     label: "Vocal-led",
-    hint: "Голос как заметный элемент: пение, речь, вокальные хуки. Пол и характер голоса метка не различает — для этого бери узкие метки оси.",
+    hint: "Голос как заметный элемент: пение, речь, вокальные хуки. Пол и характер голоса метка не различает — для этого бери узкие метки оси. CLAP-вариант банка — кэпшены «The sound of …», форма его обучающих подписей.",
     positive: {
       shared: [
         "vocals.",
         "vocal, vocals, singing.",
         "female vocal, male vocal, singer.",
         "vocal music, sung lyrics, voice."
+      ],
+      clap: [
+        "The sound of a person singing over music.",
+        "The sound of vocals, singing, and a human voice.",
+        "The sound of sung lyrics over a beat.",
+        "The sound of a singer carrying the melody."
       ]
     },
     negative: {
@@ -382,10 +395,16 @@ export const textPromptPresets: TextPromptPreset[] = [
         "instrumental.",
         "instrumental, instrumental music.",
         "instrumental club track, drums and bass only."
+      ],
+      clap: [
+        "The sound of an instrumental club track.",
+        "The sound of drums, bass, and synthesizers only.",
+        "The sound of instrumental music."
       ]
     },
     negativeWeight: { clap: 1.0, mulan: 0.75 },
-    measured: { clap: 0.897, mulan: 0.904 }
+    measured: { clap: 0.927, mulan: 0.906 },
+    model: "clap"
   },
   {
     key: "voice/spoken",
@@ -473,7 +492,7 @@ export const textPromptPresets: TextPromptPreset[] = [
       ]
     },
     negativeWeight: { clap: 1.0, mulan: 0.75 },
-    measured: { clap: 0.814, mulan: 0.827 }
+    measured: { clap: 0.820, mulan: 0.833 }
   },
   {
     key: "instruments/piano",
@@ -687,13 +706,19 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "style/minimal-deep-tech",
     axis: "style",
     label: "Minimal / Deep-tech",
-    hint: "Минимал и дип-тек: сухая перкуссия, катящийся бас, вокальные обрезки.",
+    hint: "Минимал и дип-тек: сухая перкуссия, катящийся бас, вокальные обрезки. CLAP-вариант банка отличается только капитализацией строк — формат измеренно поднимает его ранжирование.",
     positive: {
       shared: [
         "minimal tech house.",
         "minimal house, deep tech, micro house.",
         "tech house, minimal techno, groovy.",
         "stripped-back club track, rolling bassline, dry drums."
+      ],
+      clap: [
+        "Minimal tech house.",
+        "Minimal house, deep tech, micro house.",
+        "Tech house, minimal techno, groovy.",
+        "Stripped-back club track, rolling bassline, dry drums."
       ]
     },
     negative: {
@@ -701,10 +726,15 @@ export const textPromptPresets: TextPromptPreset[] = [
         "big room, progressive house, trance.",
         "hard techno, industrial.",
         "ambient, beatless."
+      ],
+      clap: [
+        "Big room, progressive house, trance.",
+        "Hard techno, industrial.",
+        "Ambient, beatless."
       ]
     },
     negativeWeight: { clap: 1.0, mulan: 0.75 },
-    measured: { mulan: 0.928, clap: 0.781 }
+    measured: { mulan: 0.928, clap: 0.851 }
   },
   {
     key: "style/electro",
@@ -713,10 +743,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Электро: 808-грув, синкопированный машинный бит, холодные синты.",
     positive: {
       shared: [
-        "An electro track.",
-        "A track with 808 drums and a robotic electro groove.",
-        "A machine funk track with syncopated electro drums.",
-        "A retro-futuristic electronic track with cold synths."
+        "electro.",
+        "electro, machine funk, Detroit electro.",
+        "electro funk, breakdance, 808 drum machine.",
+        "An electro track."
       ]
     },
     negative: {
@@ -748,7 +778,7 @@ export const textPromptPresets: TextPromptPreset[] = [
       ]
     },
     negativeWeight: 0.5,
-    measured: { clap: 0.980, mulan: 0.957 },
+    measured: { clap: 0.980, mulan: 0.958 },
     model: "clap"
   },
   {
@@ -782,10 +812,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     negativeWeight: 0
   },
   {
-    key: "groove/boom-bap",
-    axis: "groove",
+    key: "rhythm/boom-bap",
+    axis: "rhythm",
     label: "Boom bap",
-    hint: "Пыльный хип-хоп-бит: тяжёлый кик, трескучий снейр, винил в фоне. Обычно приходит вместе с trip hop и downtempo.",
+    hint: "Пыльный хип-хоп-бит: тяжёлый кик, трескучий снейр на 2 и 4, винил в фоне. Метка про рисунок барабанов, поэтому живёт на оси Rhythm; обычно приходит вместе с trip hop и downtempo.",
     positive: {
       shared: [
         "A boom bap track.",
@@ -1600,10 +1630,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Тех-хаус: плотные барабаны, катящийся бас, клубная функциональность.",
     positive: {
       shared: [
-        "A tech house track.",
-        "Tight tech house drums with a rolling bassline.",
-        "A groovy club track with punchy drums and a bouncing bassline.",
-        "Stripped back house with a techno edge."
+        "tech house.",
+        "tech house, minimal tech house, groovy house.",
+        "house, techno, club, rolling bassline.",
+        "A tech house track."
       ]
     },
     negativeWeight: 0
@@ -1615,10 +1645,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Дип-хаус: тёплые аккорды, мягкий свингующий бит, спокойная атмосфера.",
     positive: {
       shared: [
-        "A deep house track.",
-        "Warm chords over a soft swung house beat.",
-        "Deep pads and jazzy chords over a laid-back beat.",
-        "A smooth club track with a mellow deep atmosphere."
+        "deep house.",
+        "deep house, soulful house, warm house.",
+        "house, warm chords, mellow swung groove.",
+        "A deep house track."
       ]
     },
     negativeWeight: 0
@@ -1630,10 +1660,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Джазовый хаус: живые клавиши и духовые поверх хаусовых барабанов.",
     positive: {
       shared: [
-        "A jazzy house track.",
-        "House drums with jazz chords and live instrument samples.",
-        "House rhythms under improvised jazz keys and horns.",
-        "A club track coloured by acoustic jazz playing."
+        "jazzy house.",
+        "jazz house, jazzy deep house, soulful house.",
+        "house, jazz chords, live keys, horns.",
+        "A jazzy house track."
       ]
     },
     negativeWeight: 0
@@ -1645,10 +1675,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Афро-хаус: ручная перкуссия и чанты поверх ровного грува. Пересекается с Polyrhythm и Chant.",
     positive: {
       shared: [
-        "An afro house track.",
-        "House drums with African percussion and chants.",
-        "Layered hand percussion over a rolling four four groove.",
-        "Tribal drums and call and response vocals in a club track."
+        "afro house.",
+        "afro house, afro tech, tribal house.",
+        "house, African percussion, chants, hand drums.",
+        "An afro house track."
       ]
     },
     negativeWeight: 0
@@ -1660,10 +1690,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Прогрессив: долгие билды, мелодичные слои, развитие на много минут.",
     positive: {
       shared: [
-        "A progressive house track.",
-        "Long evolving builds with melodic synth layers.",
-        "A long arrangement that unfolds gradually over many minutes.",
-        "Melodic synth layers build and recede in slow waves."
+        "progressive house.",
+        "progressive house, melodic house, progressive trance.",
+        "melodic techno, long builds, layered synths.",
+        "A progressive house track."
       ]
     },
     negativeWeight: 0
@@ -1675,10 +1705,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Эмбиент-техно: мягкие пэды над отдалённым ровным пульсом.",
     positive: {
       shared: [
-        "An ambient techno track.",
-        "Soft pads over a distant steady pulse.",
-        "Washed pads drift over a muted machine pulse.",
-        "A dreamy electronic track with a gentle steady beat."
+        "ambient techno.",
+        "ambient techno, deep techno, dub techno.",
+        "atmospheric electronic, soft pads, muted steady pulse.",
+        "An ambient techno track."
       ]
     },
     negativeWeight: 0
@@ -1690,10 +1720,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Индастриал: машинный шум, тяжёлые удары, металл. Пересекается с Metallic.",
     positive: {
       shared: [
-        "An industrial track.",
-        "Harsh machine noise and pounding drums.",
-        "Metallic clanging percussion and distorted machine textures.",
-        "A brutal mechanical track built out of noise."
+        "industrial.",
+        "industrial techno, EBM, power noise.",
+        "harsh machine noise, metallic percussion, distorted drums.",
+        "An industrial track."
       ]
     },
     negativeWeight: 0
@@ -1705,10 +1735,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "EBM: жёсткий секвенированный бас, маршевый бит, холодный обработанный вокал.",
     positive: {
       shared: [
-        "An EBM track.",
-        "Stiff sequenced bass with cold vocals.",
-        "Rigid sequenced synth bass with a marching beat.",
-        "Cold body music with shouted processed vocals."
+        "EBM.",
+        "EBM, electronic body music, dark electro.",
+        "industrial dance, new beat, stiff sequenced bass.",
+        "An EBM track."
       ]
     },
     negativeWeight: 0
@@ -1720,10 +1750,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "IDM: изощрённая программация барабанов, странная мелодика, глитчи.",
     positive: {
       shared: [
-        "An IDM track.",
-        "Intricate programmed drums and odd melodic patterns.",
-        "Glitched complex drum programming with melodic detail.",
-        "Experimental electronic music with intricate rhythmic edits."
+        "IDM.",
+        "IDM, intelligent dance music, braindance.",
+        "glitch, experimental electronic, intricate drum programming.",
+        "An IDM track."
       ]
     },
     negativeWeight: 0
@@ -1735,10 +1765,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Джангл: быстрые нарезанные брейки и глубокий саб, регги-влияние.",
     positive: {
       shared: [
-        "A jungle track.",
-        "Fast chopped breakbeats with deep sub bass.",
-        "Chopped amen breaks race over a heavy sub bassline.",
-        "Ragga-influenced breakbeat music at high tempo."
+        "jungle.",
+        "jungle, ragga jungle, breakbeat hardcore.",
+        "drum and bass, chopped amen breaks, deep sub bass.",
+        "A jungle track."
       ]
     },
     negativeWeight: 0
@@ -1750,10 +1780,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Драм-энд-бэйс: быстрый two-step брейк и катящийся саб около 170 ударов.",
     positive: {
       shared: [
-        "A drum and bass track.",
-        "Fast two-step breaks with a rolling sub bassline.",
-        "Fast breakbeats at high tempo over a deep bassline.",
-        "Rolling drums around one hundred seventy beats per minute."
+        "drum and bass.",
+        "drum and bass, liquid funk, neurofunk.",
+        "jungle, fast two-step breaks, rolling sub bassline.",
+        "A drum and bass track."
       ]
     },
     negativeWeight: 0
@@ -1765,10 +1795,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "UK garage: свингующие барабаны, скачущий снейр, вокальные нарезки.",
     positive: {
       shared: [
-        "A UK garage track.",
-        "Swung garage drums with clipped vocal chops.",
-        "Shuffled syncopated drums with pitched vocal cuts.",
-        "A bouncy garage groove with a skipping snare."
+        "UK garage.",
+        "UK garage, 2-step, speed garage.",
+        "garage house, bassline, swung drums, vocal chops.",
+        "A UK garage track."
       ]
     },
     negativeWeight: 0
@@ -1780,25 +1810,25 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Футворк: быстрые заикающиеся триоли, нарезанный вокал, чикагский рисунок.",
     positive: {
       shared: [
-        "A footwork track.",
-        "Fast stuttering triplet drum patterns.",
-        "Rapid triplet kick patterns with chopped vocal samples.",
-        "Frantic Chicago dance rhythms at high tempo."
+        "footwork.",
+        "footwork, juke, ghettotech.",
+        "Chicago dance music, stuttering triplet kicks, chopped vocals.",
+        "A footwork track."
       ]
     },
     negativeWeight: 0
   },
   {
-    key: "style/broken-beat",
-    axis: "style",
+    key: "rhythm/broken-beat",
+    axis: "rhythm",
     label: "Broken beat",
-    hint: "Broken beat: джазовые синкопы, живое ощущение, соул-аккорды.",
+    hint: "Broken beat: джазовые синкопы, кик и снейр мимо сетки, соул-аккорды сверху. Термин описывает рисунок барабанов, поэтому метка живёт на оси Rhythm, а не среди жанров; West London bruk — её родная сцена.",
     positive: {
       shared: [
-        "A broken beat track.",
-        "Jazzy syncopated club rhythms with a live feel.",
-        "Syncopated club drums with a loose jazzy swing.",
-        "West London style broken rhythms with soulful chords."
+        "broken beat.",
+        "broken beat, bruk, syncopated drums.",
+        "Jazzy syncopated club drums with a loose swing.",
+        "The kick and snare land off the grid with a jazzy bounce."
       ]
     },
     negativeWeight: 0
@@ -1810,10 +1840,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Трип-хоп: медленные пыльные биты, дымная кинематографичная атмосфера.",
     positive: {
       shared: [
-        "A trip hop track.",
-        "Slow dusty beats with a smoky atmosphere.",
-        "Slow heavy drums under a hazy cinematic mood.",
-        "Downtempo beats with sampled strings and vinyl crackle."
+        "trip hop.",
+        "trip hop, downtempo, abstract hip hop.",
+        "dusty slow beats, cinematic mood, vinyl crackle.",
+        "A trip hop track."
       ]
     },
     negativeWeight: 0
@@ -1825,10 +1855,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Даунтемпо: медленный электронный грув для слушания, а не для танцпола.",
     positive: {
       shared: [
-        "A downtempo track.",
-        "A slow electronic groove made for listening.",
-        "A relaxed electronic groove at a slow tempo.",
-        "Chilled beats made for listening rather than dancing."
+        "downtempo.",
+        "downtempo, chillout, lounge.",
+        "slow electronic groove, relaxed mood.",
+        "A downtempo track."
       ]
     },
     negativeWeight: 0
@@ -1840,10 +1870,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Bass music: разреженные барабаны, вес и пространство, звук саунд-системы.",
     positive: {
       shared: [
-        "A bass music track.",
-        "Sparse drums with heavy weighted low end.",
-        "Wide open drums with an enormous low end focus.",
-        "Sound system music built around weight and space."
+        "bass music.",
+        "bass music, dubstep, UK bass.",
+        "sound system music, sparse drums, heavy sub weight.",
+        "A bass music track."
       ]
     },
     negativeWeight: 0
@@ -1855,10 +1885,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Даб-регги: оффбитовый скэнк, эхо, тяжёлый бас.",
     positive: {
       shared: [
-        "A dub reggae track.",
-        "Offbeat skank chords with heavy echo and bass.",
-        "Offbeat guitar chops drenched in spring reverb.",
-        "A heavy reggae bassline with delay-soaked drops."
+        "dub reggae.",
+        "dub, reggae, roots reggae.",
+        "sound system, offbeat skank, heavy bass, spring reverb echo.",
+        "A dub reggae track."
       ]
     },
     negativeWeight: 0
@@ -1870,10 +1900,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Диско: живые струнные, ровная бочка, фанковая гитара, играет настоящая группа.",
     positive: {
       shared: [
-        "A disco track.",
-        "Live strings, four on the floor drums and funk guitar.",
-        "Live drums, funk guitar and lush string arrangements.",
-        "A groovy seventies dance track played by a real band."
+        "disco.",
+        "disco, nu disco, boogie.",
+        "funk, live strings, funk guitar, seventies dance music.",
+        "A disco track."
       ]
     },
     negativeWeight: 0
@@ -1885,10 +1915,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Фанк: синкопированные живые бас и гитара, плотные барабаны, духовые стабы.",
     positive: {
       shared: [
-        "A funk track.",
-        "Syncopated live bass and guitar with tight drums.",
-        "Tight live drums with a slapping bass and rhythm guitar.",
-        "A groove-driven band track with horn stabs."
+        "funk.",
+        "funk, soul, boogie.",
+        "live band groove, slap bass, rhythm guitar, horn stabs.",
+        "A funk track."
       ]
     },
     negativeWeight: 0
@@ -1900,10 +1930,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Саундтрек: кинематографично, оркестровое напряжение, музыка под картинку.",
     positive: {
       shared: [
-        "A cinematic soundtrack piece.",
-        "Orchestral tension written for picture.",
-        "Orchestral textures written to underscore a scene.",
-        "Filmic strings and brass building dramatic tension."
+        "film soundtrack.",
+        "soundtrack, film score, cinematic.",
+        "orchestral film music, dramatic strings and brass.",
+        "A cinematic soundtrack piece."
       ]
     },
     negativeWeight: 0
@@ -2017,10 +2047,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Эйсид-хаус: скрипящая 303 поверх сырых барабанов драм-машины. От метки Acid 303 отличается тем, что описывает трек целиком, а не тембр баса.",
     positive: {
       shared: [
-        "An acid house track.",
-        "A house groove built on a squelching 303 bassline.",
-        "Late eighties acid house with raw drum machine drums.",
-        "A hypnotic club track with a wriggling acid line."
+        "acid house.",
+        "acid house, acid techno, acid.",
+        "Chicago house, squelchy 303 bassline, raw drum machine.",
+        "An acid house track."
       ]
     },
     negativeWeight: 0
@@ -2032,10 +2062,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Детройтское техно: тёплые струнные и джазовые аккорды поверх машинного грува.",
     positive: {
       shared: [
-        "A Detroit techno track.",
-        "Warm strings and machine drums in the Detroit style.",
-        "Soulful analog chords over a stripped machine groove.",
-        "Futuristic techno with jazzy synth harmony."
+        "Detroit techno.",
+        "Detroit techno, deep techno, hi-tech soul.",
+        "techno, electro, warm analog strings, jazzy chords.",
+        "A Detroit techno track."
       ]
     },
     negativeWeight: 0
@@ -2047,10 +2077,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Хард-техно: быстрый перегруженный кик, металлические удары, напор без пауз.",
     positive: {
       shared: [
-        "A hard techno track.",
-        "Fast distorted kick drums pound at high tempo.",
-        "Relentless loud kicks with metallic percussion hits.",
-        "A raw fast club track built on a hard driving kick."
+        "hard techno.",
+        "hard techno, schranz, hardcore techno.",
+        "industrial techno, rave, fast distorted kicks.",
+        "A hard techno track."
       ]
     },
     negativeWeight: 0
@@ -2062,10 +2092,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Транс: длинные арпеджио и парящие пэды поверх ровного бита, долгие эйфорические билды.",
     positive: {
       shared: [
-        "A trance track.",
-        "Long melodic synth arpeggios over a driving beat.",
-        "Uplifting synth melodies build over a rolling bassline.",
-        "A euphoric electronic track with sweeping pads."
+        "trance.",
+        "trance, uplifting trance, progressive trance.",
+        "psytrance, rave, euphoric arpeggios, sweeping pads.",
+        "A trance track."
       ]
     },
     negativeWeight: 0

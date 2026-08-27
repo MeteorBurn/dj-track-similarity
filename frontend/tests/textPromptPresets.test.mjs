@@ -109,19 +109,23 @@ test("a label overrides its axis only where its own evidence outranks the axis",
   assert.deepEqual(Object.fromEntries(overrides), {
     "texture/clean": "mulan",
     "timbre/glassy": "mulan",
+    "timbre/metallic": "clap",
     "harmony/jazz": "mulan",
     "abstract/experimental": "clap",
+    "voice/vocal-led": "clap",
   });
   // CLAP ranks jazz against chord changes per second the wrong way round, and
-  // the harmony axis names no model, so nothing else would have warned.
+  // the harmony axis names no model, so nothing else would have warned. MuLan
+  // ranks metallic against spectral flatness the same wrong way round.
   assert.equal(modelForPreset("harmony/jazz"), "mulan");
   assert.equal(modelForPreset("harmony/drone"), undefined);
   // The override has to actually win over the axis, or it is decoration.
   assert.equal(modelForPreset("timbre/glassy"), "mulan");
   assert.equal(modelForPreset("texture/lo-fi"), "clap");
-  // On volumes.sqlite its hand labels put the two models 0.007 apart, so the
-  // former CLAP override is withdrawn and the axis still names no model.
-  assert.equal(modelForPreset("voice/vocal-led"), undefined);
+  // The CLAP override returned with the "The sound of ..." bank: on the hand
+  // pool it measures 0.927 against 0.906 for MuQ-MuLan, a gap the withdrawn
+  // 0.007 never had.
+  assert.equal(modelForPreset("voice/vocal-led"), "clap");
   // No reference can say which model finds a sitar, so nothing recommends one.
   assert.equal(modelForPreset("instruments/sitar"), undefined);
   assert.equal(modelForPreset("instruments/steel-drum"), undefined);
@@ -269,7 +273,7 @@ test("composing presets merges banks, drops duplicates and keeps the safest weig
   assert.ok(positive.includes("vocals."));
   assert.equal(new Set(positive).size, positive.length);
   assert.ok(composed.negativeText.split("\n").includes("instrumental."));
-  // breakbeat carries 1.0 and vocal-led 0.75 for MuQ-MuLan; the merge keeps
+  // breakbeat and vocal-led both carry 0.75 for MuQ-MuLan; the merge keeps
   // the safest contributing weight.
   assert.equal(composed.negativeWeight, 0.75);
 });

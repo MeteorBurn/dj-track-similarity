@@ -70,7 +70,14 @@ its wording, while a bank of four short prompts stayed stable.
 The strongest measured wording is a short tag line: genre, mood, instrument and tempo words, the
 vocabulary both text towers were trained on. On the hand-labelled pools, tag banks beat the older
 sentence banks on four concepts out of five, on both models, by `+0.04` to `+0.14` ROC-AUC, and
-long scene descriptions ranked worst everywhere. The presets carry the winning form.
+long scene descriptions ranked worst everywhere. For genre concepts the effect goes further: banks
+built from bare genre names and their sibling scenes rank better than caption wording, on both
+models. The presets carry the winning forms.
+
+Every measured wording form is committed in `scripts/text_prompt_benchmark_prompts.json`, so each
+number here reproduces from the frozen spec. The spec also keeps the losers: the GTZAN-style
+template "This audio is a `<genre>` song." was measured and lost on both models, so no production
+bank uses it.
 
 Two wording rules come out of the same benchmark:
 
@@ -81,19 +88,42 @@ Two wording rules come out of the same benchmark:
 
 ## Presets
 
-The preset picker groups 151 presets on 21 semantic spaces, ordered from rhythm to utility:
-groove (swing and microtiming), rhythm (beat pattern), percussion, bass, synths, instruments,
-organic (acoustic against synthetic), texture (surface processing), timbre (tone colour), space,
-harmony, movement, density, complexity, mood, energy, tension, abstract, vocals, function (set
-role), and style. Style is the deliberate outlier: a coarse genre shelf on top of the fine
-perceptual spaces. Select several presets and their banks merge into one prompt bank. A "Breakbeat"
-plus "Instrumental" selection covers both at once. Chips above the negative field show the
-current selection. Both fields remain editable after a preset fills them.
+The preset picker groups 151 presets on 21 semantic spaces, ordered the way a track gets
+described: rhythm (beat pattern), groove (swing and microtiming), percussion, bass, synths,
+instruments, vocals, harmony, movement, timbre (tone colour), texture (surface processing),
+organic (acoustic against synthetic), space, density, complexity, energy, tension, mood, abstract,
+function (set role), and style. Style is the deliberate outlier: a coarse genre shelf on top of
+the fine perceptual spaces. Its banks are built from genre names rather than sound descriptions,
+because genre-tag wording measured stronger than captions for genre concepts on both models. Each
+style bank holds four lines. The first is the bare genre tag, the second lists sibling genres,
+the third reaches for adjacent or parent scenes plus a few supporting descriptors, and the last
+is the anchor caption "A `<genre>` track." The axis holds
+genres only: "Broken beat" and "Boom bap" name drum patterns, so they live on the rhythm axis
+instead.
+
+Select several presets and their banks merge into one prompt bank. A "Breakbeat" plus
+"Instrumental" selection covers both at once. Chips above the negative field show the current
+selection. Both fields remain editable after a preset fills them.
+
+A preset can carry model-specific wording where a variant measured better. The picker fills the
+bank for the selected model and falls back to the shared lines. Breakbeat has a MuQ-MuLan bank of
+genre names (`0.975` against `0.949` for the shared lines), Minimal / Deep-tech has a CLAP bank
+that differs only in capitalization (`0.851` against `0.781`), and Vocal-led has a CLAP bank of
+"The sound of ..." captions, the form of CLAP's training captions (`0.927` against `0.900`).
 
 Presets carry their own hard-negative weight, because one global value does not fit every concept.
 A higher weight helps when the negatives name a real competing class. Presets whose negatives were
 measured as harmful come with no negatives at all and a weight of zero. Presets that were measured
-show their ROC-AUC for the selected model in the picker.
+show their ROC-AUC for the selected model in the picker. Five presets are measured on
+hand-labelled pools:
+
+| Preset | CLAP | MuQ-MuLan |
+| --- | --- | --- |
+| Breakbeat | 0.854 | 0.975 |
+| Minimal / Deep-tech | 0.851 | 0.928 |
+| Vocal-led | 0.927 | 0.906 |
+| Organic / Acoustic | 0.820 | 0.833 |
+| Experimental | 0.980 | 0.958 |
 
 ## Preset feedback and tuning
 
@@ -152,19 +182,22 @@ references, 37 of the 117 labels keep an orthogonal SONARA reference.
 
 The two models are not interchangeable, and neither is better everywhere. The model that an axis
 recommends now rests on hand-labelled pools where they exist: MuQ-MuLan carries rhythm
-(`breakbeat` 0.949 against 0.853) and style (`minimal deep-tech` 0.928 against 0.781), while the
-texture and energy recommendations rest on the SONARA cross-check, where CLAP leads.
+(`breakbeat` 0.975 against 0.854) and style (`minimal deep-tech` 0.928 against 0.851), while the
+texture recommendation rests on the SONARA cross-check, where CLAP leads.
 
 The failures stay characteristic of each model. MuQ-MuLan inverts on labels naming an acoustic
 instrument, `piano`, `strings and brass`, `nylon guitar`, `slap bass`, `saxophone` and `trumpet`:
-it ranks programmed electronic tracks first for them. CLAP inverts on `jazz chords`, `clean` and
-`glassy`, which is exactly why those three labels are pinned to MuQ-MuLan in the preset picker.
+it ranks programmed electronic tracks first for them. It also ranks `metallic` against SONARA
+spectral flatness the wrong way round, which pins that label to CLAP. CLAP inverts on
+`jazz chords`, `clean` and `glassy`, which is exactly why those three labels are pinned to
+MuQ-MuLan in the preset picker.
 
 Voice labels are no longer cross-checked at all. Their old reference, SONARA vocal probability,
 does not reflect whether a track actually carries a voice. A comparison against it measured the
 reference rather than the label, and its verdicts were withdrawn. The one voice number that stands
 is `vocal-led`, measured against hand labels by `scripts/text_prompt_benchmark.py`, not against
-SONARA.
+SONARA: its CLAP "The sound of ..." bank measures `0.927` against `0.906` for MuQ-MuLan, so the
+label is pinned to CLAP.
 
 ### Limits
 

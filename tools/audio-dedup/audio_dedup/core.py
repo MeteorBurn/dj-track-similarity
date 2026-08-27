@@ -31,13 +31,16 @@ from .fingerprints import (
 SCRIPT_DIR = Path(__file__).resolve().parent
 TOOL_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = TOOL_ROOT.parents[1]
-DEFAULT_DB = Path(r"C:\db\abstracted.sqlite")
+DEFAULT_DB = REPO_ROOT / "database" / "volumes.sqlite"
 DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "database" / "rhythm_lab.sqlite"
 DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
 SUPPORTED_EMBEDDINGS = ("mert", "maest", "muq", "clap")
 TRACK_LOAD_CHUNK_SIZE = 200
 EMBEDDING_LOAD_CHUNK_SIZE = 200
 FINGERPRINT_REVIEW_MIN_SIMILARITY = 0.45
+MODE_FINGERPRINT = "fingerprint"
+MODE_EMBEDDING = "embedding"
+SEARCH_MODES = (MODE_FINGERPRINT, MODE_EMBEDDING)
 DEFAULT_SOURCE_WEIGHTS = {
     "mert": 0.43,
     "maest": 0.32,
@@ -255,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
             out_dir=args.out_dir,
             sources=args.sources,
             weights=parse_weight_arguments(args.weights),
+            mode=args.mode,
             progress_callback=progress_reporter,
         )
         progress_reporter.finish()
@@ -305,7 +309,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             "By default it is report-only; --apply prompts before deleting safe candidates."
         )
     )
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB, help=r"Project SQLite database. Default: C:\db\abstracted.sqlite.")
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB, help="Project SQLite database. Default: <repo>/database/volumes.sqlite.")
     parser.add_argument("--root", type=Path, required=True, help="Only include DB tracks inside this stored path root.")
     parser.add_argument(
         "--path-contains",
@@ -330,6 +334,32 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=[],
         metavar="FAMILY=VALUE",
         help="Set every enabled family weight. Repeat once per enabled --source.",
+    )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--fingerprint",
+        dest="mode",
+        action="store_const",
+        const=MODE_FINGERPRINT,
+        default=MODE_FINGERPRINT,
+        help=(
+            "Primary mode, also the default. Search duplicates exclusively from stored SONARA "
+            "fingerprints: no embeddings are loaded, candidates come from fingerprint LSH only, "
+            "and only the exact native match score forms groups. Every reported candidate stays "
+            "manual-review."
+        ),
+    )
+    mode_group.add_argument(
+        "--embedding",
+        dest="mode",
+        action="store_const",
+        const=MODE_EMBEDDING,
+        help=(
+            "Secondary mode. Score duplicates from the enabled embedding families with the "
+            "preset score and similarity gates; exact fingerprint checks still add manual-review "
+            "pairs, and this is the only mode that can produce safe delete candidates for "
+            "--apply."
+        ),
     )
     parser.add_argument("--limit-groups", type=int, help="Write at most N duplicate groups.")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="Report output directory.")
@@ -471,11 +501,22 @@ def run_report(
     out_dir: Path,
     sources: Iterable[str] | None = None,
     weights: Mapping[str, float] | None = None,
+    mode: str = MODE_FINGERPRINT,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancelCheck | None = None,
 ) -> ReportResult:
     config = resolve_preset(preset_name, min_score=min_score, min_similarity=min_similarity)
-    source_config = resolve_source_config(sources=sources, weights=weights)
+    if mode not in SEARCH_MODES:
+        raise ValueError(f"Unsupported search mode: {mode}")
+    fingerprint_mode = mode == MODE_FINGERPRINT
+    if fingerprint_mode:
+        if sources is not None or weights is not None:
+            raise ValueError(
+                "--source and --weight require --embedding"
+            )
+        source_config = SourceConfig(sources=(), weights={})
+    else:
+        source_config = resolve_source_config(sources=sources, weights=weights)
     selected_database = _resolve_database(database=database, db_path=db_path)
     selected_db = selected_database.path
     _report_progress(progress_callback, 0, 0, "Reading database")
@@ -507,6 +548,7 @@ def run_report(
         config,
         source_config,
         fingerprint_sketches=fingerprint_load.sketches,
+        fingerprint_only=fingerprint_mode,
     )
     fingerprint_lsh_pairs = {
         pair
@@ -565,6 +607,7 @@ def run_report(
         source_config=source_config,
         fingerprint_retrieval=fingerprint_retrieval,
     )
+    payload["search_mode"] = mode
     payload["rhythm_lab"] = rhythm_lab_impact_payload(
         DEFAULT_RHYTHM_LAB_DB,
         safe_delete_candidates(payload),
@@ -850,18 +893,20 @@ def _candidate_pair_sources(
     source_config: SourceConfig,
     *,
     fingerprint_sketches: Iterable[FingerprintSketch] = (),
+    fingerprint_only: bool = False,
 ) -> dict[tuple[int, int], tuple[str, ...]]:
     sources_by_pair: dict[tuple[int, int], set[str]] = {}
-    signature_sources = _signature_candidate_pair_sources(
-        tracks,
-        config,
-        source_config,
-    )
-    for pair, sources in signature_sources.items():
-        sources_by_pair.setdefault(pair, set()).update(sources)
-    if not signature_sources:
-        for pair in _duration_window_candidate_pairs(tracks, config):
-            sources_by_pair.setdefault(pair, set()).add("duration_window")
+    if not fingerprint_only:
+        signature_sources = _signature_candidate_pair_sources(
+            tracks,
+            config,
+            source_config,
+        )
+        for pair, sources in signature_sources.items():
+            sources_by_pair.setdefault(pair, set()).update(sources)
+        if not signature_sources:
+            for pair in _duration_window_candidate_pairs(tracks, config):
+                sources_by_pair.setdefault(pair, set()).add("duration_window")
     for pair in fingerprint_candidate_pairs(list(fingerprint_sketches)):
         sources_by_pair.setdefault(pair, set()).add("fingerprint_lsh")
     return {
@@ -1255,6 +1300,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Root", payload["root"], "Only stored track paths inside this root were considered.", "", ""],
         ["Path filter", path_filter or "(none)", "Optional case-insensitive path substring filters.", "", ""],
         ["Mode", payload.get("mode", "report-only"), "Report-only writes evidence and does not delete audio.", "", ""],
+        ["Search mode", payload.get("search_mode", ""), "fingerprint: exact SONARA matches decide duplicates, everything stays manual-review. embedding: weighted embedding score decides and can mark safe delete candidates.", "", ""],
         ["Preset", payload["preset"], "safe is conservative; balanced/aggressive widen review scope.", "", ""],
         ["Sources", source_text, "Enabled audio embedding families.", "", ""],
         ["Source weights", weight_text, "Raw weights are renormalized over available enabled evidence.", "", ""],
@@ -1757,6 +1803,7 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
         f"generated_at={payload['generated_at']}",
         f"database={payload.get('database_path') or ''}",
         f"root={payload['root']}",
+        f"search_mode={payload.get('search_mode', '')}",
         f"preset={payload['preset']}",
         "sources=" + ",".join(
             str(item)

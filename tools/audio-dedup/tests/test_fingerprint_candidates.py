@@ -251,6 +251,70 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
     ]
 
 
+def test_fingerprint_mode_candidates_come_only_from_fingerprint_lsh() -> None:
+    shared = np.linspace(-1.0, 1.0, 96, dtype=np.float32)
+
+    def _track(track_id: int, embedding: np.ndarray | None = None) -> core.TrackRecord:
+        return core.TrackRecord(
+            track_id=track_id,
+            path=f"C:/music/{track_id}.flac",
+            size=100,
+            mtime=1.0,
+            artist=None,
+            title=None,
+            album=None,
+            bpm=None,
+            musical_key=None,
+            duration=180.0,
+            metadata={},
+            embeddings={} if embedding is None else {"mert": embedding},
+        )
+
+    source_words = np.tile(np.array([0x11111111, 0xABCD1234], dtype=np.uint32), 240)
+    nearby_words = source_words.copy()
+    nearby_words[40:50] ^= np.uint32(0x00000001)
+    tracks = [
+        _track(1, shared),
+        _track(2, shared.copy()),
+        _track(3),
+        _track(4),
+        _track(5),
+    ]
+    sketches = [
+        fingerprint_sketch(3, 1, _fingerprint_base64(np.bitwise_not(source_words))),
+        fingerprint_sketch(4, 1, _fingerprint_base64(source_words)),
+        fingerprint_sketch(5, 1, _fingerprint_base64(nearby_words)),
+    ]
+    config = core.resolve_preset("safe", min_score=None)
+    empty_sources = core.SourceConfig(sources=(), weights={})
+
+    result = core._candidate_pair_sources(
+        tracks,
+        config,
+        empty_sources,
+        fingerprint_sketches=sketches,
+        fingerprint_only=True,
+    )
+
+    assert result == {(4, 5): ("fingerprint_lsh",)}
+
+
+def test_default_fingerprint_mode_rejects_embedding_source_selection(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="--embedding"):
+        core.run_report(
+            db_path=tmp_path / "missing.sqlite",
+            root=Path("C:/music"),
+            path_contains=[],
+            preset_name="safe",
+            min_score=None,
+            limit_groups=None,
+            out_dir=tmp_path,
+            sources=("mert",),
+        )
+
+
 def test_exact_fingerprint_checks_skip_duration_only_candidates() -> None:
     pairs = core._fingerprint_exact_candidate_pairs(
         {

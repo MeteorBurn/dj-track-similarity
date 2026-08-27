@@ -82,7 +82,7 @@ export const textPromptAxes: TextPromptAxis[] = [
   { key: "mood", label: "Mood", hint: "Настроение: мрак, эйфория, меланхолия, жуть, игривость." },
   { key: "abstract", label: "Abstract", hint: "Функциональность ↔ абстракция: от прямого танцевального инструмента до звука, который слушают, а не танцуют." },
   { key: "function", label: "Function", hint: "Роль в сете: разогрев, пик, финал, интерлюдия, DJ tool. Слышима косвенно — через энергию, плотность и настроение." },
-  { key: "style", label: "Style", hint: "Жанры и сцены — грубый слой поверх тонких осей. Банки собраны из имён жанров и соседних сцен: жанровые теги измеренно ранжируют лучше описаний звучания.", model: "mulan" }
+  { key: "style", label: "Genres", hint: "Жанры и сцены — грубый слой поверх тонких осей. Банки собраны из имён жанров и соседних сцен: жанровые теги измеренно ранжируют лучше описаний звучания.", model: "mulan" }
 ];
 
 export const textPromptPresets: TextPromptPreset[] = [
@@ -226,10 +226,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "bass/acid",
     axis: "bass",
     label: "Acid 303",
-    hint: "Резонансная 303: скрипучая линия, фильтровые свипы, кислотный характер. Тембр редкий и узнаваемый, выдача обычно чистая.",
+    hint: "Резонансная 303: скрипучая линия, фильтровые свипы, кислотный характер. Тембр редкий и узнаваемый, выдача обычно чистая. Жанр целиком — меткой Acid house на оси Genres.",
     positive: {
       shared: [
-        "An acid techno track.",
+        "acid bass, 303, squelchy resonance.",
         "A track with a squelchy resonant 303 bassline.",
         "An electronic track with a screaming acid bass and filter sweeps.",
         "A club track built around a wriggling acid synth line."
@@ -268,10 +268,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "texture/dub",
     axis: "texture",
     label: "Dubby / Tape",
-    hint: "Ленточные дилеи, пружинный ревер, аккордовые стабы в дымке. Тянет dub techno целиком, а не только обработку.",
+    hint: "Ленточные дилеи, пружинный ревер, аккордовые стабы в дымке. Про обработку, а не жанр — но дабовые треки всё равно придут целиком.",
     positive: {
       shared: [
-        "A dub techno track.",
+        "dubby, tape echo, spring reverb.",
         "A track with tape delay, spring reverb and warm chord stabs.",
         "A hazy electronic track with echoing chords fading into the mix.",
         "A deep track with saturated tape texture and washed-out delays."
@@ -292,7 +292,7 @@ export const textPromptPresets: TextPromptPreset[] = [
     hint: "Металлическая перкуссия, скрежет, машинная грязь. Пересекается с Industrial: здесь тембр, там жанр. MuLan ранжирует метку против спектральной плоскостности задом наперёд, поэтому метка закреплена за CLAP.",
     positive: {
       shared: [
-        "An industrial techno track.",
+        "metallic percussion, clanging hits, scraping metal.",
         "A track with metallic percussion and clanging hits.",
         "A harsh electronic track built on scraping metal textures.",
         "A dark club track with distorted, gritty machine sounds."
@@ -684,8 +684,8 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "function/ambient",
     axis: "function",
-    label: "Ambient",
-    hint: "Без бита: дроны, длинные тона, атмосфера. Танцевальные треки вычитаются негативами.",
+    label: "Interlude / Beatless",
+    hint: "Роль передышки в сете: без бита, дроны, длинные тона, атмосфера. Ambient как жанровое слово живёт в банке, но метка — про функцию. Танцевальные треки вычитаются негативами.",
     positive: {
       shared: [
         "An ambient track.",
@@ -827,10 +827,10 @@ export const textPromptPresets: TextPromptPreset[] = [
     negativeWeight: 0
   },
   {
-    key: "groove/gallop",
-    axis: "groove",
+    key: "rhythm/gallop",
+    axis: "rhythm",
     label: "Gallop",
-    hint: "Галоп: повторяющаяся триольная фигура, барабаны скачут вперёд. Метка узкая — если такого в библиотеке нет, выдача сползёт в общий триольный свинг.",
+    hint: "Галоп: повторяющаяся триольная фигура, барабаны скачут вперёд. Это рисунок, а не микротайминг, поэтому метка живёт на оси Rhythm. Узкая — если такого в библиотеке нет, выдача сползёт в общий триольный свинг.",
     positive: {
       shared: [
         "A galloping rhythm track.",
@@ -855,6 +855,48 @@ export const textPromptPresets: TextPromptPreset[] = [
       ]
     },
     negativeWeight: 0
+  },
+  {
+    key: "groove/rigid",
+    axis: "groove",
+    label: "Rigid / Quantized",
+    hint: "Жёсткая сетка: каждый удар ровно в клетку, машинная дисциплина без свинга. Полюс оси напротив Laid-back; свингованное и шафлованное вычитается негативами.",
+    positive: {
+      shared: [
+        "A rigid quantized groove.",
+        "Stiff mechanical drum timing locked to the grid.",
+        "Machine-tight programmed drums with clinical precision.",
+        "Every hit lands exactly on the grid."
+      ]
+    },
+    negative: {
+      shared: [
+        "A shuffled swinging groove with loose timing.",
+        "A laid-back groove dragging behind the beat."
+      ]
+    },
+    negativeWeight: 0.5
+  },
+  {
+    key: "groove/laid-back",
+    axis: "groove",
+    label: "Laid-back / Loose",
+    hint: "Расхлябанность: доли тянутся позади сетки, человеческий ленивый кач. Полюс оси напротив Rigid; жёстко квантованное вычитается негативами.",
+    positive: {
+      shared: [
+        "A laid-back groove behind the beat.",
+        "Drums drag lazily behind the pulse.",
+        "Loose human timing with a relaxed, unhurried feel.",
+        "The snare lands late and the groove leans back."
+      ]
+    },
+    negative: {
+      shared: [
+        "A rigid quantized groove locked to the grid.",
+        "Stiff mechanical drum timing."
+      ]
+    },
+    negativeWeight: 0.5
   },
   {
     key: "rhythm/broken-techno",

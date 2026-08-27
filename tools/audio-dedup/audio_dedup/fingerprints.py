@@ -46,6 +46,10 @@ def fingerprint_sketch(
         raise ValueError("fingerprint storage value is not valid base64") from error
     if not payload or len(payload) % 4:
         raise ValueError("fingerprint storage value has no complete 32-bit frames")
+    if len(payload) // 4 < FINGERPRINT_DESCRIPTOR_SEGMENTS:
+        raise ValueError(
+            "fingerprint storage value is shorter than the descriptor segment count"
+        )
     if version <= 0:
         raise ValueError("fingerprint version must be positive")
 
@@ -102,6 +106,7 @@ def load_fingerprint_sketches(
     track_uuids: Mapping[int, str],
     *,
     progress_callback: Callable[[int, int], None] | None = None,
+    cancel_hook: Callable[[], None] | None = None,
 ) -> FingerprintLoadResult:
     """Read and validate saved fingerprints one database chunk at a time."""
     total_tracks = len(track_uuids)
@@ -113,6 +118,8 @@ def load_fingerprint_sketches(
     rejected_rows = 0
     processed_tracks = 0
     for track_ids in _chunks(sorted(track_uuids), 200):
+        if cancel_hook is not None:
+            cancel_hook()
         for row in _fingerprint_rows(connection, track_ids):
             track_id = int(row["track_id"])
             value = _valid_fingerprint_value(row, track_uuids.get(track_id))
@@ -143,6 +150,7 @@ def fingerprint_match_scores(
     *,
     matcher: Callable[[str, str], float] | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    cancel_hook: Callable[[], None] | None = None,
 ) -> dict[tuple[int, int], float]:
     """Run native SONARA matching only for compact-LSH shortlisted pairs."""
     total_pairs = len(candidate_pairs)
@@ -156,6 +164,8 @@ def fingerprint_match_scores(
     scores: dict[tuple[int, int], float] = {}
     completed_pairs = 0
     for pair_chunk in _chunks(sorted(candidate_pairs), 250):
+        if cancel_hook is not None:
+            cancel_hook()
         track_ids = sorted({track_id for pair in pair_chunk for track_id in pair})
         values: dict[int, tuple[int, str]] = {}
         for row in _fingerprint_rows(connection, track_ids):
@@ -270,7 +280,13 @@ def _valid_fingerprint_value(
 
 
 def _native_fingerprint_match(left: str, right: str) -> float:
-    import sonara
+    try:
+        import sonara
+    except ImportError as error:
+        raise RuntimeError(
+            "SONARA fingerprint verification needs the 'sonara' extra; "
+            "install it or rerun with --embedding"
+        ) from error
 
     return float(sonara.fingerprint_match(left, right))
 

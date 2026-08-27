@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import math
 from pathlib import Path
+import re
 import sqlite3
 import sys
 import time
@@ -17,7 +18,7 @@ import numpy as np
 
 from dj_track_similarity.analysis_models import current_embedding_spec
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import canonical_file_path
+from dj_track_similarity.db_tracks import canonical_file_path, ordinal_path_key
 from dj_track_similarity.track_models import TrackIdentity
 
 from .fingerprints import (
@@ -244,8 +245,8 @@ class ApplyResult:
     rhythm_lab_deleted_rows: int = 0
 
 
-class AudioDedupCancelled(RuntimeError):
-    pass
+class AudioDedupCancelled(Exception):
+    """Cancellation is control flow; keep it out of every failure except tuple."""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -269,6 +270,13 @@ def main(argv: list[str] | None = None) -> int:
             progress_callback=progress_reporter,
         )
         progress_reporter.finish()
+        retrieval = result.payload.get("fingerprint_retrieval", {})
+        if args.mode == MODE_FINGERPRINT and not retrieval.get("valid_stored_fingerprint_count"):
+            print(
+                "Warning: fingerprint mode found 0 valid stored SONARA fingerprints in scope, "
+                "so this empty report does not prove the scope has no duplicates. "
+                "Analyze SONARA fingerprints first or rerun with --embedding."
+            )
         apply_result = None
         if args.apply:
             candidates = safe_delete_candidates(result.payload)
@@ -282,11 +290,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 result.payload["mode"] = "apply"
                 result.payload["apply_result"] = apply_result_payload(apply_result)
-                result.json_path.write_text(json.dumps(result.payload, indent=2, ensure_ascii=False), encoding="utf-8")
-                write_text_log(result.log_path, result.payload, apply_result=apply_result)
+                _write_report_files(result, apply_result=apply_result)
             else:
                 print("Apply cancelled; reports were written but no files or database rows were deleted.")
-    except (FileNotFoundError, OSError, ValueError, sqlite3.Error) as error:
+    except (FileNotFoundError, OSError, RuntimeError, ValueError, sqlite3.Error) as error:
         progress_reporter.finish()
         print(f"audio_dedup failed: {error}", file=sys.stderr)
         return 2
@@ -533,6 +540,10 @@ def run_report(
         source_config = SourceConfig(sources=(), weights={})
     else:
         source_config = resolve_source_config(sources=sources, weights=weights)
+
+    def cancel_hook() -> None:
+        _raise_if_cancelled(should_cancel)
+
     selected_database = _resolve_database(database=database, db_path=db_path)
     selected_db = selected_database.path
     _report_progress(progress_callback, 0, 0, "Reading database")
@@ -565,6 +576,7 @@ def run_report(
                 total,
                 "Loading saved SONARA fingerprint sketches",
             ),
+            cancel_hook=cancel_hook,
         )
     finally:
         connection.close()
@@ -581,6 +593,7 @@ def run_report(
         if "fingerprint_lsh" in sources_for_pair
     }
     fingerprint_exact_pairs = _fingerprint_exact_candidate_pairs(candidate_sources)
+    _raise_if_cancelled(should_cancel)
     _report_progress(progress_callback, 0, max(1, len(fingerprint_exact_pairs)), "Verifying SONARA fingerprint candidates")
     connection = selected_database.connect()
     try:
@@ -594,6 +607,7 @@ def run_report(
                 total,
                 "Verifying SONARA fingerprint candidates",
             ),
+            cancel_hook=cancel_hook,
         )
     finally:
         connection.close()
@@ -650,11 +664,10 @@ def run_report(
     json_path = _unique_report_path(out_dir / f"audio_dedup_report_{stamp}.json")
     xlsx_path = json_path.with_suffix(".xlsx")
     log_path = json_path.with_suffix(".log")
-    json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    write_xlsx_report(xlsx_path, payload)
-    write_text_log(log_path, payload)
+    result = ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, payload=payload, groups=len(groups))
+    _write_report_files(result)
     _report_progress(progress_callback, 1, 1, "Reports written")
-    return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, payload=payload, groups=len(groups))
+    return result
 
 
 def resolve_preset(name: str, *, min_score: float | None, min_similarity: float | None = None) -> PresetConfig:
@@ -721,7 +734,7 @@ def load_tracks(
         else _resolve_database(database=None, db_path=database)
     )
     root_text = canonical_file_path(root)
-    contains = [item.casefold() for item in path_contains if item.strip()]
+    contains = [ordinal_path_key(item) for item in path_contains if item.strip()]
     selected_sources = tuple(SUPPORTED_EMBEDDINGS if sources is None else sources)
     unsupported_sources = set(selected_sources) - set(SUPPORTED_EMBEDDINGS)
     if unsupported_sources:
@@ -1543,10 +1556,10 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         }
         for label in ("high", "medium", "review"):
             rows.append([label, confidence.get(label, 0), meanings[label], "", ""])
-    rows.extend([[], ["Embedding coverage", "Tracks", "Meaning", "", ""]])
+    rows.extend([[], ["Embeddings loaded (this run)", "Tracks", "Meaning", "", ""]])
     if isinstance(embeddings, dict):
         for label in SUPPORTED_EMBEDDINGS:
-            rows.append([label.upper(), embeddings.get(label, 0), "Available vectors used by duplicate scoring.", "", ""])
+            rows.append([label.upper(), embeddings.get(label, 0), "Vectors loaded for this run's scoring; 0 when the family was not selected (always 0 in fingerprint mode).", "", ""])
     semantics = payload.get("score_semantics", {})
     if isinstance(semantics, dict):
         rows.extend([[], ["Score semantics", "Kind", "Range", "Notes", ""]])
@@ -1929,6 +1942,14 @@ def _xlsx_row_xml(row: list[object], row_index: int, sheet_name: str) -> str:
     return f'<row r="{row_index}"{height}>{cells}</row>'
 
 
+_EXCEL_CELL_TEXT_LIMIT = 32767
+_XLSX_ILLEGAL_TEXT = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _xml_safe_text(value: str) -> str:
+    return _XLSX_ILLEGAL_TEXT.sub("", value)[:_EXCEL_CELL_TEXT_LIMIT]
+
+
 def _xlsx_cell_xml(value: object, row_index: int, col_index: int, style_id: int) -> str:
     ref = f"{_xlsx_col_name(col_index)}{row_index}"
     style = f' s="{style_id}"'
@@ -1940,7 +1961,7 @@ def _xlsx_cell_xml(value: object, row_index: int, col_index: int, style_id: int)
         if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
             return f'<c r="{ref}"{style}/>'
         return f'<c r="{ref}"{style}><v>{value}</v></c>'
-    text = escape(str(value))
+    text = escape(_xml_safe_text(str(value)))
     return f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>'
 
 
@@ -2063,6 +2084,14 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
             lines.append("deleted_files:")
             lines.extend(f"deleted_file={path}" for path in apply_result.deleted_paths)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_report_files(result: ReportResult, *, apply_result: ApplyResult | None = None) -> None:
+    result.json_path.write_text(
+        json.dumps(result.payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    write_xlsx_report(result.xlsx_path, result.payload)
+    write_text_log(result.log_path, result.payload, apply_result=apply_result)
 
 
 def rhythm_lab_impact_payload(
@@ -2255,6 +2284,18 @@ def apply_duplicate_deletions(
     skipped: list[str] = []
     failed: list[str] = []
     candidates = safe_delete_candidates(payload)
+    keeper_paths: dict[int, str] = {}
+    keeper_on_disk: dict[str, bool] = {}
+    for group in payload.get("groups", []):
+        if not isinstance(group, dict):
+            continue
+        keeper = group.get("suggested_keeper")
+        group_keeper_path = str(keeper.get("path", "")) if isinstance(keeper, dict) else ""
+        if not group_keeper_path:
+            continue
+        for candidate in group.get("candidate_deletes", []):
+            if isinstance(candidate, dict):
+                keeper_paths[_candidate_track_id(candidate)] = group_keeper_path
     deleted_identities: list[TrackIdentity] = []
     for candidate in candidates:
         track_id = _candidate_track_id(candidate)
@@ -2264,7 +2305,7 @@ def apply_duplicate_deletions(
             continue
         try:
             expected = _candidate_identity(candidate)
-        except (TypeError, ValueError) as error:
+        except (KeyError, TypeError, ValueError) as error:
             skipped.append(f"track_id={track_id}: invalid report identity ({error})")
             continue
         try:
@@ -2272,7 +2313,7 @@ def apply_duplicate_deletions(
                 (track_id,),
                 include_missing=True,
             )[0]
-        except (IndexError, KeyError):
+        except (IndexError, KeyError, ValueError):
             skipped.append(f"track_id={track_id}: track identity unavailable")
             continue
         if (
@@ -2302,6 +2343,14 @@ def apply_duplicate_deletions(
         if not file_path.is_file():
             skipped.append(f"track_id={track_id}: path is not a file")
             continue
+        keeper_path = keeper_paths.get(track_id, "")
+        keeper_exists = keeper_on_disk.get(keeper_path)
+        if keeper_exists is None:
+            keeper_exists = bool(keeper_path) and Path(keeper_path).is_file()
+            keeper_on_disk[keeper_path] = keeper_exists
+        if not keeper_exists:
+            skipped.append(f"track_id={track_id}: keeper file is missing on disk")
+            continue
         try:
             file_path.unlink()
             removal = selected_database.remove_deleted_track(
@@ -2320,10 +2369,14 @@ def apply_duplicate_deletions(
         deleted_identities.append(expected)
         deleted_paths.append(path_text)
     selected_rhythm_lab_db = DEFAULT_RHYTHM_LAB_DB if rhythm_lab_db is None else rhythm_lab_db
-    rhythm_lab_deleted_rows = cleanup_rhythm_lab_database(
-        selected_rhythm_lab_db,
-        deleted_identities,
-    )
+    try:
+        rhythm_lab_deleted_rows = cleanup_rhythm_lab_database(
+            selected_rhythm_lab_db,
+            deleted_identities,
+        )
+    except sqlite3.Error as error:
+        rhythm_lab_deleted_rows = 0
+        failed.append(f"rhythm_lab_cleanup: {error}")
     return ApplyResult(
         deleted_track_ids=tuple(deleted_ids),
         deleted_paths=tuple(deleted_paths),
@@ -2656,7 +2709,10 @@ def _candidate_reason_lines(
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+    connection = sqlite3.connect(
+        f"{Path(path).resolve(strict=False).as_uri()}?mode=ro",
+        uri=True,
+    )
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only = ON")
     return connection
@@ -2809,9 +2865,8 @@ def _attach_embeddings(
         )
 
 def _path_matches(path: str, root: str, contains: list[str]) -> bool:
-    normalized = canonical_file_path(path)
-    key = normalized.casefold()
-    root_key = canonical_file_path(root).casefold()
+    key = canonical_file_path(path)
+    root_key = canonical_file_path(root).rstrip("/")
     if key != root_key and not key.startswith(root_key + "/"):
         return False
     return all(item in key for item in contains)

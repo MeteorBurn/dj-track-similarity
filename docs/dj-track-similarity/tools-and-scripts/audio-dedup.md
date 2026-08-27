@@ -10,8 +10,14 @@ identity match the current structural requirements.
 
 When the library has saved SONARA fingerprints, Audio Dedup also uses them as an independent
 candidate-retrieval signal. It reads only fingerprints whose stored `track_uuid`, positive
-version, timestamp, and Base64 payload validate against the current track. It does not analyse
-audio again or keep full fingerprint payloads on track records.
+version, timestamp, and Base64 payload validate against the current track. A stored payload
+shorter than four complete 32-bit frames is counted as a rejected row and never enters
+retrieval. It does not analyse audio again or keep full fingerprint payloads on track records.
+
+Exact fingerprint verification calls the native SONARA matcher, which needs the optional
+`sonara` extra. When a shortlisted fingerprint pair reaches verification without that extra
+installed, the CLI fails cleanly with exit code `2` and the message
+`SONARA fingerprint verification needs the 'sonara' extra; install it or rerun with --embedding`.
 
 The `min_similarity` value is an audio-to-audio content gate. It is not the CLAP text-search score scale, and none of these values are probabilities.
 
@@ -46,6 +52,10 @@ In this mode no embeddings are loaded. Candidate retrieval uses only the version
 fingerprint LSH, and neither embedding signature LSH nor the duration-window fallback runs. The
 exact native SONARA matcher then verifies every shortlisted pair, and only exact scores at or
 above the `0.45` review threshold form duplicate groups.
+
+When the scope holds `0` valid stored SONARA fingerprints, the run still writes its reports,
+and the CLI prints a console warning that the empty report does not prove the scope has no
+duplicates. Analyze SONARA first or rerun with `--embedding`.
 
 Every candidate in a fingerprint-mode report is `REVIEW MANUALLY`. The report carries no embedding
 scoring evidence, and per-pair MERT, MAEST, and content similarities stay null. Fingerprint
@@ -182,7 +192,8 @@ refers to candidate pairs.
 ## Command examples
 
 The two mode flags are mutually exclusive. `--source` and `--weight` require `--embedding` and
-fail otherwise. Every run is report-only unless `--apply` is passed.
+fail otherwise. Every run is report-only unless `--apply` is passed. `--root` accepts any
+stored-path prefix, including a bare drive root such as `D:/`.
 
 Default fingerprint report over one volume, with the default database:
 
@@ -275,15 +286,21 @@ Apply mode is destructive. It requires exact confirmation:
 APPLY DELETE
 ```
 
-The tool deletes only safe duplicate candidates inside the selected `--root`. Before deletion it rechecks the report identity fields `catalog_uuid` and `track_uuid`, the stored path, and the reported `size` and `file_modified_ns`. Stale or mismatched candidates are skipped.
+The tool deletes only safe duplicate candidates inside the selected `--root`. Before deletion it rechecks the report identity fields `catalog_uuid` and `track_uuid`, the stored path, and the reported `size` and `file_modified_ns`. It also verifies that the group's suggested keeper file still exists on disk; when the keeper is missing, the candidate is skipped with the reason "keeper file is missing on disk". Stale or mismatched candidates are skipped.
 
-SQLite rows are removed only for tracks whose files were deleted.
+SQLite rows are removed only for tracks whose files were deleted. After the deletions, matching
+rows are also removed from the Rhythm Lab labels database. A SQLite failure in that cleanup does
+not abort the run: it is recorded in the apply result's `failed` list as `rhythm_lab_cleanup:`
+plus the error, and the reports are still rewritten.
+
+A confirmed apply rewrites the JSON, XLSX, and log reports, so every saved report describes the
+apply run. The XLSX Summary sheet's `Mode` row then reads `apply` instead of `report-only`.
 
 Do not run apply mode during routine tests. Review the report first and keep backups when the library matters.
 
 ## Output
 
-Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `search_mode`, `sources`, `weights`, and `fingerprint_retrieval` metrics: validated and rejected stored fingerprints, LSH/exact candidate counts, the review-pair count, and the threshold. Pair evidence records `fingerprint_similarity` and `candidate_sources`; the XLSX Pair Evidence sheet exposes the same provenance, while its Summary sheet lists the search mode, valid fingerprints, and fingerprint-review pairs. The text log carries a matching `search_mode=` line. Safety failures appear in `blocked_reasons`.
+Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `search_mode`, `sources`, `weights`, and `fingerprint_retrieval` metrics: validated and rejected stored fingerprints, LSH/exact candidate counts, the review-pair count, and the threshold. Pair evidence records `fingerprint_similarity` and `candidate_sources`; the XLSX Pair Evidence sheet exposes the same provenance, while its Summary sheet lists the search mode, valid fingerprints, and fingerprint-review pairs. The Summary sheet's "Embeddings loaded (this run)" block counts the vectors loaded for this run's scoring, so every family reads `0` in fingerprint mode. The text log carries a matching `search_mode=` line. Safety failures appear in `blocked_reasons`.
 
 Spectral evidence has its own surfaces. Track rows carry `spectral_cutoff_hz`, `spectral_sharpness_db`, `suspected_transcode`, and `spectral_note`. Candidate rows repeat the cutoff, flag, and note, and the keeper and candidate explanations state when a spectrum looks transcoded. A top-level `spectral_analysis` block counts checked, analyzed, skipped, and suspected files. The `statistics` block also carries `fake_bitrate_candidate_count` and `fake_bitrate_group_count`, the duplicate-candidate roll-up described in the spectral transcode check above. The XLSX Candidates sheet adds `suspected_transcode`, `spectral_note`, `keeper_suspected_transcode`, and `keeper_spectral_note` columns, and highlights a `true` `suspected_transcode`/`keeper_suspected_transcode` cell in amber. The Groups sheet adds a `fake_bitrate_candidates` column and highlights the whole row in amber when it is above zero. The Summary sheet adds "Suspected transcodes in groups", "Fake-bitrate duplicate candidates", and "Spectral checks" rows, and the text log carries a `suspected_transcodes=` line.
 

@@ -36,20 +36,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         files = collect_files(args.targets, args.list)
+        if not files:
+            print("spectral_check failed: no audio files to analyze", file=sys.stderr)
+            return 2
+        if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+            print(
+                "spectral_check failed: ffmpeg and ffprobe must be on PATH",
+                file=sys.stderr,
+            )
+            return 2
+        rows = run_checks(files)
+        write_output(rows, csv_path=args.csv)
     except (OSError, ValueError) as error:
         print(f"spectral_check failed: {error}", file=sys.stderr)
         return 2
-    if not files:
-        print("spectral_check failed: no audio files to analyze", file=sys.stderr)
-        return 2
-    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
-        print(
-            "spectral_check failed: ffmpeg and ffprobe must be on PATH",
-            file=sys.stderr,
-        )
-        return 2
-    rows = run_checks(files)
-    write_output(rows, csv_path=args.csv)
     return 0
 
 

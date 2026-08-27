@@ -502,18 +502,18 @@ python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite --summa
 <details>
 <summary>Metadata workbook and source authorization</summary>
 
-Run `python tools/Audio-Online/metadata_enrichment_cli.py`. These commands contact configured
+Run `python tools/audio-online/metadata_enrichment_cli.py`. These commands contact configured
 online sources. Credentials and authorization are stored according to the selected config file.
 
 ```powershell
-python tools\Audio-Online\metadata_enrichment_cli.py check-auth beatport
+python tools\audio-online\metadata_enrichment_cli.py check-auth beatport
 ```
 
 | Command | Arguments and options |
 | --- | --- |
-| `enrich` | `--input PATH` **required**. `--output PATH` **required**. `--config PATH`, default `tools\Audio-Online\config.toml`. `--db PATH` for local evidence. `--node-executable PATH`. `--node-modules PATH`. XLSX output requires Node plus modules, supplied by environment variables or the two Node options. |
-| `authorize SOURCE` | `SOURCE` **required**. `--config PATH`, default `tools\Audio-Online\config.toml`. Only configured supported OAuth sources can authorize. |
-| `check-auth SOURCE` | `SOURCE` **required**. `--config PATH`, default `tools\Audio-Online\config.toml`. The current authorization check is supported for Beatport. |
+| `enrich` | `--input PATH` **required**. `--output PATH` **required**. `--config PATH`, default `tools\audio-online\config.toml`. `--db PATH` for local evidence. `--node-executable PATH`. `--node-modules PATH`. XLSX output requires Node plus modules, supplied by environment variables or the two Node options. |
+| `authorize SOURCE` | `SOURCE` **required**. `--config PATH`, default `tools\audio-online\config.toml`. Only configured supported OAuth sources can authorize. |
+| `check-auth SOURCE` | `SOURCE` **required**. `--config PATH`, default `tools\audio-online\config.toml`. The current authorization check is supported for Beatport. |
 
 </details>
 

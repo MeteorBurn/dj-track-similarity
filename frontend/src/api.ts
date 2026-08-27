@@ -548,4 +548,175 @@ export type AnalysisPipelineRequest = {
   ml?: MlPipelineSettings;
 };
 
+export type AudioDedupSearchMode = "fingerprint" | "embedding";
+
+export type AudioDedupDeletionMode = "trash" | "permanent";
+
+export type AudioDedupScanRequest = {
+  root: string;
+  path_contains?: string[];
+  search_mode?: AudioDedupSearchMode;
+  preset?: "safe" | "balanced" | "aggressive";
+  min_score?: number | null;
+  min_similarity?: number | null;
+  limit_groups?: number | null;
+  sources?: EmbeddingSource[] | null;
+  weights?: Record<string, number> | null;
+  skip_spectral?: boolean;
+};
+
+export type AudioDedupJobEvent = {
+  timestamp: number;
+  level: string;
+  message: string;
+  path: string | null;
+};
+
+export type AudioDedupJobStatus = {
+  job_id: string;
+  state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  root: string;
+  search_mode: AudioDedupSearchMode;
+  preset: string;
+  path_contains: string[];
+  sources: string[];
+  weights: Record<string, number>;
+  min_score: number | null;
+  min_similarity: number | null;
+  limit_groups: number | null;
+  skip_spectral: boolean;
+  total: number;
+  processed: number;
+  groups: number;
+  review_candidates: number;
+  safe_candidates: number;
+  valid_fingerprints: number;
+  current_step: string | null;
+  report_id: string | null;
+  started_at: number | null;
+  finished_at: number | null;
+  error: string | null;
+  events: AudioDedupJobEvent[];
+  cancel_requested: boolean;
+};
+
+export type AudioDedupReportSummary = {
+  report_id: string;
+  generated_at: string;
+  root: string;
+  search_mode: AudioDedupSearchMode | "";
+  preset: string;
+  mode: string;
+  group_count: number;
+  candidate_count: number;
+  safe_candidate_count: number;
+  review_candidate_count: number;
+  fake_bitrate_candidate_count: number;
+  database_path: string | null;
+  modified_at: number;
+  has_xlsx: boolean;
+};
+
+export type AudioDedupFile = {
+  track_id: number;
+  role: "keeper" | "duplicate";
+  path: string;
+  file_name: string;
+  artist: string | null;
+  title: string | null;
+  album: string | null;
+  duration: number | null;
+  bpm: number | null;
+  musical_key: string | null;
+  size: number;
+  audio_format: string;
+  size_per_second: number | null;
+  metadata_completeness: number | null;
+  bit_rate_bps: number | null;
+  sample_rate_hz: number | null;
+  bit_depth: number | null;
+  spectral_cutoff_hz: number | null;
+  spectral_sharpness_db: number | null;
+  suspected_transcode: boolean;
+  spectral_note: string | null;
+  score_vs_keeper: number | null;
+  safe_to_delete: boolean;
+  reasons: string[];
+  blocked_reasons: string[];
+  stale: boolean;
+  stale_reason: string | null;
+  playable: boolean;
+};
+
+export type AudioDedupPair = {
+  left_track_id: number;
+  right_track_id: number;
+  score: number | null;
+  fingerprint_similarity: number | null;
+  sonara_similarity: number | null;
+  mert_similarity: number | null;
+  maest_similarity: number | null;
+  muq_similarity: number | null;
+  clap_similarity: number | null;
+  content_similarity: number | null;
+  duration_diff_seconds: number | null;
+  duration_diff_ratio: number | null;
+  candidate_sources: string[];
+};
+
+export type AudioDedupGroup = {
+  group_id: number;
+  confidence: string;
+  score: number | null;
+  fingerprint_similarity: number | null;
+  suspected_transcode_count: number;
+  stale_file_count: number;
+  files: AudioDedupFile[];
+  pairs: AudioDedupPair[];
+  blocked_reasons: string[];
+};
+
+export type AudioDedupGroupPage = {
+  report_id: string;
+  root: string;
+  search_mode: AudioDedupSearchMode | "";
+  generated_at: string;
+  total_groups: number;
+  filtered_groups: number;
+  offset: number;
+  limit: number;
+  groups: AudioDedupGroup[];
+};
+
+export type AudioDedupGroupFilters = {
+  offset?: number;
+  limit?: number;
+  confidence?: string[];
+  min_fingerprint?: number | null;
+  fake_bitrate_only?: boolean;
+  path_contains?: string;
+};
+
+export type AudioDedupGroupSelection = {
+  group_id: number;
+  track_ids: number[];
+};
+
+export type AudioDedupDeleteRequest = {
+  selections: AudioDedupGroupSelection[];
+  deletion_mode: AudioDedupDeletionMode;
+  confirmation: string;
+};
+
+export type AudioDedupDeleteResult = {
+  report_id: string;
+  deletion_mode: AudioDedupDeletionMode;
+  requested: number;
+  deleted_track_ids: number[];
+  deleted_paths: string[];
+  skipped: string[];
+  failed: string[];
+  rhythm_lab_deleted_rows: number;
+};
+
 export { api } from "./apiClient";

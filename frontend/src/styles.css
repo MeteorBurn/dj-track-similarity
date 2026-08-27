@@ -271,7 +271,9 @@ button {
   text-align: left;
   white-space: normal;
   width: max-content;
-  z-index: 1000;
+  /* Above every dialog layer: a hint drawn behind the control it describes is
+     no hint at all. Backdrops sit at 1200-1250. */
+  z-index: 1400;
 }
 
 .confirmation-backdrop {
@@ -4328,5 +4330,653 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   .result-row-playback {
     grid-column: 2 / -1;
     grid-row: 2;
+  }
+}
+
+/* Audio dedup review */
+.audio-dedup-button {
+  background: var(--warning-soft-bg);
+  border-color: var(--warning-soft-border);
+  color: var(--warning-text);
+}
+
+.audio-dedup-button:hover:not(:disabled) {
+  background: var(--warning-bg);
+  border-color: var(--warning-border-hover);
+  color: var(--warning-text-hover);
+}
+
+.dedup-backdrop {
+  align-items: center;
+  background: var(--overlay-deeper);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 1250;
+}
+
+.dedup-dialog {
+  background: var(--surface);
+  border: 1px solid var(--button-border);
+  border-radius: 10px;
+  box-shadow: 0 22px 56px var(--shadow-dialog-deeper);
+  display: flex;
+  flex-direction: column;
+  height: min(940px, calc(100vh - 32px));
+  max-width: min(1280px, calc(100vw - 32px));
+  padding: 18px;
+  position: relative;
+  width: 100%;
+}
+
+.dedup-title {
+  border-bottom: 1px solid var(--border-soft);
+  flex: 0 0 auto;
+  padding-bottom: 12px;
+  padding-right: 44px;
+}
+
+.dedup-title-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.dedup-title-copy h2 {
+  align-items: center;
+  display: flex;
+  font-size: 17px;
+  gap: 8px;
+  margin: 0;
+}
+
+.dedup-title-copy > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.dedup-close-button {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+}
+
+.dedup-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  /* The controls stack taller as the pane narrows. Let the whole body scroll as
+     a fallback so the group list below it never gets squeezed out of view. */
+  overflow-y: auto;
+  padding: 14px 2px 0;
+}
+
+.dedup-section {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  padding: 12px;
+}
+
+.dedup-section-title {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 6px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dedup-section-counter {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0;
+  margin-left: auto;
+  text-transform: none;
+}
+
+.dedup-scan-grid,
+.dedup-report-row,
+.dedup-filter-row {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dedup-control {
+  display: grid;
+  gap: 4px;
+  min-width: 132px;
+}
+
+.dedup-control-grow {
+  flex: 1 1 220px;
+}
+
+.dedup-control-narrow {
+  min-width: 104px;
+}
+
+.dedup-control > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dedup-control input,
+.dedup-control select {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--app-text);
+  height: 34px;
+  min-height: 34px;
+  padding: 0 8px;
+  width: 100%;
+}
+
+.dedup-control input:focus,
+.dedup-control select:focus {
+  border-color: var(--accent-border);
+  outline: none;
+}
+
+.dedup-path-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.dedup-path-row > input {
+  text-overflow: ellipsis;
+}
+
+.dedup-toggle {
+  align-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 7px;
+  height: 34px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.dedup-toggle:hover {
+  border-color: var(--accent-border-hover);
+}
+
+.dedup-toggle.disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.dedup-toggle.disabled:hover {
+  border-color: var(--border-strong);
+}
+
+.dedup-primary-button,
+.dedup-secondary-button,
+.dedup-ghost-button,
+.dedup-delete-button {
+  align-items: center;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  font-weight: 600;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.dedup-primary-button {
+  background: var(--accent-deep-bg);
+  border: 1px solid var(--accent-border);
+  color: #ffffff;
+}
+
+.dedup-primary-button:hover:not(:disabled) {
+  background: var(--accent-deep-hover);
+  border-color: var(--accent-border);
+  color: #ffffff;
+}
+
+.dedup-secondary-button {
+  background: var(--button-bg);
+  border: 1px solid var(--button-border);
+  color: var(--button-text);
+  text-decoration: none;
+}
+
+.dedup-ghost-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  height: 30px;
+  padding: 0 10px;
+}
+
+.dedup-delete-button {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+}
+
+.dedup-delete-button:not(:disabled):hover {
+  background: var(--danger-muted-bg);
+  border-color: var(--danger-border-hover);
+  color: var(--danger-text-hover);
+}
+
+.dedup-progress-track {
+  background: var(--surface-subtle);
+  border-radius: 999px;
+  height: 5px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.dedup-progress-fill {
+  background: var(--accent-deep-bg);
+  height: 100%;
+  transition: width 240ms ease;
+}
+
+.dedup-alert {
+  align-items: center;
+  background: var(--danger-soft-bg);
+  border: 1px solid var(--danger-soft-border);
+  border-radius: 6px;
+  color: var(--danger-text);
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 9px;
+}
+
+.dedup-groups {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.dedup-loading {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+  margin: 0;
+}
+
+.dedup-group {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+}
+
+.dedup-group.has-selection {
+  border-color: var(--danger-muted-border);
+}
+
+.dedup-group-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.dedup-group-id {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.dedup-group-count {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.dedup-group-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dedup-chip {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 4px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+.dedup-chip-high {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-soft-border);
+  color: var(--accent);
+}
+
+.dedup-chip-medium {
+  background: var(--surface-subtle);
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+
+.dedup-chip-review {
+  background: var(--warning-soft-bg);
+  border-color: var(--warning-soft-border);
+  color: var(--warning-text);
+}
+
+.dedup-chip-score {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.dedup-chip-warn {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+
+.dedup-group-warning {
+  align-items: center;
+  background: var(--danger-soft-bg);
+  border: 1px solid var(--danger-soft-border);
+  border-radius: 6px;
+  color: var(--danger-text);
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 9px;
+}
+
+.dedup-copies {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+}
+
+.dedup-copy {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* A floor rather than a fixed height: a sparse copy still gets room for the
+     detail lines, and a richer one grows past it. */
+  min-height: 310px;
+  padding: 11px;
+}
+
+.dedup-copy-keeper {
+  border-color: var(--accent-soft-border);
+}
+
+.dedup-copy-doomed {
+  background: var(--danger-muted-bg);
+  border-color: var(--danger-border);
+}
+
+.dedup-copy-stale {
+  opacity: 0.7;
+}
+
+.dedup-copy-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+button.dedup-play-button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  width: 32px;
+}
+
+.dedup-copy-identity {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+}
+
+.dedup-copy-name {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dedup-copy-artist {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dedup-role {
+  align-items: center;
+  border-radius: 4px;
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  gap: 3px;
+  letter-spacing: 0.03em;
+  padding: 3px 7px;
+  text-transform: uppercase;
+}
+
+.dedup-role-keep {
+  background: var(--accent-soft-bg);
+  color: var(--accent);
+}
+
+.dedup-role-copy {
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+}
+
+.dedup-copy-path {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  margin: 0;
+  /* Two copies usually share a file name and differ only by folder, so the
+     directory is the discriminator and has to stay readable. */
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Stacked, not wrapped into one row: each line answers a different question and
+   they stay comparable between the two copies only when they line up. */
+.dedup-copy-specs {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
+.dedup-spec-main {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.dedup-spec-muted {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dedup-spectral {
+  align-items: center;
+  border-radius: 4px;
+  display: flex;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 4px;
+  padding: 3px 7px;
+  width: fit-content;
+}
+
+.dedup-spectral-ok {
+  background: var(--accent-muted-bg);
+  color: var(--accent);
+}
+
+.dedup-spectral-warn {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.dedup-spectral-muted {
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+}
+
+.dedup-copy-stale-note {
+  color: var(--danger-text);
+  font-size: 11px;
+  margin: 0;
+}
+
+.dedup-copy-status {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dedup-copy-details {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.dedup-copy-details-title {
+  font-weight: 600;
+}
+
+.dedup-copy-details ul {
+  display: grid;
+  gap: 2px;
+  line-height: 1.35;
+  margin: 2px 0 0;
+  padding-left: 15px;
+}
+
+.dedup-copy-action {
+  align-items: center;
+  background: var(--button-bg);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+  height: 32px;
+  justify-content: center;
+  margin-top: auto;
+}
+
+.dedup-copy-action.selected {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+.dedup-paging {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  gap: 10px;
+  justify-content: center;
+}
+
+.dedup-footer {
+  align-items: end;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.dedup-footer-summary {
+  color: var(--app-text);
+  flex: 1 1 180px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 7px;
+}
+
+.dedup-footer-idle {
+  color: var(--text-muted);
+}
+
+.dedup-control-confirm {
+  min-width: 170px;
+}
+
+.dedup-control-confirm input {
+  font-family: inherit;
+  letter-spacing: 0.06em;
+}
+
+.dedup-control-confirm input.confirmed {
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+/* The copies grid needs no breakpoint: auto-fit already drops to one column
+   when two no longer fit, and forcing it earlier wasted half the width. */
+@media (max-width: 900px) {
+  .dedup-group-actions {
+    margin-left: 0;
   }
 }

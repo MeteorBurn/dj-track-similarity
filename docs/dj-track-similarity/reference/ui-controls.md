@@ -11,6 +11,8 @@ separate Timeline or Representations database controls.
 - **Load tracks into the database** opens an import dialog. Its server-side folder picker selects
   the root, and its format badges select the formats to scan. Scan and **Refresh Tags** update
   catalog rows without rewriting source audio.
+- **Find and review duplicates** sits in the same action row, left of the clear-database button, and
+  opens the Audio Dedup review dialog described below.
 - Library pages contain up to `200` tracks. **Prev**, **Next**, and the page-number field request one
   `/api/tracks` page at a time.
 - All rows from the current page render in one scrollable list. There is no second row-window
@@ -83,6 +85,34 @@ determined are skipped. **Scan limit** caps tracks that meet the selected filter
 The final scan total includes only tracks accepted after the duration bounds and scan limit. The
 scan status shows `skip N` for tracks rejected by those filters plus supported audio files excluded
 by the selected format badges.
+
+## Audio Dedup review
+
+**Find and review duplicates** stays disabled while another job runs and while the library holds no
+tracks. The dialog has three parts.
+
+**Search** starts one scan. It takes a root path with a server-side folder picker, a search mode of
+**Fingerprints** or **Embeddings + fingerprints**, and a **Skip spectral** toggle. The start button becomes **Stop**
+while a scan runs, and a progress bar tracks the processed count against the total. The dialog sends
+only the root, the mode, and the spectral toggle, so the preset stays at the server default `safe`
+and the source, weight, threshold, stored-path, and group-limit options remain CLI-only. Job status
+polls every `1200` ms.
+
+**Report and filters** picks one report from the report directory, newest first, and downloads its
+XLSX workbook when one exists. The filters are confidence (any, high, medium, or manual review), a
+minimum exact fingerprint score, a fake-bitrate-only toggle, and a stored-path substring. **Mark candidates**
+selects the suggested copies for every group on the page and **Clear all** empties the selection.
+Groups page `25` at a time, and the API caps a page at `200`.
+
+The group list shows one card per duplicate group with a card for each copy, the suggested keeper
+included. Each copy has a play button that reuses the app's single player through `/media/{track_id}`
+and a **Delete this copy** toggle. Every listed file is rechecked against the live database and the
+disk, and a file that no longer matches its report row is marked stale with a reason.
+
+The footer counts the marked copies and their groups, selects **Recycle bin** or **Permanent**, and
+takes the exact confirmation phrase `APPLY DELETE`. The delete button stays disabled until copies are
+marked and the phrase matches. A group with every copy marked is refused. For the deletion gates and
+the report semantics, see [Audio Dedup](../tools-and-scripts/audio-dedup.md).
 
 ## ML analysis availability
 

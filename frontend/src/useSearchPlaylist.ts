@@ -5,6 +5,12 @@ import { displayTrack } from "./trackDisplay";
 
 type ActivityAppender = (level: ActivityEvent["level"], message: string, detail?: string) => void;
 
+/**
+ * What playback actually needs. The audio element resolves a source from the
+ * track id alone, so any row that names a library track can be previewed.
+ */
+export type PreviewTarget = { track_id: number };
+
 export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppender } = {}) {
   const [textQuery, setTextQuery] = useState("");
   const [outputDir, setOutputDir] = useState("");
@@ -12,7 +18,7 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   const [results, setResults] = useState<SearchResult[]>([]);
   const [playlist, setPlaylist] = useState<Track[]>([]);
   const [playlistName, setPlaylistName] = useState("seamless-set");
-  const [preview, setPreview] = useState<Track | null>(null);
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
   const [metadataTrack, setMetadataTrack] = useState<TrackDetail | null>(null);
   const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
@@ -58,7 +64,7 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
     }
   }
 
-  function togglePreview(track: Track) {
+  function togglePreview(track: PreviewTarget) {
     if (preview?.track_id === track.track_id && playingTrackId === track.track_id) {
       setPlayingTrackId(null);
       return;

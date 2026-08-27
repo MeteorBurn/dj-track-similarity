@@ -97,6 +97,42 @@ class RelocateLibraryRequest(BaseModel):
     apply: bool = False
 
 
+class AudioDedupScanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    root: str
+    path_contains: list[str] = Field(default_factory=list)
+    search_mode: Literal["fingerprint", "embedding"] = "fingerprint"
+    preset: Literal["safe", "balanced", "aggressive"] = "safe"
+    min_score: float | None = None
+    min_similarity: float | None = None
+    limit_groups: int | None = None
+    sources: list[EmbeddingSource] | None = None
+    weights: dict[str, float] | None = None
+    skip_spectral: bool = False
+
+
+class AudioDedupGroupSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    group_id: int
+    track_ids: list[int] = Field(min_length=1)
+
+
+class AudioDedupDeleteRequest(BaseModel):
+    """One confirmed batch of reviewer-selected duplicates.
+
+    The confirmation phrase matches the CLI apply prompt: deletion stays an
+    explicit act in both surfaces.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    selections: list[AudioDedupGroupSelection] = Field(min_length=1)
+    deletion_mode: Literal["trash", "permanent"] = "trash"
+    confirmation: str
+
+
 class DatabaseSwitchRequest(BaseModel):
     path: str
 

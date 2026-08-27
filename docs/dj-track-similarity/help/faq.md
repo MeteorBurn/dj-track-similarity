@@ -9,9 +9,19 @@ No. SONARA, MAEST, MERT, MuQ, CLAP, and classifier scoring write SQLite data onl
 
 ## Which actions can write audio files?
 
-Only MAEST genre-tag apply, Audio Doctor apply, and Audio Dedup apply. Audio Dedup apply can delete
-files. Each of the three sits behind a confirmation gate and stays separate from normal scan,
-search, and analysis.
+Only MAEST genre-tag apply, Audio Doctor apply, and Audio Dedup deletion. Audio Dedup deletes files,
+either from a CLI `--apply` run or from the browser review dialog, and both need the exact phrase
+`APPLY DELETE`. Each of the three sits behind a confirmation gate and stays separate from normal
+scan, search, and analysis.
+
+## What does deleting a track remove?
+
+The catalog row, its FTS entry, and every catalog table that references it by `track_id`, which
+covers tags, likes, embeddings, fingerprints, classifier scores, and feedback. The optional
+Evaluation database is a separate file with no foreign key back to the catalog, so its
+`search_session_seeds` and `search_result_events` rows for that track are deleted in a second step.
+Audio Dedup deletion also clears matching Rhythm Lab label rows. Source audio is removed only by
+Audio Dedup deletion, never by `DELETE /api/tracks/{track_id}`.
 
 ## Can the app migrate an incompatible database?
 

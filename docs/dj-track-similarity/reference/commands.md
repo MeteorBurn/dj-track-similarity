@@ -430,7 +430,8 @@ python tools\rhythm-lab\rhythm_lab\label_transfer.py preview --bundle .\exports\
 
 Run `python tools/audio-dedup/audio_dedup_cli.py`. It finds candidates from stored embeddings
 and saved SONARA fingerprints. Every run writes a report, and deletion needs `--apply`. The
-default search mode is `--fingerprint`.
+default search mode is `--fingerprint`. This table covers the CLI. The browser review dialog reads
+the same reports and has its own confirmation-gated deletion path.
 
 ```powershell
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe

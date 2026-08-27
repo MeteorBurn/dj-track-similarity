@@ -42,7 +42,10 @@ Only these workflows can write or delete source audio files:
 
 1. **MAEST genre tag apply** writes the standard genre tag field for tracks with stored MAEST genres.
 2. **Audio Doctor apply** repairs files from a prior dry-run state after exact `APPLY REPAIR` confirmation.
-3. **Audio Dedup apply** deletes safe duplicate candidates after exact `APPLY DELETE` confirmation.
+3. **Audio Dedup deletion** removes duplicate files after exact `APPLY DELETE` confirmation. The CLI
+   `--apply` run deletes the report's safe candidates permanently. The browser review deletes the
+   copies you marked, to the recycle bin unless you choose a permanent delete. Both refuse a group
+   that would lose every copy, and both leave source audio untouched until the phrase is typed.
 
 ## Relocation is not a file mover
 

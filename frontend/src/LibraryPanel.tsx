@@ -1,4 +1,4 @@
-import { Cpu, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { CopyCheck, Cpu, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
 import type { SonaraAnalysisSettings } from "./sonaraAnalysisSettings";
@@ -94,6 +94,7 @@ export function LibraryPanel({
   onWriteMaestGenres,
   onClearDatabase,
   onValidateDatabase,
+  onOpenAudioDedup,
   analysisCounts,
   selectedAnalysisModels,
   onToggleAnalysisModel,
@@ -130,6 +131,7 @@ export function LibraryPanel({
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
   onValidateDatabase: () => void;
+  onOpenAudioDedup: () => void;
   analysisCounts: Record<AnalysisSelection, number>;
   selectedAnalysisModels: AnalysisSelection[];
   onToggleAnalysisModel: (model: AnalysisSelection) => void;
@@ -186,6 +188,7 @@ export function LibraryPanel({
         <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title="Обновить теги" aria-label="Обновить теги" onClick={onRefreshTags} type="button"><RefreshCcw size={17} /></button>
         <button className="icon-button genre-save-button" disabled={busy || stageRunning || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={17} /></button>
         <button className="icon-button database-validation-button" disabled={busy || stageRunning || !hasTracks} title="Проверить базу" aria-label="Проверить базу" onClick={onValidateDatabase} type="button"><ShieldCheck size={17} /></button>
+        <button className="icon-button audio-dedup-button" disabled={busy || stageRunning || !hasTracks} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyCheck size={17} /></button>
         <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title="Очистить базу" aria-label="Очистить базу" onClick={onClearDatabase} type="button"><Trash2 size={17} /></button>
       </div>
 

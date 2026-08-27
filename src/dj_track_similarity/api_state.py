@@ -8,6 +8,7 @@ from pathlib import Path
 from .analysis_jobs import AnalysisJobManager
 from .analysis_pipeline import AnalysisPipelineManager
 from .analysis_queue import AnalysisStageQueue
+from .audio_dedup_jobs import AudioDedupJobManager
 from .classifier_jobs import ClassifierJobManager
 from .database import LibraryDatabase
 from .database_validation_jobs import DatabaseValidationJobManager
@@ -39,6 +40,7 @@ class AppDatabaseState:
         self.scan_jobs: ScanJobManager | None = None
         self.genre_tag_jobs: GenreTagJobManager | None = None
         self.database_validation_jobs: DatabaseValidationJobManager | None = None
+        self.audio_dedup_jobs: AudioDedupJobManager | None = None
         if db_path is not None:
             self.switch(db_path)
 
@@ -78,6 +80,7 @@ class AppDatabaseState:
             scan_jobs = ScanJobManager(db)
             genre_tag_jobs = GenreTagJobManager(db)
             database_validation_jobs = DatabaseValidationJobManager(str(db.path))
+            audio_dedup_jobs = AudioDedupJobManager(db)
 
             self.db_path = db.path
             self.db = db
@@ -88,6 +91,7 @@ class AppDatabaseState:
             self.scan_jobs = scan_jobs
             self.genre_tag_jobs = genre_tag_jobs
             self.database_validation_jobs = database_validation_jobs
+            self.audio_dedup_jobs = audio_dedup_jobs
             return self.current()
 
     def require_db(self) -> LibraryDatabase:
@@ -180,6 +184,11 @@ class AppDatabaseState:
         assert self.database_validation_jobs is not None
         return self.database_validation_jobs
 
+    def require_audio_dedup_jobs(self) -> AudioDedupJobManager:
+        self._require_jobs_available()
+        assert self.audio_dedup_jobs is not None
+        return self.audio_dedup_jobs
+
     def _has_active_jobs(self) -> bool:
         managers = [
             self.analysis_jobs,
@@ -188,6 +197,7 @@ class AppDatabaseState:
             self.scan_jobs,
             self.genre_tag_jobs,
             self.database_validation_jobs,
+            self.audio_dedup_jobs,
         ]
         for manager in managers:
             if manager is None:

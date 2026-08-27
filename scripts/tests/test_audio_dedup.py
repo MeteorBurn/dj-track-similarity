@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import types
 from pathlib import Path
 import zipfile
 
@@ -1443,6 +1444,122 @@ def test_apply_log_lists_deleted_files(tmp_path: Path) -> None:
     log_text = log_path.read_text(encoding="utf-8")
     assert "deleted_files:" in log_text
     assert f"deleted_file={deleted_path}" in log_text
+
+
+def _two_copy_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    audio_dir = tmp_path / "Abstracted"
+    audio_dir.mkdir()
+    keeper_path = audio_dir / "keeper.flac"
+    duplicate_path = audio_dir / "duplicate.mp3"
+    keeper_path.write_bytes(b"keeper")
+    duplicate_path.write_bytes(b"duplicate")
+    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
+    _create_library_db(db_path)
+    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
+    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    result = dedup.run_report(
+        db_path=db_path,
+        root=audio_dir,
+        path_contains=[],
+        preset_name="safe",
+        min_score=None,
+        limit_groups=None,
+        out_dir=tmp_path / "reports",
+        mode=dedup.MODE_EMBEDDING,
+    )
+    return dedup, db_path, audio_dir, keeper_path, duplicate_path, result
+
+
+def test_apply_duplicate_deletions_deletes_the_reviewer_selection_including_the_keeper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dedup, db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
+        tmp_path,
+        monkeypatch,
+    )
+    keeper_track_id = int(result.payload["groups"][0]["suggested_keeper"]["track_id"])
+    assert keeper_track_id == 1
+
+    apply_result = dedup.apply_duplicate_deletions(
+        db_path=db_path,
+        root=audio_dir,
+        payload=result.payload,
+        selected_track_ids=[keeper_track_id],
+    )
+
+    assert apply_result.deleted_track_ids == (keeper_track_id,)
+    assert not keeper_path.exists()
+    assert duplicate_path.exists()
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute(
+            "SELECT track_id FROM tracks ORDER BY track_id"
+        ).fetchall() == [(2,)]
+    finally:
+        connection.close()
+
+
+def test_apply_duplicate_deletions_refuses_a_selection_that_empties_the_group(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dedup, db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    apply_result = dedup.apply_duplicate_deletions(
+        db_path=db_path,
+        root=audio_dir,
+        payload=result.payload,
+        selected_track_ids=[1, 2],
+    )
+
+    assert apply_result.deleted_track_ids == ()
+    assert keeper_path.exists()
+    assert duplicate_path.exists()
+    assert all("group would lose every copy" in reason for reason in apply_result.skipped)
+
+
+def test_apply_duplicate_deletions_never_deletes_permanently_when_the_recycle_bin_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dedup, db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
+        tmp_path,
+        monkeypatch,
+    )
+    module = types.ModuleType("send2trash")
+
+    def refuse(_path: str) -> None:
+        raise OSError("recycle bin unavailable")
+
+    module.send2trash = refuse
+    monkeypatch.setitem(sys.modules, "send2trash", module)
+
+    apply_result = dedup.apply_duplicate_deletions(
+        db_path=db_path,
+        root=audio_dir,
+        payload=result.payload,
+        selected_track_ids=[2],
+        deletion_mode=dedup.DELETION_MODE_TRASH,
+    )
+
+    assert apply_result.deleted_track_ids == ()
+    assert duplicate_path.exists()
+    assert keeper_path.exists()
+    assert any("recycle bin unavailable" in reason for reason in apply_result.failed)
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute(
+            "SELECT track_id FROM tracks ORDER BY track_id"
+        ).fetchall() == [(1,), (2,)]
+    finally:
+        connection.close()
 
 
 def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_lab_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

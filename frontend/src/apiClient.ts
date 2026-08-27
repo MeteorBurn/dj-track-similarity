@@ -4,6 +4,13 @@ import type {
   AnalysisPipelineStatus,
   AnalysisModel,
   AnalysisResetResult,
+  AudioDedupDeleteRequest,
+  AudioDedupDeleteResult,
+  AudioDedupGroupFilters,
+  AudioDedupGroupPage,
+  AudioDedupJobStatus,
+  AudioDedupReportSummary,
+  AudioDedupScanRequest,
   ClassifierResetResult,
   DatabaseClearResult,
   DatabaseSelection,
@@ -386,6 +393,41 @@ const tagApi = {
     })
 };
 
+const audioDedupApi = {
+  audioDedupStart: (payload: AudioDedupScanRequest) =>
+    request<AudioDedupJobStatus>("/api/audio-dedup/jobs", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  audioDedupJob: (jobId: string) => request<AudioDedupJobStatus>(`/api/audio-dedup/jobs/${jobId}`),
+  latestAudioDedupJob: () => request<AudioDedupJobStatus | null>("/api/audio-dedup/jobs/latest"),
+  cancelAudioDedupJob: (jobId: string) =>
+    request<AudioDedupJobStatus>(`/api/audio-dedup/jobs/${jobId}/cancel`, { method: "POST" }),
+  audioDedupReports: () => request<AudioDedupReportSummary[]>("/api/audio-dedup/reports"),
+  audioDedupGroups: (reportId: string, filters: AudioDedupGroupFilters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+    if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+    for (const value of filters.confidence ?? []) params.append("confidence", value);
+    if (filters.min_fingerprint !== undefined && filters.min_fingerprint !== null) {
+      params.set("min_fingerprint", String(filters.min_fingerprint));
+    }
+    if (filters.fake_bitrate_only) params.set("fake_bitrate_only", "true");
+    if (filters.path_contains) params.set("path_contains", filters.path_contains);
+    const query = params.toString();
+    return request<AudioDedupGroupPage>(
+      `/api/audio-dedup/reports/${encodeURIComponent(reportId)}/groups${query ? `?${query}` : ""}`
+    );
+  },
+  audioDedupDelete: (reportId: string, payload: AudioDedupDeleteRequest) =>
+    request<AudioDedupDeleteResult>(
+      `/api/audio-dedup/reports/${encodeURIComponent(reportId)}/delete`,
+      { method: "POST", body: JSON.stringify(payload) }
+    ),
+  audioDedupXlsxUrl: (reportId: string) =>
+    `/api/audio-dedup/reports/${encodeURIComponent(reportId)}/xlsx`
+};
+
 export const api = {
   ...databaseApi,
   ...libraryApi,
@@ -394,5 +436,6 @@ export const api = {
   ...searchApi,
   ...referenceCompareApi,
   ...playlistApi,
-  ...tagApi
+  ...tagApi,
+  ...audioDedupApi
 };

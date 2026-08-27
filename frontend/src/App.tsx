@@ -32,6 +32,7 @@ import {
 } from "./textPromptPresets";
 import { classifierIsAvailable, classifierScoringBlockedReason } from "./classifierCompatibility";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
+import { AudioDedupDialog } from "./AudioDedupDialog";
 import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
 import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
@@ -69,6 +70,7 @@ import { useActivityLog } from "./useActivityLog";
 import { useConfirmation } from "./useConfirmation";
 import { useLibraryState } from "./useLibraryState";
 import { useSearchPlaylist } from "./useSearchPlaylist";
+import type { PreviewTarget } from "./useSearchPlaylist";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -208,6 +210,7 @@ export function App() {
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
+  const [audioDedupOpen, setAudioDedupOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   const [busy, setBusy] = useState(false);
@@ -746,7 +749,7 @@ export function App() {
     });
   }
 
-  function seekPreview(track: Track, seconds: number) {
+  function seekPreview(track: PreviewTarget, seconds: number) {
     const audio = previewAudioRef.current;
     if (!audio || preview?.track_id !== track.track_id) return;
     const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
@@ -754,7 +757,7 @@ export function App() {
     updatePreviewPosition(track.track_id);
   }
 
-  function handleLibraryPreviewEnded(track: Track) {
+  function handleLibraryPreviewEnded(track: PreviewTarget) {
     updatePreviewPosition(track.track_id);
     const nextTrack = nextLibraryPlaybackTrack(
       orderedTracks,
@@ -1678,6 +1681,7 @@ export function App() {
             onConfirm: () => handleClearDatabase()
           })}
           onValidateDatabase={() => void handleValidateDatabase()}
+          onOpenAudioDedup={() => setAudioDedupOpen(true)}
           analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
@@ -1873,6 +1877,17 @@ export function App() {
           onClose={() => setLogFrameOpen(false)}
         />
       )}
+      <AudioDedupDialog
+        open={audioDedupOpen}
+        playingTrackId={playingTrackId}
+        onPreview={(file) => togglePreview({ track_id: file.track_id })}
+        onClose={() => setAudioDedupOpen(false)}
+        onDeleted={(message) => {
+          setNotice({ kind: "ok", text: message });
+          appendActivity("info", message);
+          void refreshLibrary(0, { refreshSummary: true });
+        }}
+      />
       <TooltipLayer tooltip={tooltip} />
     </main>
   );

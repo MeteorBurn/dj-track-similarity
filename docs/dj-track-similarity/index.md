@@ -77,13 +77,13 @@ The file-writing exceptions are explicit:
 
 - MAEST genre tag apply writes the standard genre field in audio files.
 - Audio Doctor apply repairs files only after dry-run state exists and exact confirmation is typed.
-- Audio Dedup apply deletes confirmed duplicate candidates only after exact confirmation is typed.
+- Audio Dedup deletes duplicate copies only after exact confirmation is typed, whether the run comes from the CLI or the browser review dialog.
 
 Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and does not move files.
 
 <div class="dts-status-grid">
   <div><strong>Read-heavy by default</strong><p>Search, preview, analysis, reset, current-set editing, and export avoid source-audio edits.</p></div>
-  <div><strong>Explicit write paths</strong><p>Genre apply, Audio Doctor apply, and Audio Dedup apply are separate guarded flows.</p></div>
+  <div><strong>Explicit write paths</strong><p>Genre apply, Audio Doctor apply, and Audio Dedup deletion are separate guarded flows.</p></div>
   <div><strong>Local artifacts</strong><p>SQLite databases, reports, logs, indexes, and classifier files stay on disk.</p></div>
 </div>
 

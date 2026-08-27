@@ -10,7 +10,7 @@ import re
 import sqlite3
 import sys
 import time
-from typing import Callable, Iterable, Mapping, TypeVar
+from typing import Callable, Collection, Iterable, Mapping, TypeVar
 from xml.sax.saxutils import escape
 import zipfile
 
@@ -48,6 +48,9 @@ FINGERPRINT_REVIEW_MIN_SIMILARITY = 0.45
 MODE_FINGERPRINT = "fingerprint"
 MODE_EMBEDDING = "embedding"
 SEARCH_MODES = (MODE_FINGERPRINT, MODE_EMBEDDING)
+DELETION_MODE_PERMANENT = "permanent"
+DELETION_MODE_TRASH = "trash"
+DELETION_MODES = (DELETION_MODE_PERMANENT, DELETION_MODE_TRASH)
 DEFAULT_SOURCE_WEIGHTS = {
     "mert": 0.43,
     "maest": 0.32,
@@ -117,6 +120,23 @@ LOSSLESS_RANKS = {
     ".oga": 23,
     ".opus": 23,
     ".wma": 20,
+}
+MEASURED_BANDWIDTH_STEP_HZ = 250
+LOSSLESS_SUFFIXES = {
+    ".flac",
+    ".wav",
+    ".wave",
+    ".aif",
+    ".aiff",
+    ".aifc",
+    ".alac",
+    ".ape",
+    ".wv",
+    ".tak",
+    ".tta",
+    ".dff",
+    ".dsd",
+    ".dsf",
 }
 SONARA_FIELDS = (
     "bpm",
@@ -765,6 +785,8 @@ def load_tracks(
                 t.file_modified_ns,
                 t.sample_rate_hz,
                 t.bit_rate_bps,
+                t.bit_depth,
+                t.channel_count,
                 t.audio_duration_seconds,
                 ft.artist,
                 ft.title,
@@ -1383,10 +1405,48 @@ def choose_keeper(
         result = selected_spectral.get(track.track_id)
         return 0 if result is not None and result.suspected_transcode else 1
 
+    def measured_bandwidth_rank(track: TrackRecord) -> int:
+        """Measured spectral cutoff in whole kHz — the one figure tags cannot fake.
+
+        A file can declare 48 kHz and 2048 kbps while carrying 128 kbps of audio;
+        every declared number in that file is a lie, and only the spectrum tells
+        the truth. Within a duplicate group the copies are the same recording, so
+        a lower cutoff means bandwidth lost in that copy's encoding chain rather
+        than a dark master, which is what makes this comparable here and not
+        across the library.
+
+        Quantised because two copies of one recording at different sample rates
+        land on different FFT bins and measure a little apart; that noise must
+        not decide a keeper. The step stays small enough to separate a wall left
+        by a 320 kbps source from a genuine roll-off just under 44.1 kHz Nyquist,
+        which is only a few hundred hertz apart and is precisely the gap the
+        calibrated transcode flag is not allowed to judge.
+        """
+        result = selected_spectral.get(track.track_id)
+        if result is None or result.suspected_transcode or result.cutoff_hz is None:
+            return 0
+        return int(result.cutoff_hz // MEASURED_BANDWIDTH_STEP_HZ)
+
+    def verified_bit_rate(track: TrackRecord) -> int:
+        """Declared decoded bitrate, counted only where the spectrum cleared the copy.
+
+        This separates copies whose measured bandwidth ties, such as 16-bit
+        against 24-bit at one sample rate. With no verdict at all —
+        ``--skip-spectral``, no ffmpeg, an unreachable file — every copy scores
+        zero and the older keys decide, exactly as the ranking behaved before the
+        rate became a criterion.
+        """
+        result = selected_spectral.get(track.track_id)
+        if result is None or result.suspected_transcode:
+            return 0
+        return effective_bit_rate_bps(track)
+
     return max(
         tracks,
         key=lambda track: (
             full_band_rank(track),
+            measured_bandwidth_rank(track),
+            verified_bit_rate(track),
             format_rank(track.path),
             size_per_second(track),
             metadata_completeness(track),
@@ -2254,6 +2314,35 @@ def safe_delete_candidates(payload: dict[str, object]) -> list[dict[str, object]
     return candidates
 
 
+def selected_delete_candidates(
+    payload: dict[str, object],
+    selected_track_ids: Collection[int],
+) -> list[dict[str, object]]:
+    """Report entries a reviewer explicitly chose to delete.
+
+    Fingerprint mode never marks a candidate safe to delete, so manual review is
+    the only path to deletion there. The selection therefore replaces the
+    safe-delete filter instead of narrowing it, and any group member can be
+    chosen, including the suggested keeper.
+    """
+    selected = set()
+    for track_id in selected_track_ids:
+        try:
+            selected.add(int(track_id))
+        except (TypeError, ValueError):
+            continue
+    candidates: list[dict[str, object]] = []
+    seen: set[int] = set()
+    for group in _payload_groups(payload):
+        for entry in _group_member_entries(group):
+            track_id = _candidate_track_id(entry)
+            if track_id < 0 or track_id not in selected or track_id in seen:
+                continue
+            seen.add(track_id)
+            candidates.append(entry)
+    return candidates
+
+
 def confirm_apply(candidates: list[dict[str, object]], db_path: Path, root: Path) -> bool:
     print("")
     print("DESTRUCTIVE APPLY REQUESTED")
@@ -2276,26 +2365,28 @@ def apply_duplicate_deletions(
     root: Path,
     payload: dict[str, object],
     rhythm_lab_db: Path | None = None,
+    selected_track_ids: Collection[int] | None = None,
+    deletion_mode: str = DELETION_MODE_PERMANENT,
 ) -> ApplyResult:
     selected_database = _resolve_database(database=database, db_path=db_path)
+    remove_file = _file_remover(deletion_mode)
     root_text = canonical_file_path(root)
     deleted_ids: list[int] = []
     deleted_paths: list[str] = []
     skipped: list[str] = []
     failed: list[str] = []
-    candidates = safe_delete_candidates(payload)
-    keeper_paths: dict[int, str] = {}
-    keeper_on_disk: dict[str, bool] = {}
-    for group in payload.get("groups", []):
-        if not isinstance(group, dict):
-            continue
-        keeper = group.get("suggested_keeper")
-        group_keeper_path = str(keeper.get("path", "")) if isinstance(keeper, dict) else ""
-        if not group_keeper_path:
-            continue
-        for candidate in group.get("candidate_deletes", []):
-            if isinstance(candidate, dict):
-                keeper_paths[_candidate_track_id(candidate)] = group_keeper_path
+    if selected_track_ids is None:
+        candidates = safe_delete_candidates(payload)
+        retained_paths = _keeper_retained_paths(payload)
+        retained_missing_reason = "keeper file is missing on disk"
+    else:
+        candidates = selected_delete_candidates(payload, selected_track_ids)
+        retained_paths = _selection_retained_paths(
+            payload,
+            {_candidate_track_id(candidate) for candidate in candidates},
+        )
+        retained_missing_reason = "group would lose every copy"
+    retained_on_disk: dict[str, bool] = {}
     deleted_identities: list[TrackIdentity] = []
     for candidate in candidates:
         track_id = _candidate_track_id(candidate)
@@ -2343,16 +2434,11 @@ def apply_duplicate_deletions(
         if not file_path.is_file():
             skipped.append(f"track_id={track_id}: path is not a file")
             continue
-        keeper_path = keeper_paths.get(track_id, "")
-        keeper_exists = keeper_on_disk.get(keeper_path)
-        if keeper_exists is None:
-            keeper_exists = bool(keeper_path) and Path(keeper_path).is_file()
-            keeper_on_disk[keeper_path] = keeper_exists
-        if not keeper_exists:
-            skipped.append(f"track_id={track_id}: keeper file is missing on disk")
+        if not _any_path_on_disk(retained_paths.get(track_id, ()), retained_on_disk):
+            skipped.append(f"track_id={track_id}: {retained_missing_reason}")
             continue
         try:
-            file_path.unlink()
+            remove_file(file_path)
             removal = selected_database.remove_deleted_track(
                 expected=expected,
                 file_path=path_text,
@@ -2469,6 +2555,108 @@ def _resolve_database(
     return LibraryDatabase(selected)
 
 
+def _payload_groups(payload: dict[str, object]) -> list[dict[str, object]]:
+    groups = payload.get("groups", [])
+    if not isinstance(groups, list):
+        return []
+    return [group for group in groups if isinstance(group, dict)]
+
+
+def _entry_list(group: dict[str, object], field_name: str) -> list[dict[str, object]]:
+    entries = group.get(field_name, [])
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _group_member_entries(group: dict[str, object]) -> list[dict[str, object]]:
+    """Every file of one duplicate group, keeper included.
+
+    The ``tracks`` rows carry the identity and file facts the apply gate
+    rechecks, so one uniform list covers keeper and candidates alike.
+    """
+    members = _entry_list(group, "tracks")
+    if members:
+        return members
+    keeper = group.get("suggested_keeper")
+    fallback = [keeper] if isinstance(keeper, dict) else []
+    return fallback + _entry_list(group, "candidate_deletes")
+
+
+def _keeper_retained_paths(payload: dict[str, object]) -> dict[int, tuple[str, ...]]:
+    """Copy that must survive each safe delete: the report's suggested keeper."""
+    retained: dict[int, tuple[str, ...]] = {}
+    for group in _payload_groups(payload):
+        keeper = group.get("suggested_keeper")
+        keeper_path = str(keeper.get("path", "")) if isinstance(keeper, dict) else ""
+        if not keeper_path:
+            continue
+        for candidate in _entry_list(group, "candidate_deletes"):
+            retained[_candidate_track_id(candidate)] = (keeper_path,)
+    return retained
+
+
+def _selection_retained_paths(
+    payload: dict[str, object],
+    deletion_targets: Collection[int],
+) -> dict[int, tuple[str, ...]]:
+    """Copies that survive an explicit selection, per group.
+
+    A reviewer may delete the suggested keeper, so the surviving set is whatever
+    the selection left behind rather than one nominated file.
+    """
+    retained: dict[int, tuple[str, ...]] = {}
+    for group in _payload_groups(payload):
+        members = _group_member_entries(group)
+        survivors: list[str] = []
+        for entry in members:
+            if _candidate_track_id(entry) in deletion_targets:
+                continue
+            path_text = str(entry.get("path", ""))
+            if path_text:
+                survivors.append(path_text)
+        surviving_paths = tuple(survivors)
+        for entry in members:
+            retained[_candidate_track_id(entry)] = surviving_paths
+    return retained
+
+
+def _any_path_on_disk(paths: Iterable[str], cache: dict[str, bool]) -> bool:
+    for path_text in paths:
+        on_disk = cache.get(path_text)
+        if on_disk is None:
+            on_disk = bool(path_text) and Path(path_text).is_file()
+            cache[path_text] = on_disk
+        if on_disk:
+            return True
+    return False
+
+
+def _file_remover(deletion_mode: str) -> Callable[[Path], None]:
+    """Resolve how a confirmed duplicate leaves the disk.
+
+    Trash mode never falls back to an unlink. Silently destroying a file the
+    caller asked to send to the recycle bin is worse than refusing the run, so a
+    missing dependency fails here instead of downgrading per file.
+    """
+    if deletion_mode == DELETION_MODE_PERMANENT:
+        return Path.unlink
+    if deletion_mode != DELETION_MODE_TRASH:
+        raise ValueError(f"Unsupported deletion mode: {deletion_mode}")
+    try:
+        from send2trash import send2trash
+    except ImportError as error:
+        raise RuntimeError(
+            "Recycle bin deletion needs the 'send2trash' package; "
+            "install it or delete permanently"
+        ) from error
+
+    def send_file_to_trash(path: Path) -> None:
+        send2trash(str(path))
+
+    return send_file_to_trash
+
+
 def _candidate_track_id(candidate: dict[str, object]) -> int:
     try:
         return int(candidate["track_id"])
@@ -2548,6 +2736,29 @@ def format_rank(path: str) -> int:
     return LOSSLESS_RANKS.get(Path(path).suffix.casefold(), 0)
 
 
+def effective_bit_rate_bps(track: TrackRecord) -> int:
+    """Information rate of the decoded audio, comparable across containers.
+
+    A lossless file's declared bitrate measures how tightly it packs, not what it
+    carries: a FLAC and the WAV it was made from decode to identical samples at
+    very different declared rates, so comparing those rates ranks the archive
+    format rather than the audio. The decoded rate is the honest number, and for
+    a lossy file the declared rate already is that number.
+
+    Returns ``0`` when a lossless file lacks the facts to compute it, so an
+    unknown never outranks a measured copy and the remaining keys decide.
+    """
+    declared = _optional_metadata_int(track, "bit_rate_bps") or 0
+    if Path(track.path).suffix.lower() not in LOSSLESS_SUFFIXES:
+        return max(0, declared)
+    sample_rate = _optional_metadata_int(track, "sample_rate_hz") or 0
+    bit_depth = _optional_metadata_int(track, "bit_depth") or 0
+    channels = _optional_metadata_int(track, "channel_count") or 0
+    if sample_rate > 0 and bit_depth > 0 and channels > 0:
+        return sample_rate * bit_depth * channels
+    return 0
+
+
 def size_per_second(track: TrackRecord) -> float:
     if not track.duration or track.duration <= 0:
         return 0.0
@@ -2570,6 +2781,13 @@ def confidence_category(score: float, config: PresetConfig) -> str:
     if score >= max(0.94, config.min_score):
         return "medium"
     return "review"
+
+
+def _optional_metadata_int(track: TrackRecord, field_name: str) -> int | None:
+    try:
+        return int(track.metadata[field_name])  # type: ignore[arg-type]
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def track_payload(
@@ -2600,6 +2818,14 @@ def track_payload(
         "format_rank": format_rank(track.path),
         "size_per_second": _round_float(size_per_second(track)),
         "metadata_completeness": metadata_completeness(track),
+        # The spectral verdict is judged against the declared bitrate, so the
+        # report carries it: a wall far below what the bitrate promises is the
+        # fake-bitrate evidence, and it is unreadable without this number.
+        "bit_rate_bps": _optional_metadata_int(track, "bit_rate_bps"),
+        "sample_rate_hz": _optional_metadata_int(track, "sample_rate_hz"),
+        "bit_depth": _optional_metadata_int(track, "bit_depth"),
+        "channel_count": _optional_metadata_int(track, "channel_count"),
+        "effective_bit_rate_bps": effective_bit_rate_bps(track) or None,
         "embeddings": sorted(track.embeddings),
         "spectral_cutoff_hz": spectral.cutoff_hz if spectral else None,
         "spectral_sharpness_db": spectral.sharpness_db if spectral else None,
@@ -2678,6 +2904,13 @@ def report_statistics(report_groups: list[dict[str, object]], tracks: list[Track
 
 def _keeper_reason_lines(keeper: TrackRecord, tracks: list[TrackRecord]) -> list[str]:
     reasons = ["Highest keeper ranking inside this duplicate group."]
+    keeper_rate = effective_bit_rate_bps(keeper)
+    if keeper_rate > 0 and all(
+        keeper_rate >= effective_bit_rate_bps(track) for track in tracks
+    ):
+        reasons.append(
+            f"Best or tied-best decoded bitrate in group: {round(keeper_rate / 1000)} kbps."
+        )
     if all(format_rank(keeper.path) >= format_rank(track.path) for track in tracks):
         reasons.append(f"Best or tied-best audio format rank in group: {format_rank(keeper.path)}.")
     if all(size_per_second(keeper) >= size_per_second(track) for track in tracks):
@@ -2748,6 +2981,10 @@ def _track_from_row(
         metadata["sample_rate_hz"] = int(row["sample_rate_hz"])
     if row["bit_rate_bps"] is not None:
         metadata["bit_rate_bps"] = int(row["bit_rate_bps"])
+    if row["bit_depth"] is not None:
+        metadata["bit_depth"] = int(row["bit_depth"])
+    if row["channel_count"] is not None:
+        metadata["channel_count"] = int(row["channel_count"])
     modified_ns = int(row["file_modified_ns"])
     return TrackRecord(
         track_id=int(row["track_id"]),

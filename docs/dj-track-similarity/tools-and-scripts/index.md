@@ -5,7 +5,7 @@ The repository includes helper tools for classifier labeling, reports, maintenan
 ## Pages
 
 - [Rhythm Lab](./rhythm-lab.md): label, train, promote, and queue classifier review work.
-- [Audio Dedup](./audio-dedup.md): find likely duplicate audio candidates and optionally delete safe candidates after confirmation.
+- [Audio Dedup](./audio-dedup.md): find likely duplicate audio candidates from the CLI or the browser review dialog, and delete confirmed copies.
 - [Audio Doctor](./audio-doctor.md): inspect and repair known safe audio container/tag issues after dry-run state exists.
 - [Persistent ANN indexes](./persistent-ann-indexes.md): build optional vector sidecars for faster repeated lookup.
 - [Optimize database](./optimize-database.md): backup, integrity-check, vacuum, analyze, and checkpoint SQLite.

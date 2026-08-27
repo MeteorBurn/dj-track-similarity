@@ -7,6 +7,7 @@ from dj_track_similarity.api import create_app
 
 ROUTE_MODULES = {
     "dj_track_similarity.api_routes_analysis": "register_analysis_routes",
+    "dj_track_similarity.api_routes_audio_dedup": "register_audio_dedup_routes",
     "dj_track_similarity.api_routes_database": "register_database_routes",
     "dj_track_similarity.api_routes_docs": "register_docs_routes",
     "dj_track_similarity.api_routes_evaluation": "register_evaluation_routes",

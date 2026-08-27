@@ -75,7 +75,12 @@ tables. It does not cache counters or revalidate analysis payloads.
   relocation apply write library data.
 - Clear removes library rows and scan roots; it does not delete source audio or
   the independent Evaluation database.
-- Audio Dedup apply removes database rows only for files it actually deleted.
+- Audio Dedup deletion removes database rows only for files it actually deleted.
+- Deleting one track row also removes that track's `search_session_seeds` and
+  `search_result_events` rows from the optional Evaluation database. The sidecar
+  is a separate file, so no foreign key cascades into it. This runs after the
+  catalog delete commits, and it opens the sidecar only when it already exists.
+  Both `DELETE /api/tracks/{track_id}` and Audio Dedup deletion take this path.
 - Relocation apply changes only `tracks.file_path`; it does not move or modify
   audio.
 

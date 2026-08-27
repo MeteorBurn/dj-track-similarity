@@ -7,7 +7,9 @@ A routine you can repeat without putting your audio or your database at risk.
 3. Treat `*.evaluation.sqlite` as optional evaluation state.
 4. Use relocation preview before apply. Apply changes stored `tracks.file_path` only; it never moves,
    copies, deletes, or retags audio.
-5. Run Audio Doctor and Audio Dedup in report mode before their confirmation-gated apply modes.
+5. Run Audio Doctor and Audio Dedup in report mode before their confirmation-gated delete and repair
+   modes. Audio Dedup reports open in the browser review dialog, where you decide copy by copy and
+   can send the deletions to the recycle bin.
 
 When a database structure changes, keep a verified backup and update the clean current schema
 deliberately. A legacy split database is not changed at startup; convert it only with the explicit

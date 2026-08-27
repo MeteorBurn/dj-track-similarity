@@ -26,10 +26,15 @@ TRANSCODE_MIN_SHARPNESS_DB = 14.0
 FULL_BAND_MIN_CUTOFF_HZ = 21_000.0
 DECODE_TIMEOUT_SECONDS = 120
 LOSSY_EXTENSIONS = (".mp3", ".aac", ".ogg", ".oga", ".opus", ".wma")
+# Boundaries sit in the gaps between the classes measured in the Fakin' The Funk
+# reference, which pairs a cutoff with the real bitrate it came from: 128 kbps
+# spans 16000-16891 Hz, 160 spans 16938-17717, 192 spans 18019-18709, and
+# 224 and 256 overlap at 18881-19549, so they share one label.
 CUTOFF_BITRATE_CLASSES = (
     (19_800.0, "~320 kbps class"),
-    (18_300.0, "~192-256 kbps class"),
-    (16_800.0, "~160-192 kbps class"),
+    (18_795.0, "~224-256 kbps class"),
+    (17_868.0, "~192 kbps class"),
+    (16_915.0, "~160 kbps class"),
     (15_200.0, "~128 kbps class"),
     (0.0, "<=112 kbps class"),
 )

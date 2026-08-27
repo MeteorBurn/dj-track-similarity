@@ -43,7 +43,7 @@ test("scan action keeps the import trigger beside database maintenance controls"
 
   const controlCount = (rowMatch[1].match(/<button\b/g) || []).length;
 
-  assert.equal(controlCount, 5);
+  assert.equal(controlCount, 6);
   assert.match(styleMatch[1], /display:\s*flex/);
   assert.match(styleMatch[1], /gap:\s*6px/);
   assert.match(primaryButtonMatch[1], /flex:\s*1/);
@@ -478,14 +478,6 @@ test("topbar omits a Rhythm Lab stop control", () => {
   assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*server-shutdown-button[\s\S]*stop-active-stage-button/);
   assert.doesNotMatch(actionsBlock, /rhythm-lab-stop-button/);
   assert.doesNotMatch(appSource, /handleStopRhythmLab|api\.stopRhythmLab/);
-});
-
-test("audio helper tools are absent from the application client", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
-
-  assert.doesNotMatch(appSource, /Audio(Dedup|Doctor)/);
-  assert.doesNotMatch(apiSource, /audio-(dedup|doctor)/);
 });
 
 test("library search exposes an explicit LIKE and FTS segmented toggle", () => {

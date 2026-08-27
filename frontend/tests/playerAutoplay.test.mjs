@@ -32,7 +32,7 @@ test("ending a library preview starts the next visible track", () => {
   const source = readFileSync(appPath, "utf8");
   const previewAudio = source.match(/<audio\b[\s\S]*?src=\{`\/media\/\$\{preview\.track_id\}`\}[\s\S]*?\/>/)?.[0] || "";
 
-  assert.match(source, /function handleLibraryPreviewEnded\(track: Track\)/);
+  assert.match(source, /function handleLibraryPreviewEnded\(track: \w+\)/);
   assert.match(previewAudio, /onEnded=\{\(\) => \{\s*handleLibraryPreviewEnded\(preview\);\s*}}/);
 });
 
@@ -65,7 +65,7 @@ test("selected library preview exposes seek and duration next to its play button
   const playbackStyles = stylesSource.match(/\.track-row-playback\s*\{([\s\S]*?)}/)?.[1] || "";
   const rangeStyles = stylesSource.match(/\.track-row-playback input\[type="range"\]\s*\{([\s\S]*?)}/)?.[1] || "";
 
-  assert.match(appSource, /function seekPreview\(track: Track, seconds: number\)/);
+  assert.match(appSource, /function seekPreview\(track: \w+, seconds: number\)/);
   assert.match(appSource, /audio\.currentTime =/);
   assert.match(rowsSource, /track-row-playback/);
   assert.match(rowsSource, /type="range"/);

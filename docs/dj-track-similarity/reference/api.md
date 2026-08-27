@@ -50,7 +50,53 @@ also absent.
 `DELETE /api/tracks/{track_id}` requires the current track identity in its JSON body:
 `catalog_uuid` and `track_uuid`. It removes the matching SQLite catalog row, its FTS entry, and
 foreign-key-cascaded catalog relations in one transaction. It never deletes or changes the source
-audio file. Rhythm Lab and Evaluation sidecars are independent and are not modified by this route.
+audio file. After that transaction commits, it also removes the track's `search_session_seeds` and
+`search_result_events` rows from the optional Evaluation sidecar, which is a separate file that no
+foreign key reaches. The sidecar is opened only when it already exists. The Rhythm Lab database is
+independent and is not modified by this route.
+
+## Audio Dedup
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/audio-dedup/jobs` | start one duplicate scan |
+| `GET` | `/api/audio-dedup/jobs/latest` | latest scan job, or `null` |
+| `GET` | `/api/audio-dedup/jobs/{job_id}` | scan job status |
+| `POST` | `/api/audio-dedup/jobs/{job_id}/cancel` | request cancellation |
+| `GET` | `/api/audio-dedup/reports` | reports found in the report directory |
+| `GET` | `/api/audio-dedup/reports/{report_id}` | one report summary |
+| `GET` | `/api/audio-dedup/reports/{report_id}/groups` | paged, filtered, live-checked groups |
+| `GET` | `/api/audio-dedup/reports/{report_id}/xlsx` | download that run's workbook |
+| `POST` | `/api/audio-dedup/reports/{report_id}/delete` | delete a confirmed selection |
+
+A scan request accepts `root`, `path_contains`, `search_mode` (`fingerprint` by default, or
+`embedding`), `preset` (`safe`, `balanced`, or `aggressive`), `min_score`, `min_similarity`,
+`limit_groups`, `sources`, `weights`, and `skip_spectral`. Unknown fields are rejected. `sources`
+and `weights` require the embedding mode. The preset, sources, and weights are resolved before the
+job is queued, so a rejected value returns `400` instead of failing inside the job thread. One scan
+runs at a time and a second start returns `409`. Cancellation reports `state="cancelled"` rather
+than a failure. The scan writes the same JSON, XLSX, and log artifacts the CLI writes, and the
+completed status carries the `report_id`, which is the JSON file stem.
+
+Reports are read back from disk, newest first, so a review survives a server restart and a
+CLI-produced report is listed too. A `report_id` that is not a plain name inside the report
+directory is rejected. The groups route accepts `offset`, `limit` (`1..200`, `25` by default),
+repeatable `confidence`, `min_fingerprint`, `fake_bitrate_only`, and `path_contains`. Every
+file it returns is checked against the live database and the disk with the tests the deletion gate
+runs later, so a group entry carries `stale`, `stale_reason`, and `playable` alongside the report's
+own evidence.
+
+The delete request is `{"selections": [{"group_id": 1, "track_ids": [186]}], "deletion_mode":
+"trash", "confirmation": "APPLY DELETE"}`. `deletion_mode` is `trash` or `permanent` and defaults to
+`trash`. The route requires `confirmation` to equal `APPLY DELETE` exactly, and it rejects a
+`track_id` that does not belong to the named `group_id`. The deletion root comes from the report
+payload, and a report written against another database is refused. The route holds an exclusive
+database reservation while it runs. Selected members are deleted whether or not the report called them safe, the suggested
+keeper included, and a group that would lose every copy is skipped instead. The response returns
+`requested`, `deleted_track_ids`, `deleted_paths`, `skipped`, `failed`, and
+`rhythm_lab_deleted_rows`. Report artifacts are left as written, so the next group page shows the
+deleted copies as stale. For the review workflow and the shared deletion gates, see
+[Audio Dedup](../tools-and-scripts/audio-dedup.md).
 
 ## Analysis and classifiers
 

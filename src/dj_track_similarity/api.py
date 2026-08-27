@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api_routes_docs import register_docs_routes
 from .api_routes_analysis import register_analysis_routes
+from .api_routes_audio_dedup import register_audio_dedup_routes
 from .api_routes_database import register_database_routes
 from .api_routes_evaluation import register_evaluation_routes
 from .api_routes_library import register_library_routes
@@ -133,6 +134,7 @@ def create_app(
         return JSONResponse(status_code=409, content={"detail": str(error)})
 
     register_database_routes(app, state, open_database_file_dialog=open_database_file_dialog)
+    register_audio_dedup_routes(app, state)
     register_library_routes(
         app,
         state,

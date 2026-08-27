@@ -57,7 +57,6 @@ test("API module keeps public types separate from domain client implementation",
   assert.match(apiSource, /export \{ api \} from "\.\/apiClient";/);
   assert.match(clientSource, /const databaseApi = \{/);
   assert.match(clientSource, /const searchApi = \{/);
-  assert.doesNotMatch(clientSource, /audio-(dedup|doctor)/);
   assert.doesNotMatch(apiSource, /async function request/);
 });
 
@@ -401,4 +400,45 @@ test("API client surfaces backend error text for unknown or invalid payload fail
     api.resetAnalysis("mert"),
     /Unknown classifier: break_energy/
   );
+});
+
+test("audio dedup client serializes review filters and the confirmed delete batch", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options = {}) => {
+    calls.push({ path, options });
+    return jsonResponse({});
+  });
+
+  await api.audioDedupGroups("audio_dedup_report_20260827_120000", {
+    offset: 25,
+    limit: 25,
+    confidence: ["high", "medium"],
+    min_fingerprint: 0.9,
+    fake_bitrate_only: true,
+    path_contains: "vinyl"
+  });
+  await api.audioDedupDelete("audio_dedup_report_20260827_120000", {
+    selections: [{ group_id: 3, track_ids: [7, 9] }],
+    deletion_mode: "trash",
+    confirmation: "APPLY DELETE"
+  });
+
+  const groupsUrl = new URL(calls[0].path, "http://localhost");
+  assert.equal(groupsUrl.pathname, "/api/audio-dedup/reports/audio_dedup_report_20260827_120000/groups");
+  assert.equal(groupsUrl.searchParams.get("offset"), "25");
+  assert.deepEqual(groupsUrl.searchParams.getAll("confidence"), ["high", "medium"]);
+  assert.equal(groupsUrl.searchParams.get("min_fingerprint"), "0.9");
+  assert.equal(groupsUrl.searchParams.get("fake_bitrate_only"), "true");
+  assert.equal(groupsUrl.searchParams.get("path_contains"), "vinyl");
+
+  assert.equal(
+    calls[1].path,
+    "/api/audio-dedup/reports/audio_dedup_report_20260827_120000/delete"
+  );
+  assert.equal(calls[1].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    selections: [{ group_id: 3, track_ids: [7, 9] }],
+    deletion_mode: "trash",
+    confirmation: "APPLY DELETE"
+  });
 });

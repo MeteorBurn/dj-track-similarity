@@ -14,6 +14,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .db_evaluation_sidecar import delete_evaluation_track_rows
 from .db_search_fts import delete_track_search_fts, upsert_track_search_fts
 from .track_models import (
     ClearLibraryResult,
@@ -423,6 +424,31 @@ class TrackRepository:
 
     def connect(self) -> sqlite3.Connection:
         raise NotImplementedError
+
+    def connect_evaluation(
+        self,
+        *,
+        create: bool = False,
+    ) -> sqlite3.Connection | None:
+        raise NotImplementedError
+
+    def _purge_evaluation_rows(self, track_id: int) -> None:
+        """Drop one deleted track's rows from the Evaluation sidecar.
+
+        The sidecar is a separate file, so SQLite cannot cascade a catalog
+        delete into it and the rows would outlive the track. This runs after the
+        catalog delete commits: the sidecar holds derived evidence, and clearing
+        it for a track that then survived a failed delete is the worse trade.
+        """
+
+        connection = self.connect_evaluation(create=False)
+        if connection is None:
+            return
+        try:
+            with connection:
+                delete_evaluation_track_rows(connection, (track_id,))
+        finally:
+            connection.close()
 
     def get_track_identity(
         self,
@@ -1421,6 +1447,9 @@ class TrackRepository:
                         connection.rollback()
                     raise
 
+        if row_present:
+            self._purge_evaluation_rows(expected.track_id)
+
         return TrackRemovalResult(
             identity=expected,
             file_path=stored_path,
@@ -1462,6 +1491,8 @@ class TrackRepository:
                     if connection.in_transaction:
                         connection.rollback()
                     raise
+
+        self._purge_evaluation_rows(expected.track_id)
 
     def mark_missing_if_current(
         self,

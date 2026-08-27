@@ -2,6 +2,12 @@
 
 Audio Dedup reads an existing SQLite library and writes JSON/XLSX/log reports by default. It uses stored analysis data, local paths, and a read-only FFmpeg decode of duplicate-group files for the spectral check below. It does not scan unknown folders outside the selected root and never modifies source audio.
 
+Two surfaces run the same core. The CLI writes reports, and a confirmed `--apply` run deletes the
+safe candidates in one. The browser dialog starts a scan, then reads a report back from disk for
+copy-by-copy review. The same confirmation phrase deletes what you mark there. Both use the reports in
+`tools/audio-dedup/data/reports/`, so a CLI report opens in the browser and a browser scan leaves an
+XLSX workbook to download.
+
 ## Requirements
 
 Audio Dedup needs stored audio-to-audio evidence. The available embedding sources are `mert`,
@@ -70,6 +76,97 @@ with code `2`. Fingerprint mode is the one report configuration without scoring 
 report payload records `"search_mode": "fingerprint"` with `"sources": []` and `"weights": {}`,
 while `fingerprint_retrieval` and the per-pair `candidate_sources` value `["fingerprint_lsh"]`
 record the retrieval path.
+
+## Browser review
+
+Fingerprint mode never marks a candidate safe to delete, so a person deciding copy by copy is the
+route to deletion there. The browser dialog is that review surface.
+
+Open it from the library action row with **Find and review duplicates**, the copy-check icon to the
+left of the clear-database button. It stays disabled while another job runs and while the library
+holds no tracks.
+
+### Run a scan
+
+The **Search** section takes a search root, typed or chosen with the folder picker, a search mode of
+**Fingerprints** or **Embeddings + fingerprints**, and a **Skip spectral** toggle. **Find duplicates** starts the
+scan, and the button becomes **Stop** while it runs. Progress shows the current phase and the
+processed count. The scan writes the same JSON, XLSX, and log files a CLI run writes, under the same
+report directory.
+
+One scan runs at a time, and a second start is refused rather than queued. The dialog exposes no
+preset, threshold, source, weight, stored-path filter, or group limit, so a run that needs those
+stays a CLI run. Its report still opens here.
+
+### Choose a report and narrow it
+
+The **Report and filters** section lists every report in the report directory, newest first, with
+its generation time, root, and group count. The XLSX link downloads that run's workbook.
+
+| Filter | Effect |
+| --- | --- |
+| Confidence | Keeps groups whose confidence is high, medium, or manual review |
+| Fingerprint at least | Keeps groups whose best exact fingerprint score reaches this value |
+| Transcodes only | Keeps groups holding at least one suspected transcode |
+| Path contains | Keeps groups where one stored path contains this text |
+
+Groups load `25` at a time. **Mark candidates** selects the suggested copies in every group on the current
+page, and **Clear all** drops the whole selection. A selection survives paging and filter changes.
+
+### Read a group
+
+Each group card carries its group number, a confidence chip, the best exact fingerprint score in the
+group, the number of copies, and a transcode count when the spectral check flagged one.
+
+Every copy in the group gets a card, the suggested keeper included. A card shows:
+
+- a play button that streams `/media/{track_id}` through the app's single player, disabled when the
+  file cannot be read;
+- the file name, the stored artist and title when present, and the full stored path;
+- a badge naming the suggested keeper or a duplicate copy;
+- format, resolution, size, and duration on one strip, then the spectral verdict, then the
+  remaining facts. A lossless copy leads with sample rate and bit depth, and its bitrate trails as
+  "stream". Lossless compression packs the same samples into fewer bits, so a FLAC and the WAV it
+  came from differ in bitrate while carrying identical audio, and leading with that number reads as
+  if the FLAC were the worse copy. A lossy copy leads with its bitrate instead, because there the
+  number is the quality signal;
+- one verdict line for a duplicate copy, naming the evidence it rests on. A safe candidate reads
+  that MERT and MAEST corroborated the match. Otherwise the line states the exact fingerprint score
+  and that one fingerprint is not enough to delete automatically, and a score under `0.9` adds that
+  a partial match is what a vinyl rip against a digital copy, or a remaster, looks like. The
+  suggested keeper carries no verdict line because its badge already states the role.
+
+Each card then lists the report's own sentences under **Details**, deduplicated: the report states
+each fact twice, once as `Manual review required: X.` and once as `X`, and the prefix and trailing
+period are stripped before matching. In fingerprint mode the sentences that only report an unloaded
+embedding, such as "MERT source disabled" or "missing content similarity", are dropped rather than
+listed. No embedding is loaded in that mode by design, so those lines describe the run rather than
+the pair, and reading them as findings about the two copies is misleading.
+
+The listed sentences are translated for the screen; a sentence with no translation is shown in the
+report's own wording rather than hidden. The JSON, XLSX and log artifacts stay English, because they
+are the record the CLI writes and reads.
+
+Every listed file is rechecked against the current database and the disk with the tests the deletion
+gate runs later. A file that no longer matches its report row is marked stale with a reason, so a
+stale candidate is visible before confirmation instead of appearing in the skipped list afterwards.
+The reasons are a track that left the library, a stale report identity, missing or stale reported
+file facts, and a file missing on disk.
+
+### Confirm a deletion
+
+**Use the suggestion** in one group marks every duplicate that is not stale and leaves the suggested
+keeper. Any copy can be marked instead, the keeper included, and **Delete this copy** toggles a
+single card. A group with every copy marked shows a warning, and the dialog blocks the request while
+that group is on the page. The server applies the same rule to the whole selection by skipping those
+copies.
+
+The footer counts the marked copies and the groups they came from. Its size total covers the marked
+copies on the current page, so it understates a selection spread over several pages.
+
+Deletion needs a **Recycle bin** or **Permanent** choice and the exact phrase `APPLY DELETE`, the
+phrase the CLI apply prompt also requires. The delete button stays disabled until both are set. See
+[Deleting duplicates](#deleting-duplicates) for the gates the request then passes.
 
 ## Sources and weights
 
@@ -149,7 +246,11 @@ full-band window clears a copy while a true transcode stays walled in every wind
 uses the stored `tracks.sample_rate_hz` value.
 
 A lossless container whose widest window ends in a brickwall below `19.45` kHz, dropping at least
-`14` dB across the cutoff, is marked `suspected_transcode`. That is fake-bitrate evidence, such
+`14` dB across the cutoff, is marked `suspected_transcode`. The ceiling sits below the wall a 320 kbps
+encoder leaves, near `20.1` kHz, so that class is a known miss rather than an oversight: raising the
+ceiling and gating it on a steeper drop was measured against the project's 1000-file reference and
+added three false alarms for no extra detection, because honest masters in this library also carry
+steep walls near 20 kHz. That is fake-bitrate evidence, such
 as an MP3-sourced rip stored as FLAC or WAV. A lossy container is instead measured against the
 stored `tracks.bit_rate_bps` value and becomes suspect only when its wall sits below the cutoff
 expected at that declared bitrate. The note then records a match or a shortfall. A gradual
@@ -267,7 +368,11 @@ python tools\audio-dedup\audio_dedup_cli.py --help
 
 ## Safe-delete corroboration
 
-Safe deletion exists only in `--embedding` mode. MuQ and CLAP can affect ranking and report candidates, but they cannot replace MERT plus MAEST evidence for automatic deletion.
+Safe delete candidates exist only in `--embedding` mode. The flag is what lets `--apply` act without
+per-copy review. A reviewer can still confirm a deletion from any report in the browser, including a
+fingerprint-mode report that carries no safe candidate at all.
+
+MuQ and CLAP can affect ranking and report candidates, but they cannot replace MERT plus MAEST evidence for automatic deletion.
 
 The exact legacy profile keeps its previous aggregate gate. Every non-legacy source or weight configuration requires:
 
@@ -278,25 +383,62 @@ The exact legacy profile keeps its previous aggregate gate. Every non-legacy sou
 
 A high MuQ or CLAP similarity by itself can produce a review candidate, but never a safe delete candidate.
 
-## Apply mode
+## Deleting duplicates
 
-Apply mode is destructive. It requires exact confirmation:
+Deletion is destructive in both surfaces, and both require the exact phrase:
 
 ```text
 APPLY DELETE
 ```
 
-The tool deletes only safe duplicate candidates inside the selected `--root`. Before deletion it rechecks the report identity fields `catalog_uuid` and `track_uuid`, the stored path, and the reported `size` and `file_modified_ns`. It also verifies that the group's suggested keeper file still exists on disk; when the keeper is missing, the candidate is skipped with the reason "keeper file is missing on disk". Stale or mismatched candidates are skipped.
+Every deletion runs the same per-file gates. A target must sit inside the run's root. The tool then
+rechecks the report identity fields `catalog_uuid` and `track_uuid`, the stored path, and the
+reported `size` and `file_modified_ns` against the live database, and confirms that the file is
+still on disk. A target that fails one of those checks is skipped with its reason while the rest of
+the run continues.
 
-SQLite rows are removed only for tracks whose files were deleted. After the deletions, matching
-rows are also removed from the Rhythm Lab labels database. A SQLite failure in that cleanup does
-not abort the run: it is recorded in the apply result's `failed` list as `rhythm_lab_cleanup:`
-plus the error, and the reports are still rewritten.
+SQLite rows are removed only for tracks whose files were deleted. Removing a track row also clears
+that track's rows in the optional Evaluation database, because the sidecar is a separate file that
+no foreign key reaches. After the deletions, matching rows are also removed from the Rhythm Lab
+labels database. A SQLite failure in that cleanup does not abort the run: it is recorded in the
+result's `failed` list as `rhythm_lab_cleanup:` plus the error.
 
-A confirmed apply rewrites the JSON, XLSX, and log reports, so every saved report describes the
+### What each surface deletes
+
+| Surface | Targets | Copy that must survive |
+| --- | --- | --- |
+| CLI `--apply` | Safe delete candidates in the report | The group's suggested keeper, which must still exist on disk |
+| Browser review | The copies you marked, the keeper included | Any group member left unmarked, which must still exist on disk |
+
+The CLI path skips a candidate whose keeper is gone with the reason `keeper file is missing on disk`.
+The browser path skips every marked copy of a group that would lose all of its copies, with the
+reason `group would lose every copy`. Safe candidates exist only in `--embedding` mode, so `--apply`
+finds nothing to delete in a fingerprint-mode report and the browser review is that report's
+deletion path.
+
+A browser deletion takes its root from the report payload, so a deletion covers the scope of the
+scan it reviews. A report written against another database is refused before any file is touched,
+and the deletion holds the database exclusively while it runs.
+
+### Recycle bin or permanent
+
+The browser review offers **Recycle bin** and **Permanent** and starts on the recycle bin. Recycle
+bin deletion uses the `send2trash` package, a project dependency. It never falls back to a permanent
+delete. A missing package fails the request before any file is touched. A recycle-bin failure on one
+file leaves that file in place and records the error in the result's `failed` list. The CLI
+`--apply` run deletes permanently.
+
+### After a deletion
+
+A confirmed CLI apply rewrites the JSON, XLSX, and log reports, so every saved report describes the
 apply run. The XLSX Summary sheet's `Mode` row then reads `apply` instead of `report-only`.
 
-Do not run apply mode during routine tests. Review the report first and keep backups when the library matters.
+A browser deletion leaves the report files untouched. The report stays the record of the scan that
+produced it, and the deleted copies appear as stale on the next page load. The response carries the
+deleted track ids and paths, the skipped and failed entries, and the Rhythm Lab row count.
+
+Do not run either deletion path during routine tests. Review the report first and keep backups when
+the library matters.
 
 ## Output
 

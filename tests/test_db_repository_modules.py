@@ -11,8 +11,10 @@ REPOSITORY_MODULES = {
     "dj_track_similarity.db_summary": "SummaryRepository",
 }
 
-# LibraryDatabase owns connection setup, so it may redefine this one.
-FACADE_OWNED = {"connect"}
+# LibraryDatabase owns connection setup, so it may redefine these. A repository
+# that reaches the Evaluation sidecar declares the accessor to state its host
+# contract; the facade is still the one that resolves the path and the lock.
+FACADE_OWNED = {"connect", "connect_evaluation"}
 
 
 def test_database_repositories_are_split_behind_library_database_facade() -> None:

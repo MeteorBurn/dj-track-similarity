@@ -204,6 +204,48 @@ def test_tracks_endpoint_liked_mutation_uses_composite_cas(
     assert unliked.json()["liked"] is False
 
 
+def _seed_evaluation_rows(database: LibraryDatabase, identity: TrackIdentity) -> None:
+    connection = database.connect_evaluation(create=True)
+    assert connection is not None
+    with connection:
+        connection.execute(
+            """
+            INSERT INTO search_sessions(session_id, mode, request_json, created_at)
+            VALUES (1, 'seed', '{}', '2026-08-27T00:00:00Z')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO search_session_seeds(session_id, position, track_id, track_uuid)
+            VALUES (1, 0, ?, ?)
+            """,
+            (identity.track_id, identity.track_uuid),
+        )
+        connection.execute(
+            """
+            INSERT INTO search_result_events(
+                session_id, rank, track_id, track_uuid,
+                total_score, score_breakdown_json, created_at
+            )
+            VALUES (1, 0, ?, ?, 0.9, '{}', '2026-08-27T00:00:00Z')
+            """,
+            (identity.track_id, identity.track_uuid),
+        )
+    connection.close()
+
+
+def _evaluation_track_row_count(database: LibraryDatabase) -> int:
+    connection = database.connect_evaluation(create=False)
+    assert connection is not None
+    try:
+        return sum(
+            int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            for table in ("search_session_seeds", "search_result_events")
+        )
+    finally:
+        connection.close()
+
+
 def test_delete_track_removes_catalog_data_but_keeps_source_audio(
     monkeypatch,
     tmp_path: Path,
@@ -218,6 +260,7 @@ def test_delete_track_removes_catalog_data_but_keeps_source_audio(
         title="Delete Me",
     )
     database.set_track_liked(expected=identity, liked=True)
+    _seed_evaluation_rows(database, identity)
     client = _client(monkeypatch, db_path)
 
     response = client.request(
@@ -242,6 +285,9 @@ def test_delete_track_removes_catalog_data_but_keeps_source_audio(
         assert connection.execute("SELECT COUNT(*) FROM tags").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM likes").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM track_search_fts").fetchone()[0] == 0
+    # The Evaluation sidecar is a separate file, so no cascade reaches it and a
+    # deleted track would otherwise keep naming itself there.
+    assert _evaluation_track_row_count(database) == 0
 
 
 def test_track_detail_endpoint_returns_full_typed_tags(

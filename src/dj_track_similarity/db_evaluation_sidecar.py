@@ -8,6 +8,7 @@ created in the current shape, while an existing file is left untouched.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Collection
 from contextlib import closing
 from pathlib import Path
 
@@ -77,6 +78,7 @@ CREATE INDEX idx_calibration_profile_created
     ON calibration_runs(profile_name, search_mode, created_at, calibration_run_id);
 """
 
+_DELETE_CHUNK_SIZE = 800
 _ALL_DDL = (
     _DDL_EVALUATION_PROFILES,
     _DDL_SEARCH_SESSIONS,
@@ -133,6 +135,32 @@ def connect_evaluation_sidecar(
     except BaseException:
         connection.close()
         raise
+
+
+# Sidecar rows name a track but cannot reference it: the catalog lives in another
+# file, so SQLite cannot cascade the delete for us.
+_EVALUATION_TRACK_TABLES = ("search_session_seeds", "search_result_events")
+
+
+def delete_evaluation_track_rows(
+    connection: sqlite3.Connection,
+    track_ids: Collection[int],
+) -> int:
+    """Remove every evaluation row that names one of these tracks."""
+    selected = sorted({int(track_id) for track_id in track_ids})
+    if not selected:
+        return 0
+    deleted = 0
+    for table in _EVALUATION_TRACK_TABLES:
+        for index in range(0, len(selected), _DELETE_CHUNK_SIZE):
+            chunk = selected[index : index + _DELETE_CHUNK_SIZE]
+            placeholders = ",".join("?" for _ in chunk)
+            cursor = connection.execute(
+                f"DELETE FROM {table} WHERE track_id IN ({placeholders})",
+                chunk,
+            )
+            deleted += int(cursor.rowcount or 0)
+    return deleted
 
 
 def _apply_schema(connection: sqlite3.Connection) -> None:

@@ -786,7 +786,7 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     _insert_track(db_path, track_id=1, path=str(first_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(second_path), size=8_000_000, mtime=200, vectors=vectors)
 
-    exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir)])
+    exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir), "--embedding"])
 
     assert exit_code == 0
     assert first_path.exists()
@@ -1074,7 +1074,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     )
     _insert_track(db_path, track_id=3, path="N:/Volumes/Other/three.flac", size=20_000_000, sonara=sonara, vectors=vectors)
 
-    result = dedup.run_report(db_path=db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[], preset_name="safe", min_score=None, limit_groups=None, out_dir=out_dir)
+    result = dedup.run_report(db_path=db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[], preset_name="safe", min_score=None, limit_groups=None, out_dir=out_dir, mode=dedup.MODE_EMBEDDING)
 
     json_payload = json.loads(result.json_path.read_text(encoding="utf-8"))
     assert json_payload["database_path"] == str(db_path.resolve())
@@ -1194,6 +1194,7 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
         min_score=None,
         limit_groups=None,
         out_dir=out_dir,
+        mode=dedup.MODE_EMBEDDING,
     )
 
     payload = json.loads(result.json_path.read_text(encoding="utf-8"))
@@ -1261,7 +1262,7 @@ def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: 
             (*duplicate_identity, str(duplicate_path)),
         )
 
-    exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir)])
+    exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir), "--embedding"])
 
     assert exit_code == 0
     stdout = capsys.readouterr().out
@@ -1318,6 +1319,7 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
         min_score=None,
         limit_groups=None,
         out_dir=out_dir,
+        mode=dedup.MODE_EMBEDDING,
     )
 
     apply_result = dedup.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)
@@ -1447,6 +1449,7 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
         min_score=None,
         limit_groups=None,
         out_dir=out_dir,
+        mode=dedup.MODE_EMBEDDING,
     )
 
     apply_result = dedup.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)

@@ -36,26 +36,36 @@ function file(trackId, role) {
   return { track_id: trackId, role, size: 1024, stale: false };
 }
 
-test("a delete batch is refused unless the confirmation phrase matches exactly", () => {
-  const { buildDeleteRequest } = loadAudioDedupView();
+test("a delete batch carries the confirmation phrase the delete endpoint requires", () => {
+  const { applyDeleteConfirmation, buildDeleteRequest } = loadAudioDedupView();
   const groups = [group(1, [file(10, "keeper"), file(11, "duplicate")])];
 
-  const wrong = buildDeleteRequest(groups, { 1: [11] }, "trash", "apply delete");
-  const right = buildDeleteRequest(groups, { 1: [11] }, "trash", "APPLY DELETE");
+  const built = buildDeleteRequest(groups, { 1: [11] }, "trash");
 
-  assert.equal(wrong.ok, false);
-  assert.equal(right.ok, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(right.payload.selections)), [
+  assert.equal(built.ok, true);
+  assert.equal(built.payload.confirmation, applyDeleteConfirmation);
+  assert.equal(built.payload.deletion_mode, "trash");
+  assert.deepEqual(JSON.parse(JSON.stringify(built.payload.selections)), [
     { group_id: 1, track_ids: [11] }
   ]);
+});
+
+test("a report the listing no longer holds is dropped for the newest one", () => {
+  const { reconcileReportId } = loadAudioDedupView();
+  const listing = [{ report_id: "newest" }, { report_id: "older" }];
+
+  assert.equal(reconcileReportId(listing, "older"), "older");
+  assert.equal(reconcileReportId(listing, "deleted"), "newest");
+  assert.equal(reconcileReportId([], "deleted"), null);
+  assert.equal(reconcileReportId([], null), null);
 });
 
 test("a selection that would delete every copy of a group is refused", () => {
   const { buildDeleteRequest } = loadAudioDedupView();
   const groups = [group(1, [file(10, "keeper"), file(11, "duplicate")])];
 
-  const emptied = buildDeleteRequest(groups, { 1: [10, 11] }, "trash", "APPLY DELETE");
-  const keeperOnly = buildDeleteRequest(groups, { 1: [10] }, "trash", "APPLY DELETE");
+  const emptied = buildDeleteRequest(groups, { 1: [10, 11] }, "trash");
+  const keeperOnly = buildDeleteRequest(groups, { 1: [10] }, "trash");
 
   assert.equal(emptied.ok, false);
   assert.match(emptied.error, /все копии/);

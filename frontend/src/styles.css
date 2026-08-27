@@ -4959,20 +4959,6 @@ button.dedup-play-button {
   color: var(--text-muted);
 }
 
-.dedup-control-confirm {
-  min-width: 170px;
-}
-
-.dedup-control-confirm input {
-  font-family: inherit;
-  letter-spacing: 0.06em;
-}
-
-.dedup-control-confirm input.confirmed {
-  border-color: var(--danger-border);
-  color: var(--danger-text);
-}
-
 /* The copies grid needs no breakpoint: auto-fit already drops to one column
    when two no longer fit, and forcing it earlier wasted half the width. */
 @media (max-width: 900px) {

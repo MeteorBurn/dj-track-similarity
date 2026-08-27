@@ -14,9 +14,9 @@ import {
 import { api } from "./api";
 import type { AudioDedupDeletionMode, AudioDedupFile, AudioDedupSearchMode } from "./api";
 import { AudioDedupGroupCard } from "./AudioDedupReview";
+import { ConfirmationDialog } from "./dialogs";
 import { helpText } from "./helpText";
 import {
-  applyDeleteConfirmation,
   confidenceLabel,
   dedupConfidenceOptions,
   formatBytes,
@@ -24,6 +24,7 @@ import {
 } from "./audioDedupView";
 import { useAudioDedup } from "./useAudioDedup";
 import type { AudioDedupFilters } from "./useAudioDedup";
+import { useConfirmation } from "./useConfirmation";
 
 export function AudioDedupDialog({
   open,
@@ -43,16 +44,20 @@ export function AudioDedupDialog({
   const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint");
   const [skipSpectral, setSkipSpectral] = useState(false);
   const [deletionMode, setDeletionMode] = useState<AudioDedupDeletionMode>("trash");
-  const [confirmation, setConfirmation] = useState("");
   const [draftFilters, setDraftFilters] = useState<AudioDedupFilters>(dedup.filters);
+  const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } =
+    useConfirmation();
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      // Escape answers whatever is on top: the delete prompt first, the dialog after.
+      if (confirmation) cancelConfirmation();
+      else onClose();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [cancelConfirmation, confirmation, onClose]);
 
   const activeReport = useMemo(
     () => dedup.reports.find((report) => report.report_id === dedup.reportId) ?? null,
@@ -62,8 +67,7 @@ export function AudioDedupDialog({
     () => selectionSummary(dedup.page?.groups ?? [], dedup.selection),
     [dedup.page, dedup.selection]
   );
-  const confirmed = confirmation.trim() === applyDeleteConfirmation;
-  const canDelete = summary.files > 0 && confirmed && !dedup.busy;
+  const canDelete = summary.files > 0 && !dedup.busy;
 
   if (!open) return null;
 
@@ -84,10 +88,24 @@ export function AudioDedupDialog({
     }
   }
 
+  function requestDelete() {
+    requestConfirmation({
+      title:
+        deletionMode === "trash"
+          ? "Удалить помеченные копии в корзину?"
+          : "Удалить помеченные копии безвозвратно?",
+      message:
+        `${summary.files} копий в ${summary.groups} группах · ${formatBytes(summary.bytes)}. `
+        + (deletionMode === "trash"
+          ? "Файлы уйдут в корзину, их строки будут удалены из базы."
+          : "Файлы будут стёрты с диска мимо корзины, их строки будут удалены из базы."),
+      onConfirm: () => void runDelete()
+    });
+  }
+
   async function runDelete() {
-    const result = await dedup.deleteSelected(deletionMode, confirmation.trim());
+    const result = await dedup.deleteSelected(deletionMode);
     if (!result) return;
-    setConfirmation("");
     const target = deletionMode === "trash" ? "в корзину" : "безвозвратно";
     const parts = [`Удалено ${target}: ${result.deleted_track_ids.length}`];
     if (result.skipped.length > 0) parts.push(`пропущено ${result.skipped.length}`);
@@ -436,34 +454,27 @@ export function AudioDedupDialog({
               <option value="permanent">Безвозвратно</option>
             </select>
           </label>
-          <label className="dedup-control dedup-control-confirm">
-            <span>Подтверждение</span>
-            <input
-              className={confirmed ? "confirmed" : ""}
-              value={confirmation}
-              placeholder={applyDeleteConfirmation}
-              spellCheck={false}
-              disabled={summary.files === 0}
-              onChange={(event) => setConfirmation(event.target.value)}
-            />
-          </label>
           <button
             className="dedup-delete-button"
             type="button"
             disabled={!canDelete}
             title={
-              summary.files === 0
-                ? "Пометьте копии на удаление"
-                : confirmed
-                  ? `Удалить ${summary.files} копий`
-                  : `Введите ${applyDeleteConfirmation} для подтверждения`
+              summary.files === 0 ? "Пометьте копии на удаление" : `Удалить ${summary.files} копий`
             }
-            onClick={() => void runDelete()}
+            onClick={requestDelete}
           >
             <Trash2 size={15} />
             Удалить помеченное
           </button>
         </footer>
+
+        {confirmation && (
+          <ConfirmationDialog
+            request={confirmation}
+            onConfirm={confirmPendingAction}
+            onCancel={cancelConfirmation}
+          />
+        )}
       </section>
     </div>
   );

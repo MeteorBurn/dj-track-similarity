@@ -3,13 +3,37 @@ import type {
   AudioDedupDeletionMode,
   AudioDedupFile,
   AudioDedupGroup,
+  AudioDedupReportSummary,
   AudioDedupSearchMode
 } from "./api";
 
+/**
+ * The phrase the delete endpoint requires in its body.
+ *
+ * The reviewer confirms in a dialog, so this is the client speaking the
+ * word the API demands rather than something anyone types: the phrase keeps
+ * a stray POST from deleting audio.
+ */
 export const applyDeleteConfirmation = "APPLY DELETE";
 
 /** Selected files to delete, keyed by group so an off-page choice survives paging. */
 export type DedupSelection = Record<number, number[]>;
+
+/**
+ * The report to review after a listing refresh.
+ *
+ * A report is a file on disk that the reviewer can delete between two visits to
+ * the dialog, so the report already chosen may no longer exist. It is kept only
+ * while the listing still holds it; otherwise the review moves to the newest
+ * report, or to none at all when nothing is left to review.
+ */
+export function reconcileReportId(
+  reports: AudioDedupReportSummary[],
+  current: string | null
+): string | null {
+  if (current && reports.some((report) => report.report_id === current)) return current;
+  return reports[0]?.report_id ?? null;
+}
 
 /**
  * Blocked reasons that only say the embedding evidence was not loaded.
@@ -222,17 +246,13 @@ export function selectionSummary(groups: AudioDedupGroup[], selection: DedupSele
 export function buildDeleteRequest(
   groups: AudioDedupGroup[],
   selection: DedupSelection,
-  deletionMode: AudioDedupDeletionMode,
-  confirmation: string
+  deletionMode: AudioDedupDeletionMode
 ): { ok: true; payload: AudioDedupDeleteRequest } | { ok: false; error: string } {
   const selections = Object.entries(selection)
     .map(([groupId, trackIds]) => ({ group_id: Number(groupId), track_ids: trackIds }))
     .filter((entry) => entry.track_ids.length > 0)
     .sort((left, right) => left.group_id - right.group_id);
   if (selections.length === 0) return { ok: false, error: "Не выбрано ни одного файла" };
-  if (confirmation !== applyDeleteConfirmation) {
-    return { ok: false, error: `Для удаления введите "${applyDeleteConfirmation}"` };
-  }
   const loaded = new Map(groups.map((group) => [group.group_id, group]));
   for (const entry of selections) {
     const group = loaded.get(entry.group_id);
@@ -243,12 +263,19 @@ export function buildDeleteRequest(
       };
     }
   }
-  return { ok: true, payload: { selections, deletion_mode: deletionMode, confirmation } };
+  return {
+    ok: true,
+    payload: {
+      selections,
+      deletion_mode: deletionMode,
+      confirmation: applyDeleteConfirmation
+    }
+  };
 }
 
 export function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "—";
-  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
@@ -275,26 +302,6 @@ export function formatCutoff(hz: number | null) {
   return `${(hz / 1000).toFixed(1)} кГц`;
 }
 
-const losslessFormats = new Set([
-  "FLAC",
-  "WAV",
-  "WAVE",
-  "AIF",
-  "AIFF",
-  "AIFC",
-  "ALAC",
-  "APE",
-  "WV",
-  "TAK",
-  "TTA",
-  "DFF",
-  "DSF"
-]);
-
-export function isLosslessFormat(audioFormat: string) {
-  return losslessFormats.has(audioFormat.toUpperCase());
-}
-
 /**
  * The bitrate the file declares.
  *
@@ -312,49 +319,43 @@ export function fileBitrateLabel(file: AudioDedupFile) {
   return null;
 }
 
-/** Sample rate and bit depth, which is what resolution means for lossless audio. */
-export function fileResolutionLabel(file: AudioDedupFile) {
-  const parts: string[] = [];
-  if (file.sample_rate_hz !== null && file.sample_rate_hz > 0) {
-    parts.push(`${(file.sample_rate_hz / 1000).toFixed(1)} кГц`);
-  }
-  if (file.bit_depth !== null && file.bit_depth > 0) parts.push(`${file.bit_depth} бит`);
-  return parts.length > 0 ? parts.join(" / ") : null;
+/** Sample rate and bit depth: what resolution means for a scanned file. */
+function sampleRateLabel(hertz: number | null) {
+  if (hertz === null || !Number.isFinite(hertz) || hertz <= 0) return null;
+  return `${hertz.toLocaleString("en-US")} Hz`;
+}
+
+function bitDepthLabel(bits: number | null) {
+  if (bits === null || !Number.isFinite(bits) || bits <= 0) return null;
+  return `${bits}-bit`;
 }
 
 /**
- * The headline facts a reviewer compares first.
+ * The technical line of one copy: format, stream, resolution, size, length.
  *
- * Lossless copies lead with resolution, not bitrate. A FLAC carries the same
- * samples as the WAV it was made from at roughly half the bits, so comparing
- * their bitrates measures packing rather than quality and reads as if the FLAC
- * were the worse copy. Sample rate and bit depth are the real resolution, and
- * they compare honestly across both containers. For a lossy copy the bitrate is
- * the quality signal, so that is what leads there.
+ * Every token is a fact the library scanned from the file, printed in the units
+ * the track metadata dialog uses, so one file reads the same way in both
+ * places. Bitrate and resolution stand side by side on purpose: between two
+ * lossless copies the bitrate measures packing rather than quality, and a FLAC
+ * at 900 kbps next to the WAV it came from at 1411 kbps carries the same
+ * 44,100 Hz / 16-bit samples.
  */
 export function fileSpecLine(file: AudioDedupFile) {
-  const lossless = isLosslessFormat(file.audio_format);
-  const headline = lossless ? fileResolutionLabel(file) : fileBitrateLabel(file);
   return [
     file.audio_format || "—",
-    ...(headline ? [headline] : []),
+    fileBitrateLabel(file),
+    sampleRateLabel(file.sample_rate_hz),
+    bitDepthLabel(file.bit_depth),
     formatBytes(file.size),
     formatSeconds(file.duration)
-  ].join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" / ");
 }
 
-/** Secondary facts, shown under the headline strip. */
+/** Tag facts, shown under the technical line. */
 export function fileQualityLine(file: AudioDedupFile) {
   const parts: string[] = [];
-  // Lossless already leads with resolution; the packed rate is context, not a
-  // verdict, so it trails and is marked as such.
-  if (isLosslessFormat(file.audio_format)) {
-    const bitrate = fileBitrateLabel(file);
-    if (bitrate) parts.push(`поток ${bitrate}`);
-  } else {
-    const resolution = fileResolutionLabel(file);
-    if (resolution) parts.push(resolution);
-  }
   if (file.metadata_completeness !== null) parts.push(`теги ${file.metadata_completeness}`);
   if (file.bpm !== null) parts.push(`${Math.round(file.bpm)} BPM`);
   if (file.musical_key) parts.push(file.musical_key);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { ApiError } from "./apiClient";
 import type {
   AudioDedupDeleteResult,
   AudioDedupDeletionMode,
@@ -10,6 +11,7 @@ import type {
 } from "./api";
 import {
   buildDeleteRequest,
+  reconcileReportId,
   setGroupSelection,
   suggestedGroupSelection,
   toggleFileSelection
@@ -38,6 +40,10 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isMissingReport(error: unknown) {
+  return error instanceof ApiError && error.status === 404;
+}
+
 export function useAudioDedup({ open }: { open: boolean }) {
   const [job, setJob] = useState<AudioDedupJobStatus | null>(null);
   const [reports, setReports] = useState<AudioDedupReportSummary[]>([]);
@@ -50,16 +56,37 @@ export function useAudioDedup({ open }: { open: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const groupRequestRef = useRef(0);
+  const reportIdRef = useRef<string | null>(null);
+
+  /**
+   * Move the review to another report, or to none at all.
+   *
+   * A report is a file on disk that can be deleted between two visits to this
+   * dialog, so a selection outlives what it points at. Switching starts a fresh
+   * review and abandons the page still in flight for the previous report:
+   * otherwise its "unknown report" answer lands as an error over a picker that
+   * has already moved on.
+   */
+  const selectReportId = useCallback((next: string | null) => {
+    if (reportIdRef.current === next) return;
+    reportIdRef.current = next;
+    groupRequestRef.current += 1;
+    setReportId(next);
+    setOffset(0);
+    setSelection({});
+    setLoadingGroups(false);
+    setError(null);
+  }, []);
 
   const refreshReports = useCallback(async () => {
     try {
       const listing = await api.audioDedupReports();
       setReports(listing);
-      setReportId((current) => current ?? listing[0]?.report_id ?? null);
+      selectReportId(reconcileReportId(listing, reportIdRef.current));
     } catch (cause) {
       setError(errorText(cause));
     }
-  }, []);
+  }, [selectReportId]);
 
   useEffect(() => {
     if (!open) return;
@@ -79,17 +106,13 @@ export function useAudioDedup({ open }: { open: boolean }) {
           setJob(next);
           if (next.state === "completed") {
             void refreshReports();
-            if (next.report_id) {
-              setReportId(next.report_id);
-              setOffset(0);
-              setSelection({});
-            }
+            if (next.report_id) selectReportId(next.report_id);
           }
         })
         .catch((cause) => setError(errorText(cause)));
     }, jobPollIntervalMs);
     return () => window.clearInterval(timer);
-  }, [job, refreshReports]);
+  }, [job, refreshReports, selectReportId]);
 
   const loadGroups = useCallback(
     async (targetReportId: string, targetOffset: number, targetFilters: AudioDedupFilters) => {
@@ -109,12 +132,17 @@ export function useAudioDedup({ open }: { open: boolean }) {
         setPage(next);
         setError(null);
       } catch (cause) {
-        if (groupRequestRef.current === token) setError(errorText(cause));
+        if (groupRequestRef.current !== token) return;
+        // The report was deleted since it was listed. Re-reading the listing
+        // drops it from the picker, which is the state to show instead of an
+        // error about an id nobody can choose any more.
+        if (isMissingReport(cause)) void refreshReports();
+        else setError(errorText(cause));
       } finally {
         if (groupRequestRef.current === token) setLoadingGroups(false);
       }
     },
-    []
+    [refreshReports]
   );
 
   useEffect(() => {
@@ -146,12 +174,6 @@ export function useAudioDedup({ open }: { open: boolean }) {
     }
   }, [job]);
 
-  const selectReport = useCallback((nextReportId: string) => {
-    setReportId(nextReportId);
-    setOffset(0);
-    setSelection({});
-  }, []);
-
   const applyFilters = useCallback((next: AudioDedupFilters) => {
     setFilters(next);
     setOffset(0);
@@ -178,12 +200,9 @@ export function useAudioDedup({ open }: { open: boolean }) {
   const clearSelection = useCallback(() => setSelection({}), []);
 
   const deleteSelected = useCallback(
-    async (
-      deletionMode: AudioDedupDeletionMode,
-      confirmation: string
-    ): Promise<AudioDedupDeleteResult | null> => {
+    async (deletionMode: AudioDedupDeletionMode): Promise<AudioDedupDeleteResult | null> => {
       if (!reportId) return null;
-      const built = buildDeleteRequest(page?.groups ?? [], selection, deletionMode, confirmation);
+      const built = buildDeleteRequest(page?.groups ?? [], selection, deletionMode);
       if (!built.ok) {
         setError(built.error);
         return null;
@@ -227,7 +246,7 @@ export function useAudioDedup({ open }: { open: boolean }) {
     startScan,
     cancelScan,
     refreshReports,
-    selectReport,
+    selectReport: selectReportId,
     applyFilters,
     setOffset,
     toggleFile,

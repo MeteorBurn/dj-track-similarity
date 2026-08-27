@@ -289,7 +289,7 @@ export const textPromptPresets: TextPromptPreset[] = [
     key: "timbre/metallic",
     axis: "timbre",
     label: "Metallic / Industrial",
-    hint: "Металлическая перкуссия, скрежет, машинная грязь. Пересекается с Industrial: здесь тембр, там жанр. MuLan ранжирует метку против спектральной плоскостности задом наперёд, поэтому метка закреплена за CLAP.",
+    hint: "Металлическая перкуссия, скрежет, машинная грязь. Пересекается с Industrial: здесь тембр, там жанр. Метка закреплена за CLAP: по эталону спектральной плоскостности он 0.675 против 0.450 у MuLan.",
     positive: {
       shared: [
         "metallic percussion, clanging hits, scraping metal.",

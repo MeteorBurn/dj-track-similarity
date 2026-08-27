@@ -126,16 +126,23 @@ record the retrieval path.
 ## Spectral transcode check
 
 In both search modes, the report step decodes every file that belongs to a duplicate group (only
-those files, not the whole scope) and measures its average spectrum. The read-only FFmpeg decode
-takes `24` seconds from the middle of the track, first audio stream, mono, `f32` samples. The
-analysis uses the stored `tracks.sample_rate_hz` value.
+those files, not the whole scope) and estimates its spectral cutoff. The read-only FFmpeg decode
+covers three `24`-second windows centered at `15`%, `50`%, and `80`% of the track (short files
+use a single window), first audio stream, mono, `f32` samples. Each window averages its loud
+frames in linear power; the cutoff is the highest frequency still within `50` dB of the median of
+the `1` to `8` kHz reference band. The window with the widest cutoff decides the file, so one
+full-band window clears a copy while a true transcode stays walled in every window. The analysis
+uses the stored `tracks.sample_rate_hz` value.
 
-A spectrum that ends in a brickwall below `20` kHz, with a drop of at least `22` dB right above
-the cutoff, marks the copy as `suspected_transcode`. That is fake-bitrate evidence, such as an
-MP3-sourced rip stored as FLAC or WAV. Gradual roll-offs are not flagged, so dark masters stay
-clean, and files that keep energy above `20` kHz get a `full band` or roll-off note instead. The
-spectral floor sits `45` dB under the median of the `1` to `8` kHz reference band. Every verdict
-is evidence for review, never an automatic deletion decision.
+A lossless container whose widest window ends in a brickwall below `19.45` kHz, dropping at least
+`14` dB across the cutoff, is marked `suspected_transcode`. That is fake-bitrate evidence, such
+as an MP3-sourced rip stored as FLAC or WAV. A lossy container is instead measured against the
+stored `tracks.bit_rate_bps` value and becomes suspect only when its wall sits below the cutoff
+expected at that declared bitrate. The note then records a match or a shortfall. A gradual
+roll-off is not a brickwall, so dark masters stay clean. Files that keep energy above `21` kHz
+get a `full band` note; lower cutoffs are noted as a brickwall with an estimated bitrate class or
+as a roll-off near the cutoff. Every verdict is evidence for review, never an automatic deletion
+decision.
 
 Keeper choice prefers copies that are not suspected transcodes ahead of every other ranking key:
 format rank, size-per-second, metadata completeness, and modification time. So a full-band WAV

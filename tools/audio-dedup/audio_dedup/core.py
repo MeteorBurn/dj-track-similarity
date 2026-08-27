@@ -26,6 +26,12 @@ from .fingerprints import (
     fingerprint_match_scores,
     load_fingerprint_sketches,
 )
+from .spectral import (
+    SpectralResult,
+    analyze_file,
+    ffmpeg_available,
+    skipped_result,
+)
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -259,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
             sources=args.sources,
             weights=parse_weight_arguments(args.weights),
             mode=args.mode,
+            skip_spectral=args.skip_spectral,
             progress_callback=progress_reporter,
         )
         progress_reporter.finish()
@@ -359,6 +366,14 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
             "preset score and similarity gates; exact fingerprint checks still add manual-review "
             "pairs, and this is the only mode that can produce safe delete candidates for "
             "--apply."
+        ),
+    )
+    parser.add_argument(
+        "--skip-spectral",
+        action="store_true",
+        help=(
+            "Skip the ffmpeg spectral check of duplicate-group files that flags suspected "
+            "transcodes (fake-bitrate copies) and steers keeper choice toward full-band audio."
         ),
     )
     parser.add_argument("--limit-groups", type=int, help="Write at most N duplicate groups.")
@@ -502,6 +517,7 @@ def run_report(
     sources: Iterable[str] | None = None,
     weights: Mapping[str, float] | None = None,
     mode: str = MODE_FINGERPRINT,
+    skip_spectral: bool = False,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancelCheck | None = None,
 ) -> ReportResult:
@@ -595,6 +611,13 @@ def run_report(
         should_cancel=should_cancel,
     )
     _raise_if_cancelled(should_cancel)
+    spectral_results = _spectral_results_for_groups(
+        groups,
+        tracks,
+        skip_spectral=skip_spectral,
+        progress_callback=progress_callback,
+        should_cancel=should_cancel,
+    )
     _report_progress(progress_callback, 0, 0, "Writing reports")
     payload = build_report(
         groups,
@@ -606,6 +629,7 @@ def run_report(
         path_contains=path_contains,
         source_config=source_config,
         fingerprint_retrieval=fingerprint_retrieval,
+        spectral_results=spectral_results,
     )
     payload["search_mode"] = mode
     payload["rhythm_lab"] = rhythm_lab_impact_payload(
@@ -717,6 +741,8 @@ def load_tracks(
                 t.file_path,
                 t.file_size_bytes,
                 t.file_modified_ns,
+                t.sample_rate_hz,
+                t.bit_rate_bps,
                 t.audio_duration_seconds,
                 ft.artist,
                 ft.title,
@@ -924,6 +950,49 @@ def _fingerprint_exact_candidate_pairs(
         if "fingerprint_lsh" in sources_for_pair
         or any(source in {"mert_lsh", "maest_lsh"} for source in sources_for_pair)
     }
+
+
+def _spectral_results_for_groups(
+    groups: list[DuplicateGroup],
+    tracks: list[TrackRecord],
+    *,
+    skip_spectral: bool,
+    progress_callback: ProgressCallback | None = None,
+    should_cancel: CancelCheck | None = None,
+) -> dict[int, SpectralResult]:
+    if skip_spectral:
+        return {}
+    group_track_ids = sorted({track_id for group in groups for track_id in group.track_ids})
+    if not group_track_ids:
+        return {}
+    if not ffmpeg_available():
+        return {
+            track_id: skipped_result("ffmpeg unavailable")
+            for track_id in group_track_ids
+        }
+    by_id = {track.track_id: track for track in tracks}
+    results: dict[int, SpectralResult] = {}
+    total = len(group_track_ids)
+    message = "Analyzing spectra of duplicate-group files"
+    _report_progress(progress_callback, 0, total, message)
+    for index, track_id in enumerate(group_track_ids, start=1):
+        _raise_if_cancelled(should_cancel)
+        track = by_id.get(track_id)
+        if track is None:
+            results[track_id] = skipped_result("track not loaded")
+        elif not Path(track.path).is_file():
+            results[track_id] = skipped_result("file not reachable")
+        else:
+            sample_rate = track.metadata.get("sample_rate_hz")
+            bit_rate = track.metadata.get("bit_rate_bps")
+            results[track_id] = analyze_file(
+                track.path,
+                sample_rate=sample_rate if isinstance(sample_rate, int) else None,
+                duration_seconds=track.duration,
+                declared_bitrate_bps=bit_rate if isinstance(bit_rate, int) else None,
+            )
+        _report_progress(progress_callback, index, total, message)
+    return results
 
 
 def _duration_window_candidate_pairs(tracks: list[TrackRecord], config: PresetConfig) -> list[tuple[int, int]]:
@@ -1137,13 +1206,15 @@ def build_report(
     path_contains: list[str],
     source_config: SourceConfig | None = None,
     fingerprint_retrieval: Mapping[str, int | float] | None = None,
+    spectral_results: Mapping[int, SpectralResult] | None = None,
 ) -> dict[str, object]:
     selected_sources = source_config or resolve_source_config()
+    selected_spectral = dict(spectral_results or {})
     by_id = {track.track_id: track for track in tracks}
     report_groups: list[dict[str, object]] = []
     for group in groups:
         group_tracks = [by_id[track_id] for track_id in group.track_ids]
-        keeper = choose_keeper(group_tracks)
+        keeper = choose_keeper(group_tracks, spectral_results=selected_spectral)
         pair_by_ids = {frozenset((pair.left_id, pair.right_id)): pair for pair in group.pair_evidence}
         direct_pairs_from_keeper = {
             track.track_id: pair_by_ids.get(frozenset((keeper.track_id, track.track_id)))
@@ -1154,6 +1225,9 @@ def build_report(
         blocked_reasons = sorted({reason for pair in group.pair_evidence for reason in pair.blocked_reasons})
         if ambiguous:
             blocked_reasons.append("ambiguous chain: not every candidate has a direct high-confidence match to keeper")
+        keeper_spectral = selected_spectral.get(keeper.track_id)
+        if keeper_spectral is not None and keeper_spectral.suspected_transcode:
+            blocked_reasons.append("every remaining copy is a suspected transcode; verify spectra by ear")
         candidates = []
         for track in group_tracks:
             if track.track_id == keeper.track_id:
@@ -1161,6 +1235,12 @@ def build_report(
             direct = direct_pairs_from_keeper[track.track_id]
             safe, reasons = _candidate_safety(direct, config, ambiguous=ambiguous)
             decision = "delete_candidate" if safe else "review"
+            candidate_spectral = selected_spectral.get(track.track_id)
+            why_lines = _candidate_reason_lines(track, keeper, direct, config, safe=safe, reasons=reasons)
+            if candidate_spectral is not None and candidate_spectral.suspected_transcode:
+                why_lines.append(
+                    f"Candidate spectrum looks transcoded ({candidate_spectral.note}); the keeper holds the wider band."
+                )
             candidates.append(
                 {
                     "role": "DUPLICATE",
@@ -1176,13 +1256,40 @@ def build_report(
                     "content_similarity_vs_keeper": _round_float(direct.content_similarity if direct else None),
                     "safe_to_delete": "true_candidate" if safe else "false",
                     "blocked_reasons": reasons,
-                    "why_delete_or_review": _candidate_reason_lines(track, keeper, direct, config, safe=safe, reasons=reasons),
+                    "why_delete_or_review": why_lines,
                     "format_rank": format_rank(track.path),
                     "size_per_second": _round_float(size_per_second(track)),
                     "metadata_completeness": metadata_completeness(track),
+                    "spectral_cutoff_hz": candidate_spectral.cutoff_hz if candidate_spectral else None,
+                    "suspected_transcode": candidate_spectral.suspected_transcode if candidate_spectral else None,
+                    "spectral_note": candidate_spectral.note if candidate_spectral else None,
                 }
             )
         best_score = max((pair.score for pair in group.pair_evidence), default=0.0)
+        keeper_payload = track_payload(
+            keeper,
+            include_keeper_reasons=True,
+            role="KEEP",
+            decision="keep",
+            group_tracks=group_tracks,
+            spectral=keeper_spectral,
+        )
+        suspected_sibling_count = sum(
+            1
+            for track in group_tracks
+            if track.track_id != keeper.track_id
+            and (result := selected_spectral.get(track.track_id)) is not None
+            and result.suspected_transcode
+        )
+        if (
+            suspected_sibling_count
+            and keeper_spectral is not None
+            and not keeper_spectral.suspected_transcode
+        ):
+            keeper_payload["why_keep"].append(
+                f"Full-band spectrum while {suspected_sibling_count} duplicate cop"
+                f"{'y' if suspected_sibling_count == 1 else 'ies'} look transcoded."
+            )
         report_groups.append(
             {
                 "group_id": group.group_id,
@@ -1192,9 +1299,17 @@ def build_report(
                 "min_score": config.min_score,
                 "min_similarity": config.min_similarity,
                 "blocked_reasons": blocked_reasons,
-                "suggested_keeper": track_payload(keeper, include_keeper_reasons=True, role="KEEP", decision="keep", group_tracks=group_tracks),
+                "suggested_keeper": keeper_payload,
                 "candidate_deletes": sorted(candidates, key=lambda item: int(item["track_id"])),
-                "tracks": [track_payload(track, include_keeper_reasons=False, role=("KEEP" if track.track_id == keeper.track_id else "DUPLICATE")) for track in group_tracks],
+                "tracks": [
+                    track_payload(
+                        track,
+                        include_keeper_reasons=False,
+                        role=("KEEP" if track.track_id == keeper.track_id else "DUPLICATE"),
+                        spectral=selected_spectral.get(track.track_id),
+                    )
+                    for track in group_tracks
+                ],
                 "pairwise_evidence": [pair_payload(pair) for pair in group.pair_evidence],
             }
         )
@@ -1212,6 +1327,18 @@ def build_report(
         "min_similarity": config.min_similarity,
         "score_semantics": score_semantics_payload(),
         "fingerprint_retrieval": dict(fingerprint_retrieval or {}),
+        "spectral_analysis": {
+            "checked_track_count": len(selected_spectral),
+            "analyzed_track_count": sum(
+                1 for result in selected_spectral.values() if result.cutoff_hz is not None
+            ),
+            "skipped_track_count": sum(
+                1 for result in selected_spectral.values() if result.cutoff_hz is None
+            ),
+            "suspected_transcode_count": sum(
+                1 for result in selected_spectral.values() if result.suspected_transcode
+            ),
+        },
         "database_track_count": database_track_count if database_track_count is not None else len(tracks),
         "scoped_track_count": len(tracks),
         "track_count": len(tracks),
@@ -1221,12 +1348,23 @@ def build_report(
     }
 
 
-def choose_keeper(tracks: list[TrackRecord]) -> TrackRecord:
+def choose_keeper(
+    tracks: list[TrackRecord],
+    *,
+    spectral_results: Mapping[int, SpectralResult] | None = None,
+) -> TrackRecord:
     if not tracks:
         raise ValueError("Cannot choose a keeper from an empty group")
+    selected_spectral = spectral_results or {}
+
+    def full_band_rank(track: TrackRecord) -> int:
+        result = selected_spectral.get(track.track_id)
+        return 0 if result is not None and result.suspected_transcode else 1
+
     return max(
         tracks,
         key=lambda track: (
+            full_band_rank(track),
             format_rank(track.path),
             size_per_second(track),
             metadata_completeness(track),
@@ -1284,6 +1422,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         else str(weights)
     )
     fingerprint_retrieval = payload.get("fingerprint_retrieval", {})
+    spectral_analysis = payload.get("spectral_analysis", {})
     rows: list[list[object]] = [
         ["Audio Dedup Report", "", "", "", ""],
         [
@@ -1326,6 +1465,24 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Duplicate groups", payload["group_count"], "Potential duplicate clusters found.", "Open the Groups sheet.", ""],
         ["Duplicate candidates", stats.get("candidate_count", 0), "Tracks proposed for delete or manual review.", "Open the Candidates sheet.", ""],
         ["Valid stored fingerprints", fingerprint_retrieval.get("valid_stored_fingerprint_count", 0) if isinstance(fingerprint_retrieval, dict) else 0, "Identity-bound SONARA fingerprints used for independent LSH retrieval.", "Reference only.", ""],
+        [
+            "Suspected transcodes in groups",
+            spectral_analysis.get("suspected_transcode_count", 0) if isinstance(spectral_analysis, dict) else 0,
+            "Group members whose spectrum ends in a brickwall below 20 kHz (fake-bitrate evidence).",
+            "Keeper choice already prefers full-band copies; confirm by ear.",
+            "",
+        ],
+        [
+            "Spectral checks",
+            (
+                f"{spectral_analysis.get('analyzed_track_count', 0)}/{spectral_analysis.get('checked_track_count', 0)}"
+                if isinstance(spectral_analysis, dict)
+                else ""
+            ),
+            "Duplicate-group files with a measured frequency cutoff.",
+            "Unreachable files and decode errors are skipped, never guessed.",
+            "",
+        ],
         ["Fingerprint review pairs", fingerprint_retrieval.get("fingerprint_review_pair_count", 0) if isinstance(fingerprint_retrieval, dict) else 0, "Exact SONARA matches that met the review threshold.", "Open Pair Evidence.", ""],
         [
             "Safe delete candidates",
@@ -1438,6 +1595,10 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "score_vs_keeper",
             "content_similarity_vs_keeper",
             "safe_to_delete",
+            "suspected_transcode",
+            "spectral_note",
+            "keeper_suspected_transcode",
+            "keeper_spectral_note",
             "mert_similarity",
             "maest_similarity",
             "muq_similarity",
@@ -1469,6 +1630,10 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     candidate["score_vs_keeper"],
                     candidate.get("content_similarity_vs_keeper"),
                     candidate["safe_to_delete"],
+                    candidate.get("suspected_transcode"),
+                    candidate.get("spectral_note"),
+                    keeper.get("suspected_transcode"),
+                    keeper.get("spectral_note"),
                     evidence.get("mert_similarity"),
                     evidence.get("maest_similarity"),
                     evidence.get("muq_similarity"),
@@ -1825,6 +1990,12 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
         f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",
+        "suspected_transcodes="
+        + str(
+            payload.get("spectral_analysis", {}).get("suspected_transcode_count", 0)
+            if isinstance(payload.get("spectral_analysis"), dict)
+            else 0
+        ),
     ]
     if isinstance(rhythm_lab, dict):
         lines.extend(
@@ -2314,6 +2485,7 @@ def track_payload(
     role: str | None = None,
     decision: str | None = None,
     group_tracks: list[TrackRecord] | None = None,
+    spectral: SpectralResult | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "role": role,
@@ -2335,6 +2507,10 @@ def track_payload(
         "size_per_second": _round_float(size_per_second(track)),
         "metadata_completeness": metadata_completeness(track),
         "embeddings": sorted(track.embeddings),
+        "spectral_cutoff_hz": spectral.cutoff_hz if spectral else None,
+        "spectral_sharpness_db": spectral.sharpness_db if spectral else None,
+        "suspected_transcode": spectral.suspected_transcode if spectral else None,
+        "spectral_note": spectral.note if spectral else None,
     }
     if include_keeper_reasons:
         payload["keeper_reasons"] = {
@@ -2464,6 +2640,10 @@ def _track_from_row(
         metadata["genres"] = genres
     if sonara_features:
         metadata["sonara_features"] = sonara_features
+    if row["sample_rate_hz"] is not None:
+        metadata["sample_rate_hz"] = int(row["sample_rate_hz"])
+    if row["bit_rate_bps"] is not None:
+        metadata["bit_rate_bps"] = int(row["bit_rate_bps"])
     modified_ns = int(row["file_modified_ns"])
     return TrackRecord(
         track_id=int(row["track_id"]),

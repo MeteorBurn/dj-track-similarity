@@ -1,6 +1,6 @@
 # Audio Dedup
 
-Audio Dedup reads an existing SQLite library and writes JSON/XLSX/log reports by default. It uses stored analysis data and local paths. It does not scan unknown folders outside the selected root.
+Audio Dedup reads an existing SQLite library and writes JSON/XLSX/log reports by default. It uses stored analysis data, local paths, and a read-only FFmpeg decode of duplicate-group files for the spectral check below. It does not scan unknown folders outside the selected root and never modifies source audio.
 
 ## Requirements
 
@@ -14,6 +14,9 @@ version, timestamp, and Base64 payload validate against the current track. It do
 audio again or keep full fingerprint payloads on track records.
 
 The `min_similarity` value is an audio-to-audio content gate. It is not the CLAP text-search score scale, and none of these values are probabilities.
+
+The spectral transcode check needs `ffmpeg` on `PATH`. Without it, that check is skipped with an
+`ffmpeg unavailable` note while the duplicate search still runs.
 
 ## Search modes
 
@@ -120,6 +123,30 @@ report payload records `"search_mode": "fingerprint"` with `"sources": []` and `
 while `fingerprint_retrieval` and the per-pair `candidate_sources` value `["fingerprint_lsh"]`
 record the retrieval path.
 
+## Spectral transcode check
+
+In both search modes, the report step decodes every file that belongs to a duplicate group (only
+those files, not the whole scope) and measures its average spectrum. The read-only FFmpeg decode
+takes `24` seconds from the middle of the track, first audio stream, mono, `f32` samples. The
+analysis uses the stored `tracks.sample_rate_hz` value.
+
+A spectrum that ends in a brickwall below `20` kHz, with a drop of at least `22` dB right above
+the cutoff, marks the copy as `suspected_transcode`. That is fake-bitrate evidence, such as an
+MP3-sourced rip stored as FLAC or WAV. Gradual roll-offs are not flagged, so dark masters stay
+clean, and files that keep energy above `20` kHz get a `full band` or roll-off note instead. The
+spectral floor sits `45` dB under the median of the `1` to `8` kHz reference band. Every verdict
+is evidence for review, never an automatic deletion decision.
+
+Keeper choice prefers copies that are not suspected transcodes ahead of every other ranking key:
+format rank, size-per-second, metadata completeness, and modification time. So a full-band WAV
+outranks a suspected-transcode FLAC. When even the chosen keeper is suspected, the
+group gains the blocked reason `every remaining copy is a suspected transcode; verify spectra by
+ear`.
+
+Unreachable files, decode failures, and unknown sample rates are skipped with an explicit
+per-file note, never guessed. When `ffmpeg` is not on `PATH`, the whole check is skipped with the
+note `ffmpeg unavailable`. `--skip-spectral` disables the check.
+
 ## CLI report mode
 
 ```powershell
@@ -134,18 +161,79 @@ the embedding families the selected mode needs in SQLite chunks of 200 tracks, s
 phase, percentage, and processed items as `N/M`. During pair scoring, `N/M`
 refers to candidate pairs.
 
-Optional examples:
+## Command examples
+
+The two mode flags are mutually exclusive. `--source` and `--weight` require `--embedding` and
+fail otherwise. Every run is report-only unless `--apply` is passed.
+
+Default fingerprint report over one volume, with the default database:
 
 ```powershell
-python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --path-contains wav --limit-groups 50
+python tools\audio-dedup\audio_dedup_cli.py --root M:/Volumes
 ```
 
-An explicit embedding-mode default source profile looks like this:
+The same run with the search mode spelled out:
 
 ```powershell
-python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music `
-  --embedding --source mert --source maest --source muq --source clap `
-  --weight mert=0.43 --weight maest=0.32 --weight muq=0.12 --weight clap=0.04
+python tools\audio-dedup\audio_dedup_cli.py --fingerprint --root M:/Volumes
+```
+
+Narrow the scope to one subfolder plus repeatable stored-path substrings:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --root M:/Volumes/Techno --path-contains vinyl --path-contains 2019
+```
+
+Select another database and another report directory:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --db C:/db/library.sqlite --root D:/Music --out-dir C:/reports/audio-dedup
+```
+
+Write at most `50` duplicate groups:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --root M:/Volumes --limit-groups 50
+```
+
+Fast run without the FFmpeg spectral check:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --root M:/Volumes --skip-spectral
+```
+
+Embedding mode with the default four families and weights:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --embedding --root M:/Volumes
+```
+
+Embedding mode over an explicit family subset, where the weights must cover exactly the enabled
+sources:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --embedding --root M:/Volumes `
+  --source mert --source maest --weight mert=0.6 --weight maest=0.4
+```
+
+Embedding mode with the balanced preset and explicit threshold overrides:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --embedding --root M:/Volumes `
+  --preset balanced --min-score 0.94 --min-similarity 0.96
+```
+
+Destructive apply run. It writes reports first and then prompts for the exact phrase
+`APPLY DELETE`. Only safe delete candidates are deleted, and those exist only in embedding mode:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --embedding --root M:/Volumes --apply
+```
+
+Full flag reference:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --help
 ```
 
 ## Safe-delete corroboration
@@ -178,5 +266,7 @@ Do not run apply mode during routine tests. Review the report first and keep bac
 ## Output
 
 Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. The JSON payload records `search_mode`, `sources`, `weights`, and `fingerprint_retrieval` metrics: validated and rejected stored fingerprints, LSH/exact candidate counts, the review-pair count, and the threshold. Pair evidence records `fingerprint_similarity` and `candidate_sources`; the XLSX Pair Evidence sheet exposes the same provenance, while its Summary sheet lists the search mode, valid fingerprints, and fingerprint-review pairs. The text log carries a matching `search_mode=` line. Safety failures appear in `blocked_reasons`.
+
+Spectral evidence has its own surfaces. Track rows carry `spectral_cutoff_hz`, `spectral_sharpness_db`, `suspected_transcode`, and `spectral_note`. Candidate rows repeat the cutoff, flag, and note, and the keeper and candidate explanations state when a spectrum looks transcoded. A top-level `spectral_analysis` block counts checked, analyzed, skipped, and suspected files. The XLSX Candidates sheet adds `suspected_transcode`, `spectral_note`, `keeper_suspected_transcode`, and `keeper_spectral_note` columns. The Summary sheet adds "Suspected transcodes in groups" and "Spectral checks" rows, and the text log carries a `suspected_transcodes=` line.
 
 Reports are local private artifacts.

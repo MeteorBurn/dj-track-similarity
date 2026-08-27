@@ -448,9 +448,12 @@ python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:
 | `--weight FAMILY=VALUE` | Override every enabled-source weight. Requires `--embedding`. Repeat once for each enabled `--source`. |
 | `--fingerprint` | Primary search mode, also the default. Search runs exclusively over stored SONARA fingerprints with no embedding loading. Candidate pairs come from fingerprint LSH only, and duplicate groups form from the exact native fingerprint score alone. Every reported candidate stays manual-review. Mutually exclusive with `--embedding`. |
 | `--embedding` | Secondary search mode. Score duplicates from the enabled embedding families with the preset gates. The only mode that can produce safe delete candidates for `--apply`. Mutually exclusive with `--fingerprint`. |
+| `--skip-spectral` | Skip the FFmpeg spectral check of duplicate-group files that flags suspected transcodes (fake-bitrate copies) and steers keeper choice toward full-band audio. |
 | `--limit-groups INTEGER` | Maximum duplicate groups written. |
 | `--out-dir PATH` | Report directory. Default: `tools\audio-dedup\data\reports`. |
 | `--apply` | After reports are written, prompt for exact confirmation, delete safe candidates inside `--root`, and remove only their matching database rows. |
+
+Complete command examples for every flag are on the [Audio Dedup](../tools-and-scripts/audio-dedup.md) page.
 
 </details>
 

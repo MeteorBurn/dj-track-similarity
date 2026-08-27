@@ -399,7 +399,7 @@ def load_references(
 
 
 def read_only_uri(path: Path) -> str:
-    return f"file:{path.resolve().as_posix()}?mode=ro"
+    return f"{path.resolve(strict=False).as_uri()}?mode=ro"
 
 
 def print_report(checks: list[CrossCheck]) -> None:

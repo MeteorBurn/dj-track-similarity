@@ -281,7 +281,7 @@ def _print_report(report: list[dict]) -> None:
 
 
 def _read_only_uri(path: Path) -> str:
-    return f"file:{path.resolve().as_posix()}?mode=ro"
+    return f"{path.resolve(strict=False).as_uri()}?mode=ro"
 
 
 if __name__ == "__main__":

@@ -372,7 +372,7 @@ def _centered(matrix: FloatArray) -> FloatArray:
 
 
 def _read_only_uri(path: Path) -> str:
-    return f"file:{path.resolve().as_posix()}?mode=ro"
+    return f"{path.resolve(strict=False).as_uri()}?mode=ro"
 
 
 def _print_report(measurements: list[Measurement]) -> None:

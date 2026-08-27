@@ -4664,6 +4664,15 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   font-size: 11px;
 }
 
+/* The fingerprint verdict is about the pair, so it sits centred between the
+   group's identity on the left and its actions on the right. */
+.dedup-group-fingerprint {
+  color: var(--text-muted);
+  flex: 1 1 auto;
+  font-size: 11px;
+  text-align: center;
+}
+
 .dedup-group-actions {
   display: flex;
   gap: 6px;

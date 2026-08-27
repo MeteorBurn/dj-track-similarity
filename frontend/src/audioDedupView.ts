@@ -55,6 +55,64 @@ function isEmbeddingAbsence(reason: string) {
 }
 
 /**
+ * Lines that state nothing about the copy they sit under.
+ *
+ * The keeper ranking line only repeats that the keeper is the keeper. Reports
+ * written before it was dropped still carry it, so it is filtered here too.
+ */
+const emptyReasonPatterns = [
+  /^highest keeper ranking inside this duplicate group$/i,
+  // The fingerprint score is stated once for the group, above both copies.
+  /^SONARA fingerprint-only candidate/i
+];
+
+function isEmptyReason(reason: string) {
+  return emptyReasonPatterns.some((pattern) => pattern.test(reason));
+}
+
+/** The comparator keys as the kept copy states them. */
+const keeperKeyStatements: Record<string, string> = {
+  "measured bandwidth": "Самый широкий в группе измеренный спектр",
+  bitrate: "Самый высокий в группе битрейт",
+  "bit depth": "Самая высокая в группе разрядность",
+  "sample rate": "Самая высокая в группе частота",
+  "true peak": "Лучший в группе пик",
+  "dynamic range": "Самый широкий в группе динамический диапазон",
+  "loudness range": "Самый широкий в группе разброс громкости",
+  "format rank": "Лучший в группе ранг формата",
+  "file size": "Самый большой в группе файл",
+  "tag completeness": "Лучшая в группе полнота тегов",
+  "dj tags": "Лучшие в группе DJ-теги"
+};
+
+/** Word values inside those comparisons; numbers with units pass through. */
+const keeperValueWords: Record<string, string> = {
+  "full band": "полный спектр",
+  "suspected transcode": "похоже на транскод",
+  lossless: "без потерь",
+  lossy: "с потерями",
+  unmeasured: "не измерен",
+  "not measured": "не измерена",
+  none: "нет тегов"
+};
+
+function keeperValueText(value: string) {
+  const known = keeperValueWords[value.toLowerCase()];
+  if (known) return known;
+  const fields = value.match(/^(\d+) fields?$/i);
+  if (fields) return fields[1];
+  const kilohertz = value.match(/^([\d.]+) kHz$/i);
+  return kilohertz ? `${kilohertz[1]} кГц` : value;
+}
+
+/** Loudness facts the report names when a group may hold two masters. */
+const masterFactLabels: Record<string, string> = {
+  "integrated loudness": "интегральная громкость",
+  "dynamic range": "динамический диапазон",
+  "loudness range": "разброс громкости"
+};
+
+/**
  * Russian wording for the report's own English sentences.
  *
  * The JSON, XLSX and log artifacts stay English because they are the record the
@@ -63,7 +121,45 @@ function isEmbeddingAbsence(reason: string) {
  * hiding evidence nobody translated yet.
  */
 const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
-  [/^Highest keeper ranking inside this duplicate group$/i, () => "Лучший ранг для сохранения в группе"],
+  [
+    // Stated on the kept copy, and only where the technical lines read alike:
+    // where they differ, the reviewer already sees the difference.
+    /^Best (.+?) in group: (.+)$/i,
+    (m) =>
+      `${keeperKeyStatements[m[1].toLowerCase()] ?? m[1]}: ${keeperValueText(m[2])}`
+  ],
+  [/^Full-band spectrum in group$/i, () => "Полный спектр, в отличие от других копий"],
+  [/^Lossless in group$/i, () => "Единственная копия без потерь"],
+  [
+    /^Every compared fact ties; newest file in group$/i,
+    () => "Все признаки совпали — самая свежая копия"
+  ],
+  [
+    /^Every compared fact ties; scanned first in group$/i,
+    () => "Все признаки совпали — отсканирована первой"
+  ],
+  [
+    // The extension names a container, not the codec inside it, so neither the
+    // lossless class nor the format preference can be proven for this group.
+    /^codec is not stored for ambiguous container\(s\): (.+); lossless\/lossy quality class cannot be proven from extension$/i,
+    (m) =>
+      `Кодек не записан для неоднозначных контейнеров: ${m[1]}`
+      + " — по расширению нельзя доказать, lossless это или lossy"
+  ],
+  [
+    /^mixed DSD\/non-DSD duplicate group: bit depth and sample rate are not directly comparable across encoding families$/i,
+    () =>
+      "В группе смешаны DSD и PCM: разрядность и частоту дискретизации"
+      + " нельзя сравнивать напрямую"
+  ],
+  [
+    // The group is one recording in more than one mastering. Which master to
+    // keep is the reviewer's taste, so the tool refuses to delete inside it.
+    /^possible different master: (.+) differs by ([\d.]+) (LU|dB)$/i,
+    (m) =>
+      `Возможно разные мастеринги: ${masterFactLabels[m[1].toLowerCase()] ?? m[1]}`
+      + ` расходится на ${m[2]} ${m[3]}`
+  ],
   [
     /^Best or tied-best audio format rank in group: (\d+)$/i,
     (m) => `Лучший в группе ранг формата: ${m[1]}`
@@ -77,12 +173,28 @@ const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> =
     (m) => `Лучшая в группе полнота тегов: ${m[1]}`
   ],
   [
+    /^Direct score vs keeper meets threshold: ([\d.]+) >= ([\d.]+)$/i,
+    (m) => `Прямое совпадение с сохраняемой копией ${Number(m[1]).toFixed(3)} при пороге ${Number(m[2]).toFixed(3)}`
+  ],
+  [
+    /^Content similarity meets threshold: ([\d.]+) >= ([\d.]+)$/i,
+    (m) => `Схожесть содержимого ${Number(m[1]).toFixed(3)} при пороге ${Number(m[2]).toFixed(3)}`
+  ],
+  [
+    /^Keeper track_id=(\d+) outranks candidate track_id=(\d+) by [^$]+tie-break$/i,
+    (m) => `Сохраняемая копия (track_id ${m[1]}) выигрывает у этой (track_id ${m[2]}) по разрешению, формату, битрейту, тегам, дате или id`
+  ],
+  [
+    /^Duration difference is ([\d.]+) seconds?$/i,
+    (m) => `Разница длительностей ${Number(m[1]).toFixed(2)} с`
+  ],
+  [
     /^Full-band spectrum while (\d+) duplicate cop(?:y|ies) look transcoded$/i,
     (m) => `Полный спектр, тогда как копий с признаками фейк-битрейта: ${m[1]}`
   ],
   [
     /^SONARA fingerprint-only candidate: exact fingerprint match ([\d.]+) is strong duplicate evidence, but fingerprint evidence alone never authorizes automatic deletion$/i,
-    (m) => `Точный матч отпечатков ${m[1]} — сильное доказательство дубликата, но одного отпечатка для автоудаления недостаточно`
+    (m) => `Точный матч отпечатков ${m[1]}`
   ],
   [
     /^SONARA fingerprint-only candidate requires manual review$/i,
@@ -114,6 +226,21 @@ export function translateReason(reason: string) {
 }
 
 /**
+ * What the fingerprints say about the group as a whole.
+ *
+ * The score compares the two copies, so it belongs between them rather than
+ * inside one card, where it read as a fact about that copy alone.
+ */
+export function groupFingerprintLine(group: AudioDedupGroup): string | null {
+  const fingerprint = group.fingerprint_similarity;
+  if (fingerprint === null) return null;
+  return fingerprint >= 0.9
+    ? `Отпечатки совпали почти полностью (${formatSimilarity(fingerprint)}).`
+    : `Отпечатки совпали лишь частично (${formatSimilarity(fingerprint)})`
+      + " — так бывает у винил-рипа против цифры и у ремастеров.";
+}
+
+/**
  * Why this copy is a candidate and what still has to be decided by hand.
  *
  * "Needs manual review" on its own said nothing: not what matched, not how
@@ -122,20 +249,11 @@ export function translateReason(reason: string) {
  */
 export function copyStatusLine(
   file: AudioDedupFile,
-  group: AudioDedupGroup,
   searchMode: AudioDedupSearchMode | ""
 ): string | null {
   if (file.role === "keeper") return null;
   if (file.safe_to_delete) {
     return "MERT и MAEST подтвердили совпадение — копию можно удалять автоматически.";
-  }
-  const fingerprint = group.fingerprint_similarity;
-  if (fingerprint !== null) {
-    const match =
-      fingerprint >= 0.9
-        ? `Отпечатки совпали почти полностью (${formatSimilarity(fingerprint)})`
-        : `Отпечатки совпали лишь частично (${formatSimilarity(fingerprint)}) — так бывает у винил-рипа против цифры и у ремастеров`;
-    return `${match}. Одного отпечатка для автоудаления недостаточно — сравните копии на слух.`;
   }
   const blockers = copyDetailReasons(file, searchMode);
   if (blockers.length > 0) return `Автоудаление заблокировано: ${blockers[0]}.`;
@@ -159,7 +277,7 @@ export function copyDetailReasons(
   const reasons: string[] = [];
   for (const raw of [...file.reasons, ...file.blocked_reasons]) {
     const reason = raw.replace(/^manual review required:\s*/i, "").replace(/\.$/, "").trim();
-    if (!reason) continue;
+    if (!reason || isEmptyReason(reason)) continue;
     if (searchMode === "fingerprint" && isEmbeddingAbsence(reason)) continue;
     const key = reason.toLowerCase();
     if (seen.has(key)) continue;
@@ -353,9 +471,18 @@ export function fileSpecLine(file: AudioDedupFile) {
     .join(" / ");
 }
 
-/** Tag facts, shown under the technical line. */
+/**
+ * The loudness and tag facts, shown under the technical line.
+ *
+ * Dynamic range, loudness range and true peak decide the keeper below the
+ * declared facts, so the card states them: a reason nobody can check against
+ * the copy in front of them is not evidence.
+ */
 export function fileQualityLine(file: AudioDedupFile) {
   const parts: string[] = [];
+  if (file.dynamic_range_db !== null) parts.push(`DR ${file.dynamic_range_db.toFixed(1)} dB`);
+  if (file.loudness_range_lu !== null) parts.push(`LRA ${file.loudness_range_lu.toFixed(1)} LU`);
+  if (file.true_peak_dbtp !== null) parts.push(`TP ${file.true_peak_dbtp.toFixed(1)} dBTP`);
   if (file.metadata_completeness !== null) parts.push(`теги ${file.metadata_completeness}`);
   if (file.bpm !== null) parts.push(`${Math.round(file.bpm)} BPM`);
   if (file.musical_key) parts.push(file.musical_key);

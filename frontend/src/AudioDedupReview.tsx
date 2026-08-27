@@ -8,13 +8,13 @@ import {
   fileSpecLine,
   fileSpectralBadge,
   formatSimilarity,
+  groupFingerprintLine,
   groupSurvivesSelection,
   suggestedGroupSelection
 } from "./audioDedupView";
 
 function FileCard({
   file,
-  group,
   searchMode,
   selected,
   playing,
@@ -22,14 +22,13 @@ function FileCard({
   onPreview
 }: {
   file: AudioDedupFile;
-  group: AudioDedupGroup;
   searchMode: AudioDedupSearchMode | "";
   selected: boolean;
   playing: boolean;
   onToggle: () => void;
   onPreview: () => void;
 }) {
-  const status = copyStatusLine(file, group, searchMode);
+  const status = copyStatusLine(file, searchMode);
   const details = copyDetailReasons(file, searchMode);
   const spectral = fileSpectralBadge(file);
   const quality = fileQualityLine(file);
@@ -132,6 +131,7 @@ export function AudioDedupGroupCard({
   onPreview: (file: AudioDedupFile) => void;
 }) {
   const survives = groupSurvivesSelection(group, selectedTrackIds);
+  const fingerprintLine = groupFingerprintLine(group);
 
   return (
     <section className={`dedup-group ${selectedTrackIds.length > 0 ? "has-selection" : ""}`}>
@@ -144,6 +144,9 @@ export function AudioDedupGroupCard({
           отпечаток {formatSimilarity(group.fingerprint_similarity)}
         </span>
         <span className="dedup-group-count">{group.files.length} копии</span>
+        {fingerprintLine ? (
+          <span className="dedup-group-fingerprint">{fingerprintLine}</span>
+        ) : null}
         {group.suspected_transcode_count > 0 ? (
           <span className="dedup-chip dedup-chip-warn">
             <AlertTriangle size={12} />
@@ -183,7 +186,6 @@ export function AudioDedupGroupCard({
           <FileCard
             key={file.track_id}
             file={file}
-            group={group}
             searchMode={searchMode}
             selected={selectedTrackIds.includes(file.track_id)}
             playing={playingTrackId === file.track_id}

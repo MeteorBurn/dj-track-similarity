@@ -635,6 +635,9 @@ export type AudioDedupFile = {
   bit_rate_bps: number | null;
   sample_rate_hz: number | null;
   bit_depth: number | null;
+  true_peak_dbtp: number | null;
+  dynamic_range_db: number | null;
+  loudness_range_lu: number | null;
   spectral_cutoff_hz: number | null;
   spectral_sharpness_db: number | null;
   suspected_transcode: boolean;

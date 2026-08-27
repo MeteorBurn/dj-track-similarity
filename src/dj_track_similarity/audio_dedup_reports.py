@@ -66,6 +66,9 @@ class AudioDedupFile:
     bit_rate_bps: int | None
     sample_rate_hz: int | None
     bit_depth: int | None
+    true_peak_dbtp: float | None
+    dynamic_range_db: float | None
+    loudness_range_lu: float | None
     spectral_cutoff_hz: float | None
     spectral_sharpness_db: float | None
     suspected_transcode: bool
@@ -361,6 +364,9 @@ def _file(
         bit_rate_bps=_int_or_none(entry.get("bit_rate_bps")),
         sample_rate_hz=_int_or_none(entry.get("sample_rate_hz")),
         bit_depth=_int_or_none(entry.get("bit_depth")),
+        true_peak_dbtp=_float_or_none(entry.get("true_peak_dbtp")),
+        dynamic_range_db=_float_or_none(entry.get("dynamic_range_db")),
+        loudness_range_lu=_float_or_none(entry.get("loudness_range_lu")),
         spectral_cutoff_hz=_float_or_none(entry.get("spectral_cutoff_hz")),
         spectral_sharpness_db=_float_or_none(entry.get("spectral_sharpness_db")),
         suspected_transcode=bool(entry.get("suspected_transcode", False)),

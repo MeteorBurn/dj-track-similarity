@@ -133,6 +133,9 @@ def test_suspected_transcode_loses_keepership_and_is_labeled() -> None:
             embeddings={},
         )
 
+    # The fake is the copy the library would otherwise prefer: it wins the format
+    # key with nothing measured, so the flip below is the spectral verdict rather
+    # than a container preference.
     tracks = [
         _track(1, "C:/music/fake.flac"),
         _track(2, "C:/music/true.wav"),
@@ -179,9 +182,85 @@ def test_suspected_transcode_loses_keepership_and_is_labeled() -> None:
     candidate = group_payload["candidate_deletes"][0]
     assert keeper_payload["track_id"] == 2
     assert keeper_payload["suspected_transcode"] is False
-    assert any("transcoded" in line for line in keeper_payload["why_keep"])
+    assert any("Full-band spectrum" in line for line in keeper_payload["why_keep"])
     assert candidate["track_id"] == 1
     assert candidate["suspected_transcode"] is True
     assert candidate["spectral_note"] == "brickwall at 16.0 kHz"
     assert any("transcoded" in line for line in candidate["why_delete_or_review"])
     assert payload["spectral_analysis"]["suspected_transcode_count"] == 1
+
+
+def test_group_the_comparator_cannot_judge_is_review_only() -> None:
+    """A group the measurements cannot rank is handed over, not deleted inside.
+
+    Two encodes of one master measure within a fraction of a unit of each other,
+    so a wider spread means different masterings and preferring one is a taste
+    call. A container that does not prove its codec, and a group mixing DSD with
+    PCM, are the same situation from the other side: the facts on file cannot
+    rank the copies at all.
+    """
+
+    def _track(track_id: int, path: str, dynamic_range: float) -> core.TrackRecord:
+        return core.TrackRecord(
+            track_id=track_id,
+            path=path,
+            size=40_000_000 + track_id,
+            mtime=1.0,
+            artist=None,
+            title=None,
+            album=None,
+            bpm=None,
+            musical_key=None,
+            duration=300.0,
+            metadata={
+                "sample_rate_hz": 44_100,
+                "bit_depth": 16,
+                "bit_rate_bps": 852_000,
+                "channel_count": 2,
+                "sonara_features": {
+                    "dynamic_range_db": dynamic_range,
+                    "loudness_lufs": -9.0,
+                    "loudness_range_lu": 8.0,
+                },
+            },
+            embeddings={},
+        )
+
+    original = _track(1, "C:/music/original.flac", 12.4)
+    remaster = _track(2, "C:/music/remaster.flac", 8.1)
+    near_copy = _track(3, "C:/music/near.flac", 11.0)
+
+    assert core.is_same_master([original, near_copy]) is True
+    assert core.is_same_master([original, remaster]) is False
+    # Inside one master the wider range still ranks; across masters it does not.
+    assert core.choose_keeper([original, near_copy]).track_id == 1
+
+    config = core.resolve_preset("safe", min_score=None)
+    groups = core.find_duplicate_groups(
+        [original, remaster],
+        config,
+        limit_groups=None,
+        candidate_sources={(1, 2): ("fingerprint_lsh",)},
+        fingerprint_scores={(1, 2): 0.99},
+    )
+    payload = core.build_report(
+        groups,
+        [original, remaster],
+        config,
+        root=Path("C:/music"),
+        path_contains=[],
+    )
+
+    group_payload = payload["groups"][0]
+    candidate = group_payload["candidate_deletes"][0]
+    assert group_payload["possible_different_master"] is True
+    assert candidate["safe_to_delete"] == "false"
+    assert any("possible different master" in reason for reason in candidate["blocked_reasons"])
+
+    # An extension names a container, not the codec inside it, and DSD does not
+    # compare to PCM by depth and rate. Both leave the comparator with nothing.
+    ambiguous = _track(4, "C:/music/copy.m4a", 12.4)
+    dsd = _track(5, "C:/music/copy.dsf", 12.4)
+    assert core.keeper_review_reasons([original, near_copy]) == []
+    assert core.keeper_review_reasons([original, ambiguous]) != []
+    assert core.keeper_review_reasons([original, dsd]) != []

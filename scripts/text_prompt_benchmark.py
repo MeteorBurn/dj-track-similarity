@@ -31,6 +31,14 @@ from dj_track_similarity.analysis_model_runners import current_embedding_analysi
 from dj_track_similarity.embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
 from dj_track_similarity.search import _contrast_vector_scores, _normalize_matrix
 
+# The checkpoint registry lives next to the script that writes the sidecars, so
+# there is one pinned list rather than two that can disagree.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from clap_checkpoint_embed import (  # noqa: E402
+    CHECKPOINTS as CLAP_CHECKPOINTS,
+    build_adapter as build_clap_adapter,
+)
+
 FloatArray = NDArray[np.float32]
 
 DEFAULT_PROMPTS = Path(__file__).with_name("text_prompt_benchmark_prompts.json")
@@ -102,8 +110,35 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Also score against a library-mean-centered matrix (modality gap probe).",
     )
+    parser.add_argument(
+        "--clap-checkpoint",
+        default=ClapEmbeddingAdapter.checkpoint_filename,
+        choices=sorted(CLAP_CHECKPOINTS),
+        help="LAION-CLAP checkpoint to score with. Both towers move together.",
+    )
+    parser.add_argument(
+        "--clap-vectors",
+        type=Path,
+        help=(
+            "Sidecar .npz from clap_checkpoint_embed.py, scored instead of the"
+            " stored clap_embeddings. Required for a non-production checkpoint."
+        ),
+    )
     parser.add_argument("--out", type=Path, help="Optional JSON report path.")
     args = parser.parse_args(argv)
+
+    # A checkpoint is one joint space: scoring its text tower against another
+    # checkpoint's audio vectors compares nothing, so refuse the pairing rather
+    # than print numbers that look like a result.
+    if (
+        args.clap_checkpoint != ClapEmbeddingAdapter.checkpoint_filename
+        and args.clap_vectors is None
+    ):
+        raise SystemExit(
+            f"--clap-checkpoint {args.clap_checkpoint} needs --clap-vectors:"
+            " stored embeddings belong to"
+            f" {ClapEmbeddingAdapter.checkpoint_filename}"
+        )
 
     prompts = json.loads(args.prompts.read_text(encoding="utf-8"))
     selected = [name.strip() for name in args.concepts.split(",") if name.strip()]
@@ -115,10 +150,17 @@ def main(argv: list[str] | None = None) -> int:
         if family not in ADAPTERS:
             raise SystemExit(f"Unsupported text embedding family: {family}")
         started = time.perf_counter()
-        matrix, row_of_track = _load_matrix(args.db, family)
+        sidecar = args.clap_vectors if family == "clap" else None
+        if sidecar is not None:
+            matrix, row_of_track = _load_sidecar_matrix(sidecar, args.clap_checkpoint)
+            adapter = build_clap_adapter(args.clap_checkpoint, device=args.device)
+        else:
+            matrix, row_of_track = _load_matrix(args.db, family)
+            adapter = ADAPTERS[family](device=args.device)
         concepts = _load_concepts(args.db, args.labels, prompts, row_of_track)
+        source = f"{sidecar} ({args.clap_checkpoint})" if sidecar else "stored embeddings"
         print(
-            f"{family}: {matrix.shape[0]:,} vectors, "
+            f"{family}: {matrix.shape[0]:,} vectors from {source}, "
             f"{len(concepts)} concepts, loaded in {time.perf_counter() - started:.1f}s",
             file=sys.stderr,
         )
@@ -127,6 +169,7 @@ def main(argv: list[str] | None = None) -> int:
                 family,
                 matrix,
                 concepts,
+                adapter=adapter,
                 device=args.device,
                 centered=args.centered,
             )
@@ -147,10 +190,10 @@ def _measure_family(
     matrix: FloatArray,
     concepts: list[LabelledConcept],
     *,
+    adapter,
     device: str,
     centered: bool,
 ) -> list[Measurement]:
-    adapter = ADAPTERS[family](device=device)
     started = time.perf_counter()
     adapter.preflight()
     print(f"{family}: model loaded in {time.perf_counter() - started:.1f}s", file=sys.stderr)
@@ -275,6 +318,26 @@ def _load_matrix(db_path: Path, family: str) -> tuple[FloatArray, dict[int, int]
             raise SystemExit(f"{family} embedding dimensions are mixed: {dim} != {dimension}")
         matrix[index] = np.frombuffer(blob, dtype=np.float32)
         row_of_track[track_id] = index
+    return _normalized(matrix), row_of_track
+
+
+def _load_sidecar_matrix(
+    sidecar_path: Path,
+    checkpoint: str,
+) -> tuple[FloatArray, dict[int, int]]:
+    """Load one checkpoint's sidecar vectors in the stored-matrix shape."""
+
+    with np.load(sidecar_path, allow_pickle=False) as payload:
+        track_ids = payload["track_ids"]
+        matrix = np.asarray(payload["vectors"], dtype=np.float32)
+        written_checkpoint = str(payload["checkpoint"])
+    if written_checkpoint != checkpoint:
+        raise SystemExit(
+            f"{sidecar_path} was written by {written_checkpoint}, not {checkpoint}"
+        )
+    if matrix.shape[0] != track_ids.shape[0]:
+        raise SystemExit(f"{sidecar_path} has mismatched track ids and vectors")
+    row_of_track = {int(track_id): index for index, track_id in enumerate(track_ids)}
     return _normalized(matrix), row_of_track
 
 

@@ -36,7 +36,7 @@ from .db_analysis_candidates import (
     collect_analysis_candidates,
     current_sonara_target_keys,
     normalize_analysis_outputs,
-    read_current_track_rows,
+    read_current_track_identities,
     require_active_analysis_outputs,
     table_for_output,
     target_from_track_row,
@@ -491,7 +491,7 @@ def _selected_targets(
     if targets is None:
         return tuple(
             target_from_track_row(row, catalog_uuid=catalog_uuid)
-            for row in read_current_track_rows(core_connection)
+            for row in read_current_track_identities(core_connection)
         )
     selected = tuple(targets)
     for target in selected:

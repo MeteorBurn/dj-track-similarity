@@ -585,10 +585,10 @@ def _matrix(
         raise ValueError(
             "Analysis repository returned non-finite embedding values"
         )
-    norms = np.linalg.norm(
-        matrix.astype(np.float64, copy=False),
-        axis=1,
-    )
+    # Squared norms via einsum stay in float32: casting the whole matrix to
+    # float64 allocated a temporary twice the size of the library for a check
+    # whose tolerance is four orders of magnitude looser than the error it adds.
+    norms = np.sqrt(np.einsum("ij,ij->i", matrix, matrix))
     if not bool(
         np.all(np.isclose(norms, 1.0, rtol=1e-4, atol=1e-5))
     ):

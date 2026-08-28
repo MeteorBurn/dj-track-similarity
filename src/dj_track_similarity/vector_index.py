@@ -177,10 +177,7 @@ def _l2_search_matrix(matrix: np.ndarray) -> np.ndarray:
     search_matrix = _search_matrix(matrix)
     if search_matrix.shape[0] == 0:
         return search_matrix
-    norms = np.linalg.norm(
-        search_matrix.astype(np.float64, copy=False),
-        axis=1,
-    )
+    norms = np.sqrt(np.einsum("ij,ij->i", search_matrix, search_matrix))
     if not bool(
         np.all(
             np.isclose(

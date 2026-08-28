@@ -75,6 +75,29 @@ def read_current_track_rows(connection: sqlite3.Connection) -> list[sqlite3.Row]
     ).fetchall()
 
 
+def read_current_track_identities(
+    connection: sqlite3.Connection,
+) -> list[sqlite3.Row]:
+    """Read only what a search needs: the identity of every current track.
+
+    ``read_current_track_rows`` also carries file facts and the SONARA
+    structure boundaries, because the analysis-candidate pipeline builds a
+    MAEST window context from them. A search reads neither, and paying for the
+    join into ``sonara_features`` on every request costs more than the cosine
+    it is fetching vectors for. The ORDER BY is kept identical so row order,
+    and with it the tie-break among equal scores, does not move.
+    """
+
+    return connection.execute(
+        """
+        SELECT track_id, track_uuid
+        FROM tracks
+        WHERE missing_since IS NULL
+        ORDER BY file_path COLLATE NOCASE, track_id
+        """
+    ).fetchall()
+
+
 def target_from_track_row(
     row: sqlite3.Row,
     *,

@@ -111,4 +111,8 @@ graphify-out/????-??-??/
 # planning artifacts under .claude/plans/ are shared.
 .claude/*
 !.claude/plans/
+# The saved report bundle is a browser page dump with its own asset
+# folder. It stays on disk for local reading and is not published.
+.claude/plans/reports/REPORT.html
+.claude/plans/reports/REPORT_files/
 .agents/skills/

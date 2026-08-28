@@ -315,6 +315,10 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     text_snapshot.mkdir()
     for file_name in MuqMulanEmbeddingAdapter.text_snapshot_files:
         (text_snapshot / file_name).write_bytes(file_name.encode())
+    audio_snapshot = tmp_path / "muq-audio-snapshot"
+    audio_snapshot.mkdir()
+    for file_name in MuqMulanEmbeddingAdapter.audio_snapshot_files:
+        (audio_snapshot / file_name).write_bytes(file_name.encode())
 
     text_module = types.ModuleType("muq.muq_mulan.models.text")
 
@@ -329,6 +333,13 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
         @staticmethod
         def from_pretrained(source, **kwargs):
             calls["encoder_load"] = (source, kwargs)
+            assert (Path(source) / "config.json").read_bytes() == b"config.json"
+            return object()
+
+    class VerifiedAudioLoader:
+        @staticmethod
+        def from_pretrained(source, **kwargs):
+            calls["audio_load"] = (source, kwargs)
             assert (Path(source) / "config.json").read_bytes() == b"config.json"
             return object()
 
@@ -372,6 +383,12 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
             text_module.XLMRobertaModel.from_pretrained(
                 MuqMulanEmbeddingAdapter.text_model_name,
             )
+            # Upstream builds the audio tower through the muq package
+            # namespace and forwards its own cache directory.
+            muq_module.MuQ.from_pretrained(
+                MuqMulanEmbeddingAdapter.audio_model_name,
+                cache_dir=None,
+            )
             return FakeModel()
 
     hf_module = types.ModuleType("huggingface_hub")
@@ -382,11 +399,14 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
         )
         if repo_id == MuqMulanEmbeddingAdapter.text_model_name:
             return str(text_snapshot)
+        if repo_id == MuqMulanEmbeddingAdapter.audio_model_name:
+            return str(audio_snapshot)
         return str(snapshot)
 
     hf_module.snapshot_download = download
     muq_module = types.ModuleType("muq")
     muq_module.MuQMuLan = FakeMuQMuLan
+    muq_module.MuQ = VerifiedAudioLoader
     monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
     monkeypatch.setitem(sys.modules, "torchaudio", types.ModuleType("torchaudio"))
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
@@ -413,6 +433,13 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     adapter.text_checkpoint_sha256 = dict(adapter.text_snapshot_sha256)[
         adapter.text_checkpoint_filename
     ]
+    adapter.audio_snapshot_sha256 = tuple(
+        (file_name, hashlib.sha256(file_name.encode()).hexdigest())
+        for file_name in adapter.audio_snapshot_files
+    )
+    adapter.audio_checkpoint_sha256 = dict(adapter.audio_snapshot_sha256)[
+        adapter.audio_checkpoint_filename
+    ]
     adapter._load_model()
 
     assert calls["downloads"] == [
@@ -428,6 +455,12 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
             list(adapter.text_snapshot_files),
             False,
         ),
+        (
+            adapter.audio_model_name,
+            adapter.audio_model_revision,
+            list(adapter.audio_snapshot_files),
+            False,
+        ),
     ]
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
@@ -440,8 +473,13 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     assert not Path(tokenizer_path).exists()
     assert tokenizer_kwargs == {"local_files_only": True}
     assert encoder_kwargs == {"local_files_only": True}
+    audio_path, audio_kwargs = calls["audio_load"]
+    assert audio_path != str(audio_snapshot)
+    assert not Path(audio_path).exists()
+    assert audio_kwargs == {"cache_dir": None, "local_files_only": True}
     assert text_module.AutoTokenizer is VerifiedTokenizerLoader
     assert text_module.XLMRobertaModel is VerifiedEncoderLoader
+    assert muq_module.MuQ is VerifiedAudioLoader
 
 
 def test_clap_loader_uses_verified_checkpoint_and_text_assets(

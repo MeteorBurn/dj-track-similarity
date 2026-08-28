@@ -70,7 +70,9 @@ from .verified_assets import (
 
 
 _CLAP_CONSTRUCTION_LOCK = threading.RLock()
-_MULAN_CONSTRUCTION_LOCK = threading.RLock()
+# Pinning MuQ-MuLan rebinds attributes on the shared ``muq`` package, so every
+# construction that reads them has to serialise against it.
+_MUQ_CONSTRUCTION_LOCK = threading.RLock()
 _MUQ_WEIGHT_NORM_WARNING_SILENCED = False
 
 
@@ -630,7 +632,7 @@ class MuqEmbeddingAdapter:
         import torch
         import torchaudio
         from huggingface_hub import snapshot_download
-        from muq import MuQ
+        import muq
 
         _silence_muq_weight_norm_deprecation()
         self._torch = torch
@@ -644,7 +646,10 @@ class MuqEmbeddingAdapter:
             checkpoint_filename=self.checkpoint_filename,
             expected_checkpoint_sha256=self.checkpoint_sha256,
         )
-        with binding as verified:
+        with binding as verified, _MUQ_CONSTRUCTION_LOCK:
+            # Read under the lock: MuQ-MuLan construction rebinds this
+            # attribute to a proxy that only accepts its own snapshot.
+            MuQ = muq.MuQ
             self.device = self._device()
             model = MuQ.from_pretrained(
                 str(verified.path),
@@ -688,6 +693,16 @@ class MuqMulanEmbeddingAdapter:
     text_snapshot_sha256 = MULAN_TEXT_SNAPSHOT_SHA256
     text_checkpoint_filename = "model.safetensors"
     text_checkpoint_sha256 = dict(text_snapshot_sha256)[text_checkpoint_filename]
+    audio_model_name = MUQ_MODEL_NAME
+    audio_model_revision = MUQ_MODEL_REVISION
+    audio_snapshot_files = tuple(
+        file_name for file_name, _digest in MUQ_SNAPSHOT_SHA256
+    )
+    audio_snapshot_sha256 = MUQ_SNAPSHOT_SHA256
+    audio_checkpoint_filename = "model.safetensors"
+    audio_checkpoint_sha256 = dict(audio_snapshot_sha256)[
+        audio_checkpoint_filename
+    ]
 
     def __init__(
         self,
@@ -861,11 +876,23 @@ class MuqMulanEmbeddingAdapter:
                     expected_checkpoint_sha256=self.text_checkpoint_sha256,
                 )
             )
+            verified_audio_snapshot = assets.enter_context(
+                _download_verified_hf_snapshot(
+                    snapshot_download,
+                    repo_id=self.audio_model_name,
+                    revision=self.audio_model_revision,
+                    required_files=self.audio_snapshot_files,
+                    expected_sha256=self.audio_snapshot_sha256,
+                    checkpoint_filename=self.audio_checkpoint_filename,
+                    expected_checkpoint_sha256=self.audio_checkpoint_sha256,
+                )
+            )
             self.device = self._device()
-            model = _construct_muq_mulan_with_pinned_text_model(
+            model = _construct_muq_mulan_with_pinned_towers(
                 MuQMuLan,
                 snapshot_path=verified.path,
                 text_snapshot_path=verified_text_snapshot.path,
+                audio_snapshot_path=verified_audio_snapshot.path,
             )
         to_float = getattr(model, "float", None)
         if callable(to_float):
@@ -1367,25 +1394,30 @@ def _construct_clap_module_with_pinned_text_model(
             clap_model_module.RobertaModel = original_model_loader
 
 
-def _construct_muq_mulan_with_pinned_text_model(
+def _construct_muq_mulan_with_pinned_towers(
     mulan_module_type,
     *,
     snapshot_path: Path,
     text_snapshot_path: Path,
+    audio_snapshot_path: Path,
 ):
-    """Construct MuQ-MuLan without permitting its floating XLM-R loads.
+    """Construct MuQ-MuLan without permitting its floating tower loads.
 
     The upstream text tower resolves ``xlm-roberta-base`` from the ambient Hub
     cache twice: the encoder while the model is built, and the tokenizer lazily
-    on the first text embedding. Both are bound to the verified snapshot here,
-    and the tokenizer is materialised while that binding is still installed so
-    no later call can reach the Hub.
+    on the first text embedding. The audio tower resolves
+    ``OpenMuQ/MuQ-large-msd-iter`` the same way, through the ``muq`` package
+    namespace. All three are bound to their verified snapshots here, and the
+    tokenizer is materialised while that binding is still installed so no later
+    call can reach the Hub.
     """
 
-    with _MULAN_CONSTRUCTION_LOCK:
+    with _MUQ_CONSTRUCTION_LOCK:
         text_module = importlib.import_module("muq.muq_mulan.models.text")
+        muq_module = importlib.import_module("muq")
         original_tokenizer_loader = getattr(text_module, "AutoTokenizer", None)
         original_model_loader = getattr(text_module, "XLMRobertaModel", None)
+        original_audio_loader = getattr(muq_module, "MuQ", None)
         if not callable(
             getattr(original_tokenizer_loader, "from_pretrained", None)
         ):
@@ -1396,6 +1428,8 @@ def _construct_muq_mulan_with_pinned_text_model(
             raise RuntimeError(
                 "Pinned muq internals do not expose XLMRobertaModel"
             )
+        if not callable(getattr(original_audio_loader, "from_pretrained", None)):
+            raise RuntimeError("Pinned muq internals do not expose MuQ")
 
         text_module.AutoTokenizer = _local_only_from_pretrained_proxy(
             original_tokenizer_loader,
@@ -1409,6 +1443,12 @@ def _construct_muq_mulan_with_pinned_text_model(
             expected_source=MULAN_TEXT_MODEL_NAME,
             description="MuQ-MuLan XLM-R encoder",
         )
+        muq_module.MuQ = _local_only_from_pretrained_proxy(
+            original_audio_loader,
+            snapshot_path=audio_snapshot_path,
+            expected_source=MUQ_MODEL_NAME,
+            description="MuQ-MuLan audio tower",
+        )
         try:
             model = mulan_module_type.from_pretrained(
                 str(snapshot_path),
@@ -1419,6 +1459,7 @@ def _construct_muq_mulan_with_pinned_text_model(
         finally:
             text_module.AutoTokenizer = original_tokenizer_loader
             text_module.XLMRobertaModel = original_model_loader
+            muq_module.MuQ = original_audio_loader
 
 
 def _materialize_mulan_text_tokenizer(model: object) -> None:

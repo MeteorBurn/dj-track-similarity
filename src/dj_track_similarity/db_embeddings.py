@@ -149,8 +149,17 @@ def validate_embedding_row_payload(
     family: str,
     row: Mapping[str, object] | sqlite3.Row,
     expected_track: EmbeddingTrackIdentity,
+    check_values: bool = True,
 ) -> tuple[bool, str | None]:
-    """Validate one persisted embedding without opening another connection."""
+    """Validate one persisted embedding without opening another connection.
+
+    ``check_values=False`` runs the structural half only — identity, dimension,
+    normalization, blob length and shape. A bulk reader uses it to keep the
+    per-row work in Python cheap and then run the finiteness and unit-norm
+    checks once over the whole stack, which is the same test at a fraction of
+    the cost: the per-row form spends a NumPy call per track and dominated a
+    full-library load.
+    """
 
     try:
         expected_spec = current_embedding_spec(family)
@@ -174,6 +183,8 @@ def validate_embedding_row_payload(
     vector = np.frombuffer(blob, dtype="<f4")
     if vector.shape != (dim,):
         return False, "embedding shape mismatch"
+    if not check_values:
+        return True, None
     if not bool(np.all(np.isfinite(vector))):
         return False, "non-finite values"
     if normalization == "l2" and not _is_l2_unit_vector(vector):
@@ -286,6 +297,8 @@ def read_valid_embeddings(
         (json.dumps(sorted(identities)),),
     )
     vectors: dict[int, np.ndarray] = {}
+    accepted_ids: list[int] = []
+    accepted_vectors: list[np.ndarray] = []
     for row in rows:
         track_id = int(row["track_id"])
         expected_track_uuid = identities.get(track_id)
@@ -299,13 +312,26 @@ def read_valid_embeddings(
                 track_id=track_id,
                 track_uuid=expected_track_uuid,
             ),
+            check_values=False,
         )
         if not valid:
             continue
-        vectors[track_id] = np.frombuffer(
-            row["embedding_blob"],
-            dtype="<f4",
-        ).copy()
+        accepted_ids.append(track_id)
+        accepted_vectors.append(np.frombuffer(row["embedding_blob"], dtype="<f4"))
+    if not accepted_ids:
+        return vectors
+
+    # The finiteness and unit-norm tests the per-row form would have run, once
+    # over the whole stack. Rejection stays per row: a track that fails either
+    # test is dropped exactly as before, the rest are returned.
+    stacked = np.vstack(accepted_vectors)
+    keep = np.isfinite(stacked).all(axis=1)
+    if current_embedding_spec(family).normalization == "l2":
+        norms = np.sqrt(np.einsum("ij,ij->i", stacked, stacked))
+        keep &= np.isfinite(norms) & np.isclose(norms, 1.0, rtol=1e-4, atol=1e-5)
+    for index, track_id in enumerate(accepted_ids):
+        if keep[index]:
+            vectors[track_id] = stacked[index].copy()
     return vectors
 
 

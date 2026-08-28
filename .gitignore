@@ -98,12 +98,10 @@ graphify-out/reflections/
 graphify-out/????-??-??/
 
 # Track Graphify Codex integration
-!.codex/hooks.json
 !.codex/skills/
 .codex/skills/*
 !.codex/skills/graphify/
 !.codex/skills/graphify/**
 
-.codex/hooks.json
-.codex/hooks.json
+# Graphify Codex hooks stay machine-local: they carry an absolute path.
 .codex/hooks.json

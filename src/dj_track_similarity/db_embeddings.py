@@ -50,6 +50,34 @@ def _positive_int(value: object) -> int | None:
     return value if value > 0 else None
 
 
+def _validated_identity_pairs(
+    identities: Mapping[int, str],
+    catalog_uuid: str,
+) -> list[list[object]]:
+    """Apply :class:`EmbeddingTrackIdentity`'s rules to a whole batch at once.
+
+    The per-row form built one identity object per track purely to run these
+    three checks, which cost more than reading the vectors they guarded. The
+    rules and their errors are unchanged; only the number of objects is.
+    """
+
+    if not isinstance(catalog_uuid, str) or not catalog_uuid.strip():
+        raise ValueError("catalog_uuid must be a non-empty string")
+    pairs: list[list[object]] = []
+    for track_id, track_uuid in identities.items():
+        if (
+            isinstance(track_id, bool)
+            or not isinstance(track_id, int)
+            or track_id <= 0
+        ):
+            raise ValueError("track_id must be a positive integer")
+        if not isinstance(track_uuid, str) or not track_uuid.strip():
+            raise ValueError("track_uuid must be a non-empty string")
+        pairs.append([track_id, track_uuid])
+    pairs.sort(key=lambda pair: pair[0])
+    return pairs
+
+
 def _is_l2_unit_vector(vector: np.ndarray) -> bool:
     norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
     return bool(np.isfinite(norm) and np.isclose(norm, 1.0, rtol=1e-4, atol=1e-5))
@@ -284,40 +312,40 @@ def read_valid_embeddings(
         raise ValueError(f"unsupported embedding family: {family!r}")
     if not identities:
         return {}
+    spec = current_embedding_spec(family)
+    pairs = _validated_identity_pairs(identities, catalog_uuid)
+
+    # Every structural test the per-row form ran — identity match, dimension,
+    # normalization and blob length — is a predicate SQLite can apply while it
+    # reads. Doing it here skips a dict copy, an identity object and eighteen
+    # isinstance calls per track, which together cost more than the query.
+    # A row that fails any of them simply does not come back, which is the same
+    # "skip anything that does not validate" rule as before.
     rows = connection.execute(
         f"""
-        SELECT track_id, track_uuid,
-               dim, normalization, embedding_blob
-        FROM {table}
-        WHERE track_id IN (
-              SELECT CAST(value AS INTEGER)
-              FROM json_each(?)
-          )
+        SELECT embeddings.track_id AS track_id,
+               embeddings.embedding_blob AS embedding_blob
+        FROM {table} AS embeddings
+        JOIN json_each(?) AS wanted
+          ON embeddings.track_id
+             = CAST(json_extract(wanted.value, '$[0]') AS INTEGER)
+         AND embeddings.track_uuid = json_extract(wanted.value, '$[1]')
+        WHERE embeddings.dim = ?
+          AND embeddings.normalization = ?
+          AND length(embeddings.embedding_blob) = ?
         """,
-        (json.dumps(sorted(identities)),),
-    )
+        (
+            json.dumps(pairs, separators=(",", ":")),
+            spec.dimension,
+            spec.normalization,
+            spec.dimension * 4,
+        ),
+    ).fetchall()
     vectors: dict[int, np.ndarray] = {}
-    accepted_ids: list[int] = []
-    accepted_vectors: list[np.ndarray] = []
-    for row in rows:
-        track_id = int(row["track_id"])
-        expected_track_uuid = identities.get(track_id)
-        if expected_track_uuid is None:
-            continue
-        valid, _reason = validate_embedding_row_payload(
-            family=family,
-            row=row,
-            expected_track=EmbeddingTrackIdentity(
-                catalog_uuid=catalog_uuid,
-                track_id=track_id,
-                track_uuid=expected_track_uuid,
-            ),
-            check_values=False,
-        )
-        if not valid:
-            continue
-        accepted_ids.append(track_id)
-        accepted_vectors.append(np.frombuffer(row["embedding_blob"], dtype="<f4"))
+    accepted_ids = [int(row["track_id"]) for row in rows]
+    accepted_vectors = [
+        np.frombuffer(row["embedding_blob"], dtype="<f4") for row in rows
+    ]
     if not accepted_ids:
         return vectors
 
@@ -326,7 +354,7 @@ def read_valid_embeddings(
     # test is dropped exactly as before, the rest are returned.
     stacked = np.vstack(accepted_vectors)
     keep = np.isfinite(stacked).all(axis=1)
-    if current_embedding_spec(family).normalization == "l2":
+    if spec.normalization == "l2":
         norms = np.sqrt(np.einsum("ij,ij->i", stacked, stacked))
         keep &= np.isfinite(norms) & np.isclose(norms, 1.0, rtol=1e-4, atol=1e-5)
     # Hand out read-only rows of the one stack rather than a copy per track.

@@ -198,58 +198,6 @@ def current_embedding_spec(family: str) -> EmbeddingFamilySpec:
         ) from error
 
 
-_ML_PARAMETER_DEFAULTS: dict[str, Mapping[str, object]] = {
-    "maest": {
-        "adapter_revision": MAEST_ADAPTER_REVISION,
-        "dtype": "float32",
-        "device_precision": "float32-eval",
-        "checkpoint_release": "v0.0.0-beta",
-        "checkpoint_filename": "discogs-maest-30s-pw-129e-519l-swa.ckpt",
-    },
-    "mert": {
-        "adapter_revision": MERT_ADAPTER_REVISION,
-        "dtype": "float32",
-        "device_precision": "float32-eval-no-autocast",
-        "checkpoint_filename": "pytorch_model.bin",
-        "snapshot_files": (
-            "config.json",
-            "configuration_MERT.py",
-            "modeling_MERT.py",
-            "preprocessor_config.json",
-            "pytorch_model.bin",
-        ),
-        "snapshot_sha256": MERT_SNAPSHOT_SHA256,
-    },
-    "muq": {
-        "adapter_revision": MUQ_ADAPTER_REVISION,
-        "dtype": "float32",
-        "device_precision": "float32-eval-no-autocast-no-compile",
-        "checkpoint_filename": "model.safetensors",
-        "snapshot_files": ("config.json", "model.safetensors"),
-        "snapshot_sha256": MUQ_SNAPSHOT_SHA256,
-    },
-    "mulan": {
-        "adapter_revision": MULAN_ADAPTER_REVISION,
-        "dtype": "float32",
-        "device_precision": "float32-eval-no-autocast-no-compile",
-        "checkpoint_filename": "model.safetensors",
-        "snapshot_files": ("config.json", "model.safetensors"),
-        "snapshot_sha256": MULAN_SNAPSHOT_SHA256,
-    },
-    "clap": {
-        "adapter_revision": CLAP_ADAPTER_REVISION,
-        "dtype": "float32",
-        "device_precision": "fp32-eval",
-        "checkpoint_filename": "music_audioset_epoch_15_esc_90.14.pt",
-        "text_model_name": CLAP_TEXT_MODEL_NAME,
-        "text_model_revision": CLAP_TEXT_MODEL_REVISION,
-        "text_snapshot_files": tuple(
-            file_name for file_name, _digest in CLAP_TEXT_SNAPSHOT_SHA256
-        ),
-        "text_snapshot_sha256": CLAP_TEXT_SNAPSHOT_SHA256,
-    },
-}
-
 _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
     tuple[str, str], Mapping[str, object]
 ] = {
@@ -468,358 +416,6 @@ def _finite_number(value: object, field_name: str) -> float:
     return number
 
 
-def _positive_number(value: object, field_name: str) -> float:
-    number = _finite_number(value, field_name)
-    if number <= 0:
-        raise ValueError(f"{field_name} must be greater than zero")
-    return number
-
-
-def _merge_parameters(
-    reserved: Mapping[str, object],
-    extras: Mapping[str, object] | None,
-) -> dict[str, object]:
-    extra_values = dict(extras or {})
-    collisions = sorted(set(reserved).intersection(extra_values))
-    if collisions:
-        raise ValueError(
-            "parameters must not override reserved factory fields; "
-            f"collisions={collisions}"
-        )
-    return {**reserved, **extra_values}
-
-
-def _with_ml_runtime_identity(
-    family: Literal["maest", "mert", "muq", "mulan", "clap"],
-    model_version: str,
-    parameters: Mapping[str, object],
-) -> dict[str, object]:
-    defaults = dict(_ML_PARAMETER_DEFAULTS[family])
-    if family in {"mert", "muq", "mulan", "clap"}:
-        defaults["model_revision"] = model_version
-    if family == "mert":
-        defaults["remote_code_revision"] = model_version
-    return {**defaults, **parameters}
-
-
-def _validate_window_ratios(value: object, field_name: str) -> tuple[float, ...]:
-    if not isinstance(value, Sequence) or isinstance(
-        value,
-        (str, bytes, bytearray, memoryview),
-    ):
-        raise ValueError(f"{field_name} must be a non-empty sequence")
-    ratios = tuple(_finite_number(item, f"{field_name}[]") for item in value)
-    if not ratios:
-        raise ValueError(f"{field_name} must not be empty")
-    if any(ratio < 0.0 or ratio > 1.0 for ratio in ratios):
-        raise ValueError(f"{field_name} values must be between 0 and 1")
-    return ratios
-
-
-def _validate_positive_int_sequence(
-    value: object,
-    field_name: str,
-) -> tuple[int, ...]:
-    if not isinstance(value, Sequence) or isinstance(
-        value,
-        (str, bytes, bytearray, memoryview),
-    ):
-        raise ValueError(f"{field_name} must be a non-empty sequence")
-    values = tuple(_positive_int(item, f"{field_name}[]") for item in value)
-    if not values:
-        raise ValueError(f"{field_name} must not be empty")
-    return values
-
-
-def _readonly_float32_vector(
-    value: Sequence[float] | np.ndarray,
-    *,
-    family: str,
-) -> np.ndarray:
-    spec = current_embedding_spec(family)
-    expected_dim = spec.dimension
-    vector = np.asarray(value, dtype="<f4")
-    if vector.ndim != 1 or vector.shape != (expected_dim,):
-        raise ValueError(
-            f"embedding shape {vector.shape} does not match "
-            f"{family} dimension {expected_dim}"
-        )
-    if not bool(np.all(np.isfinite(vector))):
-        raise ValueError("embedding contains non-finite values")
-    if spec.normalization == "l2":
-        norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
-        if not math.isfinite(norm) or not np.isclose(
-            norm,
-            1.0,
-            rtol=1e-4,
-            atol=1e-5,
-        ):
-            raise ValueError("l2 embedding must be unit-normalized")
-    result = np.ascontiguousarray(vector, dtype="<f4").copy()
-    result.setflags(write=False)
-    return result
-
-
-def _validate_short_float_blob(blob: bytes, *, dim: int, field_name: str) -> None:
-    if not isinstance(blob, bytes) or len(blob) != dim * 4:
-        raise ValueError(f"{field_name} must contain exactly {dim} float32-le values")
-    vector = np.frombuffer(blob, dtype="<f4")
-    if vector.shape != (dim,) or not bool(np.all(np.isfinite(vector))):
-        raise ValueError(f"{field_name} must contain only finite float32-le values")
-
-
-def _embedding_output(
-    *,
-    family: Literal["maest", "mert", "muq", "mulan", "clap"],
-    model_name: str,
-    model_version: str,
-    checkpoint_id: str,
-    preprocessing: str,
-    parameters: Mapping[str, object],
-) -> "AnalysisOutput":
-    del model_name, model_version, checkpoint_id, preprocessing, parameters
-    return AnalysisOutput(
-        analysis_family=family,
-        output_kind="embedding",
-    )
-
-
-def maest_analysis_output(
-    *,
-    model_version: str,
-    checkpoint_id: str,
-    preprocessing: str,
-    sample_rate_hz: int,
-    input_seconds: float,
-    analysis_window_positions: Sequence[float],
-    top_k: int,
-    model_name: str = MAEST_MODEL_NAME,
-    parameters: Mapping[str, object] | None = None,
-) -> "AnalysisOutput":
-    positions = _validate_window_ratios(
-        analysis_window_positions,
-        "analysis_window_positions",
-    )
-    reserved: dict[str, object] = {
-        "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
-        "input_seconds": _positive_number(input_seconds, "input_seconds"),
-        "analysis_window_positions": positions,
-        "top_k": _positive_int(top_k, "top_k"),
-    }
-    values = _with_ml_runtime_identity(
-        "maest",
-        model_version,
-        _merge_parameters(reserved, parameters),
-    )
-    del model_name, checkpoint_id, preprocessing, values
-    return AnalysisOutput(
-        analysis_family="maest",
-        output_kind="analysis",
-    )
-
-
-def maest_embedding_output(
-    *,
-    model_version: str,
-    checkpoint_id: str,
-    preprocessing: str,
-    sample_rate_hz: int,
-    input_seconds: float,
-    analysis_window_positions: Sequence[float],
-    pooling: str,
-    model_name: str = MAEST_MODEL_NAME,
-    parameters: Mapping[str, object] | None = None,
-) -> "AnalysisOutput":
-    reserved: dict[str, object] = {
-        "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
-        "input_seconds": _positive_number(input_seconds, "input_seconds"),
-        "analysis_window_positions": _validate_window_ratios(
-            analysis_window_positions,
-            "analysis_window_positions",
-        ),
-        "pooling": _required_text(pooling, "pooling"),
-    }
-    values = _with_ml_runtime_identity(
-        "maest",
-        model_version,
-        _merge_parameters(reserved, parameters),
-    )
-    return _embedding_output(
-        family="maest",
-        model_name=model_name,
-        model_version=model_version,
-        checkpoint_id=checkpoint_id,
-        preprocessing=preprocessing,
-        parameters=values,
-    )
-
-
-def mert_embedding_output(
-    *,
-    model_version: str,
-    checkpoint_id: str,
-    preprocessing: str,
-    sample_rate_hz: int,
-    window_seconds: float,
-    max_windows: int,
-    hidden_layers: Sequence[int],
-    pooling: str,
-    model_name: str = MERT_MODEL_NAME,
-    parameters: Mapping[str, object] | None = None,
-) -> "AnalysisOutput":
-    layers = _validate_positive_int_sequence(
-        hidden_layers,
-        "hidden_layers",
-    )
-    reserved: dict[str, object] = {
-        "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
-        "window_seconds": _positive_number(
-            window_seconds,
-            "window_seconds",
-        ),
-        "max_windows": _positive_int(max_windows, "max_windows"),
-        "hidden_layers": layers,
-        "pooling": _required_text(pooling, "pooling"),
-    }
-    values = _with_ml_runtime_identity(
-        "mert",
-        model_version,
-        _merge_parameters(reserved, parameters),
-    )
-    return _embedding_output(
-        family="mert",
-        model_name=model_name,
-        model_version=model_version,
-        checkpoint_id=checkpoint_id,
-        preprocessing=preprocessing,
-        parameters=values,
-    )
-
-
-def muq_embedding_output(
-    *,
-    model_version: str,
-    checkpoint_id: str,
-    preprocessing: str,
-    sample_rate_hz: int,
-    window_seconds: float,
-    max_windows: int,
-    pooling: str,
-    dtype: str,
-    model_name: str = MUQ_MODEL_NAME,
-    parameters: Mapping[str, object] | None = None,
-) -> "AnalysisOutput":
-    if sample_rate_hz != 24_000:
-        raise ValueError("MuQ sample_rate_hz must be 24000")
-    if dtype != "float32":
-        raise ValueError("MuQ dtype must be 'float32'")
-    reserved: dict[str, object] = {
-        "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
-        "window_seconds": _positive_number(
-            window_seconds,
-            "window_seconds",
-        ),
-        "max_windows": _positive_int(max_windows, "max_windows"),
-        "pooling": _required_text(pooling, "pooling"),
-        "dtype": dtype,
-    }
-    values = _with_ml_runtime_identity(
-        "muq",
-        model_version,
-        _merge_parameters(reserved, parameters),
-    )
-    return _embedding_output(
-        family="muq",
-        model_name=model_name,
-        model_version=model_version,
-        checkpoint_id=checkpoint_id,
-        preprocessing=preprocessing,
-        parameters=values,
-    )
-
-
-def mulan_embedding_output(
-    *,
-    model_version: str,
-    checkpoint_id: str,
-    preprocessing: str,
-    sample_rate_hz: int,
-    window_seconds: float,
-    max_windows: int,
-    pooling: str,
-    dtype: str,
-    model_name: str = MULAN_MODEL_NAME,
-    parameters: Mapping[str, object] | None = None,
-) -> "AnalysisOutput":
-    if sample_rate_hz != 24_000:
-        raise ValueError("MuQ-MuLan sample_rate_hz must be 24000")
-    if dtype != "float32":
-        raise ValueError("MuQ-MuLan dtype must be 'float32'")
-    reserved: dict[str, object] = {
-        "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
-        "window_seconds": _positive_number(
-            window_seconds,
-            "window_seconds",
-        ),
-        "max_windows": _positive_int(max_windows, "max_windows"),
-        "pooling": _required_text(pooling, "pooling"),
-        "dtype": dtype,
-    }
-    values = _with_ml_runtime_identity(
-        "mulan",
-        model_version,
-        _merge_parameters(reserved, parameters),
-    )
-    return _embedding_output(
-        family="mulan",
-        model_name=model_name,
-        model_version=model_version,
-        checkpoint_id=checkpoint_id,
-        preprocessing=preprocessing,
-        parameters=values,
-    )
-
-
-def clap_embedding_output(
-    *,
-    model_version: str,
-    checkpoint_id: str,
-    preprocessing: str,
-    sample_rate_hz: int,
-    window_seconds: float,
-    max_windows: int,
-    pooling: str,
-    amodel: str,
-    enable_fusion: bool,
-    model_name: str = CLAP_MODEL_NAME,
-    parameters: Mapping[str, object] | None = None,
-) -> "AnalysisOutput":
-    if not isinstance(enable_fusion, bool):
-        raise ValueError("enable_fusion must be a boolean")
-    reserved: dict[str, object] = {
-        "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
-        "window_seconds": _positive_number(
-            window_seconds,
-            "window_seconds",
-        ),
-        "max_windows": _positive_int(max_windows, "max_windows"),
-        "pooling": _required_text(pooling, "pooling"),
-        "amodel": _required_text(amodel, "amodel"),
-        "enable_fusion": enable_fusion,
-    }
-    values = _with_ml_runtime_identity(
-        "clap",
-        model_version,
-        _merge_parameters(reserved, parameters),
-    )
-    return _embedding_output(
-        family="clap",
-        model_name=model_name,
-        model_version=model_version,
-        checkpoint_id=checkpoint_id,
-        preprocessing=preprocessing,
-        parameters=values,
-    )
 
 
 @dataclass(frozen=True)
@@ -908,6 +504,43 @@ class AnalysisCandidate:
             raise TypeError(
                 "maest_window_context must be a MaestWindowContext or None"
             )
+
+
+def _validate_short_float_blob(blob: bytes, *, dim: int, field_name: str) -> None:
+    if not isinstance(blob, bytes) or len(blob) != dim * 4:
+        raise ValueError(f"{field_name} must contain exactly {dim} float32-le values")
+    vector = np.frombuffer(blob, dtype="<f4")
+    if vector.shape != (dim,) or not bool(np.all(np.isfinite(vector))):
+        raise ValueError(f"{field_name} must contain only finite float32-le values")
+
+
+def _readonly_float32_vector(
+    value: Sequence[float] | np.ndarray,
+    *,
+    family: str,
+) -> np.ndarray:
+    spec = current_embedding_spec(family)
+    expected_dim = spec.dimension
+    vector = np.asarray(value, dtype="<f4")
+    if vector.ndim != 1 or vector.shape != (expected_dim,):
+        raise ValueError(
+            f"embedding shape {vector.shape} does not match "
+            f"{family} dimension {expected_dim}"
+        )
+    if not bool(np.all(np.isfinite(vector))):
+        raise ValueError("embedding contains non-finite values")
+    if spec.normalization == "l2":
+        norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
+        if not math.isfinite(norm) or not np.isclose(
+            norm,
+            1.0,
+            rtol=1e-4,
+            atol=1e-5,
+        ):
+            raise ValueError("l2 embedding must be unit-normalized")
+    result = np.ascontiguousarray(vector, dtype="<f4").copy()
+    result.setflags(write=False)
+    return result
 
 
 @dataclass(frozen=True, slots=True)

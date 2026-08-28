@@ -30,6 +30,50 @@ def test_adapters_expose_dimensions_and_normalization_before_model_load() -> Non
         assert adapter._model is None
 
 
+def test_every_adapter_declares_a_pinned_immutable_identity() -> None:
+    """Each adapter must name its model, version, preprocessing and checkpoint.
+
+    ``_adapter_identity`` enforces this whenever analysis builds an output, and
+    a search no longer builds one, so the contract is pinned here instead of
+    being re-derived per request from constants that cannot change at runtime.
+    """
+
+    adapters = (
+        MaestEmbeddingAdapter(device="cpu"),
+        MertEmbeddingAdapter(device="cpu"),
+        MuqEmbeddingAdapter(device="cpu"),
+        MuqMulanEmbeddingAdapter(device="cpu"),
+        ClapEmbeddingAdapter(device="cpu"),
+    )
+
+    for adapter in adapters:
+        for field in ("model_name", "model_version", "checkpoint_id", "preprocessing"):
+            value = getattr(adapter, field, None)
+            assert isinstance(value, str) and value.strip(), (
+                f"{type(adapter).__name__}.{field}"
+            )
+        digest = adapter.checkpoint_id.removeprefix("sha256:")
+        assert len(digest) == 64 and digest == digest.lower(), (
+            f"{type(adapter).__name__}.checkpoint_id is not a lowercase sha256 digest"
+        )
+        int(digest, 16)
+
+
+def test_adapter_identity_rejects_an_adapter_with_a_blank_field() -> None:
+    """The check that stayed in the analysis path still refuses a bad adapter."""
+
+    from dj_track_similarity.analysis_model_runners import _adapter_identity
+
+    class _Blank:
+        model_name = "x"
+        model_version = "  "
+        checkpoint_id = "sha256:" + "a" * 64
+        preprocessing = "y"
+
+    with pytest.raises(RuntimeError, match="model_version"):
+        _adapter_identity(_Blank())
+
+
 def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> None:
     forbidden = {
         "loader_package",

@@ -4,7 +4,7 @@ import math
 import re
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -19,12 +19,6 @@ from .analysis_models import (
     MaestGenreScore,
     MaestWrite,
     SonaraWrite,
-    clap_embedding_output,
-    maest_analysis_output,
-    maest_embedding_output,
-    mert_embedding_output,
-    muq_embedding_output,
-    mulan_embedding_output,
 )
 from .analysis_job_batch import DecodeFailure
 from .audio_loader import (
@@ -254,39 +248,11 @@ class MaestModelRunner:
             top_k=top_k,
             inference_batch_size=inference_batch_size,
         )
-        facts, extras = _runtime_parameters(
-            self.adapter,
-            reserved=(
-                "sample_rate_hz",
-                "input_seconds",
-                "analysis_window_positions",
-                "top_k",
-                "pooling",
-            ),
-        )
-        identity = _adapter_identity(self.adapter)
-        analysis = maest_analysis_output(
-            **identity,
-            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
-            input_seconds=cast(float, facts["input_seconds"]),
-            analysis_window_positions=cast(
-                Sequence[float],
-                facts["analysis_window_positions"],
-            ),
-            top_k=cast(int, facts["top_k"]),
-            parameters=extras,
-        )
-        embedding = maest_embedding_output(
-            **identity,
-            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
-            input_seconds=cast(float, facts["input_seconds"]),
-            analysis_window_positions=cast(
-                Sequence[float],
-                facts["analysis_window_positions"],
-            ),
-            pooling=cast(str, facts["pooling"]),
-            parameters=extras,
-        )
+        # The adapter's identity fields are still checked here, where the
+        # adapter already exists and analysis is about to use its weights.
+        _adapter_identity(self.adapter)
+        analysis = AnalysisOutput("maest", "analysis")
+        embedding = AnalysisOutput("maest", "embedding")
         self._active_outputs = (analysis, embedding)
         self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
 
@@ -566,141 +532,21 @@ def _required_adapter_text(adapter: object, name: str) -> str:
     return value.strip()
 
 
-def _runtime_parameters(
-    adapter: object,
-    *,
-    reserved: Sequence[str],
-) -> tuple[dict[str, object], dict[str, object]]:
-    factory = getattr(adapter, "runtime_parameters", None)
-    if not callable(factory):
-        raise RuntimeError(
-            f"{type(adapter).__name__} does not expose runtime_parameters()"
-        )
-    raw = factory()
-    if not isinstance(raw, Mapping):
-        raise TypeError("adapter runtime_parameters() must return a mapping")
-    extras = dict(raw)
-    missing = sorted(name for name in reserved if name not in extras)
-    if missing:
-        raise ValueError(
-            f"adapter runtime parameters are incomplete; missing={missing}"
-        )
-    facts = {name: extras.pop(name) for name in reserved}
-    return facts, extras
-
-
 def embedding_analysis_output(
     model: str,
     adapter: object,
 ) -> AnalysisOutput:
-    """Build the current embedding output for one production adapter."""
+    """Name the embedding output of one production adapter, and check it.
 
-    identity = _adapter_identity(adapter)
-    if model == "maest":
-        facts, extras = _runtime_parameters(
-            adapter,
-            reserved=(
-                "sample_rate_hz",
-                "input_seconds",
-                "analysis_window_positions",
-                "top_k",
-                "pooling",
-            ),
-        )
-        return maest_embedding_output(
-            **identity,
-            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
-            input_seconds=cast(float, facts["input_seconds"]),
-            analysis_window_positions=cast(
-                Sequence[float],
-                facts["analysis_window_positions"],
-            ),
-            pooling=cast(str, facts["pooling"]),
-            parameters=extras,
-        )
-    if model == "mert":
-        facts, extras = _runtime_parameters(
-            adapter,
-            reserved=(
-                "sample_rate_hz",
-                "window_seconds",
-                "max_windows",
-                "hidden_layers",
-                "pooling",
-            ),
-        )
-        return mert_embedding_output(
-            **identity,
-            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
-            window_seconds=cast(float, facts["window_seconds"]),
-            max_windows=cast(int, facts["max_windows"]),
-            hidden_layers=cast(Sequence[int], facts["hidden_layers"]),
-            pooling=cast(str, facts["pooling"]),
-            parameters=extras,
-        )
-    if model == "muq":
-        facts, extras = _runtime_parameters(
-            adapter,
-            reserved=(
-                "sample_rate_hz",
-                "window_seconds",
-                "max_windows",
-                "pooling",
-                "dtype",
-            ),
-        )
-        return muq_embedding_output(
-            **identity,
-            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
-            window_seconds=cast(float, facts["window_seconds"]),
-            max_windows=cast(int, facts["max_windows"]),
-            pooling=cast(str, facts["pooling"]),
-            dtype=cast(str, facts["dtype"]),
-            parameters=extras,
-        )
-    if model == "mulan":
-        facts, extras = _runtime_parameters(
-            adapter,
-            reserved=(
-                "sample_rate_hz",
-                "window_seconds",
-                "max_windows",
-                "pooling",
-                "dtype",
-            ),
-        )
-        return mulan_embedding_output(
-            **identity,
-            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
-            window_seconds=cast(float, facts["window_seconds"]),
-            max_windows=cast(int, facts["max_windows"]),
-            pooling=cast(str, facts["pooling"]),
-            dtype=cast(str, facts["dtype"]),
-            parameters=extras,
-        )
-    if model == "clap":
-        facts, extras = _runtime_parameters(
-            adapter,
-            reserved=(
-                "sample_rate_hz",
-                "window_seconds",
-                "max_windows",
-                "pooling",
-                "amodel",
-                "enable_fusion",
-            ),
-        )
-        return clap_embedding_output(
-            **identity,
-            sample_rate_hz=cast(int, facts["sample_rate_hz"]),
-            window_seconds=cast(float, facts["window_seconds"]),
-            max_windows=cast(int, facts["max_windows"]),
-            pooling=cast(str, facts["pooling"]),
-            amodel=cast(str, facts["amodel"]),
-            enable_fusion=cast(bool, facts["enable_fusion"]),
-            parameters=extras,
-        )
-    raise ValueError(f"Unsupported embedding model: {model}")
+    The output itself is the pair ``(family, "embedding")``. What this function
+    still earns its place for is the identity check: an adapter must expose a
+    non-empty model name, version, preprocessing string and a lowercase sha256
+    checkpoint digest. The adapter is already built at every call site, so the
+    check is free here.
+    """
+
+    _adapter_identity(adapter)
+    return AnalysisOutput(model, "embedding")
 
 
 def current_embedding_analysis_output(
@@ -708,22 +554,16 @@ def current_embedding_analysis_output(
     *,
     device: str = "auto",
 ) -> AnalysisOutput:
-    """Build current adapter identity without loading model weights."""
+    """Name one family's embedding output without touching an adapter.
 
-    clean_model = str(model).strip().lower()
-    if clean_model == "maest":
-        adapter: object = MaestEmbeddingAdapter(device=device)
-    elif clean_model == "mert":
-        adapter = MertEmbeddingAdapter(device=device)
-    elif clean_model == "muq":
-        adapter = MuqEmbeddingAdapter(device=device)
-    elif clean_model == "mulan":
-        adapter = MuqMulanEmbeddingAdapter(device=device)
-    elif clean_model == "clap":
-        adapter = ClapEmbeddingAdapter(device=device)
-    else:
-        raise ValueError(f"Unsupported embedding model: {model}")
-    return embedding_analysis_output(clean_model, adapter)
+    A search never loads the model, so it has no reason to build an adapter in
+    order to learn a name it already knows. ``AnalysisOutput`` rejects an
+    unsupported family, which is the whole of what the adapter construction
+    used to establish here.
+    """
+
+    del device
+    return AnalysisOutput(str(model).strip().lower(), "embedding")
 
 
 def _decoded_items(items: Sequence[AnalysisBatchItem]) -> list[DecodedAudio]:

@@ -48,14 +48,6 @@ def table_for_output(output: AnalysisOutput) -> str | None:
     return _TABLE_BY_OUTPUT.get(output.key)
 
 
-def require_active_analysis_outputs(
-    connection: sqlite3.Connection,
-    outputs: Sequence[AnalysisOutput],
-) -> tuple[AnalysisOutput, ...]:
-    del connection
-    return normalize_analysis_outputs(outputs)
-
-
 def read_current_track_rows(connection: sqlite3.Connection) -> list[sqlite3.Row]:
     return connection.execute(
         """
@@ -161,7 +153,7 @@ def ready_target_keys_by_output(
     catalog_uuid: str,
     outputs: Sequence[AnalysisOutput],
 ) -> dict[tuple[str, str], set[tuple[int, str]]]:
-    normalized = require_active_analysis_outputs(connection, outputs)
+    normalized = normalize_analysis_outputs(outputs)
     current_tracks = _current_tracks(connection, catalog_uuid=catalog_uuid)
     ready: dict[tuple[str, str], set[tuple[int, str]]] = {}
     for output in normalized:

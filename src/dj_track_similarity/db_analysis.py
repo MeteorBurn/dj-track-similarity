@@ -37,7 +37,6 @@ from .db_analysis_candidates import (
     current_sonara_target_keys,
     normalize_analysis_outputs,
     read_current_track_identities,
-    require_active_analysis_outputs,
     table_for_output,
     target_from_track_row,
 )
@@ -642,10 +641,7 @@ class AnalysisRepository:
                     for index, write in enumerate(selected):
                         name = _savepoint(connection, index)
                         try:
-                            require_active_analysis_outputs(
-                                connection,
-                                write.outputs,
-                            )
+                            normalize_analysis_outputs(write.outputs)
                             _require_current_target(
                                 connection,
                                 write.target,
@@ -703,10 +699,7 @@ class AnalysisRepository:
                     for index, write in enumerate(selected):
                         name = _savepoint(connection, index)
                         try:
-                            require_active_analysis_outputs(
-                                connection,
-                                write.outputs,
-                            )
+                            normalize_analysis_outputs(write.outputs)
                             _require_current_target(
                                 connection,
                                 write.target,
@@ -764,10 +757,7 @@ class AnalysisRepository:
                             "embedding",
                         )
                         try:
-                            require_active_analysis_outputs(
-                                connection,
-                                (output,),
-                            )
+                            normalize_analysis_outputs((output,))
                             _require_current_target(
                                 connection,
                                 write.target,
@@ -813,10 +803,7 @@ class AnalysisRepository:
         with self._write_lock:
             with closing(self.connect()) as connection:
                 catalog_uuid = _catalog_uuid(connection)
-                require_active_analysis_outputs(
-                    connection,
-                    (output,),
-                )
+                normalize_analysis_outputs((output,))
                 selected = _selected_targets(
                     connection,
                     catalog_uuid=catalog_uuid,
@@ -876,10 +863,7 @@ class AnalysisRepository:
         with self._write_lock:
             with closing(self.connect()) as connection:
                 catalog_uuid = _catalog_uuid(connection)
-                require_active_analysis_outputs(
-                    connection,
-                    (output,),
-                )
+                normalize_analysis_outputs((output,))
                 available_track_count = int(
                     connection.execute(
                         f"""
@@ -932,10 +916,7 @@ class AnalysisRepository:
         with self._write_lock:
             with closing(self.connect()) as core_connection:
                 catalog_uuid = _catalog_uuid(core_connection)
-                require_active_analysis_outputs(
-                    core_connection,
-                    (output,),
-                )
+                normalize_analysis_outputs((output,))
                 selected = _selected_targets(
                     core_connection,
                     catalog_uuid=catalog_uuid,
@@ -1019,10 +1000,7 @@ class AnalysisRepository:
         with self._write_lock:
             with closing(self.connect()) as core_connection:
                 catalog_uuid = _catalog_uuid(core_connection)
-                require_active_analysis_outputs(
-                    core_connection,
-                    (output,),
-                )
+                normalize_analysis_outputs((output,))
                 total_track_count = int(
                     core_connection.execute(
                         """
@@ -1234,10 +1212,7 @@ class AnalysisRepository:
             with closing(self.connect()) as connection:
                 try:
                     connection.execute("BEGIN IMMEDIATE")
-                    require_active_analysis_outputs(
-                        connection,
-                        normalized,
-                    )
+                    normalize_analysis_outputs(normalized)
                     core_deleted = 0
                     embedding_deleted = 0
                     for output in normalized:

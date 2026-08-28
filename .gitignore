@@ -73,8 +73,6 @@ docs/superpowers/
 
 # Local Graphify artifacts
 graphify-out/*
-frontend/graphify-out/cache/
-frontend/graphify-out/????-??-??/
 
 # Vale package cache
 .vale/styles/*

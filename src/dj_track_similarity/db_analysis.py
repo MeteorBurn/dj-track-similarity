@@ -511,6 +511,25 @@ def _readonly_copy(vector: np.ndarray) -> np.ndarray:
     return copied
 
 
+def _readonly(vector: np.ndarray) -> np.ndarray:
+    """Return *vector* unchanged when it is already a read-only ``<f4`` row.
+
+    Bulk reads hand back read-only rows of one stacked array, so copying them
+    again allocated a second full library for no gain. Anything else — a
+    writable array, another dtype, a non-contiguous slice — still goes through
+    the copy.
+    """
+
+    if (
+        isinstance(vector, np.ndarray)
+        and not vector.flags.writeable
+        and vector.dtype == np.dtype("<f4")
+        and vector.flags.c_contiguous
+    ):
+        return vector
+    return _readonly_copy(vector)
+
+
 class AnalysisRepository:
     """Mixin implemented by :class:`LibraryDatabase`."""
 
@@ -816,7 +835,7 @@ class AnalysisRepository:
                     AnalysisVectorRow(
                         target=target,
                         output=output,
-                        vector=_readonly_copy(vectors[target.track_id]),
+                        vector=_readonly(vectors[target.track_id]),
                     )
                     for target in selected
                     if target.track_id in vectors

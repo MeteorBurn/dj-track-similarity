@@ -329,9 +329,14 @@ def read_valid_embeddings(
     if current_embedding_spec(family).normalization == "l2":
         norms = np.sqrt(np.einsum("ij,ij->i", stacked, stacked))
         keep &= np.isfinite(norms) & np.isclose(norms, 1.0, rtol=1e-4, atol=1e-5)
+    # Hand out read-only rows of the one stack rather than a copy per track.
+    # The stack is private to this call and nobody can write through a row, so
+    # the copies bought nothing: a full-library load made 45k of them and the
+    # caller's next step was to stack the results again.
+    stacked.setflags(write=False)
     for index, track_id in enumerate(accepted_ids):
         if keep[index]:
-            vectors[track_id] = stacked[index].copy()
+            vectors[track_id] = stacked[index]
     return vectors
 
 

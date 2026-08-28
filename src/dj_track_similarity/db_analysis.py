@@ -529,8 +529,124 @@ def _readonly(vector: np.ndarray) -> np.ndarray:
     return _readonly_copy(vector)
 
 
+# One cached family at 45k tracks costs 92 MB (CLAP) to 185 MB (MuQ), and at
+# 100k tracks 410 MB. The budget holds the working set of a single-model
+# session and the two or three families a reference comparison touches in one
+# request, and evicts before a five-family sweep pins the whole library in
+# memory five times over.
+_LIBRARY_VECTOR_CACHE_BYTES = 512 * 1024 * 1024
+
+
+def _library_vector_fingerprint(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    catalog_uuid: str,
+    output: AnalysisOutput,
+) -> tuple[object, ...]:
+    """Summarise everything a cached full-library load depends on.
+
+    A cached load goes wrong in exactly three ways: a vector is rewritten in
+    place, a vector row appears or disappears, or a track enters or leaves the
+    current set — and the last one also reorders every row, because identities
+    are ordered by file path. Row counts and the newest write timestamp catch
+    all three from any process, which an in-process write counter cannot do:
+    analysis also runs from the CLI against a database a server has open.
+
+    The timestamp is why this reads the wide table rather than its covering
+    index: ``analyzed_at`` is not indexed, so ``MAX`` scans. That scan is the
+    whole cost of the check, and it is an order of magnitude below the load it
+    replaces.
+    """
+
+    spec = current_embedding_spec(output.analysis_family)
+    embeddings = connection.execute(
+        f"""
+        SELECT
+            COUNT(*),
+            COALESCE(MAX(analyzed_at), ''),
+            COALESCE(MAX(track_uuid), '')
+        FROM {table}
+        """
+    ).fetchone()
+    tracks = connection.execute(
+        """
+        SELECT
+            COUNT(*),
+            COALESCE(MAX(updated_at), ''),
+            COALESCE(MAX(track_uuid), '')
+        FROM tracks
+        WHERE missing_since IS NULL
+        """
+    ).fetchone()
+    return (
+        catalog_uuid,
+        output.key,
+        spec.dimension,
+        spec.normalization,
+        tuple(embeddings),
+        tuple(tracks),
+    )
+
+
+def _vector_rows_nbytes(rows: Sequence[AnalysisVectorRow]) -> int:
+    if not rows:
+        return 0
+    vector = np.asarray(rows[0].vector)
+    return int(vector.nbytes) * len(rows)
+
+
 class AnalysisRepository:
     """Mixin implemented by :class:`LibraryDatabase`."""
+
+    _library_vector_cache: dict[
+        tuple[str, str],
+        tuple[tuple[object, ...], tuple[AnalysisVectorRow, ...], int],
+    ] | None = None
+
+    def _cached_library_vectors(
+        self,
+        output: AnalysisOutput,
+        fingerprint: tuple[object, ...],
+    ) -> tuple[AnalysisVectorRow, ...] | None:
+        cache = self._library_vector_cache
+        if not cache:
+            return None
+        entry = cache.get(output.key)
+        if entry is None or entry[0] != fingerprint:
+            return None
+        cache[output.key] = cache.pop(output.key)
+        return entry[1]
+
+    def _store_library_vectors(
+        self,
+        output: AnalysisOutput,
+        fingerprint: tuple[object, ...],
+        rows: tuple[AnalysisVectorRow, ...],
+    ) -> None:
+        cache = self._library_vector_cache
+        if cache is None:
+            cache = {}
+            self._library_vector_cache = cache
+        cache.pop(output.key, None)
+        nbytes = _vector_rows_nbytes(rows)
+        if nbytes > _LIBRARY_VECTOR_CACHE_BYTES:
+            return
+        cache[output.key] = (fingerprint, rows, nbytes)
+        total = sum(entry[2] for entry in cache.values())
+        while total > _LIBRARY_VECTOR_CACHE_BYTES and len(cache) > 1:
+            total -= cache.pop(next(iter(cache)))[2]
+
+    def _discard_library_vectors(self) -> None:
+        """Drop cached vectors this object is about to invalidate itself.
+
+        The fingerprint would catch these writes on the next read anyway. This
+        keeps the one case it cannot distinguish — a rewrite that lands inside
+        the timestamp resolution of the newest row already stored — out of
+        reach for writes made through this object.
+        """
+
+        self._library_vector_cache = None
 
     def active_analysis_output(
         self,
@@ -633,6 +749,7 @@ class AnalysisRepository:
         if not selected:
             return ()
         results: list[AnalysisWriteResult] = []
+        self._discard_library_vectors()
         with self._write_lock:
             with closing(self.connect()) as connection:
                 try:
@@ -691,6 +808,7 @@ class AnalysisRepository:
         if not selected:
             return ()
         results: list[AnalysisWriteResult] = []
+        self._discard_library_vectors()
         with self._write_lock:
             with closing(self.connect()) as connection:
                 try:
@@ -745,6 +863,7 @@ class AnalysisRepository:
         if not selected:
             return ()
         results: list[AnalysisWriteResult] = []
+        self._discard_library_vectors()
         with self._write_lock:
             with closing(self.connect()) as connection:
                 try:
@@ -804,6 +923,18 @@ class AnalysisRepository:
             with closing(self.connect()) as connection:
                 catalog_uuid = _catalog_uuid(connection)
                 normalize_analysis_outputs((output,))
+                table = table_for_output(output)
+                fingerprint: tuple[object, ...] | None = None
+                if targets is None and table is not None:
+                    fingerprint = _library_vector_fingerprint(
+                        connection,
+                        table=table,
+                        catalog_uuid=catalog_uuid,
+                        output=output,
+                    )
+                    cached = self._cached_library_vectors(output, fingerprint)
+                    if cached is not None:
+                        return cached
                 selected = _selected_targets(
                     connection,
                     catalog_uuid=catalog_uuid,
@@ -818,7 +949,7 @@ class AnalysisRepository:
                     catalog_uuid=catalog_uuid,
                     connection=connection,
                 )
-                return tuple(
+                rows = tuple(
                     AnalysisVectorRow(
                         target=target,
                         output=output,
@@ -827,6 +958,9 @@ class AnalysisRepository:
                     for target in selected
                     if target.track_id in vectors
                 )
+                if fingerprint is not None:
+                    self._store_library_vectors(output, fingerprint, rows)
+                return rows
 
     def random_embedding_target(
         self,
@@ -1208,6 +1342,7 @@ class AnalysisRepository:
         outputs: Sequence[AnalysisOutput],
     ) -> AnalysisResetResult:
         normalized = normalize_analysis_outputs(outputs)
+        self._discard_library_vectors()
         with self._write_lock:
             with closing(self.connect()) as connection:
                 try:

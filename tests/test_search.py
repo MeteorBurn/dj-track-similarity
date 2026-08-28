@@ -273,6 +273,48 @@ class _VectorLoadCountingRepository:
         )
 
 
+def test_cached_library_vectors_reload_after_a_write_from_another_connection(
+    tmp_path: Path,
+) -> None:
+    """A repeated full-library load is served from memory, but never stale.
+
+    The cache is keyed by what the stored rows look like, not by a counter
+    this object owns, because analysis also runs from the CLI against a
+    database the server has open. A rewrite that never passes through this
+    object must still be visible on the next load.
+    """
+
+    db, output = _library(tmp_path, "mert")
+    kept = _add_track(db, tmp_path, output, "kept.wav", [1.0, 0.0, 0.0])
+    moved = _add_track(db, tmp_path, output, "moved.wav", [0.0, 1.0, 0.0])
+
+    first = db.load_analysis_vectors(output)
+    assert db.load_analysis_vectors(output) is first
+
+    rewritten = _query(output, [0.0, 0.0, 1.0])
+    foreign = LibraryDatabase(tmp_path / "library.sqlite")
+    assert foreign.save_embedding_results(
+        (
+            EmbeddingWrite(
+                target=moved,
+                output=EmbeddingOutput(
+                    family=output.analysis_family,
+                    vector=rewritten,
+                    analyzed_at="2026-07-24T13:00:00.000000Z",
+                ),
+            ),
+        )
+    )[0].ok
+
+    reloaded = db.load_analysis_vectors(output)
+    vectors = {row.target.track_id: row.vector for row in reloaded}
+    assert np.array_equal(vectors[moved.track_id], rewritten)
+    assert np.array_equal(
+        vectors[kept.track_id],
+        next(row.vector for row in first if row.target.track_id == kept.track_id),
+    )
+
+
 def _library(root: Path, family: str) -> tuple[LibraryDatabase, AnalysisOutput]:
     db = LibraryDatabase(root / "library.sqlite")
     output = _output(family)

@@ -501,9 +501,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-ann = [
-    { name = "hnswlib" },
-]
 dev = [
     { name = "httpx2" },
     { name = "pytest" },
@@ -542,7 +539,6 @@ dev = [
 requires-dist = [
     { name = "av", specifier = "==17.1.0" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "hnswlib", marker = "extra == 'ann'", specifier = ">=0.8" },
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "huggingface-hub", marker = "extra == 'ml'", specifier = "==1.22.0" },
     { name = "joblib", specifier = ">=1.3" },
@@ -557,7 +553,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "scikit-learn", marker = "extra == 'rhythm-lab'", specifier = ">=1.4" },
     { name = "send2trash", specifier = ">=1.8" },
-    { name = "sonara", marker = "extra == 'sonara'", specifier = "==0.3.5" },
+    { name = "sonara", marker = "extra == 'sonara'", path = "C:/projects/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" },
     { name = "torch", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'ml'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torch", marker = "(python_full_version != '3.10.*' and extra == 'ml') or (platform_machine != 'AMD64' and extra == 'ml') or (sys_platform != 'win32' and extra == 'ml')", specifier = "==2.11.0" },
     { name = "torchaudio", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'ml'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },
@@ -570,7 +566,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["ann", "sonara", "ml", "rhythm-lab", "dev"]
+provides-extras = ["sonara", "ml", "rhythm-lab", "dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
@@ -773,15 +769,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/b6/20f99cfe97cc663a711f7b33cc21d4793e51968e9a26125b4afcd77315ba/hf_xet-1.5.1-cp37-abi3-win_amd64.whl", hash = "sha256:f7b3002f95d1c13e24bcb4537baa8f0eb3838957067c91bb4959bc004a6435f5", size = 4026419, upload-time = "2026-06-08T23:02:50.829Z" },
     { url = "https://files.pythonhosted.org/packages/f9/fa/77453694888f03e5a8c8852d1514a0894d8e81c622d39edbaf308ea0dcf4/hf_xet-1.5.1-cp37-abi3-win_arm64.whl", hash = "sha256:93d090b57b211133f6c0dab0205ef5cb6d89162979ba75a74845045cc3063b8e", size = 3855178, upload-time = "2026-06-08T23:02:52.452Z" },
 ]
-
-[[package]]
-name = "hnswlib"
-version = "0.8.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/cf/7a/1a9b1405f2eb59515f06c3074750b03e0e96edf7fee0f6dd6df81d9c21d7/hnswlib-0.8.0.tar.gz", hash = "sha256:cb6d037eedebb34a7134e7dc78966441dfd04c9cf5ee93911be911ced951c44c", size = 36206, upload-time = "2023-12-03T04:16:17.55Z" }
 
 [[package]]
 name = "httpcore"
@@ -2576,18 +2563,17 @@ wheels = [
 
 [[package]]
 name = "sonara"
-version = "0.3.5"
-source = { registry = "https://pypi.org/simple" }
+version = "0.3.6"
+source = { path = "C:/projects/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
 dependencies = [
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/18/6f/67f23d36db745b5e24b8a48d359cf69ce884911f477dfa6036aab37adc27/sonara-0.3.5.tar.gz", hash = "sha256:45abd25d6d43ecd8e44b69a4f0a16dbabb8781418026a038dd25f6151eacf2b2", size = 379835, upload-time = "2026-07-28T12:47:30.648Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/45/f110e65019bb27221bfe9a2c6e0daea25dab5d04254e895f1f9fc36ea8f2/sonara-0.3.5-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:43e333266e98bba68d39a5f8d77b818752dfb773d0827ff866409954b2132421", size = 1853417, upload-time = "2026-07-28T12:47:23.547Z" },
-    { url = "https://files.pythonhosted.org/packages/10/e2/c26600bf4b2a6b749d0ccfd341a04161a0795eab81e27a74f2afc7ea9bc8/sonara-0.3.5-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:29612a745ce4aa15f8ae96b2048e2fb8c5e6ac42899a4bb625fd8e07ff19aa62", size = 1628006, upload-time = "2026-07-28T12:47:25.476Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/43/05e10e79431987d2671a9dee5394c064fd226e758ae14739d41a9303fbd1/sonara-0.3.5-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d8214cdd06429b3a4bcae0501aa68143478a9eeae349b1edddaff99ef0f247f9", size = 1926216, upload-time = "2026-07-28T12:47:27.458Z" },
-    { url = "https://files.pythonhosted.org/packages/cf/a6/aba938c5e0467dc3483917fd01725d32290d5ef1821857ac5cbc011119a5/sonara-0.3.5-cp310-abi3-win_amd64.whl", hash = "sha256:c0452fa7754111e5352d6e29a9aa978cc85d1f61b2d40c371f61e2d0e22df53b", size = 1799238, upload-time = "2026-07-28T12:47:29.08Z" },
+    { filename = "sonara-0.3.6-cp310-abi3-win_amd64.whl", hash = "sha256:c7717fdbab524d0facc6e993a55695c5c5ccf9ec247045ceee317d9cafa72db8" },
 ]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=1.23,<3" }]
 
 [[package]]
 name = "soundfile"

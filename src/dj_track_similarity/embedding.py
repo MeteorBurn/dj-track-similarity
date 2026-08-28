@@ -424,30 +424,16 @@ class MertEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None and self._processor is not None
-        track_windows: list[list[int]] = []
-        all_windows = []
-        prepare_started = time.perf_counter()
-        for decoded in decoded_items:
-            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
-            if decoded.sample_rate != target_rate:
-                if torchaudio is None:
-                    raise RuntimeError(f"MERT shared-audio analysis requires torchaudio resampling: {decoded.path}")
-                waveform = _resample_to(
-                    waveform,
-                    source_rate=decoded.sample_rate,
-                    target_rate=target_rate,
-                    torchaudio=torchaudio,
-                )
-            waveform = waveform.squeeze(0)
-            windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
-            if not windows:
-                raise ValueError(f"No audio windows could be extracted: {decoded.path}")
-            window_indices = []
-            for window in windows:
-                window_indices.append(len(all_windows))
-                all_windows.append(window.cpu().numpy())
-            track_windows.append(window_indices)
-        prepare_seconds = time.perf_counter() - prepare_started
+        track_windows, all_windows, prepare_seconds = _prepare_windows(
+            decoded_items,
+            target_rate=target_rate,
+            window_seconds=self.window_seconds,
+            max_windows=self.max_windows,
+            pad="none",
+            torch=torch,
+            torchaudio=torchaudio,
+            model_label="MERT",
+        )
 
         pooled_windows: list[np.ndarray] = []
         inference_started = time.perf_counter()
@@ -608,11 +594,12 @@ class MuqEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
-        track_windows, all_windows, prepare_seconds = _prepare_muq_compatible_windows(
+        track_windows, all_windows, prepare_seconds = _prepare_windows(
             decoded_items,
             target_rate=self.target_rate,
             window_seconds=self.window_seconds,
             max_windows=self.max_windows,
+            pad="zero",
             torch=torch,
             torchaudio=torchaudio,
             model_label="MuQ",
@@ -819,11 +806,12 @@ class MuqMulanEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
-        track_windows, all_windows, prepare_seconds = _prepare_muq_compatible_windows(
+        track_windows, all_windows, prepare_seconds = _prepare_windows(
             decoded_items,
             target_rate=self.target_rate,
             window_seconds=self.window_seconds,
             max_windows=self.max_windows,
+            pad="zero",
             torch=torch,
             torchaudio=torchaudio,
             model_label="MuQ-MuLan",
@@ -1020,31 +1008,16 @@ class ClapEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
-        window_size = max(1, int(target_rate * self.window_seconds))
-        track_windows: list[list[int]] = []
-        all_windows = []
-        prepare_started = time.perf_counter()
-        for decoded in decoded_items:
-            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
-            if decoded.sample_rate != target_rate:
-                if torchaudio is None:
-                    raise RuntimeError(f"CLAP shared-audio analysis requires torchaudio resampling: {decoded.path}")
-                waveform = _resample_to(
-                    waveform,
-                    source_rate=decoded.sample_rate,
-                    target_rate=target_rate,
-                    torchaudio=torchaudio,
-                )
-            waveform = waveform.squeeze(0)
-            windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
-            if not windows:
-                raise ValueError(f"No audio windows could be extracted: {decoded.path}")
-            window_indices = []
-            for window in windows:
-                window_indices.append(len(all_windows))
-                all_windows.append(_repeatpad_or_trim_audio_window(window.cpu().numpy(), window_size))
-            track_windows.append(window_indices)
-        prepare_seconds = time.perf_counter() - prepare_started
+        track_windows, all_windows, prepare_seconds = _prepare_windows(
+            decoded_items,
+            target_rate=target_rate,
+            window_seconds=self.window_seconds,
+            max_windows=self.max_windows,
+            pad="repeat",
+            torch=torch,
+            torchaudio=torchaudio,
+            model_label="CLAP",
+        )
 
         pooled_windows: list[np.ndarray] = []
         inference_started = time.perf_counter()
@@ -1672,19 +1645,35 @@ def _average_l2_window_embeddings(
     return vectors
 
 
-def _prepare_muq_compatible_windows(
+def _prepare_windows(
     decoded_items: Sequence[DecodedAudio],
     *,
     target_rate: int,
     window_seconds: float,
     max_windows: int,
+    pad: str,
     torch,
     torchaudio,
     model_label: str,
-) -> tuple[list[list[int]], list[Tensor], float]:
+) -> tuple[list[list[int]], list, float]:
+    """Decode-side windowing shared by every waveform adapter.
+
+    ``pad`` is the one thing these models genuinely disagree about, and each
+    choice is theirs to make: MERT feeds a short track as a single
+    variable-length window, MuQ and MuQ-MuLan zero-pad it out to the window,
+    and CLAP repeat-pads because that is what LAION-CLAP does. Everything
+    around it — resampling, the interior 10–90% selection, the per-track index
+    bookkeeping — was one loop written three times.
+
+    ``pad="zero"`` yields tensors because the MuQ family stacks them on the
+    device; the other two yield numpy, which is what their processors take.
+    """
+
+    if pad not in {"none", "zero", "repeat"}:
+        raise ValueError(f"unsupported window padding: {pad!r}")
     window_size = max(1, int(target_rate * window_seconds))
     track_windows: list[list[int]] = []
-    all_windows: list[Tensor] = []
+    all_windows: list = []
     prepare_started = time.perf_counter()
     for decoded in decoded_items:
         waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
@@ -1710,16 +1699,22 @@ def _prepare_muq_compatible_windows(
         )
         if not windows:
             raise ValueError(f"No audio windows could be extracted: {decoded.path}")
-        window_indices = []
+        window_indices: list[int] = []
         for window in windows:
             window_indices.append(len(all_windows))
-            all_windows.append(
-                _pad_or_trim_audio_tensor(
-                    window,
-                    window_size,
-                    torch,
+            if pad == "zero":
+                all_windows.append(
+                    _pad_or_trim_audio_tensor(window, window_size, torch)
                 )
-            )
+            elif pad == "repeat":
+                all_windows.append(
+                    _repeatpad_or_trim_audio_window(
+                        window.cpu().numpy(),
+                        window_size,
+                    )
+                )
+            else:
+                all_windows.append(window.cpu().numpy())
         track_windows.append(window_indices)
     return track_windows, all_windows, time.perf_counter() - prepare_started
 

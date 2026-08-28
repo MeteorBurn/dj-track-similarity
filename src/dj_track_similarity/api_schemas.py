@@ -385,6 +385,28 @@ class TextSearchRequest(BaseModel):
     )
 
 
+class TextSearchWarmupRequest(BaseModel):
+    """Load one text-embedding family before a search waits on it.
+
+    The first embedding after an idle period deserializes the pinned weights,
+    which is tens of seconds. Asking for it up front moves that wait off the
+    search instead of removing it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    analysis_family: Literal["clap", "mulan"] = "clap"
+    device: str = Field(
+        default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
+    )
+
+
+class TextSearchWarmupResponse(BaseModel):
+    analysis_family: Literal["clap", "mulan"]
+    device: str
+    seconds: float
+
+
 class TextSearchFeedbackRequest(BaseModel):
     """One relevance verdict for a text-search hit, credited to each preset.
 

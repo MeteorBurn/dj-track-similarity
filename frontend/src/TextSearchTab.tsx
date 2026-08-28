@@ -1,13 +1,16 @@
 import { Check, ChevronDown, ListFilter, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmbeddingSource } from "./api";
+import { api } from "./apiClient";
 import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPromptPresets";
 import {
   axisByKey,
   defaultNegativeWeight,
   modelAdvice,
   modelForPreset,
-  presetByKey
+  presetByKey,
+  resolveNegativeWeight,
+  resolvePromptVariants
 } from "./textPromptPresets";
 
 /**
@@ -72,6 +75,12 @@ export function TextSearchTab({
 }) {
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const [activeAxis, setActiveAxis] = useState(promptAxes[0]?.key ?? "");
+  // The label under the pointer or the keyboard focus, previewed in the two
+  // columns below the options. A tooltip could not hold a whole prompt bank.
+  const [previewPresetKey, setPreviewPresetKey] = useState<string | null>(null);
+  // null while there is nothing to warm; the search itself still loads the
+  // model, so a failed warmup costs the wait back rather than blocking.
+  const [warmupState, setWarmupState] = useState<"warming" | "ready" | "failed" | null>(null);
   const presetMenuRef = useRef<HTMLDivElement>(null);
   const presetButtonRef = useRef<HTMLButtonElement>(null);
   const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
@@ -83,6 +92,26 @@ export function TextSearchTab({
   const selectedPresets = useMemo(
     () => selectedPresetKeys.map((key) => presetByKey(key)).filter(Boolean) as TextPromptPreset[],
     [selectedPresetKeys]
+  );
+  const previewPreset = useMemo(
+    () => (previewPresetKey ? presetByKey(previewPresetKey) : undefined),
+    [previewPresetKey]
+  );
+  const previewPositive = useMemo(
+    () => (previewPreset ? resolvePromptVariants(previewPreset.positive, promptModel) : []),
+    [previewPreset, promptModel]
+  );
+  // A preset weighted at zero contributes no negatives at all, so the column
+  // shows why it is empty instead of listing lines the bank will never carry.
+  const previewNegativeWeight = previewPreset
+    ? resolveNegativeWeight(previewPreset.negativeWeight, promptModel)
+    : 0;
+  const previewNegative = useMemo(
+    () =>
+      previewPreset && previewNegativeWeight > 0
+        ? resolvePromptVariants(previewPreset.negative, promptModel)
+        : [],
+    [previewPreset, previewNegativeWeight, promptModel]
   );
   const promptLineCount = textQuery.split(/\r?\n/).filter((line) => line.trim()).length;
   const negativeLineCount = textNegativeQuery.split(/\r?\n/).filter((line) => line.trim()).length;
@@ -150,6 +179,27 @@ export function TextSearchTab({
     document.addEventListener("pointerdown", closePresetMenuOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closePresetMenuOnOutsideClick);
   }, [presetMenuOpen]);
+
+  // The first embedding after an idle period deserializes the pinned weights,
+  // which is tens of seconds of silence under the first search. Opening the tab
+  // or switching the model starts that load now instead. It only runs where a
+  // search is possible at all, so a library with no text embeddings never pays
+  // for weights it cannot use.
+  useEffect(() => {
+    if (!hasStoredTextEmbeddings) {
+      setWarmupState(null);
+      return;
+    }
+    const controller = new AbortController();
+    setWarmupState("warming");
+    api
+      .textSearchWarmup({ analysis_family: textEmbeddingFamily }, { signal: controller.signal })
+      .then(() => setWarmupState("ready"))
+      .catch(() => {
+        if (!controller.signal.aborted) setWarmupState("failed");
+      });
+    return () => controller.abort();
+  }, [hasStoredTextEmbeddings, textEmbeddingFamily]);
 
   // Escape closes the picker and hands focus back to the control that owns it,
   // so the keyboard never gets stranded inside an open menu.
@@ -242,7 +292,10 @@ export function TextSearchTab({
                     aria-pressed={activeAxis === axis.key}
                     key={axis.key}
                     title={axis.hint}
-                    onClick={() => setActiveAxis(axis.key)}
+                    onClick={() => {
+                      setActiveAxis(axis.key);
+                      setPreviewPresetKey(null);
+                    }}
                     type="button"
                   >
                     {axis.label}
@@ -274,7 +327,10 @@ export function TextSearchTab({
                   CLAP
                 </span>
               </div>
-              <div className="text-preset-options">
+              <div
+                className="text-preset-options"
+                onMouseLeave={() => setPreviewPresetKey(null)}
+              >
                 {axisPresets.map((preset) => {
                   const active = selectedPresetKeys.includes(preset.key);
                   const measured = preset.measured?.[promptModel];
@@ -283,8 +339,9 @@ export function TextSearchTab({
                       className={`text-preset-option-button ${active ? "active" : ""}`}
                       aria-pressed={active}
                       key={preset.key}
-                      title={preset.hint}
                       onClick={() => onTogglePreset(preset.key)}
+                      onFocus={() => setPreviewPresetKey(preset.key)}
+                      onMouseEnter={() => setPreviewPresetKey(preset.key)}
                       type="button"
                     >
                       <span className="text-preset-option-check" aria-hidden="true">
@@ -318,6 +375,49 @@ export function TextSearchTab({
                     </button>
                   );
                 })}
+              </div>
+              {/* The bank is what a label actually does, and it is far too long
+                  for a tooltip, so it gets read as two columns right here. */}
+              <div className="text-preset-preview">
+                {previewPreset ? (
+                  <>
+                    <div className="text-preset-preview-hint">{previewPreset.hint}</div>
+                    <div className="text-preset-preview-columns">
+                      <div className="text-preset-preview-column">
+                        <span className="text-preset-preview-heading">
+                          Positive · строк: {previewPositive.length}
+                        </span>
+                        <ul>
+                          {previewPositive.map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="text-preset-preview-column">
+                        <span className="text-preset-preview-heading">
+                          {previewNegative.length
+                            ? `Negative · вес ${previewNegativeWeight.toFixed(2)}`
+                            : "Negative"}
+                        </span>
+                        {previewNegative.length ? (
+                          <ul>
+                            {previewNegative.map((line) => (
+                              <li key={line}>{line}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-preset-preview-empty">
+                            Вес 0 — измерено, что негативы этой метке только вредят.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-preset-preview-idle">
+                    Наведи на метку — покажет строки, которые она добавит в банк для {textModelLabel}.
+                  </div>
+                )}
               </div>
             </div>
           ) : null}
@@ -448,6 +548,13 @@ export function TextSearchTab({
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
       {!hasStoredTextEmbeddings ? <span className="text-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
+      {warmupState && warmupState !== "ready" ? (
+        <span className={`text-warmup-state ${warmupState}`} role="status">
+          {warmupState === "warming"
+            ? `${textModelLabel} загружается — первый поиск не будет ждать веса.`
+            : `Прогреть ${textModelLabel} не удалось — веса загрузит сам поиск.`}
+        </span>
+      ) : null}
       <button className="text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
         <Search size={17} />
         Search

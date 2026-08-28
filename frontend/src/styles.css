@@ -3518,7 +3518,68 @@ h2 {
   color: var(--text-faint);
 }
 
+/* The prompt bank behind the focused label. It sits below the options and
+   keeps its own height, so hovering across the list never reflows the menu. */
+.text-preset-preview {
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  font-size: 11px;
+  gap: 6px;
+  line-height: 1.4;
+  max-height: 132px;
+  min-height: 96px;
+  overflow-y: auto;
+  padding-top: 8px;
+}
+
+.text-preset-preview-hint {
+  color: var(--text-muted);
+}
+
+.text-preset-preview-idle {
+  color: var(--text-faint);
+}
+
+.text-preset-preview-columns {
+  display: grid;
+  gap: 4px 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.text-preset-preview-column ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.text-preset-preview-column li {
+  color: var(--text);
+  /* Prompt lines are data: they wrap rather than being cut to fit. */
+  overflow-wrap: anywhere;
+}
+
+.text-preset-preview-heading {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.text-preset-preview-empty {
+  color: var(--text-faint);
+  margin: 4px 0 0;
+}
+
 @media (max-width: 600px) {
+  .text-preset-preview-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .text-preset-axis-button {
     font-size: var(--font-size-compact-selector);
     line-height: 1.1;
@@ -3697,6 +3758,21 @@ h2 {
   color: var(--warning-muted-text);
   display: block;
   font-size: 12px;
+}
+
+/* Progress, not a problem: warming is quiet, and only a failed warmup borrows
+   the warning colour, because that wait comes back on the first search. */
+.text-warmup-state {
+  display: block;
+  font-size: 12px;
+}
+
+.text-warmup-state.warming {
+  color: var(--text-muted);
+}
+
+.text-warmup-state.failed {
+  color: var(--warning-muted-text);
 }
 
 .seed-remove-chip {

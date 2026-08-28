@@ -251,6 +251,25 @@ test("CLAP text search client keeps positive and negative prompt arrays separate
   });
 });
 
+test("text warmup client posts only the family and device, and can be aborted", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options) => {
+    calls.push({ path, options });
+    return jsonResponse({ analysis_family: "mulan", device: "auto", seconds: 34.2 });
+  });
+  const controller = new AbortController();
+
+  const result = await api.textSearchWarmup(
+    { analysis_family: "mulan" },
+    { signal: controller.signal }
+  );
+
+  assert.equal(calls[0].path, "/api/search/text/warmup");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { analysis_family: "mulan" });
+  assert.equal(calls[0].options.signal, controller.signal);
+  assert.equal(result.seconds, 34.2);
+});
+
 test("detail and generic search clients forward AbortSignal unchanged", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {

@@ -84,6 +84,17 @@ type TextSearchPayload = {
   device?: "auto" | "cpu" | "cuda";
 };
 
+type TextSearchWarmupPayload = {
+  analysis_family: "clap" | "mulan";
+  device?: "auto" | "cpu" | "cuda";
+};
+
+type TextSearchWarmupResult = {
+  analysis_family: "clap" | "mulan";
+  device: string;
+  seconds: number;
+};
+
 type TextSearchFeedbackPayload = {
   track_uuid: string;
   preset_keys: string[];
@@ -333,6 +344,12 @@ const searchApi = {
     }),
   textSearch: (payload: TextSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search/text", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
+  textSearchWarmup: (payload: TextSearchWarmupPayload, options?: { signal?: AbortSignal }) =>
+    request<TextSearchWarmupResult>("/api/search/text/warmup", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,

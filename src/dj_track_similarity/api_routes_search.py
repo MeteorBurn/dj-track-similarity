@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+import time
 from typing import Protocol
 
 import numpy as np
@@ -24,6 +25,8 @@ from .api_schemas import (
     TextSearchFeedbackRequest,
     TextSearchFeedbackResponse,
     TextSearchRequest,
+    TextSearchWarmupRequest,
+    TextSearchWarmupResponse,
 )
 from .api_state import AppDatabaseState
 from .database import LibraryDatabase
@@ -41,6 +44,10 @@ from .sonara_similarity import (
 from .vector_index import VectorIndexUnavailable
 
 FloatArray = NDArray[np.float32]
+
+# One short prompt is enough to force the deserialization and the first forward
+# pass; nothing is kept, so the wording carries no meaning of its own.
+_WARMUP_PROMPT = "warmup"
 
 
 class _TextEmbeddingAdapter(Protocol):
@@ -210,6 +217,35 @@ def register_search_routes(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post(
+        "/api/search/text/warmup",
+        response_model=TextSearchWarmupResponse,
+    )
+    def warm_text_search(request: TextSearchWarmupRequest):
+        """Load the family's weights now so the next search does not wait.
+
+        The endpoint deliberately touches no database: warming is about the
+        model, and it stays useful on a library that has no text embeddings
+        stored yet.
+        """
+
+        started = time.perf_counter()
+        try:
+            with text_embedding_adapter(
+                request.analysis_family,
+                device=request.device,
+            ) as adapter:
+                adapter.embed_text(_WARMUP_PROMPT)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return TextSearchWarmupResponse(
+            analysis_family=request.analysis_family,
+            device=request.device,
+            seconds=time.perf_counter() - started,
+        )
 
     @app.post(
         "/api/search/text/feedback",

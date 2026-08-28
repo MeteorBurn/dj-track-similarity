@@ -39,6 +39,7 @@ class FakeClapAdapter(ClapEmbeddingAdapter):
             "broken drums.": [1.0, 0.0, 0.0],
             "syncopated percussion.": [0.0, 1.0, 0.0],
             "straight house groove.": [0.0, 0.0, 1.0],
+            "warmup": [1.0, 0.0, 0.0],
         }
         output = current_embedding_analysis_output("clap")
         embedded = []
@@ -362,6 +363,64 @@ def test_text_search_requires_a_prompt_bank(tmp_path: Path) -> None:
         client.post(
             "/api/search/text",
             json={"positive_queries": [], "device": "cpu"},
+        ).status_code
+        == 422
+    )
+
+
+def test_text_search_warmup_loads_the_family_without_touching_the_library(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Warming is about the model, so it holds on an empty library.
+
+    The endpoint exists to move the weight load off the first search, and the
+    second call has to find the cached adapter or it has moved nothing.
+    """
+
+    FakeClapAdapter.queries = []
+    FakeClapAdapter.instances = 0
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    client = TestClient(create_app(db_path))
+
+    response = client.post(
+        "/api/search/text/warmup",
+        json={"analysis_family": "clap", "device": "cpu"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["analysis_family"] == "clap"
+    assert payload["device"] == "cpu"
+    assert payload["seconds"] >= 0.0
+
+    assert (
+        client.post(
+            "/api/search/text/warmup",
+            json={"analysis_family": "clap", "device": "cpu"},
+        ).status_code
+        == 200
+    )
+    assert FakeClapAdapter.instances == 1
+    assert FakeClapAdapter.queries == ["warmup", "warmup"]
+
+
+def test_text_search_warmup_rejects_unknown_contract_fields(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    assert (
+        client.post(
+            "/api/search/text/warmup",
+            json={"analysis_family": "clap", "positive_queries": ["broken drums."]},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/search/text/warmup",
+            json={"analysis_family": "sonara"},
         ).status_code
         == 422
     )

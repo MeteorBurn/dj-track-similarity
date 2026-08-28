@@ -73,6 +73,14 @@ _CLAP_CONSTRUCTION_LOCK = threading.RLock()
 # Pinning MuQ-MuLan rebinds attributes on the shared ``muq`` package, so every
 # construction that reads them has to serialise against it.
 _MUQ_CONSTRUCTION_LOCK = threading.RLock()
+
+# torchaudio's Resample is a module whose constructor builds the filter kernel,
+# and every adapter built one per track. A library holds a handful of source
+# rates, so a full run rebuilt the same few kernels tens of thousands of times
+# per family. The kernel depends only on the rate pair, so a cached instance
+# returns identical samples.
+_RESAMPLER_LOCK = threading.RLock()
+_RESAMPLERS: dict[tuple[int, int], object] = {}
 _MUQ_WEIGHT_NORM_WARNING_SILENCED = False
 
 
@@ -268,8 +276,11 @@ class MaestEmbeddingAdapter:
                     "MAEST shared-audio analysis requires torchaudio resampling: "
                     f"{path}"
                 )
-            audio = torchaudio.transforms.Resample(sample_rate, self.target_rate)(
-                audio
+            audio = _resample_to(
+                audio,
+                source_rate=sample_rate,
+                target_rate=self.target_rate,
+                torchaudio=torchaudio,
             )
         audio = audio.squeeze(0)
         target_samples = int(self.target_rate * self.input_seconds)
@@ -421,7 +432,12 @@ class MertEmbeddingAdapter:
             if decoded.sample_rate != target_rate:
                 if torchaudio is None:
                     raise RuntimeError(f"MERT shared-audio analysis requires torchaudio resampling: {decoded.path}")
-                waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
+                waveform = _resample_to(
+                    waveform,
+                    source_rate=decoded.sample_rate,
+                    target_rate=target_rate,
+                    torchaudio=torchaudio,
+                )
             waveform = waveform.squeeze(0)
             windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
             if not windows:
@@ -1013,7 +1029,12 @@ class ClapEmbeddingAdapter:
             if decoded.sample_rate != target_rate:
                 if torchaudio is None:
                     raise RuntimeError(f"CLAP shared-audio analysis requires torchaudio resampling: {decoded.path}")
-                waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
+                waveform = _resample_to(
+                    waveform,
+                    source_rate=decoded.sample_rate,
+                    target_rate=target_rate,
+                    torchaudio=torchaudio,
+                )
             waveform = waveform.squeeze(0)
             windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
             if not windows:
@@ -1673,10 +1694,12 @@ def _prepare_muq_compatible_windows(
                     f"{model_label} shared-audio analysis requires "
                     f"torchaudio resampling: {decoded.path}"
                 )
-            waveform = torchaudio.transforms.Resample(
-                decoded.sample_rate,
-                target_rate,
-            )(waveform).to(dtype=torch.float32)
+            waveform = _resample_to(
+                waveform,
+                source_rate=decoded.sample_rate,
+                target_rate=target_rate,
+                torchaudio=torchaudio,
+            ).to(dtype=torch.float32)
         waveform = waveform.squeeze(0).to(dtype=torch.float32)
         windows = _select_windows_torch(
             waveform,
@@ -1723,6 +1746,20 @@ def _repeatpad_or_trim_audio_window(audio: np.ndarray, target_samples: int) -> n
     if repeated.shape[0] < target_samples:
         repeated = np.pad(repeated, (0, target_samples - repeated.shape[0]))
     return repeated[:target_samples].astype(np.float32, copy=False)
+
+
+def _resample_to(waveform, *, source_rate: int, target_rate: int, torchaudio):
+    """Resample through the kernel cached for this rate pair."""
+
+    key = (int(source_rate), int(target_rate))
+    resampler = _RESAMPLERS.get(key)
+    if resampler is None:
+        with _RESAMPLER_LOCK:
+            resampler = _RESAMPLERS.get(key)
+            if resampler is None:
+                resampler = torchaudio.transforms.Resample(key[0], key[1])
+                _RESAMPLERS[key] = resampler
+    return resampler(waveform)
 
 
 def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max_windows: int, torch):

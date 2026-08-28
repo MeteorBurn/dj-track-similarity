@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import math
+import threading
 from typing import Final, Literal, Protocol
 
 import numpy as np
@@ -263,7 +264,7 @@ class SimilaritySearch:
             )
         if not rows:
             return []
-        matrix = _matrix(rows, output)
+        matrix = _matrix(rows, output, self.repository.catalog_uuid)
         centroid = _normalize(
             np.mean(
                 matrix[
@@ -302,7 +303,7 @@ class SimilaritySearch:
         query = _query_for_output(vector, output)
         return self._rank(
             rows,
-            _matrix(rows, output),
+            _matrix(rows, output, self.repository.catalog_uuid),
             query,
             excluded=frozenset(),
             filters=filters or SearchFilters(),
@@ -333,7 +334,7 @@ class SimilaritySearch:
         )
         if not rows:
             return []
-        matrix = _matrix(rows, output)
+        matrix = _matrix(rows, output, self.repository.catalog_uuid)
         (
             positive_scores,
             negative_scores,
@@ -529,7 +530,121 @@ class SimilaritySearch:
         ]
 
 
+class _PreparedRows:
+    """Check and stack one row set once, however many searches read it.
+
+    The repository hands back the same rows object until the stored vectors
+    change, so a second search over an unchanged library re-checked 45,000 rows
+    and stacked them into a second identical matrix. Both are pure functions of
+    the rows, and identity — not equality — is what makes reuse safe here: the
+    entry holds the rows it was derived from, so the object cannot be collected
+    and a later row set cannot land on its identity.
+
+    Four entries cover one search: the full library plus the one-row set the
+    seed staleness gate checks, for the two families a comparison alternates
+    between.
+    """
+
+    _LIMIT = 4
+
+    def __init__(self) -> None:
+        # Searches run concurrently in the API threadpool, and eviction reads
+        # the dictionary while another request may be inserting into it.
+        self._lock = threading.Lock()
+        self._entries: dict[
+            int,
+            tuple[
+                Sequence[AnalysisVectorRow],
+                AnalysisOutput,
+                str,
+                FloatArray | None,
+            ],
+        ] = {}
+
+    def _entry(
+        self,
+        rows: Sequence[AnalysisVectorRow],
+        output: AnalysisOutput,
+        catalog_uuid: str,
+    ) -> tuple[
+        Sequence[AnalysisVectorRow],
+        AnalysisOutput,
+        str,
+        FloatArray | None,
+    ] | None:
+        with self._lock:
+            entry = self._entries.get(id(rows))
+        if (
+            entry is None
+            or entry[0] is not rows
+            or entry[1] != output
+            or entry[2] != catalog_uuid
+        ):
+            return None
+        return entry
+
+    def _store(
+        self,
+        entry: tuple[
+            Sequence[AnalysisVectorRow],
+            AnalysisOutput,
+            str,
+            FloatArray | None,
+        ],
+    ) -> None:
+        with self._lock:
+            self._entries.pop(id(entry[0]), None)
+            self._entries[id(entry[0])] = entry
+            while len(self._entries) > self._LIMIT:
+                del self._entries[next(iter(self._entries))]
+
+    def checked(
+        self,
+        rows: Sequence[AnalysisVectorRow],
+        *,
+        output: AnalysisOutput,
+        catalog_uuid: str,
+    ) -> None:
+        if self._entry(rows, output, catalog_uuid) is not None:
+            return
+        _check_rows(rows, output=output, catalog_uuid=catalog_uuid)
+        self._store((rows, output, catalog_uuid, None))
+
+    def matrix(
+        self,
+        rows: Sequence[AnalysisVectorRow],
+        output: AnalysisOutput,
+        catalog_uuid: str,
+    ) -> FloatArray:
+        entry = self._entry(rows, output, catalog_uuid)
+        if entry is not None and entry[3] is not None:
+            return entry[3]
+        matrix = _stack(rows, output)
+        self._store((rows, output, catalog_uuid, matrix))
+        return matrix
+
+
+_PREPARED = _PreparedRows()
+
+
 def _validate_rows(
+    rows: Sequence[AnalysisVectorRow],
+    *,
+    output: AnalysisOutput,
+    catalog_uuid: str,
+) -> None:
+    _PREPARED.checked(rows, output=output, catalog_uuid=catalog_uuid)
+
+
+def _matrix(
+    rows: Sequence[AnalysisVectorRow],
+    output: AnalysisOutput,
+    catalog_uuid: str,
+) -> FloatArray:
+    return _PREPARED.matrix(rows, output, catalog_uuid)
+
+
+def _check_rows(
     rows: Sequence[AnalysisVectorRow],
     *,
     output: AnalysisOutput,
@@ -563,7 +678,7 @@ def _validate_rows(
         seen_track_ids.add(row.target.track_id)
 
 
-def _matrix(
+def _stack(
     rows: Sequence[AnalysisVectorRow],
     output: AnalysisOutput,
 ) -> FloatArray:

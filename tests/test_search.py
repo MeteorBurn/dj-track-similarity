@@ -21,6 +21,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.search import SearchFilters, SimilaritySearch
+from dj_track_similarity.vector_index import ExactVectorSearchBackend
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -313,6 +314,67 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
         vectors[kept.track_id],
         next(row.vector for row in first if row.target.track_id == kept.track_id),
     )
+
+
+class _FullDepthBackend(ExactVectorSearchBackend):
+    """Ignores the requested depth and ranks the whole library."""
+
+    def search(self, matrix, targets, query, limit):  # noqa: ANN001, ANN201
+        return super().search(matrix, targets, query, len(targets))
+
+
+class _DepthRecordingBackend(ExactVectorSearchBackend):
+    def __init__(self) -> None:
+        self.requested: list[int] = []
+
+    def search(self, matrix, targets, query, limit):  # noqa: ANN001, ANN201
+        self.requested.append(limit)
+        return super().search(matrix, targets, query, limit)
+
+
+def test_bounded_ranking_depth_matches_ranking_the_whole_library(
+    tmp_path: Path,
+) -> None:
+    """Reading a prefix of the ranking must not change the answer.
+
+    Deterministic noise reorders results within a band of the score, so the
+    depth a search reads has to grow until no unseen score can reach the last
+    result kept. This pins that bound against the ranking it approximates.
+    """
+
+    db, output = _library(tmp_path, "mert")
+    seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
+    # Six tracks packed inside the noise band, where the jitter decides the
+    # order, and six far below it, where it cannot.
+    for index in range(12):
+        cosine = 0.99 - index * 0.01 if index < 6 else 0.30 - index * 0.02
+        _add_track(
+            db,
+            tmp_path,
+            output,
+            f"track-{index}.wav",
+            [cosine, (1.0 - cosine * cosine) ** 0.5, 0.0],
+        )
+
+    filters = SearchFilters(noise=0.2, epsilon=1.0)
+    recorder = _DepthRecordingBackend()
+    bounded = SimilaritySearch(
+        db,
+        "mert",
+        analysis_output=output,
+        vector_backend=recorder,
+    ).search((seed,), filters=filters, limit=3)
+    whole = SimilaritySearch(
+        db,
+        "mert",
+        analysis_output=output,
+        vector_backend=_FullDepthBackend(),
+    ).search((seed,), filters=filters, limit=3)
+
+    assert [(r.target.track_id, r.score) for r in bounded] == [
+        (r.target.track_id, r.score) for r in whole
+    ]
+    assert max(recorder.requested) < 13
 
 
 def _library(root: Path, family: str) -> tuple[LibraryDatabase, AnalysisOutput]:

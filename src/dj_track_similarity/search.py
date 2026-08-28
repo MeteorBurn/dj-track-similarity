@@ -249,9 +249,12 @@ class SimilaritySearch:
             candidate_targets=selected_candidates,
         )
 
-        target_to_index = {
-            row.target: index for index, row in enumerate(rows)
-        }
+        prepared = _PREPARED.prepared(
+            rows,
+            output,
+            self.repository.catalog_uuid,
+        )
+        target_to_index = prepared.target_to_index
         missing_seeds = [
             target
             for target in seeds
@@ -264,18 +267,16 @@ class SimilaritySearch:
             )
         if not rows:
             return []
-        matrix = _matrix(rows, output, self.repository.catalog_uuid)
         centroid = _normalize(
             np.mean(
-                matrix[
+                prepared.matrix[
                     [target_to_index[target] for target in seeds]
                 ],
                 axis=0,
             )
         )
         return self._rank(
-            rows,
-            matrix,
+            prepared,
             centroid,
             excluded=frozenset(seeds),
             filters=filters or SearchFilters(),
@@ -302,8 +303,7 @@ class SimilaritySearch:
             return []
         query = _query_for_output(vector, output)
         return self._rank(
-            rows,
-            _matrix(rows, output, self.repository.catalog_uuid),
+            _PREPARED.prepared(rows, output, self.repository.catalog_uuid),
             query,
             excluded=frozenset(),
             filters=filters or SearchFilters(),
@@ -334,7 +334,11 @@ class SimilaritySearch:
         )
         if not rows:
             return []
-        matrix = _matrix(rows, output, self.repository.catalog_uuid)
+        matrix = _PREPARED.prepared(
+            rows,
+            output,
+            self.repository.catalog_uuid,
+        ).matrix
         (
             positive_scores,
             negative_scores,
@@ -465,27 +469,78 @@ class SimilaritySearch:
 
     def _rank(
         self,
-        rows: tuple[AnalysisVectorRow, ...],
-        matrix: FloatArray,
+        prepared: _Prepared,
         query: FloatArray,
         *,
         excluded: frozenset[AnalysisTarget],
         filters: SearchFilters,
         limit: int,
     ) -> list[SimilaritySearchResult]:
-        targets = tuple(row.target for row in rows)
-        hits = self.vector_backend.search(
-            matrix,
-            targets,
-            query,
-            limit=len(targets),
+        """Rank the library against *query*, reading only as deep as needed.
+
+        Asking the backend for k = N built a hit object for all 45,000 tracks
+        in order to return fifty of them. How deep the answer actually reaches
+        is bounded: hits arrive in descending score, ``min_similarity`` and
+        ``epsilon`` only ever cut a suffix of that order, the excluded seeds
+        remove at most ``len(excluded)`` of them, and the deterministic noise
+        jitter moves a score by at most ``noise / 2``. So a prefix suffices as
+        soon as no unseen score can reach the last ranking score kept, and the
+        depth grows until that holds.
+        """
+
+        bounded_limit = _result_limit(limit)
+        total = len(prepared.targets)
+        requested = min(total, bounded_limit + len(excluded))
+        while True:
+            hits = self.vector_backend.search(
+                prepared.matrix,
+                prepared.targets,
+                query,
+                limit=requested,
+            )
+            candidates, below_threshold = self._candidates(
+                hits,
+                prepared,
+                excluded=excluded,
+                filters=filters,
+            )
+            if requested >= total or _ranking_is_settled(
+                hits,
+                candidates,
+                limit=bounded_limit,
+                noise=filters.noise,
+                below_threshold=below_threshold,
+            ):
+                break
+            requested = min(total, requested * 2 if requested else 16)
+
+        candidates = _apply_epsilon(
+            candidates,
+            epsilon=filters.epsilon,
+            score_index=1,
         )
-        target_to_index = {
-            target: index for index, target in enumerate(targets)
-        }
-        candidates: list[
-            tuple[AnalysisTarget, float, float]
-        ] = []
+        ranked = sorted(
+            candidates,
+            key=lambda item: item[2],
+            reverse=True,
+        )[:bounded_limit]
+        return [
+            SimilaritySearchResult(target=target, score=score)
+            for target, score, _ranking in ranked
+        ]
+
+    def _candidates(
+        self,
+        hits: Sequence[VectorSearchHit],
+        prepared: _Prepared,
+        *,
+        excluded: frozenset[AnalysisTarget],
+        filters: SearchFilters,
+    ) -> tuple[list[tuple[AnalysisTarget, float, float]], bool]:
+        targets = prepared.targets
+        target_to_index = prepared.target_to_index
+        candidates: list[tuple[AnalysisTarget, float, float]] = []
+        below_threshold = False
         for hit in hits:
             target = _target_for_hit(
                 hit,
@@ -500,6 +555,7 @@ class SimilaritySearch:
                     "Vector search backend returned a non-finite score"
                 )
             if not _passes_score_filter(score, filters):
+                below_threshold = True
                 continue
             candidates.append(
                 (
@@ -512,37 +568,76 @@ class SimilaritySearch:
                     ),
                 )
             )
+        return candidates, below_threshold
 
-        candidates = _apply_epsilon(
-            candidates,
-            epsilon=filters.epsilon,
-            score_index=1,
-        )
-        bounded_limit = _result_limit(limit)
-        ranked = sorted(
-            candidates,
-            key=lambda item: item[2],
-            reverse=True,
-        )[:bounded_limit]
-        return [
-            SimilaritySearchResult(target=target, score=score)
-            for target, score, _ranking in ranked
-        ]
+
+class _Prepared:
+    """Everything a search derives from one row set, derived once.
+
+    The repository hands back the same rows object until the stored vectors
+    change, so a second search over an unchanged library re-checked those rows,
+    stacked them into a second identical matrix, and rebuilt the same target
+    tuple and identity map. All four are pure functions of the rows.
+    """
+
+    __slots__ = (
+        "rows",
+        "output",
+        "catalog_uuid",
+        "_matrix",
+        "_targets",
+        "_target_to_index",
+    )
+
+    def __init__(
+        self,
+        rows: Sequence[AnalysisVectorRow],
+        output: AnalysisOutput,
+        catalog_uuid: str,
+    ) -> None:
+        self.rows = rows
+        self.output = output
+        self.catalog_uuid = catalog_uuid
+        self._matrix: FloatArray | None = None
+        self._targets: tuple[AnalysisTarget, ...] | None = None
+        self._target_to_index: dict[AnalysisTarget, int] | None = None
+
+    @property
+    def matrix(self) -> FloatArray:
+        matrix = self._matrix
+        if matrix is None:
+            matrix = _stack(self.rows, self.output)
+            self._matrix = matrix
+        return matrix
+
+    @property
+    def targets(self) -> tuple[AnalysisTarget, ...]:
+        targets = self._targets
+        if targets is None:
+            targets = tuple(row.target for row in self.rows)
+            self._targets = targets
+        return targets
+
+    @property
+    def target_to_index(self) -> Mapping[AnalysisTarget, int]:
+        index = self._target_to_index
+        if index is None:
+            index = {
+                target: position
+                for position, target in enumerate(self.targets)
+            }
+            self._target_to_index = index
+        return index
 
 
 class _PreparedRows:
-    """Check and stack one row set once, however many searches read it.
+    """One derived row set per distinct rows object, four at a time.
 
-    The repository hands back the same rows object until the stored vectors
-    change, so a second search over an unchanged library re-checked 45,000 rows
-    and stacked them into a second identical matrix. Both are pure functions of
-    the rows, and identity — not equality — is what makes reuse safe here: the
-    entry holds the rows it was derived from, so the object cannot be collected
-    and a later row set cannot land on its identity.
-
-    Four entries cover one search: the full library plus the one-row set the
-    seed staleness gate checks, for the two families a comparison alternates
-    between.
+    Identity — not equality — is what makes reuse safe here: the entry holds
+    the rows it was derived from, so the object cannot be collected and a later
+    row set cannot land on its identity. Four entries cover one search: the
+    library plus the one-row set the seed staleness gate checks, for the two
+    families a comparison alternates between.
     """
 
     _LIMIT = 4
@@ -551,77 +646,31 @@ class _PreparedRows:
         # Searches run concurrently in the API threadpool, and eviction reads
         # the dictionary while another request may be inserting into it.
         self._lock = threading.Lock()
-        self._entries: dict[
-            int,
-            tuple[
-                Sequence[AnalysisVectorRow],
-                AnalysisOutput,
-                str,
-                FloatArray | None,
-            ],
-        ] = {}
+        self._entries: dict[int, _Prepared] = {}
 
-    def _entry(
+    def prepared(
         self,
         rows: Sequence[AnalysisVectorRow],
         output: AnalysisOutput,
         catalog_uuid: str,
-    ) -> tuple[
-        Sequence[AnalysisVectorRow],
-        AnalysisOutput,
-        str,
-        FloatArray | None,
-    ] | None:
+    ) -> _Prepared:
         with self._lock:
             entry = self._entries.get(id(rows))
         if (
-            entry is None
-            or entry[0] is not rows
-            or entry[1] != output
-            or entry[2] != catalog_uuid
+            entry is not None
+            and entry.rows is rows
+            and entry.output == output
+            and entry.catalog_uuid == catalog_uuid
         ):
-            return None
-        return entry
-
-    def _store(
-        self,
-        entry: tuple[
-            Sequence[AnalysisVectorRow],
-            AnalysisOutput,
-            str,
-            FloatArray | None,
-        ],
-    ) -> None:
+            return entry
+        _check_rows(rows, output=output, catalog_uuid=catalog_uuid)
+        entry = _Prepared(rows, output, catalog_uuid)
         with self._lock:
-            self._entries.pop(id(entry[0]), None)
-            self._entries[id(entry[0])] = entry
+            self._entries.pop(id(rows), None)
+            self._entries[id(rows)] = entry
             while len(self._entries) > self._LIMIT:
                 del self._entries[next(iter(self._entries))]
-
-    def checked(
-        self,
-        rows: Sequence[AnalysisVectorRow],
-        *,
-        output: AnalysisOutput,
-        catalog_uuid: str,
-    ) -> None:
-        if self._entry(rows, output, catalog_uuid) is not None:
-            return
-        _check_rows(rows, output=output, catalog_uuid=catalog_uuid)
-        self._store((rows, output, catalog_uuid, None))
-
-    def matrix(
-        self,
-        rows: Sequence[AnalysisVectorRow],
-        output: AnalysisOutput,
-        catalog_uuid: str,
-    ) -> FloatArray:
-        entry = self._entry(rows, output, catalog_uuid)
-        if entry is not None and entry[3] is not None:
-            return entry[3]
-        matrix = _stack(rows, output)
-        self._store((rows, output, catalog_uuid, matrix))
-        return matrix
+        return entry
 
 
 _PREPARED = _PreparedRows()
@@ -633,15 +682,7 @@ def _validate_rows(
     output: AnalysisOutput,
     catalog_uuid: str,
 ) -> None:
-    _PREPARED.checked(rows, output=output, catalog_uuid=catalog_uuid)
-
-
-def _matrix(
-    rows: Sequence[AnalysisVectorRow],
-    output: AnalysisOutput,
-    catalog_uuid: str,
-) -> FloatArray:
-    return _PREPARED.matrix(rows, output, catalog_uuid)
+    _PREPARED.prepared(rows, output, catalog_uuid)
 
 
 def _check_rows(
@@ -946,6 +987,39 @@ def _passes_score_filter(
         filters.min_similarity is None
         or score >= filters.min_similarity
     )
+
+
+def _ranking_is_settled(
+    hits: Sequence[VectorSearchHit],
+    candidates: Sequence[tuple[AnalysisTarget, float, float]],
+    *,
+    limit: int,
+    noise: float,
+    below_threshold: bool,
+) -> bool:
+    """Whether no unseen hit could still enter the top *limit*."""
+
+    if limit <= 0:
+        return True
+    if below_threshold:
+        # Hits are ordered by descending score, so once one falls under
+        # min_similarity every hit after it does too.
+        return True
+    if len(candidates) < limit:
+        return False
+    if not hits:
+        return True
+    last_score = float(hits[-1].score)
+    if noise <= 0.0:
+        # Ranking order is score order, and an unseen hit scores no higher
+        # than the last one seen; a tie keeps the earlier hit under a stable
+        # sort. The prefix already holds the answer.
+        return True
+    kept = sorted(
+        (ranking for _target, _score, ranking in candidates),
+        reverse=True,
+    )[limit - 1]
+    return last_score + noise / 2.0 <= kept
 
 
 def _apply_epsilon(

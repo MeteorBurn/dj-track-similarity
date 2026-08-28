@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+import threading
 from typing import Protocol
 
 import numpy as np
@@ -108,6 +109,38 @@ def _l2_search_matrix(matrix: np.ndarray) -> np.ndarray:
     return search_matrix
 
 
+class _CheckedTargets:
+    """Remembers which target sequences have already been checked.
+
+    Every call re-walked the same 45,000 targets five times — type, catalog,
+    duplicate identity, duplicate track ID — for a caller that hands back the
+    same tuple until the library changes. Identity is what makes reuse safe:
+    the entry holds the tuple it checked, so it cannot be collected and a later
+    tuple cannot land on its identity. Four entries, so a comparison that
+    alternates between families keeps checking nothing twice.
+    """
+
+    _LIMIT = 4
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._entries: dict[int, tuple[AnalysisTarget, ...]] = {}
+
+    def remembered(self, targets: tuple[AnalysisTarget, ...]) -> bool:
+        with self._lock:
+            return self._entries.get(id(targets)) is targets
+
+    def remember(self, targets: tuple[AnalysisTarget, ...]) -> None:
+        with self._lock:
+            self._entries.pop(id(targets), None)
+            self._entries[id(targets)] = targets
+            while len(self._entries) > self._LIMIT:
+                del self._entries[next(iter(self._entries))]
+
+
+_CHECKED_TARGETS = _CheckedTargets()
+
+
 def _targets_for_matrix(
     targets: Sequence[AnalysisTarget],
     matrix: np.ndarray,
@@ -118,6 +151,8 @@ def _targets_for_matrix(
             "Vector search targets length mismatch: "
             f"{len(search_targets)} != {matrix.shape[0]}"
         )
+    if _CHECKED_TARGETS.remembered(search_targets):
+        return search_targets
     if any(
         not isinstance(target, AnalysisTarget)
         for target in search_targets
@@ -142,6 +177,7 @@ def _targets_for_matrix(
             "Vector search targets contain conflicting identities "
             "for one track ID"
         )
+    _CHECKED_TARGETS.remember(search_targets)
     return search_targets
 
 

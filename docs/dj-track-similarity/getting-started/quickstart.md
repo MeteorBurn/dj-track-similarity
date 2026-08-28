@@ -8,6 +8,12 @@ and it lets you hear what each search surface actually returns.
 
 These commands assume the Python environment is active.
 
+## Before you open the browser
+
+The browser UI is in Russian. Every control named on this page is given as the Russian string with
+its English meaning in parentheses, so you can match it on screen. The complete mapping is in
+[UI language](../help/ui-language.md).
+
 ## 1. Install the base package
 
 ```powershell
@@ -18,8 +24,11 @@ That covers scanning, serving the backend API, exporting, database operations, a
 analysis data you already have. New analysis jobs need the optional extras:
 
 ```powershell
-uv sync --locked --extra sonara --extra ml --extra dev
+uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 ```
+
+The `sonara` extra resolves to a patched local wheel rather than to a package index. On a machine
+without that wheel, read [Install](./install.md) before running this.
 
 Use `uv` for anything involving the `ml` extra, because `pip` ignores `[tool.uv.sources]`. On
 Windows AMD64 with Python 3.10, `uv` picks the PyTorch packages from the CUDA 13.0 index.
@@ -49,6 +58,10 @@ dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,mulan,clap --limit 25 --db .\data\library.sqlite
 ```
 
+SONARA has to run before the ML families. A job that requests ML models while no track carries a
+current SONARA row is refused at creation time, and the browser keeps the ML checkboxes disabled
+until at least one SONARA row exists.
+
 A small limit confirms the model stack before you analyze every track. What each family gives you:
 
 - SONARA makes feature-guided search and transition evidence available.
@@ -56,14 +69,14 @@ A small limit confirms the model stack before you analyze every track. What each
 - MAEST, MuQ, and CLAP add evidence for LAB comparison, Audio Dedup, and classifiers.
 - CLAP and MuQ-MuLan enable text search in their own embedding spaces.
 - MuQ-MuLan also enables its seed-search view. It stores separate 512D L2-normalized embeddings
-  and does not transform MuQ vectors. Existing Audio Dedup weights remain unchanged.
+  and does not transform MuQ vectors.
 
 Each job loads its models before it reads the first track and reports that as a warm-up phase. On a
 new machine that phase also downloads the model weights, so the first run pauses there before the
 track counter moves. See [Model warm-up](../reference/analysis-families.md#model-warm-up).
 
-Omit `--limit` in the CLI to take the whole library. In the browser, **Analyze limit** `0` means the
-same whole-eligible-library thing.
+Omit `--limit` in the CLI to take the whole library. In the browser, `Analyze limit` `0` means the
+same whole-eligible-library thing, applied separately to each stage.
 
 ## 4. Start the app
 
@@ -83,18 +96,16 @@ To skip the prompts, run `run_server.cmd local --db .\database\volumes.sqlite`. 
 commands use only the arguments you pass. The server keeps its terminal busy, so run later CLI jobs
 in a second activated terminal.
 
-To stop that launcher-managed session cleanly, use the top-bar power button in the browser. It asks
-the backend to shut down, attempts managed Rhythm Lab cleanup first, then lets the launcher stop its
-Vite dev child after the backend exits. The UI also asks the browser to close the tab; if that is
-blocked, a final fallback page confirms that the servers stopped and the tab can be closed
-manually.
+To stop that launcher-managed session cleanly, use the power button in the top bar, titled
+`Остановить все серверы и закрыть вкладку` (stop every server and close the tab). It asks the
+backend to shut down, attempts managed Rhythm Lab cleanup first, then lets the launcher stop its
+Vite dev child after the backend exits. The UI also asks the browser to close the tab. If that is
+blocked, a fallback page reading `Серверы остановлены` (servers stopped) confirms that the tab can
+be closed manually.
 
 Without `--db`, the server starts with no database selected and creates no SQLite files. Pick an
 existing compatible library SQLite file in the database picker, or give it a new `.sqlite` path to
 create one library database in the current schema.
-
-Open the printed live UI URL. The browser reads the current typed database, track, analysis, search,
-set, classifier, Lab, and exact-identity mutation responses.
 
 ## 5. Check the backend and browser
 
@@ -108,23 +119,32 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/tracks?limit=25'
 For a first text shortlist, use the CLI once the chosen family has been analyzed:
 
 ```powershell
-dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --model mulan --limit 20 --db .\data\library.sqlite
+dj-sim text-search "dark hypnotic techno, rolling bass, hazy pads" --model mulan --limit 20 --db .\data\library.sqlite
 ```
+
+Write prompts as positive descriptions of what you want to hear. The text encoders do not model
+negation, so `no vocals` searches for vocals. Name the unwanted sound in the `Negative` field of the
+`PROMPT` tab instead. See [Text search](../user-guide/text-search.md).
 
 Seed search, SONARA search, Current Set, and export are available in the browser and through the
 backend endpoints documented in the [API reference](../reference/api.md).
 
 ## Your first pass in the browser
 
-1. In **Database and analysis**, confirm the SQLite path and music root.
-2. In **Library**, search or use **Prev**, **Next**, and the page-number field to move through fixed
-   pages of up to `200` tracks.
-3. Add one to five tracks as seeds.
-4. Open **MERT**, **MUQ**, or **MULAN** for an embedding neighborhood, or **SONARA** when you want to
+1. In panel `1. База и анализ` (database and analysis), confirm the SQLite path in the read-only
+   field at the top. The music folder is chosen later, inside the import dialog.
+2. In panel `2. Библиотека и прослушивание` (library and listening), search or use `Prev`, `Next`,
+   and the page-number field to move through fixed pages of up to `200` tracks.
+3. Add one to five tracks as seeds from the row actions.
+4. In panel `3. Поиск и прослушивание` (search and listening), open the `SIMILARITY` tab and pick
+   `MAEST`, `MERT`, `MuQ`, or `MuQ-MuLan` in its `Model` select, or open `SONARA` when you want to
    steer the search by rhythm, sound, dynamics, harmony, or tempo.
 5. Preview candidates by ear and add the useful rows to the current set.
 6. Review or remove entries in the current set.
 7. Export the set as M3U or CSV once it has earned it.
+
+With no seed in mind, press **Add Random Track** in the `SONARA` or `SIMILARITY` tab. It pulls one
+eligible track from the library and uses it as the seed.
 
 The loop stays listening-led. Start from an idea, get a shortlist, play it, keep what survives.
 
@@ -136,3 +156,4 @@ The loop stays listening-led. Start from an idea, get a shortlist, play it, keep
   [First analysis](./first-analysis.md).
 - Text search needs stored CLAP or MuQ-MuLan audio embeddings for the selected model. Run that
   analysis first.
+- Greyed-out ML checkboxes mean the library has no SONARA row yet. Run SONARA first.

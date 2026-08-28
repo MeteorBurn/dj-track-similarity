@@ -50,10 +50,47 @@ That stance shapes the docs and UI:
 
 ## Current boundary
 
-The current app supports library scanning and analysis, seed and text search, LAB comparison,
-local classifier profiles, a browser-local current set, and playlist export.
+The boundary between what runs today and what remains direction is worth stating plainly, because
+the set-dramaturgy framing above is the goal rather than the feature list.
 
-It does not yet generate a finished automatic DJ set from a story prompt. That is the direction, not a completed claim.
+### Available in the browser
+
+- Library scan, then SONARA analysis in Direct or Staged mode under a library-scoped BPM range.
+- MAEST, MERT, MuQ, MuQ-MuLan, and CLAP analysis, in Direct or Staged mode.
+- SONARA search across five modes, with mixer weights and nine modifiers.
+- Seed search over MAEST, MERT, MuQ, and MuQ-MuLan in the SIMILARITY tab.
+- Text search over CLAP or MuQ-MuLan in the PROMPT tab, with a preset picker and relevance verdicts.
+- LAB Reference Compare across six model families, with listening verdicts.
+- CLASS filters over promoted classifier scores, with per-key reset and rescore.
+- A browser-local current set, Rhythm Lab collection transfer, and M3U or CSV export.
+- Audio Dedup search, review, and deletion.
+
+### Available from the CLI or the HTTP API only
+
+- CLAP seed search through `POST /api/search`.
+- The whole Evaluation package, including candidate pools, score profiles, ablation, and
+  calibration. There is no Evaluation UI.
+- Library relocation preview and apply.
+- Audio Doctor, which has no route in the application at all.
+- Audio Online metadata enrichment.
+- The benchmark and cross-check scripts behind the text layer.
+
+### Still a direction
+
+Automatic set generation is the largest one. Nothing in the app turns a set of anchors into an
+ordered sequence with a chosen energy or tempo direction. The current set is a list you build by
+hand, one track at a time, and export in the order you put them.
+
+The narrative arc described above stays a design goal. Similarity, text retrieval, and classifier
+scores are the building blocks that exist today.
+
+### Written but waiting for a consumer
+
+Some analysis output is stored and read by nothing yet. The 48-dimensional SONARA embedding is
+written on every successful SONARA pass and has no reader in search, classifiers, or Audio Dedup.
+The SONARA mood values, true peak, and ReplayGain are stored and available to Rhythm Lab recipes
+while staying out of every similarity path. None of this is dead code, and none of it affects a
+ranking today.
 
 ## Related pages
 

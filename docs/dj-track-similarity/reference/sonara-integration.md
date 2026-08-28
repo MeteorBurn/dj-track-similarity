@@ -1,10 +1,14 @@
 # SONARA integration
 
-How the project collects SONARA data, what it stores, and where the storage boundaries sit.
+How the project collects SONARA data, what it stores, and where the storage boundaries sit. The
+tested package is SONARA `0.3.6`, pinned in `pyproject.toml` and locked to a patched local wheel.
+Storage requires the `bpm_min` and `bpm_max` provenance that `0.3.6` added, so `0.3.5` cannot
+complete an analysis.
 
 ## Current path
 
-The current project uses SONARA in `playlist` mode with a `70..180` BPM range. Direct Mode is the
+The current project uses SONARA in `playlist` mode. The BPM range comes from the library rather than
+from the call site, and the storage rule for it is below. Direct Mode is the
 default and passes source paths to native `analyze_batch()`. Staged Mode instead copies selected
 source files read-only to a per-job directory below a user-selected folder. It never moves or
 modifies the source files. In Staged Mode, SONARA and its PyAV recovery decoder from the active
@@ -35,11 +39,14 @@ warning level. The job continues, with deletion deferred to final session cleanu
 and copy worker pools exit. Every Staged session creates a new unique job directory. Before doing
 so, it removes an owner-marked staging directory only if its recorded owner process is gone, and
 also removes an empty `sonara-stage-*` residue that has no valid owner marker. It preserves a
-directory with a live owner and a nonempty directory without a valid marker. Staged Mode is
-SONARA-only. Generic ML reads original source paths and uses the same in-process tolerant PyAV
-shared-library decode for recovery after a full TorchCodec failure. Preview and other non-SONARA
-functions keep
-their own decode paths.
+directory with a live owner and a nonempty directory without a valid marker.
+
+The ML families have their own separate Staged Mode with its own folder, copy workers, and decode
+workers. It shares no settings with this one. In ML Direct Mode the families read original source
+paths and use the same in-process tolerant PyAV shared-library decode for recovery after a full
+TorchCodec failure. See
+[Direct and Staged Mode](./analysis-families.md#direct-and-staged-mode). Preview and other
+non-SONARA functions keep their own decode paths.
 
 The application requests a fixed output set. It contains scalar and compact fixed-vector Core data
 together with the SONARA embedding and acoustic fingerprint. It stores Core in `sonara_features`, the unnormalized
@@ -47,10 +54,10 @@ together with the SONARA embedding and acoustic fingerprint. It stores Core in `
 base64 fingerprint in `sonara_fingerprints`. Timeline is not requested, converted, stored, read, or
 exposed.
 
-For SONARA 0.3.6 Core results, `sonara_features` also persists the analysis provenance returned by
-SONARA: `analysis_schema_version`, `bpm_min`, and `bpm_max`. The track-detail API exposes those
-values in `sonara_core`. In the Track Metadata dialog, `BPM analysis range` is the final Tempo row
-(such as `70-180 BPM`), and `Analysis schema` is the final SONARA Core provenance row (`v6`).
+`sonara_features` also persists the analysis provenance returned by SONARA: `analysis_schema_version`,
+`bpm_min`, and `bpm_max`. The track-detail API exposes those values in `sonara_core`. In the track
+metadata dialog, `BPM analysis range` is the final Tempo row (such as `70-180 BPM`), and
+`Analysis schema` is the final SONARA Core provenance row.
 
 Those stored `bpm_min` and `bpm_max` values also define the range of the library itself. The
 application reads them back instead of keeping a separate setting, so the recorded range cannot
@@ -71,12 +78,11 @@ stores `fingerprint_version`, native `fingerprint_base64`, and `analyzed_at`. No
 expose SONARA Core coverage and compact summaries. There is no Timeline route or optional SONARA
 output selector.
 
-Normal SONARA candidate selection checks all three current outputs and skips a track only when its
-Core, embedding, and fingerprint rows are present for the current track identity. If any is missing,
-one successful SONARA rerun writes all three rows together. The repository opens one transaction and
-uses a savepoint per track, so that track's Core, embedding, and fingerprint are atomic while another
-track's failure can be retained separately. Job diagnostics report staging, shared-library recovery,
-copy/analyze/store timing, and per-track errors.
+The three-output rule and the candidate-selection consequence live on
+[Analysis families](./analysis-families.md#sonara-core-embedding-and-fingerprint). On the storage
+side, the repository opens one transaction and uses a savepoint per track, so that track's Core,
+embedding, and fingerprint are atomic while another track's failure can be retained separately. Job
+diagnostics report staging, shared-library recovery, copy/analyze/store timing, and per-track errors.
 
 After a successful per-track store, or after a track failure is finalized, the staged runner updates
 job status immediately instead of waiting for the whole queue. The existing UI Process Log receives

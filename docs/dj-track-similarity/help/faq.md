@@ -9,10 +9,25 @@ No. SONARA, MAEST, MERT, MuQ, CLAP, and classifier scoring write SQLite data onl
 
 ## Which actions can write audio files?
 
-Only MAEST genre-tag apply, Audio Doctor apply, and Audio Dedup deletion. Audio Dedup deletes files,
-either from a CLI `--apply` run or from the browser review dialog, and both need the exact phrase
-`APPLY DELETE`. Each of the three sits behind a confirmation gate and stays separate from normal
-scan, search, and analysis.
+Three of them. MAEST genre-tag apply, Audio Doctor apply, and Audio Dedup deletion. All three stay
+separate from normal scan, search, and analysis.
+
+Their gates differ, so be precise about which one you are using:
+
+- **MAEST genre apply** writes the genre field for tracks with stored MAEST genres, when you start
+  it.
+- **Audio Doctor apply** is dry-run first, backs up each file, verifies the result, and restores the
+  backup on failure. It takes no confirmation phrase, so `--apply` writes immediately.
+- **Audio Dedup deletion** requires the phrase `APPLY DELETE` in the request. From the CLI you type
+  it. In the browser the client supplies it and you answer a `Да` / `Нет` dialog.
+
+[Local-first safety](../concepts/local-first-safety.md) is the full list.
+
+## Why is the interface in Russian?
+
+The browser UI is written in Russian while this documentation is in English.
+[UI language](./ui-language.md) maps every control from one to the other. Model names, tab labels,
+mode names, and numeric field labels such as `Limit` stay English on screen.
 
 ## What does deleting a track remove?
 
@@ -45,8 +60,19 @@ reused.
 ## Can I use the browser UI with a compatible database?
 
 Yes. Build the current frontend bundle and serve it with the current backend. Database selection,
-library paging and chunked loads, analysis, search, Current Set, CLASS, LAB, Rhythm Lab launch,
-metadata, preview, and exact-identity writes all use the current typed responses.
+library paging, analysis, search, Current Set, CLASS, LAB, Rhythm Lab launch, metadata, preview, and
+exact-identity writes all use the current typed responses.
+
+Library loading is one fixed page of up to 200 tracks per request, with previous, next, and
+page-number navigation. There is no second row-window paginator and no incremental chunk loading
+inside a page. Sort direction and shuffle reorder the loaded page in the browser rather than
+requesting a new one.
+
+## Can the app build a set for me?
+
+No. The current set is a list you build by hand, one track at a time, and export in the order you
+put them. Automatic sequencing from anchors, a mood arc, or a story prompt is a direction rather
+than a feature. See [Project idea](../concepts/project-idea.md) for the boundary.
 
 ## Can I share reports or databases?
 

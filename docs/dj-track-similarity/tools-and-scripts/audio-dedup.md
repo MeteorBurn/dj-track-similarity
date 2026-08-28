@@ -155,18 +155,23 @@ file facts, and a file missing on disk.
 
 ### Confirm a deletion
 
-**Use the suggestion** in one group marks every duplicate that is not stale and leaves the suggested
-keeper. Any copy can be marked instead, the keeper included, and **Delete this copy** toggles a
-single card. A group with every copy marked shows a warning, and the dialog blocks the request while
-that group is on the page. The server applies the same rule to the whole selection by skipping those
-copies.
+**По рекомендации** (by recommendation) in one group marks every duplicate that is not stale and
+leaves the suggested keeper. Any copy can be marked instead, the keeper included, and
+**Удалить эту копию** (delete this copy) toggles a single card. A group with every copy marked shows
+a warning, and the dialog blocks the request while that group is on the page. The server applies the
+same rule to the whole selection by skipping those copies.
 
 The footer counts the marked copies and the groups they came from. Its size total covers the marked
 copies on the current page, so it understates a selection spread over several pages.
 
-Deletion needs a **Recycle bin** or **Permanent** choice and the exact phrase `APPLY DELETE`, the
-phrase the CLI apply prompt also requires. The delete button stays disabled until both are set. See
-[Deleting duplicates](#deleting-duplicates) for the gates the request then passes.
+The footer holds a `Куда` (destination) select with `В корзину` (recycle bin) and `Безвозвратно`
+(permanent), then the **Удалить помеченное** (delete the marked copies) button. That button is
+enabled as soon as one copy is marked and no request is in flight. There is no phrase field in the
+browser.
+
+Pressing it opens a `Да` / `Нет` confirmation naming the copy count, the group count, and the total
+size. Answering `Да` sends the request. See [Deleting duplicates](#deleting-duplicates) for the
+gates the request then passes.
 
 ## Sources and weights
 
@@ -385,11 +390,15 @@ A high MuQ or CLAP similarity by itself can produce a review candidate, but neve
 
 ## Deleting duplicates
 
-Deletion is destructive in both surfaces, and both require the exact phrase:
+Deletion is destructive in both surfaces, and the delete endpoint requires the exact phrase
+`APPLY DELETE` in its request body. Who supplies that phrase differs.
 
-```text
-APPLY DELETE
-```
+From the CLI, `--apply` prints a `DESTRUCTIVE APPLY REQUESTED` block naming the database, the root,
+and the candidate count, then waits for the operator to type the phrase. Anything else cancels.
+
+From the browser, the client inserts the phrase itself and the reviewer answers a `Да` / `Нет`
+dialog. Nobody types `APPLY DELETE` in the browser. The phrase stops a stray POST from deleting
+audio rather than gating the person at the screen.
 
 Every deletion runs the same per-file gates. A target must sit inside the run's root. The tool then
 rechecks the report identity fields `catalog_uuid` and `track_uuid`, the stored path, and the

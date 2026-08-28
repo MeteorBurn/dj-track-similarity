@@ -16,8 +16,7 @@ npm --prefix .\frontend install
 dj-sim doctor
 ```
 
-Use the locked optional stack when working on model-backed analysis or Rhythm
-Lab:
+Add the optional stack when working on model-backed analysis or Rhythm Lab:
 
 ```powershell
 uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
@@ -25,6 +24,15 @@ uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 
 Use `uv` for installs containing the `ml` extra because `pip` does not apply `[tool.uv.sources]`.
 On Windows AMD64 with Python 3.10, `uv` selects the PyTorch packages from the CUDA 13.0 index.
+
+`--locked` currently fails on this checkout. `uv.lock` records `provides-extras` of `ann`, `sonara`,
+`ml`, `rhythm-lab`, and `dev`, while `pyproject.toml` declares four extras with no `ann` among them.
+`--locked` verifies the lock against the manifest, so it reports that the lockfile needs updating and
+refuses to install. Drop the flag until the lock and the manifest agree again. There is no ANN
+backend in the source tree, so the extra in the lock names a dependency nothing consumes.
+
+The `dev` extra pins `pytest>=7.4` while `[dependency-groups].dev` pins `pytest>=9.1.1`, so
+`pip install -e ".[dev]"` and `uv sync` can install different pytest majors.
 
 ## Ports
 
@@ -41,8 +49,14 @@ Before starting a fixed port, check whether a matching project process is alread
   Python and Node contract tests together.
 - Keep frontend workflow state in the existing hooks and helpers. Use `App.tsx`
   to compose those workflows and panels.
-- Root Pytest collects only `tests/`; run `tools/rhythm-lab/tests` and
-  `scripts/tests` explicitly when changing those areas.
+- Root Pytest collects only `tests/`. Four other suites need naming on the command line:
+  `tools/rhythm-lab/tests`, `tools/audio-dedup/tests`, `tools/audio-online/tests`, and
+  `scripts/tests`.
+- A new frontend test must drive its module rather than read its text.
+  `frontend/tests/testsExecuteCode.test.mjs` enforces that: a test loads its subject through
+  `ssrLoadModule`, through `transpileModule` plus `vm`, or through a direct `../src/` import. It
+  keeps a legacy allow-list that may shrink and may never grow, must stay sorted, and may not name a
+  file that has since been converted.
 
 ## Builds
 

@@ -1,13 +1,17 @@
 # Developer
 
-Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
+The docs keep human workflow pages separate from compact reference, so you can read only what you
+need.
 
 ## Pages
 
-- [Architecture](architecture.md): backend, database, frontend, and tools.
-- [Development](development.md): local setup and commands.
-- [Testing and verification](testing-and-verification.md): risk-based checks.
-- [Release checklist](release-checklist.md): final audit before publishing.
+- [Architecture](architecture.md): module ownership, plus the concurrency contract and the decode paths.
+- [Development](development.md): local setup, ports, and where each kind of change belongs.
+- [Testing and verification](testing-and-verification.md): every suite and what it covers, plus the clean-machine backstop.
+- [Release checklist](release-checklist.md): the drift audit before publishing.
+
+`AGENTS.md` in the repository root carries the change-routing, safety, test, and verification rules
+these pages assume. Read it before a first change.
 
 ## Privacy habit
 

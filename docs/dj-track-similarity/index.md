@@ -42,7 +42,7 @@ This is a personal enthusiast project first. It does not claim expert ML or musi
 <div class="dts-status-grid">
   <div><strong>Rediscover nearby tracks</strong><p>Start from a familiar track and audition a ranked neighborhood from your own collection.</p></div>
   <div><strong>Search for a sound</strong><p>Describe rhythm, texture, instruments, space, or energy when you do not have a reference track.</p></div>
-  <div><strong>Draft a musical route</strong><p>Turn a few anchors into an editable sequence with a chosen energy, diversity, and tempo direction.</p></div>
+  <div><strong>Collect a current set by hand</strong><p>Add candidates one at a time, preview them, reorder by removing, and export as M3U or CSV.</p></div>
   <div><strong>Reuse your own criteria</strong><p>Label a recurring personal concept and make it available as a CLASS library filter.</p></div>
 </div>
 
@@ -66,7 +66,8 @@ This is a personal enthusiast project first. It does not claim expert ML or musi
 ## What the app reads
 
 - Audio paths and file stats.
-- Mutagen-readable tags such as artist, title, album, genre, year, BPM, key, label, catalog number, comments, ISRC, duration, and format data.
+- Mutagen-readable tags: artist, title, album, genre, year, country, label, track number, BPM, key,
+  and comment. Duration and format data come from the file rather than from a tag.
 - Decoded audio when you run analysis, preview a track, or use maintenance helpers.
 
 ## What the app writes by default
@@ -76,15 +77,18 @@ Most workflows write only local SQLite records and local reports. Scanning, Refr
 The file-writing exceptions are explicit:
 
 - MAEST genre tag apply writes the standard genre field in audio files.
-- Audio Doctor apply repairs files only after dry-run state exists and exact confirmation is typed.
-- Audio Dedup deletes duplicate copies only after exact confirmation is typed, whether the run comes from the CLI or the browser review dialog.
+- Audio Doctor apply repairs files reported as repairable. It is dry-run first, backs up each file
+  before writing, verifies the result, and restores the backup when a check fails. It takes no
+  confirmation phrase, so `--apply` writes as soon as the run reaches a repairable file.
+- Audio Dedup deletes duplicate copies. The CLI makes the operator type `APPLY DELETE`. The browser
+  reviewer asks a `Да` / `Нет` question and its client supplies the phrase to the API itself.
 
 Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and does not move files.
 
 <div class="dts-status-grid">
   <div><strong>Read-heavy by default</strong><p>Search, preview, analysis, reset, current-set editing, and export avoid source-audio edits.</p></div>
   <div><strong>Explicit write paths</strong><p>Genre apply, Audio Doctor apply, and Audio Dedup deletion are separate guarded flows.</p></div>
-  <div><strong>Local artifacts</strong><p>SQLite databases, reports, logs, indexes, and classifier files stay on disk.</p></div>
+  <div><strong>Local artifacts</strong><p>SQLite databases, reports, logs, and classifier files stay on disk.</p></div>
 </div>
 
 ## Start here
@@ -100,3 +104,9 @@ Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and
 - [Tools and scripts](./tools-and-scripts/index.md) covers helper docs, including Rhythm Lab and the maintenance/report tools.
 - [Reference](./reference/index.md): CLI, API, config, database, analysis, and UI facts.
 - [Help](./help/index.md): symptoms, FAQ, and known limits.
+
+## The interface is in Russian
+
+Every panel heading, button, and tooltip in the browser is Russian. The documentation names controls
+in English. [UI language](./help/ui-language.md) maps one to the other, control by control. Read it
+before following any page that tells you to press something.

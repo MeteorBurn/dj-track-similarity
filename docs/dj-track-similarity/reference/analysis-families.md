@@ -32,15 +32,24 @@ MERT, MuQ, MuQ-MuLan, and CLAP retain their existing resampling and window polic
 separate native/Symphonia decoder and uses the same tolerant PyAV decode after its own decode
 failure.
 
+## What each family produces
+
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | source paths in Direct Mode or temporary paths in Staged Mode; normally decoded by SONARA/Symphonia, with per-file direct shared-library recovery only after a native decode or codec failure | Core feature rows and a dedicated 48D embedding | Core-backed SONARA search, Evaluation transition diagnostics, Audio Dedup, classifier input |
-| MAEST | shared ML decode | `maest_genres` rows and a `maest_embeddings` row | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MERT | shared ML decode | a row in `mert_embeddings` | MERT seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MuQ | shared ML decode, resampled to 24 kHz `float32` | a row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| MuQ-MuLan | shared ML decode, resampled to 24 kHz `float32` in 10-second windows | separate 512D L2-normalized audio embedding | MuQ-MuLan seed search, text-to-track retrieval, optional ANN, one of the six separate LAB Reference Compare groups, and classifier input |
-| CLAP | shared ML decode | a row in `clap_embeddings` | seed and text search, LAB Reference Compare, Audio Dedup signal, classifier input |
-| CLASSIFIERS | exact stored inputs from each promoted manifest | rows in `classifier_scores` | CLASS filters |
+| SONARA | source paths in Direct Mode or temporary staging paths in Staged Mode, normally decoded by SONARA/Symphonia, with per-file tolerant PyAV recovery only after a native decode or codec failure | three rows written together, a Core feature row plus an unnormalized 48D embedding plus a versioned acoustic fingerprint | Core-backed SONARA search, Evaluation transition diagnostics, tempo and key resolution, MAEST window context, classifier input, and Audio Dedup |
+| MAEST | shared ML decode, resampled to 16 kHz | `maest_genres` rows and a 768D L2-normalized `maest_embeddings` row | genre display, genre tag apply, seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MERT | shared ML decode, resampled to 24 kHz | a 768D L2-normalized row in `mert_embeddings` | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MuQ | shared ML decode, resampled to 24 kHz `float32` | a 1024D L2-normalized row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
+| MuQ-MuLan | shared ML decode, resampled to 24 kHz `float32` in 10-second windows | a separate 512D L2-normalized row in `mulan_embeddings` | MuQ-MuLan seed search, text-to-track retrieval, one of the six LAB Reference Compare groups, classifier input |
+| CLAP | shared ML decode, resampled to 48 kHz in 10-second windows | a 512D L2-normalized row in `clap_embeddings` | text-to-track retrieval, API and LAB seed search, Audio Dedup signal, classifier input |
+| Classifiers | the exact stored inputs each promoted manifest names | rows in `classifier_scores`, scoped by classifier key | CLASS filters |
+
+The browser SIMILARITY tab offers MAEST, MERT, MuQ, and MuQ-MuLan. CLAP seed search is reachable
+from `POST /api/search` and from the LAB tab.
+
+Each family is its own score space. A cosine from one table means nothing next to a cosine from
+another, and neither is comparable to a SONARA Core score, a classifier probability, or a
+fingerprint score. See [Similarity scores](../concepts/similarity-scores.md).
 
 ## Model warm-up
 
@@ -85,6 +94,30 @@ The shared decoder-to-adapter handoff remains a CPU `torch.float32` tensor. `Aud
 device option in TorchCodec `0.16`, so the CUDA package variant does not make this decode step a GPU
 operation.
 
+## Direct and Staged Mode
+
+Both SONARA and the ML families have a Direct Mode and a Staged Mode.
+
+| Aspect | SONARA Direct | SONARA Staged | ML Direct | ML Staged |
+| --- | --- | --- | --- | --- |
+| Input to the analyzer | source paths | read-only copies under a per-job folder | source paths | read-only copies under a per-job folder |
+| Browser settings | BatchSize `1..16`, default `8` | folder, Processes `1..16`, Threads `1..64`, BatchSize `1..16`, StageSize `1..512`, defaults `4/4/4/32` | Track batch, Inference batch | folder, Workers `1..16` default `4`, StageSize `1..512` default `64` |
+| API block | `sonara.direct_batch_size` | `sonara.staged` | the `ml` fields | `ml.staged` |
+| CLI | `dj-sim analyze --sonara-batch-size` | not available | `dj-sim analyze` defaults | `dj-sim analyze --ml-staged --ml-staging-path` |
+
+Staged Mode applies to the GPU families as well as to SONARA. The ML staged block adds
+`copy_workers`, `decode_workers`, `stage_size`, `inference_batch_size`, `preflight_copy_enabled`,
+and `preflight_copy_count`. The browser exposes the folder, Workers, and StageSize from that set.
+
+In both Staged paths the staging folder holds temporary copies only. Stored rows keep the original
+source-track identity, staging copies are deleted per completed track, and the job directory is
+removed after completion, failure, or cancellation. A staging folder is never restored from browser
+storage, so every session asks for it again.
+
+`POST /api/analysis/jobs` carries no mode field, so a job started through that route always runs
+Direct. Staged Mode for either family comes from `POST /api/analysis/pipelines`, and ML Staged Mode
+is also available from the CLI.
+
 ## SONARA BPM range
 
 SONARA analysis calls pass the BPM range of the library. That range is a property of the analysed data rather than a separate setting, because each stored Core row keeps the pair from its own run.
@@ -93,8 +126,15 @@ SONARA analysis calls pass the BPM range of the library. That range is a propert
 - The first SONARA analysis fixes it for the whole library.
 - Any other range stays refused until SONARA analysis is reset.
 - The upper bound must be at least twice the lower one, so every tempo folds into the range exactly once.
+- Both bounds accept `20` to `400`.
 
-Presets are Rekordbox `70-180`, VirtualDJ `80-240`, and Mixed In Key `79-192`. None of them is a universal tempo standard. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes source paths in Direct Mode or temporary copy paths in Staged Mode to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns normal decoding. A per-file native decode or codec failure falls back to a direct TorchCodec shared-library decode, mono `float32` PCM, and `analyze_signal()` without failing the other batch results.
+Presets are Rekordbox `70-180`, VirtualDJ `80-240`, and Mixed In Key `79-192`. None of them is a
+universal tempo standard. SONARA folds estimated tempos by octaves into that range before the
+project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job
+passes source paths in Direct Mode or temporary copy paths in Staged Mode to
+`sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns normal decoding. A per-file native
+decode or codec failure falls back to the tolerant in-process PyAV shared-library decode, mono
+`float32` PCM, and `analyze_signal()` without failing the other batch results.
 
 Tempo-aware search and transition diagnostics resolve current SONARA evidence
 first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.
@@ -107,19 +147,28 @@ as same, relative, adjacent, or clash. `key_confidence` is not a similarity dime
 analyzed key only pulls the harmonic result toward neutral. Legacy transition-risk v1 keeps its
 original key behavior so recorded evaluations remain reproducible.
 
-Normal analysis jobs skip a SONARA track only when Core, embedding, and fingerprint are present for
-the current track identity.
-
 ## SONARA Core, embedding, and fingerprint
 
-SONARA analysis produces a fixed Core, embedding, and fingerprint output set. It stores BPM/key/confidence,
-loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact
-structure/beat-grid values, vocalness, mood, aggression, and silence in `sonara_features`. The
-unnormalized 48-dimensional `float32` embedding is stored separately in `sonara_embeddings`; the
-versioned acoustic fingerprint is stored in `sonara_fingerprints` as SONARA's native base64 value.
+**One successful SONARA pass writes three rows for a track, always together.** This rule is stated
+here and referenced from every other page.
 
-Timeline collection remains disabled. The fingerprint is not a current UI, search, or classifier
-input. The Audio Dedup tool reads it for candidate retrieval and manual-review verification.
+| Row | Table | Content |
+| --- | --- | --- |
+| Core | `sonara_features` | BPM, key, and confidence values, loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact structure and beat-grid values, vocalness, mood, aggression, silence, and the run provenance |
+| Embedding | `sonara_embeddings` | one unnormalized 48-dimensional `float32` vector |
+| Fingerprint | `sonara_fingerprints` | SONARA's native base64 acoustic fingerprint plus its `fingerprint_version` |
+
+The three writes share one savepoint per track, so a track has all three rows or none of them. A
+track becomes a candidate whenever any one of the three is missing for its current identity, and it
+is skipped only when all three are present.
+
+Resetting the SONARA family deletes the Core rows only. The embedding and fingerprint rows survive
+a reset, and the next SONARA run rewrites all three because Core is gone.
+
+Timeline collection remains disabled. The stored 48D embedding has no current reader. Search,
+classifiers, Audio Dedup, and the track API all use Core fields instead. The fingerprint has exactly
+one consumer, the Audio Dedup tool, which reads it for candidate retrieval and manual-review
+verification.
 
 `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
 
@@ -133,9 +182,8 @@ fingerprint. Extra values returned by SONARA are ignored at the conversion bound
 SONARA vocalness model.
 `sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8` for the
 standalone job and browser Direct Mode. Browser Staged Mode keeps a separate BatchSize with default
-`4`; it also configures Processes, Threads, and the bounded StageSize window. The browser selects
-SONARA at startup without output checkboxes, while Staged Mode does not apply to the GPU model
-families.
+`4`, and it also configures Processes, Threads, and the bounded StageSize window. The browser selects
+SONARA at startup without output checkboxes.
 
 The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
 the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.
@@ -152,20 +200,25 @@ energy, energy level, and the light `energy_curve_summary` stored beside those f
 does not become a zero-valued feature. Mood, true peak, and ReplayGain remain outside transition
 scoring.
 
-Storage does not imply scoring. `mood_*` values are retained for inspection and future workflows but
-are not current SONARA similarity or Rhythm Lab classifier inputs. `aggression_score` is a
-confidence-aware directional modifier in Custom SONARA search. Its component values remain data-only.
-DJ transition blends a soft, directional structure fit from the seed outro to the candidate intro
-when both rows have usable structure fields. True peak and
-ReplayGain are not direct SONARA similarity dimensions. They are retained for possible
-loudness-management features. The current `sonara` classifier source includes those loudness
-scalars and vocalness; momentary loudness maximum and loudness range remain available to the
-existing SONARA dynamics comparison, and vocalness remains an explicit search modifier.
+## Stored but unused
 
-MAEST, MERT, MuQ, MuQ-MuLan, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
-Core features rather than the stored SONARA embedding or fingerprint. The embedding is not a
-current similarity, search, classifier, or Audio Dedup input. The fingerprint's only current
-consumer is the Audio Dedup tool.
+Storage does not imply scoring. Several Core values are written for inspection and future work
+without feeding any current ranking:
+
+| Value | Current status |
+| --- | --- |
+| `mood_happy_score`, `mood_aggressive_score`, `mood_relaxed_score`, `mood_sad_score` | not a SONARA similarity input. Rhythm Lab does accept them as classifier features. |
+| `true_peak_dbtp`, `replay_gain_db`, `max_momentary_loudness_lufs`, `loudness_range_lu` | not a similarity dimension. Retained for possible loudness-management work, and available to Rhythm Lab as classifier features. |
+| `vocal_probability` | read only by the Custom SONARA search `vocalness` modifier. Rhythm Lab excludes it from its training features. |
+| `aggression_forcefulness`, `aggression_harshness`, `aggression_tension`, `aggression_rhythm` | unread. Only `aggression_score` and `aggression_confidence` drive the Custom search aggression modifier, and Rhythm Lab excludes the whole aggression family. |
+| the 48-dimensional `sonara_embeddings` vector | unread by search, classifiers, and Audio Dedup. |
+
+`aggression_score` is a confidence-aware directional modifier in Custom SONARA search. DJ transition
+mode blends a soft, directional structure fit from the seed outro to the candidate intro when both
+rows have usable structure fields.
+
+MAEST, MERT, MuQ, MuQ-MuLan, and CLAP are the current generic seed-search embeddings. SONARA search
+uses stored Core features rather than the stored SONARA embedding or fingerprint.
 
 ## ML prerequisite and MAEST windows
 
@@ -199,20 +252,21 @@ A legacy split database is rejected during normal startup and remains unchanged 
 
 ## Batch and label ranges
 
-
 | Setting | Range | Default |
 | --- | ---: | ---: |
 | `top_k` | `1..10` | `3` |
 | `track_batch_size` | `1..64` | `8` |
 | `inference_batch_size` | `1..128` | `16` |
+| `sonara_batch_size` | `1..16` | `8` |
 
 ## Missing-result behavior
 
 Analysis jobs target missing selected results. SONARA checks Core, embedding, and fingerprint
-independently. If any current row is missing, the track becomes a candidate and one successful
-SONARA pass writes all three rows together, and the track is skipped only when all three rows are
-present. ML jobs also skip every track without current SONARA Core. Other already-complete analysis
-families remain skipped until reset.
+independently, and one successful pass writes all three rows together. ML jobs skip every track
+without current SONARA Core. Other already-complete analysis families remain skipped until reset.
+
+When a SONARA batch fails, the whole job fails. When an ML batch fails, the runner retries it one
+track at a time and records each remaining error against its own track.
 
 ## Classifier requirement
 
@@ -223,14 +277,20 @@ third database-only job. Classifier scoring remains unavailable until the
 catalog has at least one current SONARA result, so run SONARA before starting a
 classifier-only job.
 
+The `sonara` classifier feature source covers the Core scalars, the loudness scalars including true
+peak and ReplayGain, the four mood scalars, and the MFCC, Chroma, and spectral-contrast vectors.
+It excludes `vocal_probability` and the whole aggression family by design, to keep the baseline
+independent of SONARA's bundled learned outputs. Vocalness remains available as a search modifier.
+
 SONARA-dependent classifier artifacts carry their exact ordered feature names. Promotion and runtime
-scoring reject missing or mismatched recipes. A track must contain every requested SONARA value; an
-absent opt-in value such as `vocalness` is skipped instead of becoming `0.0`. When that recipe
-changes, retrain and promote only the affected profile. Labels and feedback remain intact.
+scoring reject missing or mismatched recipes. A track must contain every requested SONARA value. An
+absent requested value is skipped rather than becoming `0.0`, which drops that track from the job.
+When a recipe changes, retrain and promote only the affected profile. Labels and feedback remain
+intact.
 
 ## Separate MuQ-MuLan space
 
-MuQ-MuLan is a separate family, not a MuQ output variant. Analysis writes one 512-dimensional,
+MuQ-MuLan is a separate family rather than a MuQ output variant. Analysis writes one 512-dimensional,
 L2-normalized audio vector per current track to `mulan_embeddings`. Existing `muq_embeddings` are
 neither copied nor transformed. Seed and text queries use only the selected family table and its
 matching runtime identity.

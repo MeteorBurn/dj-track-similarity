@@ -25,7 +25,8 @@ Windows, the directory must contain `ffmpeg.exe` and this complete DLL set: `avc
 
 The runtime discovery order is:
 
-1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set to a valid complete runtime.
+1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set to a valid complete runtime. A value pointing
+   at an incomplete runtime fails immediately rather than falling through to `PATH`.
 2. The first valid complete FFmpeg `8.1.1` runtime directory on `PATH`.
 
 To configure the preferred discovery choice for one PowerShell session:
@@ -38,7 +39,7 @@ dj-sim serve --host 127.0.0.1 --port 8765
 The main application uses TorchCodec and the shared libraries directly for decoding. The executable
 is used only to verify the selected runtime version during setup. An executable installed for some
 other application does not configure the required shared libraries and cannot stand in for them. The
-base project dependency installs PyAV `17.1.0` into the active Python environment; it is not loaded
+base project dependency installs PyAV `17.1.0` into the active Python environment. It is not loaded
 from `libs`.
 
 After installation, verify the actual process environment:
@@ -47,9 +48,10 @@ After installation, verify the actual process environment:
 dj-sim doctor
 ```
 
-The command reports the selected FFmpeg directory, version, required library paths, and the PyAV
-version and module path. It fails clearly when the installed PyAV or FFmpeg runtime does not match
-the project contract.
+The command reports Python, Torch, and CUDA details, then the selected FFmpeg directory, version,
+required library paths, and the PyAV version and module path. It fails clearly when the installed
+PyAV or FFmpeg runtime does not match the project contract. With Torch missing it returns before the
+audio check, so run it again after installing the `ml` extra.
 
 ## Create and activate an environment
 
@@ -75,24 +77,42 @@ dependencies.
 
 ## Optional extras
 
-Install only the extras you need:
+`pyproject.toml` declares four extras: `sonara`, `ml`, `rhythm-lab`, and `dev`. Install the ones you
+need:
 
 ```powershell
-uv sync --locked --extra sonara --extra ml --extra dev
+uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 ```
 
-The current `sonara` extra installs SONARA `0.3.5`. PyPI publishes `cp310-abi3` wheels, including
-Windows x64, so supported Python 3.10+ environments do not need to build SONARA locally.
+### What each extra brings
 
-Verify the current installed runtime before analyzing a library:
+- `sonara`: SONARA feature extraction.
+- `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
+- `rhythm-lab`: scikit-learn for classifier training.
+- `dev`: pytest, ruff, and the HTTP test client.
+
+### The `sonara` extra needs a local wheel
+
+The project requires SONARA `0.3.6` or newer. Storage reads `bpm_min` and `bpm_max` from the
+analysis provenance SONARA returns, and that provenance was added in `0.3.6`. On `0.3.5` every
+SONARA analysis fails while the record is validated.
+
+`pyproject.toml` pins `sonara==0.3.6` and resolves it through `[tool.uv.sources]` to a patched wheel
+built from the SONARA repository at tag `v0.3.6`. `uv.lock` records that wheel by path and by
+SHA-256, so the installed build is exact.
+
+That path is local to the maintainer machine. On any other machine, build the `0.3.6` wheel from the
+SONARA sources first, then point `[tool.uv.sources]` at your own copy before running `uv sync`.
+
+Verify the installed runtime before analyzing a library:
 
 ```powershell
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-The current tested environment prints `0.3.5`. This records the dependency used for the current
-build. You can adopt a newer SONARA release by updating the project sources, manifests, and lockfile
-together, followed by focused compatibility checks.
+Expect `0.3.6` or newer. A lower version means the manifest pin was applied, and SONARA analysis
+will fail. Adopting a newer SONARA release means updating the project sources, manifests, and
+lockfile together, followed by focused compatibility checks.
 
 The `ml` extra records one mutually compatible loader stack. Installed packages must expose the
 capabilities, checkpoints, and output shapes the adapters use, but the runtime does not reject a
@@ -106,22 +126,6 @@ TorchCodec `0.16.0`. The CUDA package selection does not move shared audio decod
 The project requests mono output with `num_channels=1`, keeps `AudioSamples.data[0]` as a 1D CPU
 `torch.float32` tensor, and passes it directly to the adapters. Model-specific resampling remains in
 Torchaudio.
-
-- `sonara`: SONARA feature extraction.
-- `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
-- `rhythm-lab`: scikit-learn for classifier training.
-
-For optional ANN support:
-
-```powershell
-python -m pip install -e ".[ann,dev]"
-```
-
-For Rhythm Lab training:
-
-```powershell
-uv sync --locked --extra rhythm-lab --extra dev
-```
 
 ## Build the frontend bundle
 

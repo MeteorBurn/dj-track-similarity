@@ -12,9 +12,31 @@ The writable default is the single stable database at
 `tools/rhythm-lab/database/rhythm_lab.sqlite`. Normal startup and collection saves use this same file.
 A database with legacy label columns must be migrated before the current Lab can open it.
 
-Create and label a profile, train it from its declared inputs, review its predictions, and promote a
-chosen artifact. Promotion makes a database-only scoring artifact available to the main runtime.
-Scoring does not decode audio and writes only its own `classifier_key` rows.
+Create and label a profile, train it from its declared inputs, then review its predictions before
+promoting a chosen artifact. Promotion makes a database-only scoring artifact available to the main
+runtime. Scoring does not decode audio and writes only its own `classifier_key` rows.
+
+## Promotion gates
+
+Promotion writes one artifact pair, `model.joblib` and `model.json`, into
+`models/classifiers/<artifact-prefix>/`. The layout is flat, one current pair per prefix, and
+promoting again replaces it.
+
+Three gates apply:
+
+- The artifact's `source_catalog_uuid` must equal the active library's `catalog_uuid`. An artifact
+  trained against a different library is refused.
+- Calibration is required by default. Promoting an uncalibrated artifact takes an explicit opt-out.
+- The staged pair is exercised through the production scorer on a zero vector before it goes live.
+
+The publication itself is staged. Both files are written and fsynced under a temporary
+`.staging-<uuid>` directory with their hashes fenced, then `model.json` is marked
+`publication_status: "publishing"`, `model.joblib` is replaced, and `model.json` is replaced with
+the `ready` manifest. A pair caught half-published refuses to load.
+
+After promoting a retrained artifact for a key that already has scores, reset that key in the main
+app before scoring. Scoring is incremental and skips tracks that already hold a row, so a job
+started without the reset finds zero work.
 
 Classifier artifacts must record the ordered feature recipe and inputs they use. A missing or
 changed recipe is blocked until that profile is retrained and promoted. Missing inputs are
@@ -22,6 +44,15 @@ incompatible rather than zero-filled.
 
 The supported feature sources are SONARA, MERT, MAEST, CLAP, MuQ, and MuQ-MuLan (`mulan`).
 The default training recipe is `sonara+mert+maest+clap+muq+mulan`, combining all six sources.
+
+The `sonara` source contributes 74 features. Those cover the Core scalars, the loudness and
+structure extras, the four mood values, and the MFCC, chroma, and spectral-contrast vectors. It
+deliberately excludes
+`vocal_probability` and the whole aggression family, to keep the baseline independent of SONARA's
+own bundled learned outputs.
+
+Feature blocks are weighted during training so a 1024-dimensional MuQ block does not swamp the 74
+SONARA features.
 Any non-empty source combination is accepted by the backend and CLI, including the five-source
 `sonara+mert+maest+clap+muq`.
 

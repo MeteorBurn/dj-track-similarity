@@ -57,12 +57,32 @@ required values make a track ineligible. Required values are not zero-imputed.
 SONARA inputs must provide the ordered feature recipe selected for training. A row missing a
 requested opt-in field is skipped rather than zero-imputed.
 
+The `sonara` feature source deliberately leaves out `vocal_probability` and the entire aggression
+family. The stated reason is to keep the classifier baseline independent of SONARA's own bundled
+learned outputs. Those values remain available for inspection and for Custom search, and they never
+enter a training recipe.
+
 ## Promotion
 
-Promotion publishes the selected artifact through the main app's immutable-generation layout. Each
-promoted artifact records its exact ordered feature names and required inputs, including MuQ vector
-dimensions for `muq:<index>` features. An incomplete or changed recipe is blocked from scoring until
-that profile is retrained and promoted.
+Promotion publishes one artifact pair, `model.joblib` and `model.json`, into
+`models/classifiers/<artifact-prefix>/`. The layout is flat. One directory holds one current
+artifact per prefix, and promoting again replaces that pair.
+
+The write is staged rather than in place. Promotion first writes both files into a temporary
+`.staging-<uuid>` directory and fsyncs them. It fences both SHA-256 hashes, then exercises the
+staged classifier through the production scorer on a zero vector. Only after that does the live pair
+change: `model.json` is marked `publication_status: "publishing"`, `model.joblib` is replaced, and
+`model.json` is replaced with the `ready` manifest. A pair caught half-published refuses to load.
+
+Two gates decide whether a promotion is allowed at all:
+
+- The artifact's `source_catalog_uuid` must equal the active library's `catalog_uuid`. An artifact
+  trained against another library is refused.
+- Calibration is required by default. Promoting an uncalibrated artifact takes an explicit opt-out.
+
+Each promoted artifact records its exact ordered feature names and required inputs, including the
+vector dimension for `muq:<index>` and `mulan:<index>` features. An incomplete or changed recipe is
+blocked from scoring until that profile is retrained and promoted.
 
 ## Scoring
 
@@ -70,12 +90,27 @@ Promoted classifier scoring is database-only. Each manifest identifies the exact
 MERT/MAEST/CLAP/MuQ/MuQ-MuLan inputs it needs. The aggregate job writes `classifier_scores` for every
 selected compatible classifier-track pair without reading audio.
 
-Readiness is computed before the job total. Missing manifest inputs make a track not ready, not
-failed. Existing scores are candidates again when their stored `model_id` differs from the current
-promoted manifest. Incompatible promoted artifacts remain visible with a retrain/promote blocker and
-are never executed.
+A track missing any required input is excluded by the candidate query before the job total is
+formed, so it is reported as neither scored nor failed. Incompatible promoted artifacts stay visible
+with a retrain and promote blocker, and they are never executed.
 
-Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring. Reanalyzing a track with SONARA invalidates that track's SONARA-dependent scores. A full SONARA reset invalidates all such scores but preserves labels and feedback.
+### Scoring is incremental and never re-scores
+
+The candidate query skips every track that already holds a row for that `classifier_key`. There is
+no staleness column, no `model_id`, and no automatic invalidation. A promoted artifact can change
+underneath existing scores without the app noticing.
+
+The practical consequence: reset a key before you rescore it. Retrain, promote, reset, then score.
+Skip the reset and the scoring job finds zero work while reporting success.
+
+Adding or promoting one classifier does not delete scores for other keys.
+
+### A SONARA reset leaves classifier scores in place
+
+Resetting SONARA deletes `sonara_features` rows and reports zero classifier rows deleted. The
+classifier scores survive, so a library can carry scores computed from Core rows that no longer
+exist. Nothing flags them. Reset the affected classifier keys yourself after a SONARA reset if you
+want those scores rebuilt.
 
 The one-time `dj-sim migrate-database` command only converts the former split Core/Artifacts layout;
 it is not a general SONARA-schema migration. For a SONARA update, reanalysis, retraining, promotion,

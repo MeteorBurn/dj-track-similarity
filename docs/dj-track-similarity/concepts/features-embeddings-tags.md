@@ -10,7 +10,7 @@ different sources and help with different decisions.
 | What does the file already say about itself? | File tags | Searchable artist, title, album, genre, BPM, key, and other metadata |
 | Which tracks share a learned audio neighborhood? | MERT | Seed-search rankings |
 | Which tracks align on audible rhythm, sound, dynamics, harmony, or tempo? | SONARA | Feature search and transition evidence |
-| Which tracks fit a written sound description? | CLAP | Text-search rankings |
+| Which tracks fit a written sound description? | CLAP or MuQ-MuLan | PROMPT-tab rankings |
 | What genre-like and audio evidence does another model add? | MAEST | Display labels, LAB comparison, Audio Dedup, and classifier input |
 | How does another general audio model rank this seed? | MuQ | Seed search, a separate LAB group, Audio Dedup, and classifier input |
 | Which audio tracks fit a text-aligned music space? | MuQ-MuLan | Separate seed and text-to-track rankings, and classifier input |
@@ -23,7 +23,9 @@ workflow.
 
 ## File tags
 
-Scan and Refresh Tags use Mutagen to read a fixed metadata set: artist, title, album, genre, year, country, label, catalog number, track number, disc number, BPM, key, comment, ISRC, duration, audio format, and codec data when available.
+Scan and Refresh Tags use Mutagen to read a fixed tag set: artist, title, album, genre, year,
+country, label, track number, BPM, key, and comment. Catalog number, disc number, and ISRC are not
+read. Duration, audio format, and codec data come from the file itself rather than from a tag.
 
 These are source-file tags. They can be incomplete or inconsistent. The app stores a JSON-safe copy in SQLite.
 
@@ -40,9 +42,10 @@ current similarity or classifier inputs. In Custom SONARA search, aggression is 
 confidence-aware directional modifier. DJ transition adds a soft structure fit only when the seed
 outro and candidate intro data is present. True peak and ReplayGain are also retained
 for possible loudness-management features rather than direct SONARA similarity. The current
-`sonara` classifier source includes those loudness scalars and vocalness. The existing SONARA
-dynamics comparison uses momentary loudness maximum and loudness range; vocalness is also an
-explicit search modifier.
+`sonara` classifier source includes those loudness scalars. It excludes `vocal_probability` and the
+whole aggression family by design, to keep the classifier baseline independent of SONARA's bundled
+learned outputs. The SONARA dynamics comparison uses momentary loudness maximum and loudness range.
+Vocalness reaches ranking only as an explicit Custom search modifier.
 
 SONARA analysis stores compact Core scalars and fixed vectors in `sonara_features`, an unnormalized
 48-dimensional `float32` embedding in the dedicated `sonara_embeddings` table, and a versioned
@@ -76,7 +79,9 @@ MAEST stores genre-like labels and a MAEST audio embedding. The labels are used 
 
 ## MERT embedding
 
-MERT stores an audio embedding. The MERT tab searches from selected seed tracks in this embedding space. LAB Reference Compare, Audio Dedup, and compatible classifier manifests can also use stored MERT embeddings.
+MERT stores an audio embedding. Choose MERT in the SIMILARITY tab's `Model` selector to search from
+selected seed tracks in this embedding space. LAB Reference Compare, Audio Dedup, and compatible
+classifier manifests can also use stored MERT embeddings.
 
 ## MuQ embedding
 
@@ -88,8 +93,8 @@ MuQ-MuLan uses the official joint music-text model. Its audio analysis reuses th
 path: mono 24 kHz `float32` audio in 10-second windows. It stores a separate L2-normalized 512D
 audio vector in `mulan_embeddings`. Existing MuQ vectors are never converted into this family.
 
-Use the MULAN tab for audio-to-audio seed search. In the TEXT tab, choose
-**MuQ-MuLan** to embed text and retrieve only `mulan_embeddings`. Its text and seed scores stay
+Choose MuQ-MuLan in the SIMILARITY tab's `Model` selector for audio-to-audio seed search. In the
+PROMPT tab, choose **MuQ-MuLan** to embed text and retrieve only `mulan_embeddings`. Its text and seed scores stay
 separate from MuQ and CLAP scores. MuQ-MuLan is available as an explicit Evaluation candidate
 source, but it is not added automatically to the default profile or Audio Dedup weights. LAB
 Reference Compare includes MuQ-MuLan in its six separate default groups. Rhythm Lab classifier
@@ -98,7 +103,10 @@ feature sets that name `mulan` use the stored vector, and the default training r
 
 ## CLAP audio embedding
 
-CLAP analysis stores audio embeddings. The TEXT tab embeds a text prompt at search time and compares it to stored audio embeddings. LAB Reference Compare and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals, which are not the same as CLAP prompt scores.
+CLAP analysis stores audio embeddings. The PROMPT tab embeds a text prompt at search time and
+compares it to stored audio embeddings. LAB Reference Compare and Audio Dedup use stored CLAP audio
+embeddings as audio-to-audio signals, which are separate from CLAP prompt scores. CLAP has no entry
+in the SIMILARITY model selector, so browser seed search over CLAP runs through the HTTP API or LAB.
 
 ## Classifier scores
 

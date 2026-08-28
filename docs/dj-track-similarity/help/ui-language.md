@@ -1,0 +1,340 @@
+# UI language and label glossary
+
+The browser interface is written in Russian. This documentation names controls in English. Use the
+tables below to find the on-screen string for any control a page mentions.
+
+The Russian column is the exact text rendered in the interface. Where the string appears only as a
+hover title or an accessible name, the Where column says so.
+
+## What stays in English
+
+The interface keeps these tokens in English, so the documentation and the screen agree on them
+without translation:
+
+- model and family names: `SONARA`, `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`, `CLAP`
+- tab labels: `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`
+- SONARA search modes: `Balanced`, `Vibe`, `Sound`, `DJ transition`, `Custom mixer`
+- analysis mode buttons: `Direct`, `Staged`
+- numeric field labels: `Limit`, `Mode`, `Model`, `Device`, `Analyze limit`, `Scan limit`,
+  `Track batch`, `Inference batch`, `BatchSize`, `StageSize`, `Processes`, `Threads`, `Workers`
+- SONARA mixer sliders: `Timbre`, `Rhythm`, `Dynamics`, `Harmonic`, `Tempo`
+- SONARA modifier sliders: `Energy`, `Valence`, `Acoustic`, `Bright`, `Density`, `Range`, `LUFS`,
+  `Vocal`, `Aggression`
+- action buttons that carry no Russian text: `Analyze`, `Reset`, `Prev`, `Next`, `LIKE`, `FTS`,
+  `Add Random Track`, `Collection`, `M3U`, `CSV`
+- the track detail dialog section titles: `Track Details`, `Tags`, `File scan (Mutagen)`, `SONARA`,
+  `Embedding analyses`, `Classifier analyses`
+
+## Panel headings
+
+The workspace is three columns. Each carries a numbered heading.
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `1. База и анализ` | Database and analysis | Left column heading |
+| `2. Библиотека и прослушивание` | Library and listening | Middle column heading |
+| `3. Поиск и прослушивание` | Search and listening | Right column heading |
+
+## Top bar
+
+Six controls sit to the right of the title. All six are icon-only, so the Russian string appears as
+a hover title and as the accessible name.
+
+| Russian | English meaning | Icon |
+| --- | --- | --- |
+| `Открыть HTML документацию` | Open the HTML documentation | Title link "DJ Track Similarity" |
+| `Переключить тему` | Toggle the theme | Sun or moon |
+| `Открыть лог` | Open the log | Scroll |
+| `Запустить Rhythm Lab` / `Открыть Rhythm Lab` | Start Rhythm Lab / Open Rhythm Lab | Flask |
+| `Остановить все серверы и закрыть вкладку` | Stop every server and close the tab | Power |
+| `Остановить текущий scan или анализ` | Stop the current scan or analysis | Square |
+
+The flask title changes with the Rhythm Lab process state. `Запустить` appears when no process is
+running, `Открыть` when one is.
+
+A status line follows the buttons. `Готово к работе` (ready) is the idle text.
+
+## Panel 1, database and analysis
+
+### Action row
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Выберите SQLite базу` | Choose a SQLite database | Placeholder in the path field |
+| `Выбрать SQLite базу` | Choose a SQLite database | Database picker button |
+| `Загрузить треки в базу` | Load tracks into the database | Opens the scan dialog |
+| `Обновить теги` | Refresh tags | Refresh button |
+| `Сохранить жанры` | Save genres | Writes MAEST genres to files |
+| `Проверить базу` | Validate the database | Shield button |
+| `Найти и разобрать дубликаты` | Find and review duplicates | Opens Audio Dedup |
+| `Очистить базу` | Clear the database | Trash button |
+
+### Analysis cards
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Анализ` | Analysis | Section heading above both cards |
+| `Один запуск обработает выбранные стадии и пропустит уже готовые результаты` | One run processes the selected stages and skips finished results | Note under the heading |
+| `ML-модели` | ML models | Heading of the second card |
+| `Выберите нужные способы анализа звучания` | Choose the sound analysis you need | Note under the ML heading |
+| `Сбросить SONARA` | Reset SONARA | Trash button on the SONARA row |
+| `Сбросить MAEST` and the same form for MERT, MUQ, MULAN, CLAP | Reset that family | Trash button on each model row |
+| `Читать исходные аудиофайлы напрямую` | Read the source audio files directly | Title of the `Direct` button |
+| `Копировать входные файлы во временную SSD-папку` | Copy input files into a temporary SSD folder | Title of the `Staged` button |
+| `Папка для временных staging-копий SONARA` | Folder for temporary SONARA staging copies | SONARA staging path field |
+| `Папка для временных staging-копий ML` | Folder for temporary ML staging copies | ML staging path field |
+| `Choose Folder для staging-копий` | Choose a folder for the staging copies | SONARA folder picker |
+| `Choose Folder для ML staging-копий` | Choose a folder for the ML staging copies | ML folder picker |
+| `0 = все треки; применяется отдельно к каждой стадии анализа` | 0 means every track, applied per analysis stage | Note under `Analyze limit` |
+| `Запустить отмеченные модели в порядке SONARA → ML` | Run the checked models in SONARA then ML order | Title of the `Analyze` button |
+
+The model rows carry one-line Russian descriptions:
+
+| Model | Russian description | English meaning |
+| --- | --- | --- |
+| SONARA | `Считает темп, тональность, ритм, динамику, тембр и структуру трека.` | Computes tempo, key, rhythm, dynamics, timbre, and structure |
+| MAEST | `Помогает понять жанровый характер трека.` | Helps read the genre character of a track |
+| MERT | `Ищет похожее звучание от выбранного seed-трека.` | Finds similar sound from a chosen seed track |
+| MUQ | `Сохраняет дополнительный слой аудио-признаков.` | Stores an additional layer of audio features |
+| MULAN | `Связывает текстовое описание с отдельными аудио-эмбеддингами.` | Links a text description to its own audio embeddings |
+| CLAP | `Связывает текстовое описание с аудио-звучанием.` | Links a text description to audio sound |
+
+## Panel 2, library and listening
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Общее количество треков в библиотеке` | Total tracks in the library | Title of the `tracks` badge |
+| `Пагинация библиотеки` | Library pagination | Group label around `Prev` and `Next` |
+| `Предыдущая страница библиотеки` | Previous library page | `Prev` title |
+| `Следующая страница библиотеки` | Next library page | `Next` title |
+| `Текущая страница / всего страниц` | Current page over total pages | Page counter title |
+| `Диапазон треков на текущей странице` | Track range on the current page | Range readout title |
+| `Общее число треков в текущей выборке` | Total tracks in the current selection | Filtered total title |
+| `Показать список лайкнутых треков` | Show the liked tracks | Heart button |
+| `Показать только треки с сохранённым MAEST-флагом syncopated rhythm` | Show only tracks with the stored MAEST syncopated-rhythm flag | Waveform button |
+| `Включить случайный порядок воспроизведения на текущей странице` | Shuffle playback order on the current page | Shuffle button |
+| `Показать загруженные треки в обратном порядке` | Reverse the loaded tracks | Sort direction button |
+| `Добавить треки текущей страницы в сет. Уже добавленные треки будут пропущены.` | Add the current page to the set, skipping tracks already in it | Plus button |
+| `Выберите SQLite базу данных.` | Choose a SQLite database | Empty state with no database |
+| `В текущем запросе треков нет.` | No tracks match the current query | Empty state with a database |
+
+Row actions repeat for every track:
+
+| Russian | English meaning |
+| --- | --- |
+| `Лайкнуть` / `Убрать лайк` | Like / remove the like |
+| `Теги и жанры` | Tags and genres, opens the track detail dialog |
+| `В сет` / `Убрать из сета` | Add to the set / remove from the set |
+| `Перемотать preview` | Seek the preview |
+
+The library search box uses the English placeholder `path, title, artist, genre` with the `LIKE` and
+`FTS` mode buttons beside it.
+
+## Panel 3, search and listening
+
+The five tabs render in this order: `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`. The internal
+key for `PROMPT` is still `text`, so the API path stays `/api/search/text`.
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Убрать seed: <track>` | Remove that seed | Seed chip |
+| `Сбросить SONARA mixer и modifiers` | Reset the SONARA mixer and modifiers | `Reset` button in the SONARA tab |
+| `— приоритизирует виды сходства.` | Prioritizes kinds of similarity | Note beside `Mixer` |
+| `— направляют характер выдачи.` | Steers the character of the results | Note beside `Modifiers` |
+| `Добавить случайный SONARA-ready трек из базы в seed` | Add a random SONARA-ready track as a seed | SONARA tab random button |
+| `Найти похожие треки через SONARA по выбранным seed-трекам` | Find similar tracks with SONARA from the chosen seeds | SONARA search button |
+| `Найти треки через <model> по текстовому описанию звучания.` | Find tracks with that model from a written sound description | PROMPT search button when embeddings exist |
+| `Запустите анализ <model> для библиотеки, затем повторите текстовый поиск.` | Run that model over the library, then search again | PROMPT search button with no stored embeddings |
+| `Удалить рассчитанные данные <profile>` | Delete the calculated data for that profile | CLASS reset button |
+
+The SIMILARITY tab keeps English throughout: `Add Random Track`, `Model`, `Limit`, and the model
+options `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`.
+
+### PROMPT tab
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Выбрать пресеты по осям. Несколько пресетов складываются в один банк.` | Pick presets by axis, several presets merge into one bank | Preset picker button |
+| `<n> выбрано` / `не выбрано` | n selected / none selected | Preset counter |
+| `Убрать все пресеты и очистить банк` | Clear every preset and empty the bank | Clear button |
+| `Ось измерена на <model> — модель переключится сама.` | The axis was measured on that model, so the model switches by itself | Axis note |
+| `Замера у оси нет — модель останется прежней. Проверяй ушами.` | The axis has no measurement, the model stays, check by ear | Axis note |
+| `Переключить на <model>` | Switch to that model | Model advice button |
+| `Модель` | Model | Evidence block key |
+| `Замер` | Measurement | Evidence block key |
+| `Без замера` | Unmeasured | Evidence block key |
+| `Надёжность метки на размеченных примерах: ROC-AUC <value>.` | Label reliability on the labelled examples, ROC-AUC value | Measured chip |
+| `Сколько непустых строк уйдёт в банк. Строки усредняются в один вектор.` | How many non-empty lines enter the bank, averaged into one vector | Line counter |
+| `Применять Negative как hard-negative запросы.` | Apply the Negative field as hard-negative queries | Negatives toggle |
+| `выключены` | disabled | Negative state readout |
+| `<model> загружается — первый поиск не будет ждать веса.` | That model is loading, so the first search will not wait for weights | Warmup banner |
+
+The `Prompt bank`, `Negative`, `Model`, and `Limit` field labels stay English.
+
+### Current set and export
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Сет и экспорт` | Set and export | Collapsed disclosure heading |
+| `Развернуть или свернуть текущий сет и экспорт` | Expand or collapse the current set and export | Disclosure title |
+| `Сет пуст` | The set is empty | Empty state |
+| `Экспорт сохранит текущий сет` | Export saves the current set | Note when the set has entries |
+| `Пагинация сета` | Set pagination | Group label |
+| `Предыдущая страница сета` / `Следующая страница сета` | Previous / next set page | `Prev` and `Next` |
+| `Убрать из сета` | Remove from the set | Trash button on a set row |
+| `Выбрать папку экспорта` | Choose the export folder | Folder picker |
+| `Сохранить текущий сет в Rhythm Lab Collection` | Save the current set as a Rhythm Lab collection | `Collection` button |
+| `Экспортировать текущий сет в M3U` | Export the current set as M3U | `M3U` button |
+| `Экспортировать текущий сет в CSV` | Export the current set as CSV | `CSV` button |
+
+## Scan dialog
+
+The dialog opens from `Загрузить треки в базу`.
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Настройка параметров загрузки треков в базу` | Track import settings | Dialog title |
+| `Форматы, длительность и диапазон BPM решают, что попадёт в базу.` | Formats, duration, and BPM range decide what enters the database | Subtitle |
+| `Форматы файлов` | File formats | Section heading |
+| `<n> из 14` | n of 14 | Selected format counter |
+| `Включить <format>` / `Исключить <format>` | Include / exclude that format | Format badge title |
+| `Границы отбора` | Selection bounds | Section heading |
+| `Сканирование останавливается, когда в базу добавлено столько новых треков. 0 = без ограничения.` | Scanning stops after this many new tracks, 0 means no limit | `Scan limit` title |
+| `Min, сек` / `Max, сек` | Minimum / maximum seconds | Duration fields |
+| `Диапазон BPM для анализа SONARA` | BPM range for SONARA analysis | Section heading |
+| `Свой диапазон` | Custom range | Shown when no preset matches |
+| `Пресеты диапазона BPM` | BPM range presets | Group label over Rekordbox, VirtualDJ, Mixed In Key |
+| `Выберите пресет или введите свой диапазон. Задаётся один раз: первый анализ SONARA закрепит его за всей базой. Верхняя граница должна быть минимум вдвое больше нижней.` | Pick a preset or type your own range. It is set once, the first SONARA analysis locks it for the whole database, and the upper bound must be at least twice the lower | Note below the presets |
+| `База уже проанализирована этим диапазоном. Чтобы задать другой, сбросьте анализ SONARA.` | The database was analysed with this range. Reset SONARA analysis to change it | Note when the range is locked |
+| `Папка с треками` | Music folder | Section heading |
+| `Выберите папку как источник для загрузки треков в базу: сканирование папок выполняется рекурсивно.` | Choose the source folder, scanning is recursive | Description |
+| `Папка не выбрана` | No folder selected | Placeholder |
+| `Выбрать папку на сервере` | Choose a folder on the server | Folder picker |
+| `Выберите папку, хотя бы один формат и корректный диапазон длительности.` | Choose a folder, at least one format, and a valid duration range | Validation error |
+| `Старт` | Start | Submit button |
+
+## Track detail dialog
+
+This dialog opens from the tag button on any row. Its section titles are English while its actions
+and empty states are Russian.
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Теги и анализ трека` | Track tags and analysis | Dialog accessible name |
+| `Удалить из базы` | Delete from the database | Trash button in the header |
+| `Core данные ещё не рассчитаны` | Core data has not been calculated yet | SONARA empty state |
+| `Classifier scores ещё не рассчитаны` | Classifier scores have not been calculated yet | Classifier empty state |
+| `SONARA features ещё не рассчитаны` | SONARA features have not been calculated yet | Feature group empty state |
+| `Embedding-анализы ещё не рассчитаны` | Embedding analyses have not been calculated yet | Embedding empty state |
+| `Classifier analyses ещё не рассчитаны` | Classifier analyses have not been calculated yet | Classifier analysis empty state |
+
+The file path row keeps English titles: `Copy file path`, `Copy file name`, `Copied`, and
+`Open containing folder`.
+
+## Audio Dedup reviewer
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Дубликаты` | Duplicates | Dialog title |
+| `Отчёт строится без изменений на диске. Удаление выполняется только по вашему выбору и подтверждению.` | The report changes nothing on disk. Deletion happens only on your choice and confirmation | Subtitle |
+| `Поиск` | Search | Section heading |
+| `Корень поиска` | Search root | Folder field |
+| `Режим` | Mode | Search mode select |
+| `Отпечатки` | Fingerprints | Default search mode |
+| `Эмбеддинги + отпечатки` | Embeddings plus fingerprints | Second search mode |
+| `Без спектра` | Skip the spectral check | Toggle |
+| `Искать дубликаты` | Find duplicates | Start button |
+| `Остановить` | Stop | Cancel button |
+| `Отчёт и фильтры` | Report and filters | Section heading |
+| `Отчётов пока нет — запустите поиск` | No reports yet, run a search | Empty report select |
+| `Скачать XLSX отчёта` | Download the report as XLSX | Download button |
+| `Уверенность` | Confidence | Filter |
+| `любая` | any | Confidence filter default |
+| `Отпечаток ≥` | Fingerprint at or above | Filter |
+| `Только фейк-битрейт` | Suspected transcodes only | Filter |
+| `Путь содержит` | Path contains | Filter |
+| `Отметить кандидатов` | Mark the suggested copies | Marks candidates on the current page |
+| `Снять всё` | Clear every mark | Clears the selection |
+| `Назад` / `Вперёд` | Back / forward | Group pagination |
+| `Ничего не помечено на удаление` | Nothing is marked for deletion | Idle footer |
+| `Куда` | Destination | Deletion mode select |
+| `В корзину` | To the recycle bin | Default deletion mode |
+| `Безвозвратно` | Permanently | Second deletion mode |
+| `Удалить помеченное` | Delete the marked copies | Footer delete button |
+| `Пометьте копии на удаление` | Mark copies for deletion first | Delete button title when nothing is marked |
+
+Per group and per copy:
+
+| Russian | English meaning |
+| --- | --- |
+| `оставить` | keeper |
+| `копия` | copy |
+| `отпечаток <value>` | fingerprint score |
+| `фейк-битрейт <n>` | suspected transcodes in the group |
+| `По рекомендации` | Mark everything except the suggested keeper |
+| `Снять` | Clear the marks in this group |
+| `Прослушать копию` / `Пауза` | Play the copy / pause |
+| `Пометить копию на удаление` / `Оставить эту копию` | Mark this copy / keep this copy |
+| `Помечена на удаление` / `Удалить эту копию` | Marked for deletion / delete this copy |
+| `Отчёт устарел: <reason>` | The report is stale for that reason |
+| `Помечены все копии группы. Оставьте хотя бы одну — иначе удаление будет отклонено.` | Every copy in the group is marked. Keep at least one or the deletion is refused |
+
+## Confirmation dialog
+
+One dialog handles every destructive confirmation. It has a title, a message, and two buttons.
+
+| Russian | English meaning |
+| --- | --- |
+| `Да` | Yes, the confirm button |
+| `Нет` | No, the cancel button |
+| `Подтвердить действие` | Confirm the action, title of `Да` |
+| `Отменить действие` | Cancel the action, title of `Нет` |
+
+There is no phrase field. The dialog never asks anyone to type a confirmation string.
+
+The messages you will meet:
+
+| Russian | English meaning |
+| --- | --- |
+| `Очистить базу?` | Clear the database? |
+| `Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.` | Delete every row from the SQLite database, including tracks, analyses, embeddings, and the current set? The audio files stay on disk |
+| `Сбросить <MODEL>?` | Reset that family? |
+| `Сбросить результаты <MODEL>? Аудиофайлы не трогаем, остальные алгоритмы останутся.` | Reset that family's results? The audio files stay untouched and the other families remain |
+| `Удалить результаты <profile>?` | Delete that profile's results? |
+| `Будут удалены только рассчитанные score этого классификатора. Аудиофайлы и результаты других классификаторов останутся.` | Only that classifier's calculated scores go. Audio files and other classifiers remain |
+| `Удалить трек из базы?` | Delete the track from the database? |
+| `Будут удалены трек и все связанные данные SQLite. Аудиофайл <track> на диске останется.` | The track row and its related SQLite data go. The audio file stays on disk |
+| `Удалить помеченные копии в корзину?` | Send the marked copies to the recycle bin? |
+| `Удалить помеченные копии безвозвратно?` | Delete the marked copies permanently? |
+
+## Log and status messages
+
+The log dialog is titled `Лог` (log), with the subtitle
+`События интерфейса, сканирования, анализа и записи жанров` (interface, scan, analysis, and genre
+write events).
+
+Status messages that name a blocker are worth recognizing:
+
+| Russian | English meaning |
+| --- | --- |
+| `Выберите хотя бы одну стадию анализа` | Select at least one analysis stage |
+| `Выберите папку staging перед запуском Staged Mode` | Choose a staging folder before starting Staged Mode |
+| `Сначала выполните SONARA-анализ хотя бы одного трека` | Run SONARA on at least one track first |
+| `Выберите seed-треки` | Select seed tracks |
+| `Выберите от 1 до 5 уникальных seed-треков` | Select 1 to 5 unique seed tracks |
+| `Все треки страницы уже в сете` | Every track on this page is already in the set |
+| `Проверка БД завершена: <n> проверено · предупреждений <n> · ошибок <n>` | Database validation finished with that many checked, warnings, and errors |
+
+## In-product help is also Russian
+
+Hovering most controls shows a longer Russian explanation from the frontend help text. Those strings
+carry ranges and defaults, so they are useful even without translation. Two of them disagree with
+the code: the scan Workers help says `1-8` where the control accepts `1..16`, and the device and
+inference-batch help lists MAEST, MERT, MuQ, and CLAP without MuQ-MuLan, which also uses the
+selected device.
+
+## Related pages
+
+- [Troubleshooting](./troubleshooting.md)
+- [Known limits](./known-limits.md)
+- [UI controls reference](../reference/ui-controls.md)

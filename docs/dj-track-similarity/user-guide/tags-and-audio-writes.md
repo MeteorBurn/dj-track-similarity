@@ -1,52 +1,108 @@
 # Know when audio files can be written
 
-Most of what the app does leaves your source audio untouched. The exceptions are intentional and
-narrow, and this page names every one of them.
+Most of what the app does leaves your source audio untouched. The exceptions are narrow and
+deliberate, and this page covers what each one does when you run it.
 
-## Read-only for audio files
+[Local-first safety](../concepts/local-first-safety.md) holds the canonical list of read-only
+workflows and write paths. This page is the operator view of the three writes you can trigger.
 
-These workflows do not edit audio files:
+## The one write inside the app
 
-- scan,
-- Refresh Tags,
-- SONARA, MAEST, MERT, MuQ, MuQ-MuLan, and CLAP analysis,
-- MAEST, MERT, MuQ, MuQ-MuLan, SONARA, and CLAP search or reference comparison,
-- browser preview,
-- analysis reset,
-- classifier scoring,
-- database clear,
-- relocation preview,
-- relocation apply,
-- export to M3U or CSV.
+`Сохранить жанры` (save genres), the Save icon in panel `1. База и анализ` (database and analysis),
+is the only backend job that modifies audio files. Everything else in the browser writes SQLite,
+logs, reports, temporary preview files, or export files.
 
-They may still write SQLite rows, logs, reports, temporary preview WAV files, generated sidecars, or export files.
+The button is disabled until at least one track carries a stored MAEST genre.
 
-## MAEST genre tag apply
+### What the genre job writes
 
-The genre save button starts a genre tag job for all tracks with stored MAEST genres. The API rejects per-track genre writes. Current behavior is all available MAEST genre rows.
+The job runs over every track with stored MAEST genres. The API rejects per-track genre writes, so
+the current behavior is all available MAEST genre rows in one sequential job.
+
+Each label is cleaned before it is written. An `_` character becomes a space, surrounding
+whitespace is stripped, and a hierarchical MAEST label keeps only the part after its last `---`. Multiple labels
+are joined with `; `.
 
 The job writes only the standard genre field:
 
 | Format | Tag field |
 | --- | --- |
-| MP3 | ID3 `TCON` |
+| MP3 | ID3 `TCON`, saved as ID3v2.3 |
 | WAV/WAVE | Mutagen WAVE/ID3 genre handling, read back as `TCON` |
-| AIFF | ID3 genre handling |
+| AIF/AIFF, DSF, DFF | ID3 genre handling |
 | FLAC | `GENRE` |
 | M4A/MP4/ALAC | `©gen` |
+| Anything else Mutagen can tag | ID3 genre when the tag object supports it, otherwise a `Genre` key |
 
-It preserves normal tags such as title, artist, album, BPM, key, and other fields. After a successful write, the app refreshes the scanned metadata for that track in SQLite.
+An unsupported container raises `Unsupported audio tag format` for that track instead of writing
+something else.
 
-Failed writes are recorded per track and the batch continues.
+### The safety steps around each write
+
+Every write goes through the same sequence:
+
+1. The expected file state is captured before the write.
+2. The genre field is written.
+3. The tags are read back from disk.
+4. The read-back genre values are compared with what was requested, and a mismatch raises
+   `Genre tag readback mismatch after save`.
+5. The scanned metadata for that track is refreshed in SQLite.
+
+Normal tags such as title, artist, album, BPM, key, and comment are preserved. Failed writes are
+recorded per track and the batch continues, with `applied`, `skipped`, and `failed` counts in the
+job status.
+
+To stop a running genre job, use the square Stop icon in the top bar.
 
 ## Audio Doctor apply
 
-Audio Doctor is dry-run-first. Apply mode requires exact `APPLY REPAIR` and prior state, then repairs only files reported as repairable. Apply runs sequentially and creates backups by default in the standalone tool.
+Audio Doctor is a standalone CLI tool. It has no API route and no button in the app.
 
-## Audio Dedup apply
+Its protections, in the order they apply:
 
-Audio Dedup reports duplicate candidates by default. Apply mode requires exact `APPLY DELETE`. It then deletes only safe duplicate candidates inside the selected root and removes SQLite rows only for tracks whose files were deleted.
+- Report mode is the default. Nothing is written without `--apply`.
+- `--apply` repairs only files a previous run reported as repairable.
+- Backups are created by default. `--no-backup` opts out.
+- Each repair is verified, and a failed verification restores the backup.
+- Apply runs sequentially rather than in parallel.
+
+There is no confirmation phrase. `--apply` writes as soon as the command runs, so treat it as a
+destructive flag and check the report first. See
+[Audio Doctor](../tools-and-scripts/audio-doctor.md).
+
+## Audio Dedup deletion
+
+Audio Dedup is report-first in both surfaces, and only deletion touches files.
+
+From the CLI, `--apply` prints a destructive-apply block and waits for you to type `APPLY DELETE`
+exactly. It then deletes only safe candidates inside `--root`, and it skips a candidate whose keeper
+is missing.
+
+From the browser reviewer, you mark copies per group, choose `В корзину` (to the recycle bin) or
+`Безвозвратно` (permanently) in the `Куда` (where to) select, then press
+`Удалить помеченное` (delete the marked copies). A confirmation dialog names the count, the group
+count, and the total size, and you answer `Да` (yes) or `Нет` (no).
+
+The delete button becomes active as soon as at least one copy is marked and no job is running. The
+`APPLY DELETE` phrase is still required by the API, and the browser client supplies it with the
+request. Nobody types it in the browser. A selection that would empty a group is refused before the
+request leaves the client.
+
+Deletion removes SQLite rows only for tracks whose files were deleted. See
+[Audio Dedup](../tools-and-scripts/audio-dedup.md).
 
 ## Relocation apply
 
-Relocation apply updates stored SQLite paths only. It rejects conflicts and missing target files before applying. It does not move, copy, delete, or retag audio files.
+`dj-sim relocate-library OLD NEW` previews by default and applies with `--apply`. It updates stored
+SQLite paths only. It rejects conflicts and missing target files before applying, and it does not
+move, copy, delete, or retag audio files.
+
+Relocation has no browser surface. It is a CLI command with a matching API route.
+
+## Single-track deletion
+
+The delete action in the track detail dialog, titled `Удалить из базы` (delete from the database),
+removes the track and its catalog-owned SQLite data after a confirmation. Its confirmation states
+the outcome plainly:
+`Будут удалены трек и все связанные данные SQLite. Аудиофайл <track> на диске останется.`
+(the track and all related SQLite data are deleted, the audio file stays on disk).

@@ -116,7 +116,7 @@ The current application already supports the practical parts of that vision:
 - Read promoted Rhythm Lab classifier scores for CLASS filtering.
 - Run optional Evaluation API and CLI workflows for feedback, profiles, calibration, and transition diagnostics.
 - Export the current set as M3U or CSV.
-- Run report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
+- Run report-first helper tools for Audio Doctor, Audio Dedup, and database optimization.
 - Explicitly merge a legacy Core/Artifacts pair into one library database with a backup-first CLI command.
 
 The Python backend and CLI create one selected library database. The optional adjacent
@@ -251,7 +251,7 @@ support M3U and CSV. This is browser-local working state, not automatic sequenci
 
 ### 4. 💬 Search by text
 
-After CLAP or MuQ-MuLan audio embeddings exist, choose that family in the TEXT tab and search your library from prompts such as:
+After CLAP or MuQ-MuLan audio embeddings exist, choose that family in the PROMPT tab and search your library from prompts such as:
 
 ```text
 dark hypnotic techno, rolling bass, low light, late night tension
@@ -368,8 +368,12 @@ The base install is enough for scan, backend serving, a fresh library database, 
 optional analysis dependencies when you want the model jobs:
 
 ```powershell
-uv sync --locked --extra sonara --extra ml --extra dev
+uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 ```
+
+The `sonara` extra resolves to a patched SONARA `0.3.6` wheel through
+`[tool.uv.sources]` rather than to a package index. On another machine, build
+that wheel from the SONARA sources and repoint the source entry first.
 
 Use `uv` for every install that includes the `ml` extra because `pip` does not apply
 `[tool.uv.sources]`. On Windows AMD64 with Python 3.10, `uv` selects `torch`, `torchaudio`, and
@@ -436,8 +440,8 @@ in the current ML job has finished. Without ML Staged Mode, ML analysis reads or
 and uses its separate full-TorchCodec decode. It then falls back to the tolerant PyAV
 shared-library decode if that decode fails. The recovery does not start `ffmpeg.exe`.
 Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
-relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch,
-and CLASSIFIERS reports the selected profile count.
+relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch.
+Classifier scoring runs as its own job rather than as a pipeline stage.
 
 MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. MuQ-MuLan uses the same optional dependencies and official `OpenMuQ/MuQ-MuLan-large` weights. Both receive mono 24 kHz `float32` audio in 10-second windows and support CPU or CUDA. MuQ-MuLan writes its own normalized 512D vectors. It does not derive them from MuQ. The two families remain separate score spaces. CUDA is recommended for full-library runs.
 
@@ -446,20 +450,23 @@ In the CLI, omit `--limit` to analyze the whole library.
 ## 🖥️ Frontend status
 
 The React source uses the current backend responses. Its main search tabs are LAB, SONARA,
-SIMILARITY, TEXT, and CLASS. The SIMILARITY model selector searches separate MAEST, MERT, MuQ,
+SIMILARITY, PROMPT, and CLASS. The SIMILARITY model selector searches separate MAEST, MERT, MuQ,
 and MuQ-MuLan embedding spaces. Search results provide individual current-set actions, and the shared
 Current Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.
-Database changes clear catalog-bound state; exact-identity writes carry catalog UUID, track UUID,
-and content generation.
+Database changes clear catalog-bound state. Exact-identity writes carry the catalog UUID and the
+track UUID.
+
+The interface is in Russian. Model names, tab labels, and mode names stay English. See
+[UI language](docs/dj-track-similarity/help/ui-language.md) for the label glossary the rest of the
+documentation refers to.
 
 The UI remains a local, listening-led workbench. Similarity and classifier values are ranking
 signals for review, not objective musical truth or automatic performance decisions.
 
 ## 🛠️ Maintenance tools
 
-- **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
-- **Audio Dedup** reports duplicate candidates from saved SONARA fingerprints and stored MERT, MAEST, MuQ, and CLAP analysis data. Its default `--fingerprint` mode decides duplicates from exact fingerprint matches alone and keeps every candidate manual-review. The secondary `--embedding` mode scores the enabled sources with configurable weights and is the only mode that can mark safe delete candidates; MuQ alone never authorizes deletion. A read-only FFmpeg spectral check flags suspected transcodes inside duplicate groups and steers keeper choice toward full-band copies. Deletion requires exact `APPLY DELETE` in both surfaces. A CLI `--apply` run deletes only safe candidates inside the selected root, while the browser review dialog opens any report, plays the copies, and deletes the ones you mark to the recycle bin or permanently. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
-- **Persistent ANN indexes** are optional generated sidecars for repeated vector lookup. Exact search remains available without an ANN flag; explicit ANN use fails when the sidecar is missing, stale, or unsupported. See [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md).
+- **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode writes as soon as you pass `--apply`, backs up each file first, verifies the result, and restores the backup on failure. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
+- **Audio Dedup** reports duplicate candidates from saved SONARA fingerprints and stored MERT, MAEST, MuQ, and CLAP analysis data. Its default `--fingerprint` mode decides duplicates from exact fingerprint matches alone and keeps every candidate manual-review. The secondary `--embedding` mode scores the enabled sources with configurable weights and is the only mode that can mark safe delete candidates; MuQ alone never authorizes deletion. A read-only FFmpeg spectral check flags suspected transcodes inside duplicate groups and steers keeper choice toward full-band copies. A CLI apply run requires you to type `APPLY DELETE`. The browser sends that phrase itself once you confirm the deletion dialog. A CLI `--apply` run deletes only safe candidates inside the selected root, while the browser review dialog opens any report, plays the copies, and deletes the ones you mark to the recycle bin or permanently. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
 - **Database optimization** supports the main library database and the Rhythm Lab labels database. It backs up the SQLite file, checks integrity, and then runs SQLite maintenance commands. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
 
 Common maintenance commands:
@@ -514,7 +521,10 @@ Start here:
 - [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md)
 - [SONARA integration](docs/dj-track-similarity/reference/sonara-integration.md)
 - [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md)
-- [CLI reference](docs/dj-track-similarity/reference/cli.md)
+- [CLI reference](docs/dj-track-similarity/reference/commands.md)
+- [Audio Online](docs/dj-track-similarity/tools-and-scripts/audio-online.md)
+- [Scripts](docs/dj-track-similarity/tools-and-scripts/scripts.md)
+- [UI language](docs/dj-track-similarity/help/ui-language.md)
 - [Model citations and licenses](docs/dj-track-similarity/reference/model-citations.md)
 
 ## 🧪 Development checks

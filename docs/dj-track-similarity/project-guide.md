@@ -8,18 +8,24 @@ It does not decide which tracks are good or guarantee that two tracks will mix. 
 the search space, show why a candidate appeared, and leave the musical decision to you.
 
 The backend, CLI, and React client use one library database, with Evaluation only when needed.
-Normal startup refuses a legacy split layout and never rewrites it. The browser adds typed library, analysis, search, current
-set, classifier, and Lab workflows on top of the same API.
+Normal startup refuses a legacy split layout and never rewrites it. The browser adds typed library,
+analysis, search, current set, classifier, and Lab workflows on top of the same API.
+
+The interface itself is written in Russian while this documentation names controls in English. Keep
+[UI language](./help/ui-language.md) open beside any page that tells you to press something.
 
 ## What you can get from it
 
 | Your situation | Start with | Result |
 | --- | --- | --- |
-| You remember one useful track | MERT or SONARA seed search | A ranked list of nearby candidates to preview |
-| You can describe the sound, but not name a track | CLAP or MuQ-MuLan text search | A shortlist matched to an audible description |
+| You remember one useful track | SIMILARITY or SONARA tab | A ranked list of nearby candidates to preview |
+| You can describe the sound without naming a track | PROMPT tab, CLAP or MuQ-MuLan | A shortlist matched to an audible description |
 | You have useful candidates to collect | Current Set | An editable working list for preview and export |
 | You want a broad pool for later listening | Filters, seeds, or text search | A crate that you can export as CSV or M3U |
 | You repeatedly judge tracks by a personal idea | Rhythm Lab classifier | A reusable per-track score for CLASS filtering |
+| You want to compare how each model ranks one reference | LAB tab | Six model groups side by side for one seed |
+| You suspect duplicate files | Audio Dedup | A report you review before anything is deleted |
+| You want online metadata for a track list | Audio Online | One XLSX with a column block per provider |
 
 Use this guide to choose the shortest route from your current idea to one of those results. Exact
 CLI, API, storage, and model details remain available in the reference section.
@@ -45,6 +51,7 @@ CLI, API, storage, and model details remain available in the reference section.
 - [Features, embeddings, and tags](./concepts/features-embeddings-tags.md) explains what each stored signal means.
 - [Similarity scores](./concepts/similarity-scores.md) explains why MERT, MuQ, MuQ-MuLan, SONARA, CLAP, and Audio Dedup scores should not be mixed casually.
 - [Classifiers and Rhythm Lab](./concepts/classifiers-and-rhythm-lab.md) explains local classifier profiles and promoted scores.
+- [Local-first safety](./concepts/local-first-safety.md) lists every path that can write to an audio file.
 
 ## If you are maintaining a library
 
@@ -54,10 +61,12 @@ CLI, API, storage, and model details remain available in the reference section.
 - [Audio Doctor](./tools-and-scripts/audio-doctor.md) covers dry-run-first repair.
 - [Audio Dedup](./tools-and-scripts/audio-dedup.md) covers report-first duplicate checks.
 - [Optimize database](./tools-and-scripts/optimize-database.md) covers SQLite maintenance with backup.
+- [Scripts](./tools-and-scripts/scripts.md) covers the read-only QA, benchmark, and text-layer scripts.
+- [Audio Online](./tools-and-scripts/audio-online.md) covers online metadata enrichment.
 
 ## If you need exact references
 
-- [CLI reference](./reference/cli.md) lists `dj-sim` commands and standalone tool commands.
+- [CLI reference](./reference/commands.md) lists `dj-sim` commands and standalone tool commands.
 - [API reference](./reference/api.md) lists endpoint families and important payloads.
 - [Configuration reference](./reference/configuration.md) lists environment variables, ports, local artifacts, and build commands.
 - [SONARA integration](./reference/sonara-integration.md) describes collection, updates, and storage boundaries.

@@ -83,6 +83,13 @@ tables. It does not cache counters or revalidate analysis payloads.
   Both `DELETE /api/tracks/{track_id}` and Audio Dedup deletion take this path.
 - Relocation apply changes only `tracks.file_path`; it does not move or modify
   audio.
+- Every transaction that writes an embedding table advances `PRAGMA
+  user_version` before it commits. The counter dates the in-process cache of
+  library vectors: a search compares it, plus the row counts, against the
+  values its cached matrix was built from, and reloads when either moved. It is
+  a header field rather than schema, so no table, column, or index carries it.
+  An existing database needs no migration and starts counting at its next
+  write. The value is a write counter only. It is not a schema version.
 
 ## Backup habit
 

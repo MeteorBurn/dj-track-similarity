@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<!-- saved from url=(0253)https://d818a317-c7c6-4f31-b30e-61a15ad12523.frame.claudeusercontent.com/_f/1787948892-e506/?__frame_t=iAqRPyOZ4NYvM_rp2yPvZ7kF.91085944-ae48-4c9a-b835-142bc91aee7f.768b93bb-d02b-49e9-aa5a-66e6e94c49a2.1787953597&__frame_v=manifest.18cce61b83ab7ccd.json -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><!-- frame-runtime --><!--<base href="/_f/1787948892-e506/">--><base href="."><script>window.__FRAME_PREAMBLE={"v":1,"capabilities":{"artifact":"artifact.D_F1mx8d.js","assets":"assets.8Gk803W0.js","comments":"comments.GLuHR3zP.js","db":"db.h-3sndFg.js","downloads":"downloads.C3GSvEDP.js","embed":"embed.CxGAyc-v.js","mcp":"mcp.Bvma3qD7.js","network":"network.B5UA9Su4.js","permissions":"permissions.BNySkLV5.js","room":"room.BMMoe2BY.js","sample":"sample.BW2Uysoh.js","self":"artifact.D_F1mx8d.js","user":"user.BpKav-Rf.js"},"transforms":"_transforms.DSB5x63f.js","comments":"_comments.DELvYLUh.js","translate":"_translate.5HCW4BJh.js"}</script><script>(function(){"use strict";var te=["light","dark","system"],re=/^[A-Za-z0-9_-]{1,64}$/,$=/^[a-zA-Z_:][a-zA-Z0-9_:.-]{0,127}$/,ne=new Set(["class","hidden","value","checked","style","title","alt","placeholder","lang","dir","role","tabindex","disabled","readonly","contenteditable","open","colspan","rowspan"]);function oe(e){const t=e.toLowerCase();return t.startsWith("data-")||t.startsWith("aria-")||ne.has(t)}var Be="http://www.w3.org/1999/xhtml",se="http://www.w3.org/2000/svg",ae=new Set(["script","style","iframe","noscript","noframes","noembed","xmp","plaintext","template","title","textarea","object","embed"]),ie=new Set(["script","style"]);function ce(e){const t=e.localName.toLowerCase();return e.namespaceURI==="http://www.w3.org/1999/xhtml"?!ae.has(t):e.namespaceURI===se?!ie.has(t):!1}function M(e,t){return e===t||(e===160||e===32)&&(t===160||t===32)}function le(e,t){const r=e.length,n=t.length;let s=0;for(;s<r&&s<n&&M(e.charCodeAt(s),t.charCodeAt(s));)s++;let o=0;for(;o<r-s&&o<n-s&&M(e.charCodeAt(r-1-o),t.charCodeAt(n-1-o));)o++;return{p:s,s:o}}function ue(e,t){const r=e.firstChild;if(e.childNodes.length!==1||r===null||r.nodeType!==Node.TEXT_NODE){e.textContent=t;return}const n=r.data,s=n.length,o=t.length,{p:i,s:c}=le(n,t);i===s&&c===0&&s===o||r.replaceData(i,s-i-c,t.slice(i,o-c));const h=r.data,p=e.ownerDocument.getSelection?.()??null,w=p!==null&&p.rangeCount>0&&(p.anchorNode===r||p.focusNode===r)?{anchor:p.anchorNode,anchorOffset:p.anchorOffset,focus:p.focusNode,focusOffset:p.focusOffset}:null;let m=-1,g=-1;for(let f=0;f<h.length&&f<t.length;f++){const v=h.charCodeAt(f),b=t.charCodeAt(f);v!==b&&M(v,b)&&(m<0&&(m=f),g=f)}const a=m>=0;if(a&&r.replaceData(m,g-m+1,t.slice(m,g+1)),a&&w!==null&&w.anchor!==null&&w.focus!==null)try{p.setBaseAndExtent(w.anchor,w.anchorOffset,w.focus,w.focusOffset)}catch{}}var fe=new Set(["html","head","body","frameset"]);function de(e){return e.namespaceURI==="http://www.w3.org/1999/xhtml"&&fe.has(e.localName)}function pe(e){if(e===null||typeof e!="object")return!1;const t=e;if(typeof t.target!="string"||!re.test(t.target)||t.text!==void 0&&typeof t.text!="string")return!1;if(t.attrsSet!==void 0){if(t.attrsSet===null||typeof t.attrsSet!="object")return!1;for(const[r,n]of Object.entries(t.attrsSet))if(!$.test(r)||typeof n!="string")return!1}if(t.attrsRemoved!==void 0){if(!Array.isArray(t.attrsRemoved))return!1;for(const r of t.attrsRemoved)if(typeof r!="string"||!$.test(r))return!1}return!0}function me(e,t){if(e===null||typeof e!="object")return!1;const{seq:r,elements:n}=e;if(typeof r!="number"||!Number.isSafeInteger(r)||!Array.isArray(n)||n.length===0||n.length>64)return!1;for(let s=0;s<n.length;s++)if(!t(n[s]))return!1;return!0}function he(e){return e===null||typeof e!="object"?!1:me(e.__frame_patch,pe)}function _e(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_init;return t!==null&&typeof t=="object"}function ve(e){return e!==null&&typeof e=="object"&&e.__frame_size_poke===!0}function ye(e){if(e===null||typeof e!="object")return!1;const t=e.__frame_theme;if(t===null||typeof t!="object")return!1;const r=t.theme;return typeof r=="string"&&te.includes(r)}var A=/^[\w.-]+\.js$/;function we(e,t,r){return r?"inert":typeof t=="string"&&A.test(t)?e?[t]:"inert":e?"inert":"framed"}function ge(){return{post(e,t){parent.postMessage(e,t)},on(e){const t=r=>{r.source===parent&&e(r.data,r.origin,r.isTrusted)};return addEventListener("message",t),()=>removeEventListener("message",t)}}}function be(){return{post:()=>{},on:()=>()=>{}}}var j="__frame_scroll",Ee=150,Ae=310,Se=160,Te=3e4;function ke(){let e=0,t=!1,r=!1,n=!1,s=0,o=null;const i=l=>{try{sessionStorage.setItem(j,JSON.stringify({y:l}))}catch{}},c=()=>{if(clearTimeout(e),o===null)return;const l=o;o=null,i(l)},h=()=>{if(t){t=!1;return}r=!0,o=scrollY,clearTimeout(e),e=setTimeout(c,Ee)};try{addEventListener("scroll",h,{passive:!0}),addEventListener("pagehide",c)}catch{}const p=()=>{let l;try{l=sessionStorage.getItem(j)}catch{return null}if(l===null)return null;let _;try{_=JSON.parse(l)}catch{_=null}const d=_?.y;if(!(typeof d=="number"&&Number.isFinite(d)&&d>=0)){try{sessionStorage.removeItem(j)}catch{}return null}return d};let w=!1;const m=l=>{try{const _=scrollY;scrollTo({top:l,left:0,behavior:"instant"}),s=l,n=!0,clearTimeout(e),o=null,i(l);const d=scrollY;d!==_&&(t=!0),d!==l&&!w&&(w=!0,addEventListener("load",()=>{try{if(scrollY===d){const T=p();m(T!==null?T:s)}}catch{}},{once:!0}))}catch{}},g=()=>{try{return!!location.hash}catch{return!0}};let a=!1;const f=()=>{try{if(a||innerWidth>Ae||innerHeight>Se)return;a=!0;const l=Date.now(),_=()=>{try{removeEventListener("resize",_)}catch{}if(Date.now()-l>Te||r||g())return;const d=p();m(d!==null?d:s)};addEventListener("resize",_)}catch{}};let v=!1,b=!1;return{restore(){if(v||(v=!0,g()))return;const l=p();l!==null&&(m(l),f())},promoted(){if(b||(b=!0,g()))return;const l=p();l!==null?(m(l),f()):n&&m(s)}}}function Re(e,t,r,n){let s=null;try{s=window.trustedTypes?.createPolicy("frame-runtime",{createScriptURL:h=>h})??null}catch{}const o=window.Worker,i=o?.prototype,c=Object.freeze({Worker:o,workerOn:i?.addEventListener,workerPost:i?.postMessage,workerTerminate:i?.terminate,fetch:window.fetch.bind(window),preventDefault:Event.prototype.preventDefault,policy:s,origins:t});r(e).then(h=>h?.bootTopLevel?h.bootTopLevel(c,n):n.settle()).catch(()=>n.settle())}var De="modulepreload",Ie=function(e){return"/"+e},Ue={},Le=function(t,r,n){let s=Promise.resolve();function o(i){const c=new Event("vite:preloadError",{cancelable:!0});if(c.payload=i,window.dispatchEvent(c),!c.defaultPrevented)throw i}return s.then(i=>{for(const c of i||[])c.status==="rejected"&&o(c.reason);return t().catch(o)})},Oe=window===top,q=Object.getOwnPropertyDescriptor(window,"claude"),k=we(Oe,window.__FRAME_PREAMBLE?.topLevel,q?.writable===!1),N=typeof k=="object"&&k[0],y=N?be():ge();(function(){const e=Object.defineProperty,t=globalThis,r=["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate","RTCSessionDescription","RTCRtpSender","RTCRtpReceiver"];let n=0;for(let s=0;s<r.length;s++){const o=r[s];try{e(t,o,{value:void 0,writable:!1,configurable:!1})}catch{try{delete t[o]}catch{}try{e(t,o,{value:void 0,writable:!1,configurable:!0})}catch{}}typeof t[o]=="function"&&n++}if(n&&k==="framed")try{y.post({__frame_rtc_lockdown_failed:n},"*")}catch{}})();var Pe=1e4,Y=Object.freeze([...window.__FRAME_PREAMBLE?.origins??["https://claude.ai","https://preview.claude.ai"]]);function X(e){for(const t of Y)if(t.endsWith(":*"))try{const r=new URL(e);if(`${r.protocol}//${r.hostname}:*`===t)return!0}catch{}else if(e===t)return!0;return!1}var R=Object.freeze({...window.__FRAME_PREAMBLE?.capabilities}),B=window.__FRAME_PREAMBLE?.transforms,D=window.__FRAME_PREAMBLE?.comments,I=window.__FRAME_PREAMBLE?.translate;function S(e){return Le(()=>import("/_runtime/"+e),void 0)}function G(e,t){return{contract:e.contract,changes:new Set(e.changes??[]),flags:new Set(e.flags??[]),capabilities:e.capabilities??{},capBudgets:e.capBudgets??{},transforms:new Map,shellOrigin:t,mount:x,hooks:O,pipe:()=>({wrap:(r,n)=>(...s)=>{try{return n(...s)}catch(o){return Promise.reject(o)}}})}}var L=null,E=null;function V(e,t,r){try{Object.defineProperty(e,t,{value:r,writable:!1,configurable:!1,enumerable:!0})}catch{try{Object.defineProperty(e,t,{value:r,writable:!1,configurable:!0,enumerable:!0})}catch{}}}var U=!1,O={editBefore:null,edit:null};function Ce(e,t,r=!1){const n=[];let s;if(r)try{O.editBefore?.(e)}catch{}for(const o of e.elements){const i=document.querySelector(`[data-id="${o.target}"]`);if(!i){s=o.target;break}if([...Object.keys(o.attrsSet??{}),...o.attrsRemoved??[]].some(c=>!oe(c))){s=o.target;break}if(o.text!==void 0&&(!ce(i)||de(i))){s=o.target;break}for(const[c,h]of Object.entries(o.attrsSet??{}))if(!J(i,c)){try{i.setAttribute(c,h)}catch{}Z(i,c,h)}for(const c of o.attrsRemoved??[])J(i,c)||(i.removeAttribute(c),Z(i,c,null));typeof o.text=="string"&&ue(i,o.text),n.push(o.target)}if(r)try{O.edit?.(e.seq,n,s)}catch{}if(s!==void 0){y.post({__frame_patch_miss:{seq:e.seq}},t);return}try{document.dispatchEvent(new CustomEvent("claude:edit",{detail:{seq:e.seq,targets:n}}))}catch{}}function Z(e,t,r){if(!(e instanceof HTMLInputElement))return;const n=t.toLowerCase();n==="checked"?e.checked=r!==null:n==="value"&&e.type!=="file"&&(e.value=r??"")}function J(e,t){const r=t.toLowerCase(),n=e;return r==="data-id"||(r==="value"||r==="checked")&&(n.__artifactSecret===!0||/^(password|hidden|file)$/.test(n.type??"")||/(^|\s)(cc-|one-time-code|current-password|new-password)/i.test(`${e.getAttribute("autocomplete")??""} ${n.autocomplete??""}`))}function Q(e){const t=document.documentElement;e==="light"||e==="dark"?(t.dataset.theme=e,t.style.colorScheme=e,U=!0):U&&(delete t.dataset.theme,t.style.colorScheme="",U=!1)}var P=new Map;function Me(){let e;const t={u:new Promise(r=>{e=r}),r:r=>{t.done=!0,e(r)},done:!1,nulled:!1};return t}function F(){for(const e of P.values())e.done||(e.nulled=!0,e.r(null))}var je=Object.freeze(Object.assign(Object.create(null),{call:Function.prototype.call,apply:Function.prototype.apply,bind:Function.prototype.bind})),x=(e,t)=>{const r=P.get(e);if(!r||r.done){r?.nulled&&E&&y.post({__frame_cap_telemetry:{kind:"cap-load-error",cap:e}},E);return}const n=typeof t=="function"?Object.setPrototypeOf(t,je):Object.assign(Object.create(null),t);typeof n.then=="function"&&delete n.then,r.r(Object.freeze(n))};function ee(){const e=q?.value??{};V(window,"claude",e);for(const t of Object.keys(R)){if(e[t]!==void 0){V(e,t,e[t]);continue}P.set(t,Me())}if(e.use===void 0){const t=r=>{if(typeof r!="string"||!Object.hasOwn(R,r))return Promise.resolve(null);const n=P.get(r);return n?n.u:Promise.resolve(e[r]??null)};try{Object.defineProperty(e,"use",{value:t,writable:!0,configurable:!0,enumerable:!1})}catch{}}}if(k==="framed"){const e=B&&A.test(B)?S(B).catch(()=>{}):Promise.resolve(void 0),t=a=>{if(a.type==="auxclick"&&a.button!==1)return;const f=a.target,v=f&&f.closest?f.closest("a[href],area[href]"):null;if(!v)return;const b=v.getAttribute("href");if(!b)return;let l;try{l=new URL(b,document.baseURI)}catch{return}if((l.protocol==="http:"||l.protocol==="https:")&&l.origin!==location.origin){a.preventDefault();const _=(v.getAttribute("target")??"").toLowerCase(),d=a.type==="auxclick"||a.metaKey||a.ctrlKey||a.shiftKey||a.altKey||!["","_self","_top","_parent"].includes(_);y.post({__frame_nav:!0,url:l.href,newTab:d},"*")}};addEventListener("click",t,!0),addEventListener("auxclick",t,!0);const r={},n=a=>{a.isTrusted&&(r.pointer=!0)},s=a=>{a.isTrusted&&(r.click=!0)};addEventListener("pointermove",n,{capture:!0,passive:!0}),addEventListener("click",s,{capture:!0,passive:!0}),e.then(a=>{a?.wireNav&&(a.wireNav(),removeEventListener("click",t,!0),removeEventListener("auxclick",t,!0),removeEventListener("pointermove",n,!0),removeEventListener("click",s,!0),a.wireEngagement?.(r))});let o=null;try{o=ke()}catch{}ee();let i=null,c=null,h=0;const p=y.on((a,f)=>{X(f)&&_e(a)&&(i=a.__frame_init,E=f,p(),clearTimeout(h),c?.())});y.post({__frame_connect:!0},"*");const w=new Promise(a=>{c=a,h=setTimeout(()=>{p(),a()},Pe)}),m=document.readyState==="loading"?new Promise(a=>document.addEventListener("DOMContentLoaded",()=>a(),{once:!0})):Promise.resolve();m.then(()=>{try{o?.restore()}catch{}});const g={cb:null};y.on((a,f)=>{if(X(f)&&ve(a)){try{o?.promoted()}catch{}g.cb?.()}}),w.then(async()=>{if(!i||!E){F();return}Q(i.theme);const a=E;let f=!1,v=!1;y.on((u,z,C)=>{if(z!==a)return;ye(u)&&Q(u.__frame_theme.theme),he(u)&&Ce(u.__frame_patch,a,C);const H=u?.__fc_mode;H&&typeof H=="object"&&!f&&D&&A.test(D)&&(f=!0,S(D).then(K=>K.install?.(a,H.on===!0)).catch(()=>{}));const W=u?.__ft_cmd;W&&typeof W=="object"&&!v&&I&&A.test(I)&&(v=!0,S(I).then(K=>K.install?.(a,W)).catch(()=>{}))});const b=Object.keys(i.capabilities??{}).filter(u=>Object.hasOwn(R,u)).map(u=>[u,R[u]]).filter(u=>typeof u[1]=="string"&&A.test(u[1])),l=await Promise.allSettled(b.map(([,u])=>S(u))),_=await e,d=E;if(_?.buildBoot||y.post({__frame_cap_telemetry:{kind:"cap-load-error",cap:"_transforms"}},d),_?.buildBoot)try{L=_.buildBoot(i,_.TRANSFORMS??{},{shellOrigin:d,mount:x,hooks:O},u=>y.post({__frame_cap_telemetry:u},d))}catch{y.post({__frame_cap_telemetry:{kind:"cap-load-error",cap:"_transforms"}},d),L=G(i,d)}else L=G(i,d);const T=u=>y.post({__frame_cap_telemetry:{kind:"cap-load-error",cap:u}},d),Ne=L;l.forEach((u,z)=>{const C=b[z][0];if(u.status!=="fulfilled"){T(C);return}try{u.value?.install?.(Ne)}catch{T(C)}}),F(),await m,y.post({__frame_ready:!0},E),e.then(u=>u?.installSizeReporter?.(d,g))})}else N&&(ee(),Re(N,Y,S,{settle:F,mount:x}))})();</script><!-- /frame-runtime --><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>Аудит движка похожести</title>
+<link rel="preconnect" href="https://fonts.googleapis.com/">
+<link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin="">
+<link rel="stylesheet" href="./css2">
+
+<style>
+:root{
+  --ground:#F4F5F6; --surface:#FFFFFF; --surface-2:#EDEFF1;
+  --ink:#14181D; --ink-2:#4A545F; --ink-3:#78838F;
+  --rule:#D9DEE3; --rule-strong:#B6BFC8;
+  --accent:#0F6E7A; --accent-soft:#E1EEEF;
+  --crit:#B02A20; --high:#9C5A00; --med:#2B5FA8; --low:#6B7681;
+  --crit-bg:#F7E7E5; --high-bg:#F7EEDE; --med-bg:#E6EEF9; --low-bg:#E9ECEF;
+  --f-head:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+  --f-body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0F1216; --surface:#161B21; --surface-2:#1D242B;
+    --ink:#E6EAEE; --ink-2:#A3AEB9; --ink-3:#737E89;
+    --rule:#2A323A; --rule-strong:#3D4852;
+    --accent:#4FBECB; --accent-soft:#12302F;
+    --crit:#F0857A; --high:#E0A44A; --med:#7FAEEE; --low:#8B96A1;
+    --crit-bg:#2E1815; --high-bg:#2C2213; --med-bg:#141F30; --low-bg:#1D242B;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0F1216; --surface:#161B21; --surface-2:#1D242B;
+  --ink:#E6EAEE; --ink-2:#A3AEB9; --ink-3:#737E89;
+  --rule:#2A323A; --rule-strong:#3D4852;
+  --accent:#4FBECB; --accent-soft:#12302F;
+  --crit:#F0857A; --high:#E0A44A; --med:#7FAEEE; --low:#8B96A1;
+  --crit-bg:#2E1815; --high-bg:#2C2213; --med-bg:#141F30; --low-bg:#1D242B;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-body);font-size:16.5px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:0 28px 120px}
+.mast{padding:64px 0 34px;border-bottom:2px solid var(--ink)}
+.mast .kicker{font-family:var(--f-mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 18px}
+.mast h1{font-family:var(--f-head);font-weight:700;font-size:clamp(38px,6.4vw,62px);line-height:1.02;letter-spacing:-.015em;margin:0;text-wrap:balance}
+.mast .sub{font-size:19px;color:var(--ink-2);max-width:64ch;margin:20px 0 0}
+.meta-strip{display:flex;flex-wrap:wrap;gap:0 34px;margin-top:30px;font-family:var(--f-mono);font-size:12px;color:var(--ink-3)}
+.meta-strip b{color:var(--ink-2);font-weight:500}
+.verdict{margin:34px 0 0;padding:26px 30px;background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--accent)}
+.verdict p{margin:0 0 12px;font-size:17.5px}
+.verdict p:last-child{margin-bottom:0}
+section{padding-top:66px}
+.sec-head{display:flex;align-items:baseline;gap:16px;border-bottom:1px solid var(--ink);padding-bottom:10px;margin-bottom:26px}
+.sec-num{font-family:var(--f-mono);font-size:12px;color:var(--accent);font-weight:600;letter-spacing:.06em}
+.sec-head h2{font-family:var(--f-head);font-weight:600;font-size:clamp(24px,3.2vw,32px);margin:0;letter-spacing:-.01em;text-wrap:balance}
+h3{font-family:var(--f-head);font-weight:600;font-size:19px;margin:34px 0 10px}
+p{margin:0 0 14px;max-width:74ch}
+ul,ol{margin:0 0 16px;padding-left:22px;max-width:74ch}
+li{margin-bottom:7px}
+strong{font-weight:600}
+code{font-family:var(--f-mono);font-size:.855em;background:var(--surface-2);padding:1px 5px;border-radius:2px;color:var(--ink)}
+.lede{font-size:17.5px;color:var(--ink-2);max-width:70ch}
+.finding{display:grid;grid-template-columns:206px 1fr;gap:0 32px;border-top:1px solid var(--rule);padding:26px 0 6px}
+.finding:first-of-type{border-top:2px solid var(--rule-strong)}
+.f-meta{font-family:var(--f-mono);font-size:11.5px;line-height:1.75;color:var(--ink-3)}
+.f-id{font-family:var(--f-head);font-size:26px;font-weight:700;color:var(--ink);line-height:1;margin-bottom:12px;letter-spacing:-.02em}
+.f-row{display:flex;gap:8px;margin-bottom:2px}
+.f-row span:first-child{color:var(--ink-3);min-width:78px}
+.f-row span:last-child{color:var(--ink-2)}
+.chip{display:inline-block;padding:2px 8px;border-radius:2px;font-family:var(--f-mono);font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.chip.crit{background:var(--crit-bg);color:var(--crit)}
+.chip.high{background:var(--high-bg);color:var(--high)}
+.chip.med{background:var(--med-bg);color:var(--med)}
+.chip.low{background:var(--low-bg);color:var(--low)}
+.f-body h4{font-family:var(--f-head);font-weight:600;font-size:21px;margin:0 0 10px;text-wrap:balance}
+.f-body p{margin:0 0 12px;max-width:72ch}
+.f-label{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);display:block;margin:16px 0 5px}
+.paths{font-family:var(--f-mono);font-size:12.5px;color:var(--ink-2);line-height:1.8;word-break:break-word}
+.tw{overflow-x:auto;margin:0 0 20px;border:1px solid var(--rule);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-family:var(--f-mono);font-size:12.5px}
+th{text-align:left;padding:10px 14px;background:var(--surface-2);color:var(--ink-2);font-weight:600;font-size:11px;letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--rule)}
+td{padding:9px 14px;border-bottom:1px solid var(--rule);color:var(--ink-2);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+td.hi{color:var(--crit);font-weight:600}
+td.ok{color:var(--accent);font-weight:600}
+caption{caption-side:bottom;text-align:left;padding:9px 14px;font-family:var(--f-mono);font-size:11px;color:var(--ink-3);border-top:1px solid var(--rule)}
+.flow{background:var(--surface);border:1px solid var(--rule);padding:20px 22px;margin:0 0 20px;overflow-x:auto}
+.flow.proposed{border-left:3px solid var(--accent)}
+.flow-label{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:9px}
+.flow-line{font-family:var(--f-mono);font-size:12.5px;line-height:2.1;white-space:nowrap;color:var(--ink-2)}
+.flow-line.wrap-ok{white-space:pre-wrap}
+.node{background:var(--surface-2);padding:3px 9px;border-radius:2px;color:var(--ink)}
+.node.bad{background:var(--crit-bg);color:var(--crit)}
+.node.good{background:var(--accent-soft);color:var(--accent)}
+.arrow{color:var(--ink-3);padding:0 5px}
+.phase{border-top:1px solid var(--rule);padding:24px 0}
+.phase:first-of-type{border-top:2px solid var(--rule-strong)}
+.phase-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.phase-n{font-family:var(--f-mono);font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--surface);background:var(--accent);padding:3px 9px;border-radius:2px}
+.phase-head h3{margin:0;font-size:21px}
+.phase dl{display:grid;grid-template-columns:170px 1fr;gap:7px 20px;margin:14px 0 0;max-width:82ch}
+.phase dt{font-family:var(--f-mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);padding-top:3px}
+.phase dd{margin:0;color:var(--ink-2);font-size:15.5px}
+.note{background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--high);padding:18px 22px;margin:0 0 20px}
+.note p:last-child{margin-bottom:0}
+.note .t{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--high);margin-bottom:7px}
+.note.killed{border-left-color:var(--low)}
+.note.killed .t{color:var(--low)}
+.foot{margin-top:80px;padding-top:22px;border-top:2px solid var(--ink);font-family:var(--f-mono);font-size:11.5px;color:var(--ink-3);line-height:1.9}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:760px){
+  .finding{grid-template-columns:1fr;gap:14px}
+  .f-id{margin-bottom:6px}
+  .phase dl{grid-template-columns:1fr;gap:2px 0}
+  .phase dt{margin-top:10px}
+  .wrap{padding:0 18px 80px}
+}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="kicker">Аудит репозитория · dj-track-similarity · база HEAD 434d8bae · реализовано в ветке dev · 2026-08-28</p>
+  <h1>Аудит движка похожести</h1>
+  <p class="sub">Что действительно исполняется в бою, где похожесть тихо ухудшается, и какие слои можно удалить, ничего не потеряв. Замеры — на рабочей библиотеке из 45 109 треков.</p>
+  <div class="meta-strip">
+    <span><b>116 000</b> строк</span>
+    <span><b>105</b> модулей src/</span>
+    <span><b>45 109</b> треков</span>
+    <span><b>6</b> семейств эмбеддингов</span>
+    <span><b>616</b> тестов</span>
+  </div>
+</header>
+
+<div class="verdict">
+  <p><strong>Ядро проекта здравое.</strong> Сканер, база, конвейер анализа, адаптеры моделей и UI сделаны аккуратно, с настоящей заботой о сохранности пользовательских данных. Проблема не в том, что система плохо построена, а в том, что <strong>три её слоя обещают гарантии, которых не дают</strong>, и один из них стоит 99,9% времени каждого поиска.</p>
+  <p>Замерено: запрос <code>/api/search</code> по CLAP занимает <strong>≈0,84 с</strong> на прогретом кэше (и ≈2,9 с на холодном, при первом касании 8-гигабайтного файла), из которых собственно вычисление косинусной похожести — <strong>2,6 мс</strong>. Это <strong>0,31%</strong>. Остальное — полная перезагрузка библиотеки из SQLite и повторная проверка того, что уже проверено при записи.</p>
+  <p style="font-size:15.5px;color:var(--ink-2)"><strong>Статус — измерено на работающем приложении.</strong> Реальный <code>/api/search</code> на 45 109 треках занимал <strong>3,8 с</strong> и не прогревался: второй и третий вызовы стоили столько же. Сейчас второй вызов стоит <strong>0,05 с</strong> — библиотека читается заново только когда она изменилась.</p>
+</div>
+
+<section id="s0" style="padding-top:44px">
+  <div class="sec-head"><span class="sec-num">00</span><h2>Что сделано после аудита</h2></div>
+  <p class="lede">Тринадцать коммитов в ветке <code>dev</code>, все запушены в <code>origin/dev</code>. <code>main</code> остался на <code>434d8bae</code> и не тронут. Схему БД не изменил ни один коммит: <code>user_version</code> — поле заголовка файла, а не таблица, колонка или индекс.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>Коммит</th><th>Что</th><th>Находка</th></tr></thead>
+    <tbody>
+      <tr><td><code>575d040b</code></td><td>float32-нормы вместо float64; узкий запрос идентичностей</td><td>F1, F2</td></tr>
+      <tr><td><code>08f406d3</code></td><td>кэш ядер ресемплера</td><td>F8</td></tr>
+      <tr><td><code>29711a22</code></td><td>валидация пачкой по стеку вместо построчной</td><td>F1</td></tr>
+      <tr><td><code>c62db0ad</code></td><td>строки как read-only виды стека вместо двух копий</td><td>F1</td></tr>
+      <tr><td><code>774224ec</code></td><td>структурные проверки отданы SQLite</td><td>F1</td></tr>
+      <tr><td><code>3df5f0a1</code></td><td>слой провенанса удалён, −516 строк</td><td>F3, F10</td></tr>
+      <tr><td><code>bdbd89aa</code></td><td>четыре копии цикла окон сведены в одну</td><td>F11</td></tr>
+      <tr><td><code>2e21cd3c</code></td><td>ANN удалён целиком, −2684 строки</td><td>F4, F5, F14, F15</td></tr>
+      <tr><td><code>88cc334b</code></td><td>матрица библиотеки живёт в памяти до изменения хранимых строк</td><td>F1, F9</td></tr>
+      <tr><td><code>e675c077</code></td><td>проверка и стек — один раз на набор строк, а не на поиск</td><td>F1</td></tr>
+      <tr><td><code>8dd94f5d</code></td><td>ранжирование читает столько, сколько нужно ответу, а не k = N</td><td>F1, F4</td></tr>
+      <tr><td><code>0592e797</code></td><td>свежесть кэша датируется счётчиком записей, а не сканом таблицы</td><td>F1</td></tr>
+      <tr><td><code>eb6d6c58</code></td><td>последовательность целей проверяется один раз, а не на каждый поиск</td><td>F1</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Сквозной результат</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Семейство</th><th>Было (origin/main)</th><th>После восьми коммитов</th><th>Сейчас (dev)</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>CLAP</td><td class="num">3937 мс</td><td class="num">1141 мс</td><td class="num ok">53 мс</td><td class="num">74×</td></tr>
+      <tr><td>MuQ</td><td class="num">4377 мс</td><td class="num">1311 мс</td><td class="num ok">71 мс</td><td class="num">62×</td></tr>
+      <tr><td>MERT</td><td class="num">4106 мс</td><td class="num">1224 мс</td><td class="num ok">61 мс</td><td class="num">67×</td></tr>
+      <tr><td>MuLan</td><td class="num">3929 мс</td><td class="num">1110 мс</td><td class="num ok">50 мс</td><td class="num">79×</td></tr>
+      <tr><td>MAEST</td><td class="num">4113 мс</td><td class="num">1164 мс</td><td class="num ok">58 мс</td><td class="num">71×</td></tr>
+    </tbody>
+    <caption>Первый столбец «стало» проверялся вторым сервером на коде origin/main против той же живой базы: 40 пар запросов, 8 сидов × 5 семейств, совпадение до девятого знака. Последние пять коммитов сверялись так же — 40 пар, кэш против принудительно сброшенного кэша; отдельно 144 комбинации семейства, сида, лимита, <code>min_similarity</code>, <code>epsilon</code> и <code>noise</code> прогнаны дважды, с ограниченной глубиной и с принудительно полной. Порядок и счёта совпали везде. Полный pytest зелёный, ruff чист, база не изменялась: mtime, размер и quick_check те же.</caption>
+  </table></div>
+
+  <div class="note">
+    <div class="t">Кэш матрицы — сделан, блокировка снята</div>
+    <p>Аудит объявил его заблокированным по инвалидации, и это было верно ровно для тех двух сигналов, которые я рассматривал: <code>PRAGMA data_version</code> на удерживаемом соединении и счётчик записей в процессе. Проверено ещё раз: на свежем соединении <code>data_version</code> действительно не видит чужих коммитов — возвращает одно и то же значение до и после записи из другого процесса.</p>
+    <p>Выход оказался третьим. Кэш ключуется не счётчиком, который держит процесс, а <strong>тем, как выглядят хранимые строки</strong>: число строк и самый свежий <code>analyzed_at</code> в таблице семейства, число строк и самый свежий <code>updated_at</code> среди текущих треков. Это ловит все три способа устареть — вектор переписан на месте, строка появилась или исчезла, трек вошёл в текущий набор или вышел из него (последнее ещё и переупорядочивает выдачу, потому что идентичности отсортированы по пути файла) — и ловит их <em>от любого писателя</em>, включая анализ, запущенный из CLI против базы, которую держит открытой сервер. Первая версия проверки датировала строки через <code>MAX(analyzed_at)</code> и стоила 153 мс: колонка не проиндексирована, и скан шёл по 45 108 строкам с блобами. Метку времени заменил <code>PRAGMA user_version</code> (<code>0592e797</code>) — поле заголовка файла, не схема, которое каждая пишущая транзакция поднимает перед коммитом, когда блокировка записи уже удерживается. В отличие от <code>data_version</code> его видно на свежем соединении, поэтому анализ из CLI не проходит мимо сервера; он откатывается вместе с транзакцией и читается за 6 микросекунд. Все четыре свойства проверены на втором процессе до того, как на них положились. В проекте это поле не использовалось ни разу — на рабочей базе оно читается как 0, и существующей базе не нужна миграция: она просто начнёт считать со следующей записи. <strong>Проверка свежести стоит теперь около 15 мс</strong>, и всё в ней читает покрывающий индекс или заголовок файла.</p>
+    <p>Кэшированные семейства ограничены 512 МиБ и вытесняются по старшинству: одно семейство стоит 92 МБ (CLAP) — 185 МБ (MuQ) при 45k и 410 МБ при 100k.</p>
+  </div>
+
+  <div class="note killed">
+    <div class="t">Одна правка реализована, измерена и отклонена</div>
+    <p><strong>Снятие write-блокировки с чтения (F9)</strong> — реализовано корректно (отложенная читающая транзакция даёт обоим запросам один снимок: без неё 2 расхождения из 200 под конкурентной записью, с ней ноль). Замер шести одновременных поисков: <strong>с блокировкой 7197 мс, без неё 13356 мс</strong>. Снятие делает конкурентный поиск вдвое медленнее — шесть матриц по 92 МБ разом плюс борьба за GIL. Блокировка оказалась сдерживанием нагрузки, а не дефектом. Правка отброшена.</p>
+  </div>
+</section>
+
+<section id="s1">
+  <div class="sec-head"><span class="sec-num">01</span><h2>Карта системы</h2></div>
+  <p class="lede">Как всё работает на самом деле, а не как выглядит по именам модулей.</p>
+
+  <h3>Путь трека: файл → вектор</h3>
+  <div class="flow">
+    <div class="flow-label">Анализ</div>
+    <div class="flow-line"><span class="node">аудиофайл</span><span class="arrow">→</span><span class="node">torchcodec / FFmpeg</span><span class="arrow">→</span><span class="node">DecodedAudio mono f32</span><span class="arrow">→</span><span class="node">Resample</span><span class="arrow">→</span><span class="node">выбор окон</span><span class="arrow">→</span><span class="node">инференс</span><span class="arrow">→</span><span class="node">пулинг + L2</span><span class="arrow">→</span><span class="node">*_embeddings</span></div>
+  </div>
+  <p>Пять адаптеров (<code>Maest</code>, <code>Mert</code>, <code>Muq</code>, <code>MuqMulan</code>, <code>Clap</code>) повторяют одну семиметодную форму: <code>__init__ / runtime_parameters / preflight / embed_decoded_batch / _embed_decoded_items / _load_model / _device</code>. Общее у них — только <code>_select_windows_torch</code>; цикл вокруг него написан трижды, а MAEST выбирает окна по своей схеме в <code>maest_windows.py</code>.</p>
+
+  <h3>Путь запроса: seed → выдача</h3>
+  <div class="flow">
+    <div class="flow-label">Поиск, как он исполнялся до правок</div>
+    <div class="flow-line"><span class="node">POST /api/search</span><span class="arrow">→</span><span class="node bad">адаптер создаётся и выбрасывается</span><span class="arrow">→</span><span class="node bad">полный скан tracks + ORDER BY</span><span class="arrow">→</span><span class="node bad">45k AnalysisTarget</span><span class="arrow">→</span><span class="node bad">все векторы семейства</span></div>
+    <div class="flow-line"><span class="arrow">→</span><span class="node bad">проверка норм ×2</span><span class="arrow">→</span><span class="node good">matvec 2,6 мс</span><span class="arrow">→</span><span class="node bad">argsort по всей матрице</span><span class="arrow">→</span><span class="node">hydrate</span><span class="arrow">→</span><span class="node">JSON</span></div>
+  </div>
+  <div class="flow proposed">
+    <div class="flow-label">Поиск, как он исполняется сейчас</div>
+    <div class="flow-line"><span class="node">POST /api/search</span><span class="arrow">→</span><span class="node good">отпечаток хранимых строк 153 мс</span><span class="arrow">→</span><span class="node good">матрица из памяти</span><span class="arrow">→</span><span class="node good">matvec 2,6 мс</span><span class="arrow">→</span><span class="node good">top-k нужной глубины</span><span class="arrow">→</span><span class="node">hydrate</span><span class="arrow">→</span><span class="node">JSON</span></div>
+  </div>
+
+  <h3>Границы, которые держат</h3>
+  <ul>
+    <li><code>LibraryDatabase</code> — единственный шлюз к SQLite: 98 строк фасада поверх четырёх миксинов и 8 358 строк в <code>db_*.py</code>. Граница реальная и соблюдается.</li>
+    <li><code>api.create_app</code> → одиннадцать модулей <code>api_routes_*.py</code>. Композиция чистая.</li>
+    <li>Инструменты (<code>audio-dedup</code>, <code>audio-doctor</code>, <code>rhythm-lab</code>) — отдельные пакеты со своими тестами. Изоляция настоящая.</li>
+  </ul>
+
+  <h3>Границы, которые только выглядят границами</h3>
+  <ul>
+    <li><code>AnalysisOutput</code> — «идентичность выхода анализа». На деле <code>(analysis_family, output_kind)</code>: две строки. Всё, что валидируется вокруг неё, сравнивает значение само с собой.</li>
+    <li><code>VectorSearchBackend</code> — «сменный бэкенд поиска». Принимает уже материализованную матрицу аргументом, поэтому индекс со своим хранилищем при такой форме не может ничего ускорить.</li>
+    <li><code>evaluation/</code> — «оценочный контур». Ни один боевой путь ранжирования из него ничего не импортирует.</li>
+  </ul>
+</section>
+
+<section id="s2">
+  <div class="sec-head"><span class="sec-num">02</span><h2>Ключевые находки</h2></div>
+  <p class="lede">Шестнадцать находок по убыванию <code>влияние × уверенность ÷ риск</code>. Всё помеченное CONFIRMED проверено исполнением кода или запросом к вашей базе, а не чтением.</p>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F1</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip crit">Critical</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Поиск · Производительность</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Средний</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Каждый поиск заново собирает всю библиотеку из SQLite</h4>
+      <p><code>SimilaritySearch</code> создаётся внутри обработчика запроса, поэтому его кэш <code>_full_rows</code> не переживает ни одного запроса. На каждый поиск заново: полный скан <code>tracks</code>, конструирование 45 109 объектов <code>AnalysisTarget</code>, чтение всех блобов семейства, повалидная проверка каждой строки, <code>_readonly_copy</code> на каждый вектор, <code>np.vstack</code> в плотную матрицу, проверка норм в float64 — <strong>дважды</strong> — и <code>argsort</code> по всей матрице.</p>
+
+      <div class="note"><div class="t">Поправка после запуска приложения</div>
+      <p>Таблица ниже — разложение по компонентам, снятое отдельными замерами. Профилирование <strong>настоящего</strong> запроса показало, что она пропускала главную статью: <code>validate_embedding_row_payload</code> съедала <strong>3,1 с из 4,5 с</strong>, а внутри неё <code>_is_l2_unit_vector</code> — 2,1 с на 45 109 поштучных вызовов <code>np.linalg.norm</code> + <code>np.isclose</code>. Мой бенчмарк подменял эту функцию дешёвой заглушкой и потому её не видел. Это третья копия проверки норм в системе и самая дорогая из трёх.</p>
+      <p>Вывод аудита («поиск платит за церемонию, а не за косинус») устоял, но конкретные виновники были названы неверно. Исправлено в <code>29711a22</code>: структурная половина валидации осталась поштучной, числовая выполняется один раз над всем стеком; отбраковка по-прежнему построчная. Проверено на живой базе для clap, muq и sonara — совпадают и множества ключей, и сами векторы.</p></div>
+      <span class="f-label">Разложение по компонентам (неполное, см. поправку выше)</span>
+      <div class="tw"><table>
+        <thead><tr><th>Этап</th><th>CLAP 512</th><th>MuQ 1024</th><th>Где</th></tr></thead>
+        <tbody>
+          <tr><td>Скан tracks + ORDER BY</td><td class="num hi">195 мс</td><td class="num hi">195 мс</td><td>read_current_track_rows</td></tr>
+          <tr><td>45k AnalysisTarget</td><td class="num">34,8 мс</td><td class="num">34,8 мс</td><td>_selected_targets</td></tr>
+          <tr><td>Чтение блобов</td><td class="num">188 мс</td><td class="num">341 мс</td><td>read_valid_embeddings</td></tr>
+          <tr><td>Повалидная валидация</td><td class="num">87,2 мс</td><td class="num">87,2 мс</td><td>validate_embedding_row_payload</td></tr>
+          <tr><td>45k _readonly_copy</td><td class="num">67,6 мс</td><td class="num">67,6 мс</td><td>_readonly_copy</td></tr>
+          <tr><td>vstack → матрица</td><td class="num">86,3 мс</td><td class="num">106 мс</td><td>search._matrix</td></tr>
+          <tr><td>Проверка норм №1</td><td class="num">99,8 мс</td><td class="num">200 мс</td><td>search._matrix</td></tr>
+          <tr><td>Проверка норм №2 — дубль</td><td class="num hi">101 мс</td><td class="num hi">204 мс</td><td>vector_index._l2_search_matrix</td></tr>
+          <tr><td>argsort по всей матрице</td><td class="num">3,0 мс</td><td class="num">2,8 мс</td><td>ExactVectorSearchBackend</td></tr>
+          <tr><td><strong>Косинус — полезная работа</strong></td><td class="num ok">2,6 мс</td><td class="num ok">4,7 мс</td><td>matrix @ query</td></tr>
+          <tr><td><strong>Итого на запрос (прогретый кэш)</strong></td><td class="num hi">≈843 мс</td><td class="num hi">≈1243 мс</td><td></td></tr>
+          <tr><td><strong>Доля полезной работы</strong></td><td class="num hi">0,31%</td><td class="num hi">0,38%</td><td></td></tr>
+          <tr><td>То же на холодном кэше</td><td class="num">≈2,9 с</td><td class="num">≈3,2 с</td><td>первое касание файла 8 ГБ</td></tr>
+        </tbody>
+        <caption>Замер в режиме read-only на рабочей базе, кэш ОС прогрет. Первый замер этого аудита дал 2172 мс на скане — это была холодная страница 8-гигабайтного файла; цифра исправлена. Матрица CLAP — 92 МБ, MuQ — 185 МБ; временная float64 при проверке норм — 185 и 370 МБ, создавалась дважды за запрос (устранено в 575d040b).</caption>
+      </table></div>
+
+      <span class="f-label">Почему это важно</span>
+      <p>При 100k треков MuQ-матрица станет 410 МБ, а временная float64 — 820 МБ, дважды на запрос. Проблема не в будущем масштабировании: она уже здесь. Библиотека между запросами не меняется — перечитывается неизменившееся.</p>
+
+      <span class="f-label">Что сделать</span>
+      <p>Поиску не нужен ни <code>ORDER BY</code>, ни join к <code>sonara_features</code>, ни 45k dataclass-объектов. Читать <code>(track_id, track_uuid, embedding_blob)</code> одним запросом из таблицы семейства с join к <code>tracks</code> по <code>missing_since IS NULL</code>; собирать матрицу через <code>np.frombuffer</code> в предвыделенный массив вместо <code>vstack</code> из 45k кусков; проверять нормы <strong>один раз при записи</strong>; держать матрицу семейства в процессе, сбрасывая по счётчику записей анализа. Схема не трогается.</p>
+
+      <span class="f-label">Итог — закрыто</span>
+      <p>Пять коммитов (<code>575d040b</code>, <code>29711a22</code>, <code>c62db0ad</code>, <code>774224ec</code> и часть <code>3df5f0a1</code>): нормы во float32 вместо float64 и без дубля, узкий запрос идентичностей, валидация пачкой, строки как виды одного стека вместо двух копий, структурные проверки отданы SQLite. Профилирование показало, что SQL — лишь 7% запроса, остальное было построчным Python: dict-копия, объект идентичности, три текстовых проверки, два <code>frombuffer</code> и <strong>восемнадцать</strong> <code>isinstance</code> на каждую из 45 108 строк.</p>
+      <p>Сквозной результат — <strong>3,3×</strong>, см. раздел 00. <code>load_analysis_vectors</code>: CLAP 1072→673 мс, MuQ 1210→824, MERT 974→735.</p>
+      <p><strong>Кэш матрицы сделан</strong> (<code>88cc334b</code>) — сигнал инвалидации описан в разделе 00. Следом (<code>e675c077</code>) перестали повторяться и две чистые функции над теми же строками: проверка 45 108 строк и <code>vstack</code> во вторую такую же матрицу. Обе выполняются один раз на набор строк; ничего не снято, изменилась только частота.</p>
+      <p>Третьим коммитом (<code>8dd94f5d</code>) ушла и последняя O(N)-работа: цель ранжирования и карта идентичностей считаются один раз на набор строк, а бэкенд больше не строит объект попадания на каждый из 45 108 треков — глубина ограничена доказуемой границей, см. F4.</p>
+      <p>Ещё два коммита убрали последние повторы: свежесть кэша датируется счётчиком записей вместо скана таблицы (<code>0592e797</code>, раздел 00), а последовательность целей проверяется один раз на объект, а не пятью проходами по 45 108 целям на каждый вызов бэкенда (<code>eb6d6c58</code>). Это и была «проверка норм №2 — дубль» из таблицы выше, только для целей.</p>
+      <p>Тёплый запрос: <strong>1141 → 53 мс</strong> для CLAP, 50–71 мс по пяти семействам; против <code>origin/main</code> это <strong>3937 → 53 мс</strong>. Ничего крупнее единиц миллисекунд в нём не осталось: около 15 мс — проверка свежести, около 12 мс — сам бэкенд с косинусом и сортировкой, остальное — два обращения к базе за идентичностями.</p>
+
+      <span class="f-label">Файлы</span>
+      <p class="paths">search.py <code>_load_full_rows</code> · <code>_PreparedRows</code> · <code>_stack</code> · <code>_rank</code> — db_analysis.py <code>load_analysis_vectors</code>, <code>_library_vector_fingerprint</code>, <code>_selected_targets</code> — db_embeddings.py <code>read_valid_embeddings</code> — vector_index.py <code>_l2_search_matrix</code></p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F2</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip crit">Critical</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Персистентность</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Доминирующий запрос опирается на индекс, покрывающий ровно исключаемые им строки</h4>
+      <p>195 мс из 843 — это <code>read_current_track_rows</code>. Реальный план выполнения на вашей базе:</p>
+      <div class="tw"><table>
+        <thead><tr><th>Шаг плана</th><th>Что это значит</th></tr></thead>
+        <tbody>
+          <tr><td>SCAN tracks</td><td>полный скан 45 109 строк</td></tr>
+          <tr><td>SEARCH sonara USING INTEGER PRIMARY KEY</td><td>45k точечных заходов в широкую <code>sonara_features</code> внутри файла на 8 ГБ</td></tr>
+          <tr><td>USE TEMP B-TREE FOR ORDER BY</td><td>временное B-дерево на 45k строк ради <code>file_path COLLATE NOCASE</code></td></tr>
+        </tbody>
+      </table></div>
+      <p>Единственный индекс на <code>tracks</code>, помимо автоиндексов:</p>
+      <div class="flow"><div class="flow-line wrap-ok">CREATE INDEX idx_tracks_missing ON tracks(missing_since, track_id)
+  <span class="node bad">WHERE missing_since IS NOT NULL</span></div></div>
+      <p>Условие индекса — <strong>дополнение</strong> к условию запроса (<code>WHERE missing_since IS NULL</code>). Он не может быть использован никогда: индекс покрывает ровно те строки, которые запрос отбрасывает.</p>
+      <span class="f-label">Что сделать</span>
+      <p>Индекс не добавлять. <code>read_current_track_rows</code> написан для конвейера подбора кандидатов на анализ, где и порядок, и колонки SONARA осмысленны; поиску он не нужен вовсе. <strong>Сделано в <code>575d040b</code>:</strong> добавлен <code>read_current_track_identities</code> с тем же <code>ORDER BY</code> — 195→76 мс, последовательность из 45 109 строк совпадает побайтово. Схема не тронута.</p>
+      <span class="f-label">Файлы</span>
+      <p class="paths">db_analysis.py <code>read_current_track_rows</code>, <code>_selected_targets</code></p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F3</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip crit">Critical</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Провенанс · Архитектура</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Провенанс не хранится, а слой, изображающий его проверку, выбрасывает всё</h4>
+      <p>Функция, к которой сходятся все пять построителей выходов:</p>
+      <div class="flow"><div class="flow-line wrap-ok">def _embedding_output(*, family, model_name, model_version,
+                      checkpoint_id, preprocessing, parameters):
+    <span class="node bad">del model_name, model_version, checkpoint_id, preprocessing, parameters</span>
+    return AnalysisOutput(analysis_family=family, output_kind="embedding")</div></div>
+      <p>И проверка «активности» выхода:</p>
+      <div class="flow"><div class="flow-line wrap-ok">def require_active_analysis_outputs(connection, outputs):
+    <span class="node bad">del connection</span>
+    return normalize_analysis_outputs(outputs)</div></div>
+      <p>Функция, имя которой обещает проверку в базе, к базе не обращается. <code>AnalysisOutput</code> несёт ровно два поля. В таблицах <code>*_embeddings</code> лежат только <code>track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at</code> — ни версии модели, ни хеша чекпоинта, ни параметров препроцессинга.</p>
+      <p>Проверка в <code>search._validate_rows</code> — <code>row.output.key != output.key</code> — тавтологична: <code>load_analysis_vectors</code> присваивает <code>AnalysisVectorRow.output</code> из того самого параметра, с которым потом сравнивает. Условие недостижимо.</p>
+
+      <span class="f-label">Что сделать</span>
+      <p>Схема не растёт — значит <code>AnalysisOutput</code> навсегда останется парой строк, и весь слой вокруг него балласт. Удалить: пять <code>*_embedding_output</code> и их <code>*_analysis_output</code>-двойников (~340 строк), <code>_with_ml_runtime_identity</code>, <code>_merge_parameters</code>, <code>_validate_window_ratios</code>, <code>_ML_PARAMETER_DEFAULTS</code>, <code>require_active_analysis_outputs</code>, <code>current_embedding_analysis_output</code> и тавтологические ветки в <code>search.py</code>. На месте цепочки из пяти вызовов остаётся литерал <code>("clap", "embedding")</code>.</p>
+
+      <div class="note">
+        <div class="t">Что при этом честно признать</div>
+        <p>Совместимость сохранённых векторов с текущей моделью не гарантирована и сейчас — код лишь маскирует это. Ваш коммит <code>6a8b8d0c</code> (пиннинг аудио-башни MuQ-MuLan) ровно такой случай: если веса башни отличались от тех, что породили 45 108 хранимых MuLan-векторов, система об этом не узнает. После удаления слоя проблема станет видимой, и решать её надо дешёвым способом — явной операцией «переанализировать семейство», а не невидимым контрактом в схеме.</p>
+      </div>
+
+      <span class="f-label">Сделано в <code>3df5f0a1</code></span>
+      <p>632 строки удалено, 116 добавлено, чистыми <strong>−516</strong>. Ушли пять построителей, <code>_embedding_output</code>, <code>_with_ml_runtime_identity</code>, <code>_merge_parameters</code>, <code>_validate_window_ratios</code>, <code>_ML_PARAMETER_DEFAULTS</code>, стострочный диспетчер и построение адаптера на запрос. <code>require_active_analysis_outputs</code> заменён на <code>normalize_analysis_outputs</code> у всех девяти вызывающих — валидация там настоящая, обманчивым было имя.</p>
+      <div class="note"><div class="t">Поправка: одна проверка оказалась не тавтологией</div>
+      <p><code>row.output.key != output.key</code> в <code>_validate_rows</code> <strong>оставлена</strong>. Для единственной боевой реализации она действительно недостижима, но <code>AnalysisSearchRepository</code> — протокол, и в наборе есть заглушки; проверка сторожит границу интерфейса, а не повторяет факт. Назвав её тавтологичной, я спутал конкретный класс с протоколом.</p>
+      <p><code>_adapter_identity</code> тоже <strong>не удалён</strong>: он требует непустых <code>model_name</code>, <code>model_version</code>, <code>preprocessing</code> и строчного sha256 в <code>checkpoint_id</code>. Проверка сохранена там, где адаптер уже построен и анализ вот-вот пойдёт в веса; поиск, который модель не грузит, больше адаптер не строит. Контракт закреплён двумя новыми тестами.</p></div>
+      <span class="f-label">Файлы</span>
+      <p class="paths">analysis_models.py L478–L820 · L571 <code>_embedding_output</code> — analysis_model_runners.py <code>embedding_analysis_output</code>, <code>current_embedding_analysis_output</code> — db_analysis.py <code>require_active_analysis_outputs</code> — search.py L532 <code>_validate_rows</code></p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F4</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip high">High</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Архитектура · ANN</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Средний</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Абстракция бэкенда устроена так, что индекс принципиально не может помочь</h4>
+      <p>Контракт: <code>search(matrix, targets, query, limit)</code>. Матрица приходит <strong>аргументом</strong> — значит вызывающий обязан сначала полностью её материализовать, и любой индекс, владеющий своим хранилищем, экономит только сортировку, но не загрузку. Поверх этого <code>_rank</code> зовёт бэкенд с <code>limit=len(targets)</code>, то есть просит <em>k = N</em> соседей — запрос, при котором ANN бессмысленнее всего.</p>
+      <div class="flow">
+        <div class="flow-label">Сейчас</div>
+        <div class="flow-line"><span class="node">_rank</span><span class="arrow">→</span><span class="node bad">полная матрица уже в памяти</span><span class="arrow">→</span><span class="node">backend.search(matrix, …, limit=N)</span><span class="arrow">→</span><span class="node bad">экономия только на argsort</span></div>
+      </div>
+      <div class="flow proposed">
+        <div class="flow-label">Предлагается</div>
+        <div class="flow-line"><span class="node">_rank</span><span class="arrow">→</span><span class="node good">backend.search(query, k)</span><span class="arrow">→</span><span class="node good">бэкенд владеет векторами</span><span class="arrow">→</span><span class="node">точное доранжирование top-k</span></div>
+      </div>
+      <div class="note killed"><div class="t">Снято — вопрос отпал вместе с ANN</div>
+      <p>Инвертировать контракт было предложено, чтобы индекс смог приносить пользу. Замер показал, что польза не нужна: подключение ANN имело потолок <strong>0,64–0,76%</strong> (5,2 мс из 816 для CLAP, 7,9 из 1044 для MuQ), а точный косинус по кэшированной матрице стоит <strong>6,0 мс на 100 000 треков и 27 мс на 250 000</strong>. ANN на этом масштабе не нужен вовсе, поэтому ANN удалён (<code>2e21cd3c</code>), а контракт оставлен как есть: <code>ExactVectorSearchBackend</code> — единственный бэкенд, протокол сохранён, потому что <code>SimilaritySearch</code> принимает внедряемый бэкенд и тесты им пользуются.</p></div>
+      <div class="note"><div class="t">Вторая половина находки закрыта — <code>8dd94f5d</code></div>
+      <p>Инвертировать контракт было не нужно, а вот <code>limit=len(targets)</code> — нужно. Бэкенд строил объект попадания на каждый из 45 108 треков, чтобы вернуть пятьдесят. Глубина теперь начинается с <code>limit + len(excluded)</code> и удваивается, пока не станет доказуемо достаточной, и граница именно доказуемая, а не подобранная: попадания идут по убыванию счёта, <code>min_similarity</code> и <code>epsilon</code> отрезают только хвост этого порядка, порог <code>epsilon</code> задаётся первым кандидатом и может лишь сужать набор, исключённые сиды убирают не больше <code>len(excluded)</code>, а детерминированный джиттер сдвигает счёт не больше чем на <code>noise/2</code>. При <code>noise = 0</code> — а это значение по умолчанию — первый же запрос окончателен: порядок ранжирования совпадает с порядком счёта, а устойчивая сортировка при равенстве оставляет более раннее попадание впереди.</p>
+      <p>Сверено с полной глубиной на живой библиотеке: 144 комбинации семейства, сида, лимита, <code>min_similarity</code>, <code>epsilon</code> и <code>noise</code> — включая <code>noise = 1,0</code>, где джиттер перекрывает всю полосу счётов, — каждая прогнана дважды. Все пары совпали, включая многосидовый центроид. Тест закрепляет тот же инвариант через внедряемый бэкенд и падает, если убрать запас на <code>noise</code>.</p>
+      <p><strong>Что изменилось в поведении:</strong> нечисловой счёт, вернувшийся из бэкенда <em>глубже</em>, чем дотягивается ответ, больше не отвергается — это попадание просто не читают. Каждый счёт, доходящий до результата, проверяется как раньше.</p></div>
+      <span class="f-label">Файлы</span>
+      <p class="paths">vector_index.py L28 <code>VectorSearchBackend</code> · L48 <code>ExactVectorSearchBackend</code> — search.py L465 <code>_rank</code> · L480 <code>limit=len(targets)</code></p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F5</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip high">High</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Мёртвая архитектура</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Две реализации ANN, ни одна не на пути продукта</h4>
+      <div class="tw"><table>
+        <thead><tr><th>Реализация</th><th>Строк</th><th>Кто использует</th><th>Состояние</th></tr></thead>
+        <tbody>
+          <tr><td>ann_index.py — персистентный</td><td class="num">1578</td><td>только cli.py + 2 файла тестов</td><td class="hi">API не использует никогда</td></tr>
+          <tr><td>PersistentAnnVectorSearchBackend</td><td class="num">—</td><td>одна точка: cli.py L1308, флаг <code>--use-ann-index</code></td><td class="hi">и там F1 всё равно грузит всё</td></tr>
+          <tr><td>HnswVectorSearchBackend</td><td class="num">~80</td><td>только scripts/benchmark_search.py</td><td class="hi">строит индекс внутри каждого search()</td></tr>
+        </tbody>
+      </table></div>
+      <p><code>HnswVectorSearchBackend.search()</code> вызывает <code>_build_index()</code> внутри себя: построение HNSW-графа по N векторам на каждый запрос заведомо дороже одного умножения матрицы на вектор, которое оно призвано заменить. Это не оптимизация, а пессимизация.</p>
+      <span class="f-label">Сделано в <code>2e21cd3c</code> — удалено целиком</span>
+      <p><strong>2684 строки удалено, 7 добавлено.</strong> Ушли <code>ann_index.py</code>, оба файла тестов, четыре команды <code>dj-sim index</code>, флаги <code>--use-ann-index</code> и <code>--index-dir</code>, <code>HnswVectorSearchBackend</code> с <code>create_vector_backend</code>, extra <code>ann</code>, выбор <code>--vector-backend</code> в benchmark-скрипте, страница документации и строки таблиц о них.</p>
+      <p>Отдельная деталь: <code>hnswlib</code> в окружении <strong>не установлен</strong> — ни один из двух ANN-путей здесь не запускался ни разу. Поэтому утверждение «транзиентный бэкенд — пессимизация» опирается на конструкцию, а не на замер: <code>add_items</code> по всем векторам вызывается внутри каждого <code>search()</code>, а построить индекс по N точкам быстрее, чем один раз просканировать N точек, нельзя.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F6</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip low">Low</span> <span style="color:var(--ink-3)">было High</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>ФАКТ ВЕРЕН · ДИАГНОЗ ОШИБОЧЕН</span></div>
+      <div class="f-row"><span>Область</span><span>MIR · Качество</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Высокий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Нормировка окна добавлена там, где её не предписывает ни один контракт — и это MuQ, а не MERT</h4>
+      <div class="tw"><table>
+        <thead><tr><th>Семейство</th><th>Род модели</th><th>Окно</th><th>L2 на окно</th><th>Пулинг трека</th></tr></thead>
+        <tbody>
+          <tr><td>MERT</td><td>SSL-представление</td><td class="num">5,0 с ×5</td><td>нет</td><td>среднее сырых → L2</td></tr>
+          <tr><td>MAEST</td><td>супервизия, Discogs</td><td class="num">30 с ×3</td><td>нет</td><td>среднее сырых → L2</td></tr>
+          <tr><td>MuQ</td><td>SSL-представление</td><td class="num">10,0 с ×5</td><td class="hi">да</td><td>среднее единичных → L2</td></tr>
+          <tr><td>MuQ-MuLan</td><td>контрастивная, совместное пространство</td><td class="num">10,0 с ×5</td><td class="ok">да, нативно</td><td>среднее единичных → L2</td></tr>
+          <tr><td>CLAP</td><td>контрастивная, совместное пространство</td><td class="num">10,0 с ×5</td><td class="ok">да, нативно</td><td>среднее единичных → L2</td></tr>
+        </tbody>
+        <caption>Род модели — по её собственной карте: MuQ описан как «pre-trained via Self-Supervised Learning (SSL)», MuQ-MuLan — как «music-text joint embedding model trained via contrastive learning».</caption>
+      </table></div>
+      <p>Разделение проходит не там, где я провёл его в первой редакции. У контрастивных моделей выход по построению живёт на единичной сфере — нормировка их окон нативна. У представлений (MERT, MuQ, MAEST) такого контракта нет: их выход — сырые скрытые состояния, и нормировать окно перед усреднением значит добавить шаг, которого модель не предписывала.</p>
+      <p>Из трёх представлений так делает <strong>только MuQ</strong>: <code>last_hidden_state</code> усредняется по времени, затем <code>_normalize_rows</code> приводит каждое окно к единичной длине, и лишь потом окна складываются. MERT и MAEST усредняют сырые окна. Три модели одного рода обработаны двумя разными способами, и ни один контракт не говорит, какой из них верен.</p>
+      <div class="note killed"><div class="t">Поправка владельца — это не дрейф, а контракт модели</div>
+      <p>Вопрос «разве MERT не задаёт чёткий контракт снятия эмбеддингов» оказался решающим. Задаёт. Карта модели <code>m-a-p/MERT-v1-95M</code> (ревизия <code>12af15fe</code>, на которую мы закреплены) прямо предписывает агрегацию: «for utterance level classification tasks, you can simply reduce the representation in time» — <code>all_layer_hidden_states.mean(-2)</code>. Среднее по времени по сырым скрытым состояниям. Никакой L2 в контракте нет.</p>
+      <p>И наш код ему следует. Окна у нас равной длины — <code>_select_windows_torch</code> нарезает ровно <code>window_size</code> отсчётов, пять штук, для любого трека длиннее пяти секунд (в библиотеке минимум 120 с). А среднее пяти средних по равным окнам <em>тождественно</em> среднему по времени по всем 25 секундам выборки. То есть MERT у нас считается ровно так, как написано в карте, просто по пяти вырезкам, а не по всему треку. L2 на окно этот контракт бы <strong>сломал</strong>: результат стал бы зависеть от громкости окна способом, которого модель нигде не предписывает.</p>
+      <p>Сопоставление с CLAP, MuQ и MuQ-MuLan было неправомерным. Это контрастивные модели совместного пространства: их выход по построению живёт на единичной сфере, и усреднение единичных векторов — их собственная конвенция. MERT — self-supervised представление, у него конвенция другая. Три семейства «сошлись» не потому, что MERT отстал, а потому что они одного рода, а MERT другого. Находка снята как дефект: факт различия верен, вывод «дрейф» — нет.</p></div>
+      <span class="f-label">Что здесь действительно открыто</span>
+      <p><strong>Нормировка окна у MuQ.</strong> Она добавлена нами, а не моделью. Протокол самих авторов для downstream-задач — «we set windows of 10-seconds as inputs to get the features respectively, then combine the results» (arXiv:2501.01108) — способа объединения не оговаривает. Значит, вопрос «нормировать окно MuQ или нет» решается замером, а не чтением, и сравнивать надо с MERT и MAEST, которые этого не делают.</p>
+      <p><strong>Выбор слоёв.</strong> Карта MERT: «each layer performs differently in different downstream tasks, you should choose empirically». Мы берём среднее последних четырёх (<code>hidden_states[-4:]</code>, слои 9–12 из 13) — выбор не измерялся ни разу. У MuQ мы берём верхний слой, и статья это скорее поддерживает: «semantic tasks, such as genre classification and structure analysis, generally achieve the best results at the higher layers», тогда как акустические задачи выигрывают на нижних.</p>
+      <div class="note killed"><div class="t">Оба вопроса замерены — менять нечего</div>
+      <p>773 трека с разметкой Rhythm Lab по четырём осям, точность ближайших соседей (k=5) с исключением себя. Один форвард на окно, из него собраны все варианты, так что сравниваются пространства, а не прогоны.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Вариант</th><th>break_energy</th><th>voice_presence</th><th>live_instr.</th><th>minimal_deep</th><th>среднее</th></tr></thead>
+        <tbody>
+          <tr><td>MuQ, нормировка окна — как сейчас</td><td class="num">0,7050</td><td class="num">0,7600</td><td class="num">0,7150</td><td class="num">0,7940</td><td class="num ok">0,7435</td></tr>
+          <tr><td>MuQ, среднее сырых окон</td><td class="num">0,6900</td><td class="num">0,7700</td><td class="num">0,7250</td><td class="num">0,7839</td><td class="num">0,7422</td></tr>
+          <tr><td>MERT, слои 9–12 — как сейчас</td><td class="num">0,7650</td><td class="num">0,6450</td><td class="num">0,7150</td><td class="num">0,8191</td><td class="num">0,7360</td></tr>
+          <tr><td>MERT, слой 6</td><td class="num">0,7350</td><td class="num">0,7200</td><td class="num">0,7450</td><td class="num">0,7538</td><td class="num ok">0,7384</td></tr>
+          <tr><td>MERT, последний слой</td><td class="num">0,8350</td><td class="num">0,6150</td><td class="num">0,6750</td><td class="num">0,8141</td><td class="num">0,7348</td></tr>
+          <tr><td>MERT, слой 9</td><td class="num">0,6950</td><td class="num">0,6550</td><td class="num">0,7850</td><td class="num">0,7940</td><td class="num">0,7322</td></tr>
+          <tr><td>MERT, слои 5–8</td><td class="num">0,7100</td><td class="num">0,6850</td><td class="num">0,7550</td><td class="num">0,7588</td><td class="num">0,7272</td></tr>
+          <tr><td>MERT, среднее всех тринадцати</td><td class="num">0,6500</td><td class="num">0,6250</td><td class="num">0,7800</td><td class="num">0,7889</td><td class="num hi">0,7110</td></tr>
+        </tbody>
+        <caption>Около 200 размеченных треков на ось, стандартная ошибка порядка 0,03. Всё, кроме последней строки, лежит в одной полосе шириной 0,027.</caption>
+      </table></div>
+      <p><strong>Нормировка окна MuQ:</strong> 0,7435 против 0,7422 — ничья. Текущий вариант выигрывает на <code>break_energy</code> и <code>minimal_deep_tech</code>, сырое среднее — на <code>voice_presence</code> и <code>live_instrumentation</code>. Разница вчетверо меньше стандартной ошибки. Оставлено как есть.</p>
+      <p><strong>Слои MERT:</strong> лучший вариант — шестой слой, 0,7384 против 0,7360 у текущего, то есть +0,0024 при ошибке 0,03. И выигрыш неоднородный: шестой слой заметно лучше на голосе (0,7200 против 0,6450) и живых инструментах, но заметно хуже на <code>minimal_deep_tech</code> (0,7538 против 0,8191) и на брейках. Ни один слой не выигрывает по всем осям, а значит выбор упирается в то, какая ось важнее — это уже слух владельца, а не замер. Оставлено как есть.</p>
+      <p>Единственный уверенный сигнал во всей таблице — что усреднять все тринадцать слоёв <em>хуже</em> (0,7110, ниже полосы на всех осях кроме одной). Мы так и не делаем.</p></div>
+      <span class="f-label">Файлы</span>
+      <p class="paths">embedding.py L462–L468 (MERT) — L1637 <code>_average_l2_window_embeddings</code> (MuQ, MuLan) — L1034 <code>_normalize_rows</code> (CLAP)</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F7</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip high">High</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Оценка · Архитектура</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>7 219 строк оценочного контура против одного размеченного примера</h4>
+      <div class="tw"><table>
+        <thead><tr><th>Данные для оценки</th><th>Строк в БД</th></tr></thead>
+        <tbody>
+          <tr><td>pair_feedback — суждения о похожести пар</td><td class="num hi">1</td></tr>
+          <tr><td>transition_feedback — суждения о сведении</td><td class="num hi">0</td></tr>
+          <tr><td>likes</td><td class="num">9</td></tr>
+          <tr><td>text_preset_feedback</td><td class="num">45</td></tr>
+          <tr><td>Rhythm Lab classifier_labels</td><td class="num ok">4573</td></tr>
+        </tbody>
+        <caption>Единственная строка pair_feedback имеет rating=0 и источник reference_compare:sonara.</caption>
+      </table></div>
+      <p>Пакет <code>evaluation/</code> содержит оптимизатор профилей скоринга (1044 строки), аблации (775), развёртки риска (798), калибровку (532), RRF-фьюжн взвешенных пулов (638). Оптимизировать веса не на чем.</p>
+      <p>И даже будь данные, контур не замкнут: ни <code>api_routes_search.py</code>, ни <code>sonara_similarity.py</code>, ни <code>sonara_similarity_scoring.py</code> не импортируют <code>evaluation.*</code>. Профили доходят только до CLI и <code>api_routes_evaluation</code>.</p>
+      <div class="note">
+        <div class="t">Справедливости ради</div>
+        <p>Рабочий оценочный контур у проекта <strong>есть</strong> — Rhythm Lab с 4 573 метками плюс <code>scripts/text_prompt_benchmark.py</code>. Именно им получены ваши выводы про MuLan и CLAP по осям. Но это метки <em>классификатора по трекам</em>, а не суждения о похожести пар, и пакет <code>evaluation/</code> к ним отношения не имеет.</p>
+      </div>
+      <div class="note"><div class="t">Решено владельцем — контур кормим</div>
+      <p>И формулировка «контур ни к чему не подключён» оказалась <strong>неточной</strong>. К боевому ранжированию — да, профиль не меняет выдачу, пока его не применят намеренно. Но <em>измерительный</em> контур замкнут полностью, и это проверено прогоном на живой библиотеке.</p></div>
+      <span class="f-label">Проверенный рецепт</span>
+      <div class="flow"><div class="flow-line wrap-ok">1. dj-sim eval export-candidates --db database/volumes.sqlite        --output pool.csv --seed-track-id N [ещё сиды]        --source clap --source muq --per-source 5
+
+2. Заполнить колонку rating (0–3) в pool.csv
+
+3. dj-sim eval import-pair-feedback --db database/volumes.sqlite --input pool.csv
+
+4. dj-sim eval report --db database/volumes.sqlite --output report.json</div></div>
+      <p>Шаги 1 и 4 прогнаны на вашей базе: <strong>30 кандидатов по 3 сидам, 3 сессии записаны</strong>, <code>sessions_total</code> в отчёте вырос с 0 до 3. Лист судейства слепой — кандидаты перемешаны детерминированным сидом, источник в них не виден, есть контекст: артист, трек, BPM, тональность, энергия. Шаг 3 намеренно не запускался: синтетические оценки отравили бы ровно ту таблицу, которую предстоит наполнять.</p>
+      <p><strong>Ключи сходятся</strong> — это то, что могло сорвать вечер: лист экспортируется с <code>source=manual</code>, а <code>_matching_label_for_seed</code> падает на <code>manual</code> как на запасной ключ для событий любого источника. Судейство засчитается всем пяти семействам сразу.</p>
+      <p>Почему единственная существующая строка не считается: кнопки вердикта в <code>ReferenceComparePanel</code> пишут <code>source=reference_compare:sonara</code> <strong>без записанной сессии</strong>. Это отдельная поверхность от CLI-процесса, вокруг которого построены метрики — отсюда <code>pair_feedback: 1</code> при <code>judged_pairs: 0</code>.</p>
+      <p><strong>Порог:</strong> отчёт сам говорит — менее 50 сопоставленных пар недостаточно для диагностики качества поиска. Дальше <code>can_create_candidate_profile</code> и <code>can_update_defaults</code> открывают следующие ступени.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F8</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip low">Low</span> <span style="color:var(--ink-3)">было High</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Анализ · Производительность</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Ресемплер строится заново на каждый трек, в трёх местах</h4>
+      <p><code>torchaudio.transforms.Resample(decoded.sample_rate, target_rate)</code> вызывается <strong>внутри цикла по трекам</strong> — и не в трёх местах, как я написал сначала, а в <strong>четырёх</strong>: MAEST тоже строит свой. Это не функция, а модуль: конструктор считает ядро фильтра. Пар частот в библиотеке единицы (44,1 / 48 кГц → 24 кГц), а ядер строится по числу треков: на полный прогон 45k треков по пяти семействам — порядка 225 000 построений вместо двух.</p>
+      <p><strong>Замеренный масштаб скромнее, чем я оценивал:</strong> одно построение ядра — около 0,4 мс, то есть ~18 с на семейство за полный прогон, ~90 с суммарно. Это реальная, но не драматическая экономия; держать её в списке стоит из-за нулевого риска, а не из-за величины.</p>
+      <span class="f-label">Сделано в <code>08f406d3</code></span>
+      <p>Модульный кэш <code>{(orig_sr, target_sr): Resample}</code> под тем же паттерном блокировки, что уже используется в файле для конструирования MuQ и CLAP. Идентичность выхода проверена через <code>torch.equal</code> — точным сравнением, не допуском — для 44,1к и 48к в 24к. Все четыре места переведены на него.</p>
+      <span class="f-label">Файлы</span>
+      <p class="paths">embedding.py L424 (MERT) · L1016 (CLAP) · L1676 <code>_prepare_muq_compatible_windows</code> (MuQ + MuLan)</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F9</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip med">Medium</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Конкурентность</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Средний</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Чтение под write-блокировкой и новое соединение на каждый вызов</h4>
+      <p><code>load_analysis_vectors</code> — чистое чтение — берёт <code>self._write_lock</code> и открывает свежее соединение через <code>closing(self.connect())</code>. В <code>db_analysis.py</code> таких мест 15. Следствие: два поиска сериализуются друг относительно друга, а поиск во время анализа ждёт запись. При трёхсекундном поиске (F1) это заметно в UI.</p>
+      <p>Дополнительно: при поиске с seed-треками <code>_load_rows</code> делает <strong>два</strong> обращения — сначала точечное по seed'ам как «шлюз устаревания», затем полную загрузку. Два захвата блокировки и два соединения на один запрос.</p>
+      <div class="note killed"><div class="t">Реализовано, измерено, отклонено — находка была ошибочной</div>
+      <p>Правка сделана корректно: одна отложенная читающая транзакция даёт обоим запросам общий снимок вместо блокировки. Проверено на конкурентной записи — без транзакции 2 расхождения из 200, с ней ноль.</p>
+      <p>Но замер шести одновременных поисков: <strong>с блокировкой 6624→7197 мс (×0,92), без неё 6671→13356 мс (×0,50)</strong>. Снятие блокировки делает конкурентный поиск <strong>вдвое медленнее</strong>: шесть запросов в полёте — шесть матриц по 92 МБ разом плюс борьба за GIL на построчной работе. Блокировка сдерживает нагрузку, а не мешает. Правка отброшена, в репозитории её нет.</p>
+      <p>Настоящее лекарство здесь — общая матрица, а не снятие замка: при одном кэшированном массиве нечего сериализовать и нечем забивать память. Так и вышло. Шесть одновременных поисков занимают теперь <strong>670 мс</strong> против 7197 мс, и это на 10% дороже тех же шести поисков подряд (610 мс) — то есть конкуренция перестала быть платой. Результаты совпадают с последовательным прогоном. Блокировка осталась на месте: лечили не её.</p></div>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F10</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip med">Medium</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Архитектура</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Объект адаптера модели создаётся на каждый запрос ради двух строк</h4>
+      <p><code>current_embedding_analysis_output(family, device)</code> инстанцирует полноценный <code>MaestEmbeddingAdapter</code> / <code>ClapEmbeddingAdapter</code> и т.д., чтобы вычислить <code>("clap", "embedding")</code>, после чего адаптер выбрасывается. Вызывается на каждом <code>/api/search</code> и <code>/api/search/random-track</code>. Веса не грузятся, но конструктор выполняется. Удаляется вместе со слоем F3.</p>
+      <span class="f-label">Сделано в <code>3df5f0a1</code></span>
+      <p>Функция больше не строит адаптер: она проверяет имя семейства и возвращает пару строк. Проверка идентичности адаптера сохранена в <code>embedding_analysis_output</code>, куда адаптер и так приходит готовым.</p>
+      <span class="f-label">Файлы</span>
+      <p class="paths">analysis_model_runners.py <code>current_embedding_analysis_output</code> — api_routes_search.py L99, L128</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F11</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip med">Medium</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Дублирование препроцессинга</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Средний</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Один цикл подготовки окон написан трижды</h4>
+      <p>Последовательность «привести к float32 → ресемплить → выбрать окна → дополнить → сложить в общий список с индексами по трекам» существует в трёх копиях: встроенной в MERT (L407–433), встроенной в CLAP (L1011–1025) и вынесенной в <code>_prepare_muq_compatible_windows</code> (L1654–1701) для MuQ и MuLan. Выбор окон при этом общий — <code>_select_windows_torch</code>. Отличается только дополнение: без него / нулями / повтором.</p>
+      <p>Повтор-дополнение у CLAP — требование самой модели, различие оправдано. Но три копии обвязки вокруг одного общего ядра означают, что исправление в одной ветке молча не доедет до двух других — именно так и появилось расхождение F6.</p>
+      <span class="f-label">Сделано в <code>bdbd89aa</code></span>
+      <p>Один <code>_prepare_windows(..., pad)</code> с тремя значениями: <code>none</code> (MERT), <code>zero</code> (MuQ, MuLan), <code>repeat</code> (CLAP). Копий было не три, а четыре — MAEST тоже строит свой цикл, но у него другая форма (одно окно из <code>_prepare_audio_windows_from_audio</code>), поэтому он оставлен отдельным.</p>
+      <p>Эквивалентность доказана <strong>до</strong> переноса вызовов, в одном процессе, против настоящей <code>_prepare_muq_compatible_windows</code>: 18 форм аудио (короче окна, ровно окно, длиннее) на 24к, 44,1к и 48к, четыре конфигурации окон — окна вернулись идентичными.</p>
+      <p><strong>Поправка к оценке:</strong> я писал «~150 строк». На деле 56 добавлено, 61 удалено, <strong>чистыми −5</strong>. Четыре копии в одну функцию с настоящим докстрингом файл не сокращают. Выигрыш в другом: правку ресемплера коммитом раньше пришлось вносить в четыре места, следующую — в одно.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F12</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip med">Medium</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>HIGH CONFIDENCE</span></div>
+      <div class="f-row"><span>Область</span><span>Гибридный скоринг</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Высокий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Восемь словарей весов, ни один не выведен из измерения</h4>
+      <p>В <code>sonara_similarity_scoring.py</code> — <code>VIBE_WEIGHTS</code>, <code>SOUND_WEIGHTS</code>, <code>DJ_NUMERIC_WEIGHTS</code>, <code>TONAL_TEXT_WEIGHTS</code>, <code>BALANCED_WEIGHTS</code>, <code>CUSTOM_GROUP_WEIGHTS</code>, <code>DEFAULT_CUSTOM_MIXER_WEIGHTS</code>, <code>CUSTOM_HARMONIC_TONAL_WEIGHTS</code>. Все — константы, написанные вручную. <code>BALANCED_WEIGHTS</code> получается умножением VIBE на 0,9 и SOUND на 0,7 — множители без обоснования в коде.</p>
+      <p>Нормализация признаков идёт через <code>_robust_range</code> по наблюдаемым значениям, то есть шкала зависит от состава кандидатов: при разных наборах один и тот же трек получает разный вклад признака. Отдельно: <code>tempo_score</code> применяется к темпу, но SONARA-BPM и BPM из тегов имеют разную надёжность, и в скоринге это не различается.</p>
+      <p>Связь с F7 прямая: единственный механизм, способный вывести эти веса из данных — <code>score_profile_optimizer.py</code> — до боевого скоринга не доходит.</p>
+      <span class="f-label">Что сделать</span>
+      <p>Не трогать до решения по F7. Менять веса без мерила — угадывание; текущие хотя бы отражают ваш слух.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F13</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip med">Medium</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Фронтенд</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Средний</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Пять одновременных опросов в одном компоненте</h4>
+      <p><code>App.tsx</code> — 1902 строки, 40 <code>useState</code>, 17 <code>useEffect</code>, 5 независимых <code>setInterval</code>. При трёхсекундном <code>/api/search</code> (F1) опросы и поиск конкурируют за одно сериализованное соединение к базе (F9), и UI выглядит подвисшим не там, где настоящая причина.</p>
+      <p>Разделение <code>api.ts</code> (71 экспорт типов) и <code>apiClient.ts</code> (2 экспорта, клиент) — <strong>не</strong> дублирование, а чистая граница: типы отдельно, транспорт отдельно. Это сделано правильно.</p>
+      <span class="f-label">Проверено после F1 — менять нечего</span>
+      <p>Причина убрана, и после этого находка не подтвердилась. Все пять <code>setInterval</code> — поллеры задач, каждый включён только под свою активную задачу (<code>queued</code> или <code>running</code>): сканирование, анализ, конвейер анализа, проверка БД, запись жанров. Одновременно их бывает два — конвейер и усыновлённый им дочерний анализ, — а не пять. Периоды 1000–1500 мс отмеряют прогресс задачи, а не ждут поиска; при тёплом запросе в 0,2 с конкурировать за соединение стало нечему. Правка была бы движением ради движения.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F14</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip low">Low</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Тесты</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>504 строки тестов защищают код, недоступный продукту</h4>
+      <p><code>tests/test_ann_runtime.py</code> (464) и <code>tests/test_ann_index.py</code> (40) покрывали <code>ann_index.py</code>, до которого не доходил ни один путь API. <strong>Удалены в <code>2e21cd3c</code></strong> вместе со своим контрактом, плюс три теста из <code>test_vector_index.py</code>, пинивших удалённую фабрику бэкендов.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F15</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip low">Low</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED</span></div>
+      <div class="f-row"><span>Область</span><span>Зависимости</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Низкий</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Extra <code>ann</code> обслуживает код вне пути продукта</h4>
+      <p><code>ann = ["hnswlib&gt;=0.8"]</code> был нужен только <code>ann_index.py</code> и <code>HnswVectorSearchBackend</code>. <strong>Extra удалена в <code>2e21cd3c</code></strong> вместе с ними. Остальные зависимости оправданны: <code>av</code>, <code>mutagen</code>, <code>send2trash</code>, <code>joblib</code> используются по назначению, тяжёлое ML вынесено в extra, PyTorch закреплён с явным source для Windows.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="f-meta">
+      <div class="f-id">F16</div>
+      <div class="f-row"><span>Важность</span><span><span class="chip high">High</span></span></div>
+      <div class="f-row"><span>Уверенность</span><span>CONFIRMED · эффект ИЗМЕРЕН</span></div>
+      <div class="f-row"><span>Область</span><span>Декодирование · MIR</span></div>
+      <div class="f-row"><span>Риск правки</span><span>Высокий — переанализ</span></div>
+      <div class="f-row"><span>Схема БД</span><span>не меняется</span></div>
+    </div>
+    <div class="f-body">
+      <h4>Боевой декодер отдаёт стерео на 3 дБ громче, чем ожидает любая из пяти моделей</h4>
+      <p>В <code>audio_loader.py</code> два пути. Основной — <code>AudioDecoder(path, num_channels=1)</code> из TorchCodec, то есть даунмикс средствами swresample; аварийный — общий FFmpeg, где каналы усредняются вручную: <code>samples.mean(axis=…)</code>.</p>
+      <p>Замерено на реальных файлах библиотеки, по три на формат: отношение сигналов ровно <strong>1,414214</strong> при остатке <strong>1,2·10⁻⁷</strong>, то есть на уровне float32-эпсилон. Это не «похоже на», это тождество: swresample нормирует матрицу даунмикса по энергии и выдаёт <code>(L+R)/√2</code>, а мы в аварийном пути берём <code>(L+R)/2</code>. На моно-источниках оба пути совпадают побитово, коэффициент 1,000000, остаток ноль.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Формат</th><th>Каналов</th><th>Коэффициент A/B</th><th>Остаток</th><th>Пик основного пути</th></tr></thead>
+        <tbody>
+          <tr><td>FLAC</td><td class="num">2</td><td class="num hi">1,414214</td><td class="num">1,19e-07</td><td class="num hi">1,335–1,353</td></tr>
+          <tr><td>Wave</td><td class="num">2</td><td class="num hi">1,414214</td><td class="num">1,19e-07</td><td class="num hi">1,396</td></tr>
+          <tr><td>AIFF</td><td class="num">2</td><td class="num hi">1,414214</td><td class="num">1,19e-07</td><td class="num hi">1,174–1,414</td></tr>
+          <tr><td>M4A</td><td class="num">2</td><td class="num hi">1,414214</td><td class="num">1,19e-07</td><td class="num hi">1,280–1,483</td></tr>
+          <tr><td>FLAC, Wave</td><td class="num">1</td><td class="num ok">1,000000</td><td class="num ok">0</td><td class="num ok">1,000</td></tr>
+        </tbody>
+        <caption>Библиотека почти вся стерео: FLAC 23 352, Wave 16 216, AIFF 5 514, M4A 9 — против девяти моно-треков. То есть завышенный уровень получают 45 091 трек из 45 109.</caption>
+      </table></div>
+      <p>Все примеры моделей грузят аудио через <code>librosa.load(..., mono=True)</code>, а это среднее каналов. Значит эталонный вход у всех пяти — <code>(L+R)/2</code>, и мы подаём на <strong>+3,01 дБ</strong> громче. Пик уходит за полную шкалу: 1,17–1,48, и за ±1,0 выходят сотни тысяч отсчётов на трек — на одном из проверенных 681 853 из 17 млн.</p>
+      <div class="note"><div class="t">У CLAP это не просто уровень, а клиппинг</div>
+      <p>Мы зовём <code>get_audio_embedding_from_data(x=batch, use_tensor=False)</code>. В этой ветке <code>laion_clap</code> квантует вход: <code>int16_to_float32(float32_to_int16(x))</code>, где <code>float32_to_int16</code> — это <code>np.clip(x, -1, 1)</code> с умножением на 32767. То есть всё, что выше полной шкалы, срезается жёстко, а остальное проходит через int16. При наших пиках 1,33–1,40 срезается порядка 1,5–4% отсчётов каждого окна.</p></div>
+      <span class="f-label">Сколько это стоит — измерено на 16 треках, теми же адаптерами</span>
+      <div class="tw"><table>
+        <thead><tr><th>Семейство</th><th>Косинус свой трек, два уровня</th><th>Косинус чужие треки, максимум</th><th>Вывод</th></tr></thead>
+        <tbody>
+          <tr><td>MERT</td><td class="num ok">1,0000</td><td class="num">0,937</td><td class="ok">инвариантен к уровню</td></tr>
+          <tr><td>MuQ</td><td class="num ok">0,9988</td><td class="num">0,887</td><td class="ok">пренебрежимо</td></tr>
+          <tr><td>MuQ-MuLan</td><td class="num">0,9917</td><td class="num">0,965</td><td>сдвиг заметен</td></tr>
+          <tr><td>CLAP</td><td class="num hi">0,9846</td><td class="num">0,925</td><td class="hi">сдвиг наибольший</td></tr>
+          <tr><td>MAEST</td><td class="num">0,9946</td><td class="num">0,879</td><td>сдвиг заметен</td></tr>
+        </tbody>
+        <caption>Один и тот же трек, разобранный на боевом уровне и на эталонном, против расстояния до других треков. Ни в одной из 240 пар чужой трек не оказался ближе, чем собственная копия на другом уровне.</caption>
+      </table></div>
+      <p>MERT неуязвим не случайно: его <code>Wav2Vec2FeatureExtractor</code> нормирует вход, и постоянный множитель исчезает до модели. MuQ почти неуязвим — лог-мел превращает усиление в сдвиг. Пострадали обе контрастивные модели, и сильнее всех CLAP, что согласуется с клиппингом.</p>
+      <p>Порядок выдачи это не переворачивает: 0,985 против 0,925 до ближайшего чужого — запас есть. Но сдвиг систематический и <strong>неравномерный по библиотеке</strong>: девять моно-треков и любой трек, восстановленный аварийным декодером, получают эталонный уровень, а остальные 45 091 — завышенный. И 0,985 — это ровно та область, где живут дубликаты, а Audio Dedup добирает кандидатов эмбеддинг-LSH.</p>
+      <div class="note killed"><div class="t">Правка реализована, замерена на разметке и откачена</div>
+      <p>Выравнивание сделано так, как следует из контракта: <code>AudioDecoder</code> без <code>num_channels</code>, даунмикс средним по каналам в самом модуле. После правки оба пути декодирования сошлись <strong>побитово</strong> — коэффициент 1,000000, остаток 0,00e+00 на FLAC, Wave, AIFF и моно, — и ни один отсчёт больше не выходит за полную шкалу: пики 0,944–0,987 вместо 1,17–1,48.</p>
+      <p>Но замер на размеченном пуле улучшения не показал. 300 треков <code>break_energy</code> (150 straight, 150 broken), точность ближайших соседей с исключением себя, два пространства — боевой уровень против эталонного:</p>
+      <div class="tw"><table>
+        <thead><tr><th>Семейство</th><th>k</th><th>Боевой уровень</th><th>Эталонный</th><th>Разница</th></tr></thead>
+        <tbody>
+          <tr><td>CLAP</td><td class="num">1</td><td class="num">0,7100</td><td class="num">0,7100</td><td class="num">0,0000</td></tr>
+          <tr><td>CLAP</td><td class="num">5</td><td class="num">0,7500</td><td class="num">0,7500</td><td class="num">0,0000</td></tr>
+          <tr><td>CLAP</td><td class="num">15</td><td class="num">0,7733</td><td class="num">0,7600</td><td class="num hi">−0,0133</td></tr>
+          <tr><td>MuQ-MuLan</td><td class="num">1</td><td class="num">0,9000</td><td class="num">0,9067</td><td class="num ok">+0,0067</td></tr>
+          <tr><td>MuQ-MuLan</td><td class="num">5</td><td class="num">0,9267</td><td class="num">0,9167</td><td class="num hi">−0,0100</td></tr>
+          <tr><td>MuQ-MuLan</td><td class="num">15</td><td class="num">0,9200</td><td class="num">0,9200</td><td class="num">0,0000</td></tr>
+        </tbody>
+        <caption>Все разницы внутри шума: на 300 примерах стандартная ошибка порядка 0,017–0,026, то есть ±3–8 треков. Ни одного знака в пользу эталонного уровня.</caption>
+      </table></div>
+      <p>По правилу владельца — оставлять только то, что дало улучшение, — правка откачена. Ставки при этом несимметричны: держать её значит переанализировать <strong>четыре семейства</strong> из пяти (CLAP, MuLan, MuQ, MAEST; MERT инвариантен) на 45 109 треков, то есть около 180 тысяч строк эмбеддингов. Вернуть её потом — одна команда.</p>
+      <p>Чего этот замер <em>не</em> видит: он сравнивает два самосогласованных пространства, где все 300 треков на одном уровне. Настоящий вред F16 — в <em>смешанной</em> библиотеке, где девять моно-треков и всё восстановленное аварийным декодером лежат на эталонном уровне, а остальные 45 091 — на завышенном. Такую неоднородность разметкой не поймать, её слышно или не слышно.</p></div>
+      <span class="f-label">Развилка владельца</span>
+      <p>Решение остаётся за слухом. Вариант «привести основной путь к <code>(L+R)/2</code>» верен по контракту моделей и снимает клиппинг CLAP, но стоит переанализа четырёх семейств. Вариант «подтянуть аварийный путь к основному» стоит ноль переанализа, устраняет расхождение путей, но закрепляет уровень, которого не ждёт ни одна модель, и оставляет клиппинг. Третий вариант — оставить как есть: замер говорит, что на разметке разницы нет.</p>
+      <span class="f-label">Файлы</span>
+      <p class="paths">audio_loader.py <code>_load_with_torchcodec</code> · <code>_load_with_shared_ffmpeg</code> — shared_ffmpeg_decoder.py <code>_append_resampled_frames</code> — embedding.py <code>ClapEmbeddingAdapter._embed_decoded_items</code></p>
+    </div>
+  </div>
+</section>
+
+<section id="s3">
+  <div class="sec-head"><span class="sec-num">03</span><h2>Риски корректности</h2></div>
+  <p class="lede">Тихие проблемы: софт работает, результаты меняются.</p>
+  <h3>Подтверждённые</h3>
+  <ul>
+    <li><strong>Нет способа узнать, совместим ли хранимый вектор с текущей моделью</strong> (F3). Меняется чекпоинт, окно, пулинг — старые векторы остаются и молча смешиваются с новыми в одной матрице. Валидируется только длина блоба и строка нормализации.</li>
+    <li><strong>Проверки, которые не могут сработать</strong> (F3): <code>row.output.key != output.key</code> сравнивает значение с самим собой; <code>require_active_analysis_outputs</code> удаляет соединение с базой.</li>
+    <li><strong>Единственный индекс на <code>tracks</code> покрывает дополнение к условию запроса</strong> (F2) — не ошибка результата, но признак того, что план запроса никто не смотрел.</li>
+  </ul>
+  <h3>Проверено, претензий нет</h3>
+  <ul>
+    <li>Нормализация запроса и матрицы согласованы: обе через <code>_normalize</code> в float64, допуск <code>rtol=1e-4, atol=1e-5</code>. Смешения нормированных и ненормированных векторов в поиске нет.</li>
+    <li>Направление счёта единообразно: везде косинус, больше — лучше, <code>argsort(-scores, kind="stable")</code> детерминирована.</li>
+    <li>Джиттер <code>noise</code> детерминирован через SHA-256 от идентичности трека — при равном <code>noise</code> порядок воспроизводим.</li>
+    <li>Контраст в текстовом поиске корректен: усреднение двух ближайших негативов вместо максимума обосновано измерением и задокументировано в коде.</li>
+    <li>Кроссплатформенность: <code>shell=True</code>, <code>os.system</code>, захардкоженные <code>C:\</code> и <code>/tmp</code> в <code>src/</code> отсутствуют; пути идут через <code>pathlib</code>.</li>
+    <li>Детерминизм декодирования: повторный разбор одного файла основным путём даёт побитово тот же сигнал. Длина и частота дискретизации у обоих путей совпадают — расходится только уровень (F16).</li>
+  </ul>
+</section>
+
+<section id="s4">
+  <div class="sec-head"><span class="sec-num">04</span><h2>Риски качества выдачи</h2></div>
+  <p class="lede">Приложение исправно, а рекомендации хуже, чем могли бы быть.</p>
+  <ul>
+    <li><strong>Уровень сигнала (F16)</strong> — стерео приходит в модели на 3 дБ громче эталонного, у CLAP с клиппингом. Измерено: MERT инвариантен, MuQ пренебрежимо, MuLan 0,992, CLAP 0,985 против 0,925 до ближайшего чужого трека. Выдачу не переворачивает, но смещает 45 091 трек из 45 109 относительно остальных.</li>
+    <li><strong>Нормировка окна у MuQ (F6)</strong> — добавлена нами, контрактом не предписана; MERT и MAEST, модели того же рода, так не делают. Первая редакция находки указывала на MERT и была неверной: его пулинг — это и есть контракт карты. Открыты два вопроса, оба измеримые: нормировка окна MuQ и выбор слоёв у MERT.</li>
+    <li><strong>Длины окон и частоты дискретизации сверены с источниками и сошлись.</strong> MERT — 5,0 с при заявленном контексте предобучения 5 с и 24 кГц; MuQ — 10 с при 24 кГц, что совпадает с downstream-протоколом самих авторов, хотя предобучение шло на 30-секундных входах; MuQ-MuLan — 10 с, ровно как в статье («we switch to taking 10 seconds as the length of the input audio»); CLAP — 10 с при 48 кГц; MAEST — 30 с при 16 кГц, как в имени чекпоинта. Ни одна модель не получает вход не того размера, на который рассчитана.</li>
+    <li><strong>MAEST режет по три окна, а не по одному.</strong> Проверено прогоном настоящей <code>select_maest_window_starts</code> по всем 45 108 трекам с их реальными длительностями и структурными границами SONARA: <strong>ровно три окна у 100% библиотеки</strong>, ни одного схлопывания. Окно 30 с при медианной длительности 7,3 мин — это 90 с из 441, около <strong>20% аудио</strong>. Схлопывание до одного окна возможно только для трека короче 30 с (в библиотеке таких нет, минимум 120 с) или при «главном диапазоне» уже ~31 с.</li>
+    <li><strong>Отбрасывание 10% с краёв</strong> в <code>_select_windows_torch</code> — разумная эвристика для DJ-треков, но фиксированная. У длинного эмбиентного вступления и у двухминутного эдита «10%» означают совершенно разное. MAEST здесь честнее: <code>maest_windows.py</code> учитывает границы структуры (<code>intro_end</code>, <code>outro_start</code>) из SONARA. Три остальных семейства эту информацию игнорируют, хотя она лежит в той же базе.</li>
+    <li><strong>Дополнение нулями у MuQ/MuLan</strong> для трека короче окна вставляет тишину в поле зрения модели. Повтор-дополнение CLAP от этого свободно. Затрагивает треки короче 10 с — в DJ-библиотеке единицы, но знать стоит.</li>
+    <li><strong>Веса SONARA (F12)</strong> написаны вручную и нормализуются по наблюдаемому диапазону кандидатов: вклад признака зависит от состава набора.</li>
+    <li><strong>BPM из SONARA и BPM из тегов не различаются по надёжности</strong> в скоринге, хотя это источники разного качества.</li>
+  </ul>
+  <div class="note">
+    <div class="t">Чего в проекте нет и что стоит понимать</div>
+    <p>Гибридного ранжирования между семействами эмбеддингов не существует. <code>SimilaritySearch</code> работает строго внутри одного семейства, SONARA — по своим числовым признакам. Ни один путь не смешивает MERT с CLAP или MuQ с MAEST. Это <strong>хорошо</strong>: смешивать несопоставимые пространства без калибровки было бы хуже. Но значит, что заявленная цель «комбинировать несколько дополняющих представлений» пока не реализована, а <code>evaluation/</code> с его RRF-фьюжном — заготовка под неё, а не описание текущего поведения.</p>
+  </div>
+</section>
+
+<section id="s5">
+  <div class="sec-head"><span class="sec-num">05</span><h2>Упрощение архитектуры</h2></div>
+  <h3>Идентичность выхода анализа</h3>
+  <div class="flow">
+    <div class="flow-label">Сейчас — пять вызовов ради пары строк</div>
+    <div class="flow-line"><span class="node">current_embedding_analysis_output</span><span class="arrow">→</span><span class="node bad">конструирует адаптер</span><span class="arrow">→</span><span class="node">embedding_analysis_output</span><span class="arrow">→</span><span class="node">clap_embedding_output</span><span class="arrow">→</span><span class="node bad">_embedding_output — del всего</span><span class="arrow">→</span><span class="node">AnalysisOutput</span></div>
+  </div>
+  <div class="flow proposed">
+    <div class="flow-label">Предлагается</div>
+    <div class="flow-line"><span class="node good">("clap", "embedding")</span></div>
+  </div>
+  <p>Исчезают ~340 строк построителей в <code>analysis_models.py</code>, <code>_ML_PARAMETER_DEFAULTS</code>, <code>_with_ml_runtime_identity</code>, <code>_merge_parameters</code>, <code>_validate_window_ratios</code>, <code>require_active_analysis_outputs</code>, <code>current_embedding_analysis_output</code>, тавтологические ветки <code>_validate_rows</code>.</p>
+
+  <h3>Путь поиска</h3>
+  <div class="flow">
+    <div class="flow-label">До правок</div>
+    <div class="flow-line"><span class="node">route</span><span class="arrow">→</span><span class="node bad">адаптер</span><span class="arrow">→</span><span class="node">SimilaritySearch</span><span class="arrow">→</span><span class="node bad">load_analysis_vectors</span><span class="arrow">→</span><span class="node bad">_selected_targets — полный скан</span><span class="arrow">→</span><span class="node bad">read_valid_embeddings</span></div>
+    <div class="flow-line"><span class="arrow">→</span><span class="node bad">_matrix — норма ×1</span><span class="arrow">→</span><span class="node bad">backend — норма ×2</span><span class="arrow">→</span><span class="node">argsort N</span><span class="arrow">→</span><span class="node">hydrate</span></div>
+  </div>
+  <div class="flow proposed">
+    <div class="flow-label">Предлагается</div>
+    <div class="flow-line"><span class="node">route</span><span class="arrow">→</span><span class="node good">VectorStore.matrix(family)</span><span class="arrow">→</span><span class="node good">top-k</span><span class="arrow">→</span><span class="node">hydrate</span></div>
+  </div>
+  <p><code>VectorStore</code> — не новый фреймворк, а один объект уровня приложения, который держит матрицу семейства и параллельный массив идентичностей, сбрасывая их по счётчику записей анализа. Нормы проверены при записи, поэтому при чтении не проверяются вовсе.</p>
+
+  <h3>Что сливается, а что остаётся</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Слой</th><th>Действие</th><th>Обоснование</th></tr></thead>
+    <tbody>
+      <tr><td>Построители <code>*_embedding_output</code></td><td class="hi">удалить</td><td>вычисляют и выбрасывают</td></tr>
+      <tr><td><code>require_active_analysis_outputs</code></td><td class="hi">удалить</td><td><code>del connection</code></td></tr>
+      <tr><td><code>HnswVectorSearchBackend</code>, <code>create_vector_backend</code></td><td class="hi">удалить</td><td>строит индекс внутри search()</td></tr>
+      <tr><td>Три копии цикла окон</td><td>слить, <code>pad</code> параметром</td><td>источник расхождения F6</td></tr>
+      <tr><td><code>ann_index.py</code></td><td>развилка после F4</td><td>подключить или удалить, но не оставлять как есть</td></tr>
+      <tr><td><code>evaluation/</code></td><td>развилка после F7</td><td>кормить или снять</td></tr>
+      <tr><td><code>LibraryDatabase</code> + <code>db_*.py</code></td><td class="ok">оставить</td><td>граница реальная и соблюдается</td></tr>
+      <tr><td>Пять адаптеров моделей</td><td class="ok">оставить раздельными</td><td>модели действительно разные; общий фреймворк был бы хуже</td></tr>
+      <tr><td><code>api_routes_*.py</code></td><td class="ok">оставить</td><td>композиция чистая</td></tr>
+      <tr><td><code>api.ts</code> / <code>apiClient.ts</code></td><td class="ok">оставить</td><td>типы и транспорт разделены правильно</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="s6">
+  <div class="sec-head"><span class="sec-num">06</span><h2>Мёртвый и устаревший код</h2></div>
+  <div class="tw"><table>
+    <thead><tr><th>Кандидат</th><th>Строк</th><th>Уверенность</th><th>Основание</th></tr></thead>
+    <tbody>
+      <tr><td><code>_embedding_output</code> + 5 построителей + 5 двойников</td><td class="num">~340</td><td class="ok">CONFIRMED</td><td>все поля удаляются в теле</td></tr>
+      <tr><td><code>require_active_analysis_outputs</code></td><td class="num">~5</td><td class="ok">CONFIRMED</td><td><code>del connection</code></td></tr>
+      <tr><td><code>current_embedding_analysis_output</code></td><td class="num">~22</td><td class="ok">CONFIRMED</td><td>адаптер выбрасывается</td></tr>
+      <tr><td><code>HnswVectorSearchBackend</code> + <code>create_vector_backend</code></td><td class="num">~80</td><td class="ok">CONFIRMED</td><td>только benchmark-скрипт</td></tr>
+      <tr><td><code>ann_index.py</code></td><td class="num">1578</td><td class="ok">CONFIRMED</td><td>только cli.py + тесты, API недоступен</td></tr>
+      <tr><td><code>test_ann_runtime.py</code> + <code>test_ann_index.py</code></td><td class="num">504</td><td class="ok">CONFIRMED</td><td>следуют за ann_index</td></tr>
+      <tr><td>Тавтологические ветки <code>_validate_rows</code></td><td class="num">~20</td><td class="ok">CONFIRMED</td><td>условие недостижимо</td></tr>
+      <tr><td><code>evaluation/</code> — оптимизатор, аблации, sweep, калибровка</td><td class="num">~4500</td><td>HIGH CONFIDENCE</td><td>1 судейская пара, ноль связей с ранжированием</td></tr>
+    </tbody>
+    <caption>Модулей, полностью недостижимых по имени, в src/ нет: единственный «без входящих ссылок» — cli.py, точка входа. Мёртвое лежит на уровне функций и подсистем, а не файлов.</caption>
+  </table></div>
+  <p><strong>Проверено и живо, вопреки первому впечатлению:</strong> <code>text_embedding_cache.TextEmbeddingAdapterCache</code> используется из <code>api.py</code>; SONARA-эмбеддинги пишутся намеренно — поиск по ним не реализован, это осознанный WIP, а не мёртвый код.</p>
+</section>
+
+<section id="s7">
+  <div class="sec-head"><span class="sec-num">07</span><h2>Производительность и масштаб</h2></div>
+  <h3>Было и стало</h3>
+  <ul>
+    <li><strong>F1</strong> — было ≈3,9–4,4 с на запрос при 0,09% полезной работы. Стало <strong>0,05–0,07 с</strong>. Временные float64 (185 и 370 МБ, дважды за запрос) исчезли полностью, библиотека читается заново только когда изменилась.</li>
+    <li><strong>F2</strong> — 195 мс скана с временным B-деревом убраны из пути поиска целиком.</li>
+    <li><strong>Тройная проверка норм</strong> — самая дорогая была построчной внутри <code>read_valid_embeddings</code> (2,2–2,4 с), две остальные шли по всей матрице. Осталась одна, во float32.</li>
+    <li><strong>F8</strong> — кэш ядер ресемплера сделан. Замер: ~79 с экономии на полном прогоне пяти семейств. Реально, но скромно.</li>
+    <li><strong>F9</strong> — <em>отклонено</em>: снятие блокировки замерено как вдвое худшее под конкурентностью. Лечил кэш: шесть одновременных поисков 7197 → 670 мс при той же блокировке, вровень с последовательным прогоном.</li>
+  </ul>
+  <h3>Что осталось и что станет значимым к 100k</h3>
+  <ul>
+    <li><strong>Кэш матрицы</strong> — сделан (раздел 00). Тёплый запрос больше не упирается в чтение библиотеки.</li>
+    <li><strong>Проверка свежести — 153 мс</strong>, и это теперь самая крупная статья тёплого запроса. Она сканирует таблицу семейства ради <code>MAX(analyzed_at)</code>, потому что колонка не проиндексирована. Индекс сделал бы проверку мгновенной, но это рост схемы, который задача запрещает; менять — только вместе с решением о схеме.</li>
+    <li><strong>k = N в бэкенде</strong> (F4) — <em>сделано</em>: граница глубины выведена из того, как работают <code>min_similarity</code>, <code>epsilon</code> и <code>noise</code>, и сверена с полной глубиной на 144 комбинациях. −110 мс на запрос.</li>
+    <li><strong>Проверка свежести</strong> — 153 → ~15 мс: метку времени заменил счётчик записей в заголовке файла (<code>0592e797</code>).</li>
+    <li><strong><code>_targets_for_matrix</code></strong> — пять проходов по 45 108 целям на каждый вызов бэкенда, 36 мс; проверяется один раз на объект (<code>eb6d6c58</code>).</li>
+    <li>Дальше нечего снимать без размена: в тёплом запросе не осталось ни одной статьи крупнее полутора десятков миллисекунд.</li>
+    <li>При 100k матрица MuQ — 410 МБ. Это довод в пользу кэша, а не в пользу ANN.</li>
+    <li><strong>ANN не понадобится вовсе.</strong> Замерено: точный косинус по кэшированной матрице — 2,4 мс на 45k, <strong>6,0 мс на 100 000</strong>, 10,6 мс при dim=1024, <strong>27,4 мс на 250 000</strong>. Это вдвое дальше заявленного горизонта проекта.</li>
+    <li><code>np.argpartition</code> вместо полного <code>argsort</code> — 3 мс. Рассмотрено и отклонено: ломает стабильность разрыва ничьих, а в библиотеке есть дубликаты с идентичными счетами.</li>
+  </ul>
+  <h3>Преждевременная оптимизация — не трогать</h3>
+  <ul>
+    <li>Микрооптимизация <code>matvec</code>: 2,6 мс при 2850 мс общего времени.</li>
+    <li>Батчинг GPU в адаптерах: <code>inference_batch_size</code> 8–16 разумны, узкого места нет.</li>
+    <li>Замена SQLite: база не узкое место сама по себе — узкое место в том, <em>как</em> к ней ходят.</li>
+  </ul>
+</section>
+
+<section id="s8">
+  <div class="sec-head"><span class="sec-num">08</span><h2>Персистентность и согласованность</h2></div>
+  <div class="tw"><table>
+    <thead><tr><th>Требуемая гарантия</th><th>Есть?</th><th>Как обстоит</th></tr></thead>
+    <tbody>
+      <tr><td>модель</td><td class="hi">нет</td><td>в строке не хранится</td></tr>
+      <tr><td>версия модели</td><td class="hi">нет</td><td>вычисляется и выбрасывается</td></tr>
+      <tr><td>версия препроцессинга</td><td class="hi">нет</td><td>вычисляется и выбрасывается</td></tr>
+      <tr><td>размерность эмбеддинга</td><td class="ok">да</td><td>колонка <code>dim</code> + CHECK на длину блоба</td></tr>
+      <tr><td>стратегия нормализации</td><td class="ok">да</td><td>колонка <code>normalization</code></td></tr>
+      <tr><td>стратегия сегментации</td><td class="hi">нет</td><td>вычисляется и выбрасывается</td></tr>
+    </tbody>
+    <caption>Схема: track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at — и только.</caption>
+  </table></div>
+  <p><strong>Это тот случай, о котором ТЗ просит доложить отдельно.</strong> Из шести требуемых признаков совместимости хранятся два, и оба самые слабые: длина вектора и строка «l2». Любая правка чекпоинта, окна, пулинга или ресемплинга оставляет старые векторы неотличимыми от новых.</p>
+  <p>С учётом ограничения «схему не усложнять» правильный ответ — <strong>не достраивать контракт, а убрать имитацию</strong> (F3) и завести явную операцию переанализа семейства. Тогда состояние честное: гарантии нет, она заменена дисциплиной оператора, и это видно в коде.</p>
+  <h3>Что с персистентностью в порядке</h3>
+  <ul>
+    <li>WAL, busy-timeout и политика блокировок на месте; записи идут через <code>LibraryDatabase</code>.</li>
+    <li><code>track_uuid</code> в каждой таблице эмбеддингов + <code>ON DELETE CASCADE</code> — пересканирование не оставляет осиротевших векторов.</li>
+    <li>Миграции явные, стартап молча не мигрирует — ровно как заявлено в AGENTS.md.</li>
+    <li>Запись эмбеддинга валидируется до UPSERT (<code>write_valid_embedding_in_transaction</code>) — потому проверку норм при чтении и можно снимать.</li>
+  </ul>
+</section>
+
+<section id="s9">
+  <div class="sec-head"><span class="sec-num">09</span><h2>Архитектура тестов</h2></div>
+  <p class="lede">616 тестов, 86 файлов, 25 513 строк — примерно 58% от объёма <code>src/</code>.</p>
+  <h3>Ценное</h3>
+  <ul>
+    <li><code>test_model_adapter_identity.py</code> (673) — контракт идентичности адаптеров, включая пиннинг чекпоинтов. Ровно тот тип теста, который окупается.</li>
+    <li><code>test_sonara_similarity.py</code> (1396), <code>test_classifier_scoring.py</code> (724) — инварианты ранжирования и скоринга.</li>
+    <li><code>test_api_*.py</code> — контракты HTTP-полезных нагрузок на границе.</li>
+    <li><code>frontend/tests/testsExecuteCode.test.mjs</code> — запрет на проверку текста исходников. Отличное правило, редко кем формализуемое.</li>
+  </ul>
+  <h3>Шум и балласт</h3>
+  <ul>
+    <li><strong>504 строки</strong> вокруг <code>ann_index</code> — код вне пути продукта (F14).</li>
+    <li>Тесты, косвенно закрепляющие тавтологический слой <code>AnalysisOutput</code>: он фигурирует минимум в 12 файлах тестов. Они проверяют не поведение, а что две строки равны двум строкам, и будут мешать удалению слоя. По вашей TEST POLICY такие удаляются вместе с контрактом.</li>
+  </ul>
+  <h3>Контракты, защищённые недостаточно</h3>
+  <ul>
+    <li><strong>Согласованность пулинга между семействами</strong> — нет теста, фиксирующего «вектор трека есть центроид равновзвешенных окон». Появись он раньше, F6 не возникла бы.</li>
+    <li><strong>Совместимость сохранённых эмбеддингов</strong> — защищать нечего, гарантии нет (F3, раздел 08).</li>
+    <li><strong>Стоимость поиска</strong> — ни один тест не заметил бы, что запрос стал трёхсекундным. Закрыто: <code>test_search.py</code> пинит, что повторная загрузка библиотеки отдаётся из памяти и что запись из другого соединения её обесценивает — это и есть «ноль полных сканов на повторный запрос», выраженное на границе, где сканы происходят. Второй тест на счётчик сканов был бы вторым тестом одного контракта. Рядом появился тест на глубину ранжирования: ограниченная выдача обязана совпадать с ранжированием всей библиотеки.</li>
+  </ul>
+  <p>Расширять набор в целом не нужно — он и так велик относительно <code>src/</code>. Нужны два-три точечных теста на инварианты выше и удаление тех, чьи контракты исчезнут.</p>
+</section>
+
+<section id="s10">
+  <div class="sec-head"><span class="sec-num">10</span><h2>Оценка сокращения репозитория</h2></div>
+  <p class="lede">Вердикт: <strong>умеренно переусложнён в трёх опознанных местах, ядро по размеру адекватное.</strong></p>
+  <p>Это не репозиторий, раздутый повсеместно. Сканер, база, конвейер анализа, инструменты и UI соразмерны задаче. Переусложнение сосредоточено в трёх подсистемах, каждая из которых возникла как заготовка под будущее, не наступившее:</p>
+  <div class="tw"><table>
+    <thead><tr><th>Подсистема</th><th>Строк</th><th>Что с ней</th></tr></thead>
+    <tbody>
+      <tr><td>Слой идентичности выхода анализа</td><td class="num ok">−516</td><td>удалён (3df5f0a1)</td></tr>
+      <tr><td>Двойной ANN + его тесты и доки</td><td class="num ok">−2684</td><td>удалён (2e21cd3c)</td></tr>
+      <tr><td>Копии цикла окон</td><td class="num">−5</td><td>слиты (bdbd89aa); выигрыш не в строках</td></tr>
+      <tr><td>Оценочный контур</td><td class="num">~4500</td><td class="ok">оставлен — владелец будет судить пары</td></tr>
+      <tr><td><strong>Итого удалено</strong></td><td class="num ok">≈3 200</td><td>из планировавшихся 8–11 тысяч</td></tr>
+    </tbody>
+  </table></div>
+  <p>Важнее числа то, что ушло <em>концептуально</em>: две из трёх подсистем, которые читатель кода был обязан понять, чтобы разобраться в поиске, и которые на результат не влияли. Третья — оценочный контур — <strong>оставлена сознательно</strong>: владелец решил кормить её судейскими парами, и с этого момента она перестаёт быть балластом и становится единственным способом ответить, стал ли поиск лучше.</p>
+</section>
+
+<section id="s11">
+  <div class="sec-head"><span class="sec-num">11</span><h2>Целевая архитектура</h2></div>
+  <p class="lede">Эволюция текущей системы, не замена. Схема БД не меняется ни в одном пункте.</p>
+  <div class="flow proposed">
+    <div class="flow-label">Анализ</div>
+    <div class="flow-line"><span class="node">аудио</span><span class="arrow">→</span><span class="node">декодер</span><span class="arrow">→</span><span class="node good">prepare_windows(pad=…)</span><span class="arrow">→</span><span class="node">адаптер семейства</span><span class="arrow">→</span><span class="node good">центроид единичных окон</span><span class="arrow">→</span><span class="node">запись + валидация</span></div>
+  </div>
+  <div class="flow proposed">
+    <div class="flow-label">Поиск</div>
+    <div class="flow-line"><span class="node">route</span><span class="arrow">→</span><span class="node good">VectorStore(family)</span><span class="arrow">→</span><span class="node good">top-k</span><span class="arrow">→</span><span class="node">hydrate</span><span class="arrow">→</span><span class="node">JSON</span></div>
+  </div>
+  <h3>Что появляется</h3>
+  <ul>
+    <li><strong><code>VectorStore</code></strong> — один объект уровня приложения на семейство: матрица <code>float32</code>, параллельный массив <code>(track_id, track_uuid)</code>, счётчик поколения, сброс при записи анализа. Это <em>меньше</em> абстракции, чем сейчас: он заменяет связку <code>AnalysisSearchRepository</code> + <code>load_analysis_vectors</code> + <code>_matrix</code> + <code>VectorSearchBackend</code>.
+      <br><span style="color:var(--accent)">Реализовано по эффекту, но не как объект:</span> кэш строк живёт в <code>LibraryDatabase.load_analysis_vectors</code>, проверенная матрица — в <code>search.py</code>. Ни один новый слой не добавлен, и «счётчик поколения» заменён отпечатком хранимых строк, потому что счётчик не видит писателя из другого процесса. Свести это в один объект пока незачем: k = N из F4 закрыт отдельно, а сам объект добавил бы слой, ничего не убрав.</li>
+    <li><strong><code>prepare_windows(..., pad)</code></strong> — одна функция вместо трёх копий; <code>pad</code> — маленькая стратегия, не иерархия классов.</li>
+    <li><strong>Явная команда переанализа семейства</strong> — честная замена несуществующему контракту совместимости.</li>
+  </ul>
+  <h3>Что исчезает</h3>
+  <ul>
+    <li><code>AnalysisOutput</code> и вся обвязка вокруг него — на месте литерала <code>("clap", "embedding")</code>.</li>
+    <li><code>VectorSearchBackend</code> в текущей форме, с матрицей аргументом.</li>
+    <li>Как минимум одна из двух ANN-реализаций.</li>
+  </ul>
+  <h3>Что остаётся нетронутым</h3>
+  <p><code>LibraryDatabase</code> и <code>db_*.py</code>; пять адаптеров моделей раздельно; <code>AnalysisJobManager</code>; <code>api_routes_*</code>; SONARA-скоринг; все инструменты; схема БД целиком.</p>
+</section>
+
+<section id="s12">
+  <div class="sec-head"><span class="sec-num">12</span><h2>Дорожная карта</h2></div>
+  <p class="lede">Порядок по <code>влияние × уверенность ÷ риск</code>, а не по лёгкости.</p>
+
+  <div class="phase">
+    <div class="phase-head"><span class="phase-n" style="background:var(--accent)">ФАЗА 1 · СДЕЛАНО</span><h3>Убрать имитацию провенанса</h3></div>
+    <p>Начинать здесь: чистое удаление с наибольшей уверенностью и наименьшим риском, расчищающее путь Фазе 2.</p>
+    <dl>
+      <dt>Цель</dt><dd>Удалить слой <code>AnalysisOutput</code>-построителей; на его месте — литеральные пары строк</dd>
+      <dt>Подсистема</dt><dd><code>analysis_models.py</code>, <code>analysis_model_runners.py</code>, <code>db_analysis.py</code>, <code>search.py</code></dd>
+      <dt>Выгода</dt><dd>−390 строк; исчезает конструирование адаптера на каждый запрос; код перестаёт обещать несуществующую гарантию</dd>
+      <dt>Не менять</dt><dd>Результаты всех поисков — побайтово. Валидация размерности и нормализации при <em>записи</em> сохраняется полностью</dd>
+      <dt>Проверка</dt><dd>До: зафиксировать выдачу <code>/api/search</code> и <code>/api/search/text</code> на 20 seed'ах. После: та же выдача. Плюс <code>pytest tests/test_model_adapter_identity.py tests/test_api_text_search.py</code></dd>
+      <dt>Зависимости</dt><dd>нет</dd>
+      <dt>Риск</dt><dd>Низкий — удаляется код, не влияющий на результат</dd>
+    </dl>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="phase-n" style="background:var(--accent)">ФАЗА 2 · СДЕЛАНО</span><h3>Вернуть поиску скорость</h3></div>
+    <p>Главная выгода аудита: с трёх секунд до единиц миллисекунд.</p>
+    <dl>
+      <dt>Цель</dt><dd>Убрать <code>read_current_track_rows</code> из пути поиска; читать блобы одним запросом; снять двойную проверку норм; ввести <code>VectorStore</code> с кэшем матрицы и сбросом по поколению</dd>
+      <dt>Подсистема</dt><dd><code>search.py</code>, <code>db_analysis.py</code>, <code>db_embeddings.py</code>, <code>vector_index.py</code></dd>
+      <dt>Выгода</dt><dd>Достигнуто: <strong>3937 → 53 мс</strong> на CLAP, 62–79× по пяти семействам; шесть одновременных поисков 7197 → 670 мс, вровень с последовательным прогоном, чем и смягчился F9</dd>
+      <dt>Не менять</dt><dd>Порядок и счёт результатов; поведение <code>min_similarity</code>, <code>epsilon</code>, детерминированного <code>noise</code>; отказ при устаревшем seed'е</dd>
+      <dt>Проверка</dt><dd>Сделано: 40 пар запросов (8 сидов × 5 семейств) с кэшем и с принудительно сброшенным кэшем — порядок и счёта совпали во всех сорока; шесть одновременных поисков совпали с последовательными. Новый тест закрепляет, что повторная загрузка отдаётся из памяти и что запись из другого соединения её обесценивает. Теста на число полных сканов по-прежнему нет</dd>
+      <dt>Зависимости</dt><dd>Фаза 1 — иначе кэш придётся ключевать по выброшенной идентичности</dd>
+      <dt>Риск</dt><dd>Средний — самый горячий путь; инвалидация кэша требует аккуратности</dd>
+    </dl>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="phase-n" style="background:var(--accent)">ФАЗА 3 · СДЕЛАНО</span><h3>Убрать мёртвый ANN, решить судьбу персистентного</h3></div>
+    <dl>
+      <dt>Цель</dt><dd>Удалить <code>HnswVectorSearchBackend</code> и <code>create_vector_backend</code>. По <code>ann_index.py</code> — решение на замерах Фазы 2</dd>
+      <dt>Подсистема</dt><dd><code>vector_index.py</code>, <code>ann_index.py</code>, <code>cli.py</code>, тесты ANN</dd>
+      <dt>Выгода</dt><dd>−80 строк сразу; −2082 при удалении персистентного варианта</dd>
+      <dt>Не менять</dt><dd>CLI-поиск и его флаги, пока решение не принято</dd>
+      <dt>Проверка</dt><dd>Замер после Фазы 2: если тёплый поиск укладывается в единицы мс на 100k, ANN не нужен вовсе</dd>
+      <dt>Зависимости</dt><dd>Фаза 2</dd>
+      <dt>Риск</dt><dd>Низкий</dd>
+    </dl>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="phase-n" style="background:var(--accent)">ФАЗА 4 · СДЕЛАНО</span><h3>Свести препроцессинг в одну функцию</h3></div>
+    <dl>
+      <dt>Цель</dt><dd>Один <code>prepare_windows(..., pad)</code> вместо трёх копий. Кэш ресемплера (F8) уже сделан в <code>08f406d3</code></dd>
+      <dt>Подсистема</dt><dd><code>embedding.py</code></dd>
+      <dt>Выгода</dt><dd>Расхождения вроде F6 перестают возникать молча; полный прогон анализа теряет ~225k построений ядра</dd>
+      <dt>Не менять</dt><dd><strong>Ничего в выходах моделей.</strong> Различия дополнения сохраняются как параметр. Пулинг MERT в этой фазе не трогается</dd>
+      <dt>Проверка</dt><dd>Прогнать 200 треков до и после, сравнить векторы: расхождение должно быть нулевым, а не «малым»</dd>
+      <dt>Зависимости</dt><dd>нет</dd>
+      <dt>Риск</dt><dd>Средний — затрагивает порождение всех хранимых векторов</dd>
+    </dl>
+  </div>
+
+  <div class="phase">
+    <div class="phase-head"><span class="phase-n">ФАЗА 5 · ОТКРЫТА</span><h3>Развилки о продукте, не об инженерии</h3></div>
+    <dl>
+      <dt>Пулинг MERT и MuQ (F6)</dt><dd><strong>Закрыто замером.</strong> Наш пулинг MERT — это контракт модели, L2 на окно его сломал бы. Нормировка окна MuQ и выбор слоёв MERT прогнаны на 773 размеченных треках по четырём осям: ничья в пределах шума, ни один вариант не выигрывает по всем осям. Оба оставлены как есть, переанализ не нужен. Единственный уверенный результат — среднее всех тринадцати слоёв MERT хуже, и мы так не делаем</dd>
+      <dt>Оценочный контур (F7)</dt><dd><strong>Решено — кормим.</strong> Рецепт проверен на живой базе, контур измерения замкнут. Порог первой диагностики — 50 сопоставленных пар. Профили к боевому ранжированию по-прежнему не подключены; это следующий шаг после набора данных</dd>
+      <dt>Веса SONARA (F12)</dt><dd>Следует за решением по F7: без мерила менять нельзя</dd>
+      <dt>Уровень декодирования (F16)</dt><dd><strong>Реализовано, замерено, откачено.</strong> Оба пути после правки сходятся побитово и клиппинг исчезает, но на размеченном пуле улучшения нет — все разницы внутри шума. Держать правку значит переанализировать четыре семейства из пяти на 45 109 треков; вернуть её — одна команда. Решает слух</dd>
+      <dt>Структурные окна</dt><dd>MAEST использует границы структуры из SONARA, три остальных — нет. Проверить, даёт ли это выигрыш и им</dd>
+      <dt>Риск</dt><dd>Высокий — затрагивает качество выдачи, а не только скорость</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="s13">
+  <div class="sec-head"><span class="sec-num">13</span><h2>Проверка собственных выводов</h2></div>
+  <p class="lede">Что я пытался опровергнуть и что в результате убрал из находок.</p>
+
+  <div class="note killed">
+    <div class="t">Убрано — «api.ts и apiClient.ts дублируют типизацию»</div>
+    <p>Проверил: <code>api.ts</code> — 71 экспорт типов, <code>apiClient.ts</code> — 2 экспорта транспорта. Не дублирование, а корректное разделение. Претензия снята.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Убрано — «добавить колонки провенанса и проверять при чтении»</div>
+    <p>Было моей первой рекомендацией по разделу 08. Ограничение «схему не усложнять» её сняло, и оно право: раз схема не растёт, честный вывод — удалить имитацию, а не достраивать её. Осталось как F3 в противоположной формулировке.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Убрано — «105 модулей в src/ — это много»</div>
+    <p>Голый счётчик не дефект. Проверил связность: модулей без входящих ссылок нет, кроме точки входа. Оставлены только конкретные места с доказанным вредом.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Убрано — «разбить App.tsx»</div>
+    <p>1902 строки — много, но конкретного режима отказа я не нашёл. Осталось только измеримое: пять одновременных опросов (F13), и то как следствие F1.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Убрано — кроссплатформенность</div>
+    <p>Искал <code>shell=True</code>, <code>os.system</code>, захардкоженные пути, обходные пути через оболочку. В <code>src/</code> не нашёл ничего. Раздел закрыт без находок.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Ослаблено — «оценочный контур мёртв»</div>
+    <p>Первая формулировка была несправедливой. Рабочий контур есть — Rhythm Lab с 4573 метками и <code>text_prompt_benchmark.py</code>. Претензия сужена до пакета <code>evaluation/</code> и переформулирована как развилка, а не дефект.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Ошибка — F9 «write-блокировка на чтении это дефект»</div>
+    <p>Записал в дефекты по рассуждению. Реализовал и замерил: снятие блокировки делает конкурентный поиск вдвое медленнее. Блокировка сдерживает нагрузку. Находка снята, правка отброшена. Аудит предостерегает от чисел, которые звучат крупно вместо замера; здесь механизм звучал неправильно вместо замера.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Ошибка — F8 подан как крупная статья</div>
+    <p>«225 000 построений ядра» звучит внушительно. Одно построение — 0,35 мс, экономия ~79 с на многочасовом прогоне. Важность понижена с High до Low: правка держится в списке нулевым риском, а не величиной.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Ошибка — «проверка output.key тавтологична»</div>
+    <p><code>AnalysisSearchRepository</code> — протокол с заглушками в тестах, проверка сторожит границу интерфейса. Спутал конкретный класс с протоколом; проверка оставлена в коде.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Ошибка — «оценочный контур ни к чему не подключён»</div>
+    <p>К боевому ранжированию — верно. Но измерительный контур замкнут полностью и работает: export-candidates → судейство → import-pair-feedback → report. Проверено прогоном. Два разных утверждения были смешаны в одно.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Уточнено — три копии цикла окон оказались четырьмя</div>
+    <p>MAEST тоже строит свой цикл и свой ресемплер. Пропустил при первом обходе.</p>
+  </div>
+  <div class="note killed">
+    <div class="t">Ошибка — F6 «MERT отстал от остальных трёх семейств»</div>
+    <p>Сравнивал модели разного рода как однородные. Контрастивные CLAP и MuQ-MuLan отдают единичные векторы по построению; MERT — SSL-представление, и его карта предписывает среднее по времени по сырым состояниям. Наш код это и делает. Предложенная «правка» сломала бы контракт, а не восстановила его. Поймано вопросом владельца, не мной.</p>
+  </div>
+  <div class="note">
+    <div class="t">Устояло под проверкой</div>
+    <p>F1 и F2 пытался опровергнуть предположением, что кэш где-то есть: <code>_full_rows</code> действительно кэш, но <code>SimilaritySearch</code> создаётся внутри обработчика, поэтому кэш не переживает запрос. F5 пытался опровергнуть предположением, что ANN подключается через конфиг: единственная точка — флаг CLI. F3 пытался оправдать тем, что <code>del</code> оставлен «под будущую проверку»: такой проверки нет нигде в дереве, а имя функции обещает её сегодня.</p>
+  </div>
+</section>
+
+<div class="foot">
+  Аудит по REVIEW.md · база HEAD 434d8bae · реализация в ветке dev (eb6d6c58) · 2026-08-28<br>
+  Замеры — на рабочей базе (45 109 треков); база пользователя не изменялась ни разу, mtime и quick_check проверены<br>
+  Ограничения задачи: схема БД не наращивается, контракты схем не вводятся — не нарушены ни одним из тринадцати коммитов; <code>user_version</code> — поле заголовка файла, не схема<br>
+  main оставлен на 434d8bae и совпадает с origin/main; вся работа в origin/dev
+</div>
+
+</div>
+
+</body></html>

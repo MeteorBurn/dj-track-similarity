@@ -134,8 +134,6 @@ Search the selected text-to-audio embedding space.
 | `--limit INTEGER` | Result count, `1..500`. Default: `50`. |
 | `--min-similarity FLOAT` | Optional result threshold. |
 | `--device auto\|cpu\|cuda` | Text-embedding device. Default: `auto`. |
-| `--use-ann-index` | Require the selected family persistent ANN sidecar instead of exact search. |
-| `--index-dir DIRECTORY` | Sidecar location for `--use-ann-index`. |
 
 ### `dj-sim serve`
 
@@ -152,56 +150,11 @@ Start the API server.
 </details>
 
 <details>
-<summary>Persistent ANN indexes and classifier diagnostics</summary>
+<summary>Classifier diagnostics</summary>
 
 ```powershell
-dj-sim index verify --model mert --db .\data\library.sqlite
+dj-sim classifier calibration-report --db .\data\library.sqlite
 ```
-
-### `dj-sim index build`
-
-| Option | Meaning |
-| --- | --- |
-| `--model TEXT` | **Required.** `maest`, `mert`, `muq`, `mulan`, or `clap`. |
-| `--db PATH` | Library database path. |
-| `--index-dir DIRECTORY` | Sidecar directory. Default is beside the database. |
-| `--backend hnswlib` | Persistent ANN backend. Default: `hnswlib`. This is the only supported backend. |
-| `--ef-construction INTEGER` | HNSW construction setting, at least `1`. Default: `200`. |
-| `--m INTEGER` | HNSW `M`, at least `1`. Default: `16`. |
-| `--ef-search INTEGER` | HNSW search setting saved in the manifest, at least `1`. Default: `100`. |
-
-### `dj-sim index verify`
-
-| Option | Meaning |
-| --- | --- |
-| `--model TEXT` | **Required.** `maest`, `mert`, `muq`, `mulan`, or `clap`. |
-| `--db PATH` | Library database path. |
-| `--index-dir DIRECTORY` | Sidecar directory. Default is beside the database. |
-
-### `dj-sim index benchmark`
-
-| Option | Meaning |
-| --- | --- |
-| `--model TEXT` | **Required.** `maest`, `mert`, `muq`, `mulan`, or `clap`. |
-| `--db PATH` | Library database path. |
-| `--index-dir DIRECTORY` | Sidecar directory. Default is beside the database. |
-| `--compare exact` | Comparison backend. Default: `exact`. This is the only supported value. |
-| `--threshold FLOAT` | Primary Recall@K pass threshold, `0..1`. Default: `0.97`. |
-| `--recall-k INTEGER` | Primary recall cutoff, at least `1`. Default: `50`. |
-| `--k INTEGER` | Additional recall cutoff. Repeatable. Each value is at least `1`. |
-| `--seed-count INTEGER` | Deterministic sampled seed embeddings, at least `1`. Default: `20`. |
-| `--random-seed INTEGER` | Deterministic sampling seed. Default: `123`. |
-| `--output FILE` | Optional JSON report path. |
-
-### `dj-sim index clear`
-
-| Option | Meaning |
-| --- | --- |
-| `--model TEXT` | Optional model family. Omit to delete every generated sidecar. |
-| `--db PATH` | Library database path. |
-| `--index-dir DIRECTORY` | Sidecar directory. Default is beside the database. |
-
-`index clear` deletes generated index files, never source audio.
 
 ### `dj-sim classifier calibration-report`
 
@@ -351,8 +304,7 @@ real project database.
 | `--seed-count INTEGER` | Seeds per run. Default: `20`. |
 | `--per-source INTEGER` | Candidate limit per source. Default: `30`. |
 | `--random-seed INTEGER` | Deterministic seed. Default: `123`. |
-| `--vector-backend exact\|hnsw` | Timing backend. Default: `exact`. |
-| `--keep-db PATH` | Keep the synthetic database for debugging instead of cleaning it up. |
+|| `--keep-db PATH` | Keep the synthetic database for debugging instead of cleaning it up. |
 
 </details>
 

@@ -10,15 +10,6 @@ from typing import Optional, Sequence
 
 import typer
 
-from .ann_index import (
-    DEFAULT_RECALL_THRESHOLD,
-    PersistentAnnVectorSearchBackend,
-    benchmark_persistent_index,
-    build_persistent_index,
-    clear_persistent_indexes,
-    resolve_index_dir,
-    verify_persistent_index,
-)
 from .analysis_config import (
     DEFAULT_ANALYSIS_DEVICE,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
@@ -42,7 +33,6 @@ from .analysis_config import (
 )
 from .analysis_jobs import AnalysisJobManager
 from .analysis_model_runners import (
-    current_embedding_analysis_output,
     embedding_analysis_output,
 )
 from .analysis_pipeline import AnalysisPipelineManager
@@ -92,10 +82,8 @@ app = typer.Typer(
 )
 eval_app = typer.Typer(help="Build local evaluation diagnostics and optional manual-feedback reports.")
 classifier_app = typer.Typer(help="Inspect promoted classifier production reports and label suggestions.")
-index_app = typer.Typer(help="Build, verify, benchmark, and clear optional persistent ANN sidecar indexes.")
 app.add_typer(eval_app, name="eval")
 app.add_typer(classifier_app, name="classifier")
-app.add_typer(index_app, name="index")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -263,160 +251,6 @@ def _parse_analysis_device(value: str | None) -> str:
         return normalize_analysis_device(value)
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
-
-
-@index_app.command("build")
-def index_build(
-    model: str = typer.Option(
-        ...,
-        "--model",
-        help="Active embedding model family: maest, mert, muq, mulan, or clap.",
-    ),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
-    backend: str = typer.Option(
-        "hnswlib",
-        "--backend",
-        help="Persistent ANN backend. Only hnswlib is supported.",
-    ),
-    ef_construction: int = typer.Option(200, "--ef-construction", min=1, help="HNSW ef_construction setting."),
-    m: int = typer.Option(16, "--m", min=1, help="HNSW M setting."),
-    ef_search: int = typer.Option(100, "--ef-search", min=1, help="HNSW ef_search setting saved in the manifest."),
-) -> None:
-    try:
-        result = build_persistent_index(
-            _db(db_path),
-            model,
-            analysis_output=current_embedding_analysis_output(model),
-            index_dir=index_dir,
-            backend=backend,
-            ef_construction=ef_construction,
-            m=m,
-            ef_search=ef_search,
-        )
-    except (ValueError, VectorIndexUnavailable) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    for warning in result.warnings:
-        typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
-    typer.echo(
-        f"status=ok model={result.analysis_family} backend={result.backend} tracks={result.embedding_count} "
-        f"dim={result.embedding_dim} build_seconds={result.build_seconds:.3f} "
-        f"index_size_bytes={result.index_size_bytes} index_dir={result.index_dir} "
-        f"artifact={result.artifact_path} manifest={result.manifest_path}"
-    )
-
-
-@index_app.command("verify")
-def index_verify(
-    model: str = typer.Option(
-        ...,
-        "--model",
-        help="Active embedding model family: maest, mert, muq, mulan, or clap.",
-    ),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
-) -> None:
-    try:
-        verification = verify_persistent_index(
-            _db(db_path),
-            model,
-            analysis_output=current_embedding_analysis_output(model),
-            index_dir=index_dir,
-        )
-    except (ValueError, VectorIndexUnavailable) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    output = (
-        f"status={verification.status} model={verification.analysis_family} index_dir={verification.index_dir} "
-        f"artifact={verification.artifact_path} manifest={verification.manifest_path}"
-    )
-    if verification.is_usable:
-        typer.echo(output)
-        return
-    typer.secho(output, err=True, fg=typer.colors.RED)
-    if verification.reasons:
-        typer.secho(f"reasons={','.join(verification.reasons)}", err=True, fg=typer.colors.RED)
-    typer.secho(verification.message, err=True, fg=typer.colors.RED)
-    raise typer.Exit(1)
-
-
-@index_app.command("benchmark")
-def index_benchmark(
-    model: str = typer.Option(
-        ...,
-        "--model",
-        help="Active embedding model family: maest, mert, muq, mulan, or clap.",
-    ),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
-    compare: str = typer.Option("exact", "--compare", help="Comparison backend. Only exact is supported."),
-    threshold: float = typer.Option(DEFAULT_RECALL_THRESHOLD, "--threshold", min=0.0, max=1.0, help="Pass/fail threshold for the primary Recall@K."),
-    recall_k: int = typer.Option(50, "--recall-k", min=1, help="Primary recall cutoff. Defaults to Recall@50."),
-    k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Additional recall cutoff. Repeat for multiple values."),
-    seed_count: int = typer.Option(20, "--seed-count", min=1, help="Number of deterministic seed embeddings to sample."),
-    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic seed sampling value."),
-    output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True, help="Optional JSON report path."),
-) -> None:
-    if compare.strip().lower() != "exact":
-        raise typer.BadParameter("Only --compare exact is supported")
-    try:
-        report = benchmark_persistent_index(
-            _db(db_path),
-            model,
-            analysis_output=current_embedding_analysis_output(model),
-            index_dir=index_dir,
-            threshold=threshold,
-            recall_k=recall_k,
-            k_values=k,
-            seed_count=seed_count,
-            random_seed=random_seed,
-        )
-        if output_path is not None:
-            _write_json_report(output_path, report)
-    except (ValueError, VectorIndexUnavailable) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    primary = report["recall"][f"recall_at_{report['primary_recall_k']}"]["mean"]
-    output_text = str(output_path) if output_path is not None else "not_written"
-    typer.echo(
-        f"status={report['status']} model={report['analysis_family']} backend={report['backend']} "
-        f"recall_at_{report['primary_recall_k']}={float(primary):.4f} threshold={float(report['threshold']):.4f} "
-        f"seeds={report['seed_count']} p50_latency_ms={float(report['p50_latency']):.3f} "
-        f"p95_latency_ms={float(report['p95_latency']):.3f} index_size_bytes={report['index_size_bytes']} "
-        f"output={output_text}"
-    )
-    if report["status"] != "pass":
-        raise typer.Exit(1)
-
-
-@index_app.command("clear")
-def index_clear(
-    model: Optional[str] = typer.Option(
-        None,
-        "--model",
-        help="Optional model family to clear. Omit to clear all generated indexes.",
-    ),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
-) -> None:
-    try:
-        resolved_index_dir = resolve_index_dir(_db(db_path), index_dir)
-        result = clear_persistent_indexes(
-            resolved_index_dir,
-            analysis_family=model,
-        )
-    except ValueError as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-    model_text = result.analysis_family or "all"
-    typer.echo(
-        f"status=ok model={model_text} deleted={result.deleted_count} "
-        f"index_dir={result.index_dir}"
-    )
 
 
 @eval_app.command("export-candidates")
@@ -1287,8 +1121,6 @@ def text_search(
     limit: int = typer.Option(50, "--limit", min=1, max=500),
     min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Text embedding device: auto, cpu, or cuda."),
-    use_ann_index: bool = typer.Option(False, "--use-ann-index", help="Require the persistent text-model ANN sidecar instead of exact search."),
-    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Persistent index sidecar directory for --use-ann-index."),
 ) -> None:
     try:
         device_name = _parse_analysis_device(device)
@@ -1304,21 +1136,10 @@ def text_search(
             adapter.embedding_key,
             adapter,
         )
-        vector_backend = (
-            PersistentAnnVectorSearchBackend(
-                db,
-                analysis_family=adapter.embedding_key,
-                analysis_output=analysis_output,
-                index_dir=index_dir,
-            )
-            if use_ann_index
-            else None
-        )
         searcher = SimilaritySearch(
             db,
             adapter.embedding_key,
             analysis_output=analysis_output,
-            vector_backend=vector_backend,
         )
         vector = adapter.embed_text(query.strip())
         results = searcher.search_vector(

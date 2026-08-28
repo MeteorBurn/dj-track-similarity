@@ -37,8 +37,6 @@ from dj_track_similarity.search import SimilaritySearch  # noqa: E402
 from dj_track_similarity.track_models import FileTags, ScannedFile  # noqa: E402
 from dj_track_similarity.vector_index import (  # noqa: E402
     EXACT_VECTOR_BACKEND_NAME,
-    HNSW_VECTOR_BACKEND_NAME,
-    create_vector_backend,
 )
 
 
@@ -57,12 +55,11 @@ class BenchmarkConfig:
     seed_count: int
     per_source: int
     random_seed: int
-    vector_backend: str
     keep_db: Path | None
 
 
 def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
-    vector_backend_name = create_vector_backend(config.vector_backend).backend_name
+    vector_backend_name = EXACT_VECTOR_BACKEND_NAME
     runs = [_benchmark_track_count(config, track_count) for track_count in config.track_counts]
     return {
         "benchmark": "embedding_search_benchmark",
@@ -278,15 +275,13 @@ def _measure_vector_similarity_searches(
     metrics: dict[str, dict[str, Any]] = {}
     for source in EMBEDDING_SOURCES:
         output = _active_embedding_output(db, source)
-        vector_backend = create_vector_backend(config.vector_backend)
         searcher = SimilaritySearch(
             db,
             source,
             analysis_output=output,
-            vector_backend=vector_backend,
         )
         source_metrics = {
-            "backend": vector_backend.backend_name,
+            "backend": EXACT_VECTOR_BACKEND_NAME,
             **_measure_seed_operation(
                 seed_track_ids,
                 lambda seed_track_id, searcher=searcher: searcher.search(
@@ -295,51 +290,8 @@ def _measure_vector_similarity_searches(
                 ),
             ),
         }
-        if vector_backend.backend_name != EXACT_VECTOR_BACKEND_NAME:
-            source_metrics["recall_at_k"] = _measure_recall_at_k(
-                db,
-                source,
-                config,
-                seed_track_ids,
-            )
         metrics[source] = source_metrics
     return metrics
-
-
-def _measure_recall_at_k(
-    db: LibraryDatabase,
-    source: str,
-    config: BenchmarkConfig,
-    seed_track_ids: Sequence[int],
-) -> dict[str, Any]:
-    recalls: list[float] = []
-    output = _active_embedding_output(db, source)
-    exact_searcher = SimilaritySearch(
-        db,
-        source,
-        analysis_output=output,
-    )
-    backend_searcher = SimilaritySearch(
-        db,
-        source,
-        analysis_output=output,
-        vector_backend=create_vector_backend(config.vector_backend),
-    )
-    for seed_track_id in seed_track_ids:
-        targets = exact_searcher.resolve_targets((seed_track_id,))
-        exact_results = exact_searcher.search(targets, limit=config.per_source)
-        backend_results = backend_searcher.search(targets, limit=config.per_source)
-        exact_ids = [result.target.track_id for result in exact_results]
-        if not exact_ids:
-            continue
-        backend_ids = {result.target.track_id for result in backend_results}
-        recalls.append(len(backend_ids.intersection(exact_ids)) / len(exact_ids))
-    return {
-        "k": config.per_source,
-        "samples": len(recalls),
-        "mean": (sum(recalls) / len(recalls)) if recalls else None,
-        "min": min(recalls) if recalls else None,
-    }
 
 
 def _active_embedding_output(
@@ -496,12 +448,6 @@ def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser.add_argument("--seed-count", default=20, type=_positive_int, help="Number of sampled seed tracks per run. Defaults to 20.")
     parser.add_argument("--per-source", default=30, type=_positive_int, help="Candidate limit per source. Defaults to 30.")
     parser.add_argument("--random-seed", default=123, type=int, help="Deterministic random seed. Defaults to 123.")
-    parser.add_argument(
-        "--vector-backend",
-        choices=("exact", "hnsw"),
-        default="exact",
-        help="Vector backend for direct similarity timing: exact or hnsw. Defaults to exact.",
-    )
     parser.add_argument("--keep-db", type=Path, help="Optional path for keeping the synthetic library database for debugging.")
     args = parser.parse_args(argv)
     config = BenchmarkConfig(
@@ -510,17 +456,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
         seed_count=args.seed_count,
         per_source=args.per_source,
         random_seed=args.random_seed,
-        vector_backend=_vector_backend_name(args.vector_backend),
         keep_db=args.keep_db.expanduser().resolve(strict=False) if args.keep_db is not None else None,
     )
     output_conflict = _conflicting_kept_database_path(config)
     if output_conflict is not None:
         parser.error(f"--output must not point to a kept synthetic database path: {output_conflict}")
     return config
-
-
-def _vector_backend_name(value: str) -> str:
-    return EXACT_VECTOR_BACKEND_NAME if value == "exact" else HNSW_VECTOR_BACKEND_NAME
 
 
 def _conflicting_kept_database_path(config: BenchmarkConfig) -> Path | None:

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from dj_track_similarity.analysis_model_runners import (
     current_embedding_analysis_output,
@@ -24,9 +22,6 @@ from dj_track_similarity.track_models import (
 )
 from dj_track_similarity.vector_index import (
     ExactVectorSearchBackend,
-    HnswVectorSearchBackend,
-    VectorIndexUnavailable,
-    create_vector_backend,
 )
 
 
@@ -63,72 +58,6 @@ def test_exact_backend_matches_manual_matrix_dot_ranking() -> None:
     assert [hit.score for hit in hits] == [
         float(scores[index]) for index in expected_indices
     ]
-
-
-def test_vector_backend_factory_uses_exact_backend_name() -> None:
-    backend = create_vector_backend("exact_numpy")
-
-    assert isinstance(backend, ExactVectorSearchBackend)
-    assert backend.backend_name == "exact_numpy"
-
-
-def test_hnswlib_backend_reports_unavailable_dependency(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    real_import_module = importlib.import_module
-
-    def fail_hnsw_import(
-        name: str,
-        package: str | None = None,
-    ) -> object:
-        if name == "hnswlib":
-            raise ImportError("forced missing hnswlib")
-        return real_import_module(name, package)
-
-    monkeypatch.setattr(importlib, "import_module", fail_hnsw_import)
-
-    with pytest.raises(
-        VectorIndexUnavailable,
-        match="requires optional dependency 'hnswlib'",
-    ):
-        create_vector_backend("hnswlib")
-
-
-def test_hnswlib_backend_matches_exact_ranking_when_available() -> None:
-    pytest.importorskip("hnswlib")
-    matrix = np.stack(
-        (
-            _small_unit_vector(1.0, 0.0, 0.0),
-            _small_unit_vector(0.8, 0.2, 0.0),
-            _small_unit_vector(0.0, 1.0, 0.0),
-            _small_unit_vector(-1.0, 0.0, 0.0),
-        )
-    )
-    targets = _targets(201, 202, 203, 204)
-    query = _small_unit_vector(1.0, 0.0, 0.0)
-    exact_hits = ExactVectorSearchBackend().search(
-        matrix,
-        targets,
-        query,
-        limit=3,
-    )
-
-    backend = create_vector_backend("hnswlib")
-    assert isinstance(backend, HnswVectorSearchBackend)
-    hnsw_hits = backend.search(
-        matrix,
-        targets,
-        query,
-        limit=3,
-    )
-
-    assert [hit.target for hit in hnsw_hits] == [
-        hit.target for hit in exact_hits
-    ]
-    assert [hit.score for hit in hnsw_hits] == pytest.approx(
-        [hit.score for hit in exact_hits],
-        abs=1e-5,
-    )
 
 
 def test_exact_backend_preserves_stable_input_order_for_ties() -> None:

@@ -286,9 +286,3 @@ Options include:
 - `--min-similarity`
 - `--model clap|mulan` (`clap` is the default)
 - `--device auto|cpu|cuda` for the selected text embedding
-- `--use-ann-index` for the selected family's persistent sidecar
-- `--index-dir` for a custom sidecar directory
-
-`--use-ann-index` has no exact-search fallback. A missing, stale, malformed, or unsupported sidecar
-fails the command instead of quietly ranking against something else. Omit the flag to run the exact
-search.

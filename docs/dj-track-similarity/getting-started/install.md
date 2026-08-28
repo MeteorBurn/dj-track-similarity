@@ -109,7 +109,6 @@ Torchaudio.
 
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
-- `ann`: optional HNSW backend for persistent ANN sidecar indexes.
 - `rhythm-lab`: scikit-learn for classifier training.
 
 For optional ANN support:

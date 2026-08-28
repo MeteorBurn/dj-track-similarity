@@ -537,6 +537,29 @@ def _readonly(vector: np.ndarray) -> np.ndarray:
 _LIBRARY_VECTOR_CACHE_BYTES = 512 * 1024 * 1024
 
 
+def _bump_write_generation(connection: sqlite3.Connection) -> None:
+    """Advance the database-wide counter that dates a cached vector load.
+
+    Read inside the write transaction, after the writes that precede it, so
+    two writers cannot both read the same value: the second blocks on the write
+    lock until the first has committed. ``user_version`` is a header field, not
+    schema — nothing in this project ever used it — and unlike
+    ``PRAGMA data_version`` a reader on a fresh connection sees the committed
+    value, which is what makes analysis run from the CLI visible to a server
+    that has the database open.
+
+    Every transaction that writes an embedding table has to call this before it
+    commits. A path that forgets is not silently wrong — the row counts in the
+    fingerprint still catch rows appearing or disappearing — but a vector
+    rewritten in place under an unchanged identity would go unnoticed.
+    """
+
+    current = int(
+        connection.execute("PRAGMA user_version").fetchone()[0]
+    )
+    connection.execute(f"PRAGMA user_version = {current + 1}")
+
+
 def _library_vector_fingerprint(
     connection: sqlite3.Connection,
     *,
@@ -549,22 +572,24 @@ def _library_vector_fingerprint(
     A cached load goes wrong in exactly three ways: a vector is rewritten in
     place, a vector row appears or disappears, or a track enters or leaves the
     current set — and the last one also reorders every row, because identities
-    are ordered by file path. Row counts and the newest write timestamp catch
-    all three from any process, which an in-process write counter cannot do:
-    analysis also runs from the CLI against a database a server has open.
+    are ordered by file path. The write generation catches the first from any
+    writer; the row counts catch the second and third, and they also catch a
+    database file swapped underneath us, which a counter cannot.
 
-    The timestamp is why this reads the wide table rather than its covering
-    index: ``analyzed_at`` is not indexed, so ``MAX`` scans. That scan is the
-    whole cost of the check, and it is an order of magnitude below the load it
-    replaces.
+    Everything here reads a covering index or the file header. Dating the rows
+    by ``MAX(analyzed_at)`` instead cost 113 ms of the 153 ms this check used
+    to take, because the column is not indexed and the scan walks 45,000 rows
+    of embedding blobs to find it.
     """
 
     spec = current_embedding_spec(output.analysis_family)
+    generation = int(
+        connection.execute("PRAGMA user_version").fetchone()[0]
+    )
     embeddings = connection.execute(
         f"""
         SELECT
             COUNT(*),
-            COALESCE(MAX(analyzed_at), ''),
             COALESCE(MAX(track_uuid), '')
         FROM {table}
         """
@@ -584,6 +609,7 @@ def _library_vector_fingerprint(
         output.key,
         spec.dimension,
         spec.normalization,
+        generation,
         tuple(embeddings),
         tuple(tracks),
     )
@@ -791,6 +817,7 @@ class AnalysisRepository:
                                     written_outputs=write.outputs,
                                 )
                             )
+                    _bump_write_generation(connection)
                     connection.commit()
                 except BaseException:
                     if connection.in_transaction:
@@ -846,6 +873,7 @@ class AnalysisRepository:
                                     written_outputs=write.outputs,
                                 )
                             )
+                    _bump_write_generation(connection)
                     connection.commit()
                 except BaseException:
                     if connection.in_transaction:
@@ -904,6 +932,7 @@ class AnalysisRepository:
                                     written_outputs=(output,),
                                 )
                             )
+                    _bump_write_generation(connection)
                     connection.commit()
                 except BaseException:
                     if connection.in_transaction:
@@ -1377,6 +1406,7 @@ class AnalysisRepository:
                                 int(cursor.rowcount),
                             )
                     classifier_deleted = 0
+                    _bump_write_generation(connection)
                     connection.commit()
                 except BaseException:
                     if connection.in_transaction:

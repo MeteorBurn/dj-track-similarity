@@ -219,6 +219,104 @@ npm --prefix .\frontend run build      # mandatory before a commit
 
 ## GRAPHIFY
 
-When the user types `/graphify`, use the graphify skill first. Prefer scoped
-`graphify query`, `path`, and `explain` commands, then `graphify-out/wiki/index.md`.
-Read `GRAPH_REPORT.md` only when needed; dirty generated graph files are expected.
+`graphify-out/graph.json` is a queryable knowledge graph of this project: about
+7000 nodes and 20000 edges over `src/`, `frontend/src/`, `tools/`, `scripts/`,
+`tests/`, the documentation pages, and the design rationale under
+`.claude/plans/`. Nodes carry `source_file` and `source_location`; edges carry a
+relation and an honest confidence tag, `EXTRACTED` or `INFERRED`. A post-commit
+git hook rebuilds it, so it tracks `HEAD` without anyone asking.
+
+The graph is a working aid for the agent, not a feature of the product and not
+something the user operates. Nobody here types `/graphify`, and no request will
+ever ask for it: reach for it on your own, at the moments below, the way you
+would reach for a file listing. A SessionStart hook puts the current lessons in
+front of you before the first message, and PreToolUse hooks nudge again, but
+neither can stop a call — the rule lives here.
+
+| The moment you are about to | Run first |
+|---|---|
+| Look for where something lives | `graphify query` with expanded tokens |
+| Change a shared symbol | `graphify affected "<symbol>"` |
+| Work on a symbol you have not read yet | `graphify explain "<symbol>"` |
+| Work out how two parts connect | `graphify path "<A>" "<B>"` |
+| Get oriented in an unfamiliar area | `graphify god-nodes`, then `explain` |
+| Grep or bulk-read across `src/`, `frontend/src/`, `tools/`, `tests/` | any of the above — the grep comes after |
+
+`.codex/skills/graphify/references/query.md` holds the full flow; what follows
+is what this project must not get wrong.
+
+### Expand the question against the graph's vocabulary first
+
+The matcher is case-folded substring plus IDF. No stemming, no synonyms, no
+cross-language matching. A question phrased in Russian, or in wording the code
+does not use, does not come back empty — it comes back with whatever happens to
+share a substring, which is worse, because the answer looks real. Asking in
+Russian how the analysis manager writes to the database returns saved Q&A notes
+about audio dedup, because those notes are the only Russian text in the corpus
+and none of the code is. Expansion is what prevents this, so before any
+`graphify query`:
+
+1. Refresh the vocabulary and read it:
+
+   ```powershell
+   & (Get-Content graphify-out\.graphify_python) -c "import json,re;from pathlib import Path;d=json.loads(Path('graphify-out/graph.json').read_text(encoding='utf-8'));v=set();[v.add(p.lower()) for n in d['nodes'] for c in re.findall(r'[^\W\d_]+', n.get('label','') or '', re.UNICODE) for p in (re.findall(r'[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+', c) or [c]) if 3 <= len(p) <= 30];Path('graphify-out/.vocab.txt').write_text(chr(10).join(sorted(v)),encoding='utf-8');print(len(v),'tokens')"
+   ```
+
+2. Pick up to 12 tokens that exist in `graphify-out/.vocab.txt`. Never invent a
+   token, and never substitute a synonym from memory. If nothing in the
+   vocabulary matches, say the graph has no vocabulary for the question and stop
+   rather than running a search that will return noise.
+3. Query with the expanded tokens, not the original sentence.
+
+### Pick the command the question calls for
+
+- `graphify explain "<symbol>"` — what a symbol is and everything on both sides
+  of it, with `file:line`. The first call for "what is this and who touches it".
+- `graphify affected "<symbol>"` — reverse traversal: the blast radius of a
+  change, before making it.
+- `graphify path "<A>" "<B>"` — how two symbols reach each other.
+- `graphify query "<tokens>"` — breadth-first for broad context; add `--dfs` to
+  trace one chain. Output is capped at a token budget and says how many nodes it
+  cut. A truncated sweep is not an answer: narrow the tokens, filter with
+  `--context`, or raise `--budget`.
+- `graphify god-nodes` — the architectural hubs.
+
+Then open the files the graph named. Do not reach for it where it holds nothing
+to find: `AGENTS.md`, configuration prose, git history, dependency locks, and a
+file whose path is already known are faster read directly.
+
+### Close the loop
+
+The graph learns from use, and this only works if every session does its part.
+
+- At the start of graph work, run `graphify reflect --if-stale` and read
+  `graphify-out/reflections/LESSONS.md`. It names preferred sources, known dead
+  ends, and past corrections.
+- After answering from the graph, save the result back:
+
+  ```powershell
+  graphify save-result --question "<the user's verbatim question>" --answer "<answer, including the expanded tokens>" --type query --nodes <cited labels> --outcome useful
+  ```
+
+  Use `--outcome dead_end` when the traversal led nowhere, and
+  `--outcome corrected --correction "<what was right>"` when the graph was
+  wrong. An unsaved answer teaches the next session nothing.
+- Write that question in English even when it was asked in Russian. The saved
+  note becomes a graph node on the next rebuild, and a Russian one turns into
+  another magnet for the cross-language mismatch above. The skill's reference
+  says verbatim; here, translated wins.
+
+Carry all of this into every sub-agent prompt that explores code; a sub-agent
+inherits none of it.
+
+### Corpus and rebuilds
+
+`.graphifyignore` holds what stays out of the graph, and it is the place to fix
+a corpus problem — not a filter applied while reading results. The graphify MCP
+server needs authorization and is unavailable in a non-interactive session; the
+CLI needs none and answers in about a second.
+
+`graphify update .` is not part of an edit loop — see VERIFICATION ROUTING. The
+post-commit hook covers normal work; run it by hand only after changing
+`.graphifyignore` or deleting a lot of code. Read `GRAPH_REPORT.md` only when
+needed; dirty generated graph files are expected.

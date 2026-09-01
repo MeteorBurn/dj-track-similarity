@@ -34,6 +34,11 @@ library", naming the stages and the scope.
 
 ## Shared settings
 
+`Device`, `Track batch`, and `Inference batch` are set from the **ML models analysis settings**
+dialog, opened from a button on the ML models card. See
+[ML analysis settings dialog](../reference/ui-controls.md#ml-analysis-settings-dialog). `Analyze
+limit` stays on panel 1 itself, below both cards.
+
 | Control | Initial value | Range |
 | --- | ---: | --- |
 | `Device` | `AUTO` | `AUTO`, `CPU`, `CUDA` |
@@ -43,7 +48,7 @@ library", naming the stages and the scope.
 
 `Analyze limit` applies separately to each stage, which its own hint states: `0` means every track,
 applied per analysis stage. `Device` covers MAEST, MERT, MuQ, MuQ-MuLan, and CLAP inference. SONARA
-uses its native CPU path.
+uses its native CPU path and has no device choice of its own.
 
 ## Direct and Staged modes
 
@@ -51,10 +56,13 @@ Both families have a `Mode` selector with `Direct` and `Staged`, starting on `Di
 tooltips are **Read the source audio files directly** and **Copy input files into a temporary SSD
 folder**.
 
-The ML card in panel 1 carries its own selector inline. SONARA's selector instead lives in the
-**SONARA analysis settings** dialog, opened from a button on the SONARA card. That dialog also
+Neither card carries its selector inline any more. SONARA's selector lives in the
+**SONARA analysis settings** dialog, opened from a button on the SONARA card; that dialog also
 carries the SONARA BPM range. See
-[SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
+[SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog). The ML card's
+selector lives in the **ML models analysis settings** dialog, opened from a button on the ML models
+card, alongside Device and the two batch-size controls. See
+[ML analysis settings dialog](../reference/ui-controls.md#ml-analysis-settings-dialog).
 
 SONARA Staged exposes a staging folder plus `Processes` (`1..16`, default `4`), `Threads`
 (`1..64`, default `4`), `BatchSize` (`1..16`, default `4`), and `StageSize` (`1..512`, default

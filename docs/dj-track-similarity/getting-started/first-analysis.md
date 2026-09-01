@@ -144,7 +144,9 @@ from the SONARA row and the five ML rows only, and one `Analyze` press runs the 
 the order SONARA, then ML. Its tooltip states exactly that: it runs the checked models in SONARA
 then ML order.
 
-Shared settings sit under the ML card:
+`Device`, `Track batch`, and `Inference batch` are not set inline on the ML card. They live in the
+**ML models analysis settings** dialog, opened from a button on the ML models card. See
+[ML analysis settings dialog](../reference/ui-controls.md#ml-analysis-settings-dialog).
 
 | Control | Initial value | Range |
 | --- | ---: | --- |
@@ -153,8 +155,8 @@ Shared settings sit under the ML card:
 | `Inference batch` | `16` | `1..128` |
 | `Analyze limit` | `0` | `0..100000`, where `0` means every eligible track |
 
-`Analyze limit` applies separately to each stage, which its own hint states: `0` means every track,
-applied per analysis stage.
+`Analyze limit` stays on panel 1 itself, below both cards, applying separately to each stage, which
+its own hint states: `0` means every track, applied per analysis stage.
 
 To stop a running stage, press the square Stop icon in the top bar, titled **Stop the current scan
 or analysis**. Cancellation is cooperative: the run loop checks it between batches and between
@@ -166,9 +168,12 @@ Both families have a `Mode` selector with `Direct` and `Staged`. Their tooltips 
 source audio files directly** and **Copy input files into a temporary SSD folder**. Direct is the
 initial mode for both.
 
-The ML card keeps its selector inline in panel 1. SONARA's selector, staging folder, and steppers
-live in the **SONARA analysis settings** dialog instead, opened from a button on the SONARA card.
-See [SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
+Neither card keeps its selector inline in panel 1 any more. SONARA's selector, staging folder, and
+steppers live in the **SONARA analysis settings** dialog, opened from a button on the SONARA card.
+See [SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog). ML's selector,
+staging folder, and steppers live in the **ML models analysis settings** dialog, opened from a
+button on the ML models card. See
+[ML analysis settings dialog](../reference/ui-controls.md#ml-analysis-settings-dialog).
 
 Staged Mode is intended for source libraries on slower disks. It copies selected files read-only
 into a temporary per-job directory below the folder you choose, without changing or moving the
@@ -195,6 +200,8 @@ One process does not wait for another process's mini-batch. This is SONARA CPU/R
 ML inference batching.
 
 ### ML settings
+
+Set from the **ML models analysis settings** dialog, opened from a button on the ML models card.
 
 | Mode | Control | Initial value | Range |
 | --- | --- | ---: | --- |

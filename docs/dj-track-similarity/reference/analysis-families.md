@@ -109,10 +109,13 @@ Staged Mode applies to the GPU families as well as to SONARA. The ML staged bloc
 `copy_workers`, `decode_workers`, `stage_size`, `inference_batch_size`, `preflight_copy_enabled`,
 and `preflight_copy_count`. The browser exposes the folder, Workers, and StageSize from that set.
 
-The ML card in panel 1 exposes its Mode selector inline. SONARA's Mode selector, staging folder, and
-batch controls live in the **SONARA analysis settings** dialog instead, opened from a button on the
-SONARA card. The [UI language glossary](../help/ui-language.md) carries the on-screen strings. See
-[SONARA settings dialog](./ui-controls.md#sonara-settings-dialog).
+Neither card exposes its Mode selector inline any more. SONARA's Mode selector, staging folder, and
+batch controls live in the **SONARA analysis settings** dialog, opened from a button on the SONARA
+card. See [SONARA settings dialog](./ui-controls.md#sonara-settings-dialog). The ML card's Mode
+selector, Device, staging folder, and batch controls live in the **ML models analysis settings**
+dialog, opened from a button on the ML models card. See
+[ML analysis settings dialog](./ui-controls.md#ml-analysis-settings-dialog). The
+[UI language glossary](../help/ui-language.md) carries the on-screen strings for both.
 
 In both Staged paths the staging folder holds temporary copies only. Stored rows keep the original
 source-track identity, staging copies are deleted per completed track, and the job directory is

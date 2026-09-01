@@ -58,6 +58,12 @@ The SONARA card also carries a **SONARA analysis settings** button, styled like
 opens the [SONARA settings dialog](#sonara-settings-dialog) described below, which is where
 SONARA's analysis mode and BPM range now live.
 
+The **ML models** card carries the matching **ML models analysis settings** button, with the
+tooltip **Open the ML models analysis parameters**. It opens the
+[ML analysis settings dialog](#ml-analysis-settings-dialog) described below, which is where
+Device, analysis mode, and both batch-size controls now live. Neither card keeps these controls
+inline any more. Both buttons stay disabled while a job is running.
+
 The model order is `SONARA`, `MAEST`, `MERT`, `MUQ`, `MULAN`, `CLAP`. There is no CLASSIFIERS
 checkbox and no FULL button. The single **Analyze** button at the bottom of the panel runs the
 checked models in the order SONARA then ML, which its tooltip states as
@@ -68,22 +74,12 @@ selection is limited to SONARA.
 
 | Control | Card | Default | Range or meaning |
 | --- | --- | --- | --- |
-| `Mode` | ML | `Direct` | `Direct` reads source files. `Staged` copies them first. |
-| Staging folder | ML, Staged only | empty | A second, independent folder with its own picker |
-| `Workers` | ML, Staged | `4` | `1..16` |
-| `StageSize` | ML, Staged | `64` | `1..512` |
-| `Device` | ML | `AUTO` | `AUTO`, `CPU`, or `CUDA` |
-| `Track batch` | ML | `8` | `1..64` |
-| `Inference batch` | ML | `16` | `1..128` |
 | `Analyze limit` | panel footer | `0` | `0..100000`. A `0` means every track, applied separately to each stage. |
 
-The ML staging field is read-only and changes only through its picker. The ML card hides that row
-while it is in Direct Mode. ML `Mode`, `Workers`, and `StageSize` persist in browser storage. The
-staging folder is never stored, because it receives temporary copies of your audio, so every session
-asks for it again.
-
-SONARA's own Mode, batch sizes, staging folder, and BPM range are no longer set on this card. They
-live in the [SONARA settings dialog](#sonara-settings-dialog) below.
+SONARA's own Mode, batch sizes, staging folder, and BPM range are set in the
+[SONARA settings dialog](#sonara-settings-dialog) below. ML's own Device, Mode, staging folder,
+`Workers`, `StageSize`, `Track batch`, and `Inference batch` are set in the
+[ML analysis settings dialog](#ml-analysis-settings-dialog) below.
 
 ### SONARA settings dialog
 
@@ -129,6 +125,51 @@ warm-up view. That view has a progress bar over the selected model count, the cu
 and its resolved device. The stage indicator names model warm-up until the phase becomes
 `analyzing`, when the per-track box returns. See
 [Model warm-up](./analysis-families.md#model-warm-up).
+
+### ML analysis settings dialog
+
+Press **ML models analysis settings** on the ML models card to open this modal. It is disabled
+while a job is running. The header reads **ML models analysis settings**, and the subtitle says
+Device and the file-reading mode decide how MAEST, MERT, MuQ, MuLan, and CLAP compute embeddings.
+Close it with the `X` icon, `Escape`, or the footer **OK** button; all three just close the dialog
+and are disabled while a job is running. There is no separate save step: every control writes
+straight to the relevant panel-1 state on change, the same way the removed inline controls did.
+
+The body holds three sections, in this order:
+
+1. **Device**, opening with a short description of how `AUTO`, `CPU`, and `CUDA` are chosen for
+   MAEST, MERT, MuQ, MuLan, and CLAP inference, and a note that SONARA has no device choice because
+   it is a native CPU-only Rust pipeline. This section has no counterpart in the SONARA dialog for
+   that reason, and Device is deliberately first in this dialog, above analysis mode.
+2. **Analysis mode**, opening with a short description of Direct versus Staged that also states how
+   ML Staged Mode differs from SONARA's: a single `Workers` parameter instead of separate
+   `Processes`/`Threads`, and staging that feeds every selected ML model adapter together instead of
+   one pipeline. Then the same `Mode` selector, staging folder, and stepper controls this dialog
+   replaced from panel 1:
+
+| Control | Mode | Default | Range or meaning |
+| --- | --- | --- | --- |
+| `Mode` | both | `Direct` | `Direct` reads source files. `Staged` copies them to a temporary folder first. |
+| Staging folder | Staged only | empty | Read-only field plus a folder picker. |
+| `Workers` | Staged | `4` | `1..16` |
+| `StageSize` | Staged | `64` | `1..512` |
+
+3. **Batch sizes**, opening with a short description of `Track batch` and `Inference batch`, noting
+   that both apply the same way in Direct and Staged mode, then the two steppers:
+
+| Control | Default | Range or meaning |
+| --- | ---: | --- |
+| `Track batch` | `8` | `1..64` |
+| `Inference batch` | `16` | `1..128` |
+
+`Track batch` and `Inference batch` stay disabled until the library holds at least one track.
+Device, `Mode`, and the staging controls stay adjustable regardless, gated only by whether a job is
+running.
+
+`Mode`, the staging folder, `Workers`, and `StageSize` persist in browser storage under
+`dj-track-similarity.ml-analysis-settings`, the same key the removed inline controls used; the
+staging folder itself is excluded, so every session asks for it again. Device, `Track batch`, and
+`Inference batch` are not persisted: each page load resets them to `AUTO`, `8`, and `16`.
 
 ## Track import dialog
 

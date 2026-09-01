@@ -99,16 +99,20 @@ browser did not close it.
 | `Сбросить MAEST` and the same form for MERT, MUQ, MULAN, CLAP | Reset that family | Trash button on each model row |
 | `Настройки анализа SONARA` | SONARA analysis settings | Button on the SONARA card, opens the [SONARA settings dialog](#sonara-settings-dialog) |
 | `Открыть параметры анализа SONARA` | Open the SONARA analysis parameters | Title of the settings button above |
-| `Читать исходные аудиофайлы напрямую` | Read the source audio files directly | Title of the ML card's `Direct` button, and of the same toggle inside the SONARA settings dialog |
-| `Копировать входные файлы во временную SSD-папку` | Copy input files into a temporary SSD folder | Title of the ML card's `Staged` button, and of the same toggle inside the SONARA settings dialog |
-| `Папка для временных staging-копий ML` | Folder for temporary ML staging copies | ML staging path field |
-| `Choose Folder для ML staging-копий` | Choose a folder for the ML staging copies | ML folder picker |
+| `Настройки анализа ML моделями` | ML models analysis settings | Button on the ML models card, opens the [ML analysis settings dialog](#ml-analysis-settings-dialog) |
+| `Открыть параметры анализа ML-моделей` | Open the ML models analysis parameters | Title of the settings button above |
+| `Читать исходные аудиофайлы напрямую` | Read the source audio files directly | Title of the `Direct` button inside the ML analysis settings dialog, and of the same toggle inside the SONARA settings dialog |
+| `Копировать входные файлы во временную SSD-папку` | Copy input files into a temporary SSD folder | Title of the `Staged` button inside the ML analysis settings dialog, and of the same toggle inside the SONARA settings dialog |
+| `Папка для временных staging-копий ML` | Folder for temporary ML staging copies | ML staging path field, ML analysis settings dialog |
+| `Choose Folder для ML staging-копий` | Choose a folder for the ML staging copies | ML folder picker, ML analysis settings dialog |
 | `0 = все треки; применяется отдельно к каждой стадии анализа` | 0 means every track, applied per analysis stage | Note under `Analyze limit` |
 | `Запустить отмеченные модели в порядке SONARA → ML` | Run the checked models in SONARA then ML order | Title of the `Analyze` button |
 
 SONARA's own staging-folder field and picker (`Папка для временных staging-копий SONARA` and
 `Choose Folder для staging-копий`) moved out of this panel into the
-[SONARA settings dialog](#sonara-settings-dialog) below.
+[SONARA settings dialog](#sonara-settings-dialog) below. The ML card's own Device, Mode, staging
+folder, and batch-size controls moved out of this panel the same way, into the
+[ML analysis settings dialog](#ml-analysis-settings-dialog) below.
 
 The model rows carry one-line Russian descriptions:
 
@@ -264,6 +268,30 @@ The dialog opens from `Настройки анализа SONARA` on the SONARA c
 | `Папка для временных staging-копий SONARA` | Folder for temporary SONARA staging copies | Staging path field, Staged mode only |
 | `Choose Folder для staging-копий` | Choose a folder for the staging copies | SONARA folder picker |
 | `Закрыть` | Close | Title of the `X` button and the footer `OK` button |
+
+## ML analysis settings dialog
+
+The dialog opens from `Настройки анализа ML моделями` on the ML models card. It mirrors the SONARA
+settings dialog's pattern but adds a third section. Device comes first, because SONARA runs on CPU
+only and has no device choice of its own. Analysis mode comes second, and batch sizes come third.
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Настройки анализа ML моделями` | ML models analysis settings | Dialog title |
+| `Device и режим чтения файлов решают, как MAEST, MERT, MuQ, MuLan и CLAP считают эмбеддинги.` | Device and the file-reading mode decide how MAEST, MERT, MuQ, MuLan, and CLAP compute embeddings | Subtitle |
+| `Устройство` | Device | First section heading |
+| `Устройство, на котором MAEST, MERT, MuQ, MuLan и CLAP считают эмбеддинги. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU. У SONARA такого выбора нет — это нативный Rust-анализ признаков, который всегда идёт на CPU.` | The device MAEST, MERT, MuQ, MuLan, and CLAP use to compute embeddings. AUTO picks CUDA when PyTorch sees a GPU, otherwise CPU. SONARA has no such choice. It is a native Rust feature analysis that always runs on CPU | Description under the Device heading |
+| `Режим анализа` | Analysis mode | Second section heading |
+| `Direct — треки декодируются и передаются в ML-модели прямо с исходного диска. Staged ускоряет анализ за счёт временного копирования треков партиями на более быстрый накопитель и обработки уже с него; в отличие от SONARA здесь нет отдельных Processes/Threads — копированием партий управляет один параметр Workers, а инференс сразу проходит по всем выбранным моделям. Для Staged рекомендуется выбрать директорию на самом быстром доступном накопителе, желательно SSD.` | Direct reads tracks straight off the source disk and feeds them to the ML models. Staged copies tracks onto a faster drive first and analyzes them from there, in batches. Batch copying here uses a single Workers parameter, not SONARA's separate Processes and Threads. Inference always covers every selected model at once. For Staged, pick a directory on the fastest available drive, ideally an SSD | Description under the Analysis mode heading |
+| `Папка для временных staging-копий ML` | Folder for temporary ML staging copies | Staging path field, Staged mode only |
+| `Choose Folder для ML staging-копий` | Choose a folder for the ML staging copies | ML folder picker |
+| `Размер батчей` | Batch sizes | Third section heading |
+| `Track batch — сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Измеренный дефолт для этой машины: 8. Inference batch — сколько окон или семплов MAEST, MERT, MuQ и CLAP прогоняют за один forward pass модели. Тип: целое число 1-128. Измеренный дефолт для RTX 3090: 16. Оба параметра действуют одинаково в режимах Direct и Staged.` | Track batch is how many tracks to decode and hold in memory per job batch. Type: integer 1-64. Measured default for this machine: 8. Inference batch is how many windows or samples MAEST, MERT, MuQ, and CLAP run through in one model forward pass. Type: integer 1-128. Measured default for an RTX 3090: 16. Both parameters work the same way in Direct and Staged mode | Description under the Batch sizes heading |
+| `Закрыть` | Close | Title of the `X` button and the footer `OK` button |
+
+Track batch and Inference batch stay disabled until the library holds at least one track. Device,
+Mode, and the staging controls stay adjustable regardless, the same way they did in panel 1 before
+this dialog existed.
 
 ## Track detail dialog
 

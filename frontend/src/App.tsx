@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
+import { Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import {
   AnalysisJobStatus,
   AnalysisModel,
@@ -1657,17 +1657,6 @@ export function App() {
             <ScrollText size={16} />
           </button>
           <button
-            className={`icon-button rhythm-lab-launch-button ${rhythmLabRunning ? "active" : ""}`}
-            title={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"}
-            aria-label={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"}
-            aria-pressed={rhythmLabRunning}
-            disabled={busy}
-            onClick={() => void handleLaunchRhythmLab()}
-            type="button"
-          >
-            <FlaskConical size={16} />
-          </button>
-          <button
             className="icon-button server-shutdown-button"
             title="Остановить все серверы и закрыть вкладку"
             aria-label="Остановить все серверы и закрыть вкладку"
@@ -1718,6 +1707,8 @@ export function App() {
           })}
           onValidateDatabase={() => void handleValidateDatabase()}
           onOpenAudioDedup={() => setAudioDedupOpen(true)}
+          rhythmLabRunning={rhythmLabRunning}
+          onLaunchRhythmLab={() => void handleLaunchRhythmLab()}
           analysisCounts={analysisModelCounts}
           selectedStages={selectedStages}
           onToggleStage={toggleStage}

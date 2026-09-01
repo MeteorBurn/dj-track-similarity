@@ -1134,6 +1134,51 @@ h2 {
   margin-bottom: 8px;
 }
 
+.library-tools-row button.icon-button {
+  aspect-ratio: auto;
+  flex: 1 1 0;
+  flex-direction: column;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 4px;
+  justify-content: center;
+  line-height: 1.15;
+  min-width: 0;
+  padding: 6px 4px;
+  text-align: center;
+  white-space: normal;
+  width: auto;
+}
+
+.library-tools-row .refresh-tags-button svg {
+  color: var(--accent);
+}
+
+.library-tools-row .genre-save-button svg {
+  color: var(--warning-muted-text);
+}
+
+.library-tools-row .database-validation-button svg {
+  color: var(--blue-text);
+}
+
+.library-tools-row .rhythm-lab-button svg {
+  color: var(--modifier-accent);
+}
+
+.library-tools-row .audio-dedup-button svg {
+  color: var(--danger-text);
+}
+
+.library-tools-row .rhythm-lab-button.active {
+  background: var(--accent-muted-bg);
+  border-color: var(--accent-border);
+}
+
+.library-tools-row .rhythm-lab-button.active svg {
+  color: var(--accent-active-text);
+}
+
 .folder-picker {
   color: var(--accent);
 }
@@ -1168,17 +1213,6 @@ h2 {
   min-width: 0;
   padding-inline: 6px;
   width: 100%;
-}
-
-.library-tools-row .refresh-tags-button {
-  background: var(--accent-soft-bg);
-  border-color: var(--accent-soft-border);
-  color: var(--accent);
-}
-
-.library-tools-row .refresh-tags-button:hover:not(:disabled) {
-  border-color: var(--accent-border-hover);
-  color: var(--accent-hover);
 }
 
 .stop-button {
@@ -2031,24 +2065,6 @@ h2 {
   color: var(--danger-text-hover);
 }
 
-.rhythm-lab-launch-button {
-  background: var(--accent-muted-bg);
-  border-color: var(--accent-muted-border);
-  color: var(--accent);
-}
-
-.rhythm-lab-launch-button:hover:not(:disabled) {
-  background: var(--accent-active-bg);
-  border-color: var(--accent-active-border);
-  color: var(--accent-active-text);
-}
-
-.rhythm-lab-launch-button.active {
-  background: var(--accent-strong-bg);
-  border-color: var(--accent-border);
-  color: var(--accent-active-text);
-}
-
 .server-shutdown-button {
   background: var(--danger-bg);
   border-color: var(--danger-border);
@@ -2058,19 +2074,6 @@ h2 {
 .server-shutdown-button:hover:not(:disabled) {
   border-color: var(--danger-border-hover);
   color: var(--danger-text-hover);
-}
-
-.genre-save-button {
-  background: var(--accent-soft-bg);
-  border-color: var(--accent-border-hover);
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.genre-save-button:hover:not(:disabled) {
-  background: var(--accent-active-bg);
-  border-color: var(--accent-active-border);
-  color: var(--accent-active-text);
 }
 
 .process-box {
@@ -4679,18 +4682,6 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 }
 
 /* Audio dedup review */
-.audio-dedup-button {
-  background: var(--warning-soft-bg);
-  border-color: var(--warning-soft-border);
-  color: var(--warning-text);
-}
-
-.audio-dedup-button:hover:not(:disabled) {
-  background: var(--warning-bg);
-  border-color: var(--warning-border-hover);
-  color: var(--warning-text-hover);
-}
-
 .dedup-backdrop {
   align-items: center;
   background: var(--overlay-deeper);

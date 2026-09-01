@@ -324,9 +324,11 @@ test("documentation title click opens the docs in a separate window", () => {
   assert.match(headerLink, /onClick=\{openDocumentationWindow\}/);
 });
 
-test("topbar Rhythm Lab control starts or opens the lab", () => {
+test("library tools row Rhythm Lab control starts or opens the lab", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
+  const librarySource = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
+  const toolsRowBlock = librarySource.match(/<div className="library-tools-row">([\s\S]*?)<\/div>/)?.[1] || "";
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
 
   assert.match(apiSource, /rhythmLabStatus:\s*\(\)\s*=>/);
@@ -337,15 +339,17 @@ test("topbar Rhythm Lab control starts or opens the lab", () => {
   assert.match(appSource, /api\.launchRhythmLab\(\)/);
   assert.match(appSource, /window\.open\("about:blank", "_blank"\)/);
   assert.match(appSource, /pendingWindow\.location\.href = result\.url/);
-  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*server-shutdown-button[\s\S]*stop-active-stage-button/);
+  assert.match(appSource, /onLaunchRhythmLab=\{.*handleLaunchRhythmLab.*\}/);
+  assert.doesNotMatch(actionsBlock, /rhythm-lab-button/);
+  assert.match(toolsRowBlock, /rhythm-lab-button[\s\S]*audio-dedup-button/);
 });
 
-test("topbar omits a Rhythm Lab stop control", () => {
+test("library tools row omits a Rhythm Lab stop control", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
+  const librarySource = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
 
-  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*server-shutdown-button[\s\S]*stop-active-stage-button/);
-  assert.doesNotMatch(actionsBlock, /rhythm-lab-stop-button/);
+  assert.match(librarySource, /rhythm-lab-button/);
+  assert.doesNotMatch(librarySource, /rhythm-lab-stop-button/);
   assert.doesNotMatch(appSource, /handleStopRhythmLab|api\.stopRhythmLab/);
 });
 

@@ -22,8 +22,8 @@ const skippedDirs = new Set(["node_modules", "site", ".vitepress"]);
 // English meaning. Every other maintained page stays English.
 const allowedFiles = new Set([path.join(docsRoot, "help", "ui-language.md")]);
 
-// Documentation that lives outside the VitePress tree. README_RU.md is the
-// declared Russian mirror of the root README, so it is deliberately absent.
+// Documentation that lives outside the VitePress tree. Every one of these is
+// English, so the gate covers them the same way it covers the pages.
 const extraRoots = [
   path.join(repoRoot, "README.md"),
   path.join(repoRoot, "docs", "README.md"),

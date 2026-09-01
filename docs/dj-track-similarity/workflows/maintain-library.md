@@ -10,7 +10,7 @@ Panel 1, database and analysis, carries every maintenance action the browser has
 
 | Action | Control | What it does |
 | --- | --- | --- |
-| Add new files | **Load tracks into the database** | opens the import dialog and scans a folder |
+| Add new files | **DATABASE** stage card, then **Start** | check DATABASE, set the folder in **Track import settings** if not set already, then **Start** scans it |
 | Reread tags | **Refresh tags** | rereads Mutagen tags for existing tracks, leaving paths and analysis rows alone |
 | Check the database | **Validate the database** | runs a read-only validation job and reports checked, warning, and error counts |
 | Review duplicates | **Find and review duplicates** | opens the report-first Audio Dedup reviewer |

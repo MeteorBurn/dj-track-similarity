@@ -8,8 +8,9 @@ Analysis jobs read audio or stored analysis values and write SQLite results. The
 source audio files.
 
 Control names below are English. The browser shows most of them in Russian, so use the
-[UI language glossary](../help/ui-language.md) to match a name to the string on screen. Panel 1
-setting labels themselves stay English.
+[UI language glossary](../help/ui-language.md) to match a name to the string on screen. Most panel 1
+setting labels stay English; the **Track limit** stepper is a Russian-labelled exception, covered
+below.
 
 ## Choose by the result you want
 
@@ -28,13 +29,15 @@ which families deserve a full-library run.
 ## SONARA runs first, and alone
 
 A single analysis job takes either `sonara` or a set of ML models. Mixing them in one job is
-rejected with `SONARA analysis must run alone and cannot be combined with ML models`. The browser
-`Analyze` button hides that split behind one press: it submits a pipeline whose fixed stage order is
+rejected with `SONARA analysis must run alone and cannot be combined with ML models`. The browser's
+**Start** button hides that split behind one press: it submits a pipeline whose fixed stage order is
 SONARA, then ML.
 
 An ML job is also refused while no track carries a current SONARA row. In the browser the ML
 checkboxes stay disabled until at least one SONARA row exists, and a blocked start shows a notice
-saying that SONARA has to run on at least one track first.
+saying that SONARA has to run on at least one track first. The SONARA checkbox itself is disabled
+until the library holds at least one track. See [First library](./first-library.md) for the
+DATABASE stage card that loads tracks first.
 
 ## What each family stores and unlocks
 
@@ -131,18 +134,22 @@ again. Details and the job log entries are in
 
 ## Analyze in the browser
 
-Panel 1, database and analysis, holds one analysis block under the heading **Analysis** with a note
-saying that one run processes the selected stages and skips results that already exist.
+Panel 1, database and analysis, holds an **Analysis** heading with a note saying that one run
+processes the selected stage and skips results that already exist. It sits below a DATABASE stage
+card that is not part of analysis, described in [First library](./first-library.md), but shares the
+same selection: checking SONARA or an ML model deselects DATABASE, and checking DATABASE deselects
+them.
 
-The block has two cards. The first carries the `SONARA` row. The second is headed **ML models** with
-the rows `MAEST`, `MERT`, `MUQ`, `MULAN`, and `CLAP`. Each row shows a checkbox, the model name, a
-Russian one-line description, the current analyzed count, and a trash icon titled **Reset**
-followed by the model name.
+Two cards sit under the **Analysis** heading. The first carries the `SONARA` row, disabled until the
+library holds at least one track. The second is headed **ML models** with the rows `MAEST`, `MERT`,
+`MUQ`, `MULAN`, and `CLAP`, each disabled until the library holds at least one SONARA row. Each row
+shows a checkbox, the model name, a Russian one-line description, the current analyzed count, and a
+trash icon titled **Reset** followed by the model name.
 
 There is no classifier checkbox and no combined-run button in this panel. The selection is drawn
-from the SONARA row and the five ML rows only, and one `Analyze` press runs the selected stages in
-the order SONARA, then ML. Its tooltip states exactly that: it runs the checked models in SONARA
-then ML order.
+from the DATABASE row, the SONARA row, and the five ML rows, and one **Start** press runs whichever
+of the three is checked. For SONARA or ML models, its tooltip is **Run the selected stage**: it runs
+the checked models in SONARA then ML order, the same way the panel's former `Analyze` button did.
 
 `Device`, `Track batch`, and `Inference batch` are not set inline on the ML card. They live in the
 **ML models analysis settings** dialog, opened from a button on the ML models card. See
@@ -153,10 +160,11 @@ then ML order.
 | `Device` | `AUTO` | `AUTO`, `CPU`, `CUDA` |
 | `Track batch` | `8` | `1..64` |
 | `Inference batch` | `16` | `1..128` |
-| `Analyze limit` | `0` | `0..100000`, where `0` means every eligible track |
+| **Track limit** | `0` | `0..100000`, where `0` means every eligible track |
 
-`Analyze limit` stays on panel 1 itself, below both cards, applying separately to each stage, which
-its own hint states: `0` means every track, applied per analysis stage.
+**Track limit** is a Russian-labelled stepper (see [UI language](../help/ui-language.md)) that stays
+on panel 1 itself, below all three stage cards. It is shared by DATABASE, SONARA, and ML: whichever
+single stage is checked when you press **Start** is the one the limit applies to.
 
 To stop a running stage, press the square Stop icon in the top bar, titled **Stop the current scan
 or analysis**. Cancellation is cooperative: the run loop checks it between batches and between

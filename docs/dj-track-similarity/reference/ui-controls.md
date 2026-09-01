@@ -31,32 +31,49 @@ Rhythm Lab cleanup before the main server exits.
 
 ## Panel 1, database and analysis
 
-The database and analysis panel.
+The database and analysis panel. It opens with the database path row, then three stage cards that
+share one selection (**DATABASE**, **SONARA**, and **ML models**), a standalone row of maintenance
+icons, a shared track-limit stepper, and the single **Start** button that runs whichever stage is
+checked.
 
 | Control | Name and icon | Behavior |
 | --- | --- | --- |
 | Database path | read-only field, placeholder **Choose a SQLite database** | Shows the current selection. |
 | Database picker | Database icon, **Choose a SQLite database** | Opens the native picker through `POST /api/database/dialog`. An older or incomplete catalog is rejected instead of being migrated in place. |
-| Import tracks | **Load tracks into the database** | Opens the scan dialog described below. |
+
+### Stage selection
+
+Checking DATABASE, SONARA, or an ML model checkbox deselects whichever of the other two groups was
+checked. ML model checkboxes multi-select among themselves. Exactly one group is checked at all
+times, and the checked group decides what the **Start** button at the bottom of the panel runs.
+
+**DATABASE** is a stage card, following the same template as SONARA and the ML models below: a
+checkbox, the label **DATABASE**, a description, a live count of `librarySummary.tracks` (tracks
+already loaded), and a **Clear the database** trash button, relocated here from the panel's former
+action row. Its checkbox is never disabled by track count. Below the card sits a
+**Track import settings** button, tooltip **Open the track import parameters**, which opens the
+[track import dialog](#track-import-dialog) described below without starting anything itself.
+
+Below that sits a standalone row of four icon buttons, none of them part of the stage selection:
+
+| Control | Name and icon | Behavior |
+| --- | --- | --- |
 | Refresh tags | RefreshCcw icon, **Refresh tags** | Re-reads file tags for stored rows with `workers: 8`. It does not rewrite source audio. |
 | Save genres | Save icon, **Save genres** | Starts the MAEST genre tag job. This is the one control that writes audio files. |
 | Validate database | Shield icon, **Validate the database** | Starts a read-only validation job through `POST /api/database/validation/jobs`. Findings stream into the log. |
 | Audio Dedup | CopyCheck icon, **Find and review duplicates** | Opens the duplicate review dialog. |
-| Clear database | Trash icon, **Clear the database** | Deletes catalog rows after a confirmation dialog. It does not delete source audio. |
 
-Every button in that row except the picker stays disabled while a job runs, and most also require at
-least one stored track.
+Each of the four stays disabled while a job runs and requires at least one stored track.
 
 ### Analysis cards
 
-Under the heading **Analysis**, with a note that one run handles the selected stages and skips
-finished results. There are two cards, SONARA and **ML models**. Each model row carries a checkbox,
+Under the heading **Analysis**, with a note that one run handles the selected stage and skips
+finished results. Two cards sit here, SONARA and **ML models**. Each model row carries a checkbox,
 the model name, a short description, its current row count, and a **Reset \<MODEL\>** trash button.
 
-The SONARA card also carries a **SONARA analysis settings** button, styled like
-**Load tracks into the database**, with the tooltip **Open the SONARA analysis parameters**. It
-opens the [SONARA settings dialog](#sonara-settings-dialog) described below, which is where
-SONARA's analysis mode and BPM range now live.
+The SONARA card also carries a **SONARA analysis settings** button, with the tooltip
+**Open the SONARA analysis parameters**. It opens the [SONARA settings dialog](#sonara-settings-dialog)
+described below, which is where SONARA's analysis mode and BPM range now live.
 
 The **ML models** card carries the matching **ML models analysis settings** button, with the
 tooltip **Open the ML models analysis parameters**. It opens the
@@ -65,16 +82,25 @@ Device, analysis mode, and both batch-size controls now live. Neither card keeps
 inline any more. Both buttons stay disabled while a job is running.
 
 The model order is `SONARA`, `MAEST`, `MERT`, `MUQ`, `MULAN`, `CLAP`. There is no CLASSIFIERS
-checkbox and no FULL button. The single **Analyze** button at the bottom of the panel runs the
-checked models in the order SONARA then ML, which its tooltip states as
-**Run the checked models in SONARA then ML order**.
+checkbox and no FULL button. The single **Start** button at the bottom of the panel runs whichever
+stage is checked. Its tooltip is **Run the selected stage**, no longer naming SONARA and ML now that
+it can also run a scan.
 
-The ML checkboxes stay disabled until the library holds at least one SONARA row. Until then the
-selection is limited to SONARA.
+The SONARA checkbox is disabled while the library holds zero tracks. Each ML model checkbox stays
+disabled until the library holds at least one SONARA row. Neither disabled state shows a separate
+error message, because the checkbox is simply unclickable.
+
+A small warnings list can appear above **Start**. Today the only case is
+**Set a source folder in the import settings**, shown with **Start** disabled when DATABASE is
+checked but the track import dialog's settings carry no folder yet.
+
+On page load, and whenever the library becomes empty, such as right after **Clear the database**,
+the stage selection snaps back to DATABASE. If the library has tracks but no SONARA row, it snaps to
+SONARA instead.
 
 | Control | Card | Default | Range or meaning |
 | --- | --- | --- | --- |
-| `Analyze limit` | panel footer | `0` | `0..100000`. A `0` means every track, applied separately to each stage. |
+| **Track limit** | panel footer | `0` | `0..100000`. A `0` means every track. Shared by all three stages: it caps the scan when DATABASE runs, and it caps the family target the same way it always did when SONARA or an ML model runs. |
 
 SONARA's own Mode, batch sizes, staging folder, and BPM range are set in the
 [SONARA settings dialog](#sonara-settings-dialog) below. ML's own Device, Mode, staging folder,
@@ -173,27 +199,40 @@ staging folder itself is excluded, so every session asks for it again. Device, `
 
 ## Track import dialog
 
-Each opening of **Load tracks into the database** starts a new modal dialog. It does not retain a
-previous folder or settings.
+**Track import settings** on the DATABASE card opens this modal. It only edits settings, and it does
+not start a scan or offer a cancel button. Close it with the header `X` icon, `Escape`, or the
+footer **OK** button. All three just close the dialog and keep whatever is set. There is no
+validation on close.
+
+Every setting here except the folder persists in browser storage under
+`dj-track-similarity.scan-import-settings`. The folder follows the same per-session rule as the
+SONARA and ML staging folders: it is excluded from that storage, so every session asks for it again.
 
 The dialog offers 14 format badges, all selected by default: **AAC**, **AIF**, **AIFF**, **ALAC**,
 **APE**, **FLAC**, **M4A**, **MP3**, **OGG**, **OPUS**, **WAV**, **WAVE**, **WMA**, and **WavPack**.
 
 | Control | Default | Range or meaning |
 | --- | ---: | --- |
-| Scan limit | `0` | `0..100000`. A `0` scans every eligible track. |
 | Duration range | `120..1200` seconds | Clear either field to drop that bound on its own. |
 | Workers | `8` | `1..16` in this dialog. The API accepts `1..64`. |
 
-The SONARA BPM range used to be set here. It now lives in the
+There is no `Scan limit` stepper in this dialog any more. The shared **Track limit** stepper on the
+panel itself now caps the scan, applied only once DATABASE is checked and **Start** is pressed. The
+SONARA BPM range used to be set here too. It now lives in the
 [SONARA settings dialog](#sonara-settings-dialog), opened from **SONARA analysis settings** in
-panel 1, and this dialog's subtitle changed to say that formats and duration decide what enters the
-database, to match.
+panel 1.
 
-### Folder and start
+### Folder
 
 The **Music folder** section takes one root through a server-side picker,
-**Choose a folder on the server**. Scanning is recursive. The footer button is **Start**.
+**Choose a folder on the server**. Scanning is recursive.
+
+### Starting a scan
+
+Closing this dialog does not start anything. A scan starts from panel 1 itself: check the DATABASE
+stage card, set the shared **Track limit** if you want fewer than every eligible track, and press
+**Start**. **Start** is disabled while DATABASE is checked and the dialog's folder is still empty; a
+warning above the button says to set a source folder in the import settings.
 
 Scan reads exactly these tags through Mutagen: artist, title, album, genre, year, country, label,
 track number, BPM, key, and comment.
@@ -208,10 +247,10 @@ duration pass.
 
 Duration uses Mutagen metadata first and then a lightweight PyAV container-duration fallback that
 does not decode audio frames. When a duration filter is active, files whose duration cannot be
-determined are skipped. Scan limit caps tracks that meet the selected filters.
-The final scan total includes only tracks accepted after the duration bounds and scan limit. The
-scan status shows `skip N` for tracks rejected by those filters plus supported audio files excluded
-by the selected format badges.
+determined are skipped. The shared **Track limit** caps tracks that meet the selected filters.
+The final scan total includes only tracks accepted after the duration bounds and the **Track limit**.
+The scan status shows `skip N` for tracks rejected by those filters plus supported audio files
+excluded by the selected format badges.
 
 ## Panel 2, library and listening
 

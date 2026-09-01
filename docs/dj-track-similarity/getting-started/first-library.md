@@ -43,11 +43,16 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 
 ## The import dialog
 
-Press **Load tracks into the database** in panel 1, database and analysis. It opens a dialog headed
-**Track import settings**, subtitled with a line saying that formats and duration decide what enters
-the database. The button stays disabled until a database is selected.
+In panel 1, database and analysis, a **DATABASE** stage card sits right below the database path row:
+a checkbox, a description, a live count of tracks already loaded, and a **Clear the database** trash
+button. Below that card, press **Track import settings** to open a dialog headed the same way,
+subtitled with a line saying that formats and duration decide what enters the database. The button
+stays disabled until a database is selected.
 
-The dialog holds its values only while it is open. Every new opening restores the defaults.
+This dialog only edits settings. It no longer starts a scan itself. Its footer button is **OK**,
+which just closes the dialog and keeps whatever is set, with no validation on close. Every setting
+here except the source folder persists in browser storage, the same way the SONARA and ML staging
+folders do: the folder itself is never restored, so every session asks for it again.
 
 This dialog no longer sets the SONARA BPM range. That range now belongs to the SONARA analysis
 settings dialog, covered in [First analysis](./first-analysis.md#choose-a-sonara-bpm-range-for-your-library).
@@ -74,13 +79,13 @@ status rather than silently ignored.
 
 | Control | Initial value | Range or behavior |
 | --- | ---: | --- |
-| `Scan limit` | `0` | `0..100000`; `0` means every eligible track |
 | **Minimum seconds** | `120` | positive integer; clearing the field disables only this bound |
 | **Maximum seconds** | `1200` | positive integer; clearing the field disables only this bound |
 | `Workers` | `8` | `1..16` metadata reader processes |
 
-`Scan limit` counts tracks added to the database, not files visited. Its tooltip states that
-scanning stops once that many new tracks have been added.
+There is no `Scan limit` stepper in this dialog. The panel's shared **Track limit** stepper, below
+all three stage cards, counts tracks added to the database instead, applied once DATABASE is checked
+and **Start** is pressed.
 
 ### Music folder
 
@@ -90,18 +95,20 @@ descends into subfolders.
 
 ### Starting the import
 
-Press **Start** in the footer once the dialog is set up. The button stays disabled until a folder
-is chosen, at least one format is selected, and the duration bounds are valid. Pressing it with
-something missing shows a validation error asking for a folder, at least one format, and a valid
-duration range.
+Close the dialog once its settings are set up, with the footer **OK** button, the header **Close**
+icon, or `Escape`. Closing does not start anything by itself.
 
-The dialog has no cancel button. Dismiss it with the **Close** icon in its header or with `Escape`.
+Back in panel 1, check the **DATABASE** stage card. Its checkbox is deselected once you check
+SONARA or an ML model, and vice versa, so only one of the three stage cards is ever checked. With
+DATABASE checked, set the shared **Track limit** if you want fewer than every eligible track, then
+press **Start**. **Start** stays disabled while DATABASE is checked and the dialog's folder is still
+empty. A warning above the button asks you to set a source folder in the import settings.
 
-The dialog closes immediately and a centered toast reports that the track list is being prepared.
-The main status reads that the directory is being scanned. After the API returns the scan job, it
-changes to say that tracks are being loaded into the database, and the normal scan-job status takes
-over with counts for added, updated, unchanged, skipped, and failed. The browser refreshes the typed
-library summary when the job finishes.
+Pressing **Start** closes the dialog if it is still open, and a centered toast reports that the
+track list is being prepared. The main status reads that the directory is being scanned. After the
+API returns the scan job, it changes to say that tracks are being loaded into the database, and the
+normal scan-job status takes over with counts for added, updated, unchanged, skipped, and failed. The
+browser refreshes the typed library summary when the job finishes.
 
 ## How the scan runs
 

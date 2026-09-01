@@ -3,31 +3,40 @@
 Analysis reads source audio and writes local SQLite state. It does not modify source audio files.
 Scan first, then pick the analysis family that answers your listening question.
 
-Control names below are given in English. Panel 1 setting labels are already English on screen. The
-full mapping to the on-screen strings is in [UI language](../help/ui-language.md).
+Control names below are given in English. Most panel 1 setting labels are already English on
+screen; the **Track limit** stepper is a Russian-labelled exception. The full mapping to the
+on-screen strings is in [UI language](../help/ui-language.md).
 
 ## The analysis block
 
-Panel 1, database and analysis, holds one analysis block headed **Analysis**, with the note that one
-run processes the selected stages and skips results that already exist.
+Panel 1, database and analysis, opens with a **DATABASE** stage card that loads tracks, described in
+[Build your first library](../getting-started/first-library.md), then an **Analysis** heading with
+the note that one run processes the selected stage and skips results that already exist. DATABASE
+and Analysis share one selection: checking a model row here deselects DATABASE, and checking
+DATABASE deselects whichever model row was checked.
 
-Two cards sit under that heading:
+Two cards sit under the **Analysis** heading:
 
-- The first carries a single `SONARA` row.
-- The second is headed **ML models** with the rows `MAEST`, `MERT`, `MUQ`, `MULAN`, and `CLAP`.
+- The first carries a single `SONARA` row, disabled while the library holds zero tracks.
+- The second is headed **ML models** with the rows `MAEST`, `MERT`, `MUQ`, `MULAN`, and `CLAP`, each
+  disabled until at least one track carries a SONARA row.
 
 Each row shows a checkbox, the model name in capitals, a Russian one-line description, the current
 analyzed count, and a trash icon titled **Reset `<MODEL>`**.
 
-Only these six checkboxes form the selection. Classifier scoring is started from the
-[CLASS tab](./class-tab.md) or the CLI, and it is not a checkbox here. One `Analyze` press runs the
-selected stages in the fixed order SONARA, then ML, which its tooltip states as running the checked
-models in SONARA then ML order.
+Only these six checkboxes, plus DATABASE, form the selection, and exactly one of the three groups is
+checked at a time. Classifier scoring is started from the [CLASS tab](./class-tab.md) or the CLI, and
+it is not a checkbox here. One **Start** press runs the checked group; for SONARA and ML models that
+means the fixed order SONARA, then ML, which its tooltip states as running the checked models in
+SONARA then ML order.
 
-The five ML checkboxes stay disabled until at least one track carries a SONARA row. Starting an ML
-stage without one is refused with a notice saying to run SONARA on at least one track first. A
-library reporting zero SONARA rows has its selection forced back to SONARA alone. The selection can
-never be emptied.
+The five ML checkboxes stay disabled until at least one track carries a SONARA row, and the SONARA
+checkbox itself stays disabled until the library holds at least one track. None of these disabled
+states shows a separate message, because the checkbox is simply unclickable. The backend still
+refuses an ML stage without a SONARA row defensively, with a notice saying to run SONARA on at least
+one track first. Selection also snaps back on its own: a library with zero tracks is forced to
+DATABASE, and one with tracks but zero SONARA rows is forced to SONARA. The selection can never be
+emptied.
 
 Analysis start is announced in the log as "analysis started, SONARA then the ML models, whole
 library", naming the stages and the scope.
@@ -36,19 +45,20 @@ library", naming the stages and the scope.
 
 `Device`, `Track batch`, and `Inference batch` are set from the **ML models analysis settings**
 dialog, opened from a button on the ML models card. See
-[ML analysis settings dialog](../reference/ui-controls.md#ml-analysis-settings-dialog). `Analyze
-limit` stays on panel 1 itself, below both cards.
+[ML analysis settings dialog](../reference/ui-controls.md#ml-analysis-settings-dialog). **Track
+limit** stays on panel 1 itself, below all three stage cards, and is shared with the DATABASE stage's
+scan.
 
 | Control | Initial value | Range |
 | --- | ---: | --- |
 | `Device` | `AUTO` | `AUTO`, `CPU`, `CUDA` |
 | `Track batch` | `8` | `1..64` |
 | `Inference batch` | `16` | `1..128` |
-| `Analyze limit` | `0` | `0..100000`, where `0` means every eligible track |
+| **Track limit** | `0` | `0..100000`, where `0` means every eligible track |
 
-`Analyze limit` applies separately to each stage, which its own hint states: `0` means every track,
-applied per analysis stage. `Device` covers MAEST, MERT, MuQ, MuQ-MuLan, and CLAP inference. SONARA
-uses its native CPU path and has no device choice of its own.
+**Track limit** applies to whichever single stage is checked when you press **Start**, which its own
+hint states: `0` means every track, applied per analysis stage. `Device` covers MAEST, MERT, MuQ,
+MuQ-MuLan, and CLAP inference. SONARA uses its native CPU path and has no device choice of its own.
 
 ## Direct and Staged modes
 
@@ -81,7 +91,7 @@ asks for it again.
 Full mode semantics, decode recovery, and staging cleanup are documented in
 [First analysis](../getting-started/first-analysis.md).
 
-## What happens after you press Analyze
+## What happens after you press Start
 
 A started job loads its models before it reads the first track. For that stretch the process box
 shows a warm-up view headed **Model warm-up** instead of per-track progress. The view has a progress
@@ -135,7 +145,8 @@ dj-sim analyze --models maest,mert,muq,mulan,clap --db .\data\library.sqlite
 ```
 
 Combining `sonara` with any ML model in one job is rejected. Use `dj-sim analyze-pipeline --stages
-sonara,ml` for both in one command, which is what the browser `Analyze` button submits.
+sonara,ml` for both in one command, which is what the browser's **Start** button submits when SONARA
+or an ML model is checked.
 
 Omit `--limit` to consider the whole library. A positive limit selects only candidates missing the
 requested current outputs.

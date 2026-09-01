@@ -75,8 +75,9 @@ Each job loads its models before it reads the first track and reports that as a 
 new machine that phase also downloads the model weights, so the first run pauses there before the
 track counter moves. See [Model warm-up](../reference/analysis-families.md#model-warm-up).
 
-Omit `--limit` in the CLI to take the whole library. In the browser, `Analyze limit` `0` means the
-same whole-eligible-library thing, applied separately to each stage.
+Omit `--limit` in the CLI to take the whole library. In the browser, the shared **Track limit**
+stepper at `0` means the same whole-eligible-library thing, applied separately to each stage. It also
+caps a scan when the DATABASE stage card is checked instead of SONARA or an ML model.
 
 ## 4. Start the app
 

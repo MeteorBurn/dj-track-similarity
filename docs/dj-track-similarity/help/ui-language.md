@@ -18,12 +18,12 @@ without translation:
 - tab labels: `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`
 - SONARA search modes: `Balanced`, `Vibe`, `Sound`, `DJ transition`, `Custom mixer`
 - analysis mode buttons: `Direct`, `Staged`
-- numeric field labels: `Limit`, `Mode`, `Model`, `Device`, `Analyze limit`, `Scan limit`,
-  `Track batch`, `Inference batch`, `BatchSize`, `StageSize`, `Processes`, `Threads`, `Workers`
+- numeric field labels: `Limit`, `Mode`, `Model`, `Device`, `Track batch`, `Inference batch`,
+  `BatchSize`, `StageSize`, `Processes`, `Threads`, `Workers`
 - SONARA mixer sliders: `Timbre`, `Rhythm`, `Dynamics`, `Harmonic`, `Tempo`
 - SONARA modifier sliders: `Energy`, `Valence`, `Acoustic`, `Bright`, `Density`, `Range`, `LUFS`,
   `Vocal`, `Aggression`
-- action buttons that carry no Russian text: `Analyze`, `Reset`, `Prev`, `Next`, `LIKE`, `FTS`,
+- action buttons that carry no Russian text: `Reset`, `Prev`, `Next`, `LIKE`, `FTS`,
   `Add Random Track`, `Collection`, `M3U`, `CSV`
 - the track detail dialog section titles: `Track Details`, `Tags`, `File scan (Mutagen)`, `SONARA`,
   `Embedding analyses`, `Classifier analyses`
@@ -74,26 +74,50 @@ browser did not close it.
 
 ## Panel 1, database and analysis
 
-### Action row
+The panel opens with the database path row, then three stage cards that share one selection:
+**DATABASE**, **SONARA**, and **ML models**. Checking one clears the other two. Below the cards sits
+one settings button per stage, a standalone row of four maintenance icons, the shared **Track
+limit** stepper, and the single **Start** button that runs whichever stage is checked.
+
+### Database path row
 
 | Russian | English meaning | Where |
 | --- | --- | --- |
 | `Выберите SQLite базу` | Choose a SQLite database | Placeholder in the path field |
 | `Выбрать SQLite базу` | Choose a SQLite database | Database picker button |
-| `Загрузить треки в базу` | Load tracks into the database | Opens the scan dialog |
+
+### DATABASE stage card
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Загружает новые треки из выбранной папки в базу.` | Loads new tracks from the selected folder into the database | Description on the DATABASE row |
+| `Очистить базу` | Clear the database | Trash button on the DATABASE row |
+| `Настройки загрузки треков в базу` | Track import settings | Button under the DATABASE row, opens the [track import dialog](#scan-dialog) |
+| `Открыть параметры загрузки треков в базу` | Open the track import parameters | Title of the settings button above |
+
+The DATABASE checkbox is never disabled by track count; it stays available even on an empty
+library. Its live count is the number of tracks already loaded.
+
+### Library tools row
+
+A standalone row of four icon buttons sits below the DATABASE card's settings button. None of them
+belong to the stage selection; each stays disabled until the library holds at least one track (the
+picker and settings button above are the only DATABASE-card controls that ignore that rule).
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
 | `Обновить теги` | Refresh tags | Refresh button |
 | `Сохранить жанры` | Save genres | Writes MAEST genres to files |
 | `Проверить базу` | Validate the database | Shield button |
 | `Найти и разобрать дубликаты` | Find and review duplicates | Opens Audio Dedup |
-| `Очистить базу` | Clear the database | Trash button |
 
 ### Analysis cards
 
 | Russian | English meaning | Where |
 | --- | --- | --- |
-| `Анализ` | Analysis | Section heading above both cards |
-| `Один запуск обработает выбранные стадии и пропустит уже готовые результаты` | One run processes the selected stages and skips finished results | Note under the heading |
-| `ML-модели` | ML models | Heading of the second card |
+| `Анализ` | Analysis | Section heading above the SONARA and ML models cards |
+| `Один запуск обработает выбранную стадию и пропустит уже готовые результаты` | One run processes the selected stage and skips finished results | Note under the heading |
+| `ML-модели` | ML models | Heading of the ML models card |
 | `Выберите нужные способы анализа звучания` | Choose the sound analysis you need | Note under the ML heading |
 | `Сбросить SONARA` | Reset SONARA | Trash button on the SONARA row |
 | `Сбросить MAEST` and the same form for MERT, MUQ, MULAN, CLAP | Reset that family | Trash button on each model row |
@@ -105,14 +129,35 @@ browser did not close it.
 | `Копировать входные файлы во временную SSD-папку` | Copy input files into a temporary SSD folder | Title of the `Staged` button inside the ML analysis settings dialog, and of the same toggle inside the SONARA settings dialog |
 | `Папка для временных staging-копий ML` | Folder for temporary ML staging copies | ML staging path field, ML analysis settings dialog |
 | `Choose Folder для ML staging-копий` | Choose a folder for the ML staging copies | ML folder picker, ML analysis settings dialog |
-| `0 = все треки; применяется отдельно к каждой стадии анализа` | 0 means every track, applied per analysis stage | Note under `Analyze limit` |
-| `Запустить отмеченные модели в порядке SONARA → ML` | Run the checked models in SONARA then ML order | Title of the `Analyze` button |
+
+The SONARA checkbox is disabled while the library holds zero tracks. Each ML model checkbox stays
+disabled until the library holds at least one SONARA row. Neither disabled state carries its own
+message, because the checkbox is simply unclickable, so there is no notice to translate.
 
 SONARA's own staging-folder field and picker (`Папка для временных staging-копий SONARA` and
 `Choose Folder для staging-копий`) moved out of this panel into the
 [SONARA settings dialog](#sonara-settings-dialog) below. The ML card's own Device, Mode, staging
 folder, and batch-size controls moved out of this panel the same way, into the
 [ML analysis settings dialog](#ml-analysis-settings-dialog) below.
+
+### Track limit and Start
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Лимит треков` | Track limit | Stepper label below the three stage cards |
+| `0 = все треки; применяется отдельно к каждой стадии анализа` | 0 means every track, applied per analysis stage | Note under `Лимит треков` |
+| `Укажите папку с треками в настройках загрузки.` | Set a source folder in the import settings | Warning shown above `Старт` when DATABASE is checked but the track import settings carry no folder yet |
+| `Старт` | Start | The single button at the bottom of the panel that runs the checked stage |
+| `Запустить отмеченную стадию` | Run the selected stage | Title of the `Старт` button |
+
+One numeric stepper now backs all three stages: it caps the scan when DATABASE runs, and it caps
+each analysis family the same way it always did when SONARA or an ML model runs. `Старт` replaces
+the former `Analyze` button. Its tooltip no longer names SONARA and ML, because it can just as well
+start a scan.
+
+On page load, and whenever the library becomes empty, such as right after **Clear the
+database**, the stage selection snaps back to DATABASE. If the library has tracks but no SONARA
+row, it snaps to SONARA instead.
 
 The model rows carry one-line Russian descriptions:
 
@@ -221,7 +266,8 @@ The `Prompt bank`, `Negative`, `Model`, and `Limit` field labels stay English.
 
 ## Scan dialog
 
-The dialog opens from `Загрузить треки в базу`.
+The dialog opens from `Настройки загрузки треков в базу` on the DATABASE card. It only edits
+settings now. It does not start a scan itself.
 
 | Russian | English meaning | Where |
 | --- | --- | --- |
@@ -231,23 +277,28 @@ The dialog opens from `Загрузить треки в базу`.
 | `<n> из 14` | n of 14 | Selected format counter |
 | `Включить <format>` / `Исключить <format>` | Include / exclude that format | Format badge title |
 | `Границы отбора` | Selection bounds | Section heading |
-| `Сканирование останавливается, когда в базу добавлено столько новых треков. 0 = без ограничения.` | Scanning stops after this many new tracks, 0 means no limit | `Scan limit` title |
 | `Min, сек` / `Max, сек` | Minimum / maximum seconds | Duration fields |
 | `Папка с треками` | Music folder | Section heading |
 | `Выберите папку как источник для загрузки треков в базу: сканирование папок выполняется рекурсивно.` | Choose the source folder, scanning is recursive | Description |
 | `Папка не выбрана` | No folder selected | Placeholder |
 | `Выбрать папку на сервере` | Choose a folder on the server | Folder picker |
-| `Выберите папку, хотя бы один формат и корректный диапазон длительности.` | Choose a folder, at least one format, and a valid duration range | Validation error |
-| `Старт` | Start | Submit button |
+| `Закрыть` | Close | Title of the `X` button and of the footer `OK` button |
 
-Pressing start closes the dialog and hands off to three more strings. A centered toast reads
-`Подготавливаем список треков…` (preparing the track list). The status line reads
-`Сканирование директории` (scanning the directory), and changes to `Загрузка треков в базу`
-(loading tracks into the database) once the API returns the scan job. That last one repeats the
-wording of the button that opened the dialog, but it is a separate status string.
+There is no longer a `Scan limit` stepper in this dialog, and no validation on its `OK` button. `OK`
+just closes the dialog and keeps whatever is set. The shared `Лимит треков` (Track limit) stepper on
+the main panel covers the scan too, once DATABASE is checked and `Старт` is pressed. Pressing
+`Старт` with DATABASE checked closes this dialog if it is open and hands off to three more strings. A
+centered toast reads `Подготавливаем список треков…` (preparing the track list). The status line
+reads `Сканирование директории` (scanning the directory), and changes to `Загрузка треков в базу`
+(loading tracks into the database) once the API returns the scan job.
 
 This dialog no longer carries a BPM-range section. SONARA's BPM range moved to the
 [SONARA settings dialog](#sonara-settings-dialog) below.
+
+Every setting in this dialog except the folder persists in browser storage under
+`dj-track-similarity.scan-import-settings`. The folder follows the same per-session rule as the
+SONARA and ML staging folders: it is never restored from storage, so every session asks for it
+again.
 
 ## SONARA settings dialog
 

@@ -79,7 +79,7 @@ previously stored value on the next save.
 | Default non-server CLI database | `dj-track-similarity.sqlite` when `--db` is omitted |
 | Initial `serve` database | None when `--db` is omitted |
 | Example project database | `.\data\library.sqlite` |
-| No-argument Windows launcher suggestion | `database\volumes.sqlite` under the repository root |
+| No-argument Windows launcher suggestion | Lists `.sqlite` files found in `database\` and defaults to `volumes.sqlite`; falls back to suggesting `database\volumes.sqlite` when none are found |
 | Runtime logs | `logs/` |
 | Audio Doctor reports/state/backups | `tools/audio-doctor/data/` |
 | Audio Dedup reports | `tools/audio-dedup/data/reports/` |
@@ -150,10 +150,12 @@ Windows helper:
 run_server.cmd
 ```
 
-With no arguments, the launcher suggests `database\volumes.sqlite` under the repository root, then
-prompts for local or LAN mode. It forwards the confirmed path only after both prompts complete.
-It inherits the environment-variable and `PATH` discovery order. It does not bundle or select
-FFmpeg.
+With no arguments, the launcher scans `database\` under the repository root for `.sqlite` files. If
+it finds any, it lists them and asks which one to open, defaulting to `volumes.sqlite` when present
+or the first one listed otherwise; if none are found, it falls back to suggesting
+`database\volumes.sqlite`. It then prompts for local or LAN mode, and forwards the confirmed path
+only after both prompts complete. It inherits the environment-variable and `PATH` discovery order.
+It does not bundle or select FFmpeg.
 
 For non-interactive use, run `run_server.cmd local --db .\database\volumes.sqlite` or replace `local`
 with `lan`. Explicit mode commands use only the supplied arguments. Direct `dj-sim serve` commands

@@ -305,8 +305,11 @@ python scripts\qa_database.py --db .\data\library.sqlite
 
 ### `run_server.cmd`
 
-Start the API and Vite development UI together. With no argument it asks for a database path
-(default `database\volumes.sqlite`) and local or LAN mode. Explicit modes do not prompt.
+Start the API and Vite development UI together. With no argument it scans `database\` for
+`.sqlite` files; if it finds any, it lists them and asks which one to open (default
+`volumes.sqlite` when present, otherwise the first one listed, or type a path to use another
+database), otherwise it asks for a database path (default `database\volumes.sqlite`). It then asks
+for local or LAN mode. Explicit modes do not prompt.
 
 | Argument or option | Meaning |
 | --- | --- |

@@ -30,6 +30,11 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 | `database/`, `logs/`, `reports/` | Local user state; never use as automated-test fixtures |
 | `frontend/dist/`, `graphify-out/` | Generated output; do not hand-edit |
 
+`database/` can hold more than one `.sqlite` library (`run_server.cmd` lists them and lets the
+user pick one at startup). There is no fixed "main" database — ask the user which file is the
+current main database before reading, writing, or reasoning about "the" database; do not assume
+`volumes.sqlite` or the most recently modified file.
+
 ## CODE MAP
 
 | Symbol | Role / blast radius |

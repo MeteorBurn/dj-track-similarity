@@ -337,10 +337,13 @@ Start the development app with the interactive Windows launcher:
 run_server.cmd
 ```
 
-It first suggests `database\volumes.sqlite` under the repository root. Press Enter to accept that
-path or type a replacement. The next prompt selects local or LAN mode. The launcher starts the
-backend plus the Vite live UI. Open the printed `5173` UI URL; frontend source changes are visible
-without rebuilding `frontend/dist`.
+It first looks in `database\` under the repository root. If it finds one or more `.sqlite`
+databases there, it lists their filenames and asks which one to open, defaulting to
+`volumes.sqlite` when present or the first one listed otherwise; you can type a list number, or
+type any path to open or create a database elsewhere. If `database\` has no `.sqlite` files yet, it
+falls back to suggesting `database\volumes.sqlite`, and Enter creates that path. The next prompt
+selects local or LAN mode. The launcher starts the backend plus the Vite live UI. Open the printed
+`5173` UI URL; frontend source changes are visible without rebuilding `frontend/dist`.
 
 When you are done with a launcher-managed browser session, click the top-bar power button. The UI
 requests `/api/server/shutdown`, the backend tries to stop a managed Rhythm Lab first, the launcher

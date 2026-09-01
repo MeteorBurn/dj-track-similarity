@@ -86,10 +86,13 @@ Start the backend plus the live Vite UI:
 run_server.cmd
 ```
 
-The first prompt suggests `database\volumes.sqlite` under the repository root. Press Enter to accept
-it or type another database path. The next prompt selects local-only or LAN mode. Use the printed
-`5173` UI URL while you develop, so frontend source changes appear without rebuilding
-`frontend/dist`.
+The first prompt scans `database\` under the repository root. If it finds one or more `.sqlite`
+databases there, it lists them by filename and asks which one to open, defaulting to
+`volumes.sqlite` when present or the first one listed otherwise; type a list number to pick one, or
+any path to open or create a database elsewhere. If `database\` has none yet, it falls back to
+suggesting `database\volumes.sqlite`, and Enter creates that path. The next prompt selects
+local-only or LAN mode. Use the printed `5173` UI URL while you develop, so frontend source changes
+appear without rebuilding `frontend/dist`.
 
 To skip the prompts, run `run_server.cmd local --db .\database\volumes.sqlite`. Swap `local` for
 `lan` only when you want other devices on your local network to reach the server. Explicit mode

@@ -16,9 +16,9 @@ flow instead.
 
 ## Language
 
-The browser UI is in Russian. Documentation is in English. Where a page names a control, it
-gives the Russian string first and the English meaning after it. The full mapping lives in the
-[UI language glossary](../help/ui-language.md).
+The browser UI mixes Russian and English labels. The documentation is English throughout and names
+every control by its English name, whichever way its label reads on screen. The full mapping lives
+in the [UI language glossary](../help/ui-language.md).
 
 ## Source of truth
 

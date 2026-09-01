@@ -2,8 +2,8 @@
 
 Start with the symptom page, then check known limits and FAQ.
 
-If a page tells you to press a control you cannot find on screen, the interface is in Russian.
-[UI language](./ui-language.md) has the mapping.
+If a page tells you to press a control you cannot find on screen, its label is one of the Russian
+ones. [UI language](./ui-language.md) has the mapping.
 
 ## Pages
 

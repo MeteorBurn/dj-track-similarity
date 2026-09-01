@@ -11,8 +11,9 @@ The backend, CLI, and React client use one library database, with Evaluation onl
 Normal startup refuses a legacy split layout and never rewrites it. The browser adds typed library,
 analysis, search, current set, classifier, and Lab workflows on top of the same API.
 
-The interface itself is written in Russian while this documentation names controls in English. Keep
-[UI language](./help/ui-language.md) open beside any page that tells you to press something.
+The interface itself mixes Russian and English labels while this documentation names every control
+in English. Keep [UI language](./help/ui-language.md) open beside any page that tells you to press
+something.
 
 ## What you can get from it
 

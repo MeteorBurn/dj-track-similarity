@@ -28,5 +28,5 @@ listening decides what survives.
 
 Work in previews first. Export or apply only after listening or reviewing reports.
 
-The browser UI is Russian. Control names in these workflows are given as the Russian string with the
-English meaning in parentheses, and [UI language](../help/ui-language.md) carries the full mapping.
+The browser UI mixes Russian and English labels. These workflows name every control in English, and
+[UI language](../help/ui-language.md) carries the on-screen string for each one.

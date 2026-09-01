@@ -3,13 +3,15 @@
 Current boundaries that are working as intended, plus the local setup details that decide whether
 the app works at all on your machine.
 
-## The interface is Russian, the documentation is English
+## The interface mixes languages, the documentation does not
 
-Every panel heading, button, tooltip, and notice in the browser is Russian. This documentation names
-controls in English. [UI language](./ui-language.md) maps them, control by control.
+Panel headings, buttons, tooltips, and notices are mostly Russian. Technical tokens are English:
+the model names, the five tab labels, the SONARA mode names, and numeric field labels such as
+`Limit`, `Mode`, and `Device`. The split grew during development rather than by design, so which
+label reads which way is not something you can predict.
 
-Only technical tokens stay English on screen. Those are the model names, the five tab labels, the
-SONARA mode names, and numeric field labels such as `Limit`, `Mode`, and `Device`.
+This documentation names every control in English regardless.
+[UI language](./ui-language.md) maps them, control by control.
 
 There is no language switch. The in-product hover help is Russian as well, and it is a separate text
 surface from these pages with its own small drifts.

@@ -8,15 +8,16 @@ The shortest path runs install, scan, open the UI, analyze a small batch, search
 Your audio stays where it is. Scan and analysis add information to a local SQLite database without
 reorganizing or rewriting the source files.
 
-## The UI is in Russian
+## The UI mixes Russian and English
 
-Every panel heading, button title, tooltip, and notice in the browser is Russian. Only technical
-tokens stay English: model names, the tab labels `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, and
-`CLASS`, mode names such as `Balanced` and `DJ transition`, and field labels such as `Limit`,
-`Mode`, `Device`, and `Analyze limit`.
+Panel headings, button titles, tooltips, and notices are mostly Russian. Technical tokens are
+English: model names, the tab labels `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, and `CLASS`, mode
+names such as `Balanced` and `DJ transition`, and field labels such as `Limit`, `Mode`, `Device`,
+and `Analyze limit`. The split grew during development rather than by design, so it is not a rule
+you can predict from the kind of control.
 
-These pages give the Russian string first and the English meaning in parentheses, so you can find
-the control on screen. The full mapping lives in [UI language](../help/ui-language.md).
+These pages are English throughout and name every control by its English name. To find that control
+on screen, look it up in [UI language](../help/ui-language.md), which carries the full mapping.
 
 ## What each step gives you
 

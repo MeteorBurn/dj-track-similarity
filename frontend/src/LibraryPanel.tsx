@@ -1,10 +1,6 @@
-import { CopyCheck, Cpu, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2 } from "lucide-react";
+import { CopyCheck, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2 } from "lucide-react";
 import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
-import { NumberStepper } from "./NumberStepper";
-import type { MLAnalysisSettings } from "./mlAnalysisSettings";
-
-type DeviceMode = "auto" | "cpu" | "cuda";
 
 type LibraryHelpText = {
   databasePath: string;
@@ -17,9 +13,6 @@ type LibraryHelpText = {
   clapAnalyze: string;
   writeMaestGenres: string;
   analyzeLimit: string;
-  analysisDevice: string;
-  analysisTrackBatchSize: string;
-  analysisInferenceBatchSize: string;
 };
 
 const modelDescriptions: Record<AnalysisModel, string> = {
@@ -40,22 +33,10 @@ export function LibraryPanel({
   maestGenreTrackCount,
   analysisLimit,
   onAnalysisLimitChange,
-  analysisDevice,
-  onAnalysisDeviceChange,
-  analysisTrackBatchSize,
-  maxAnalysisTrackBatchSize,
-  adjustAnalysisTrackBatchSize,
-  onAnalysisTrackBatchSizeChange,
-  analysisInferenceBatchSize,
-  maxAnalysisInferenceBatchSize,
-  adjustAnalysisInferenceBatchSize,
-  onAnalysisInferenceBatchSizeChange,
-  mlSettings,
-  onMLSettingsChange,
-  onChooseMLStagingFolder,
   helpText,
   onOpenScanDialog,
   onOpenSonaraSettingsDialog,
+  onOpenMLSettingsDialog,
   onRefreshTags,
   onWriteMaestGenres,
   onClearDatabase,
@@ -75,22 +56,10 @@ export function LibraryPanel({
   maestGenreTrackCount: number;
   analysisLimit: number;
   onAnalysisLimitChange: (value: number) => void;
-  analysisDevice: DeviceMode;
-  onAnalysisDeviceChange: (value: DeviceMode) => void;
-  analysisTrackBatchSize: number;
-  maxAnalysisTrackBatchSize: number;
-  adjustAnalysisTrackBatchSize: (delta: number) => void;
-  onAnalysisTrackBatchSizeChange: (value: number) => void;
-  analysisInferenceBatchSize: number;
-  maxAnalysisInferenceBatchSize: number;
-  adjustAnalysisInferenceBatchSize: (delta: number) => void;
-  onAnalysisInferenceBatchSizeChange: (value: number) => void;
-  mlSettings: MLAnalysisSettings;
-  onMLSettingsChange: (value: MLAnalysisSettings) => void;
-  onChooseMLStagingFolder: () => void;
   helpText: LibraryHelpText;
   onOpenScanDialog: () => void;
   onOpenSonaraSettingsDialog: () => void;
+  onOpenMLSettingsDialog: () => void;
   onRefreshTags: () => void;
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
@@ -104,12 +73,6 @@ export function LibraryPanel({
 }) {
   const analysisDisabled = busy || stageRunning || !hasTracks;
   const settingsDisabled = busy || stageRunning;
-  const updateMLStaged = (changes: Partial<MLAnalysisSettings["staged"]>) => {
-    onMLSettingsChange({
-      ...mlSettings,
-      staged: { ...mlSettings.staged, ...changes },
-    });
-  };
 
   const modelRow = (model: AnalysisModel) => (
     <div className="analysis-model-row" key={model}>
@@ -162,47 +125,7 @@ export function LibraryPanel({
       <div className="analysis-family-card models-analysis-block">
         <div className="analysis-family-title"><strong>ML-модели</strong><small>Выберите нужные способы анализа звучания</small></div>
         <div className="analysis-actions">{mlAnalysisModelOrder.map(modelRow)}</div>
-        <div className="analysis-settings-grid ml-analysis-settings">
-          <div className="analysis-device ml-analysis-mode">
-            <span>Mode</span>
-            <div className="segmented ml-mode-segmented">
-              <button className={`ml-mode-button ${mlSettings.mode === "direct" ? "active" : ""}`} title="Читать исходные аудиофайлы напрямую" disabled={settingsDisabled} onClick={() => onMLSettingsChange({ ...mlSettings, mode: "direct" })} type="button">Direct</button>
-              <button className={`ml-mode-button ${mlSettings.mode === "staged" ? "active" : ""}`} title="Копировать входные файлы во временную SSD-папку" disabled={settingsDisabled} onClick={() => onMLSettingsChange({ ...mlSettings, mode: "staged" })} type="button">Staged</button>
-            </div>
-          </div>
-          {mlSettings.mode === "staged" && (
-            <>
-              <div className="path-row ml-staging-path-row">
-                <input value={mlSettings.staged.folder} readOnly title="Папка для временных staging-копий ML" />
-                <button className="icon-button folder-picker ml-staging-folder-picker-button" title="Choose Folder для ML staging-копий" aria-label="Choose Folder для ML staging-копий" disabled={settingsDisabled} onClick={onChooseMLStagingFolder} type="button"><FolderOpen size={17} /></button>
-              </div>
-              <div className="ml-staged-settings-grid">
-                <NumberStepper label="Workers" value={mlSettings.staged.workers} minimum={1} maximum={16} disabled={settingsDisabled} classPrefix="ml-workers" onChange={(workers) => updateMLStaged({ workers })} />
-                <NumberStepper label="StageSize" value={mlSettings.staged.stageSize} minimum={1} maximum={512} disabled={settingsDisabled} classPrefix="ml-stage-size" onChange={(stageSize) => updateMLStaged({ stageSize })} />
-              </div>
-            </>
-          )}
-          <div className="analysis-device" title={helpText.analysisDevice}>
-            <span><Cpu size={15} /> Device</span>
-            <div className="segmented">{(["auto", "cpu", "cuda"] as DeviceMode[]).map((device) => <button key={device} className={`analysis-device-button ${analysisDevice === device ? "active" : ""}`} title={`ML device: ${device}`} disabled={busy || stageRunning} onClick={() => onAnalysisDeviceChange(device)} type="button">{device.toUpperCase()}</button>)}</div>
-          </div>
-          <div className="worker-control">
-            <span>Track batch</span>
-            <div className="stepper">
-              <button className="icon-button analysis-track-batch-decrement-button" title="Уменьшить ML track batch size" disabled={analysisDisabled || analysisTrackBatchSize <= 1} onClick={() => adjustAnalysisTrackBatchSize(-1)} type="button"><Minus size={15} /></button>
-              <input type="number" min={1} max={maxAnalysisTrackBatchSize} value={analysisTrackBatchSize} onChange={(event) => onAnalysisTrackBatchSizeChange(Math.min(maxAnalysisTrackBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
-              <button className="icon-button analysis-track-batch-increment-button" title="Увеличить ML track batch size" disabled={analysisDisabled || analysisTrackBatchSize >= maxAnalysisTrackBatchSize} onClick={() => adjustAnalysisTrackBatchSize(1)} type="button"><Plus size={15} /></button>
-            </div>
-          </div>
-          <div className="worker-control">
-            <span>Inference batch</span>
-            <div className="stepper">
-              <button className="icon-button analysis-inference-batch-decrement-button" title="Уменьшить ML inference batch size" disabled={analysisDisabled || analysisInferenceBatchSize <= 1} onClick={() => adjustAnalysisInferenceBatchSize(-1)} type="button"><Minus size={15} /></button>
-              <input type="number" min={1} max={maxAnalysisInferenceBatchSize} value={analysisInferenceBatchSize} onChange={(event) => onAnalysisInferenceBatchSizeChange(Math.min(maxAnalysisInferenceBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
-              <button className="icon-button analysis-inference-batch-increment-button" title="Увеличить ML inference batch size" disabled={analysisDisabled || analysisInferenceBatchSize >= maxAnalysisInferenceBatchSize} onClick={() => adjustAnalysisInferenceBatchSize(1)} type="button"><Plus size={15} /></button>
-            </div>
-          </div>
-        </div>
+        <button className="ml-settings-button" title="Открыть параметры анализа ML-моделей" disabled={settingsDisabled} onClick={onOpenMLSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа ML моделями</button>
       </div>
 
       <div className="worker-control analysis-limit" title={helpText.analyzeLimit}>

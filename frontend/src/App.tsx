@@ -37,6 +37,7 @@ import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
 import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
+import { MLAnalysisSettingsDialog } from "./MLAnalysisSettingsDialog";
 import { writePreviewPosition } from "./previewPosition";
 import { ScanImportDialog, type ScanImportRequest } from "./ScanImportDialog";
 import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
@@ -191,6 +192,7 @@ export function App() {
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
   const [sonaraSettingsDialogOpen, setSonaraSettingsDialogOpen] = useState(false);
+  const [mlSettingsDialogOpen, setMlSettingsDialogOpen] = useState(false);
   const [scanImportStartToast, setScanImportStartToast] = useState(false);
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [analysisPipelineJob, setAnalysisPipelineJob] = useState<AnalysisPipelineStatus | null>(null);
@@ -1528,14 +1530,6 @@ export function App() {
     }
   }
 
-  function adjustAnalysisTrackBatchSize(delta: number) {
-    setAnalysisTrackBatchSize((current) => Math.min(maxAnalysisTrackBatchSize, Math.max(1, current + delta)));
-  }
-
-  function adjustAnalysisInferenceBatchSize(delta: number) {
-    setAnalysisInferenceBatchSize((current) => Math.min(maxAnalysisInferenceBatchSize, Math.max(1, current + delta)));
-  }
-
   function toggleTheme() {
     setTheme((current) => current === "dark" ? "light" : "dark");
   }
@@ -1657,22 +1651,10 @@ export function App() {
           maestGenreTrackCount={librarySummary.maest_analysis}
           analysisLimit={analysisLimit}
           onAnalysisLimitChange={setAnalysisLimit}
-          analysisDevice={analysisDevice}
-          onAnalysisDeviceChange={setAnalysisDevice}
-          analysisTrackBatchSize={analysisTrackBatchSize}
-          maxAnalysisTrackBatchSize={maxAnalysisTrackBatchSize}
-          adjustAnalysisTrackBatchSize={adjustAnalysisTrackBatchSize}
-          onAnalysisTrackBatchSizeChange={setAnalysisTrackBatchSize}
-          analysisInferenceBatchSize={analysisInferenceBatchSize}
-          maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
-          adjustAnalysisInferenceBatchSize={adjustAnalysisInferenceBatchSize}
-          onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
-          mlSettings={mlSettings}
-          onMLSettingsChange={setMlSettings}
-          onChooseMLStagingFolder={() => void handleChooseMLStagingFolder()}
           helpText={helpText}
           onOpenScanDialog={() => setScanImportOpen(true)}
           onOpenSonaraSettingsDialog={() => setSonaraSettingsDialogOpen(true)}
+          onOpenMLSettingsDialog={() => setMlSettingsDialogOpen(true)}
           onRefreshTags={() => void handleRefreshTags()}
           onWriteMaestGenres={() => void handleGenreTagsApply()}
           onClearDatabase={() => requestConfirmation({
@@ -1864,6 +1846,25 @@ export function App() {
           onSonaraBpmRangeChange={(range) => setSonaraSettings((current) => ({ ...current, ...range }))}
           onChooseSonaraStagingFolder={() => void handleChooseStagingFolder()}
           onClose={() => setSonaraSettingsDialogOpen(false)}
+        />
+      )}
+      {mlSettingsDialogOpen && (
+        <MLAnalysisSettingsDialog
+          busy={busy}
+          stageRunning={stageRunning}
+          hasTracks={hasTracks}
+          mlSettings={mlSettings}
+          onMLSettingsChange={setMlSettings}
+          onChooseMLStagingFolder={() => void handleChooseMLStagingFolder()}
+          analysisDevice={analysisDevice}
+          onAnalysisDeviceChange={setAnalysisDevice}
+          analysisTrackBatchSize={analysisTrackBatchSize}
+          maxAnalysisTrackBatchSize={maxAnalysisTrackBatchSize}
+          onAnalysisTrackBatchSizeChange={setAnalysisTrackBatchSize}
+          analysisInferenceBatchSize={analysisInferenceBatchSize}
+          maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
+          onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
+          onClose={() => setMlSettingsDialogOpen(false)}
         />
       )}
       {scanImportStartToast && (

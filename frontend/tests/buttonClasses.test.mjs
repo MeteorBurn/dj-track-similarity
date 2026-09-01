@@ -59,6 +59,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   const selectionSource = readFileSync(join(srcDir, "analysisSelection.ts"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const numberStepperSource = readFileSync(join(srcDir, "NumberStepper.tsx"), "utf8");
+  const mlSettingsDialogSource = readFileSync(join(srcDir, "MLAnalysisSettingsDialog.tsx"), "utf8");
 
   assert.match(source, /analysis-model-checkbox/);
   assert.match(source, /analysis-model-name/);
@@ -72,7 +73,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /Помогает понять жанровый характер трека/);
   assert.match(source, /Ищет похожее звучание от выбранного seed-трека/);
   assert.match(source, /Связывает текстовое описание с аудио-звучанием/);
-  assert.match(source, /maximum=\{16\}/);
+  assert.match(mlSettingsDialogSource, /maximum=\{16\}/);
   assert.match(numberStepperSource, /value >= maximum/);
   assert.match(source, /className="worker-control analysis-limit"/);
   assert.match(source, /analysis-limit-decrement-button/);
@@ -109,12 +110,11 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   const modelDescriptionIndex = modelRowBlock.indexOf("analysis-model-description");
   const modelCountIndex = modelRowBlock.indexOf("analysis-model-count");
   const resetButtonIndex = modelRowBlock.indexOf("analysis-reset-button");
-  const batchSizeIndex = source.indexOf("Inference batch");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
   const sonaraRowIndex = source.indexOf('{modelRow("sonara")}');
   const sonaraSettingsButtonIndex = source.indexOf("sonara-settings-button");
   const mlRowsIndex = source.indexOf("mlAnalysisModelOrder.map(modelRow)");
-  const mlSettingsIndex = source.indexOf('className="analysis-settings-grid ml-analysis-settings"');
+  const mlSettingsButtonIndex = source.indexOf("ml-settings-button");
 
   assert.notEqual(modelCheckIndex, -1);
   assert.notEqual(modelNameIndex, -1);
@@ -130,7 +130,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.doesNotMatch(modelRowBlock, /<label\b[\s\S]*analysis-model-check/);
   assert.ok(sonaraRowIndex < sonaraSettingsButtonIndex);
   assert.ok(sonaraSettingsButtonIndex < mlRowsIndex);
-  assert.ok(mlRowsIndex < mlSettingsIndex);
+  assert.ok(mlRowsIndex < mlSettingsButtonIndex);
+  assert.ok(mlSettingsButtonIndex < analyzeSelectedIndex);
   assert.match(source, /analysis-family-card sonara-analysis-block/);
   assert.match(source, /analysis-family-card models-analysis-block/);
   assert.match(source, /model !== "sonara" && analysisCounts\.sonara < 1/);
@@ -139,8 +140,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.doesNotMatch(source, /classifiersSelected/);
   assert.doesNotMatch(styles, /\.analysis-family-card\.selected/);
   assert.doesNotMatch(styles, /\.analysis-limit\s*\{[^}]*display:\s*flex/);
-  assert.match(styles, /\.ml-analysis-settings \.analysis-device\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/);
-  assert.ok(batchSizeIndex < analyzeSelectedIndex);
 });
 
 test("class tab exposes per-classifier missing-score analysis controls", () => {

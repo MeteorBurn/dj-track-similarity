@@ -1559,6 +1559,16 @@ h2 {
   text-transform: uppercase;
 }
 
+/* A proper explanation of what the setting is for, not a muted caption or a
+   dismissible hint: full app text color and a readable line length. */
+.sonara-settings-section-description {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .sonara-settings-dialog label,
 .sonara-settings-dialog .worker-control > span,
 .sonara-settings-dialog input {
@@ -1654,6 +1664,20 @@ h2 {
   font-size: 11px;
   line-height: 1.4;
   margin: 0;
+}
+
+.sonara-settings-footer {
+  border-top: 1px solid var(--border-soft);
+  flex: 0 0 auto;
+  padding-top: 12px;
+}
+
+.sonara-settings-ok-button {
+  font-size: 14px;
+  justify-content: center;
+  margin-bottom: 0;
+  min-height: 38px;
+  width: 100%;
 }
 
 .analysis-reset-button.stop-button {
@@ -3996,7 +4020,8 @@ h2 {
 .sonara-search-button,
 .text-search-button,
 .confirmation-confirm-button,
-.sonara-settings-button {
+.sonara-settings-button,
+.sonara-settings-ok-button {
   background: var(--accent-deep-bg);
   border-color: var(--accent-deep-bg);
   color: var(--inverse-text);
@@ -4016,7 +4041,8 @@ h2 {
 .sonara-search-button:hover:not(:disabled),
 .text-search-button:hover:not(:disabled),
 .confirmation-confirm-button:hover:not(:disabled),
-.sonara-settings-button:hover:not(:disabled) {
+.sonara-settings-button:hover:not(:disabled),
+.sonara-settings-ok-button:hover:not(:disabled) {
   background: var(--accent-deep-hover);
   border-color: var(--accent-deep-hover);
   color: var(--inverse-text);

@@ -12,6 +12,7 @@ import {
   PromotedClassifier,
   RhythmLabLaunchResult,
   RhythmLabStatus,
+  ScanRequest,
   ScanStats,
   Track,
   TrackDetail,
@@ -19,9 +20,10 @@ import {
 import {
   analysisSelectionOrder,
   analysisStartBlockedByMissingSonara,
-  defaultAnalysisSelections,
+  defaultStageSelections,
   describeAnalysisStart,
-  type AnalysisSelection
+  type AnalysisSelection,
+  type StageSelection
 } from "./analysisSelection";
 import {
   composePromptBanks,
@@ -39,7 +41,7 @@ import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel
 import { LibraryPanel } from "./LibraryPanel";
 import { MLAnalysisSettingsDialog } from "./MLAnalysisSettingsDialog";
 import { writePreviewPosition } from "./previewPosition";
-import { ScanImportDialog, type ScanImportRequest } from "./ScanImportDialog";
+import { ScanImportDialog } from "./ScanImportDialog";
 import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
 import { appendVisibleTracksToPlaylist, nextLibraryPlaybackTrack } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
@@ -55,6 +57,13 @@ import {
   type MLAnalysisSettings,
   withMLStagingFolder,
 } from "./mlAnalysisSettings";
+import {
+  boundScanDuration,
+  loadScanImportSettings,
+  saveScanImportSettings,
+  scanExtensionsFor,
+  type ScanImportSettings,
+} from "./scanImportSettings";
 import {
   createRequestTokenGuard,
   isSeedEmbeddingFamily,
@@ -211,7 +220,11 @@ export function App() {
     () => loadMLAnalysisSettings(),
   );
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
-  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
+  const [selectedStages, setSelectedStages] = useState<StageSelection[]>(defaultStageSelections);
+  const [initialLibraryLoaded, setInitialLibraryLoaded] = useState(false);
+  const [scanImportSettings, setScanImportSettings] = useState<ScanImportSettings>(
+    () => loadScanImportSettings(),
+  );
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
@@ -374,10 +387,22 @@ export function App() {
   }, [mlSettings]);
 
   useEffect(() => {
-    if (librarySummary.sonara < 1) {
-      setSelectedAnalysisModels(["sonara"]);
+    saveScanImportSettings(scanImportSettings);
+  }, [scanImportSettings]);
+
+  // Keeps the stage checkbox valid: SONARA/ML are only reachable once tracks
+  // exist, and ML only once SONARA has results — mirrors the per-checkbox
+  // disabled rules in LibraryPanel. Gated on the first real summary fetch so
+  // the tracks: 0 startup default doesn't force DATABASE on every reload of
+  // an already-analyzed library.
+  useEffect(() => {
+    if (!initialLibraryLoaded) return;
+    if (!hasTracks) {
+      setSelectedStages(["database"]);
+    } else if (librarySummary.sonara < 1) {
+      setSelectedStages(["sonara"]);
     }
-  }, [librarySummary.sonara]);
+  }, [initialLibraryLoaded, hasTracks, librarySummary.sonara]);
 
   useEffect(() => {
     genericSearchInputKeyRef.current = genericSearchInputKey;
@@ -557,6 +582,11 @@ export function App() {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось прочитать текущую базу", message);
+    } finally {
+      // librarySummary starts at tracks: 0 before this resolves, so the stage
+      // auto-correction effect must not treat that startup default as a real
+      // empty library until the first real fetch has settled.
+      setInitialLibraryLoaded(true);
     }
   }
 
@@ -815,16 +845,18 @@ export function App() {
     }
   }
 
-  function toggleAnalysisModel(model: AnalysisSelection) {
-    setSelectedAnalysisModels((current) => {
-      if (current.length === 1 && current.includes(model)) return current;
-      if (model === "sonara") {
-        return [model];
+  function toggleStage(stage: StageSelection) {
+    setSelectedStages((current) => {
+      if (current.length === 1 && current.includes(stage)) return current;
+      if (stage === "database" || stage === "sonara") {
+        return [stage];
       }
-      const mlSelections = current.filter((item) => item !== "sonara");
-      const next: AnalysisSelection[] = mlSelections.includes(model)
-        ? mlSelections.filter((item) => item !== model)
-        : [...mlSelections, model];
+      const mlSelections = current.filter(
+        (item): item is AnalysisModel => item !== "database" && item !== "sonara",
+      );
+      const next = mlSelections.includes(stage)
+        ? mlSelections.filter((item) => item !== stage)
+        : [...mlSelections, stage];
       return next.length
         ? analysisModelOrder.filter((item) => next.includes(item))
         : current;
@@ -1010,7 +1042,7 @@ export function App() {
     }
   }
 
-  async function handleStartScan(request: ScanImportRequest) {
+  async function handleStartScan(request: ScanRequest) {
     appendActivity(
       "info",
       "Подготовка сканирования начата",
@@ -1040,6 +1072,24 @@ export function App() {
       setScanImportStartToast(false);
       setBusy(false);
     }
+  }
+
+  // The single "Старт" entry point: runs whichever stage is checked in the
+  // library panel. DATABASE and SONARA/ML are mutually exclusive selections
+  // (toggleStage), so exactly one branch below ever applies.
+  async function handleStageStart() {
+    if (selectedStages.includes("database")) {
+      await handleStartScan({
+        root: scanImportSettings.root,
+        workers: scanImportSettings.workers,
+        limit: analysisLimit > 0 ? analysisLimit : undefined,
+        extensions: scanExtensionsFor(scanImportSettings.selectedFormats),
+        min_duration_seconds: boundScanDuration(scanImportSettings.minDurationSeconds),
+        max_duration_seconds: boundScanDuration(scanImportSettings.maxDurationSeconds),
+      });
+      return;
+    }
+    await handleAnalyzeSelected();
   }
 
   async function handleChooseScanFolder(): Promise<string | null> {
@@ -1158,8 +1208,11 @@ export function App() {
   }
 
   async function handleAnalyzeSelected() {
-    const mlModels = selectedAnalysisModels.filter((model) => model !== "sonara");
-    const includeSonara = selectedAnalysisModels.includes("sonara");
+    // DATABASE is handled by handleStageStart before this ever runs; the
+    // mutual-exclusion in toggleStage guarantees it is absent here.
+    const stageModels = selectedStages.filter((stage): stage is AnalysisSelection => stage !== "database");
+    const mlModels = stageModels.filter((model) => model !== "sonara");
+    const includeSonara = stageModels.includes("sonara");
     const stages: Array<"sonara" | "ml"> = [];
     if (includeSonara) stages.push("sonara");
     if (mlModels.length) stages.push("ml");
@@ -1179,7 +1232,7 @@ export function App() {
     }
     if (
       analysisStartBlockedByMissingSonara(
-        selectedAnalysisModels,
+        stageModels,
         librarySummary.sonara
       )
     ) {
@@ -1648,6 +1701,7 @@ export function App() {
           busy={busy}
           stageRunning={stageRunning}
           hasTracks={hasTracks}
+          libraryTrackCount={librarySummary.tracks}
           maestGenreTrackCount={librarySummary.maest_analysis}
           analysisLimit={analysisLimit}
           onAnalysisLimitChange={setAnalysisLimit}
@@ -1665,9 +1719,10 @@ export function App() {
           onValidateDatabase={() => void handleValidateDatabase()}
           onOpenAudioDedup={() => setAudioDedupOpen(true)}
           analysisCounts={analysisModelCounts}
-          selectedAnalysisModels={selectedAnalysisModels}
-          onToggleAnalysisModel={toggleAnalysisModel}
-          onAnalyzeSelected={() => void handleAnalyzeSelected()}
+          selectedStages={selectedStages}
+          onToggleStage={toggleStage}
+          scanRootSelected={Boolean(scanImportSettings.root.trim())}
+          onStart={() => void handleStageStart()}
           onResetAnalysis={(adapter) => requestConfirmation({
             title: `Сбросить ${adapter.toUpperCase()}?`,
             message: `Сбросить результаты ${adapter.toUpperCase()}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,
@@ -1827,12 +1882,13 @@ export function App() {
       )}
       {scanImportOpen && (
         <ScanImportDialog
+          settings={scanImportSettings}
+          onSettingsChange={setScanImportSettings}
           busy={busy}
           stageRunning={stageRunning}
           maxWorkers={maxScanWorkers}
           onChooseFolder={handleChooseScanFolder}
           onClose={() => setScanImportOpen(false)}
-          onStart={handleStartScan}
         />
       )}
       {sonaraSettingsDialogOpen && (

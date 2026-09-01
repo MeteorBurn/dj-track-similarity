@@ -1,6 +1,6 @@
-import { CopyCheck, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2 } from "lucide-react";
+import { CopyCheck, Database, FolderOpen, Minus, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2, Zap } from "lucide-react";
 import { AnalysisModel } from "./api";
-import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
+import { mlAnalysisModelOrder, type AnalysisSelection, type StageSelection } from "./analysisSelection";
 
 type LibraryHelpText = {
   databasePath: string;
@@ -24,12 +24,19 @@ const modelDescriptions: Record<AnalysisModel, string> = {
   clap: "Связывает текстовое описание с аудио-звучанием."
 };
 
+type StageAction = {
+  title: string;
+  onClick: () => void;
+  className: string;
+};
+
 export function LibraryPanel({
   databasePath,
   onChooseDatabase,
   busy,
   stageRunning,
   hasTracks,
+  libraryTrackCount,
   maestGenreTrackCount,
   analysisLimit,
   onAnalysisLimitChange,
@@ -43,9 +50,10 @@ export function LibraryPanel({
   onValidateDatabase,
   onOpenAudioDedup,
   analysisCounts,
-  selectedAnalysisModels,
-  onToggleAnalysisModel,
-  onAnalyzeSelected,
+  selectedStages,
+  onToggleStage,
+  scanRootSelected,
+  onStart,
   onResetAnalysis,
 }: {
   databasePath: string | null;
@@ -53,6 +61,7 @@ export function LibraryPanel({
   busy: boolean;
   stageRunning: boolean;
   hasTracks: boolean;
+  libraryTrackCount: number;
   maestGenreTrackCount: number;
   analysisLimit: number;
   onAnalysisLimitChange: (value: number) => void;
@@ -66,86 +75,154 @@ export function LibraryPanel({
   onValidateDatabase: () => void;
   onOpenAudioDedup: () => void;
   analysisCounts: Record<AnalysisSelection, number>;
-  selectedAnalysisModels: AnalysisSelection[];
-  onToggleAnalysisModel: (model: AnalysisSelection) => void;
-  onAnalyzeSelected: () => void;
+  selectedStages: StageSelection[];
+  onToggleStage: (stage: StageSelection) => void;
+  scanRootSelected: boolean;
+  onStart: () => void;
   onResetAnalysis: (adapter: AnalysisModel) => void;
 }) {
-  const analysisDisabled = busy || stageRunning || !hasTracks;
-  const settingsDisabled = busy || stageRunning;
+  const stagesDisabled = busy || stageRunning;
+  const isSelected = (stage: StageSelection) => selectedStages.includes(stage);
 
-  const modelRow = (model: AnalysisModel) => (
-    <div className="analysis-model-row" key={model}>
-      <span className="analysis-model-check">
+  const stageRow = ({
+    stage,
+    title,
+    description,
+    count,
+    disabled,
+    action,
+  }: {
+    stage: StageSelection;
+    title: string;
+    description: string;
+    count: number;
+    disabled?: boolean;
+    action: StageAction;
+  }) => (
+    <div className="stage-row" key={stage}>
+      <span className="stage-check">
         <input
-          className="analysis-model-checkbox"
+          className="stage-checkbox"
           type="checkbox"
-          aria-label={`${model.toUpperCase()} selected`}
-          checked={selectedAnalysisModels.includes(model)}
-          disabled={busy || stageRunning || (model !== "sonara" && analysisCounts.sonara < 1)}
-          onChange={() => onToggleAnalysisModel(model)}
+          aria-label={`${title} selected`}
+          checked={isSelected(stage)}
+          disabled={stagesDisabled || disabled}
+          onChange={() => onToggleStage(stage)}
         />
       </span>
-      <span className="analysis-model-name">
-        <span className="analysis-model-title">{model.toUpperCase()}</span>
-        <span className="analysis-model-description">{modelDescriptions[model]}</span>
+      <span className="stage-name">
+        <span className="stage-title">{title}</span>
+        <span className="stage-description">{description}</span>
       </span>
-      <span className="analysis-model-count">{analysisCounts[model] || 0}</span>
-      <button className={`icon-button stop-button analysis-reset-button ${model}-reset-button`} disabled={analysisDisabled} title={`Сбросить ${model.toUpperCase()}`} onClick={() => onResetAnalysis(model)} type="button">
+      <span className="stage-count">{count}</span>
+      <button className={`icon-button stop-button stage-action-button ${action.className}`} disabled={stagesDisabled} title={action.title} onClick={action.onClick} type="button">
         <Trash2 size={16} />
       </button>
     </div>
   );
+
+  const modelRow = (model: AnalysisModel) => stageRow({
+    stage: model,
+    title: model.toUpperCase(),
+    description: modelDescriptions[model],
+    count: analysisCounts[model] || 0,
+    disabled: model !== "sonara" && analysisCounts.sonara < 1,
+    action: {
+      title: `Сбросить ${model.toUpperCase()}`,
+      onClick: () => onResetAnalysis(model),
+      className: `${model}-reset-button`,
+    },
+  });
+
+  const missingScanFolder = isSelected("database") && !scanRootSelected;
+  const warnings: string[] = [];
+  if (missingScanFolder) warnings.push("Укажите папку с треками в настройках загрузки.");
+  const startDisabled = stagesDisabled || !selectedStages.length || missingScanFolder;
 
   return (
     <aside className="panel library-panel">
       <div className="panel-title"><FolderOpen size={18} /><h2>1. База и анализ</h2></div>
       <div className="path-row database-path-row">
         <input value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
-        <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={busy || stageRunning} onClick={onChooseDatabase} type="button"><Database size={17} /></button>
-      </div>
-      <div className="scan-action-row">
-        <button className="scan-settings-button" title="Открыть параметры загрузки треков" disabled={busy || stageRunning || !databasePath} onClick={onOpenScanDialog} type="button"><Music4 size={15} />Загрузить треки в базу</button>
-        <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title="Обновить теги" aria-label="Обновить теги" onClick={onRefreshTags} type="button"><RefreshCcw size={17} /></button>
-        <button className="icon-button genre-save-button" disabled={busy || stageRunning || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={17} /></button>
-        <button className="icon-button database-validation-button" disabled={busy || stageRunning || !hasTracks} title="Проверить базу" aria-label="Проверить базу" onClick={onValidateDatabase} type="button"><ShieldCheck size={17} /></button>
-        <button className="icon-button audio-dedup-button" disabled={busy || stageRunning || !hasTracks} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyCheck size={17} /></button>
-        <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title="Очистить базу" aria-label="Очистить базу" onClick={onClearDatabase} type="button"><Trash2 size={17} /></button>
+        <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={stagesDisabled} onClick={onChooseDatabase} type="button"><Database size={17} /></button>
       </div>
 
-      <div className="analysis-models-heading">
+      <div className="stage-card database-stage">
+        <div className="stage-actions">
+          {stageRow({
+            stage: "database",
+            title: "DATABASE",
+            description: "Загружает новые треки из выбранной папки в базу.",
+            count: libraryTrackCount,
+            action: {
+              title: "Очистить базу",
+              onClick: onClearDatabase,
+              className: "database-clear-button",
+            },
+          })}
+        </div>
+        <button className="stage-settings-button" title="Открыть параметры загрузки треков в базу" disabled={stagesDisabled || !databasePath} onClick={onOpenScanDialog} type="button"><Settings2 size={15} />Настройки загрузки треков в базу</button>
+      </div>
+
+      <div className="library-tools-row">
+        <button className="icon-button refresh-tags-button" disabled={stagesDisabled || !hasTracks} title="Обновить теги" aria-label="Обновить теги" onClick={onRefreshTags} type="button"><RefreshCcw size={17} /></button>
+        <button className="icon-button genre-save-button" disabled={stagesDisabled || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={17} /></button>
+        <button className="icon-button database-validation-button" disabled={stagesDisabled || !hasTracks} title="Проверить базу" aria-label="Проверить базу" onClick={onValidateDatabase} type="button"><ShieldCheck size={17} /></button>
+        <button className="icon-button audio-dedup-button" disabled={stagesDisabled || !hasTracks} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyCheck size={17} /></button>
+      </div>
+
+      <div className="stage-section-heading">
         <span>Анализ</span>
-        <small>Один запуск обработает выбранные стадии и пропустит уже готовые результаты</small>
+        <small>Один запуск обработает выбранную стадию и пропустит уже готовые результаты</small>
       </div>
-      <div className="analysis-family-card sonara-analysis-block">
-        <div className="analysis-actions">{modelRow("sonara")}</div>
-        <button className="sonara-settings-button" title="Открыть параметры анализа SONARA" disabled={settingsDisabled} onClick={onOpenSonaraSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа SONARA</button>
+      <div className="stage-card sonara-stage">
+        <div className="stage-actions">
+          {stageRow({
+            stage: "sonara",
+            title: "SONARA",
+            description: modelDescriptions.sonara,
+            count: analysisCounts.sonara,
+            disabled: !hasTracks,
+            action: {
+              title: "Сбросить SONARA",
+              onClick: () => onResetAnalysis("sonara"),
+              className: "sonara-reset-button",
+            },
+          })}
+        </div>
+        <button className="stage-settings-button" title="Открыть параметры анализа SONARA" disabled={stagesDisabled} onClick={onOpenSonaraSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа SONARA</button>
       </div>
 
-      <div className="analysis-family-card models-analysis-block">
-        <div className="analysis-family-title"><strong>ML-модели</strong><small>Выберите нужные способы анализа звучания</small></div>
-        <div className="analysis-actions">{mlAnalysisModelOrder.map(modelRow)}</div>
-        <button className="ml-settings-button" title="Открыть параметры анализа ML-моделей" disabled={settingsDisabled} onClick={onOpenMLSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа ML моделями</button>
+      <div className="stage-card ml-stage">
+        <div className="stage-card-title"><strong>ML-модели</strong><small>Выберите нужные способы анализа звучания</small></div>
+        <div className="stage-actions">{mlAnalysisModelOrder.map(modelRow)}</div>
+        <button className="stage-settings-button" title="Открыть параметры анализа ML-моделей" disabled={stagesDisabled} onClick={onOpenMLSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа ML моделями</button>
       </div>
 
       <div className="worker-control analysis-limit" title={helpText.analyzeLimit}>
-        <span>Analyze limit</span>
+        <span>Лимит треков</span>
         <div className="stepper">
-          <button className="icon-button analysis-limit-decrement-button" title="Уменьшить Analyze limit" aria-label="Уменьшить Analyze limit" disabled={busy || stageRunning || analysisLimit <= 0} onClick={() => onAnalysisLimitChange(Math.max(0, analysisLimit - 1))} type="button"><Minus size={15} /></button>
-          <input type="number" min={0} max={100000} value={analysisLimit} aria-label="Analyze limit 0 = все треки; применяется отдельно к каждой стадии анализа" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
-          <button className="icon-button analysis-limit-increment-button" title="Увеличить Analyze limit" aria-label="Увеличить Analyze limit" disabled={busy || stageRunning || analysisLimit >= 100000} onClick={() => onAnalysisLimitChange(Math.min(100000, analysisLimit + 1))} type="button"><Plus size={15} /></button>
+          <button className="icon-button analysis-limit-decrement-button" title="Уменьшить лимит треков" aria-label="Уменьшить лимит треков" disabled={stagesDisabled || analysisLimit <= 0} onClick={() => onAnalysisLimitChange(Math.max(0, analysisLimit - 1))} type="button"><Minus size={15} /></button>
+          <input type="number" min={0} max={100000} value={analysisLimit} aria-label="Лимит треков: 0 = все треки; применяется отдельно к каждой стадии анализа" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
+          <button className="icon-button analysis-limit-increment-button" title="Увеличить лимит треков" aria-label="Увеличить лимит треков" disabled={stagesDisabled || analysisLimit >= 100000} onClick={() => onAnalysisLimitChange(Math.min(100000, analysisLimit + 1))} type="button"><Plus size={15} /></button>
         </div>
         <small>0 = все треки; применяется отдельно к каждой стадии анализа</small>
       </div>
+
+      {warnings.length > 0 && (
+        <ul className="stage-start-warnings" role="alert">
+          {warnings.map((warning) => <li key={warning}>{warning}</li>)}
+        </ul>
+      )}
       <button
-        className="analyze-selected-button analysis-pipeline-button"
-        title="Запустить отмеченные модели в порядке SONARA → ML"
-        disabled={analysisDisabled || !selectedAnalysisModels.length}
-        onClick={onAnalyzeSelected}
+        className="stage-start-button"
+        title="Запустить отмеченную стадию"
+        disabled={startDisabled}
+        onClick={onStart}
         type="button"
       >
-        <Play size={15} />
-        Analyze
+        <Zap size={18} />
+        Старт
       </button>
     </aside>
   );

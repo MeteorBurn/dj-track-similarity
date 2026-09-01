@@ -5,30 +5,30 @@ import test from "node:test";
 
 const srcDir = fileURLToPath(new URL("../src/", import.meta.url));
 const dialogPath = fileURLToPath(new URL("../src/ScanImportDialog.tsx", import.meta.url));
+const settingsPath = fileURLToPath(new URL("../src/scanImportSettings.ts", import.meta.url));
 const panelPath = fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url));
 const appPath = fileURLToPath(new URL("../src/App.tsx", import.meta.url));
 
-test("scan import dialog owns ephemeral defaults and required controls", () => {
+test("scan import dialog exposes required controls", () => {
   assert.equal(existsSync(dialogPath), true, "ScanImportDialog.tsx exists");
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /function ScanImportDialog/);
+  assert.match(source, /aria-pressed/);
+  assert.match(source, /onChooseFolder/);
+  assert.match(source, />OK</);
+  assert.match(source, /scan-import-settings[\s\S]*?scan-import-path-row[\s\S]*?scan-import-ok-button/);
+  assert.match(source, /<X/);
+  assert.doesNotMatch(source, /localStorage|sessionStorage/);
+});
+
+test("scan import settings own ephemeral defaults and extended audio formats", () => {
+  const source = readFileSync(settingsPath, "utf8");
+
   assert.match(source, /defaultScanImportSettings/);
   assert.match(source, /minDurationSeconds:\s*"120"/);
   assert.match(source, /maxDurationSeconds:\s*"1200"/);
-  assert.match(source, /scanLimit:\s*0/);
   assert.match(source, /workers:\s*8/);
-  assert.match(source, /aria-pressed/);
-  assert.match(source, /onChooseFolder/);
-  assert.match(source, /onStart/);
-  assert.match(source, />Старт</);
-  assert.match(source, /scan-import-limit-decrement-button/);
-  assert.match(source, /scan-import-limit-increment-button/);
-  assert.match(source, /limit: settings\.scanLimit > 0 \? settings\.scanLimit : undefined/);
-  assert.ok(source.indexOf("Scan limit") < source.indexOf("Min, сек"));
-  assert.match(source, /scan-import-settings[\s\S]*?scan-import-path-row[\s\S]*?scan-import-submit-button/);
-  assert.match(source, /<X/);
-  assert.doesNotMatch(source, /localStorage|sessionStorage/);
   for (const format of ["MP3", "FLAC", "ALAC", "WAV", "AIFF", "M4A", "OGG", "OPUS", "WAVE", "AIF"]) {
     assert.match(source, new RegExp(`label: "${format}"`));
   }
@@ -36,11 +36,6 @@ test("scan import dialog owns ephemeral defaults and required controls", () => {
   assert.match(source, /label: "WAVE", extensions: \["\.wave"\]/);
   assert.match(source, /label: "AIFF", extensions: \["\.aiff"\]/);
   assert.match(source, /label: "AIF", extensions: \["\.aif"\]/);
-});
-
-test("scan import dialog offers extended audio formats", () => {
-  const source = readFileSync(dialogPath, "utf8");
-
   for (const [label, extension] of [
     ["AAC", ".aac"],
     ["APE", ".ape"],
@@ -55,7 +50,7 @@ test("scan import dialog offers extended audio formats", () => {
 });
 
 test("scan import dialog keeps inactive format chips neutral and formats sorted", () => {
-  const source = readFileSync(dialogPath, "utf8");
+  const source = readFileSync(settingsPath, "utf8");
   const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
   const inactiveChip = styles.match(/\.scan-import-format-chip\s*{([\s\S]*?)}/)?.[1] || "";
   const formatOrder = ["AAC", "AIF", "AIFF", "ALAC", "APE", "FLAC", "M4A", "MP3", "OGG", "OPUS", "WAV", "WAVE", "WMA", "WavPack"].map((label) => source.indexOf(`label: "${label}"`));
@@ -82,7 +77,7 @@ test("scan import closes immediately and shows a centered preparation notice", (
   const app = readFileSync(appPath, "utf8");
   const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
-  const startHandler = app.match(/async function handleStartScan\(request: ScanImportRequest\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+  const startHandler = app.match(/async function handleStartScan\(request: ScanRequest\) \{([\s\S]*?)\n  \}/)?.[1] || "";
   const toastStyles = styles.match(/\.scan-import-start-toast\s*\{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(app, /const \[scanImportStartToast, setScanImportStartToast\] = useState\(false\)/);

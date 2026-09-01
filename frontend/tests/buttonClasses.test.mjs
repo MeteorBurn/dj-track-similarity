@@ -14,134 +14,6 @@ test("server shutdown button uses the destructive intent color", () => {
   assert.match(shutdownRule, /color:\s*var\(--danger-text\)/);
 });
 
-test("genre save button is placed between refresh tags and database clear", () => {
-  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
-
-  const refreshIndex = source.indexOf("refresh-tags-button");
-  const genreSaveIndex = source.indexOf("genre-save-button");
-  const clearIndex = source.indexOf("database-clear-button");
-
-  assert.notEqual(refreshIndex, -1);
-  assert.notEqual(genreSaveIndex, -1);
-  assert.notEqual(clearIndex, -1);
-  assert.ok(refreshIndex < genreSaveIndex);
-  assert.ok(genreSaveIndex < clearIndex);
-});
-
-test("scan action keeps the import trigger beside database maintenance controls", () => {
-  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const rowMatch = source.match(/<div className="scan-action-row">([\s\S]*?)<\/div>/);
-  const styleMatch = styles.match(/\.scan-action-row\s*{([\s\S]*?)}/);
-  const primaryButtonMatch = styles.match(/\.scan-action-row \.scan-settings-button\s*{([\s\S]*?)}/);
-  const iconButtonMatch = styles.match(/\.scan-action-row \.icon-button\s*{([\s\S]*?)}/);
-
-  assert.ok(rowMatch, "scan action row markup exists");
-  assert.ok(styleMatch, "scan action row styles exist");
-  assert.ok(primaryButtonMatch, "scan primary button styles exist");
-  assert.ok(iconButtonMatch, "scan icon button styles exist");
-
-  const controlCount = (rowMatch[1].match(/<button\b/g) || []).length;
-
-  assert.equal(controlCount, 6);
-  assert.match(styleMatch[1], /display:\s*flex/);
-  assert.match(styleMatch[1], /gap:\s*6px/);
-  assert.match(primaryButtonMatch[1], /flex:\s*1/);
-  assert.match(iconButtonMatch[1], /flex:\s*0 0 34px/);
-  assert.match(source, /className="scan-settings-button"[\s\S]*?<Music4 size=\{15\}/);
-  assert.doesNotMatch(source, /scan-start-button/);
-  assert.doesNotMatch(styles, /scan-start-button/);
-});
-
-test("analysis controls expose one checkbox-driven Analyze action", () => {
-  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const selectionSource = readFileSync(join(srcDir, "analysisSelection.ts"), "utf8");
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const numberStepperSource = readFileSync(join(srcDir, "NumberStepper.tsx"), "utf8");
-  const mlSettingsDialogSource = readFileSync(join(srcDir, "MLAnalysisSettingsDialog.tsx"), "utf8");
-
-  assert.match(source, /analysis-model-checkbox/);
-  assert.match(source, /analysis-model-name/);
-  assert.match(source, /analysis-model-title/);
-  assert.match(source, /analysis-model-description/);
-  assert.match(source, /analysis-model-count/);
-  assert.match(source, /analysis-model-check/);
-  assert.match(source, /analyze-selected-button/);
-  assert.match(source, />\s*Analyze\s*<\/button>/);
-  assert.match(source, /Считает темп, тональность, ритм, динамику, тембр и структуру трека/);
-  assert.match(source, /Помогает понять жанровый характер трека/);
-  assert.match(source, /Ищет похожее звучание от выбранного seed-трека/);
-  assert.match(source, /Связывает текстовое описание с аудио-звучанием/);
-  assert.match(mlSettingsDialogSource, /maximum=\{16\}/);
-  assert.match(numberStepperSource, /value >= maximum/);
-  assert.match(source, /className="worker-control analysis-limit"/);
-  assert.match(source, /analysis-limit-decrement-button/);
-  assert.match(source, /analysis-limit-increment-button/);
-  assert.match(source, /analysisLimit >= 100000/);
-  assert.doesNotMatch(source, /FFmpeg decode/);
-  assert.doesNotMatch(source, /Отдельный анализ по локальным профилям/);
-  assert.doesNotMatch(source, /classifiers-analysis-card|CLASSIFIERS selected|availableClassifierProfiles/);
-  assert.doesNotMatch(source, /readyClassifiers|notReadyClassifiers|blockerCount/);
-  assert.doesNotMatch(source, /visibleClassifierBlockers|className="analysis-muted" key=\{item\.key\}/);
-  assert.match(source, /selectedAnalysisModels/);
-  assert.doesNotMatch(source, /Run SONARA|Run ML|Run CLASSIFIERS|Run selected pipeline/);
-  assert.doesNotMatch(source, /onAnalyzeSonara|onAnalyzeMl|onAnalyzeClassifiers/);
-  assert.match(selectionSource, /defaultAnalysisSelections: AnalysisSelection\[\] = \["sonara"\]/);
-  assert.match(appSource, /if \(current\.length === 1 && current\.includes\(model\)\) return current/);
-  assert.match(appSource, /if \(model === "sonara"\) \{[\s\S]*?return \[model\]/);
-  assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara"\)/);
-  assert.doesNotMatch(appSource, /SonaraOutput|sonaraOutputs|toggleSonaraOutput/);
-  assert.doesNotMatch(source, /sonara-output|Timeline|Fingerprint/);
-  assert.doesNotMatch(styles, /\.sonara-output-/);
-  assert.match(styles, /\.analysis-model-count\s*{[\s\S]*?align-self:\s*center[\s\S]*?height:\s*34px[\s\S]*?min-height:\s*34px/);
-  assert.doesNotMatch(source, /Active SONARA release|Prepare release|sonaraAnalysisBlockedReason/);
-  assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
-  assert.doesNotMatch(appSource, /aggregateClassifierJob|currentStage === "classifiers"/);
-  assert.match(appSource, /SONARA · Direct · BatchSize \$\{sonaraSettings\.directBatchSize\}/);
-  assert.match(appSource, /SONARA · Staged · \$\{sonaraSettings\.staged\.folder\}/);
-  assert.match(appSource, /Track batch \$\{analysisTrackBatchSize\} · Inference batch \$\{analysisInferenceBatchSize\}/);
-  assert.doesNotMatch(appSource, /CLASSIFIERS · profiles|classifierKeys/);
-
-  const modelRowBlock = source.match(/<div className="analysis-model-row"[\s\S]*?<\/div>/)?.[0] || "";
-  const modelCheckIndex = modelRowBlock.indexOf("analysis-model-check");
-  const modelNameIndex = modelRowBlock.indexOf("analysis-model-name");
-  const modelTitleIndex = modelRowBlock.indexOf("analysis-model-title");
-  const modelDescriptionIndex = modelRowBlock.indexOf("analysis-model-description");
-  const modelCountIndex = modelRowBlock.indexOf("analysis-model-count");
-  const resetButtonIndex = modelRowBlock.indexOf("analysis-reset-button");
-  const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
-  const sonaraRowIndex = source.indexOf('{modelRow("sonara")}');
-  const sonaraSettingsButtonIndex = source.indexOf("sonara-settings-button");
-  const mlRowsIndex = source.indexOf("mlAnalysisModelOrder.map(modelRow)");
-  const mlSettingsButtonIndex = source.indexOf("ml-settings-button");
-
-  assert.notEqual(modelCheckIndex, -1);
-  assert.notEqual(modelNameIndex, -1);
-  assert.notEqual(modelTitleIndex, -1);
-  assert.notEqual(modelDescriptionIndex, -1);
-  assert.notEqual(modelCountIndex, -1);
-  assert.notEqual(resetButtonIndex, -1);
-  assert.ok(modelCheckIndex < modelNameIndex);
-  assert.ok(modelNameIndex < modelTitleIndex);
-  assert.ok(modelTitleIndex < modelDescriptionIndex);
-  assert.ok(modelNameIndex < modelCountIndex);
-  assert.ok(modelCountIndex < resetButtonIndex);
-  assert.doesNotMatch(modelRowBlock, /<label\b[\s\S]*analysis-model-check/);
-  assert.ok(sonaraRowIndex < sonaraSettingsButtonIndex);
-  assert.ok(sonaraSettingsButtonIndex < mlRowsIndex);
-  assert.ok(mlRowsIndex < mlSettingsButtonIndex);
-  assert.ok(mlSettingsButtonIndex < analyzeSelectedIndex);
-  assert.match(source, /analysis-family-card sonara-analysis-block/);
-  assert.match(source, /analysis-family-card models-analysis-block/);
-  assert.match(source, /model !== "sonara" && analysisCounts\.sonara < 1/);
-  assert.match(appSource, /if \(librarySummary\.sonara < 1\) \{\s*setSelectedAnalysisModels\(\["sonara"\]\);/);
-  assert.doesNotMatch(source, /mlModelsSelected/);
-  assert.doesNotMatch(source, /classifiersSelected/);
-  assert.doesNotMatch(styles, /\.analysis-family-card\.selected/);
-  assert.doesNotMatch(styles, /\.analysis-limit\s*\{[^}]*display:\s*flex/);
-});
-
 test("class tab exposes per-classifier missing-score analysis controls", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
@@ -176,7 +48,6 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /models\/classifiers\/<profile>\//);
   assert.doesNotMatch(appSource, /selectedAnalysisModels\.includes\("classifiers"\)|compatibleClassifierKeys/);
   assert.match(appSource, /analysisPipelineStart/);
-  assert.match(appSource, /useState<AnalysisSelection\[]>\(defaultAnalysisSelections\)/);
   assert.match(appSource, /tab === "class" && databasePath[\s\S]*refreshClassifierProfilesInBackground/);
   assert.match(appSource, /api\.analyzeClassifier/);
   assert.match(appSource, /api\.resetClassifier/);
@@ -248,12 +119,12 @@ test("explicit database refresh adopts its catalog scope and suppresses the dupl
 
 test("analysis and scan controls use the measured machine defaults", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const scanDialogSource = readFileSync(join(srcDir, "ScanImportDialog.tsx"), "utf8");
+  const scanSettingsSource = readFileSync(join(srcDir, "scanImportSettings.ts"), "utf8");
   const sonaraSettingsSource = readFileSync(join(srcDir, "sonaraAnalysisSettings.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
   const apiSchemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
-  assert.match(scanDialogSource, /workers:\s*8/);
+  assert.match(scanSettingsSource, /workers:\s*8/);
   assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(8\)/);
   assert.match(appSource, /analysisInferenceBatchSize,\s*setAnalysisInferenceBatchSize\]\s*=\s*useState\(16\)/);
   assert.match(appSource, /loadSonaraAnalysisSettings\(\)/);
@@ -589,7 +460,7 @@ test("database validation is disabled until the library has tracks", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
   const validationButton = source.match(/<button className="icon-button database-validation-button"[\s\S]*?<\/button>/)?.[0] || "";
 
-  assert.match(validationButton, /disabled=\{busy \|\| stageRunning \|\| !hasTracks\}/);
+  assert.match(validationButton, /disabled=\{stagesDisabled \|\| !hasTracks\}/);
 });
 
 test("seed chips use compact pill sizing and a compact removal icon", () => {

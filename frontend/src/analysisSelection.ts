@@ -2,10 +2,15 @@ import type { AnalysisModel, AnalysisPipelineStage } from "./api";
 
 export type AnalysisSelection = AnalysisModel;
 
+// The library-panel checkbox set: DATABASE (load tracks) plus every analysis
+// model. DATABASE is not an AnalysisModel — it has no backend analysis job —
+// so it only exists at this frontend selection layer.
+export type StageSelection = "database" | AnalysisSelection;
+
 export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "mulan", "clap"];
 export const mlAnalysisModelOrder: AnalysisModel[] = ["maest", "mert", "muq", "mulan", "clap"];
 export const analysisSelectionOrder: AnalysisSelection[] = [...audioAnalysisModelOrder];
-export const defaultAnalysisSelections: AnalysisSelection[] = ["sonara"];
+export const defaultStageSelections: StageSelection[] = ["sonara"];
 
 export function analysisStartBlockedByMissingSonara(
   selections: readonly AnalysisSelection[],

@@ -95,10 +95,12 @@ test("pipeline status is not rendered above the analysis action", async () => {
       onRefreshTags: noop,
       onWriteMaestGenres: noop,
       onClearDatabase: noop,
+      libraryTrackCount: 0,
       analysisCounts: {},
-      selectedAnalysisModels: ["sonara"],
-      onToggleAnalysisModel: noop,
-      onAnalyzeSelected: noop,
+      selectedStages: ["sonara"],
+      onToggleStage: noop,
+      scanRootSelected: true,
+      onStart: noop,
       onResetAnalysis: noop,
     }));
 

@@ -816,13 +816,17 @@ h2 {
 }
 
 /* Analysis jobs and classifier controls */
-.analysis-actions {
+.stage-actions {
   align-self: stretch;
   display: grid;
   gap: 6px;
   grid-template-columns: minmax(0, 1fr);
   margin-bottom: 8px;
   width: 100%;
+}
+
+.stage-card .stage-actions {
+  margin-bottom: 6px;
 }
 
 .ml-staging-path-row {
@@ -840,7 +844,7 @@ h2 {
   min-width: 0;
 }
 
-.analysis-family-card {
+.stage-card {
   background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
@@ -848,7 +852,7 @@ h2 {
   padding: 8px;
 }
 
-.analysis-family-card .analysis-model-name {
+.stage-card .stage-name {
   align-content: center;
   display: grid;
   gap: 8px;
@@ -857,31 +861,27 @@ h2 {
   min-height: 34px;
 }
 
-.analysis-family-card .analysis-model-description {
+.stage-card .stage-description {
   line-height: 12px;
   text-align: left;
   white-space: nowrap;
 }
 
-.analysis-family-title {
+.stage-card-title {
   align-items: baseline;
   display: flex;
   gap: 8px;
   margin: 0 2px 7px;
 }
 
-.analysis-family-title strong {
+.stage-card-title strong {
   color: var(--text);
   font-size: 12px;
 }
 
-.analysis-family-title small {
+.stage-card-title small {
   color: var(--text-muted);
   font-size: 10px;
-}
-
-.sonara-analysis-block .analysis-actions {
-  margin-bottom: 6px;
 }
 
 .segmented.sonara-mode-segmented {
@@ -921,11 +921,7 @@ h2 {
   min-width: 0;
 }
 
-.models-analysis-block .analysis-actions {
-  margin-bottom: 6px;
-}
-
-.analysis-models-heading {
+.stage-section-heading {
   border-top: 1px solid var(--border-soft);
   color: var(--text);
   display: flex;
@@ -935,18 +931,18 @@ h2 {
   padding-top: 10px;
 }
 
-.analysis-models-heading span {
+.stage-section-heading span {
   font-size: 13px;
   font-weight: 760;
 }
 
-.analysis-models-heading small {
+.stage-section-heading small {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 15px;
 }
 
-.analysis-model-row {
+.stage-row {
   align-items: center;
   display: grid;
   gap: 6px;
@@ -955,7 +951,7 @@ h2 {
   width: 100%;
 }
 
-.analysis-model-name {
+.stage-name {
   align-items: center;
   background: var(--surface-muted);
   border: 1px solid var(--border-soft);
@@ -976,8 +972,8 @@ h2 {
   white-space: nowrap;
 }
 
-.analysis-model-title,
-.analysis-model-description {
+.stage-title,
+.stage-description {
   display: block;
   max-width: 100%;
   min-width: 0;
@@ -987,14 +983,14 @@ h2 {
   width: 100%;
 }
 
-.analysis-model-title {
+.stage-title {
   color: var(--text);
   font-size: 13px;
   font-weight: 760;
   line-height: 13px;
 }
 
-.analysis-model-description {
+.stage-description {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
@@ -1004,7 +1000,7 @@ h2 {
   width: 100%;
 }
 
-.analysis-model-check {
+.stage-check {
   align-items: center;
   align-self: center;
   background: var(--surface-muted);
@@ -1016,14 +1012,14 @@ h2 {
   width: 34px;
 }
 
-.analysis-model-checkbox {
+.stage-checkbox {
   cursor: pointer;
   height: 15px;
   margin: 0;
   width: 15px;
 }
 
-.analysis-model-count {
+.stage-count {
   align-self: center;
   align-items: center;
   background: var(--surface-subtle);
@@ -1044,17 +1040,49 @@ h2 {
   text-align: center;
 }
 
-.analyze-selected-button {
+/* The primary action of the panel: whichever stage is checked above runs
+   from here, so it stands apart from the settings and OK buttons that share
+   the flatter accent-deep color — taller, bolder, with a resting glow. */
+.stage-start-button {
+  background: var(--accent-deep-bg);
+  border-color: var(--accent-deep-bg);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-deep-bg) 40%, transparent);
+  color: var(--inverse-text);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
   margin: 0 0 8px;
+  min-height: 42px;
   min-width: 0;
   width: 100%;
 }
 
-.analysis-reset-button {
+.stage-start-button:hover:not(:disabled) {
+  background: var(--accent-deep-hover);
+  border-color: var(--accent-deep-hover);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent-deep-hover) 48%, transparent);
+  color: var(--inverse-text);
+}
+
+.stage-start-button:disabled {
+  box-shadow: none;
+}
+
+.stage-start-warnings {
+  color: var(--danger-text);
+  display: grid;
+  font-size: 11px;
+  gap: 3px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.stage-action-button {
   min-height: 34px;
 }
 
-.analysis-model-row .analysis-reset-button {
+.stage-row .stage-action-button {
   align-self: center;
   justify-self: end;
 }
@@ -1100,20 +1128,10 @@ h2 {
   width: 34px;
 }
 
-.scan-action-row {
-  align-items: stretch;
+.library-tools-row {
   display: flex;
   gap: 6px;
   margin-bottom: 8px;
-}
-
-.scan-action-row .scan-settings-button {
-  flex: 1;
-  margin-bottom: 0;
-}
-
-.scan-action-row .icon-button {
-  flex: 0 0 34px;
 }
 
 .folder-picker {
@@ -1143,30 +1161,22 @@ h2 {
   animation: spin 1s linear infinite;
 }
 
-.scan-settings-button,
-.scan-import-submit-button,
-.sonara-settings-button,
-.ml-settings-button {
+.stage-settings-button {
   font-size: 15px;
   gap: 5px;
+  justify-content: center;
   min-width: 0;
   padding-inline: 6px;
-  width: auto;
-}
-
-.sonara-settings-button,
-.ml-settings-button {
-  justify-content: center;
   width: 100%;
 }
 
-.scan-action-row .refresh-tags-button {
+.library-tools-row .refresh-tags-button {
   background: var(--accent-soft-bg);
   border-color: var(--accent-soft-border);
   color: var(--accent);
 }
 
-.scan-action-row .refresh-tags-button:hover:not(:disabled) {
+.library-tools-row .refresh-tags-button:hover:not(:disabled) {
   border-color: var(--accent-border-hover);
   color: var(--accent-hover);
 }
@@ -1366,7 +1376,7 @@ h2 {
 .scan-import-settings {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .scan-import-settings > label {
@@ -1406,36 +1416,17 @@ h2 {
 }
 
 .scan-import-footer {
-  align-items: center;
   border-top: 1px solid var(--border-soft);
-  display: grid;
   flex: 0 0 auto;
-  gap: 8px;
   padding-top: 12px;
 }
 
-.scan-import-validation {
-  color: var(--danger-text);
-  font-size: 12px;
-  margin: 0;
-  text-align: center;
-}
-
-.scan-import-submit-button {
-  background: var(--accent-deep-bg);
-  border-color: var(--accent-deep-bg);
-  color: var(--inverse-text);
+.scan-import-ok-button {
   font-size: 14px;
-  font-weight: 720;
   justify-content: center;
   margin-bottom: 0;
   min-height: 38px;
-}
-
-.scan-import-submit-button:hover:not(:disabled) {
-  background: var(--accent-deep-hover);
-  border-color: var(--accent-deep-hover);
-  color: var(--inverse-text);
+  width: 100%;
 }
 
 @media (max-width: 620px) {
@@ -1808,13 +1799,13 @@ h2 {
   width: 100%;
 }
 
-.analysis-reset-button.stop-button {
+.stage-action-button.stop-button {
   background: var(--danger-bg);
   border-color: var(--danger-border-hover);
   color: var(--danger-deep-text);
 }
 
-.analysis-reset-button.stop-button:hover:not(:disabled) {
+.stage-action-button.stop-button:hover:not(:disabled) {
   background: var(--danger-soft-bg);
   border-color: var(--danger-border-hover);
   color: var(--danger-text-hover);
@@ -4142,15 +4133,12 @@ h2 {
   width: 16px;
 }
 
-.scan-settings-button,
-.scan-import-submit-button,
-.analyze-selected-button,
+.stage-settings-button,
+.scan-import-ok-button,
 .sonara-search-button,
 .text-search-button,
 .confirmation-confirm-button,
-.sonara-settings-button,
 .sonara-settings-ok-button,
-.ml-settings-button,
 .ml-settings-ok-button {
   background: var(--accent-deep-bg);
   border-color: var(--accent-deep-bg);
@@ -4165,15 +4153,12 @@ h2 {
   }
 }
 
-.scan-settings-button:hover:not(:disabled),
-.scan-import-submit-button:hover:not(:disabled),
-.analyze-selected-button:hover:not(:disabled),
+.stage-settings-button:hover:not(:disabled),
+.scan-import-ok-button:hover:not(:disabled),
 .sonara-search-button:hover:not(:disabled),
 .text-search-button:hover:not(:disabled),
 .confirmation-confirm-button:hover:not(:disabled),
-.sonara-settings-button:hover:not(:disabled),
 .sonara-settings-ok-button:hover:not(:disabled),
-.ml-settings-button:hover:not(:disabled),
 .ml-settings-ok-button:hover:not(:disabled) {
   background: var(--accent-deep-hover);
   border-color: var(--accent-deep-hover);
@@ -4651,7 +4636,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .analysis-actions {
+  .stage-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 

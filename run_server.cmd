@@ -5,6 +5,7 @@ set "PROJECT_ROOT=%~dp0."
 set "PORT=8765"
 set "FRONTEND_PORT=5173"
 set "DEFAULT_DB_PATH=%~dp0database\volumes.sqlite"
+set "DB_DIR=%~dp0database"
 set "DB_PATH="
 set "MODE="
 set "FRONTEND_HOST="
@@ -134,8 +135,45 @@ echo Server stopped with exit code %EXIT_CODE%.
 exit /b %EXIT_CODE%
 
 :prompt_database
-set "DB_PATH=%DEFAULT_DB_PATH%"
-set /p "DB_PATH=Database path [%DEFAULT_DB_PATH%]: "
+setlocal EnableDelayedExpansion
+set "DB_COUNT=0"
+if exist "%DB_DIR%\" (
+    for %%F in ("%DB_DIR%\*.sqlite") do (
+        if /I "%%~xF"==".sqlite" (
+            set /a DB_COUNT+=1
+            set "DB_CANDIDATE_!DB_COUNT!=%%~fF"
+            set "DB_NAME_!DB_COUNT!=%%~nxF"
+        )
+    )
+)
+
+if "!DB_COUNT!"=="0" (
+    endlocal
+    set "DB_PATH=%DEFAULT_DB_PATH%"
+    set /p "DB_PATH=Database path [%DEFAULT_DB_PATH%]: "
+    echo.
+    exit /b 0
+)
+
+echo Found existing databases in "%DB_DIR%":
+set "DEFAULT_CHOICE=1"
+for /l %%I in (1,1,!DB_COUNT!) do (
+    echo   %%I. !DB_NAME_%%I!
+    if /I "!DB_CANDIDATE_%%I!"=="%DEFAULT_DB_PATH%" set "DEFAULT_CHOICE=%%I"
+)
+echo.
+set "DB_CHOICE="
+set /p "DB_CHOICE=Database [1-!DB_COUNT!, default !DEFAULT_CHOICE!, or a path]: "
+if not defined DB_CHOICE set "DB_CHOICE=!DEFAULT_CHOICE!"
+
+set "SELECTED_PATH="
+echo !DB_CHOICE!| findstr /r "^[1-9][0-9]*$" >nul
+if not errorlevel 1 if !DB_CHOICE! LEQ !DB_COUNT! (
+    for %%N in (!DB_CHOICE!) do set "SELECTED_PATH=!DB_CANDIDATE_%%N!"
+)
+if not defined SELECTED_PATH set "SELECTED_PATH=!DB_CHOICE!"
+
+endlocal & set "DB_PATH=%SELECTED_PATH%"
 echo.
 exit /b 0
 
@@ -173,8 +211,11 @@ echo   run_server.cmd local --db "%DEFAULT_DB_PATH%"
 echo   run_server.cmd lan --db "%DEFAULT_DB_PATH%"
 echo   run_server.cmd local --help
 echo.
-echo With no arguments, the launcher asks for a database path first.
-echo Press Enter to accept %DEFAULT_DB_PATH%, or type another path.
+echo With no arguments, the launcher looks in "%DB_DIR%" first.
+echo If it finds one or more .sqlite databases there, it lists them and asks
+echo which one to open (or type a path to open/create one elsewhere).
+echo If none are found, it asks for a database path: press Enter to create
+echo %DEFAULT_DB_PATH%, or type another path to create it there instead.
 echo It then asks whether to start in local or LAN mode.
 echo Explicit local or lan commands use only the arguments you provide.
 exit /b 0

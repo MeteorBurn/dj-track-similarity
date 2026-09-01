@@ -39,6 +39,7 @@ import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel
 import { LibraryPanel } from "./LibraryPanel";
 import { writePreviewPosition } from "./previewPosition";
 import { ScanImportDialog, type ScanImportRequest } from "./ScanImportDialog";
+import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
 import { appendVisibleTracksToPlaylist, nextLibraryPlaybackTrack } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import { shutdownApplication } from "./shutdownApplication";
@@ -189,6 +190,7 @@ export function App() {
   const [seedEmbeddingFamily, setSeedEmbeddingFamily] = useState<SeedEmbeddingFamily>("mert");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
+  const [sonaraSettingsDialogOpen, setSonaraSettingsDialogOpen] = useState(false);
   const [scanImportStartToast, setScanImportStartToast] = useState(false);
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [analysisPipelineJob, setAnalysisPipelineJob] = useState<AnalysisPipelineStatus | null>(null);
@@ -1665,14 +1667,12 @@ export function App() {
           maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
           adjustAnalysisInferenceBatchSize={adjustAnalysisInferenceBatchSize}
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
-          sonaraSettings={sonaraSettings}
-          onSonaraSettingsChange={setSonaraSettings}
           mlSettings={mlSettings}
           onMLSettingsChange={setMlSettings}
-          onChooseSonaraStagingFolder={() => void handleChooseStagingFolder()}
           onChooseMLStagingFolder={() => void handleChooseMLStagingFolder()}
           helpText={helpText}
           onOpenScanDialog={() => setScanImportOpen(true)}
+          onOpenSonaraSettingsDialog={() => setSonaraSettingsDialogOpen(true)}
           onRefreshTags={() => void handleRefreshTags()}
           onWriteMaestGenres={() => void handleGenreTagsApply()}
           onClearDatabase={() => requestConfirmation({
@@ -1848,12 +1848,22 @@ export function App() {
           busy={busy}
           stageRunning={stageRunning}
           maxWorkers={maxScanWorkers}
-          sonaraBpmRange={sonaraBpmRange}
-          sonaraBpmRangeLocked={sonaraBpmRangeLocked}
-          onSonaraBpmRangeChange={(range) => setSonaraSettings((current) => ({ ...current, ...range }))}
           onChooseFolder={handleChooseScanFolder}
           onClose={() => setScanImportOpen(false)}
           onStart={handleStartScan}
+        />
+      )}
+      {sonaraSettingsDialogOpen && (
+        <SonaraAnalysisSettingsDialog
+          busy={busy}
+          stageRunning={stageRunning}
+          sonaraSettings={sonaraSettings}
+          onSonaraSettingsChange={setSonaraSettings}
+          sonaraBpmRange={sonaraBpmRange}
+          sonaraBpmRangeLocked={sonaraBpmRangeLocked}
+          onSonaraBpmRangeChange={(range) => setSonaraSettings((current) => ({ ...current, ...range }))}
+          onChooseSonaraStagingFolder={() => void handleChooseStagingFolder()}
+          onClose={() => setSonaraSettingsDialogOpen(false)}
         />
       )}
       {scanImportStartToast && (

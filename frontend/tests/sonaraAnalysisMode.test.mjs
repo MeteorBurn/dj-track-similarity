@@ -7,14 +7,14 @@ import { createServer } from "vite";
 const appPath = fileURLToPath(new URL("../src/App.tsx", import.meta.url));
 const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
 const apiClientPath = fileURLToPath(new URL("../src/apiClient.ts", import.meta.url));
-const panelPath = fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url));
+const dialogPath = fileURLToPath(new URL("../src/SonaraAnalysisSettingsDialog.tsx", import.meta.url));
 const settingsPath = fileURLToPath(new URL("../src/sonaraAnalysisSettings.ts", import.meta.url));
 const frontendRoot = fileURLToPath(new URL("../", import.meta.url));
 
 const appSource = readFileSync(appPath, "utf8");
 const apiSource = readFileSync(apiPath, "utf8");
 const apiClientSource = readFileSync(apiClientPath, "utf8");
-const panelSource = readFileSync(panelPath, "utf8");
+const dialogSource = readFileSync(dialogPath, "utf8");
 const settingsSource = existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : "";
 
 test("SONARA settings default to Direct Mode and keep an empty staging folder", () => {
@@ -115,13 +115,25 @@ test("analysis API carries separate Direct and Staged SONARA settings", () => {
   assert.match(appSource, /stage_size:\s*sonaraSettings\.staged\.stageSize/);
 });
 
-test("SONARA panel exposes the staging folder picker only in Staged Mode", () => {
-  assert.match(panelSource, />Direct</);
-  assert.match(panelSource, />Staged</);
-  assert.match(panelSource, /staging-folder-picker-button/);
-  assert.match(panelSource, /readOnly/);
-  assert.match(panelSource, /sonaraSettings\.mode === "staged" && \(/);
+test("SONARA settings dialog exposes the staging folder picker only in Staged Mode", () => {
+  assert.match(dialogSource, />Direct</);
+  assert.match(dialogSource, />Staged</);
+  assert.match(dialogSource, /staging-folder-picker-button/);
+  assert.match(dialogSource, /readOnly/);
+  assert.match(dialogSource, /sonaraSettings\.mode === "staged" && \(/);
   for (const label of ["Processes", "Threads", "BatchSize", "StageSize"]) {
-    assert.match(panelSource, new RegExp(`label="${label}"`));
+    assert.match(dialogSource, new RegExp(`label="${label}"`));
   }
+});
+
+test("SONARA settings dialog is opened from the library panel, not owned by it", () => {
+  const panelSource = readFileSync(
+    fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(panelSource, /onOpenSonaraSettingsDialog/);
+  assert.doesNotMatch(panelSource, /sonaraSettings\.mode/);
+  assert.match(appSource, /<SonaraAnalysisSettingsDialog/);
+  assert.match(appSource, /sonaraSettingsDialogOpen/);
 });

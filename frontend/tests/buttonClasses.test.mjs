@@ -58,6 +58,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const selectionSource = readFileSync(join(srcDir, "analysisSelection.ts"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const numberStepperSource = readFileSync(join(srcDir, "NumberStepper.tsx"), "utf8");
 
   assert.match(source, /analysis-model-checkbox/);
   assert.match(source, /analysis-model-name/);
@@ -72,7 +73,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /Ищет похожее звучание от выбранного seed-трека/);
   assert.match(source, /Связывает текстовое описание с аудио-звучанием/);
   assert.match(source, /maximum=\{16\}/);
-  assert.match(source, /value >= maximum/);
+  assert.match(numberStepperSource, /value >= maximum/);
   assert.match(source, /className="worker-control analysis-limit"/);
   assert.match(source, /analysis-limit-decrement-button/);
   assert.match(source, /analysis-limit-increment-button/);
@@ -111,8 +112,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   const batchSizeIndex = source.indexOf("Inference batch");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
   const sonaraRowIndex = source.indexOf('{modelRow("sonara")}');
-  const sonaraModeIndex = source.indexOf("sonara-analysis-mode");
-  const sonaraBatchIndex = source.indexOf('label="BatchSize"');
+  const sonaraSettingsButtonIndex = source.indexOf("sonara-settings-button");
   const mlRowsIndex = source.indexOf("mlAnalysisModelOrder.map(modelRow)");
   const mlSettingsIndex = source.indexOf('className="analysis-settings-grid ml-analysis-settings"');
 
@@ -128,9 +128,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.ok(modelNameIndex < modelCountIndex);
   assert.ok(modelCountIndex < resetButtonIndex);
   assert.doesNotMatch(modelRowBlock, /<label\b[\s\S]*analysis-model-check/);
-  assert.ok(sonaraRowIndex < sonaraModeIndex);
-  assert.ok(sonaraModeIndex < sonaraBatchIndex);
-  assert.ok(sonaraBatchIndex < mlRowsIndex);
+  assert.ok(sonaraRowIndex < sonaraSettingsButtonIndex);
+  assert.ok(sonaraSettingsButtonIndex < mlRowsIndex);
   assert.ok(mlRowsIndex < mlSettingsIndex);
   assert.match(source, /analysis-family-card sonara-analysis-block/);
   assert.match(source, /analysis-family-card models-analysis-block/);

@@ -4,6 +4,14 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
 
+const defaultSonaraSettings = {
+  mode: "direct",
+  directBatchSize: 8,
+  bpmMin: 70,
+  bpmMax: 180,
+  staged: { folder: "", processes: 4, threads: 4, batchSize: 4, stageSize: 32 },
+};
+
 async function renderDialog(props) {
   const server = await createServer({
     server: { middlewareMode: true, hmr: false },
@@ -11,18 +19,18 @@ async function renderDialog(props) {
     optimizeDeps: { noDiscovery: true },
   });
   try {
-    const { ScanImportDialog } = await server.ssrLoadModule("/src/ScanImportDialog.tsx");
+    const { SonaraAnalysisSettingsDialog } = await server.ssrLoadModule("/src/SonaraAnalysisSettingsDialog.tsx");
     return renderToStaticMarkup(
-      createElement(ScanImportDialog, {
+      createElement(SonaraAnalysisSettingsDialog, {
         busy: false,
         stageRunning: false,
-        maxWorkers: 16,
+        sonaraSettings: defaultSonaraSettings,
+        onSonaraSettingsChange: () => {},
         sonaraBpmRange: { bpmMin: 70, bpmMax: 180 },
         sonaraBpmRangeLocked: false,
         onSonaraBpmRangeChange: () => {},
-        onChooseFolder: async () => null,
+        onChooseSonaraStagingFolder: () => {},
         onClose: () => {},
-        onStart: async () => {},
         ...props,
       })
     );
@@ -31,7 +39,7 @@ async function renderDialog(props) {
   }
 }
 
-test("the scan dialog is where the analysis range is chosen", async () => {
+test("the SONARA settings dialog is where the analysis range is chosen", async () => {
   const markup = await renderDialog({});
 
   assert.match(markup, /Диапазон BPM для анализа SONARA/);
@@ -90,7 +98,7 @@ test("a fixed library cannot switch preset", async () => {
     sonaraBpmRangeLocked: true,
   });
 
-  const chips = markup.match(/<button[^>]*scan-import-bpm-preset-chip[^>]*>/g);
+  const chips = markup.match(/<button[^>]*sonara-settings-bpm-preset-chip[^>]*>/g);
   assert.equal(chips?.length, 3);
   for (const chip of chips) {
     assert.match(chip, /disabled/);

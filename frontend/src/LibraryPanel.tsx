@@ -1,7 +1,7 @@
-import { CopyCheck, Cpu, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { CopyCheck, Cpu, Database, FolderOpen, Minus, Music4, Play, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2 } from "lucide-react";
 import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
-import type { SonaraAnalysisSettings } from "./sonaraAnalysisSettings";
+import { NumberStepper } from "./NumberStepper";
 import type { MLAnalysisSettings } from "./mlAnalysisSettings";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -31,38 +31,6 @@ const modelDescriptions: Record<AnalysisModel, string> = {
   clap: "Связывает текстовое описание с аудио-звучанием."
 };
 
-function NumberStepper({
-  label,
-  value,
-  minimum,
-  maximum,
-  disabled,
-  classPrefix,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  minimum: number;
-  maximum: number;
-  disabled: boolean;
-  classPrefix: string;
-  onChange: (value: number) => void;
-}) {
-  const update = (value: number) => onChange(
-    Math.min(maximum, Math.max(minimum, Math.trunc(value) || minimum)),
-  );
-  return (
-    <div className="worker-control">
-      <span>{label}</span>
-      <div className="stepper">
-        <button className={`icon-button number-stepper-decrement-button ${classPrefix}-decrement-button`} title={`Уменьшить ${label}`} disabled={disabled || value <= minimum} onClick={() => update(value - 1)} type="button"><Minus size={15} /></button>
-        <input type="number" min={minimum} max={maximum} value={value} disabled={disabled} onChange={(event) => update(Number(event.target.value))} />
-        <button className={`icon-button number-stepper-increment-button ${classPrefix}-increment-button`} title={`Увеличить ${label}`} disabled={disabled || value >= maximum} onClick={() => update(value + 1)} type="button"><Plus size={15} /></button>
-      </div>
-    </div>
-  );
-}
-
 export function LibraryPanel({
   databasePath,
   onChooseDatabase,
@@ -82,14 +50,12 @@ export function LibraryPanel({
   maxAnalysisInferenceBatchSize,
   adjustAnalysisInferenceBatchSize,
   onAnalysisInferenceBatchSizeChange,
-  sonaraSettings,
-  onSonaraSettingsChange,
   mlSettings,
   onMLSettingsChange,
-  onChooseSonaraStagingFolder,
   onChooseMLStagingFolder,
   helpText,
   onOpenScanDialog,
+  onOpenSonaraSettingsDialog,
   onRefreshTags,
   onWriteMaestGenres,
   onClearDatabase,
@@ -119,14 +85,12 @@ export function LibraryPanel({
   maxAnalysisInferenceBatchSize: number;
   adjustAnalysisInferenceBatchSize: (delta: number) => void;
   onAnalysisInferenceBatchSizeChange: (value: number) => void;
-  sonaraSettings: SonaraAnalysisSettings;
-  onSonaraSettingsChange: (value: SonaraAnalysisSettings) => void;
   mlSettings: MLAnalysisSettings;
   onMLSettingsChange: (value: MLAnalysisSettings) => void;
-  onChooseSonaraStagingFolder: () => void;
   onChooseMLStagingFolder: () => void;
   helpText: LibraryHelpText;
   onOpenScanDialog: () => void;
+  onOpenSonaraSettingsDialog: () => void;
   onRefreshTags: () => void;
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
@@ -140,12 +104,6 @@ export function LibraryPanel({
 }) {
   const analysisDisabled = busy || stageRunning || !hasTracks;
   const settingsDisabled = busy || stageRunning;
-  const updateStaged = (changes: Partial<SonaraAnalysisSettings["staged"]>) => {
-    onSonaraSettingsChange({
-      ...sonaraSettings,
-      staged: { ...sonaraSettings.staged, ...changes },
-    });
-  };
   const updateMLStaged = (changes: Partial<MLAnalysisSettings["staged"]>) => {
     onMLSettingsChange({
       ...mlSettings,
@@ -198,31 +156,7 @@ export function LibraryPanel({
       </div>
       <div className="analysis-family-card sonara-analysis-block">
         <div className="analysis-actions">{modelRow("sonara")}</div>
-        <div className="analysis-settings-grid sonara-analysis-settings">
-          <div className="analysis-device sonara-analysis-mode">
-            <span>Mode</span>
-            <div className="segmented sonara-mode-segmented">
-              <button className={`sonara-mode-button ${sonaraSettings.mode === "direct" ? "active" : ""}`} title="Читать исходные аудиофайлы напрямую" disabled={settingsDisabled} onClick={() => onSonaraSettingsChange({ ...sonaraSettings, mode: "direct" })} type="button">Direct</button>
-              <button className={`sonara-mode-button ${sonaraSettings.mode === "staged" ? "active" : ""}`} title="Копировать входные файлы во временную SSD-папку" disabled={settingsDisabled} onClick={() => onSonaraSettingsChange({ ...sonaraSettings, mode: "staged" })} type="button">Staged</button>
-            </div>
-          </div>
-          {sonaraSettings.mode === "staged" && (
-            <div className="path-row sonara-staging-path-row">
-              <input value={sonaraSettings.staged.folder} readOnly title="Папка для временных staging-копий SONARA" />
-              <button className="icon-button folder-picker staging-folder-picker-button" title="Choose Folder для staging-копий" aria-label="Choose Folder для staging-копий" disabled={settingsDisabled} onClick={onChooseSonaraStagingFolder} type="button"><FolderOpen size={17} /></button>
-            </div>
-          )}
-          {sonaraSettings.mode === "direct" ? (
-            <NumberStepper label="BatchSize" value={sonaraSettings.directBatchSize} minimum={1} maximum={16} disabled={settingsDisabled} classPrefix="sonara-direct-batch" onChange={(directBatchSize) => onSonaraSettingsChange({ ...sonaraSettings, directBatchSize })} />
-          ) : (
-            <div className="sonara-staged-settings-grid">
-              <NumberStepper label="Processes" value={sonaraSettings.staged.processes} minimum={1} maximum={16} disabled={settingsDisabled} classPrefix="sonara-processes" onChange={(processes) => updateStaged({ processes })} />
-              <NumberStepper label="Threads" value={sonaraSettings.staged.threads} minimum={1} maximum={64} disabled={settingsDisabled} classPrefix="sonara-threads" onChange={(threads) => updateStaged({ threads })} />
-              <NumberStepper label="BatchSize" value={sonaraSettings.staged.batchSize} minimum={1} maximum={16} disabled={settingsDisabled} classPrefix="sonara-staged-batch" onChange={(batchSize) => updateStaged({ batchSize })} />
-              <NumberStepper label="StageSize" value={sonaraSettings.staged.stageSize} minimum={1} maximum={512} disabled={settingsDisabled} classPrefix="sonara-stage-size" onChange={(stageSize) => updateStaged({ stageSize })} />
-            </div>
-          )}
-        </div>
+        <button className="sonara-settings-button" title="Открыть параметры анализа SONARA" disabled={settingsDisabled} onClick={onOpenSonaraSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа SONARA</button>
       </div>
 
       <div className="analysis-family-card models-analysis-block">

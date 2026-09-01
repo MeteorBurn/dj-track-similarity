@@ -108,8 +108,6 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert write.core.detected_bpm == 128.0
     assert write.core.beat_count == 3
     assert write.core.analysis_schema_version == 6
-    assert write.core.bpm_min == 70.0
-    assert write.core.bpm_max == 180.0
     assert write.embedding is not None
     assert write.embedding.family == "sonara"
     assert write.embedding.vector.dtype == np.dtype("<f4")
@@ -178,7 +176,7 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
     with closing(database.connect()) as connection:
         core = connection.execute(
             """
-            SELECT analysis_schema_version, bpm_min, bpm_max
+            SELECT analysis_schema_version
             FROM sonara_features
             WHERE track_id = ?
             """,
@@ -202,8 +200,6 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
         ).fetchone()
     assert core is not None
     assert core["analysis_schema_version"] == 6
-    assert core["bpm_min"] == 70.0
-    assert core["bpm_max"] == 180.0
     assert embedding is not None
     assert embedding["track_uuid"] == track_uuid
     assert embedding["dim"] == 48
@@ -220,8 +216,6 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
     detail = database.get_track_detail(track_id)
     assert detail.sonara_core is not None
     assert detail.sonara_core.analysis_schema_version == 6
-    assert detail.sonara_core.bpm_min == 70.0
-    assert detail.sonara_core.bpm_max == 180.0
     assert database.list_analysis_candidates(
         (AnalysisOutput("sonara", "fingerprint"),)
     ) == []
@@ -528,118 +522,82 @@ def test_nested_bounded_values_are_clamped_without_clamping_bpm_scores() -> None
     assert json.loads(write.core.bpm_candidates_json or "null")[0]["score"] == 1.5
 
 
-def test_library_range_is_derived_from_stored_rows_and_locks_analysis(
+def _track(database: LibraryDatabase, tmp_path: Path, seed: int):
+    with closing(database.connect()) as connection, connection:
+        track_id = int(
+            connection.execute(
+                """
+                INSERT INTO tracks(
+                    track_uuid, file_path, file_size_bytes, file_modified_ns,
+                    last_scanned_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.UUID(int=seed)),
+                    (tmp_path / f"track-{seed}.wav").as_posix(),
+                    1,
+                    1,
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                    "2026-07-23T12:00:00.000000Z",
+                ),
+            ).lastrowid
+        )
+    return track_id
+
+
+def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
     tmp_path: Path,
 ) -> None:
-    """The analysis range is a property of the data, chosen once and then fixed."""
+    """The range belongs to the library: the first job claims it, the rest reuse it."""
     from dj_track_similarity.analysis_jobs import AnalysisJobManager
 
     database = LibraryDatabase(tmp_path / "library.sqlite")
     manager = AnalysisJobManager(database)
 
-    # A library with no SONARA analysis is free to choose.
-    assert database.sonara_analysis_ranges() == []
     summary = database.library_summary()
-    assert summary.sonara_bpm_min is None
-    assert summary.sonara_bpm_max is None
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)
 
-    with closing(database.connect()) as connection, connection:
-        track_id = int(
-            connection.execute(
-                """
-                INSERT INTO tracks(
-                    track_uuid, file_path, file_size_bytes, file_modified_ns,
-                    last_scanned_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(uuid.UUID(int=11)),
-                    (tmp_path / "track.wav").as_posix(),
-                    1,
-                    1,
-                    "2026-07-23T12:00:00.000000Z",
-                    "2026-07-23T12:00:00.000000Z",
-                    "2026-07-23T12:00:00.000000Z",
-                ),
-            ).lastrowid
-        )
-        connection.execute(
-            """
-            INSERT INTO sonara_features(
-                track_id, mfcc_mean_blob, chroma_mean_blob,
-                spectral_contrast_mean_blob, analysis_schema_version,
-                bpm_min, bpm_max, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                track_id,
-                bytes(13 * 4),
-                bytes(12 * 4),
-                bytes(7 * 4),
-                6,
-                79.0,
-                192.0,
-                "2026-07-23T12:00:00.000000Z",
-            ),
-        )
+    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
 
-    # Once analysed, the library reports its range and holds every later run to it.
-    assert database.sonara_analysis_ranges() == [(79.0, 192.0)]
     summary = database.library_summary()
     assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (79.0, 192.0)
 
-    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
+    # A later run without an explicit range inherits the claimed one.
     manager.create_job(models=["sonara"])
+    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
 
     with pytest.raises(ValueError, match="Reset SONARA analysis"):
         manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
 
 
-def test_reset_frees_the_library_to_take_a_new_range(tmp_path: Path) -> None:
+def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(
+    tmp_path: Path,
+) -> None:
+    from dj_track_similarity.analysis_jobs import AnalysisJobManager
     from dj_track_similarity.analysis_models import AnalysisOutput
 
     database = LibraryDatabase(tmp_path / "library.sqlite")
-    with closing(database.connect()) as connection, connection:
-        track_id = int(
-            connection.execute(
-                """
-                INSERT INTO tracks(
-                    track_uuid, file_path, file_size_bytes, file_modified_ns,
-                    last_scanned_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(uuid.UUID(int=12)),
-                    (tmp_path / "track.wav").as_posix(),
-                    1,
-                    1,
-                    "2026-07-23T12:00:00.000000Z",
-                    "2026-07-23T12:00:00.000000Z",
-                    "2026-07-23T12:00:00.000000Z",
-                ),
-            ).lastrowid
-        )
-        connection.execute(
-            """
-            INSERT INTO sonara_features(
-                track_id, mfcc_mean_blob, chroma_mean_blob,
-                spectral_contrast_mean_blob, analysis_schema_version,
-                bpm_min, bpm_max, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                track_id,
-                bytes(13 * 4),
-                bytes(12 * 4),
-                bytes(7 * 4),
-                6,
-                79.0,
-                192.0,
-                "2026-07-23T12:00:00.000000Z",
-            ),
-        )
-    assert database.sonara_analysis_ranges() == [(79.0, 192.0)]
+    manager = AnalysisJobManager(database)
+    track_id = _track(database, tmp_path, 11)
+    manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
 
+    # Deleting tracks leaves the library's own setting alone.
+    identity = database.get_track_identity(track_id)
+    assert identity is not None
+    database.delete_track(expected=identity)
+    summary = database.library_summary()
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (79.0, 192.0)
+
+    # Resetting SONARA Core releases it even though no row was stored.
     database.reset_analysis_outputs((AnalysisOutput("sonara", "core"),))
+    summary = database.library_summary()
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)
 
-    assert database.sonara_analysis_ranges() == []
+    _track(database, tmp_path, 12)
+    manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
+    assert database.library_summary().sonara_bpm_min == 70.0
+
+    database.clear_library()
+    summary = database.library_summary()
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)

@@ -46,6 +46,7 @@ from .db_embeddings import (
     write_valid_embedding_in_transaction,
 )
 from .db_ddl import ClassifierScoreRecord
+from .db_tracks import utc_now_text
 from .maest_analysis_validation import (
     has_maest_syncopated_rhythm,
     parse_maest_genres_json,
@@ -1387,6 +1388,16 @@ class AnalysisRepository:
                             core_deleted += max(
                                 0,
                                 int(cursor.rowcount),
+                            )
+                            connection.execute(
+                                """
+                                UPDATE library
+                                SET sonara_bpm_min = NULL,
+                                    sonara_bpm_max = NULL,
+                                    updated_at = ?
+                                WHERE singleton_id = 1
+                                """,
+                                (utc_now_text(),),
                             )
                         elif output.key == ("maest", "analysis"):
                             cursor = connection.execute(

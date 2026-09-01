@@ -994,8 +994,6 @@ def _sonara_core(
         return None
     return SonaraCore(
         analysis_schema_version=int(row["analysis_schema_version"]),
-        bpm_min=float(row["bpm_min"]),
-        bpm_max=float(row["bpm_max"]),
         detected_bpm=_optional_float(row["detected_bpm"]),
         raw_bpm=_optional_float(row["raw_bpm"]),
         bpm_confidence=_optional_float(row["bpm_confidence"]),
@@ -1640,20 +1638,44 @@ class LibraryQueryRepository:
                 )
             return tuple(result)
 
-    def sonara_analysis_ranges(self) -> list[tuple[float, float]]:
-        """Return the distinct BPM ranges stored SONARA rows were analysed with.
+    def claim_sonara_analysis_range(
+        self,
+        bpm_min: float,
+        bpm_max: float,
+    ) -> tuple[float, float]:
+        """Return the library BPM range, claiming this pair when none is set.
 
-        The range is a property of the analysed data rather than a stored
-        setting: every Core row records the pair its run used. An empty list
-        means the library has no SONARA analysis yet and is free to choose.
-        More than one pair means the library was analysed with mixed settings.
+        The range belongs to the library, not to any single analysed row: the
+        first analysis job claims it, every later run reuses it, and only a
+        SONARA reset or a full library clear releases it. Reading and claiming
+        share one transaction so two jobs started against a fresh library
+        cannot settle on different ranges.
         """
 
-        with closing(self.connect()) as connection:
-            rows = connection.execute(
-                "SELECT DISTINCT bpm_min, bpm_max FROM sonara_features LIMIT 2"
-            ).fetchall()
-        return [(float(row[0]), float(row[1])) for row in rows]
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                    claimed = _stored_sonara_range(connection)
+                    if claimed is not None:
+                        connection.rollback()
+                        return claimed
+                    connection.execute(
+                        """
+                        UPDATE library
+                        SET sonara_bpm_min = ?,
+                            sonara_bpm_max = ?,
+                            updated_at = ?
+                        WHERE singleton_id = 1
+                        """,
+                        (float(bpm_min), float(bpm_max), utc_now_text()),
+                    )
+                    connection.commit()
+                except BaseException:
+                    if connection.in_transaction:
+                        connection.rollback()
+                    raise
+        return (float(bpm_min), float(bpm_max))
 
     def library_summary(self) -> LibrarySummary:
         def count_rows(connection: sqlite3.Connection, table: str) -> int:
@@ -1675,16 +1697,27 @@ class LibraryQueryRepository:
             )
 
 
+def _stored_sonara_range(
+    connection: sqlite3.Connection,
+) -> tuple[float, float] | None:
+    """Read the claimed library BPM range, or None while none is claimed."""
+    row = connection.execute(
+        """
+        SELECT sonara_bpm_min, sonara_bpm_max
+        FROM library
+        WHERE singleton_id = 1
+        """
+    ).fetchone()
+    if row is None or row[0] is None or row[1] is None:
+        return None
+    return (float(row[0]), float(row[1]))
+
+
 def _sonara_range_fields(
     connection: sqlite3.Connection,
 ) -> dict[str, float | None]:
-    """Expose the library range only when stored rows agree on one pair."""
-    rows = connection.execute(
-        "SELECT DISTINCT bpm_min, bpm_max FROM sonara_features LIMIT 2"
-    ).fetchall()
-    if len(rows) != 1:
+    """Expose the claimed library range, or nulls while none is claimed."""
+    claimed = _stored_sonara_range(connection)
+    if claimed is None:
         return {"sonara_bpm_min": None, "sonara_bpm_max": None}
-    return {
-        "sonara_bpm_min": float(rows[0][0]),
-        "sonara_bpm_max": float(rows[0][1]),
-    }
+    return {"sonara_bpm_min": claimed[0], "sonara_bpm_max": claimed[1]}

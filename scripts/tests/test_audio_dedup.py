@@ -140,11 +140,11 @@ def _insert_track(
                     integrated_loudness_lufs, dynamic_range_db,
                     mfcc_mean_blob, chroma_mean_blob,
                     spectral_contrast_mean_blob, analysis_schema_version,
-                    bpm_min, bpm_max, analyzed_at
+                    analyzed_at
                 ) VALUES(
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     zeroblob(52), zeroblob(48), zeroblob(28),
-                    6, 70.0, 180.0,
+                    6,
                     '2026-07-24T00:00:00.000000Z'
                 )
                 """,

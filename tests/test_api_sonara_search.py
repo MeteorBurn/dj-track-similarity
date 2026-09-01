@@ -340,8 +340,6 @@ def _add_sonara_track(
             "chroma_mean_blob": _blob(None, 12),
             "spectral_contrast_mean_blob": _blob(None, 7),
             "analysis_schema_version": 6,
-            "bpm_min": 70.0,
-            "bpm_max": 180.0,
             "analyzed_at": _NOW,
         }
     )

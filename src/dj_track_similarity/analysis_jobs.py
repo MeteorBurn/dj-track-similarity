@@ -196,28 +196,16 @@ class AnalysisJobManager:
         requested_min: float | None,
         requested_max: float | None,
     ) -> dict[str, float]:
-        """Bind the run to the range the library was already analysed with.
+        """Bind the run to the one BPM range this library analyses with.
 
-        The range is chosen once, before the first SONARA analysis. Every later
-        run reuses it so one library stays internally comparable; changing it
-        means deleting the stored SONARA analysis first.
+        The first job to reach here claims the range; every later run reuses it
+        so one library stays internally comparable. Releasing it means resetting
+        the stored SONARA analysis or clearing the library.
         """
-        stored = self.db.sonara_analysis_ranges()
-        if len(stored) > 1:
-            raise ValueError(
-                "This library holds SONARA analysis from more than one BPM range. "
-                "Reset SONARA analysis before analysing again."
-            )
-        if not stored:
-            return {
-                "sonara_bpm_min": (
-                    DEFAULT_SONARA_BPM_MIN if requested_min is None else requested_min
-                ),
-                "sonara_bpm_max": (
-                    DEFAULT_SONARA_BPM_MAX if requested_max is None else requested_max
-                ),
-            }
-        library_min, library_max = stored[0]
+        library_min, library_max = self.db.claim_sonara_analysis_range(
+            DEFAULT_SONARA_BPM_MIN if requested_min is None else requested_min,
+            DEFAULT_SONARA_BPM_MAX if requested_max is None else requested_max,
+        )
         requested = (
             requested_min if requested_min is not None else library_min,
             requested_max if requested_max is not None else library_max,

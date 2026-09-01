@@ -87,8 +87,6 @@ export interface FileTags {
 
 export interface SonaraCore {
     analysis_schema_version: number;
-    bpm_min: number;
-    bpm_max: number;
     detected_bpm: number | null;
     raw_bpm: number | null;
     bpm_confidence: number | null;

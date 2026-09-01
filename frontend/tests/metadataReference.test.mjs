@@ -39,6 +39,7 @@ const syncopatedRhythm = compileModule("syncopatedRhythm.ts", (name) => {
   if (name === "./maestGenres") return { formatMaestGenreLabel: (value) => value };
   throw new Error(`Unexpected require: ${name}`);
 });
+const sonaraAnalysisSettings = compileModule("sonaraAnalysisSettings.ts");
 
 const metadataDialog = compileModule("TrackMetadataDialog.tsx", (name) => {
   if (name === "lucide-react") return { Check: () => null, Copy: () => null, FolderOpen: () => null, X: () => null };
@@ -52,6 +53,7 @@ const metadataDialog = compileModule("TrackMetadataDialog.tsx", (name) => {
       formatMaestGenreLabel: (value) => value,
     };
   }
+  if (name === "./sonaraAnalysisSettings") return sonaraAnalysisSettings;
   if (name === "./trackDisplay") return trackDisplay;
   if (name === "./apiClient") return { api: { revealTrackFile: async () => ({}) } };
   throw new Error(`Unexpected require: ${name}`);
@@ -79,6 +81,7 @@ const metadataDialogUi = compileModule("TrackMetadataDialog.tsx", (name) => {
     };
   }
   if (name === "./syncopatedRhythm") return { ...syncopatedRhythm, formatMaestGenreLabel: (value) => value };
+  if (name === "./sonaraAnalysisSettings") return sonaraAnalysisSettings;
   if (name === "./trackDisplay") return trackDisplay;
   if (name === "./apiClient") return { api: { revealTrackFile: async () => ({}) } };
   throw new Error(`Unexpected require: ${name}`);
@@ -162,8 +165,6 @@ function detail() {
       raw_bpm: 128.125,
       bpm_confidence: 0.92,
       bpm_candidates: [{ bpm: 128.125, score: 0.92 }],
-      bpm_min: 70,
-      bpm_max: 180,
       analysis_schema_version: 6,
       vocal_probability: 0.35,
       vector_summaries: [],
@@ -274,6 +275,7 @@ test("metadata dialog delegates its destructive track action to the current deta
 test("SONARA feature descriptions are inline comments, except for candidate lists", () => {
   const tree = metadataDialogUi.TrackMetadataDialog({
     track: detail(),
+    sonaraBpmRange: { bpmMin: 79, bpmMax: 192 },
     onClose: () => {},
     onDelete: () => {},
     onPreview: () => {},
@@ -287,13 +289,11 @@ test("SONARA feature descriptions are inline comments, except for candidate list
   const bpmIndex = labels.findIndex((node) => nodeText(node) === "BPM");
   const bpmConfidenceIndex = labels.findIndex((node) => nodeText(node) === "BPM confidence");
   const bpmCandidatesIndex = labels.findIndex((node) => nodeText(node) === "BPM candidates");
-  const bpmRangeIndex = labels.findIndex((node) => nodeText(node) === "BPM range");
   assert.ok(bpmIndex >= 0);
   assert.ok(bpmConfidenceIndex >= 0);
   assert.ok(bpmCandidatesIndex >= 0);
   assert.ok(bpmConfidenceIndex > bpmIndex);
-  assert.ok(bpmRangeIndex > bpmConfidenceIndex);
-  assert.ok(bpmCandidatesIndex > bpmRangeIndex);
+  assert.ok(bpmCandidatesIndex > bpmConfidenceIndex);
 
   assert.equal(labels[bpmIndex].props.title, undefined);
   assert.equal(values[bpmIndex].props.title, undefined);
@@ -303,10 +303,6 @@ test("SONARA feature descriptions are inline comments, except for candidate list
   );
   assert.equal(findByClassName(values[bpmCandidatesIndex], "sonara-feature-description sonara-feature-description-separated"), null);
   assert.ok(findByClassName(values[bpmCandidatesIndex], "sonara-feature-value sonara-feature-value-candidates"));
-  assert.equal(
-    nodeText(findByClassName(values[bpmRangeIndex], "sonara-feature-description sonara-feature-description-separated sonara-feature-description-aligned")),
-    " # BPM interval to which the detected tempo is normalized; octave-related estimates are folded into this range.",
-  );
 });
 
 test("track display uses the file path stem instead of tags", () => {
@@ -395,6 +391,20 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
     ["Analysis schema", "v6"],
     ["Analyzed at", expectedLocalTimestamp("2026-07-24T10:01:00Z")],
   ]);
+  const withRange = metadataDialog.metadataDialogModel(detail(), { bpmMin: 79, bpmMax: 192 });
+  assert.deepEqual(
+    Array.from(withRange.sonaraAnalysisEntries, ([label, value]) => [label, value]),
+    [
+      ["Analysis schema", "v6"],
+      ["Analysis BPM range", "79–192 (Mixed In Key)"],
+      ["Analyzed at", expectedLocalTimestamp("2026-07-24T10:01:00Z")],
+    ],
+  );
+  const customRange = metadataDialog.metadataDialogModel(detail(), { bpmMin: 80, bpmMax: 140 });
+  assert.deepEqual(
+    Array.from(customRange.sonaraAnalysisEntries[1]),
+    ["Analysis BPM range", "80–140"],
+  );
   assert.equal(model.sonaraProvenanceEntries, undefined);
   assert.equal(model.analysisBadges, undefined);
   assert.equal(model.syncopatedRhythm, true);
@@ -415,7 +425,7 @@ test("metadata model maps detailed file tags MuQ and classifiers", () => {
   assert.equal(new Map(model.audioEntries).get("Audio Format"), "audio/flac");
 });
 
-test("SONARA displays BPM confidence and BPM range before BPM candidates", () => {
+test("SONARA displays measured tempo features, without a stored BPM range", () => {
   const features = sonaraFeatures({
     detected_bpm: 127.45889282226563,
     raw_bpm: 63.72944641113281,
@@ -431,8 +441,6 @@ test("SONARA displays BPM confidence and BPM range before BPM candidates", () =>
     beat_grid_offset_seconds: 0.4876190423965454,
     beat_grid_stability: 0.98765,
     analyzed_duration_seconds: 459.3149719238281,
-    bpm_min: 70,
-    bpm_max: 180,
   });
 
   assert.equal(features.get("detected_bpm").value, "127.46");
@@ -442,26 +450,13 @@ test("SONARA displays BPM confidence and BPM range before BPM candidates", () =>
     features.get("bpm_candidates").value,
     "#1 129.20 (score 7.95)",
   );
-  assert.equal(features.get("bpm_analysis_range").label, "BPM range");
-  assert.equal(features.get("bpm_analysis_range").value, "70–180 BPM");
   assert.equal(features.get("onset_density_per_second").value, "5.58/s");
   assert.equal(features.get("beat_count").value, "1,280");
   assert.equal(features.get("tempo_variability").value, "0.90%");
   assert.equal(features.get("beat_grid_offset_seconds").value, "488 ms");
   assert.equal(features.get("beat_grid_stability").value, "98.8%");
   assert.equal(features.get("analyzed_duration_seconds").value, "7:39");
-  assert.ok(features.has("bpm_analysis_range"));
-
-  const model = metadataDialog.metadataDialogModel({
-    ...detail(),
-    sonara_core: {
-      ...detail().sonara_core,
-      bpm_min: 70,
-      bpm_max: 180,
-    },
-  });
-  const tempo = model.coreGroups.find((group) => group.title === "Tempo");
-  assert.ok(tempo);
+  assert.equal(features.has("bpm_analysis_range"), false);
 });
 
 test("SONARA feature descriptions preserve source-defined measurement boundaries", () => {

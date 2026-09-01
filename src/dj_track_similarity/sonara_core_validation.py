@@ -141,17 +141,6 @@ def _validate_provenance(values: Mapping[str, object]) -> None:
         "analysis_schema_version",
         minimum=1,
     )
-    bpm_min = _required_number(
-        values["bpm_min"],
-        "bpm_min",
-        minimum=0.0,
-        strict_minimum=True,
-    )
-    _required_number(
-        values["bpm_max"],
-        "bpm_max",
-        minimum=2 * bpm_min,
-    )
 
 
 def _validate_scalars(

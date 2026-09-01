@@ -2,6 +2,7 @@ import { AudioWaveform, Check, Copy, FolderOpen, Pause, Play, Trash2, X } from "
 import { Fragment, useState } from "react";
 import type { SonaraCore, TrackDetail } from "./api";
 import { api } from "./apiClient";
+import { matchingSonaraBpmPreset } from "./sonaraAnalysisSettings";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { displayTrack } from "./trackDisplay";
 
@@ -13,7 +14,7 @@ type CoreFeature = {
   description: string;
 };
 type CoreFeatureDescriptor = {
-  key: CoreFeatureKey | "bpm_analysis_range";
+  key: CoreFeatureKey;
   label: string;
   description: string;
 };
@@ -46,7 +47,6 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
     features: [
       feature("detected_bpm", "BPM", "Estimated tempo in beats per minute after any active BPM-range alignment."),
       feature("bpm_confidence", "BPM confidence", "Confidence of the detected tempo."),
-      { key: "bpm_analysis_range", label: "BPM range", description: "BPM interval to which the detected tempo is normalized; octave-related estimates are folded into this range." },
       feature("bpm_candidates", "BPM candidates", "Ranked tempo candidates for the detected tempo."),
       feature("onset_density_per_second", "Onset density", "Detected onsets per second."),
       feature("beat_count", "Beat count", "Number of detected beats."),
@@ -154,14 +154,17 @@ function feature(key: keyof SonaraCore, label: string, description: string): Cor
   return { key, label, description };
 }
 
-export function metadataDialogModel(track: TrackDetail) {
+export function metadataDialogModel(
+  track: TrackDetail,
+  sonaraBpmRange?: { bpmMin: number; bpmMax: number } | null,
+) {
   const genres = track.maest?.genres ?? [];
   return {
     trackDetailsEntries: readablePrimaryTrackInfo(track),
     tagEntries: readableTagInfo(track),
     audioEntries: readableAudioData(track),
     scanEntries: readableScanDetails(track),
-    sonaraAnalysisEntries: readableSonaraAnalysisDetails(track),
+    sonaraAnalysisEntries: readableSonaraAnalysisDetails(track, sonaraBpmRange ?? null),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
     classifierScores: readableClassifierScores(track),
     classifierAnalysisEntries: readableClassifierAnalysisDetails(track),
@@ -174,12 +177,14 @@ export function metadataDialogModel(track: TrackDetail) {
 
 export function TrackMetadataDialog({
   track,
+  sonaraBpmRange,
   onClose,
   onDelete,
   onPreview,
   playingTrackId,
 }: {
   track: TrackDetail;
+  sonaraBpmRange: { bpmMin: number; bpmMax: number } | null;
   onClose: () => void;
   onDelete: (track: TrackDetail) => void;
   onPreview: (track: TrackDetail) => void;
@@ -188,7 +193,7 @@ export function TrackMetadataDialog({
   const [filePathCopied, setFilePathCopied] = useState(false);
   const [fileNameCopied, setFileNameCopied] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
-  const view = metadataDialogModel(track);
+  const view = metadataDialogModel(track, sonaraBpmRange);
   const sonaraFeatureCount = view.coreGroups.reduce((total, group) => total + group.features.length, 0);
   const previewActive = playingTrackId === track.track_id;
 
@@ -501,12 +506,26 @@ function readableScanDetails(track: TrackDetail): MetadataEntry[] {
   ];
 }
 
-function readableSonaraAnalysisDetails(track: TrackDetail): MetadataEntry[] {
+function readableSonaraAnalysisDetails(
+  track: TrackDetail,
+  sonaraBpmRange: { bpmMin: number; bpmMax: number } | null,
+): MetadataEntry[] {
   if (!track.sonara_core) return [];
   return [
     ["Analysis schema", `v${track.sonara_core.analysis_schema_version}`],
+    // The library owns the range, so an absent one means the caller did not
+    // pass it: show nothing rather than a dash that would read as "unknown".
+    ...(sonaraBpmRange
+      ? [["Analysis BPM range", formatSonaraBpmRange(sonaraBpmRange)] as MetadataEntry]
+      : []),
     ["Analyzed at", formatTimestamp(track.sonara_core.analyzed_at)],
   ];
+}
+
+function formatSonaraBpmRange(range: { bpmMin: number; bpmMax: number }): string {
+  const preset = matchingSonaraBpmPreset(range);
+  const bounds = `${range.bpmMin}–${range.bpmMax}`;
+  return preset ? `${bounds} (${preset.label})` : bounds;
 }
 
 function readableSonaraCoreGroups(core: SonaraCore | null) {
@@ -516,13 +535,6 @@ function readableSonaraCoreGroups(core: SonaraCore | null) {
       title: group.title,
       features: group.features
         .flatMap((descriptor) => {
-          if (descriptor.key === "bpm_analysis_range") {
-            if (core.bpm_min == null || core.bpm_max == null) return [];
-            return [{
-              ...descriptor,
-              value: `${formatOptionalNumber(core.bpm_min)}–${formatOptionalNumber(core.bpm_max)} BPM`,
-            }];
-          }
           const value = core[descriptor.key];
           if (value == null || (Array.isArray(value) && value.length === 0)) return [];
           if (descriptor.key === "bpm_candidates" && Array.isArray(value)) {

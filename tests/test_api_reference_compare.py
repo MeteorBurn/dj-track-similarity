@@ -341,8 +341,6 @@ def _save_sonara(
                 7, 1.0 - energy, dtype="<f4"
             ).tobytes(),
             "analysis_schema_version": 6,
-            "bpm_min": 70.0,
-            "bpm_max": 180.0,
             "analyzed_at": _NOW,
         }
     )

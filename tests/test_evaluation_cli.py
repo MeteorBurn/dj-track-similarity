@@ -1287,8 +1287,6 @@ def _sonara_row(
             "chroma_mean_blob": bytes(12 * 4),
             "spectral_contrast_mean_blob": bytes(7 * 4),
             "analysis_schema_version": 6,
-            "bpm_min": 70.0,
-            "bpm_max": 180.0,
             "analyzed_at": _NOW,
         }
     )

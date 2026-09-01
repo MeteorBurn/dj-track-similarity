@@ -1314,7 +1314,10 @@ class TrackRepository:
                     connection.execute(
                         """
                         UPDATE library
-                        SET roots_json = '[]', updated_at = ?
+                        SET roots_json = '[]',
+                            sonara_bpm_min = NULL,
+                            sonara_bpm_max = NULL,
+                            updated_at = ?
                         WHERE singleton_id = 1
                         """,
                         (utc_now_text(),),

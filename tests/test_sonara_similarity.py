@@ -168,8 +168,6 @@ def _core_row(
                 _feature_value(features, "spectral_contrast_mean"), dim=7
             ),
             "analysis_schema_version": 6,
-            "bpm_min": 70.0,
-            "bpm_max": 180.0,
             "analyzed_at": _NOW,
         }
     )

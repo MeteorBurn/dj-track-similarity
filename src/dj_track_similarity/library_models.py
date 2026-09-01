@@ -90,8 +90,6 @@ class VectorSummary:
 @dataclass(frozen=True)
 class SonaraCore:
     analysis_schema_version: int
-    bpm_min: float
-    bpm_max: float
     detected_bpm: float | None
     raw_bpm: float | None
     bpm_confidence: float | None
@@ -253,8 +251,8 @@ class LibrarySummary:
     clap: int
     liked: int
     classifiers: int
-    # The BPM range stored SONARA rows were analysed with, or None when the
-    # library has no SONARA analysis yet or was analysed with mixed settings.
+    # The BPM range this library analyses SONARA with, or None while no
+    # analysis job has claimed one yet.
     sonara_bpm_min: float | None = None
     sonara_bpm_max: float | None = None
 

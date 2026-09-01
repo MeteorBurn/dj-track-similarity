@@ -80,8 +80,12 @@ class _Repository:
     ) -> AnalysisOutput | None:
         return self.active_by_key.get((analysis_family, output_kind))
 
-    def sonara_analysis_ranges(self) -> list[tuple[float, float]]:
-        return []
+    def claim_sonara_analysis_range(
+        self,
+        bpm_min: float,
+        bpm_max: float,
+    ) -> tuple[float, float]:
+        return (bpm_min, bpm_max)
 
     def current_sonara_track_count(self) -> int:
         return 1

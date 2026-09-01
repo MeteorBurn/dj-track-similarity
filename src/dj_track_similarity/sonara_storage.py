@@ -115,7 +115,8 @@ def _sonara_core_row(
     # Bound the detected value by the range this run actually analysed with,
     # which provenance carries above, not by a project-wide constant. SONARA
     # accepts any bounds, so a library analysed with a different range must not
-    # have its own results rejected.
+    # have its own results rejected. The pair itself is not stored per row: the
+    # library holds the one range every run is locked to.
     detected_bpm = _optional_float(
         analysis,
         "bpm",
@@ -389,8 +390,6 @@ def _sonara_core_row(
             "spectral_contrast_mean",
         ),
         analysis_schema_version=analysis_schema_version,
-        bpm_min=bpm_min,
-        bpm_max=bpm_max,
         analyzed_at=analyzed_at,
     )
 

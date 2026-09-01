@@ -42,7 +42,20 @@ CREATE TABLE library (
     updated_at   TEXT    NOT NULL,
     schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version = 1),
     roots_json   TEXT    NOT NULL DEFAULT '[]'
-        CHECK(json_valid(roots_json) AND json_type(roots_json) = 'array')
+        CHECK(json_valid(roots_json) AND json_type(roots_json) = 'array'),
+    -- The BPM range every SONARA run in this library analyses with. NULL until
+    -- the first analysis job claims one; cleared only by a SONARA reset or a
+    -- full library clear, never by deleting individual tracks.
+    sonara_bpm_min REAL CHECK(sonara_bpm_min IS NULL OR sonara_bpm_min > 0),
+    sonara_bpm_max REAL,
+    CHECK(
+        (sonara_bpm_min IS NULL AND sonara_bpm_max IS NULL)
+        OR (
+            sonara_bpm_min IS NOT NULL
+            AND sonara_bpm_max IS NOT NULL
+            AND sonara_bpm_max >= 2 * sonara_bpm_min
+        )
+    )
 );
 """
 
@@ -166,8 +179,6 @@ CREATE TABLE sonara_features (
     spectral_contrast_mean_blob    BLOB    NOT NULL CHECK(length(spectral_contrast_mean_blob) = 7*4),
     -- Provenance
     analysis_schema_version        INTEGER NOT NULL CHECK(analysis_schema_version > 0),
-    bpm_min                        REAL    NOT NULL CHECK(bpm_min > 0),
-    bpm_max                        REAL    NOT NULL CHECK(bpm_max >= 2 * bpm_min),
     analyzed_at                    TEXT    NOT NULL,
     -- Ordering constraint
     CHECK(energy_curve_min IS NULL OR energy_curve_mean IS NULL OR energy_curve_max IS NULL OR (energy_curve_min <= energy_curve_mean AND energy_curve_mean <= energy_curve_max))
@@ -521,8 +532,6 @@ class SonaraRow:
     spectral_contrast_mean_blob: bytes  # 7 * 4 = 28 bytes
     # Provenance
     analysis_schema_version: int
-    bpm_min: float
-    bpm_max: float
     analyzed_at: str
 
 

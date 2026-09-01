@@ -100,8 +100,12 @@ class _FakeRepository:
     ) -> AnalysisOutput | None:
         return self.active_by_key.get((analysis_family, output_kind))
 
-    def sonara_analysis_ranges(self) -> list[tuple[float, float]]:
-        return []
+    def claim_sonara_analysis_range(
+        self,
+        bpm_min: float,
+        bpm_max: float,
+    ) -> tuple[float, float]:
+        return (bpm_min, bpm_max)
 
     def current_sonara_track_count(self) -> int:
         return self.sonara_count
@@ -591,8 +595,8 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
                 INSERT INTO sonara_features(
                 track_id, mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analysis_schema_version,
-                bpm_min, bpm_max, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 mutation.identity.track_id,
@@ -600,8 +604,6 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
                 np.zeros(12, dtype="<f4").tobytes(),
                 np.zeros(7, dtype="<f4").tobytes(),
                 6,
-                70.0,
-                180.0,
                 "2026-07-30T00:00:00.000000Z",
             ),
         )
@@ -657,8 +659,8 @@ def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(
                 INSERT INTO sonara_features(
                 track_id, mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analysis_schema_version,
-                bpm_min, bpm_max, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 mutation.identity.track_id,
@@ -666,8 +668,6 @@ def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(
                 np.zeros(12, dtype="<f4").tobytes(),
                 np.zeros(7, dtype="<f4").tobytes(),
                 6,
-                70.0,
-                180.0,
                 "2026-07-30T00:00:00.000000Z",
             ),
         )

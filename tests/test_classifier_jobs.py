@@ -57,8 +57,8 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
             INSERT INTO sonara_features(
                 track_id, mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analysis_schema_version,
-                bpm_min, bpm_max, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 track_id,
@@ -66,8 +66,6 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
                 np.zeros(12, dtype="<f4").tobytes(),
                 np.zeros(7, dtype="<f4").tobytes(),
                 6,
-                70.0,
-                180.0,
                 _NOW,
             ),
         )
@@ -127,8 +125,8 @@ def _insert_present_classifier_inputs(db: LibraryDatabase, count: int) -> None:
                 INSERT INTO sonara_features(
                     track_id, mfcc_mean_blob, chroma_mean_blob,
                     spectral_contrast_mean_blob, analysis_schema_version,
-                    bpm_min, bpm_max, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     track_id,
@@ -136,8 +134,6 @@ def _insert_present_classifier_inputs(db: LibraryDatabase, count: int) -> None:
                     np.zeros(12, dtype="<f4").tobytes(),
                     np.zeros(7, dtype="<f4").tobytes(),
                     6,
-                    70.0,
-                    180.0,
                     _NOW,
                 ),
             )

@@ -344,8 +344,9 @@ export function App() {
       || (databaseValidationJob?.events || []).some((event) => event.level === "error");
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
   }, [activityLog, analysisJob, databaseValidationJob, genreTagJob, scanJob]);
-  // The library reports the range its stored SONARA rows were analysed with.
-  // Once it has one, the range is fixed until that analysis is reset.
+  // The library reports the one BPM range it analyses SONARA with. Once an
+  // analysis job has claimed it, the range is fixed until that analysis is
+  // reset or the library is cleared.
   const sonaraBpmRangeLocked = librarySummary.sonara_bpm_min != null
     && librarySummary.sonara_bpm_max != null;
   const sonaraBpmRange = sonaraBpmRangeLocked
@@ -1861,6 +1862,7 @@ export function App() {
       {metadataTrack && (
         <TrackMetadataDialog
           track={metadataTrack}
+          sonaraBpmRange={sonaraBpmRangeLocked ? sonaraBpmRange : null}
           onClose={() => setMetadataTrack(null)}
           onDelete={(track) => requestConfirmation({
             title: "Удалить трек из базы?",

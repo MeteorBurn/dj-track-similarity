@@ -96,8 +96,8 @@ def test_validator_reports_non_finite_sonara_feature_vector(tmp_path: Path) -> N
     identity = _track(database, tmp_path / "sonara.wav")
     with sqlite3.connect(database.path) as connection:
         connection.execute(
-            "INSERT INTO sonara_features(track_id, mfcc_mean_blob, chroma_mean_blob, spectral_contrast_mean_blob, analysis_schema_version, bpm_min, bpm_max, analyzed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (identity.track_id, np.full(13, np.nan, dtype="<f4").tobytes(), np.zeros(12, dtype="<f4").tobytes(), np.zeros(7, dtype="<f4").tobytes(), 6, 70.0, 180.0, "2026-08-13T00:00:00Z"),
+            "INSERT INTO sonara_features(track_id, mfcc_mean_blob, chroma_mean_blob, spectral_contrast_mean_blob, analysis_schema_version, analyzed_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (identity.track_id, np.full(13, np.nan, dtype="<f4").tobytes(), np.zeros(12, dtype="<f4").tobytes(), np.zeros(7, dtype="<f4").tobytes(), 6, "2026-08-13T00:00:00Z"),
         )
         connection.commit()
 

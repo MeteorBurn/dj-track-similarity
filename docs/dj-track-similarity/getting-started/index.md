@@ -30,8 +30,8 @@ the control on screen. The full mapping lives in [UI language](../help/ui-langua
 
 - [Quickstart](./quickstart.md): the shortest path through install, scan, serve, and first analysis.
 - [Install](./install.md): prerequisites, package extras, FFmpeg, frontend, and docs build notes.
-- [First library](./first-library.md): how the scan dialog builds a catalog and where the SONARA BPM range is chosen.
-- [First analysis](./first-analysis.md): choose analysis by the result you want, then configure limits, modes, and devices.
+- [First library](./first-library.md): how the scan dialog builds a catalog.
+- [First analysis](./first-analysis.md): choose analysis by the result you want, then configure limits, modes, devices, and the SONARA BPM range.
 
 ## What you need first
 

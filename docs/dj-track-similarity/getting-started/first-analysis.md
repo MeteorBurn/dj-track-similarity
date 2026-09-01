@@ -71,15 +71,20 @@ make the chosen convention more consistent. A broad window is often a better fir
 library, followed by listening checks and review of BPM candidates for tracks whose pulse can reasonably
 be read two ways.
 
-The browser offers three preset chips in the import dialog: `Rekordbox` (70 to 180), `VirtualDJ`
-(80 to 240), and `Mixed In Key` (79 to 192). Your own pair is accepted too. The CLI takes
-`--sonara-bpm-min` and `--sonara-bpm-max`, defaulting to 70 and 180.
+The browser offers three preset chips in the `Настройки анализа SONARA` (SONARA analysis settings)
+dialog, opened from a button on the SONARA card in panel 1: `Rekordbox` (70 to 180), `VirtualDJ`
+(80 to 240), and `Mixed In Key` (79 to 192). Selecting one fills both fields; your own pair is
+accepted too, and editing one bound pushes the other just far enough to keep the "at least twice"
+rule. The CLI takes `--sonara-bpm-min` and `--sonara-bpm-max`, defaulting to 70 and 180.
 
-Whatever you pick, the first SONARA analysis fixes it for the whole library. Any later run must
-reuse that range, and a job requesting a different one is refused with an instruction to reset
-SONARA analysis first. Details are in
-[SONARA BPM range](../reference/analysis-families.md#sonara-bpm-range) and the picker is documented
-in [First library](./first-library.md).
+Whatever you pick, the first SONARA analysis fixes it for the whole library. Once the library holds
+SONARA rows, the dialog's BPM section locks: a padlock icon appears, the preset chips and both
+fields go read-only, and the hint changes to `База уже проанализирована этим диапазоном. Чтобы
+задать другой, сбросьте анализ SONARA.` (this database is already analysed with this range, reset
+SONARA analysis to choose another). Any later run must reuse that range, and a job requesting a
+different one is refused with the same instruction. Details are in
+[SONARA BPM range](../reference/analysis-families.md#sonara-bpm-range) and the dialog is documented
+in [SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
 
 Keep one convention within a workflow when practical. Otherwise an apparent BPM mismatch may only
 be a half/double-time representation.
@@ -160,10 +165,15 @@ cooperative: the run loop checks it between batches and between models.
 
 ## Direct and Staged modes
 
-Both cards carry a `Mode` selector with `Direct` and `Staged`. Their tooltips are
+Both families have a `Mode` selector with `Direct` and `Staged`. Their tooltips are
 `Читать исходные аудиофайлы напрямую` (read the source audio files directly) and
 `Копировать входные файлы во временную SSD-папку` (copy the input files into a temporary SSD
 folder). Direct is the initial mode for both.
+
+The ML card keeps its selector inline in panel 1. SONARA's selector, staging folder, and steppers
+live in the `Настройки анализа SONARA` (SONARA analysis settings) dialog instead, opened from a
+button on the SONARA card. See
+[SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
 
 Staged Mode is intended for source libraries on slower disks. It copies selected files read-only
 into a temporary per-job directory below the folder you choose, without changing or moving the

@@ -79,14 +79,18 @@ A status line follows the buttons. `Готово к работе` (ready) is the
 | `Выберите нужные способы анализа звучания` | Choose the sound analysis you need | Note under the ML heading |
 | `Сбросить SONARA` | Reset SONARA | Trash button on the SONARA row |
 | `Сбросить MAEST` and the same form for MERT, MUQ, MULAN, CLAP | Reset that family | Trash button on each model row |
-| `Читать исходные аудиофайлы напрямую` | Read the source audio files directly | Title of the `Direct` button |
-| `Копировать входные файлы во временную SSD-папку` | Copy input files into a temporary SSD folder | Title of the `Staged` button |
-| `Папка для временных staging-копий SONARA` | Folder for temporary SONARA staging copies | SONARA staging path field |
+| `Настройки анализа SONARA` | SONARA analysis settings | Button on the SONARA card, opens the [SONARA settings dialog](#sonara-settings-dialog) |
+| `Открыть параметры анализа SONARA` | Open the SONARA analysis parameters | Title of the settings button above |
+| `Читать исходные аудиофайлы напрямую` | Read the source audio files directly | Title of the ML card's `Direct` button, and of the same toggle inside the SONARA settings dialog |
+| `Копировать входные файлы во временную SSD-папку` | Copy input files into a temporary SSD folder | Title of the ML card's `Staged` button, and of the same toggle inside the SONARA settings dialog |
 | `Папка для временных staging-копий ML` | Folder for temporary ML staging copies | ML staging path field |
-| `Choose Folder для staging-копий` | Choose a folder for the staging copies | SONARA folder picker |
 | `Choose Folder для ML staging-копий` | Choose a folder for the ML staging copies | ML folder picker |
 | `0 = все треки; применяется отдельно к каждой стадии анализа` | 0 means every track, applied per analysis stage | Note under `Analyze limit` |
 | `Запустить отмеченные модели в порядке SONARA → ML` | Run the checked models in SONARA then ML order | Title of the `Analyze` button |
+
+SONARA's own staging-folder field and picker (`Папка для временных staging-копий SONARA` and
+`Choose Folder для staging-копий`) moved out of this panel into the
+[SONARA settings dialog](#sonara-settings-dialog) below.
 
 The model rows carry one-line Russian descriptions:
 
@@ -194,24 +198,42 @@ The dialog opens from `Загрузить треки в базу`.
 | Russian | English meaning | Where |
 | --- | --- | --- |
 | `Настройка параметров загрузки треков в базу` | Track import settings | Dialog title |
-| `Форматы, длительность и диапазон BPM решают, что попадёт в базу.` | Formats, duration, and BPM range decide what enters the database | Subtitle |
+| `Форматы и длительность решают, что попадёт в базу.` | Formats and duration decide what enters the database | Subtitle |
 | `Форматы файлов` | File formats | Section heading |
 | `<n> из 14` | n of 14 | Selected format counter |
 | `Включить <format>` / `Исключить <format>` | Include / exclude that format | Format badge title |
 | `Границы отбора` | Selection bounds | Section heading |
 | `Сканирование останавливается, когда в базу добавлено столько новых треков. 0 = без ограничения.` | Scanning stops after this many new tracks, 0 means no limit | `Scan limit` title |
 | `Min, сек` / `Max, сек` | Minimum / maximum seconds | Duration fields |
-| `Диапазон BPM для анализа SONARA` | BPM range for SONARA analysis | Section heading |
-| `Свой диапазон` | Custom range | Shown when no preset matches |
-| `Пресеты диапазона BPM` | BPM range presets | Group label over Rekordbox, VirtualDJ, Mixed In Key |
-| `Выберите пресет или введите свой диапазон. Задаётся один раз: первый анализ SONARA закрепит его за всей базой. Верхняя граница должна быть минимум вдвое больше нижней.` | Pick a preset or type your own range. It is set once, the first SONARA analysis locks it for the whole database, and the upper bound must be at least twice the lower | Note below the presets |
-| `База уже проанализирована этим диапазоном. Чтобы задать другой, сбросьте анализ SONARA.` | The database was analysed with this range. Reset SONARA analysis to change it | Note when the range is locked |
 | `Папка с треками` | Music folder | Section heading |
 | `Выберите папку как источник для загрузки треков в базу: сканирование папок выполняется рекурсивно.` | Choose the source folder, scanning is recursive | Description |
 | `Папка не выбрана` | No folder selected | Placeholder |
 | `Выбрать папку на сервере` | Choose a folder on the server | Folder picker |
 | `Выберите папку, хотя бы один формат и корректный диапазон длительности.` | Choose a folder, at least one format, and a valid duration range | Validation error |
 | `Старт` | Start | Submit button |
+
+This dialog no longer carries a BPM-range section. SONARA's BPM range moved to the
+[SONARA settings dialog](#sonara-settings-dialog) below.
+
+## SONARA settings dialog
+
+The dialog opens from `Настройки анализа SONARA` on the SONARA card.
+
+| Russian | English meaning | Where |
+| --- | --- | --- |
+| `Настройки анализа SONARA` | SONARA analysis settings | Dialog title |
+| `Режим чтения файлов и диапазон BPM решают, как проходит нативный анализ SONARA.` | The file-reading mode and BPM range decide how native SONARA analysis runs | Subtitle |
+| `Диапазон BPM для анализа SONARA` | BPM range for SONARA analysis | First section heading |
+| `Диапазон BPM определяет, в каких пределах SONARA ищет темп трека. Правильный диапазон помогает избежать ошибок вроде 64 вместо 128 BPM. Для большинства библиотек подойдут готовые диапазоны Rekordbox, VirtualDJ или Mixed In Key, при необходимости можно задать свой.` | The BPM range bounds the tempo SONARA searches for. The right range avoids errors like 64 instead of 128 BPM. Rekordbox, VirtualDJ, or Mixed In Key fit most libraries; set your own when they do not | Description under the BPM heading |
+| `Свой диапазон` | Custom range | Shown when no preset matches |
+| `Пресеты диапазона BPM` | BPM range presets | Group label over Rekordbox, VirtualDJ, Mixed In Key |
+| `Выберите пресет или введите свой диапазон. Задаётся один раз: первый анализ SONARA закрепит его за всей базой. Верхняя граница должна быть минимум вдвое больше нижней.` | Pick a preset or type your own range. It is set once, the first SONARA analysis locks it for the whole database, and the upper bound must be at least twice the lower | Hint below the BPM controls, unlocked |
+| `База уже проанализирована этим диапазоном. Чтобы задать другой, сбросьте анализ SONARA.` | The database was analysed with this range. Reset SONARA analysis to change it | Hint below the BPM controls, locked |
+| `Режим анализа` | Analysis mode | Second section heading |
+| `Direct — треки декодируются и анализируются прямо с исходного диска. Staged ускоряет анализ за счёт временного копирования треков на более быстрый накопитель и обработки уже с него. Для Staged рекомендуется выбрать директорию на самом быстром доступном накопителе, желательно SSD. Это особенно полезно для библиотек, где исходный диск не успевает за скоростью анализа.` | Direct decodes and analyses tracks straight from the source disk. Staged speeds analysis up by temporarily copying tracks to a faster drive and processing them from there; pick the fastest available drive, ideally an SSD, which helps most when the source disk cannot keep up | Description under the mode heading |
+| `Папка для временных staging-копий SONARA` | Folder for temporary SONARA staging copies | Staging path field, Staged mode only |
+| `Choose Folder для staging-копий` | Choose a folder for the staging copies | SONARA folder picker |
+| `Закрыть` | Close | Title of the `X` button and the footer `OK` button |
 
 ## Track detail dialog
 

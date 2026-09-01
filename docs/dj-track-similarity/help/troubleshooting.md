@@ -71,12 +71,13 @@ The staging folder is deliberately not remembered between sessions, because it r
 copies of your audio. Every session asks for it again. SONARA and ML keep separate folders. The
 other Staged settings are remembered in browser storage.
 
-## The BPM range is locked in the scan dialog
+## The BPM range is locked in the SONARA settings dialog
 
 The BPM range belongs to the library rather than to a single run. Once one SONARA row exists, the
-scan dialog shows the stored range and refuses a change, with the note `База уже проанализирована
-этим диапазоном. Чтобы задать другой, сбросьте анализ SONARA.` (this database was analysed with this
-range, reset SONARA analysis to choose another).
+SONARA settings dialog (opened with `Настройки анализа SONARA` on the SONARA card) shows the stored
+range and refuses a change, with the note `База уже проанализирована этим диапазоном. Чтобы задать
+другой, сбросьте анализ SONARA.` (this database was analysed with this range, reset SONARA analysis
+to choose another).
 
 To move to a different range, reset SONARA analysis first, then set the range and analyse again. The
 upper bound must be at least twice the lower one, because SONARA folds estimated tempos into the

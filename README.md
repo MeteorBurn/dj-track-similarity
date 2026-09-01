@@ -168,7 +168,7 @@ The app keeps evidence sources separate:
 
 The BPM range SONARA analyses with belongs to the library rather than to a single run.
 
-- Pick it once in the track-import dialog, from a preset or as your own pair.
+- Pick it once in the SONARA analysis settings dialog, from a preset or as your own pair.
 - The first SONARA analysis fixes it for the whole library.
 - Any later run must reuse that range. To move to another one, reset SONARA analysis first.
 - The upper bound must be at least twice the lower one, because SONARA folds estimated tempos by octaves into the range.

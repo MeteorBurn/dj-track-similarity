@@ -52,10 +52,15 @@ MuQ-MuLan, and CLAP inference. SONARA uses its native CPU path.
 
 ## Direct and Staged modes
 
-Both cards carry a `Mode` selector with `Direct` and `Staged`, starting on `Direct`. Their tooltips
-are `Читать исходные аудиофайлы напрямую` (read the source audio files directly) and
+Both families have a `Mode` selector with `Direct` and `Staged`, starting on `Direct`. Their
+tooltips are `Читать исходные аудиофайлы напрямую` (read the source audio files directly) and
 `Копировать входные файлы во временную SSD-папку` (copy the input files into a temporary SSD
 folder).
+
+The ML card in panel 1 carries its own selector inline. SONARA's selector instead lives in the
+`Настройки анализа SONARA` (SONARA analysis settings) dialog, opened from a button on the SONARA
+card. That dialog also carries the SONARA BPM range. See
+[SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
 
 SONARA Staged exposes a staging folder plus `Processes` (`1..16`, default `4`), `Threads`
 (`1..64`, default `4`), `BatchSize` (`1..16`, default `4`), and `StageSize` (`1..512`, default

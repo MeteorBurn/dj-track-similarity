@@ -45,12 +45,13 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 
 Press **Загрузить треки в базу** (load tracks into the database) in panel `1. База и анализ`. It
 opens a dialog headed `Настройка параметров загрузки треков в базу` (import parameter settings) with
-the subtitle `Форматы, длительность и диапазон BPM решают, что попадёт в базу.` (formats, duration,
-and the BPM range decide what enters the database). The button stays disabled until a database is
-selected.
+the subtitle `Форматы и длительность решают, что попадёт в базу.` (formats and duration decide what
+enters the database). The button stays disabled until a database is selected.
 
-The dialog holds its values only while it is open. Every new opening restores the defaults, except
-for the SONARA BPM range, which belongs to the library.
+The dialog holds its values only while it is open. Every new opening restores the defaults.
+
+This dialog no longer sets the SONARA BPM range. That range now belongs to the SONARA analysis
+settings dialog, covered in [First analysis](./first-analysis.md#choose-a-sonara-bpm-range-for-your-library).
 
 ### `Форматы файлов` (file formats)
 
@@ -81,38 +82,6 @@ status rather than silently ignored.
 
 `Scan limit` counts tracks added to the database, not files visited. Its tooltip states that
 scanning stops once that many new tracks have been added.
-
-### `Диапазон BPM для анализа SONARA` (SONARA analysis BPM range)
-
-The range SONARA folds estimated tempos into belongs to the library rather than to one run. Choose
-it here, before the first SONARA analysis.
-
-Three preset chips are offered. Selecting one fills both fields:
-
-| Preset chip | Range |
-| --- | ---: |
-| `Rekordbox` | 70 to 180 |
-| `VirtualDJ` | 80 to 240 |
-| `Mixed In Key` | 79 to 192 |
-
-Type your own pair into `BPM Min` and `BPM Max` when none of them fits. A pair matching no preset is
-marked `Свой диапазон` (custom range) beside the section title. Both bounds accept `20` to `400`.
-
-The upper bound must be at least twice the lower one, because SONARA folds octave-related tempo
-estimates into the range. Editing one field pushes the other just far enough to keep that rule, so
-the dialog cannot submit a pair the backend would reject.
-
-Once the library holds SONARA rows, the section locks. A padlock icon appears beside the title, the
-preset chips and both fields go read-only, and the hint changes from
-`Выберите пресет или введите свой диапазон. Задаётся один раз: первый анализ SONARA закрепит его за всей базой. Верхняя граница должна быть минимум вдвое больше нижней.`
-(choose a preset or enter your own range, set once, fixed by the first SONARA analysis, upper bound
-at least twice the lower) to
-`База уже проанализирована этим диапазоном. Чтобы задать другой, сбросьте анализ SONARA.`
-(the database is already analyzed with this range, reset SONARA analysis to choose another).
-
-An analysis job that requests a different range than the stored one is refused with the same
-instruction. Choosing another range means resetting SONARA and reanalyzing. See
-[Reanalyze SONARA data](../workflows/reanalyze-sonara-split-storage.md).
 
 ### `Папка с треками` (music folder)
 

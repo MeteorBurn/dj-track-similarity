@@ -54,6 +54,11 @@ skips finished results. There are two cards, SONARA and **ML-модели** (ML 
 carries a checkbox, the model name, a short description, its current row count, and a
 **Сбросить \<MODEL\>** (reset \<MODEL\>) trash button.
 
+The SONARA card also carries a **Настройки анализа SONARA** (SONARA analysis settings) button,
+styled like **Загрузить треки в базу**, with the tooltip **Открыть параметры анализа SONARA** (open
+the SONARA analysis parameters). It opens the [SONARA settings dialog](#sonara-settings-dialog)
+described below, which is where SONARA's analysis mode and BPM range now live.
+
 The model order is `SONARA`, `MAEST`, `MERT`, `MUQ`, `MULAN`, `CLAP`. There is no CLASSIFIERS
 checkbox and no FULL button. The single **Analyze** button at the bottom of the panel runs the
 checked models in the order SONARA then ML, which its tooltip states as
@@ -64,13 +69,6 @@ selection is limited to SONARA.
 
 | Control | Card | Default | Range or meaning |
 | --- | --- | --- | --- |
-| `Mode` | SONARA | `Direct` | `Direct` reads source files. `Staged` copies them to a temporary folder first. |
-| Staging folder | SONARA, Staged only | empty | Read-only field plus a folder picker. Staged Mode cannot start without it. |
-| `BatchSize` | SONARA, Direct | `8` | `1..16` source paths per native batch |
-| `Processes` | SONARA, Staged | `4` | `1..16` |
-| `Threads` | SONARA, Staged | `4` | `1..64` Rayon threads per process |
-| `BatchSize` | SONARA, Staged | `4` | `1..16` ready staging paths per native mini-batch |
-| `StageSize` | SONARA, Staged | `32` | `1..512` files in the staging window |
 | `Mode` | ML | `Direct` | `Direct` reads source files. `Staged` copies them first. |
 | Staging folder | ML, Staged only | empty | A second, independent folder with its own picker |
 | `Workers` | ML, Staged | `4` | `1..16` |
@@ -80,13 +78,53 @@ selection is limited to SONARA.
 | `Inference batch` | ML | `16` | `1..128` |
 | `Analyze limit` | panel footer | `0` | `0..100000`. A `0` means every track, applied separately to each stage. |
 
-Both staging fields are read-only and change only through their pickers. Each card hides its folder
-row while it is in Direct Mode. Mode, batch sizes, the BPM range, and the other Staged settings
-persist in browser storage. Neither staging folder is stored, because it receives temporary copies of
-your audio, so every session asks for it again.
+The ML staging field is read-only and changes only through its picker. The ML card hides that row
+while it is in Direct Mode. ML `Mode`, `Workers`, and `StageSize` persist in browser storage. The
+staging folder is never stored, because it receives temporary copies of your audio, so every session
+asks for it again.
 
-The SONARA BPM range is set in the scan dialog rather than here. See
-[SONARA BPM range](./analysis-families.md#sonara-bpm-range).
+SONARA's own Mode, batch sizes, staging folder, and BPM range are no longer set on this card. They
+live in the [SONARA settings dialog](#sonara-settings-dialog) below.
+
+### SONARA settings dialog
+
+Press **Настройки анализа SONARA** on the SONARA card to open this modal. It is disabled while a
+job is running. The header reads **Настройки анализа SONARA** (SONARA analysis settings) with the
+subtitle **Режим чтения файлов и диапазон BPM решают, как проходит нативный анализ SONARA.** (the
+file-reading mode and the BPM range decide how native SONARA analysis runs). Close it with the `X`
+icon, `Escape`, or the footer **OK** button; all three just close the dialog and are disabled while
+a job is running. There is no separate save step: every control writes straight to the persisted
+`sonaraSettings` state on change, the same way it always has.
+
+The body holds two sections, in this order:
+
+1. **Диапазон BPM для анализа SONARA** (BPM range for SONARA analysis), opening with a short
+   description of why the range matters. It carries three preset chips (`Rekordbox` `70-180`,
+   `VirtualDJ` `80-240`, `Mixed In Key` `79-192`), a `BPM Min` field (`20` up to half the maximum),
+   and a `BPM Max` field (twice the minimum up to `400`). The chip strip shows the active preset, or
+   **Свой диапазон** (custom range) when the pair matches no preset.
+2. **Режим анализа** (analysis mode), opening with a short description of Direct versus Staged, then
+   the same `Mode` selector, staging folder, and stepper controls this dialog replaced from panel 1:
+
+| Control | Mode | Default | Range or meaning |
+| --- | --- | --- | --- |
+| `Mode` | both | `Direct` | `Direct` reads source files. `Staged` copies them to a temporary folder first. |
+| Staging folder | Staged only | empty | Read-only field plus a folder picker. Staged Mode cannot start without it. |
+| `BatchSize` | Direct | `8` | `1..16` source paths per native batch |
+| `Processes` | Staged | `4` | `1..16` |
+| `Threads` | Staged | `4` | `1..64` Rayon threads per process |
+| `BatchSize` | Staged | `4` | `1..16` ready staging paths per native mini-batch |
+| `StageSize` | Staged | `32` | `1..512` files in the staging window |
+
+Once the library holds SONARA rows, a lock icon appears beside the BPM heading, every field in that
+section is disabled, and the hint reads **База уже проанализирована этим диапазоном. Чтобы задать
+другой, сбросьте анализ SONARA.** (this database is already analysed with this range, reset SONARA
+analysis to choose another). Before that, the hint explains that the first SONARA analysis fixes the
+range for the whole library and that the upper bound must be at least twice the lower one.
+
+Mode, batch sizes, the BPM range, and the other Staged settings persist in browser storage under
+`dj-track-similarity.sonara-analysis-settings`. The staging folder is excluded from that storage, so
+every session asks for it again.
 
 While a running job reports the `warmup` phase, the process box replaces per-track progress with a
 warm-up view. That view has a progress bar over the selected model count, the current model name,
@@ -108,20 +146,10 @@ The dialog offers 14 format badges, all selected by default: **AAC**, **AIF**, *
 | Duration range | `120..1200` seconds | Clear either field to drop that bound on its own. |
 | Workers | `8` | `1..16` in this dialog. The API accepts `1..64`. |
 
-### SONARA BPM range section
-
-Headed **Диапазон BPM для анализа SONARA** (BPM range for SONARA analysis). It carries three preset
-chips, a `BPM Min` field, a `BPM Max` field, and a hint line. The chip strip shows the active preset
-range, or **Свой диапазон** (custom range) when the pair matches no preset.
-
-Presets are Rekordbox `70-180`, VirtualDJ `80-240`, and Mixed In Key `79-192`. `BPM Min` accepts
-`20` up to half the maximum. `BPM Max` accepts twice the minimum up to `400`.
-
-Once the library holds SONARA rows, a lock icon appears beside the heading, every field in the
-section is disabled, and the hint reads **База уже проанализирована этим диапазоном. Чтобы задать
-другой, сбросьте анализ SONARA.** (the database is already analysed with this range, reset SONARA
-analysis to choose another). Before that, the hint explains that the first SONARA analysis fixes the
-range for the whole library and that the upper bound must be at least twice the lower one.
+The SONARA BPM range used to be set here. It now lives in the
+[SONARA settings dialog](#sonara-settings-dialog), opened from **Настройки анализа SONARA** in
+panel 1, and this dialog's subtitle changed to **Форматы и длительность решают, что попадёт в
+базу.** (formats and duration decide what enters the database) to match.
 
 ### Folder and start
 

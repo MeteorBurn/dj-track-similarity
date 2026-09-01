@@ -146,6 +146,11 @@ export function LibraryPanel({
   return (
     <aside className="panel library-panel">
       <div className="panel-title"><FolderOpen size={18} /><h2>1. База и анализ</h2></div>
+
+      <div className="stage-section-description">
+        <span>База данных</span>
+        <small>Путь к SQLite библиотеке и загрузка новых треков с диска.</small>
+      </div>
       <div className="path-row database-path-row">
         <input value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
         <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={stagesDisabled} onClick={onChooseDatabase} type="button"><Database size={17} /></button>
@@ -168,6 +173,10 @@ export function LibraryPanel({
         <button className="stage-settings-button" title="Открыть параметры загрузки треков в базу" disabled={stagesDisabled || !databasePath} onClick={onOpenScanDialog} type="button"><Settings2 size={15} />Настройки загрузки треков в базу</button>
       </div>
 
+      <div className="stage-section-description">
+        <span>Инструменты</span>
+        <small>Быстрые действия над всей библиотекой: теги, жанры, проверка, дубликаты, Rhythm Lab.</small>
+      </div>
       <div className="library-tools-row">
         <button className="icon-button refresh-tags-button" disabled={stagesDisabled || !hasTracks} title="Обновить теги" aria-label="Обновить теги" onClick={onRefreshTags} type="button"><RefreshCcw size={16} />Refresh Tags</button>
         <button className="icon-button genre-save-button" disabled={stagesDisabled || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={16} />Save Genres</button>
@@ -176,9 +185,9 @@ export function LibraryPanel({
         <button className="icon-button audio-dedup-button" disabled={stagesDisabled || !hasTracks} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyCheck size={16} />Audio Dedup</button>
       </div>
 
-      <div className="stage-section-heading">
-        <span>Анализ</span>
-        <small>Один запуск обработает выбранную стадию и пропустит уже готовые результаты</small>
+      <div className="stage-section-description">
+        <span>Sonara</span>
+        <small>Основной анализ трека — темп, тональность, ритм и структура. Один запуск обработает отмеченные стадии и пропустит готовые результаты.</small>
       </div>
       <div className="stage-card sonara-stage">
         <div className="stage-actions">
@@ -198,8 +207,11 @@ export function LibraryPanel({
         <button className="stage-settings-button" title="Открыть параметры анализа SONARA" disabled={stagesDisabled} onClick={onOpenSonaraSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа SONARA</button>
       </div>
 
+      <div className="stage-section-description">
+        <span>ML-модели</span>
+        <small>Выберите нужные способы анализа звучания.</small>
+      </div>
       <div className="stage-card ml-stage">
-        <div className="stage-card-title"><strong>ML-модели</strong><small>Выберите нужные способы анализа звучания</small></div>
         <div className="stage-actions">{mlAnalysisModelOrder.map(modelRow)}</div>
         <button className="stage-settings-button" title="Открыть параметры анализа ML-моделей" disabled={stagesDisabled} onClick={onOpenMLSettingsDialog} type="button"><Settings2 size={15} />Настройки анализа ML моделями</button>
       </div>

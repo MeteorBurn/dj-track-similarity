@@ -867,23 +867,6 @@ h2 {
   white-space: nowrap;
 }
 
-.stage-card-title {
-  align-items: baseline;
-  display: flex;
-  gap: 8px;
-  margin: 0 2px 7px;
-}
-
-.stage-card-title strong {
-  color: var(--text);
-  font-size: 12px;
-}
-
-.stage-card-title small {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
 .segmented.sonara-mode-segmented {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
@@ -921,7 +904,7 @@ h2 {
   min-width: 0;
 }
 
-.stage-section-heading {
+.stage-section-description {
   border-top: 1px solid var(--border-soft);
   color: var(--text);
   display: flex;
@@ -931,12 +914,12 @@ h2 {
   padding-top: 10px;
 }
 
-.stage-section-heading span {
+.stage-section-description span {
   font-size: 13px;
   font-weight: 760;
 }
 
-.stage-section-heading small {
+.stage-section-description small {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 15px;

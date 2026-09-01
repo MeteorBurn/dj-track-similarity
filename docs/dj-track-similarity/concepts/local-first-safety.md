@@ -47,9 +47,10 @@ These operations do not modify source audio files:
 ### Deleting a track keeps its audio
 
 `DELETE /api/tracks/{track_id}` removes the catalog row and every catalog table that references it,
-and the source audio path is deliberately never opened. The browser confirms this in its own
-dialog: `Аудиофайл <track> на диске останется` (the audio file stays on disk). Audio Dedup deletion
-is the only workflow that removes an audio file.
+and the source audio path is deliberately never opened. The browser confirms this in its own dialog,
+which states that the audio file stays on disk; the glossary's
+[Confirmation dialog](../help/ui-language.md#confirmation-dialog) table carries that message as it
+appears on screen. Audio Dedup deletion is the only workflow that removes an audio file.
 
 ### Marking a track missing checks the disk first
 
@@ -70,8 +71,8 @@ Three workflows can write or delete source audio files. Everything else in the a
 ### 1. MAEST genre tag apply
 
 Writes the standard genre field for tracks with stored MAEST genres. This is the only backend
-audio writer, and it is started explicitly from `Сохранить жанры` (save genres) in panel
-`1. База и анализ` or from the CLI.
+audio writer, and it is started explicitly from **Save genres** in panel 1, database and analysis,
+or from the CLI.
 
 ### 2. Audio Doctor apply
 
@@ -104,11 +105,11 @@ From the CLI, `--apply` prints a `DESTRUCTIVE APPLY REQUESTED` block naming the 
 and the candidate count, then waits for the operator to type exactly `APPLY DELETE`. Anything else
 cancels the run. Deletion is permanent and is limited to safe candidates inside the selected root.
 
-From the browser reviewer, you mark copies, choose `В корзину` (recycle bin) or `Безвозвратно`
-(permanent) in the `Куда` select, then answer a `Да` / `Нет` dialog. The delete endpoint still
-requires the `APPLY DELETE` phrase in its request body, and the browser client supplies that string
-itself. Nobody types it, and the delete button has no phrase field. The phrase stops a stray POST
-from deleting audio rather than gating the person at the screen.
+From the browser reviewer, you mark copies, choose **To the recycle bin** or **Permanently** in the
+**Destination** select, then answer a **Yes** / **No** dialog. The delete endpoint still requires
+the `APPLY DELETE` phrase in its request body, and the browser client supplies that string itself.
+Nobody types it, and the delete button has no phrase field. The phrase stops a stray POST from
+deleting audio rather than gating the person at the screen.
 
 Both surfaces refuse a selection that would leave a duplicate group with no copies.
 

@@ -1,10 +1,13 @@
 # UI language and label glossary
 
-The browser interface is written in Russian. This documentation names controls in English. Use the
-tables below to find the on-screen string for any control a page mentions.
+The browser interface mixes Russian and English. It grew that way over the course of development
+rather than by design, so which label reads in which language is not a rule you can predict, and it
+is expected to keep moving. This documentation is English throughout and names every control by its
+English name. Use the tables below to find the on-screen string for any control a page mentions.
 
 The Russian column is the exact text rendered in the interface. Where the string appears only as a
-hover title or an accessible name, the Where column says so.
+hover title or an accessible name, the Where column says so. The next section lists the parts of
+the interface that are already English, where the page and the screen agree without translation.
 
 ## What stays in English
 
@@ -52,7 +55,22 @@ a hover title and as the accessible name.
 The flask title changes with the Rhythm Lab process state. `Запустить` appears when no process is
 running, `Открыть` when one is.
 
-A status line follows the buttons. `Готово к работе` (ready) is the idle text.
+A status line follows the buttons. It reports whichever stage is running, and falls back to the
+idle text when none is:
+
+| Russian | English meaning | When |
+| --- | --- | --- |
+| `Готово к работе` | Ready | Nothing is running |
+| `Идет сканирование` | Scanning | A scan is queued or running |
+| `Прогрев моделей` | Model warm-up | Analysis is loading model weights, before any track is decoded |
+| `Идет анализ` | Analysing | An analysis job is queued or running |
+| `Идет запись жанров` | Writing genres | The genre tag job is queued or running |
+| `Этап остановлен` | Stage stopped | The stage was cancelled |
+| `Процесс не запущен` | No process running | The process box has no active job |
+
+After the backend accepts a shutdown, the whole page is replaced by one titled `Серверы
+остановлены` (the servers are stopped), which adds that the tab can be closed by hand when the
+browser did not close it.
 
 ## Panel 1, database and analysis
 
@@ -172,6 +190,12 @@ options `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`.
 | `Применять Negative как hard-negative запросы.` | Apply the Negative field as hard-negative queries | Negatives toggle |
 | `выключены` | disabled | Negative state readout |
 | `<model> загружается — первый поиск не будет ждать веса.` | That model is loading, so the first search will not wait for weights | Warmup banner |
+| `Прогреть <model> не удалось — веса загрузит сам поиск.` | Warming that model up failed, so the search itself will load the weights | Warmup banner after a failure |
+| `По делу: трек соответствует выбранным пресетам.` | On point, the track matches the chosen presets | Thumbs-up title on a result row |
+| `Мимо: трек не соответствует выбранным пресетам.` | Off target, the track does not match the chosen presets | Thumbs-down title on a result row |
+
+Both feedback titles continue with the same sentence: the verdict is written to the database and
+feeds the preset tuner, and clicking again clears it.
 
 The `Prompt bank`, `Negative`, `Model`, and `Limit` field labels stay English.
 
@@ -211,6 +235,12 @@ The dialog opens from `Загрузить треки в базу`.
 | `Выбрать папку на сервере` | Choose a folder on the server | Folder picker |
 | `Выберите папку, хотя бы один формат и корректный диапазон длительности.` | Choose a folder, at least one format, and a valid duration range | Validation error |
 | `Старт` | Start | Submit button |
+
+Pressing start closes the dialog and hands off to three more strings. A centered toast reads
+`Подготавливаем список треков…` (preparing the track list). The status line reads
+`Сканирование директории` (scanning the directory), and changes to `Загрузка треков в базу`
+(loading tracks into the database) once the API returns the scan job. That last one repeats the
+wording of the button that opened the dialog, but it is a separate status string.
 
 This dialog no longer carries a BPM-range section. SONARA's BPM range moved to the
 [SONARA settings dialog](#sonara-settings-dialog) below.

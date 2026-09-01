@@ -3,15 +3,15 @@
 The UI is a workbench for moving from a large local collection to a smaller list worth hearing. It
 is a three-column workspace under one top bar.
 
-| Panel | Heading on screen | What it holds |
+| Panel | Heading | What it holds |
 | --- | --- | --- |
-| Left | `1. База и анализ` | database selection, import, maintenance actions, analysis stages and settings |
-| Middle | `2. Библиотека и прослушивание` | the paginated track list, filters, preview, seeds |
-| Right | `3. Поиск и прослушивание` | the five search tabs and the current set |
+| Left | Panel 1, database and analysis | database selection, import, maintenance actions, analysis stages and settings |
+| Middle | Panel 2, library and listening | the paginated track list, filters, preview, seeds |
+| Right | Panel 3, search and listening | the five search tabs and the current set |
 
-Panel headings, button titles, tooltips, and notices are Russian. Tab labels, model names, and most
-field labels are English. Every page in this section gives the Russian string with its English
-meaning in parentheses, and [UI language](../help/ui-language.md) carries the full mapping.
+Panel headings, button titles, tooltips, and notices are Russian on screen. Tab labels, model names,
+and most field labels are English. Every page in this section names controls in English, and
+[UI language](../help/ui-language.md) carries the on-screen string for each one.
 
 ## Start from what you know
 
@@ -21,7 +21,7 @@ meaning in parentheses, and [UI language](../help/ui-language.md) carries the fu
 | A sound you can describe in words | `PROMPT` | A text-matched listening shortlist |
 | One reference and no idea which model hears it best | `LAB` | Six model columns for the same seed |
 | A recurring personal judgment | `CLASS` and Rhythm Lab | A reusable score for filtering the library |
-| Useful candidates from several searches | `Сет и экспорт` | An editable working list for preview and export |
+| Useful candidates from several searches | **Set and export** | An editable working list for preview and export |
 
 You can move tracks between these surfaces without committing to a final playlist. Search results
 and the current set remain local UI state until you explicitly add or export tracks.

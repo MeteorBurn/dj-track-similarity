@@ -12,9 +12,8 @@ important tracks.
 For a one-off sound idea, use seed or text search instead. A classifier is most useful when the same
 question will return across many sessions.
 
-The `CLASS` tab is the fifth of the five tabs in panel `3. Поиск и прослушивание` (search and
-listening). Most of its text is English on screen. The full label mapping is in
-[UI language](../help/ui-language.md).
+The `CLASS` tab is the fifth of the five tabs in panel 3, search and listening. Most of its text is
+English on screen. The full label mapping is in [UI language](../help/ui-language.md).
 
 ## What you get in the main app
 
@@ -24,8 +23,8 @@ listening). Most of its text is English on screen. The full label mapping is in
 4. The `CLASS` tab filters the library by the stored score.
 
 The `CLASS` tab is not a search surface. It has no `Limit` and no seed. Its sliders add minimum-score
-conditions to the library query in panel `2. Библиотека и прослушивание`, so the filtered result
-appears in the track list rather than in a result column.
+conditions to the library query in panel 2, library and listening, so the filtered result appears in
+the track list rather than in a result column.
 
 ## How a promoted classifier is stored
 
@@ -97,11 +96,9 @@ That reset is required, and it is the reason the button does both. Classifier sc
 incremental. Its candidate query excludes every track that already has a row for that classifier
 key, so a rescore over an already-scored library finds zero work until the key is reset.
 
-The trash button beside it, titled `Удалить рассчитанные данные <name>` (delete the calculated data
-for that classifier), runs the reset alone. Its confirmation reads
-`Будут удалены только рассчитанные score этого классификатора. Аудиофайлы и результаты других классификаторов останутся.`
-(only this classifier's calculated scores are deleted, audio files and other classifiers' results
-remain).
+The trash button beside it, titled **Delete the calculated data for `<name>`**, runs the reset
+alone. Its confirmation states that only that classifier's calculated scores are deleted, and that
+audio files and other classifiers' results remain.
 
 Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/MuQ/MuQ-MuLan/CLAP
 inputs declared by the promoted manifest and writes rows in `classifier_scores`, scoped by
@@ -129,9 +126,9 @@ and feedback remain available.
 
 ## Where classifier scoring runs
 
-There is no classifier checkbox in panel `1. База и анализ`. Analysis stages there come from the
-SONARA row and the five ML rows only. Classifier jobs are started from this tab or the CLI, and they
-share the same single job queue as SONARA and ML, so only one runs at a time.
+There is no classifier checkbox in panel 1, database and analysis. Analysis stages there come from
+the SONARA row and the five ML rows only. Classifier jobs are started from this tab or the CLI, and
+they share the same single job queue as SONARA and ML, so only one runs at a time.
 
 ## When no profiles appear
 

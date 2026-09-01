@@ -3,39 +3,34 @@
 Analysis reads source audio and writes local SQLite state. It does not modify source audio files.
 Scan first, then pick the analysis family that answers your listening question.
 
-Control names below are given as the Russian string with the English meaning in parentheses. Panel 1
-setting labels are English on screen. The full mapping is in
-[UI language](../help/ui-language.md).
+Control names below are given in English. Panel 1 setting labels are already English on screen. The
+full mapping to the on-screen strings is in [UI language](../help/ui-language.md).
 
 ## The analysis block
 
-Panel `1. База и анализ` (database and analysis) holds one analysis block headed `Анализ`
-(analysis), with the note `Один запуск обработает выбранные стадии и пропустит уже готовые результаты`
-(one run processes the selected stages and skips results that already exist).
+Panel 1, database and analysis, holds one analysis block headed **Analysis**, with the note that one
+run processes the selected stages and skips results that already exist.
 
 Two cards sit under that heading:
 
 - The first carries a single `SONARA` row.
-- The second is headed `ML-модели` (ML models) with the rows `MAEST`, `MERT`, `MUQ`, `MULAN`, and
-  `CLAP`.
+- The second is headed **ML models** with the rows `MAEST`, `MERT`, `MUQ`, `MULAN`, and `CLAP`.
 
 Each row shows a checkbox, the model name in capitals, a Russian one-line description, the current
-analyzed count, and a trash icon titled `Сбросить <MODEL>` (reset that model).
+analyzed count, and a trash icon titled **Reset `<MODEL>`**.
 
 Only these six checkboxes form the selection. Classifier scoring is started from the
 [CLASS tab](./class-tab.md) or the CLI, and it is not a checkbox here. One `Analyze` press runs the
-selected stages in the fixed order SONARA, then ML, which its tooltip states as
-`Запустить отмеченные модели в порядке SONARA → ML`.
+selected stages in the fixed order SONARA, then ML, which its tooltip states as running the checked
+models in SONARA then ML order.
 
 The five ML checkboxes stay disabled until at least one track carries a SONARA row. Starting an ML
-stage without one is refused with the notice
-`Сначала выполните SONARA-анализ хотя бы одного трека` (run SONARA analysis on at least one track
-first). A library reporting zero SONARA rows has its selection forced back to SONARA alone. The
-selection can never be emptied.
+stage without one is refused with a notice saying to run SONARA on at least one track first. A
+library reporting zero SONARA rows has its selection forced back to SONARA alone. The selection can
+never be emptied.
 
-Analysis start is announced in the log as
-`Анализ запущен: SONARA, затем ML-модели · вся библиотека`
-(analysis started, SONARA then the ML models, whole library), naming the stages and the scope.
+Analysis start is announced in the log as "analysis started, SONARA then the ML models, whole
+library", naming the stages and the scope.
 
 ## Shared settings
 
@@ -46,20 +41,19 @@ Analysis start is announced in the log as
 | `Inference batch` | `16` | `1..128` |
 | `Analyze limit` | `0` | `0..100000`, where `0` means every eligible track |
 
-`Analyze limit` applies separately to each stage, which its own hint states:
-`0 = все треки; применяется отдельно к каждой стадии анализа`. `Device` covers MAEST, MERT, MuQ,
-MuQ-MuLan, and CLAP inference. SONARA uses its native CPU path.
+`Analyze limit` applies separately to each stage, which its own hint states: `0` means every track,
+applied per analysis stage. `Device` covers MAEST, MERT, MuQ, MuQ-MuLan, and CLAP inference. SONARA
+uses its native CPU path.
 
 ## Direct and Staged modes
 
 Both families have a `Mode` selector with `Direct` and `Staged`, starting on `Direct`. Their
-tooltips are `Читать исходные аудиофайлы напрямую` (read the source audio files directly) and
-`Копировать входные файлы во временную SSD-папку` (copy the input files into a temporary SSD
-folder).
+tooltips are **Read the source audio files directly** and **Copy input files into a temporary SSD
+folder**.
 
 The ML card in panel 1 carries its own selector inline. SONARA's selector instead lives in the
-`Настройки анализа SONARA` (SONARA analysis settings) dialog, opened from a button on the SONARA
-card. That dialog also carries the SONARA BPM range. See
+**SONARA analysis settings** dialog, opened from a button on the SONARA card. That dialog also
+carries the SONARA BPM range. See
 [SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
 
 SONARA Staged exposes a staging folder plus `Processes` (`1..16`, default `4`), `Threads`
@@ -72,9 +66,9 @@ ML Staged exposes a staging folder plus `Workers` (`1..16`, default `4`) and `St
 `--ml-decode-workers`.
 
 Both staging folders start empty, and a Staged run needs one chosen first. A missing folder is
-refused with `Выберите папку staging перед запуском Staged Mode` (choose a staging folder before
-starting Staged Mode). Neither folder is restored from `localStorage`, because it receives temporary
-copies of your audio, so every session asks for it again.
+refused with a notice to choose a staging folder before starting Staged Mode. Neither folder is
+restored from `localStorage`, because it receives temporary copies of your audio, so every session
+asks for it again.
 
 Full mode semantics, decode recovery, and staging cleanup are documented in
 [First analysis](../getting-started/first-analysis.md).
@@ -82,12 +76,10 @@ Full mode semantics, decode recovery, and staging cleanup are documented in
 ## What happens after you press Analyze
 
 A started job loads its models before it reads the first track. For that stretch the process box
-shows a warm-up view headed `Прогрев моделей` (model warm-up) instead of per-track progress. The
-view has a progress bar over the number of selected models, the current model name, and its resolved
-device. A line under them reads
-`Загрузка моделей в память. Декодирование треков еще не начато.`
-(loading models into memory, track decoding has not started). The top-bar stage indicator shows
-`Прогрев моделей` while this lasts.
+shows a warm-up view headed **Model warm-up** instead of per-track progress. The view has a progress
+bar over the number of selected models, the current model name, and its resolved device. A line
+under them reads that models are being loaded into memory and that track decoding has not started.
+The top-bar stage indicator shows **Model warm-up** while this lasts.
 
 Candidate selection happens after warm-up, so the job total stays `0` until loading finishes. When
 loading ends, the usual per-track progress box replaces the warm-up view and the counters start
@@ -109,9 +101,9 @@ processed over total, `ok`, `fail`, `skip`, the active SONARA mode, batch sizes,
 A track counts as `analyzed` only when its successes reach its target model count. Any failure
 counts it as `failed`, and anything else counts as `skipped`.
 
-Cancellation is the square Stop icon in the top bar, titled
-`Остановить текущий scan или анализ` (stop the current scan or analysis). It sets a cancel request
-that the run loop checks between batches and between models, so a running batch finishes first.
+Cancellation is the square Stop icon in the top bar, titled **Stop the current scan or analysis**.
+It sets a cancel request that the run loop checks between batches and between models, so a running
+batch finishes first.
 
 A SONARA batch failure fails the whole job, while an ML batch failure is retried track by track with
 each track's error recorded individually. Per-file failures stay in the job status and do not stop
@@ -161,9 +153,8 @@ rather than adapting it automatically.
 
 ## Reset and reanalysis
 
-Each model row's trash icon resets that family only, after a confirmation reading
-`Сбросить результаты <MODEL>? Аудиофайлы не трогаем, остальные алгоритмы останутся.`
-(reset that model's results, source audio untouched, other algorithms retained).
+Each model row's trash icon resets that family only, after a confirmation that asks whether to reset
+that family's results and states that the audio files stay untouched and the other families remain.
 
 - SONARA reset deletes `sonara_features` Core rows. The SONARA embedding rows, the fingerprint rows,
   and every classifier score survive.

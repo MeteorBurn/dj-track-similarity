@@ -8,10 +8,10 @@ The result is a ranked shortlist to audition. It can reveal tracks with incomple
 it does not prove that every word in the prompt is present. Rewording the prompt changes the
 question and often changes the useful part of the list.
 
-The tab renders as **PROMPT**, the fourth of the five tabs in panel `3. Поиск и прослушивание`
-(search and listening). Its internal key is still `text`, so the API route is
-`/api/search/text`. Most of its controls are English on screen while its tooltips are Russian. The
-full label mapping is in [UI language](../help/ui-language.md).
+The tab renders as **PROMPT**, the fourth of the five tabs in panel 3, search and listening. Its
+internal key is still `text`, so the API route is `/api/search/text`. Most of its controls are
+English on screen while its tooltips are Russian. The full label mapping is in
+[UI language](../help/ui-language.md).
 
 Browser text search is rank-only. `Limit` controls how many rows are returned, scores remain in
 descending order, and the browser applies no minimum-similarity threshold. API and CLI thresholds
@@ -60,11 +60,9 @@ Opening the tab fires `POST /api/search/text/warmup` for the selected family, an
 touching no library data. It runs only when the library already holds embeddings for that family,
 and leaving the tab or switching model aborts an in-flight request.
 
-While it runs, a status banner reads
-`MuQ-MuLan загружается — первый поиск не будет ждать веса.`
-(the model is loading, the first search will not wait for the weights). A failed warmup shows
-`Прогреть MuQ-MuLan не удалось — веса загрузит сам поиск.`
-(warmup failed, the search itself will load the weights). Nothing renders once the model is ready.
+While it runs, a status banner says the model is loading and that the first search will not wait for
+the weights. A failed warmup instead says the warmup failed and that the search itself will load the
+weights. Nothing renders once the model is ready.
 
 ## Prompt style
 
@@ -110,9 +108,9 @@ Two wording rules come out of the same benchmark:
 
 ## Presets
 
-The preset picker opens from the `Presets` button, which shows either `не выбрано` (nothing
-selected) or `{n} выбрано` (n selected). Inside, a header row of axis buttons filters the option
-list, and a counter reads the selection against the 153 presets in the vocabulary.
+The preset picker opens from the `Presets` button, which shows either **none selected** or
+**{n} selected**. Inside, a header row of axis buttons filters the option list, and a counter reads
+the selection against the 153 presets in the vocabulary.
 
 The picker groups 153 presets on 21 axes, ordered the way a track gets described: `Rhythm`,
 `Groove`, `Percussion`, `Bass`, `Synths`, `Instruments`, `Vocals`, `Harmony`, `Movement`, `Timbre`,
@@ -153,10 +151,9 @@ that differs only in capitalization (`0.851` against `0.781`), and Vocal-led has
 "The sound of ..." captions, the form of CLAP's training captions (`0.927` against `0.900`).
 
 Presets that were measured show their ROC-AUC for the selected model as a badge in the picker.
-Unmeasured presets show `—` with the tooltip
-`Надёжность не измерена: нет размеченных примеров под этот ярлык. Проверяй ушами.`
-(reliability not measured, no labelled examples for this label, check by ear). Five presets are
-measured on hand-labelled pools:
+Unmeasured presets show `—` with a tooltip saying reliability is not measured because there are no
+labelled examples for that label, and to check by ear. Five presets are measured on hand-labelled
+pools:
 
 | Preset | CLAP | MuQ-MuLan |
 | --- | --- | --- |
@@ -180,27 +177,22 @@ they disagree, or when nothing in the selection is pinned, the current model sta
 An evidence block above the prompt field explains the current state in one of four Russian lines,
 naming the model in use, the axes that drove the choice, the measured scores, and any selected
 preset with no measurement at all. Picking a model by hand after an automatic switch adds a
-**Переключить на CLAP** or **Переключить на MuQ-MuLan** (switch to that model) button, which returns
-to the measured choice. Its tooltip states why there is no third option:
-`Смешивать модели нельзя: rank fusion проверен и отклонён, он тянет сильную модель к слабой.`
-(models cannot be mixed, rank fusion was measured and rejected, it drags the stronger model toward
-the weaker one).
+**Switch to CLAP** or **Switch to MuQ-MuLan** button, which returns to the measured choice. Its
+tooltip states why there is no third option: models cannot be mixed, because rank fusion was
+measured and rejected for dragging the stronger model toward the weaker one.
 
 ## Negative prompts
 
 The `Negative` field is a hard-negative bank. Each line is one unwanted audible class. A `Negatives`
-toggle above it is on by default, and its state chip reads
-`строк: {n} · вес {w}` (lines, weight) or `выключены` (off). Turning it off keeps the text and
-stops sending it, which the parked note states as
-`Негативы выключены. Сохранено строк: {n} — вернутся вместе с тумблером.`
-(negatives off, n lines saved, they return with the toggle).
+toggle above it is on by default, and its state chip reads the line count and the weight, or
+**disabled**. Turning it off keeps the text and stops sending it. The parked note then says
+negatives are off and how many lines are saved, and adds that they return with the toggle.
 
 The negative weight is displayed and not editable. It defaults to `0.5`, matching the backend
 default. When presets are selected, the applied weight is the **minimum** weight among the presets
 that contributed negatives. A preset whose negatives measured as harmful contributes none and
-carries a weight of zero, which the picker preview states as
-`Вес 0 — измерено, что негативы этой метке только вредят.` (weight 0, negatives were measured to
-only hurt this label). The API accepts `0` to `2`, so a scripted client has the range the browser
+carries a weight of zero, which the picker preview states as weight 0, measured because negatives
+only hurt that label. The API accepts `0` to `2`, so a scripted client has the range the browser
 does not expose.
 
 ### How the contrast score is computed
@@ -221,10 +213,10 @@ down, which one badly worded negative could otherwise decide alone. It was measu
 maximum at every weight for both text models. A bank of one negative collapses back to that single
 value.
 
-Each result row carries the split: hovering the positive number shows
-`Совпадение с банком позитивных промптов` (match against the positive prompt bank), and the negative
-number shows `Совпадение с ближайшим негативом.` (match against the nearest negative). That second
-tooltip describes the single nearest negative while the code averages the two highest.
+Each result row carries the split: hovering the positive number shows that it is the match against
+the positive prompt bank, and the negative number shows that it is the match against the nearest
+negative. That second tooltip describes the single nearest negative while the code averages the two
+highest.
 
 The resulting contrast value can be negative and is not a probability.
 

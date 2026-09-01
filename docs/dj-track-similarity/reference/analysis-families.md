@@ -110,8 +110,8 @@ Staged Mode applies to the GPU families as well as to SONARA. The ML staged bloc
 and `preflight_copy_count`. The browser exposes the folder, Workers, and StageSize from that set.
 
 The ML card in panel 1 exposes its Mode selector inline. SONARA's Mode selector, staging folder, and
-batch controls live in the `Настройки анализа SONARA` (SONARA analysis settings) dialog instead,
-opened from a button on the SONARA card. See
+batch controls live in the **SONARA analysis settings** dialog instead, opened from a button on the
+SONARA card. The [UI language glossary](../help/ui-language.md) carries the on-screen strings. See
 [SONARA settings dialog](./ui-controls.md#sonara-settings-dialog).
 
 In both Staged paths the staging folder holds temporary copies only. Stored rows keep the original
@@ -128,7 +128,7 @@ is also available from the CLI.
 SONARA analysis calls pass the BPM range of the library. That range is a property of the analysed data rather than a separate setting, because each stored Core row keeps the pair from its own run.
 
 - The SONARA settings dialog is where it gets picked, from a preset or as your own pair, opened via
-  `Настройки анализа SONARA` on the SONARA analysis card. See
+  **SONARA analysis settings** on the SONARA analysis card. See
   [SONARA settings dialog](./ui-controls.md#sonara-settings-dialog).
 - The first SONARA analysis fixes it for the whole library.
 - Any other range stays refused until SONARA analysis is reset.

@@ -31,19 +31,20 @@ dj-sim migrate-database --db .\data\library.sqlite --confirm 'MIGRATE SINGLE LIB
 The migration keeps your original files in a timestamped backup directory and does not start
 analysis.
 
-## The interface is in Russian and this page is in English
+## The control on screen has a different name than this page uses
 
-That is expected. The browser UI is written in Russian throughout, headings and tooltips alike, while
-the documentation names controls in English. [UI language](./ui-language.md) maps every control both
-ways. Model names, tab labels, mode names, and numeric field labels such as `Limit` and `Mode` stay
-English on screen.
+That is expected. Most headings and tooltips in the browser are Russian, while model names, tab
+labels, mode names, and numeric field labels such as `Limit` and `Mode` are English. The
+documentation names every control in English regardless of which way its label reads.
+[UI language](./ui-language.md) maps every control both ways.
 
 ## The ML model checkboxes are greyed out
 
 MAEST, MERT, MUQ, MULAN, and CLAP stay disabled until the library holds at least one current SONARA
 row. Run SONARA first, on any number of tracks, and the checkboxes unlock. Starting an ML stage
-through the API without that row is refused with `Сначала выполните SONARA-анализ хотя бы одного
-трека` (run SONARA on at least one track first).
+through the API without that row is refused with a message saying that SONARA has to run on at least
+one track first. The glossary's [Log and status messages](./ui-language.md#log-and-status-messages)
+table carries that message as it appears on screen.
 
 Only the SONARA checkbox is available on an unanalyzed library. This is the intended order, since
 the ML stage plans its work against the SONARA rows.
@@ -63,9 +64,10 @@ the selected model has zero embeddings.
 ## Staged Mode will not start
 
 Staged Mode needs a folder before the run begins. The browser refuses a SONARA Staged run with an
-empty folder and shows `Выберите папку staging перед запуском Staged Mode` (choose a staging folder
-before starting Staged Mode). The backend refuses both SONARA and ML Staged runs the same way, and
-also refuses a folder that does not exist.
+empty folder and shows a status message asking you to choose a staging folder before starting Staged
+Mode, listed as it appears on screen in
+[Log and status messages](./ui-language.md#log-and-status-messages). The backend refuses both SONARA
+and ML Staged runs the same way, and also refuses a folder that does not exist.
 
 The staging folder is deliberately not remembered between sessions, because it receives temporary
 copies of your audio. Every session asks for it again. SONARA and ML keep separate folders. The
@@ -74,10 +76,11 @@ other Staged settings are remembered in browser storage.
 ## The BPM range is locked in the SONARA settings dialog
 
 The BPM range belongs to the library rather than to a single run. Once one SONARA row exists, the
-SONARA settings dialog (opened with `Настройки анализа SONARA` on the SONARA card) shows the stored
-range and refuses a change, with the note `База уже проанализирована этим диапазоном. Чтобы задать
-другой, сбросьте анализ SONARA.` (this database was analysed with this range, reset SONARA analysis
-to choose another).
+SONARA settings dialog (opened with **SONARA analysis settings** on the SONARA card) shows the
+stored range and refuses a change, with a note saying that the database was already analysed with
+this range and that SONARA analysis has to be reset to change it. The glossary's
+[SONARA settings dialog](./ui-language.md#sonara-settings-dialog) table carries that note as it
+appears on screen.
 
 To move to a different range, reset SONARA analysis first, then set the range and analyse again. The
 upper bound must be at least twice the lower one, because SONARA folds estimated tempos into the

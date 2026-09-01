@@ -84,7 +84,8 @@ route to deletion there. The browser dialog is that review surface.
 
 Open it from the library action row with **Find and review duplicates**, the copy-check icon to the
 left of the clear-database button. It stays disabled while another job runs and while the library
-holds no tracks.
+holds no tracks. Reviewer control names here are given in English, and
+[UI language](../help/ui-language.md) carries the on-screen string for each one.
 
 ### Run a scan
 
@@ -155,23 +156,22 @@ file facts, and a file missing on disk.
 
 ### Confirm a deletion
 
-**По рекомендации** (by recommendation) in one group marks every duplicate that is not stale and
-leaves the suggested keeper. Any copy can be marked instead, the keeper included, and
-**Удалить эту копию** (delete this copy) toggles a single card. A group with every copy marked shows
-a warning, and the dialog blocks the request while that group is on the page. The server applies the
-same rule to the whole selection by skipping those copies.
+**Mark everything except the suggested keeper** in one group marks every duplicate that is not stale
+and leaves the suggested keeper. Any copy can be marked instead, the keeper included, and **Delete
+this copy** toggles a single card. A group with every copy marked shows a warning, and the dialog
+blocks the request while that group is on the page. The server applies the same rule to the whole
+selection by skipping those copies.
 
 The footer counts the marked copies and the groups they came from. Its size total covers the marked
 copies on the current page, so it understates a selection spread over several pages.
 
-The footer holds a `Куда` (destination) select with `В корзину` (recycle bin) and `Безвозвратно`
-(permanent), then the **Удалить помеченное** (delete the marked copies) button. That button is
-enabled as soon as one copy is marked and no request is in flight. There is no phrase field in the
-browser.
+The footer holds a **Destination** select with **To the recycle bin** and **Permanently**, then the
+**Delete the marked copies** button. That button is enabled as soon as one copy is marked and no
+request is in flight. There is no phrase field in the browser.
 
-Pressing it opens a `Да` / `Нет` confirmation naming the copy count, the group count, and the total
-size. Answering `Да` sends the request. See [Deleting duplicates](#deleting-duplicates) for the
-gates the request then passes.
+Pressing it opens a **Yes** / **No** confirmation naming the copy count, the group count, and the
+total size. Answering **Yes** sends the request. See [Deleting duplicates](#deleting-duplicates) for
+the gates the request then passes.
 
 ## Sources and weights
 
@@ -396,7 +396,7 @@ Deletion is destructive in both surfaces, and the delete endpoint requires the e
 From the CLI, `--apply` prints a `DESTRUCTIVE APPLY REQUESTED` block naming the database, the root,
 and the candidate count, then waits for the operator to type the phrase. Anything else cancels.
 
-From the browser, the client inserts the phrase itself and the reviewer answers a `Да` / `Нет`
+From the browser, the client inserts the phrase itself and the reviewer answers a **Yes** / **No**
 dialog. Nobody types `APPLY DELETE` in the browser. The phrase stops a stray POST from deleting
 audio rather than gating the person at the screen.
 
@@ -431,11 +431,11 @@ and the deletion holds the database exclusively while it runs.
 
 ### Recycle bin or permanent
 
-The browser review offers **Recycle bin** and **Permanent** and starts on the recycle bin. Recycle
-bin deletion uses the `send2trash` package, a project dependency. It never falls back to a permanent
-delete. A missing package fails the request before any file is touched. A recycle-bin failure on one
-file leaves that file in place and records the error in the result's `failed` list. The CLI
-`--apply` run deletes permanently.
+The browser review offers **To the recycle bin** and **Permanently**, and starts on the recycle
+bin. Recycle bin deletion uses the `send2trash` package, a project dependency. It never falls back
+to a permanent delete. A missing package fails the request before any file is touched. A
+recycle-bin failure on one file leaves that file in place and records the error in the result's
+`failed` list. The CLI `--apply` run deletes permanently.
 
 ### After a deletion
 

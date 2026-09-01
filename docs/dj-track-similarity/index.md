@@ -81,7 +81,7 @@ The file-writing exceptions are explicit:
   before writing, verifies the result, and restores the backup when a check fails. It takes no
   confirmation phrase, so `--apply` writes as soon as the run reaches a repairable file.
 - Audio Dedup deletes duplicate copies. The CLI makes the operator type `APPLY DELETE`. The browser
-  reviewer asks a `Да` / `Нет` question and its client supplies the phrase to the API itself.
+  reviewer asks a **Yes** / **No** question and its client supplies the phrase to the API itself.
 
 Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and does not move files.
 
@@ -105,8 +105,9 @@ Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and
 - [Reference](./reference/index.md): CLI, API, config, database, analysis, and UI facts.
 - [Help](./help/index.md): symptoms, FAQ, and known limits.
 
-## The interface is in Russian
+## The interface mixes Russian and English
 
-Every panel heading, button, and tooltip in the browser is Russian. The documentation names controls
-in English. [UI language](./help/ui-language.md) maps one to the other, control by control. Read it
-before following any page that tells you to press something.
+Most panel headings, buttons, and tooltips in the browser are Russian; model names, tab labels, and
+mode names are English. The documentation names every control in English regardless.
+[UI language](./help/ui-language.md) maps one to the other, control by control. Read it before
+following any page that tells you to press something.

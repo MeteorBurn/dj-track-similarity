@@ -22,8 +22,9 @@ three outputs are written together.
 
 ## 3. Reset SONARA when chosen
 
-Press the trash icon on the `SONARA` row in panel `1. База и анализ` (database and analysis), or
-call `POST /api/analysis/reset` with `{"analysis_family": "sonara"}`. The CLI has no reset command.
+Press the trash icon on the `SONARA` row in panel 1, database and analysis, or call
+`POST /api/analysis/reset` with `{"analysis_family": "sonara"}`. The panel heading's on-screen
+string is in [UI language](../help/ui-language.md). The CLI has no reset command.
 
 The reset deletes `sonara_features` Core rows only. It keeps:
 

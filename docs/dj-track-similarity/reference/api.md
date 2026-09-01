@@ -59,9 +59,10 @@ returns `409`. The browser client does not call this route. It uses the picker i
 
 The validation job family runs `DatabaseValidator` against a read-only connection, streams findings
 into the job event log, and ends `completed`, `cancelled`, or `failed`. One validation job runs at a
-time, and a second start returns `409`. The browser reaches it from the shield button in panel
-`1. База и анализ`. The command-line equivalent is `dj-sim validate-database`, which also carries the
-result in its exit code.
+time, and a second start returns `409`. The browser reaches it from the shield button in panel 1,
+database and analysis (see the [UI language glossary](../help/ui-language.md) for the on-screen
+strings). The command-line equivalent is `dj-sim validate-database`, which also carries the result
+in its exit code.
 
 ## Library and media
 
@@ -174,7 +175,7 @@ deleted copies as stale.
 
 The phrase is an API contract rather than a person typing it. The command-line tool makes a human
 type `APPLY DELETE` at a prompt. The browser client inserts the same string into the request body
-itself and asks the user a **Да / Нет** dialog instead. For the review workflow and the shared
+itself and asks the user a **Yes / No** dialog instead. For the review workflow and the shared
 deletion gates, see [Audio Dedup](../tools-and-scripts/audio-dedup.md).
 
 ## Analysis and classifiers

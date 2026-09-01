@@ -19,15 +19,17 @@ Their gates differ, so be precise about which one you are using:
 - **Audio Doctor apply** is dry-run first, backs up each file, verifies the result, and restores the
   backup on failure. It takes no confirmation phrase, so `--apply` writes immediately.
 - **Audio Dedup deletion** requires the phrase `APPLY DELETE` in the request. From the CLI you type
-  it. In the browser the client supplies it and you answer a `Да` / `Нет` dialog.
+  it. In the browser the client supplies it and you answer a **Yes** / **No** confirmation dialog.
 
 [Local-first safety](../concepts/local-first-safety.md) is the full list.
 
-## Why is the interface in Russian?
+## Why does the interface mix Russian and English?
 
-The browser UI is written in Russian while this documentation is in English.
-[UI language](./ui-language.md) maps every control from one to the other. Model names, tab labels,
-mode names, and numeric field labels such as `Limit` stay English on screen.
+It grew that way. Labels were written in whichever language was at hand as the app was built, so
+most headings, buttons, and tooltips are Russian while model names, tab labels, mode names, and
+numeric field labels such as `Limit` are English. There is no language setting. This documentation
+is English throughout, and [UI language](./ui-language.md) maps every control from one to the
+other.
 
 ## What does deleting a track remove?
 

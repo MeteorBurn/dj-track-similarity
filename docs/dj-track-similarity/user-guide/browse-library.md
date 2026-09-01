@@ -3,10 +3,9 @@
 After a scan you have thousands of rows and one screen. This page covers finding tracks, reading
 their metadata, previewing audio, and turning what you find into seeds or a temporary set.
 
-Panel `2. Библиотека и прослушивание` (library and listening) is the middle column. Its heading
-carries a badge reading `tracks` plus the library total. Control names below are given as the
-Russian string with the English meaning in parentheses, and
-[UI language](../help/ui-language.md) carries the full mapping.
+Panel 2, library and listening, is the middle column. Its heading carries a badge reading `tracks`
+plus the library total. Control names below are given in English, and
+[UI language](../help/ui-language.md) carries the on-screen string for each one.
 
 ## Direct API equivalent
 
@@ -48,12 +47,10 @@ album, path, and MAEST genres. Beside it a two-button group selects the matching
 
 To the right of the pagination group sit four controls, left to right:
 
-1. A heart icon filters to liked tracks only. Its tooltip names the count, as in
-   `Показать только лайкнутые треки. Доступно: 312.` (show liked tracks only, 312 available). It is
-   disabled while no track is liked.
-2. A waveform icon titled
-   `Показать только треки с сохранённым MAEST-флагом syncopated rhythm` filters to tracks whose
-   stored MAEST analysis carries the syncopated-rhythm flag.
+1. A heart icon filters to liked tracks only. Its tooltip names the count, as in "show liked tracks
+   only, 312 available". It is disabled while no track is liked.
+2. A waveform icon titled **Show only tracks with the stored MAEST syncopated-rhythm flag** filters
+   to tracks whose stored MAEST analysis carries the syncopated-rhythm flag.
 3. A shuffle icon toggles random playback order.
 4. An up/down arrow icon toggles the display order of the loaded rows.
 
@@ -68,31 +65,27 @@ demand.
 
 ## Maintenance actions in panel 1
 
-Five icon buttons in panel `1. База и анализ` (database and analysis) act on the library you are
-browsing:
+Five icon buttons in panel 1, database and analysis, act on the library you are browsing:
 
-| Icon | Title on screen | What it does |
+| Icon | Control | What it does |
 | --- | --- | --- |
-| Circular arrows | `Обновить теги` (refresh tags) | rereads Mutagen tags for existing tracks without touching paths or analysis rows |
-| Save | `Сохранить жанры` (save genres) | writes stored MAEST genres into audio files, the one backend audio write |
-| Shield with a check | `Проверить базу` (validate the database) | starts a read-only database validation job |
-| Two overlapping squares | `Найти и разобрать дубликаты` (find and review duplicates) | opens the Audio Dedup reviewer |
-| Trash | `Очистить базу` (clear the database) | deletes every SQLite row after a confirmation, leaving audio files in place |
+| Circular arrows | **Refresh tags** | rereads Mutagen tags for existing tracks without touching paths or analysis rows |
+| Save | **Save genres** | writes stored MAEST genres into audio files, the one backend audio write |
+| Shield with a check | **Validate the database** | starts a read-only database validation job |
+| Two overlapping squares | **Find and review duplicates** | opens the Audio Dedup reviewer |
+| Trash | **Clear the database** | deletes every SQLite row after a confirmation, leaving audio files in place |
 
-`Проверить базу` is read-only. It opens the file read-only, streams findings into the log, and
-reports a running notice such as
-`Проверка БД завершена: 41235 проверено · предупреждений 3 · ошибок 0`
-(validation finished, checked, warnings, errors). Only one validation job runs at a time. The same
-check is available from the CLI as `dj-sim validate-database`, which exits with code 2 when it finds
-errors.
+**Validate the database** is read-only. It opens the file read-only, streams findings into the log,
+and reports a running notice naming what was checked, such as validation finished with 41235
+checked, 3 warnings, and 0 errors. Only one validation job runs at a time. The same check is
+available from the CLI as `dj-sim validate-database`, which exits with code 2 when it finds errors.
 
-All five buttons are disabled while the library is empty or a stage is running. `Сохранить жанры`
-also needs at least one stored MAEST genre.
+All five buttons are disabled while the library is empty or a stage is running. **Save genres** also
+needs at least one stored MAEST genre.
 
 ## Metadata dialog
 
-Open track details with the tag icon on a row, titled `Теги и жанры` (tags and genres). The dialog
-separates:
+Open track details with the tag icon on a row, titled **Tags and genres**. The dialog separates:
 
 - MAEST genres, with a syncopated-rhythm indicator when the flag is stored,
 - `Track Details`, with file name, path, and size,
@@ -104,13 +97,13 @@ separates:
 
 Each SONARA feature value carries an inline `#` comment in a fixed description column. BPM and key
 candidate lists use the full value width and omit that comment. A value that has not been computed
-renders as `-`, and an empty group states so in Russian, such as
-`SONARA features ещё не рассчитаны` (SONARA features not computed yet).
+renders as `-`, and an empty group says so in Russian, with a note that SONARA features have not
+been calculated yet.
 
 The header carries a copy button for the file path, a copy button for the file name, an
-`Open containing folder` action, and a delete action titled `Удалить из базы` (delete from the
-database). The delete action removes the track and its catalog-owned SQLite data after a
-confirmation and leaves the audio file on disk.
+`Open containing folder` action, and a delete action titled **Delete from the database**. The delete
+action removes the track and its catalog-owned SQLite data after a confirmation and leaves the audio
+file on disk.
 
 Keep those sources separate when judging a track. A MAEST label and a file tag are not the same evidence.
 
@@ -139,29 +132,29 @@ selects the track that just finished.
 ## Likes
 
 The like button writes a local SQLite row with `catalog_uuid` and `track_uuid`. It does not edit
-audio tags. Its tooltip toggles between `Лайкнуть` (like) and `Убрать лайк` (remove the like).
-Likes can be used for browsing and filtering.
+audio tags. Its tooltip toggles between **Like** and **Remove the like**. Likes can be used for
+browsing and filtering.
 
 ## Seeds and the current set
 
 From each visible result row you can:
 
 - add the track as a seed with the magnifier icon titled `Seed`,
-- add or remove the track from the current set with the plus or minus icon, titled `В сет` (into the
-  set) and `Убрать из сета` (remove from the set),
+- add or remove the track from the current set with the plus or minus icon, titled **Add to the
+  set** and **Remove from the set**,
 - start or stop preview,
 - open metadata,
 - toggle liked state.
 
 Seeds feed the `SIMILARITY`, `SONARA`, and `LAB` tabs. Selected seeds appear as removable chips
-above the tab strip in panel `3. Поиск и прослушивание`. The current set is the temporary playlist
-inside the collapsible `Сет и экспорт` block. It is not written to disk until you export it or save
-it as a Rhythm Lab collection.
+above the tab strip in panel 3, search and listening. The current set is the temporary playlist
+inside the collapsible **Set and export** block. It is not written to disk until you export it or
+save it as a Rhythm Lab collection.
 
 ## Add visible tracks
 
 The plus button at the right of the control group appends only the tracks already loaded on the
 current library page to the current set, in the displayed order. Tracks already in the set are
-skipped, and a run that adds nothing reports `Все треки страницы уже в сете` (every track on this
-page is already in the set). It does not make a separate library or database request, load other
-pages, validate track data, or recalculate analysis.
+skipped. A run that adds nothing reports that every track on this page is already in the set. It
+does not make a separate library or database request, load other pages, validate track data, or
+recalculate analysis.

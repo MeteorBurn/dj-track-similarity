@@ -5,7 +5,8 @@ sound family or a warmup direction. Difficult-to-name textures and tracks that d
 listening pass also fit here.
 
 The result is a reviewed pool, broader than a set. Revisit it later or play it outside the app. It
-can also feed a later selection pass.
+can also feed a later selection pass. Control names below are given in English, and
+[UI language](../help/ui-language.md) carries the on-screen string for each one.
 
 ## Recipe
 
@@ -20,7 +21,7 @@ can also feed a later selection pass.
    picker rather than writing prose, because short tag lines measured stronger than scene
    descriptions.
 6. Preview results and remove obvious misses with the trash icon on each set row, titled
-   `Убрать из сета` (remove from the set).
+   **Remove from the set**.
 7. Export CSV for review or M3U for playback.
 
 ## Watch the page boundary

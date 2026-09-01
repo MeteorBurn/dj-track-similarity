@@ -7,15 +7,15 @@ claim that the candidates will mix or belong in the same genre.
 Use one seed for a focused neighborhood or several seeds for a blended target. The result is a
 ranked listening list, not an automatic crate.
 
-Control names below are given as the Russian string with the English meaning in parentheses. The
-search tabs and most of their controls are English on screen. The full mapping is in
+Control names below are given in English. The search tabs and most of their controls are already
+English on screen. The full mapping to the on-screen strings is in
 [UI language](../help/ui-language.md).
 
 ## Where seed search lives
 
-Panel `3. Поиск и прослушивание` (search and listening) opens with a removable seed chip strip, then
-a five-tab strip. Tabs are ordered `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`, and the panel
-opens on `SONARA`. Arrow keys, `Home`, and `End` move between them.
+Panel 3, search and listening, opens with a removable seed chip strip, then a five-tab strip. Tabs
+are ordered `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`, and the panel opens on `SONARA`. Arrow
+keys, `Home`, and `End` move between them.
 
 Three of those tabs take seeds:
 
@@ -32,9 +32,9 @@ documented in the [API reference](../reference/api.md).
 ## Choose seeds
 
 In the library list, press the magnifier icon on a row, titled `Seed`. Selected seeds appear as
-chips above the tab strip, each removable through its own tooltip
-`Убрать seed: <track>` (remove seed). The API accepts one to five seeds, and a request outside that
-range is refused with `Выберите от 1 до 5 уникальных seed-треков` (choose 1 to 5 unique seed tracks).
+chips above the tab strip, each removable through its own **Remove that seed** tooltip. The API
+accepts one to five seeds, and a request outside that range is refused with a message asking for 1
+to 5 unique seed tracks.
 
 Both the `SONARA` and `SIMILARITY` tabs also carry an **Add Random Track** button. It calls
 `POST /api/search/sonara/random-track` or `POST /api/search/random-track`, pulls one eligible track
@@ -109,8 +109,8 @@ Outside `Custom mixer`, both slider blocks are greyed out and every control is d
 
 ### Mixer weights
 
-The `Mixer` block is introduced on screen as `— приоритизирует виды сходства.` (it ranks kinds of
-similarity by importance). Each slider runs `0` to `5` in steps of `0.05` and shows `Off` at zero.
+The `Mixer` block is introduced on screen as a note saying it decides which kinds of similarity
+come first. Each slider runs `0` to `5` in steps of `0.05` and shows `Off` at zero.
 
 | Slider | Default | What it weighs |
 | --- | ---: | --- |
@@ -132,9 +132,9 @@ their weight across their components for the same reason.
 
 ### Modifiers
 
-The `Modifiers` block is introduced as `— направляют характер выдачи.` (they steer the character of
-the results). Each slider runs `-1` to `+1` in steps of `0.05`, starts at `0.00`, and carries its own
-`Off` reset button. A value of `0` does not pull in either direction.
+The `Modifiers` block is introduced as a note saying they steer the character of the results. Each
+slider runs `-1` to `+1` in steps of `0.05`, starts at `0.00`, and carries its own `Off` reset
+button. A value of `0` does not pull in either direction.
 
 | Slider | Steers |
 | --- | --- |
@@ -153,8 +153,8 @@ each other. `Aggression` is the only confidence-attenuated modifier: SONARA's ow
 confidence pulls it toward neutral, and it is skipped entirely when that confidence is missing. It
 does not turn weak evidence into a low-aggression verdict.
 
-A `Reset` button beside the `Mixer` heading, titled `Сбросить SONARA mixer и modifiers`, returns
-both blocks to their defaults.
+A `Reset` button beside the `Mixer` heading, titled **Reset the SONARA mixer and modifiers**,
+returns both blocks to their defaults.
 
 ## LAB tab
 

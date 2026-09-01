@@ -8,9 +8,10 @@ workflows and write paths. This page is the operator view of the three writes yo
 
 ## The one write inside the app
 
-`Сохранить жанры` (save genres), the Save icon in panel `1. База и анализ` (database and analysis),
-is the only backend job that modifies audio files. Everything else in the browser writes SQLite,
-logs, reports, temporary preview files, or export files.
+**Save genres**, the Save icon in panel 1, database and analysis, is the only backend job that
+modifies audio files. Everything else in the browser writes SQLite, logs, reports, temporary preview
+files, or export files. Control names on this page are given in English, and the
+[UI language glossary](../help/ui-language.md) carries the on-screen string for each one.
 
 The button is disabled until at least one track carries a stored MAEST genre.
 
@@ -78,10 +79,10 @@ From the CLI, `--apply` prints a destructive-apply block and waits for you to ty
 exactly. It then deletes only safe candidates inside `--root`, and it skips a candidate whose keeper
 is missing.
 
-From the browser reviewer, you mark copies per group, choose `В корзину` (to the recycle bin) or
-`Безвозвратно` (permanently) in the `Куда` (where to) select, then press
-`Удалить помеченное` (delete the marked copies). A confirmation dialog names the count, the group
-count, and the total size, and you answer `Да` (yes) or `Нет` (no).
+From the browser reviewer, you mark copies per group, choose **To the recycle bin** or
+**Permanently** in the **Destination** select, then press **Delete the marked copies**. A
+confirmation dialog names the count, the group count, and the total size, and you answer **Yes** or
+**No**.
 
 The delete button becomes active as soon as at least one copy is marked and no job is running. The
 `APPLY DELETE` phrase is still required by the API, and the browser client supplies it with the
@@ -101,8 +102,6 @@ Relocation has no browser surface. It is a CLI command with a matching API route
 
 ## Single-track deletion
 
-The delete action in the track detail dialog, titled `Удалить из базы` (delete from the database),
-removes the track and its catalog-owned SQLite data after a confirmation. Its confirmation states
-the outcome plainly:
-`Будут удалены трек и все связанные данные SQLite. Аудиофайл <track> на диске останется.`
-(the track and all related SQLite data are deleted, the audio file stays on disk).
+The delete action in the track detail dialog, titled **Delete from the database**, removes the track
+and its catalog-owned SQLite data after a confirmation. Its confirmation states the outcome plainly:
+the track row and its related SQLite data go, and the audio file stays on disk.

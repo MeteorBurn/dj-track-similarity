@@ -10,9 +10,9 @@ These commands assume the Python environment is active.
 
 ## Before you open the browser
 
-The browser UI is in Russian. Every control named on this page is given as the Russian string with
-its English meaning in parentheses, so you can match it on screen. The complete mapping is in
-[UI language](../help/ui-language.md).
+The browser UI mixes Russian and English labels. Every control named on this page is given by its
+English name, so use the [UI language glossary](../help/ui-language.md) to match a name to the
+string on screen.
 
 ## 1. Install the base package
 
@@ -99,12 +99,11 @@ To skip the prompts, run `run_server.cmd local --db .\database\volumes.sqlite`. 
 commands use only the arguments you pass. The server keeps its terminal busy, so run later CLI jobs
 in a second activated terminal.
 
-To stop that launcher-managed session cleanly, use the power button in the top bar, titled
-`Остановить все серверы и закрыть вкладку` (stop every server and close the tab). It asks the
-backend to shut down, attempts managed Rhythm Lab cleanup first, then lets the launcher stop its
-Vite dev child after the backend exits. The UI also asks the browser to close the tab. If that is
-blocked, a fallback page reading `Серверы остановлены` (servers stopped) confirms that the tab can
-be closed manually.
+To stop that launcher-managed session cleanly, use the power button in the top bar, titled **Stop
+every server and close the tab**. It asks the backend to shut down, attempts managed Rhythm Lab
+cleanup first, then lets the launcher stop its Vite dev child after the backend exits. The UI also
+asks the browser to close the tab. If that is blocked, a fallback page saying that the servers have
+stopped confirms that the tab can be closed manually.
 
 Without `--db`, the server starts with no database selected and creates no SQLite files. Pick an
 existing compatible library SQLite file in the database picker, or give it a new `.sqlite` path to
@@ -134,14 +133,14 @@ backend endpoints documented in the [API reference](../reference/api.md).
 
 ## Your first pass in the browser
 
-1. In panel `1. База и анализ` (database and analysis), confirm the SQLite path in the read-only
-   field at the top. The music folder is chosen later, inside the import dialog.
-2. In panel `2. Библиотека и прослушивание` (library and listening), search or use `Prev`, `Next`,
-   and the page-number field to move through fixed pages of up to `200` tracks.
+1. In panel 1, database and analysis, confirm the SQLite path in the read-only field at the top. The
+   music folder is chosen later, inside the import dialog.
+2. In panel 2, library and listening, search or use `Prev`, `Next`, and the page-number field to
+   move through fixed pages of up to `200` tracks.
 3. Add one to five tracks as seeds from the row actions.
-4. In panel `3. Поиск и прослушивание` (search and listening), open the `SIMILARITY` tab and pick
-   `MAEST`, `MERT`, `MuQ`, or `MuQ-MuLan` in its `Model` select, or open `SONARA` when you want to
-   steer the search by rhythm, sound, dynamics, harmony, or tempo.
+4. In panel 3, search and listening, open the `SIMILARITY` tab and pick `MAEST`, `MERT`, `MuQ`, or
+   `MuQ-MuLan` in its `Model` select, or open `SONARA` when you want to steer the search by rhythm,
+   sound, dynamics, harmony, or tempo.
 5. Preview candidates by ear and add the useful rows to the current set.
 6. Review or remove entries in the current set.
 7. Export the set as M3U or CSV once it has earned it.

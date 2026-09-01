@@ -3,8 +3,8 @@
 Once a set is worth keeping, export it as a file your player or your notes can use. This page covers
 what M3U and CSV export actually write.
 
-Control names below are given as the Russian string with the English meaning in parentheses. The
-full mapping is in [UI language](../help/ui-language.md).
+Control names below are given in English. The full mapping to the on-screen strings is in
+[UI language](../help/ui-language.md).
 
 ## Direct API
 
@@ -18,30 +18,28 @@ when you explicitly add tracks.
 
 ## UI flow
 
-`Сет и экспорт` (set and export) sits at the bottom of panel `3. Поиск и прослушивание` (search and
-listening) and is collapsed by default, so candidate results keep more vertical space. Adding a
-track updates the visible count without opening the disclosure. Expand it whenever you want to
-review the temporary set.
+**Set and export** sits at the bottom of panel 3, search and listening, and is collapsed by default,
+so candidate results keep more vertical space. Adding a track updates the visible count without
+opening the disclosure. Expand it whenever you want to review the temporary set.
 
-1. Add tracks to the current set from library or search rows, with the plus icon titled `В сет`
-   (into the set). Adding every loaded row of a library page at once is a separate button in panel 2.
-2. Expand `Сет и экспорт`.
+1. Add tracks to the current set from library or search rows, with the plus icon titled **Add to the
+   set**. Adding every loaded row of a library page at once is a separate button in panel 2.
+2. Expand **Set and export**.
 3. Set the playlist name. The field starts at `seamless-set` and doubles as the export file name.
 4. Choose or type an output directory. The field carries the placeholder `D:/Exports`, and the
-   folder icon beside it is titled `Выбрать папку экспорта` (choose an export folder).
+   folder icon beside it is titled **Choose the export folder**.
 5. Press `M3U` or `CSV`.
 
-A non-empty set shows `Экспорт сохранит текущий сет` (export will save the current set). An empty
-one shows `Сет пуст` (the set is empty), and all three export buttons stay disabled. A blank output
-directory is refused with `Укажите папку экспорта` (specify an export folder). The output directory
-is created if it does not exist.
+A non-empty set shows a note that export saves the current set, while an empty one says the set is
+empty and leaves all three export buttons disabled. Leaving the output directory blank is refused
+with a message asking for an export folder. The output directory is created if it does not exist.
 
 Above 20 entries the block paginates. `Prev` and `Next` move between pages of 20, with a status
-reading `{start}–{end} из {total}` (of total), and the current page scrolls inside the block.
+reading the shown range out of the total, and the current page scrolls inside the block.
 
-Each set row carries a preview button, the tag dialog, and a trash icon titled `Убрать из сета`
-(remove from the set). There is no clear-all button. The set empties one row at a time, or when you
-switch or clear the database.
+Each set row carries a preview button, the tag dialog, and a trash icon titled **Remove from the
+set**. There is no clear-all button. The set empties one row at a time, or when you switch or clear
+the database.
 
 ## File names
 

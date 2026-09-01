@@ -4,8 +4,8 @@ A library is the app's private map of your music collection. It lets you search 
 the files are spread across folders and their tags are incomplete. Your audio stays in its original
 location.
 
-Control names on this page are given as the Russian string the browser shows, with the English
-meaning in parentheses. The full mapping is in [UI language](../help/ui-language.md).
+Control names on this page are English. The browser shows most of them in Russian, so use the
+[UI language glossary](../help/ui-language.md) to match a name to the string on screen.
 
 ## What you get after a scan
 
@@ -28,12 +28,12 @@ not create it. Normal startup refuses a legacy split layout instead of adapting 
 
 ## Choose or create a database
 
-In panel `1. База и анализ` (database and analysis), the read-only field at the top shows the current
-SQLite path, with the placeholder `Выберите SQLite базу` (choose a SQLite database) when nothing is
-selected. Press the database icon beside it, titled `Выбрать SQLite базу` (choose a SQLite database),
-and pick the file. A new path creates the current library schema. An existing path loads only after
-the runtime validates its `library` identity. Switching the database also clears old library and
-search state, so a late response cannot leak rows from the previous catalog.
+In panel 1, database and analysis, the read-only field at the top shows the current SQLite path,
+with a placeholder asking you to choose a SQLite database when nothing is selected. Press the
+database icon beside it, titled **Choose a SQLite database**, and pick the file. A new path creates
+the current library schema. An existing path loads only after the runtime validates its `library`
+identity. Switching the database also clears old library and search state, so a late response cannot
+leak rows from the previous catalog.
 
 From the CLI, pass `--db`:
 
@@ -43,20 +43,19 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 
 ## The import dialog
 
-Press **Загрузить треки в базу** (load tracks into the database) in panel `1. База и анализ`. It
-opens a dialog headed `Настройка параметров загрузки треков в базу` (import parameter settings) with
-the subtitle `Форматы и длительность решают, что попадёт в базу.` (formats and duration decide what
-enters the database). The button stays disabled until a database is selected.
+Press **Load tracks into the database** in panel 1, database and analysis. It opens a dialog headed
+**Track import settings**, subtitled with a line saying that formats and duration decide what enters
+the database. The button stays disabled until a database is selected.
 
 The dialog holds its values only while it is open. Every new opening restores the defaults.
 
 This dialog no longer sets the SONARA BPM range. That range now belongs to the SONARA analysis
 settings dialog, covered in [First analysis](./first-analysis.md#choose-a-sonara-bpm-range-for-your-library).
 
-### `Форматы файлов` (file formats)
+### File formats
 
-Fourteen format chips, all selected at first. A counter beside the section title reads
-`{selected} из 14` (of 14). Click a chip to exclude that format, and click it again to include it.
+Fourteen format chips, all selected at first. A counter beside the section title reads how many of
+the 14 are selected. Click a chip to exclude that format, and click it again to include it.
 
 ```text
 AAC  AIF  AIFF  ALAC  APE  FLAC  M4A  MP3  OGG  OPUS  WAV  WAVE  WMA  WavPack
@@ -71,39 +70,38 @@ They map to these extensions:
 A supported audio file whose format chip is deselected is counted under `skip` in the activity
 status rather than silently ignored.
 
-### `Границы отбора` (selection bounds)
+### Selection bounds
 
 | Control | Initial value | Range or behavior |
 | --- | ---: | --- |
 | `Scan limit` | `0` | `0..100000`; `0` means every eligible track |
-| `Min, сек` (minimum seconds) | `120` | positive integer; clearing the field disables only this bound |
-| `Max, сек` (maximum seconds) | `1200` | positive integer; clearing the field disables only this bound |
+| **Minimum seconds** | `120` | positive integer; clearing the field disables only this bound |
+| **Maximum seconds** | `1200` | positive integer; clearing the field disables only this bound |
 | `Workers` | `8` | `1..16` metadata reader processes |
 
 `Scan limit` counts tracks added to the database, not files visited. Its tooltip states that
 scanning stops once that many new tracks have been added.
 
-### `Папка с треками` (music folder)
+### Music folder
 
-The read-only path field shows `Папка не выбрана` (no folder selected) until you press the folder
-icon, titled `Выбрать папку на сервере` (choose a folder on the server). The picker runs on the
-machine hosting the backend. Scanning descends into subfolders.
+The read-only path field reports that no folder is selected until you press the folder icon, titled
+**Choose a folder on the server**. The picker runs on the machine hosting the backend. Scanning
+descends into subfolders.
 
 ### Starting the import
 
-Press **Старт** (start) in the footer. The button stays disabled until a folder is chosen, at least
-one format is selected, and the duration bounds are valid. Pressing it with something missing shows
-`Выберите папку, хотя бы один формат и корректный диапазон длительности.` (choose a folder, at
-least one format, and a valid duration range).
+Press **Start** in the footer once the dialog is set up. The button stays disabled until a folder
+is chosen, at least one format is selected, and the duration bounds are valid. Pressing it with
+something missing shows a validation error asking for a folder, at least one format, and a valid
+duration range.
 
-The dialog has no cancel button. Dismiss it with the `Закрыть` (close) icon in its header or with
-`Escape`.
+The dialog has no cancel button. Dismiss it with the **Close** icon in its header or with `Escape`.
 
-The dialog closes immediately and a centered `Подготавливаем список треков…` (preparing the track
-list) toast appears. The main status reads `Сканирование директории` (scanning directory). After the
-API returns the scan job, it changes to `Загрузка треков в базу` (loading tracks into the database)
-and the normal scan-job status takes over with counts for added, updated, unchanged, skipped, and
-failed. The browser refreshes the typed library summary when the job finishes.
+The dialog closes immediately and a centered toast reports that the track list is being prepared.
+The main status reads that the directory is being scanned. After the API returns the scan job, it
+changes to say that tracks are being loaded into the database, and the normal scan-job status takes
+over with counts for added, updated, unchanged, skipped, and failed. The browser refreshes the typed
+library summary when the job finishes.
 
 ## How the scan runs
 
@@ -159,9 +157,9 @@ The CLI prints added, updated, unchanged, and skipped counts.
 ## Refresh Tags
 
 The backend can reread file tags for existing tracks without rerunning SONARA, MAEST, MERT, MuQ,
-MuQ-MuLan, or CLAP. Press the circular-arrows icon titled `Обновить теги` (refresh tags) in panel
-`1. База и анализ`. It uses eight workers and reports progress through the same activity surface as
-scan. Stored paths and every analysis row stay untouched.
+MuQ-MuLan, or CLAP. Press the circular-arrows icon titled **Refresh tags** in panel 1, database and
+analysis. It uses eight workers and reports progress through the same activity surface as scan.
+Stored paths and every analysis row stay untouched.
 
 ## Browse after scan
 

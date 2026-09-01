@@ -1,23 +1,23 @@
 # Maintain a library safely
 
 A routine you can repeat without putting your audio or your database at risk. Control names are
-given as the Russian string with the English meaning in parentheses, and
-[UI language](../help/ui-language.md) carries the full mapping.
+given in English, and [UI language](../help/ui-language.md) carries the on-screen string for each
+one.
 
 ## In the browser
 
-Panel `1. База и анализ` (database and analysis) carries every maintenance action the browser has:
+Panel 1, database and analysis, carries every maintenance action the browser has:
 
 | Action | Control | What it does |
 | --- | --- | --- |
-| Add new files | **Загрузить треки в базу** (load tracks into the database) | opens the import dialog and scans a folder |
-| Reread tags | `Обновить теги` (refresh tags) | rereads Mutagen tags for existing tracks, leaving paths and analysis rows alone |
-| Check the database | `Проверить базу` (validate the database) | runs a read-only validation job and reports checked, warning, and error counts |
-| Review duplicates | `Найти и разобрать дубликаты` (find and review duplicates) | opens the report-first Audio Dedup reviewer |
-| Empty the catalog | `Очистить базу` (clear the database) | deletes every SQLite row after a confirmation, leaving audio files on disk |
+| Add new files | **Load tracks into the database** | opens the import dialog and scans a folder |
+| Reread tags | **Refresh tags** | rereads Mutagen tags for existing tracks, leaving paths and analysis rows alone |
+| Check the database | **Validate the database** | runs a read-only validation job and reports checked, warning, and error counts |
+| Review duplicates | **Find and review duplicates** | opens the report-first Audio Dedup reviewer |
+| Empty the catalog | **Clear the database** | deletes every SQLite row after a confirmation, leaving audio files on disk |
 
-`Проверить базу` opens the file read-only and streams its findings into the log. Only one validation
-job runs at a time. Run it after a crash or a manual file move, and before a backup.
+**Validate the database** opens the file read-only and streams its findings into the log. Only one
+validation job runs at a time. Run it after a crash or a manual file move, and before a backup.
 
 Per-family analysis resets live on the model rows in the same panel, and classifier score resets
 live in the [CLASS tab](../user-guide/class-tab.md).
@@ -25,10 +25,11 @@ live in the [CLASS tab](../user-guide/class-tab.md).
 ## Routine
 
 1. Scan after adding files. Scan updates library tracks and tags without writing audio.
-2. Run `Обновить теги` after editing tags outside the app. Scan skips tag decoding when a file's
+2. Run **Refresh tags** after editing tags outside the app. Scan skips tag decoding when a file's
    size and modification time are unchanged, so a tag-only edit is invisible to it.
-3. Run `Проверить базу` periodically, or `dj-sim validate-database --db .\data\library.sqlite` from
-   the CLI. The CLI form exits with code 2 when it finds errors, which makes it usable in a script.
+3. Run **Validate the database** periodically, or
+   `dj-sim validate-database --db .\data\library.sqlite` from the CLI. The CLI form exits with code
+   2 when it finds errors, which makes it usable in a script.
 4. Keep `library.sqlite` backed up. Include the optional `*.evaluation.sqlite` when it exists.
 5. Run Audio Dedup in report mode first, then review copy by copy in the browser dialog. Deletions
    can go to the recycle bin.

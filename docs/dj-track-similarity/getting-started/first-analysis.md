@@ -7,9 +7,9 @@ shortlists, filters, and ordered previews.
 Analysis jobs read audio or stored analysis values and write SQLite results. They do not rewrite
 source audio files.
 
-Control names below are given as the Russian string the browser shows, with the English meaning in
-parentheses. Panel 1 setting labels themselves stay English. The full mapping is in
-[UI language](../help/ui-language.md).
+Control names below are English. The browser shows most of them in Russian, so use the
+[UI language glossary](../help/ui-language.md) to match a name to the string on screen. Panel 1
+setting labels themselves stay English.
 
 ## Choose by the result you want
 
@@ -33,9 +33,8 @@ rejected with `SONARA analysis must run alone and cannot be combined with ML mod
 SONARA, then ML.
 
 An ML job is also refused while no track carries a current SONARA row. In the browser the ML
-checkboxes stay disabled until at least one SONARA row exists, and a blocked start shows the notice
-`Сначала выполните SONARA-анализ хотя бы одного трека` (run SONARA analysis on at least one track
-first).
+checkboxes stay disabled until at least one SONARA row exists, and a blocked start shows a notice
+saying that SONARA has to run on at least one track first.
 
 ## What each family stores and unlocks
 
@@ -71,18 +70,17 @@ make the chosen convention more consistent. A broad window is often a better fir
 library, followed by listening checks and review of BPM candidates for tracks whose pulse can reasonably
 be read two ways.
 
-The browser offers three preset chips in the `Настройки анализа SONARA` (SONARA analysis settings)
-dialog, opened from a button on the SONARA card in panel 1: `Rekordbox` (70 to 180), `VirtualDJ`
-(80 to 240), and `Mixed In Key` (79 to 192). Selecting one fills both fields; your own pair is
-accepted too, and editing one bound pushes the other just far enough to keep the "at least twice"
-rule. The CLI takes `--sonara-bpm-min` and `--sonara-bpm-max`, defaulting to 70 and 180.
+The browser offers three preset chips in the **SONARA analysis settings** dialog, opened from a
+button on the SONARA card in panel 1: `Rekordbox` (70 to 180), `VirtualDJ` (80 to 240), and
+`Mixed In Key` (79 to 192). Selecting one fills both fields; your own pair is accepted too, and
+editing one bound pushes the other just far enough to keep the "at least twice" rule. The CLI takes
+`--sonara-bpm-min` and `--sonara-bpm-max`, defaulting to 70 and 180.
 
 Whatever you pick, the first SONARA analysis fixes it for the whole library. Once the library holds
-SONARA rows, the dialog's BPM section locks: a padlock icon appears, the preset chips and both
-fields go read-only, and the hint changes to `База уже проанализирована этим диапазоном. Чтобы
-задать другой, сбросьте анализ SONARA.` (this database is already analysed with this range, reset
-SONARA analysis to choose another). Any later run must reuse that range, and a job requesting a
-different one is refused with the same instruction. Details are in
+SONARA rows, the dialog's BPM section locks. A padlock icon appears and the preset chips and both
+fields go read-only. The hint now says that the database was already analysed with this range and
+that SONARA analysis has to be reset to change it. Any later run must reuse that range,
+and a job requesting a different one is refused with the same instruction. Details are in
 [SONARA BPM range](../reference/analysis-families.md#sonara-bpm-range) and the dialog is documented
 in [SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
 
@@ -133,19 +131,18 @@ again. Details and the job log entries are in
 
 ## Analyze in the browser
 
-Panel `1. База и анализ` (database and analysis) holds one analysis block under the heading `Анализ`
-with the note `Один запуск обработает выбранные стадии и пропустит уже готовые результаты` (one run
-processes the selected stages and skips results that already exist).
+Panel 1, database and analysis, holds one analysis block under the heading **Analysis** with a note
+saying that one run processes the selected stages and skips results that already exist.
 
-The block has two cards. The first carries the `SONARA` row. The second is headed `ML-модели`
-(ML models) with the rows `MAEST`, `MERT`, `MUQ`, `MULAN`, and `CLAP`. Each row shows a checkbox,
-the model name, a Russian one-line description, the current analyzed count, and a trash icon titled
-`Сбросить <MODEL>` (reset that model).
+The block has two cards. The first carries the `SONARA` row. The second is headed **ML models** with
+the rows `MAEST`, `MERT`, `MUQ`, `MULAN`, and `CLAP`. Each row shows a checkbox, the model name, a
+Russian one-line description, the current analyzed count, and a trash icon titled **Reset**
+followed by the model name.
 
 There is no classifier checkbox and no combined-run button in this panel. The selection is drawn
 from the SONARA row and the five ML rows only, and one `Analyze` press runs the selected stages in
-the order SONARA, then ML. Its tooltip states exactly that:
-`Запустить отмеченные модели в порядке SONARA → ML`.
+the order SONARA, then ML. Its tooltip states exactly that: it runs the checked models in SONARA
+then ML order.
 
 Shared settings sit under the ML card:
 
@@ -156,24 +153,22 @@ Shared settings sit under the ML card:
 | `Inference batch` | `16` | `1..128` |
 | `Analyze limit` | `0` | `0..100000`, where `0` means every eligible track |
 
-`Analyze limit` applies separately to each stage, which its own hint states:
-`0 = все треки; применяется отдельно к каждой стадии анализа`.
+`Analyze limit` applies separately to each stage, which its own hint states: `0` means every track,
+applied per analysis stage.
 
-To stop a running stage, press the square Stop icon in the top bar, titled
-`Остановить текущий scan или анализ` (stop the current scan or analysis). Cancellation is
-cooperative: the run loop checks it between batches and between models.
+To stop a running stage, press the square Stop icon in the top bar, titled **Stop the current scan
+or analysis**. Cancellation is cooperative: the run loop checks it between batches and between
+models.
 
 ## Direct and Staged modes
 
-Both families have a `Mode` selector with `Direct` and `Staged`. Their tooltips are
-`Читать исходные аудиофайлы напрямую` (read the source audio files directly) and
-`Копировать входные файлы во временную SSD-папку` (copy the input files into a temporary SSD
-folder). Direct is the initial mode for both.
+Both families have a `Mode` selector with `Direct` and `Staged`. Their tooltips are **Read the
+source audio files directly** and **Copy input files into a temporary SSD folder**. Direct is the
+initial mode for both.
 
 The ML card keeps its selector inline in panel 1. SONARA's selector, staging folder, and steppers
-live in the `Настройки анализа SONARA` (SONARA analysis settings) dialog instead, opened from a
-button on the SONARA card. See
-[SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
+live in the **SONARA analysis settings** dialog instead, opened from a button on the SONARA card.
+See [SONARA settings dialog](../reference/ui-controls.md#sonara-settings-dialog).
 
 Staged Mode is intended for source libraries on slower disks. It copies selected files read-only
 into a temporary per-job directory below the folder you choose, without changing or moving the
@@ -190,8 +185,8 @@ originals. The stored result, job status, and error still belong to the original
 | Staged | `BatchSize` | `4` | `1..16` ready files per native mini-batch |
 | Staged | `StageSize` | `32` | `1..512` files in the staging window |
 
-The folder picker is titled `Choose Folder для staging-копий`. Switching modes preserves the
-selected path and the two independent BatchSize values.
+The folder picker is titled **Choose a folder for the staging copies**. Switching modes preserves
+the selected path and the two independent BatchSize values.
 
 StageSize bounds the total in-flight staging window. The count includes copy tasks plus files in the
 ready queue or under analysis. A completed copy joins one shared ready queue. Each free process
@@ -207,18 +202,17 @@ ML inference batching.
 | Staged | `Workers` | `4` | `1..16` |
 | Staged | `StageSize` | `64` | `1..512` files in the staging window |
 
-The ML folder picker is titled `Choose Folder для ML staging-копий`. The single `Workers` value is
-sent as both `copy_workers` and `decode_workers`, so the browser cannot set them apart. The CLI can,
-through `--ml-copy-workers` and `--ml-decode-workers`.
+The ML folder picker is titled **Choose a folder for the ML staging copies**. The single `Workers`
+value is sent as both `copy_workers` and `decode_workers`, so the browser cannot set them apart. The
+CLI can, through `--ml-copy-workers` and `--ml-decode-workers`.
 
 ML Staged Mode copies selected ML candidates read-only, then runs copy, decode, and inference. Its
 StageSize bounds the active staging window rather than the whole job. Each completed track has its
 staging copy deleted, and the window refills until every candidate in the current ML job has
 finished.
 
-Starting Staged Mode with an empty folder is refused with the notice
-`Выберите папку staging перед запуском Staged Mode` (choose a staging folder before starting Staged
-Mode).
+Starting Staged Mode with an empty folder is refused with a notice asking you to choose a staging
+folder before starting Staged Mode.
 
 ### Where these settings live
 
@@ -279,10 +273,9 @@ reset or reanalyze. Follow [Reanalyze SONARA data](../workflows/reanalyze-sonara
 
 ## Reset boundaries
 
-Each model row carries its own trash icon. Pressing it asks
-`Сбросить <MODEL>?` with the message
-`Сбросить результаты <MODEL>? Аудиофайлы не трогаем, остальные алгоритмы останутся.`
-(reset that model's results, source audio untouched, other algorithms retained).
+Each model row carries its own trash icon. Pressing it opens a confirmation dialog asking whether to
+reset that model, with a message saying that the model's results go while the audio files stay
+untouched and the other algorithms remain.
 
 | Reset | Deletes | Keeps |
 | --- | --- | --- |

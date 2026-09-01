@@ -61,10 +61,10 @@ requested value is skipped entirely rather than zero-imputed.
 
 ## 2. Start Rhythm Lab
 
-Choose the database in the main app and press the flask icon in the top bar, titled
-`Запустить Rhythm Lab` (start Rhythm Lab) or `Открыть Rhythm Lab` (open Rhythm Lab) when it is
-already running. The app starts or reuses the local Lab process and opens its URL. You can also
-start it directly:
+Choose the database in the main app and press the flask icon in the top bar, titled **Start Rhythm
+Lab**, or **Open Rhythm Lab** when it is already running; its on-screen string is in
+[UI language](../help/ui-language.md). The app starts or reuses the local Lab process and opens its
+URL. You can also start it directly:
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\database\rhythm_lab.sqlite

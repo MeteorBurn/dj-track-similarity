@@ -906,10 +906,6 @@ h2 {
   margin-bottom: 6px;
 }
 
-.sonara-analysis-settings {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .segmented.sonara-mode-segmented {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;

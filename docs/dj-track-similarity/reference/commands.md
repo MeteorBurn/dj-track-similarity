@@ -309,7 +309,7 @@ Start the API and Vite development UI together. With no argument it scans `datab
 `.sqlite` files; if it finds any, it lists them and asks which one to open (default
 `volumes.sqlite` when present, otherwise the first one listed, or type a path to use another
 database), otherwise it asks for a database path (default `database\volumes.sqlite`). It then asks
-for local or LAN mode. Explicit modes do not prompt.
+for local or LAN mode, and passing an explicit mode skips that prompt.
 
 | Argument or option | Meaning |
 | --- | --- |

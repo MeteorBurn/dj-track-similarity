@@ -77,7 +77,16 @@
   --dts-transition: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 
   --vp-nav-height: 72px;
-  --vp-layout-max-width: 1640px;
+  /*
+   * The default theme hard-codes an `@media (min-width: 1440px)` block that sizes
+   * the sidebar and the nav title as
+   *   calc((100% - (--vp-layout-max-width - 64px)) / 2 + --vp-sidebar-width - 32px).
+   * A raw 1640px makes that term negative between 1440px and 1640px, so the sidebar
+   * and the nav title render *narrower* than --vp-sidebar-width and their text spills.
+   * Clamping to the viewport keeps the term at zero below 1640px and lets it grow
+   * above, which is the wide canvas this theme wants.
+   */
+  --vp-layout-max-width: min(1640px, 100vw);
   --vp-sidebar-width: 328px;
   --dts-doc-readable-width: 860px;
   --dts-doc-wide-width: 1100px;
@@ -197,13 +206,20 @@ body::before {
 .VPNav {
   min-height: var(--vp-nav-height);
   border-bottom: 1px solid var(--vp-c-divider);
-  backdrop-filter: blur(18px) saturate(150%);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
 }
 
+/*
+ * The blur lives on .VPNavBar, not on .VPNav. A backdrop-filter makes its element a
+ * containing block for `position: fixed` descendants, and .VPNavScreen (the mobile
+ * menu) is a fixed child of .VPNav. Below 960px .VPNav is `position: relative` and
+ * scrolls away, so blurring it opened the menu off-screen once the page was scrolled.
+ * .VPNavBar has no fixed descendants (the search modal teleports to <body>).
+ */
 .VPNavBar {
   height: var(--vp-nav-height);
   background: rgba(251, 252, 247, 0.86) !important;
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
 }
 
 .dark .VPNavBar {
@@ -248,6 +264,13 @@ body::before {
   width: 100%;
   min-width: 0;
   padding: 0;
+  /*
+   * The title inherits `white-space: nowrap` from .VPNavBar. Without a clip it paints
+   * straight through the swatch in track 3 and over the nav content, which the theme
+   * stacks underneath the title (.title is z-index 2, .content is z-index 1).
+   */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .VPNavBarTitle .title::after {
@@ -286,22 +309,74 @@ body::before {
 
 .VPNavBarSearch {
   flex: 1 1 auto;
+  min-width: 0;
 }
 
 .VPNavBarSearch .DocSearch-Button-Container {
   flex: 1;
+  min-width: 0;
   justify-content: flex-start;
 }
 
+/*
+ * The search field wants to be wide, but it must stay shrinkable: a hard 320px floor
+ * made the nav wider than the viewport between ~960px and ~1250px and pushed the
+ * appearance toggle and the social link off-screen.
+ */
 @media (min-width: 960px) {
   .VPNavBarSearch {
-    flex: 1 1 360px;
-    min-width: 270px;
+    flex: 1 1 320px;
   }
 
   .VPNavBarSearch .DocSearch-Button {
-    width: 320px !important;
-    min-width: 320px;
+    width: 100% !important;
+    min-width: 0;
+    max-width: 320px;
+  }
+}
+
+/*
+ * Between 960px and ~1100px the 328px sidebar column, the five nav labels and the
+ * search field together exceed the viewport. Let the field give way instead of
+ * pushing the appearance toggle and the social link off-screen: drop the shortcut
+ * chips and let the placeholder truncate, which is what the theme itself does
+ * below 768px.
+ */
+@media (min-width: 960px) and (max-width: 1099.98px) {
+  .VPNavBarSearch .DocSearch-Button .DocSearch-Button-Keys {
+    display: none;
+  }
+
+  .VPNavBarSearch .DocSearch-Button .DocSearch-Button-Placeholder {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* Tightest band: the search collapses to its icon, as it does below 768px. */
+@media (min-width: 960px) and (max-width: 1023.98px) {
+  .VPNavBarSearch .DocSearch-Button .DocSearch-Button-Placeholder {
+    display: none;
+  }
+}
+
+/*
+ * The theme swaps the hamburger for the inline nav menu at 768px. These five nav
+ * labels need 466px, which together with the title and the search needs ~948px -
+ * so between 768px and 959px the menu ran off the edge and took the appearance
+ * toggle and the social link with it. Keep the hamburger until the sidebar appears
+ * at 960px; the nav screen it opens carries the same links plus the sidebar.
+ */
+@media (min-width: 768px) and (max-width: 959.98px) {
+  .VPNavBar .VPNavBarMenu.menu,
+  .VPNavBar .VPNavBarExtra.extra {
+    display: none;
+  }
+
+  .VPNavBar .VPNavBarHamburger.hamburger {
+    display: flex;
   }
 }
 
@@ -560,9 +635,16 @@ body::before {
 }
 
 @media (min-width: 1280px) {
+  /*
+   * The second track is `auto`, not a fixed --dts-doc-aside-width. A `display: none`
+   * grid item does not release an explicitly sized track, and this file hides the
+   * aside in two places (1280-1535.98px below, and on any page with .dts-hero), which
+   * left a 360px dead gutter and squeezed the document column - badly enough on the
+   * landing page to break the hero headline mid-word.
+   */
   .VPDoc.has-aside > .container {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) var(--dts-doc-aside-width);
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
   }
 
@@ -577,7 +659,7 @@ body::before {
   .VPDoc.has-aside > .container > .aside {
     grid-column: 2;
     flex: none;
-    width: auto;
+    width: var(--dts-doc-aside-width);
     max-width: none;
     min-width: 0;
   }
@@ -707,6 +789,11 @@ body::before {
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.2;
+}
+
+/* The theme pins this anchor to its own 24px h2 padding; match the 30px used here. */
+.vp-doc h2 .header-anchor {
+  top: 30px;
 }
 
 .vp-doc h3 {
@@ -1197,13 +1284,6 @@ body::before {
   .vp-doc th:first-child,
   .vp-doc td:first-child {
     width: 38%;
-    white-space: normal;
-  }
-
-  .vp-doc th:first-child :not(pre) > code,
-  .vp-doc td:first-child :not(pre) > code {
-    white-space: normal;
-    overflow-wrap: anywhere;
   }
 }
 
@@ -1229,18 +1309,21 @@ body::before {
   letter-spacing: 0;
 }
 
+/*
+ * Cells must be able to wrap. `table-layout: fixed` above closes every other escape
+ * route: an unwrappable cell cannot widen its column and the table does not scroll,
+ * so it paints on top of the next column and off the page. `break-word` breaks the
+ * long unbroken UI strings and API paths this documentation quotes, and unlike
+ * `anywhere` it leaves the cell's intrinsic width alone, so the auto-layout mobile
+ * table below 641px still sizes to its content and scrolls instead of squashing.
+ */
 .vp-doc th,
 .vp-doc td {
   padding: 13px 16px;
   border-bottom: 1px solid var(--vp-c-divider);
   white-space: normal;
+  overflow-wrap: break-word;
   vertical-align: top;
-}
-
-.vp-doc th:first-child,
-.vp-doc td:first-child,
-.vp-doc table :not(pre) > code {
-  white-space: nowrap;
 }
 
 .vp-doc td {
@@ -1404,6 +1487,17 @@ body::before {
 }
 
 .vp-doc details > :not(summary) {
+  max-width: calc(100% - 40px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+/*
+ * `.vp-doc div[class*="language-"]` above is more specific than the inset rule, so
+ * code blocks used to sit flush against the drawer border while the tables beside
+ * them were inset. Restate the inset for them.
+ */
+.vp-doc details > div[class*="language-"] {
   max-width: calc(100% - 40px);
   margin-right: auto;
   margin-left: auto;
@@ -1609,6 +1703,16 @@ body::before {
   color: var(--vp-c-brand-1);
 }
 
+/*
+ * The theme positions this 2px bar from JavaScript as `activeLink.offsetTop + 39`,
+ * a constant tuned for its own outline metrics. The card padding and the taller,
+ * wrapping outline links here put it ~99px above the item it points at. The active
+ * item already reads as active from the filled pill above, so drop the stray bar.
+ */
+.VPDocAsideOutline .outline-marker {
+  display: none;
+}
+
 .VPLastUpdated,
 .VPFooter {
   color: var(--vp-c-text-3);
@@ -1644,13 +1748,12 @@ body::before {
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 959px) {
-  html,
-  body,
-  .VPApp {
-    max-width: 100%;
-    overflow-x: hidden;
-  }
-
+  /*
+   * No `overflow-x: hidden` on html/body here. It made <body> a scroll container,
+   * which silently disabled `position: sticky` on .VPLocalNav (the "On this page"
+   * bar just scrolled away), and it hid runaway table text instead of letting it
+   * wrap. The table rules above remove the overflow it was papering over.
+   */
   .VPNavScreen {
     z-index: 30;
     height: calc(100vh - var(--vp-nav-height, 64px));
@@ -1715,6 +1818,11 @@ body::before {
 
   .VPNavBarTitle .title::after {
     display: none;
+  }
+
+  /* The swatch is hidden here, so give its 46px track back to the title text. */
+  .VPNavBarTitle.has-sidebar .title {
+    grid-template-columns: 20px minmax(0, 1fr);
   }
 
   .VPNavBarTitle .title {

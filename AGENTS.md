@@ -20,8 +20,10 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 - `run_server.cmd` starts backend `127.0.0.1:8765` and Vite `127.0.0.1:5173`;
   Rhythm Lab uses `127.0.0.1:8777`. Check for an existing project process before
   claiming a fixed port.
-- Read `README.md` for product setup, then `docs/dj-track-similarity/developer/`
-  for architecture, development, and verification details.
+- Read `README.md` for product setup. The documentation under `docs/` is written
+  for the maintainer and is refreshed only on request, so it lags the code by
+  design: use it for orientation, never as evidence, and confirm anything it
+  claims against the source before acting on it.
 
 ## STRUCTURE
 
@@ -127,12 +129,21 @@ current main database before reading, writing, or reasoning about "the" database
 
 ## DOCUMENTATION WORKFLOW
 
-- After behavior changes, delegate documentation to a dedicated sub-agent using
-  `codebase-documentation-writer`. Pass implemented behavior and changed paths.
-  That skill carries the docs scope, the docs npm environment, and the rules on
-  which artifacts may be created.
-- Documentation is independent and must not block implementation, verification,
-  commits, or later tasks. It describes current behavior, not plans.
+Documentation is updated on request only. It is a product the maintainer reads,
+not an input any agent works from: nothing in this repository reads `docs/` to
+understand the code, and executable sources already outrank prose here. A change
+to the code is therefore never, by itself, a reason to touch the documentation.
+
+- Do not plan, open, or delegate documentation work unless the user asks for it
+  in the session at hand. Finish the code change, verify it, and stop there.
+- Do not report a documentation gap after a code change and do not offer to
+  close one. The user decides when a pass is worth running.
+- When the user does ask, delegate to `codebase-documentation-writer`. That
+  skill carries the docs scope, the layer routing that turns changed code into
+  changed pages, the docs npm environment, and the rules on which artifacts may
+  be created.
+- Documentation describes current behavior, not plans. It never blocks
+  implementation, verification, commits, or later tasks.
 - The documentation is English. The interface is a mix of Russian and English
   that grew that way during development, and the mix is expected to keep
   moving, so it is never a reason for Russian to reach a page. When you document

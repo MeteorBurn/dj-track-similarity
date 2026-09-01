@@ -133,6 +133,14 @@ current main database before reading, writing, or reasoning about "the" database
   which artifacts may be created.
 - Documentation is independent and must not block implementation, verification,
   commits, or later tasks. It describes current behavior, not plans.
+- The documentation is English. The interface is a mix of Russian and English
+  that grew that way during development, and the mix is expected to keep
+  moving, so it is never a reason for Russian to reach a page. When you document
+  a control whose label is Russian, translate it: name the control by its
+  English name and let `docs/dj-track-similarity/help/ui-language.md` carry the
+  on-screen Russian, because mapping Russian to English is that page's whole
+  job. It is the only page in the tree allowed to hold Cyrillic, and
+  `npm run lint:language` in `docs/dj-track-similarity/` enforces it.
 
 ## TEST POLICY
 

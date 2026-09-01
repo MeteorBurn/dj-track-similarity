@@ -1150,6 +1150,13 @@ h2 {
   width: auto;
 }
 
+.library-tools-row button.icon-button:hover:not(:disabled),
+.library-tools-row button.icon-button:focus:not(:disabled) {
+  background: var(--button-bg);
+  border-color: var(--button-border);
+  color: var(--button-text);
+}
+
 .library-tools-row .refresh-tags-button svg {
   color: var(--accent);
 }
@@ -1170,7 +1177,9 @@ h2 {
   color: var(--danger-text);
 }
 
-.library-tools-row .rhythm-lab-button.active {
+.library-tools-row .rhythm-lab-button.active,
+.library-tools-row .rhythm-lab-button.active:hover:not(:disabled),
+.library-tools-row .rhythm-lab-button.active:focus:not(:disabled) {
   background: var(--accent-muted-bg);
   border-color: var(--accent-border);
 }

@@ -6,18 +6,26 @@ formatted XLSX sheet where each track is a vertical block and every provider
 gets its own column, so Discogs genres, MusicBrainz tags, Last.fm tags, local
 file tags, and MAEST predictions remain independent evidence.
 
-The tool is contained in this folder and does not import or change the main
-application. Database access, when requested, is read-only and uses only the
-exact local file path.
+The tool's code is contained in this folder and does not import or change the
+main application; its Python dependencies are the one thing it shares with the
+rest of the project. Database access, when requested, is read-only and uses only
+the exact local file path.
 
 ## Install and configure
 
-From this folder, install the small Python requirements into the interpreter
-you will run:
+Its Python dependencies are the project's `audio-online` extra, so they arrive
+with the same `uv sync` as everything else. Run this from the repository root:
 
 ```powershell
-python -m pip install -r requirements.txt
-Copy-Item .\config.example.toml .\config.toml
+uv sync --locked --extra audio-online
+```
+
+Every command below is written from the repository root and runs the project
+interpreter, which is where those dependencies live. Copy the configuration
+template into this tool folder:
+
+```powershell
+Copy-Item tools\audio-online\config.example.toml tools\audio-online\config.toml
 ```
 
 `config.toml` and its saved authorization data stay inside this tool folder and
@@ -46,7 +54,7 @@ $env:METADATA_ENRICHMENT_NODE = 'C:\path\to\node.exe'
 ## Last.fm authorization
 
 ```powershell
-python .\metadata_enrichment_cli.py authorize lastfm --config .\config.toml
+.\.venv\Scripts\python.exe tools\audio-online\metadata_enrichment_cli.py authorize lastfm --config tools\audio-online\config.toml
 ```
 
 The command opens the Last.fm consent page, asks you to paste the returned
@@ -68,8 +76,8 @@ client_secret = "..."
 Then obtain and validate the local token:
 
 ```powershell
-python .\metadata_enrichment_cli.py authorize beatport --config .\config.toml
-python .\metadata_enrichment_cli.py check-auth beatport --config .\config.toml
+.\.venv\Scripts\python.exe tools\audio-online\metadata_enrichment_cli.py authorize beatport --config tools\audio-online\config.toml
+.\.venv\Scripts\python.exe tools\audio-online\metadata_enrichment_cli.py check-auth beatport --config tools\audio-online\config.toml
 ```
 
 The token response, refresh token, scope, and calculated expiry are stored
@@ -81,11 +89,11 @@ or print the token values.
 ## Create a workbook
 
 ```powershell
-python .\metadata_enrichment_cli.py enrich `
+.\.venv\Scripts\python.exe tools\audio-online\metadata_enrichment_cli.py enrich `
   --input .\data\tracks.csv `
   --output .\data\metadata.xlsx `
-  --config .\config.toml `
-  --db C:\projects\dj-track-similarity\database\library.sqlite
+  --config tools\audio-online\config.toml `
+  --db .\database\library.sqlite
 ```
 
 Supported inputs are a folder of audio files (`.mp3`, `.flac`, `.m4a`, `.aiff`,

@@ -37,18 +37,19 @@ jobs:
         with:
           enable-cache: true
 
-      # `rhythm-lab` is included for scikit-learn only. The `ml` extra stays out:
-      # it pulls CUDA torch wheels and is not needed by the suites below. The
-      # `sonara` extra stays out too: its wheel is a local build path.
+      # `rhythm-lab` is included for scikit-learn only, `audio-online` for the
+      # two packages its suite imports. The `ml` extra stays out: it pulls CUDA
+      # torch wheels and is not needed by the suites below. The `sonara` extra
+      # stays out too: its wheel is a local build path.
       - name: Install package
-        run: uv sync --locked --extra dev --extra rhythm-lab
+        run: uv sync --locked --extra dev --extra rhythm-lab --extra audio-online
 
       - name: Primary suite
         run: uv run --no-sync python -m pytest tests/
 
       # Root pytest collects only `tests/`, so these are named explicitly.
       - name: Script and tool suites
-        run: uv run --no-sync python -m pytest scripts/tests tools/audio-dedup/tests tools/rhythm-lab/tests
+        run: uv run --no-sync python -m pytest scripts/tests tools/audio-dedup/tests tools/rhythm-lab/tests tools/audio-online/tests
 
   frontend:
     name: Frontend (typecheck, tests, build)

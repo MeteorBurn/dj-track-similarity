@@ -39,6 +39,11 @@ ml = [
 rhythm-lab = [
   "scikit-learn>=1.4",
 ]
+audio-online = [
+  "openpyxl>=3.1,<4",
+  # The pinned interpreter is 3.10, which has no stdlib tomllib.
+  "tomli>=2.0,<3 ; python_version < '3.11'",
+]
 dev = [
   "httpx2>=2.0.0",
   "pytest>=7.4",

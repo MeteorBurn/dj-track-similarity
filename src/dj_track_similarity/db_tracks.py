@@ -15,7 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .db_evaluation_sidecar import delete_evaluation_track_rows
-from .db_search_fts import delete_track_search_fts, upsert_track_search_fts
+from .db_search_fts import (
+    delete_track_search_fts,
+    rebuild_track_search_fts,
+    upsert_track_search_fts,
+)
 from .track_models import (
     ClearLibraryResult,
     FileTags,
@@ -1113,6 +1117,34 @@ class TrackRepository:
                         connection.rollback()
                     raise
         return tuple(roots)
+
+    def ensure_search_index_current(self) -> int:
+        """Rebuild the search index when it no longer reflects MAEST genres.
+
+        MAEST genres reach the index only through the writers that maintain it,
+        so a library analysed before those writers existed carries an index that
+        is silently missing every genre. Comparing the two counts is a data
+        question, not a schema version, and rebuilding a derived index changes
+        no user data. Returns the number of rebuilt rows, or 0 when the index
+        was already current.
+        """
+
+        with self._write_lock:
+            with closing(self.connect()) as connection:
+                stored = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM maest_genres"
+                    ).fetchone()[0]
+                )
+                indexed = int(
+                    connection.execute(
+                        "SELECT COUNT(*) FROM track_search_fts "
+                        "WHERE maest_genres <> ''"
+                    ).fetchone()[0]
+                )
+                if stored == indexed:
+                    return 0
+                return rebuild_track_search_fts(connection)
 
     def relocate_library(
         self,

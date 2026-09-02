@@ -72,7 +72,7 @@ _HUMAN_FTS_COLUMNS = (
     "country",
     "year",
     "track_number",
-    "file_genres",
+    "maest_genres",
 )
 
 
@@ -329,7 +329,16 @@ def _filter_sql(
                     OR ft.country LIKE ? ESCAPE '\\'
                     OR CAST(ft.year AS TEXT) LIKE ? ESCAPE '\\'
                     OR ft.track_number LIKE ? ESCAPE '\\'
-                    OR ft.genres_json LIKE ? ESCAPE '\\'
+                    OR EXISTS(
+                        SELECT 1
+                        FROM maest_genres mg, json_each(mg.genres_json) je
+                        WHERE mg.track_id = t.track_id
+                          AND replace(
+                                  replace(json_extract(je.value, '$.label'), '_', ' '),
+                                  '---',
+                                  ' '
+                              ) LIKE ? ESCAPE '\\'
+                    )
                 )
                 """
             )

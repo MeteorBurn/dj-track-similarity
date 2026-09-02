@@ -9,19 +9,11 @@ queries apply ``tracks.missing_since IS NULL`` when selecting visible results.
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from collections.abc import Iterable
 
 
-SEARCH_MODES = {"like", "fts"}
-_TOKEN_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
 _BATCH_SIZE = 500
-
-
-def fts_match_query(query: str) -> str:
-    tokens = _TOKEN_PATTERN.findall(query.casefold())
-    return " ".join(f'"{token}"' for token in tokens)
 
 
 def _file_genres_text(value: object) -> str:
@@ -51,7 +43,7 @@ def _maest_genres_text(value: object) -> str:
         if isinstance(item, str) and item:
             names.append(item)
         elif isinstance(item, dict):
-            name = item.get("genre_name")
+            name = item.get("label")
             if isinstance(name, str) and name:
                 names.append(name)
     return ", ".join(names)

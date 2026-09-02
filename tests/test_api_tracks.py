@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from pathlib import Path
 
 from fastapi.responses import FileResponse
@@ -144,6 +146,28 @@ def test_tracks_endpoint_keeps_like_default_and_supports_fts(
         artist="DJ Two",
         title="Deep House",
     )
+    # MAEST genres are searchable; the file-tag genre every fixture carries
+    # ("House") is not, so a query for it may only match the title above.
+    genre = _add_track(
+        database,
+        tmp_path / "genre.wav",
+        artist="DJ Three",
+        title="Untitled",
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "INSERT INTO maest_genres(track_id, syncopated_rhythm, genres_json, analyzed_at)"
+            " VALUES (?, 0, ?, '2026-09-02T00:00:00Z')",
+            (
+                genre.track_id,
+                json.dumps(
+                    [{"label": "Electronic---Drum_n_Bass", "score": 0.41}],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            ),
+        )
+        connection.commit()
     client = _client(monkeypatch, db_path)
 
     like_payload = client.get("/api/tracks", params={"q": "phaB"}).json()
@@ -159,6 +183,12 @@ def test_tracks_endpoint_keeps_like_default_and_supports_fts(
         "/api/tracks",
         params={"q": "deep", "search_mode": "legacy"},
     )
+    like_genre = client.get("/api/tracks", params={"q": "drum n bass"}).json()
+    fts_genre = client.get(
+        "/api/tracks",
+        params={"q": "drum n bass", "search_mode": "fts"},
+    ).json()
+    like_file_genre = client.get("/api/tracks", params={"q": "House"}).json()
 
     assert [item["track_id"] for item in like_payload["items"]] == [
         substring.track_id
@@ -166,6 +196,11 @@ def test_tracks_endpoint_keeps_like_default_and_supports_fts(
     assert fts_substring["total"] == 0
     assert [item["track_id"] for item in fts_token["items"]] == [token.track_id]
     assert invalid.status_code == 422
+    assert [item["track_id"] for item in like_genre["items"]] == [genre.track_id]
+    assert [item["track_id"] for item in fts_genre["items"]] == [genre.track_id]
+    assert [item["track_id"] for item in like_file_genre["items"]] == [
+        token.track_id
+    ]
 
 
 def test_tracks_endpoint_liked_mutation_uses_composite_cas(

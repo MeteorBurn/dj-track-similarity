@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -15,6 +16,8 @@ from .database_validation_jobs import DatabaseValidationJobManager
 from .scan_jobs import ScanJobManager
 from .tags import GenreTagJobManager
 
+
+LOGGER = logging.getLogger(__name__)
 
 ACTIVE_JOB_STATES = {"queued", "running"}
 
@@ -70,6 +73,13 @@ class AppDatabaseState:
             if self._has_active_jobs():
                 raise DatabaseBusy("Cannot switch database while jobs are running")
             db = LibraryDatabase(selected)
+            rebuilt = db.ensure_search_index_current()
+            if rebuilt:
+                LOGGER.info(
+                    "Search index rebuilt for MAEST genres rows=%s path=%s",
+                    rebuilt,
+                    db.path,
+                )
             analysis_queue = AnalysisStageQueue()
             analysis_jobs = AnalysisJobManager(db, stage_queue=analysis_queue)
             classifier_jobs = ClassifierJobManager(db, stage_queue=analysis_queue)

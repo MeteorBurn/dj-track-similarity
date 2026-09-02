@@ -46,6 +46,7 @@ from .db_embeddings import (
     write_valid_embedding_in_transaction,
 )
 from .db_ddl import ClassifierScoreRecord
+from .db_search_fts import upsert_track_search_fts
 from .db_tracks import utc_now_text
 from .maest_analysis_validation import (
     has_maest_syncopated_rhythm,
@@ -855,6 +856,12 @@ class AnalysisRepository:
                                 connection,
                                 write=write,
                             )
+                            # Genres are searchable text, so the index has to
+                            # follow the write that produced them.
+                            upsert_track_search_fts(
+                                connection,
+                                write.target.track_id,
+                            )
                             if write.embedding is not None:
                                 write_valid_embedding_in_transaction(
                                     connection=connection,
@@ -1400,6 +1407,14 @@ class AnalysisRepository:
                                 (utc_now_text(),),
                             )
                         elif output.key == ("maest", "analysis"):
+                            # Read the affected tracks first: once the rows are
+                            # gone there is nothing left to reindex from.
+                            indexed_track_ids = [
+                                int(row[0])
+                                for row in connection.execute(
+                                    "SELECT track_id FROM maest_genres"
+                                )
+                            ]
                             cursor = connection.execute(
                                 "DELETE FROM maest_genres"
                             )
@@ -1407,6 +1422,8 @@ class AnalysisRepository:
                                 0,
                                 int(cursor.rowcount),
                             )
+                            for track_id in indexed_track_ids:
+                                upsert_track_search_fts(connection, track_id)
                         else:
                             table = table_for_output(output)
                             if table is None:

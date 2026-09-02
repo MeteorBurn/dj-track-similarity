@@ -102,7 +102,7 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
                 track_id, syncopated_rhythm, genres_json, analyzed_at
             ) VALUES (?, ?, ?, ?)
             """,
-            (7, 1, '[{"genre_name":"electronic"}]', _TIMESTAMP),
+            (7, 1, '[{"label":"electronic","score":0.5}]', _TIMESTAMP),
         )
         connection.execute(
             """

@@ -58,8 +58,7 @@ if not exist "%PROJECT_ROOT%\.venv\Scripts\activate.bat" (
     echo         %PROJECT_ROOT%\.venv
     echo.
     echo Create it and install the project first:
-    echo   python -m venv .venv
-    echo   .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+    echo   uv sync --locked --extra dev
     goto :setup_error
 )
 
@@ -71,7 +70,7 @@ if errorlevel 1 (
     echo [ERROR] dj-sim is not available in the activated environment.
     echo.
     echo Install the project first:
-    echo   .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+    echo   uv sync --locked --extra dev
     goto :setup_error
 )
 

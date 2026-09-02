@@ -11,9 +11,11 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 
 ## NEW CONTRIBUTOR START
 
-- Development is Windows-first. Use Python `>=3.10`, Node/npm for frontend or
-  docs work, and FFmpeg `8.1.1` as a full shared build; `ffmpeg.exe` alone is
-  insufficient.
+- Development is Windows-first. The interpreter is pinned in `.python-version`
+  and `uv` installs it for you; take it from there rather than from a system
+  Python, because the pin is also what supplies the bundled SQLite the code is
+  verified against. Use Node/npm for frontend or docs work, and FFmpeg `8.1.1`
+  as a full shared build; `ffmpeg.exe` alone is insufficient.
 - Use `uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev`
   for model-backed or Rhythm Lab development. Do not install the `ml` extra with
   pip because pip does not apply the PyTorch source declared in `pyproject.toml`.

@@ -300,29 +300,111 @@ See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Tra
 
 ## 🚀 Quick start
 
-Verified local development is Windows-first, but the Python package and web app are ordinary local tools. The command examples assume the environment is active.
+Verified local development is Windows-first, but the Python package and web app are ordinary local tools. Command examples past the install steps assume the environment is active; prefix them with `uv run` when it is not.
 
-You need:
+### What you need
 
-- Python `>=3.10`
-- FFmpeg `8.1.1` as a full shared build. Discovery checks
-  `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, then suitable directories on `PATH`. The runtime needs
-  `ffmpeg.exe` and the required shared libraries;
-  `ffmpeg.exe` alone is insufficient. Run `dj-sim doctor` to verify the selected runtime and PyAV.
-- A local folder of audio files
-- Node.js only when you build the frontend or docs from source
-- `uv` when installing optional dependencies that include the `ml` extra
+- **`uv`.** This is the only prerequisite on the Python side, because `uv`
+  installs the interpreter as well as the packages. You do not need a system
+  Python: `.python-version` pins the exact CPython patch release, and `uv`
+  downloads that build on the first sync.
+- **FFmpeg `8.1.1`, as a full shared build.** The version is checked exactly and
+  anything else is refused, including newer releases. `ffmpeg.exe` on its own is
+  never enough, because the runtime loads the shared libraries next to it.
+- **Node.js**, only when you run the development UI or build the frontend or
+  docs from source.
+- **A local folder of audio files.** Nothing is copied out of it; see the safety
+  model below.
 
-Install the base package and the frontend dependencies used by the development
-launcher:
+### Step 1 - install the prerequisites
+
+On a clean Windows machine:
+
+```powershell
+winget install --id astral-sh.uv --exact
+winget install --id OpenJS.NodeJS.LTS --exact
+winget install --id Gyan.FFmpeg.Shared --exact --version 8.1.1
+```
+
+Pin the FFmpeg version explicitly, as shown. `Gyan.FFmpeg.Shared` tracks the
+latest release, so a plain `winget install` hands you a build the runtime will
+reject. Extracting an FFmpeg `8.1.1` full shared archive by hand works equally
+well; only the version and the shared libraries matter, not how they arrived.
+
+Close and reopen the terminal afterwards so the new `PATH` is visible.
+
+### Step 2 - make FFmpeg discoverable
+
+The runtime needs the directory holding the FFmpeg DLLs - `avcodec-62`,
+`avformat-62`, `avutil-60`, `avfilter-11`, `swresample-6`, `swscale-9` - which is
+the `bin` directory of a full shared build. It is found in one of two ways:
+
+1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set, is used and nothing else
+   is tried. Point it straight at that `bin` directory.
+2. Otherwise every directory on `PATH` is examined, and the first one holding a
+   matching `8.1.1` build wins.
+
+Setting the variable for your account is the predictable option:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR", "C:\path\to\ffmpeg\bin", "User")
+```
+
+Step 4 checks this, so it is fine to move on and come back if the check fails.
+
+### Step 3 - install the project
+
+```powershell
+uv sync --locked --extra dev
+npm --prefix .\frontend install
+```
+
+`uv sync` reads `.python-version`, downloads that interpreter when the machine
+does not already have it, and builds `.venv` in the repository root from
+`uv.lock`. `--locked` guarantees the locked dependency set rather than a fresh
+resolution. `run_server.cmd` activates that `.venv` itself, so nothing has to be
+activated by hand.
+
+To run a command in the environment without activating it, prefix it with
+`uv run`, as in `uv run dj-sim scan ...`.
+
+### Step 4 - verify
+
+```powershell
+uv run dj-sim doctor
+```
+
+This prints the selected Python, the FFmpeg directory and version it resolved,
+and the PyAV binding. When FFmpeg is missing or its version is refused, the
+error names every directory that was examined and why each one was rejected,
+which is usually enough to see what to correct in step 2.
+
+<details>
+<summary>Installing with pip instead</summary>
+
+The project stays an ordinary `pip`-installable package, and `pyproject.toml`
+still accepts any Python `>=3.10`:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-npm --prefix .\frontend install
-dj-sim doctor
 ```
+
+Two things are worth knowing before taking this route. `venv` and `pip` do not
+read `.python-version`, so you get whichever Python you installed yourself; on
+Windows that caps out at `3.10.11`, whose bundled SQLite is several years older
+than the pinned interpreter's. And `pip` ignores `[tool.uv.sources]`, so it
+cannot install the `ml` or `sonara` extras correctly.
+
+If `Activate.ps1` is blocked by the execution policy, either use
+`.\.venv\Scripts\activate.bat`, or allow local scripts for your account with
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+</details>
+
+### First run
 
 Create a database and scan a music folder:
 

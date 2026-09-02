@@ -312,6 +312,7 @@ def _import_sonara() -> Any:
         import sonara
     except ImportError as error:
         raise RuntimeError(
-            'sonara is not installed. Install it with: python -m pip install -e ".[sonara,dev]"'
+            "sonara is not installed. Install it with: "
+            "uv sync --locked --extra sonara --extra dev"
         ) from error
     return sonara

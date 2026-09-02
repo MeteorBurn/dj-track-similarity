@@ -18,7 +18,9 @@ def load_tolerant_mono_audio(path: str | Path) -> tuple[np.ndarray, int, str]:
     """Decode valid audio frames through the bundled FFmpeg/PyAV runtime.
 
     A malformed packet is discarded after FFmpeg has emitted all preceding valid
-    frames. The caller receives source-rate mono float32 PCM for further use.
+    frames. Container tags are decoded leniently because this path never reads
+    them: a file whose tags are not valid UTF-8 still yields its audio. Damaged
+    audio remains an error. The caller receives source-rate mono float32 PCM.
     """
 
     av = load_project_pyav()
@@ -28,7 +30,12 @@ def load_tolerant_mono_audio(path: str | Path) -> tuple[np.ndarray, int, str]:
     discarded_packets = 0
 
     try:
-        with av.open(str(audio_path), mode="r", options=_FORMAT_OPTIONS) as container:
+        with av.open(
+            str(audio_path),
+            mode="r",
+            options=_FORMAT_OPTIONS,
+            metadata_errors="replace",
+        ) as container:
             if not container.streams.audio:
                 raise RuntimeError(f"FFmpeg found no audio stream: {audio_path}")
             stream = container.streams.audio[0]

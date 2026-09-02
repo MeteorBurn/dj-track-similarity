@@ -377,7 +377,7 @@ def read_ffmpeg_audio_duration_seconds(path: str | Path) -> float | None:
 
     try:
         av = load_project_pyav()
-        with av.open(str(path), mode="r") as container:
+        with av.open(str(path), mode="r", metadata_errors="replace") as container:
             return _positive_float_or_none(
                 float(container.duration) / float(av.time_base)
             )

@@ -93,6 +93,22 @@ def _write_flac_with_corrupt_packet(path: Path, *, sample_rate: int = 44_100) ->
     path.write_bytes(bytes(encoded))
     return total
 
+
+def _append_non_utf8_riff_info_tag(path: Path) -> None:
+    """Append a RIFF INFO tag whose value is not valid UTF-8.
+
+    Taggers do write Latin-1 payloads into RIFF INFO, and FFmpeg hands those bytes
+    back untouched, so the container metadata cannot be decoded as UTF-8.
+    """
+
+    value = b"Caf\xb5 Del Mar\x00"  # 0xb5 never starts a valid UTF-8 sequence
+    info = b"INFO" + b"INAM" + len(value).to_bytes(4, "little") + value
+    raw = bytearray(path.read_bytes())
+    raw += b"LIST" + len(info).to_bytes(4, "little") + info
+    raw[4:8] = (len(raw) - 8).to_bytes(4, "little")
+    path.write_bytes(bytes(raw))
+
+
 def test_load_decoded_audio_preserves_native_sample_rate(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     audio_path = tmp_path / "track.wav"
@@ -247,3 +263,25 @@ def test_ml_fallback_recovers_audio_when_torchcodec_rejects_a_corrupt_packet(
     assert decoded.sample_rate == 44_100
     assert 0 < decoded.audio.numel() < intact_samples
     assert "discarded_corrupt_packets=" in decoded.detail
+
+
+def test_shared_ffmpeg_decode_survives_non_utf8_container_tags(tmp_path: Path) -> None:
+    """Unreadable container tags must not fail a track whose audio decodes.
+
+    PyAV decodes container metadata on open, and this decoder never reads it, so a
+    tag FFmpeg cannot hand back as UTF-8 has to stay invisible to the caller.
+    """
+
+    audio_path = tmp_path / "non-utf8-tag.wav"
+    expected = _write_identical_stereo_pcm_wav(audio_path)
+    _append_non_utf8_riff_info_tag(audio_path)
+
+    av = load_project_pyav()
+    with pytest.raises(UnicodeDecodeError):
+        av.open(str(audio_path), mode="r")
+
+    audio, sample_rate, _detail = load_audio_mono_with_ffmpeg(audio_path)
+
+    assert sample_rate == 44_100
+    assert audio.shape == expected.shape
+    assert np.allclose(audio, expected, atol=1e-6)

@@ -177,7 +177,7 @@ def test_ffmpeg_duration_reads_container_header_without_decoding(
         time_base = 1_000_000
 
         @staticmethod
-        def open(path: str, mode: str):
+        def open(path: str, mode: str, **options):
             assert path.endswith("recoverable.mp3")
             assert mode == "r"
             return FakeContainer()

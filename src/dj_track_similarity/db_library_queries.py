@@ -89,16 +89,6 @@ def _json_ids(track_ids: Iterable[int]) -> str:
     )
 
 
-def _json_identity_rows(identities: Mapping[int, str]) -> str:
-    return json.dumps(
-        [
-            [track_id, track_uuid]
-            for track_id, track_uuid in sorted(identities.items())
-        ],
-        separators=(",", ":"),
-    )
-
-
 def _optional_text(value: object) -> str | None:
     return None if value is None else str(value)
 
@@ -620,33 +610,6 @@ def _valid_maest_analysis_ids(
     return valid_ids
 
 
-def _current_analysis_row_count(
-    connection: sqlite3.Connection,
-    *,
-    table: str,
-    output: AnalysisOutput | None,
-    identities: Mapping[int, str],
-) -> int:
-    if output is None or not identities:
-        return 0
-    return int(
-        connection.execute(
-            f"""
-            WITH requested AS (
-                SELECT
-                    CAST(json_extract(value, '$[0]') AS INTEGER) AS track_id
-                FROM json_each(?)
-            )
-            SELECT COUNT(*)
-            FROM {table} stored
-            JOIN requested
-              ON requested.track_id = stored.track_id
-            """,
-            (_json_identity_rows(identities),),
-        ).fetchone()[0]
-    )
-
-
 def _valid_embedding_rows(
     connection: sqlite3.Connection,
     *,
@@ -727,45 +690,6 @@ def _valid_embedding_rows(
             valid[track_id]["dim"] = row["dim"]
             valid[track_id]["normalization"] = row["normalization"]
     return valid
-
-
-def _current_artifact_row_count(
-    connection: sqlite3.Connection,
-    *,
-    table: str,
-    output: AnalysisOutput | None,
-    identities: Mapping[int, str],
-) -> int:
-    if output is None or not identities:
-        return 0
-    try:
-        expected_spec = current_embedding_spec(output.analysis_family)
-    except ValueError:
-        return 0
-    return int(
-        connection.execute(
-            f"""
-            WITH requested AS (
-                SELECT
-                    CAST(json_extract(value, '$[0]') AS INTEGER) AS track_id,
-                    CAST(json_extract(value, '$[1]') AS TEXT) AS track_uuid
-                FROM json_each(?)
-            )
-            SELECT COUNT(*)
-            FROM {table} stored
-            JOIN requested
-              ON requested.track_id = stored.track_id
-             AND requested.track_uuid = stored.track_uuid
-            WHERE stored.dim = ?
-              AND stored.normalization = ?
-            """,
-            (
-                _json_identity_rows(identities),
-                expected_spec.dimension,
-                expected_spec.normalization,
-            ),
-        ).fetchone()[0]
-    )
 
 
 def _current_classifier_details(

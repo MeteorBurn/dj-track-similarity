@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import struct
 from pathlib import Path
 
 import pytest
+from mutagen.id3 import ID3, TCON, TIT2, TPE1
 
 import dj_track_similarity.scanner as scanner
 from dj_track_similarity.analysis_model_runners import (
@@ -358,3 +360,121 @@ def test_relocate_library_conflict_is_rejected_without_partial_updates(
 
     for path, state in before.items():
         assert _scanned_state(database, path) == state
+
+
+# --- Second-chance tag readers: mutagen by content, tolerant readers, FFmpeg ---
+
+
+def _id3_tag_bytes(tmp_path: Path, **frames: str) -> bytes:
+    """Serialize an ID3v2 tag with 512 bytes of padding after the frames."""
+    tag_path = tmp_path / "tag.bin"
+    tag_path.write_bytes(b"")
+    tags = ID3()
+    for frame_id, text in frames.items():
+        tags.add({"TIT2": TIT2, "TPE1": TPE1, "TCON": TCON}[frame_id](encoding=3, text=[text]))
+    tags.save(tag_path, padding=lambda info: 512)
+    return tag_path.read_bytes()
+
+
+def _iff_chunk(chunk_id: bytes, payload: bytes) -> bytes:
+    return chunk_id + struct.pack(">L", len(payload)) + payload + (b"\x00" if len(payload) % 2 else b"")
+
+
+def _aiff_bytes(*trailing_chunks: bytes) -> bytes:
+    """A 4-frame 16-bit stereo 44.1 kHz AIFF followed by the given chunks."""
+    comm = struct.pack(">hLh", 2, 4, 16) + b"\x40\x0e\xac\x44\x00\x00\x00\x00\x00\x00"
+    ssnd = struct.pack(">LL", 0, 0) + b"\x00" * 16
+    body = _iff_chunk(b"COMM", comm) + _iff_chunk(b"SSND", ssnd) + b"".join(trailing_chunks)
+    return b"FORM" + struct.pack(">L", 4 + len(body)) + b"AIFF" + body
+
+
+def _mp4_atom(name: bytes, payload: bytes) -> bytes:
+    return struct.pack(">I", 8 + len(payload)) + name + payload
+
+
+def _mp4_text_item(name: bytes, text: str) -> bytes:
+    return _mp4_atom(name, _mp4_atom(b"data", b"\x00\x00\x00\x01\x00\x00\x00\x00" + text.encode()))
+
+
+def test_read_audio_metadata_reads_a_mislabeled_container_by_content(
+    tmp_path: Path,
+) -> None:
+    # An MP3 named .flac: the extension sends mutagen to the FLAC parser first.
+    frame = b"\xff\xfb\x90\x00" + b"\x00" * 413  # MPEG-1 Layer III, 128 kbps, 44.1 kHz
+    audio_path = tmp_path / "Murmure.flac"
+    audio_path.write_bytes(frame * 24)
+    tags = ID3()
+    tags.add(TIT2(encoding=3, text=["Murmure"]))
+    tags.add(TPE1(encoding=3, text=["Petit Batou"]))
+    tags.save(audio_path)
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata["audio_format"] == "MP3"
+    assert metadata["sample_rate_hz"] == 44100
+    assert metadata["channel_count"] == 2
+    assert metadata["duration"] > 0
+    assert metadata["title"] == "Murmure"
+    assert metadata["artist"] == "Petit Batou"
+
+
+def test_read_audio_metadata_takes_aiff_tags_behind_empty_and_truncated_chunks(
+    tmp_path: Path,
+) -> None:
+    tag = _id3_tag_bytes(tmp_path, TIT2="Mount Royal", TPE1="Paolo Rocco", TCON="Minimal")
+    junk_path = tmp_path / "junk chunks.aiff"
+    junk_path.write_bytes(
+        _aiff_bytes(_iff_chunk(b"ID3 ", b""), _iff_chunk(b"ID3 ", b""), _iff_chunk(b"ID3 ", tag))
+    )
+    cut_path = tmp_path / "truncated tag.aiff"
+    cut_path.write_bytes(_aiff_bytes(_iff_chunk(b"ID3 ", tag))[:-256])
+
+    for audio_path in (junk_path, cut_path):
+        metadata = read_audio_metadata(audio_path)
+
+        assert metadata["audio_format"] == "AIFF"
+        assert metadata["sample_rate_hz"] == 44100
+        assert metadata["channel_count"] == 2
+        assert metadata["bit_depth"] == 16
+        assert metadata["title"] == "Mount Royal"
+        assert metadata["artist"] == "Paolo Rocco"
+        assert metadata["genre"] == "Minimal"
+
+
+def test_read_audio_metadata_ignores_a_malformed_mp4_chapter_atom(
+    tmp_path: Path,
+) -> None:
+    mvhd = _mp4_atom(
+        b"mvhd",
+        b"\x00" * 4 + struct.pack(">IIII", 0, 0, 44100, 88200)
+        + struct.pack(">IH", 0x00010000, 0x0100) + b"\x00" * 70 + struct.pack(">I", 2),
+    )
+    hdlr = _mp4_atom(b"hdlr", b"\x00" * 8 + b"mdir" + b"appl" + b"\x00" * 9)
+    ilst = _mp4_atom(b"ilst", _mp4_text_item(b"\xa9nam", "Slatoinia") + _mp4_text_item(b"\xa9ART", "STOi"))
+    meta = _mp4_atom(b"meta", b"\x00" * 4 + hdlr + ilst)
+    # A stale chpl header over unrelated bytes: 114 "chapters" in 18 bytes.
+    chpl = _mp4_atom(b"chpl", b"\x00" * 8 + bytes([114]) + b"ee" + b"\x00" * 16)
+    audio_path = tmp_path / "stale chapters.m4a"
+    audio_path.write_bytes(
+        _mp4_atom(b"ftyp", b"M4A \x00\x00\x02\x00M4A mp42isom")
+        + _mp4_atom(b"moov", mvhd + _mp4_atom(b"udta", meta + chpl))
+        + _mp4_atom(b"mdat", b"\x00" * 16)
+    )
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata["audio_format"] == "M4A"
+    assert metadata["title"] == "Slatoinia"
+    assert metadata["artist"] == "STOi"
+
+
+def test_read_audio_metadata_keeps_only_the_name_when_no_reader_fits(
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "opaque.mp3"
+    audio_path.write_bytes(b"not an audio container at all")
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.pop(scanner.READER_NOTE_KEY)
+    assert metadata == {"title": "opaque"}

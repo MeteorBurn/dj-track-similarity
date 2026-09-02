@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import logging
 import math
 import os
 from dataclasses import dataclass, replace
@@ -9,6 +11,19 @@ from pathlib import Path
 from typing import Callable, Collection, Iterator
 
 from mutagen import File as MutagenFile
+from mutagen.aac import AAC
+from mutagen.aiff import AIFFFile, AIFFInfo
+from mutagen.asf import ASF
+from mutagen.flac import FLAC
+from mutagen.id3 import ID3
+from mutagen.monkeysaudio import MonkeysAudio
+from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4, MP4Chapters
+from mutagen.oggflac import OggFLAC
+from mutagen.oggopus import OggOpus
+from mutagen.oggvorbis import OggVorbis
+from mutagen.wave import WAVE
+from mutagen.wavpack import WavPack
 
 from .db_tracks import (
     TrackRepository,
@@ -82,6 +97,11 @@ MUTAGEN_TAG_LOOKUP = {
     "key": ["initialkey", "key", "TKEY"],
     "comment": ["comment", "description", "COMM", "\xa9cmt"],
 }
+LOGGER = logging.getLogger(__name__)
+# read_audio_metadata stores a one-line note under this key whenever a file was
+# served by anything but the default mutagen open, so a caller in another
+# process can surface it where the reader's own log line cannot reach.
+READER_NOTE_KEY = "reader_note"
 
 
 @dataclass(frozen=True)
@@ -99,6 +119,8 @@ class PreparedScanResult:
     path: str
     prepared: PreparedScan | None = None
     error_message: str | None = None
+    note: str | None = None
+    """Reader note for the coordinator to log; set even when the file was skipped."""
 
 
 def _resolved_directory(root: str | Path) -> Path:
@@ -198,13 +220,18 @@ def prepare_audio_file(
             tags=FileTags(),
         )
 
-    return _prepare_audio_file_metadata(
+    prepared, note = _prepare_audio_file_metadata_with_note(
         audio_path,
         initial_stat=initial_stat,
         min_duration_seconds=min_duration_seconds,
         max_duration_seconds=max_duration_seconds,
         claim_scan_slot=claim_scan_slot,
     )
+    if note is not None:
+        # In-process callers such as the CLI scan have no job log; the
+        # application log file is where their notes go.
+        LOGGER.warning("%s path=%s", note, audio_path)
+    return prepared
 
 
 def prepare_audio_path_group(
@@ -218,7 +245,7 @@ def prepare_audio_path_group(
     results: list[PreparedScanResult] = []
     for path in paths:
         try:
-            prepared = _prepare_audio_file_metadata(
+            prepared, note = _prepare_audio_file_metadata_with_note(
                 Path(path).expanduser().resolve(strict=False),
                 min_duration_seconds=min_duration_seconds,
                 max_duration_seconds=max_duration_seconds,
@@ -231,23 +258,30 @@ def prepare_audio_path_group(
                 )
             )
             continue
-        results.append(PreparedScanResult(path=path, prepared=prepared))
+        results.append(PreparedScanResult(path=path, prepared=prepared, note=note))
     return results
 
 
-def _prepare_audio_file_metadata(
+def _prepare_audio_file_metadata_with_note(
     audio_path: Path,
     *,
     initial_stat: os.stat_result | None = None,
     min_duration_seconds: int | None = None,
     max_duration_seconds: int | None = None,
     claim_scan_slot: Callable[[], bool] | None = None,
-) -> PreparedScan | None:
+) -> tuple[PreparedScan | None, str | None]:
+    """Prepare one file and return the reader note separately.
+
+    The note survives a duration-filter skip on purpose: a file no reader could
+    open has no duration either, and the coordinator should still say why.
+    """
+
     initial_stat = initial_stat or audio_path.stat()
     metadata, final_stat = read_audio_metadata_stable(
         audio_path,
         initial_stat=initial_stat,
     )
+    note = _string_or_none(metadata.pop(READER_NOTE_KEY, None))
     duration_filter_active = (
         min_duration_seconds is not None
         or max_duration_seconds is not None
@@ -263,10 +297,10 @@ def _prepare_audio_file_metadata(
         ) or (
             max_duration_seconds is not None and duration > max_duration_seconds
         ):
-            return None
+            return None, note
     if claim_scan_slot is not None and not claim_scan_slot():
-        return None
-    return PreparedScan(
+        return None, note
+    prepared = PreparedScan(
         file=scanned_file_from_metadata(
             audio_path,
             metadata,
@@ -275,6 +309,7 @@ def _prepare_audio_file_metadata(
         ),
         tags=file_tags_from_metadata(audio_path, metadata),
     )
+    return prepared, note
 
 
 def read_audio_metadata_stable(
@@ -386,15 +421,43 @@ def read_ffmpeg_audio_duration_seconds(path: str | Path) -> float | None:
 
 
 def read_audio_metadata(path: str | Path) -> dict[str, object]:
+    """Read stream fields and tags with mutagen, retrying by content on refusal.
+
+    The default mutagen open comes first and unchanged, so a healthy file takes
+    exactly the path it always did. Only when that open raises or finds no
+    reader is the file opened by content instead of by extension. Both passes
+    fill the same keys; the second one also leaves a note under
+    ``READER_NOTE_KEY`` so the caller can log what happened.
+    """
+
     audio_path = Path(path)
     metadata: dict[str, object] = {"title": audio_path.stem}
     try:
         audio = MutagenFile(audio_path)
     except Exception:
-        return metadata
-    if audio is None:
-        return metadata
+        audio = None
+    if audio is not None:
+        return _metadata_from_mutagen(
+            audio, metadata, _audio_format(audio, audio_path)
+        )
 
+    audio = _open_audio_by_content(audio_path)
+    if audio is None:
+        metadata[READER_NOTE_KEY] = "No reader could open the file: only its name is known"
+        return metadata
+    audio_format = _audio_format_from_reader(audio)
+    metadata[READER_NOTE_KEY] = (
+        f"Tags read by content as {audio_format or type(audio).__name__}: "
+        "the default mutagen open rejected the file"
+    )
+    return _metadata_from_mutagen(audio, metadata, audio_format)
+
+
+def _metadata_from_mutagen(
+    audio: object,
+    metadata: dict[str, object],
+    audio_format: str | None,
+) -> dict[str, object]:
     info = getattr(audio, "info", None)
     duration = _positive_float_or_none(getattr(info, "length", None))
     if duration is not None:
@@ -415,7 +478,6 @@ def read_audio_metadata(path: str | Path) -> dict[str, object]:
     if bit_depth is not None:
         metadata["bit_depth"] = bit_depth
 
-    audio_format = _audio_format(audio, audio_path)
     if audio_format:
         metadata["audio_format"] = audio_format
 
@@ -578,3 +640,122 @@ def _audio_format_from_mime(mime: str) -> str | None:
     if cleaned.startswith("audio/"):
         cleaned = cleaned.removeprefix("audio/")
     return DISPLAY_AUDIO_FORMATS.get(f".{cleaned}") or cleaned.upper()
+
+
+# --- Second-chance readers -------------------------------------------------
+#
+# Everything below runs only for a file the default mutagen open could not
+# parse. A healthy file never reaches it, so it costs the scan nothing.
+
+
+class _LenientMP4Chapters(MP4Chapters):
+    """Chapter list that survives a malformed ``chpl`` atom.
+
+    Some tag writers shrink the metadata and leave a stale ``chpl`` header over
+    unrelated bytes. mutagen reads a chapter count out of that garbage and runs
+    off the end of the atom (quodlibet/mutagen issue 564, open since 2022). The
+    tags and the stream info parse fine, so an empty chapter list is the right
+    answer.
+    """
+
+    def __init__(self, atoms, fileobj):
+        try:
+            super().__init__(atoms, fileobj)
+        except Exception:
+            self._chapters = []
+
+
+class _LenientMP4(MP4):
+    MP4Chapters = _LenientMP4Chapters
+
+
+class _AIFFByChunks:
+    """AIFF stream info plus the last well-formed ``ID3`` chunk.
+
+    mutagen's ``AIFF`` binds the first chunk named ``ID3``, so a writer that
+    leaves empty ``ID3`` chunks in front of the real one makes it read an ID3
+    header out of the next chunk and refuse the file. Stream info never depends
+    on tags, so read it directly, then take the last non-empty tag chunk. A
+    tag cut by truncation is padded to its declared size: ``ID3`` treats the
+    zeros as padding and keeps every frame that survived.
+    """
+
+    def __init__(self, fileobj) -> None:
+        self.info = AIFFInfo(fileobj)
+        fileobj.seek(0)
+        chunks = [
+            chunk
+            for chunk in AIFFFile(fileobj).root.subchunks()
+            if chunk.id == "ID3" and chunk.data_size > 0
+        ]
+        self.tags = None
+        if chunks:
+            chunk = chunks[-1]
+            body = chunk.read()
+            body += b"\x00" * (chunk.data_size - len(body))
+            try:
+                self.tags = ID3(io.BytesIO(body))
+            except Exception:
+                self.tags = None
+
+
+# Readers for the second, content-only mutagen pass: every format the scan
+# accepts, with the tolerant MP4 in place of the stock one. AIFF is handled
+# by _AIFFByChunks before this list is consulted.
+_CONTENT_READERS = (
+    MP3,
+    FLAC,
+    OggVorbis,
+    OggOpus,
+    OggFLAC,
+    _LenientMP4,
+    AAC,
+    WAVE,
+    ASF,
+    WavPack,
+    MonkeysAudio,
+)
+
+# In the content pass the extension is known to be wrong or absent, so the
+# display format comes from the reader that parsed the file.
+_READER_FORMAT_SUFFIXES: tuple[tuple[type, str], ...] = (
+    (MP3, ".mp3"),
+    (FLAC, ".flac"),
+    (OggOpus, ".opus"),
+    (OggVorbis, ".ogg"),
+    (OggFLAC, ".ogg"),
+    (MP4, ".m4a"),
+    (AAC, ".aac"),
+    (WAVE, ".wav"),
+    (ASF, ".wma"),
+    (WavPack, ".wv"),
+    (MonkeysAudio, ".ape"),
+    (_AIFFByChunks, ".aiff"),
+)
+
+
+def _open_audio_by_content(path: Path) -> object | None:
+    """Open a file mutagen rejected, choosing the reader by its header.
+
+    ``mutagen.File`` scores readers by header and by file extension, and the
+    extension weighs enough to send an MP3 named ``.flac`` to the FLAC parser.
+    Passing the stem as the name removes the extension from the score, so only
+    the content decides. Returns ``None`` when no reader recognises the file.
+    """
+
+    try:
+        with path.open("rb") as fileobj:
+            header = fileobj.read(12)
+            fileobj.seek(0)
+            if header[:4] == b"FORM" and header[8:12] in (b"AIFF", b"AIFC"):
+                return _AIFFByChunks(fileobj)
+            return MutagenFile(fileobj, filename=path.stem, options=_CONTENT_READERS)
+    except Exception:
+        return None
+
+
+def _audio_format_from_reader(audio: object) -> str | None:
+    for kind, suffix in _READER_FORMAT_SUFFIXES:
+        if isinstance(audio, kind):
+            return DISPLAY_AUDIO_FORMATS[suffix]
+    return None

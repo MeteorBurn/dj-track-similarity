@@ -5,6 +5,8 @@ import threading
 import wave
 from pathlib import Path
 
+from mutagen.id3 import ID3, TIT2
+
 import dj_track_similarity.scan_jobs as scan_jobs_module
 from dj_track_similarity import scanner
 from dj_track_similarity.database import LibraryDatabase
@@ -24,11 +26,23 @@ def _audio(root: Path, name: str, *, seconds: float = 0.01) -> Path:
     return path
 
 
+def _mislabeled_mp3(root: Path, name: str) -> Path:
+    """An MP3 saved under a foreign extension, which the default open rejects."""
+    path = root / name
+    frame = b"\xff\xfb\x90\x00" + b"\x00" * 413  # MPEG-1 Layer III, 128 kbps, 44.1 kHz
+    path.write_bytes(frame * 24)
+    tags = ID3()
+    tags.add(TIT2(encoding=3, text=["Murmure"]))
+    tags.save(path)
+    return path
+
+
 def test_scan_job_records_progress_and_events(tmp_path: Path) -> None:
     music = tmp_path / "music"
     music.mkdir()
     _audio(music, "a.wav")
     _audio(music, "b.wav")
+    _mislabeled_mp3(music, "c.flac")
     (music / "ignore.txt").write_text("skip", encoding="utf-8")
     database = LibraryDatabase(tmp_path / "library.sqlite")
     manager = ScanJobManager(database)
@@ -36,15 +50,23 @@ def test_scan_job_records_progress_and_events(tmp_path: Path) -> None:
     status = manager.run_sync(music)
 
     assert status.state == "completed"
-    assert status.total == 2
-    assert status.processed == 2
-    assert status.added == 2
+    assert status.total == 3
+    assert status.processed == 3
+    assert status.added == 3
     assert status.updated == 0
     assert status.unchanged == 0
     assert status.avg_seconds_per_track is not None
     assert status.events[0].message == "Scan queued · workers 1 · limit all"
     assert any(event.level == "ok" and event.path.endswith("a.wav") for event in status.events)
+    # The reader note crosses the worker process and lands in the job log.
+    assert any(event.level == "warn" and event.path.endswith("c.flac") for event in status.events)
     assert status.events[-1].message == "Scan completed"
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT t.audio_format, g.title FROM tracks t JOIN tags g USING(track_id) "
+            "WHERE t.file_path LIKE '%c.flac'"
+        ).fetchone()
+    assert tuple(row) == ("MP3", "Murmure")
 
 
 def test_scan_job_records_requested_worker_count(tmp_path: Path) -> None:

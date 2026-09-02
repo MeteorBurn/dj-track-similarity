@@ -23,6 +23,7 @@ from .logging_config import exception_summary, log_failure, log_job_event
 from .scanner import (
     PreparedScan,
     PreparedScanResult,
+    READER_NOTE_KEY,
     SUPPORTED_AUDIO_EXTENSIONS,
     file_tags_from_metadata,
     iter_audio_files,
@@ -580,6 +581,10 @@ class ScanJobManager:
                     RuntimeError(result.error_message),
                 )
                 continue
+            if result.note is not None:
+                # The reader only annotates its result; this is where the note
+                # reaches the job log and the log file, like every other event.
+                self._append_event(job_id, "warn", result.note, path=str(path))
             if result.prepared is None:
                 skipped_count += 1
                 self._append_event(
@@ -702,6 +707,9 @@ class ScanJobManager:
                 path,
                 metadata_reader=read_audio_metadata,
             )
+            note = metadata.pop(READER_NOTE_KEY, None)
+            if note is not None:
+                self._append_event(job_id, "warn", str(note), path=str(path))
             if (
                 int(stable_stat.st_size) != expected.file_size_bytes
                 or int(stable_stat.st_mtime_ns) != expected.file_modified_ns

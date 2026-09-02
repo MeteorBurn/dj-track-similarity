@@ -300,7 +300,7 @@ See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Tra
 
 ## 🚀 Quick start
 
-Verified local development is Windows-first, but the Python package and web app are ordinary local tools. Command examples past the install steps assume the environment is active; prefix them with `uv run` when it is not.
+Verified local development is Windows-first, but the Python package and web app are ordinary local tools. Command examples past the install steps assume the environment is active. Prefix them with `uv run` when it is not.
 
 ### What you need
 
@@ -355,9 +355,15 @@ Step 4 checks this, so it is fine to move on and come back if the check fails.
 
 ### Step 3 - install the project
 
+Three commands, one for each manifest the project keeps. `uv` owns every Python
+dependency, including the ones the tools under `tools/` need; `npm` owns the two
+Node manifests, which `uv` cannot manage. The documentation install is needed
+only if you build or lint the docs site.
+
 ```powershell
 uv sync --locked --extra dev
 npm --prefix .\frontend install
+npm --prefix .\docs\dj-track-similarity install
 ```
 
 `uv sync` reads `.python-version`, downloads that interpreter when the machine
@@ -442,12 +448,17 @@ optional analysis dependencies when you want the model jobs:
 uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 ```
 
+`pyproject.toml` declares five extras. `sonara`, `ml` and `rhythm-lab` carry the
+analysis stacks, `dev` the test and lint tools, and `audio-online` the two
+packages the Audio Online tool needs on top of the base install. Name the ones
+you want in a single `uv sync`. Each run installs exactly the set you name.
+
 The `sonara` extra resolves to a patched SONARA `0.3.6` wheel through
 `[tool.uv.sources]` rather than to a package index. On another machine, build
 that wheel from the SONARA sources and repoint the source entry first.
 
-Use `uv` for every install that includes the `ml` extra because `pip` does not apply
-`[tool.uv.sources]`. On Windows AMD64 with Python 3.10, `uv` selects `torch`, `torchaudio`, and
+The `ml` extra is the clearest case for the rule above: it resolves through `[tool.uv.sources]`,
+which only `uv` reads. On Windows AMD64 with Python 3.10, `uv` selects `torch`, `torchaudio`, and
 `torchvision` from the CUDA 13.0 index plus the exact TorchCodec `0.16.0+cu130` wheel. Other
 supported environments select TorchCodec `0.16.0`. The manifests and lockfile describe the tested
 environment, not a permanent ban on updates. When dependencies change, update them together and run

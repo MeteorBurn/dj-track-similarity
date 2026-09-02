@@ -6,7 +6,9 @@ You have a music folder and no database yet. By the end of this page you will ha
 Keep this first batch small. It proves the setup works before you spend hours analyzing everything,
 and it lets you hear what each search surface actually returns.
 
-These commands assume the Python environment is active.
+Run these commands from the repository root. `dj-sim` in them means the project environment:
+`run_server.cmd` activates `.venv` itself, and `uv run` reaches it for a single command, as in
+`uv run dj-sim scan ...`.
 
 ## Before you open the browser
 
@@ -14,11 +16,15 @@ The browser UI mixes Russian and English labels. Every control named on this pag
 English name, so use the [UI language glossary](../help/ui-language.md) to match a name to the
 string on screen.
 
-## 1. Install the base package
+## 1. Install the project
 
 ```powershell
-python -m pip install -e ".[dev]"
+uv sync --locked --extra dev
 ```
+
+`uv sync` is the only supported install. It reads `.python-version`, downloads that CPython build
+when the machine does not already have it, and builds `.venv` in the repository root from
+`uv.lock`.
 
 That covers scanning, serving the backend API, exporting, database operations, and reading SQLite
 analysis data you already have. New analysis jobs need the optional extras:
@@ -30,8 +36,8 @@ uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 The `sonara` extra resolves to a patched local wheel rather than to a package index. On a machine
 without that wheel, read [Install](./install.md) before running this.
 
-Use `uv` for anything involving the `ml` extra, because `pip` ignores `[tool.uv.sources]`. On
-Windows AMD64 with Python 3.10, `uv` picks the PyTorch packages from the CUDA 13.0 index.
+The `ml` extra resolves through `[tool.uv.sources]` too. On Windows AMD64 with Python 3.10, `uv`
+picks the PyTorch packages from the CUDA 13.0 index.
 
 ## 2. Create a database and scan
 
@@ -98,7 +104,7 @@ appear without rebuilding `frontend/dist`.
 To skip the prompts, run `run_server.cmd local --db .\database\volumes.sqlite`. Swap `local` for
 `lan` only when you want other devices on your local network to reach the server. Explicit mode
 commands use only the arguments you pass. The server keeps its terminal busy, so run later CLI jobs
-in a second activated terminal.
+in a second terminal.
 
 To stop that launcher-managed session cleanly, use the power button in the top bar, titled **Stop
 every server and close the tab**. It asks the backend to shut down, attempts managed Rhythm Lab

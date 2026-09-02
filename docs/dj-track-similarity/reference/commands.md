@@ -4,8 +4,9 @@ Every command-line entry point in the repository, with its arguments, ranges, an
 covers the installed `dj-sim` command, the Windows launcher, and the command-line tools and scripts
 under `tools/` and `scripts/`. It does not list tests, Python APIs, or private helpers.
 
-All examples assume the project environment is active and the current directory is the repository
-root. `PATH`, `FILE`, and `DIRECTORY` mean filesystem paths. Flags marked **required** must be
+All examples run from the repository root. `dj-sim` and `python` in them mean the project
+environment, which `uv run` reaches without activating anything, as in `uv run dj-sim scan ...`.
+`PATH`, `FILE`, and `DIRECTORY` mean filesystem paths. Flags marked **required** must be
 provided. Repeated flags may be supplied more than once. Every command accepts `--help`. The
 argparse-based tools also accept `-h`.
 

@@ -1,16 +1,18 @@
 # Install for local analysis
 
 Install only what you actually need. The project is a Python package with optional extras, plus a
-React frontend and VitePress docs. The command examples assume the environment is active.
+React frontend and VitePress docs. Run the command examples from the repository root. `dj-sim` and
+`python` in them mean the project environment, which `uv run` reaches without activating anything:
+`uv run dj-sim doctor`.
 
 ## Requirements
 
-- Python `>=3.10`.
+- `uv`. It supplies the interpreter as well as the packages: `.python-version` pins CPython
+  `3.10.20`, and `uv sync` downloads that build when the machine does not already have it.
 - FFmpeg `8.1.1` as a full shared build. Put its library directory on `PATH`, or set
   `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` to that directory.
 - Node.js and npm when building `frontend/dist` or the docs site.
 - A local audio folder for the library, with no cloud storage needed for normal workflows.
-- `uv` for every install that includes the `ml` extra.
 
 The server registers the shared runtime during startup. It requires `ffmpeg.exe` reporting `8.1.1`
 plus the complete compatible shared-library set. A missing, partial, or different runtime fails with
@@ -53,32 +55,31 @@ required library paths, and the PyAV version and module path. It fails clearly w
 PyAV or FFmpeg runtime does not match the project contract. With Torch missing it returns before the
 audio check, so run it again after installing the `ml` extra.
 
-## Create and activate an environment
-
-PowerShell example:
+## Install the project
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+uv sync --locked --extra dev
 ```
 
-After activation, use `python` and `dj-sim` directly in commands.
+`uv sync` reads `.python-version`, downloads that CPython build when the machine does not already
+have it, and builds `.venv` in the repository root from `uv.lock`. `--locked` installs the recorded
+dependency set instead of resolving a fresh one. `run_server.cmd` activates that `.venv` itself, so
+nothing has to be activated by hand. To run a single command in the environment without activating
+it, prefix it with `uv run`, as in `uv run dj-sim doctor`.
 
-## Base package
+`uv sync` is the only supported way to install. Every environment has to carry the same SQLite the
+project is developed against, and SQLite is compiled into the interpreter rather than installed
+beside it, so only the pinned interpreter supplies it.
 
-```powershell
-python -m pip install -e ".[dev]"
-```
-
-The base package installs the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI,
-Uvicorn, Joblib, PyAV `17.1.0`, and dev test tools. This is enough for scan, CLI, backend API, export, and
-database-selection paths. The typed React client is built separately with its recorded Node
-dependencies.
+That install covers the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI, Uvicorn,
+Joblib, PyAV `17.1.0`, and the dev test tools. It is enough for scan, CLI, backend API, export, and
+database-selection paths. The two Node manifests are installed separately, because `uv` cannot
+manage a Node manifest: see the frontend and docs sections below.
 
 ## Optional extras
 
-`pyproject.toml` declares four extras: `sonara`, `ml`, `rhythm-lab`, and `dev`. Install the ones you
-need:
+`pyproject.toml` declares five extras: `sonara`, `ml`, `rhythm-lab`, `audio-online`, and `dev`. Name
+the ones you want in a single `uv sync`, which installs exactly the set you name:
 
 ```powershell
 uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
@@ -89,6 +90,8 @@ uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
 - `rhythm-lab`: scikit-learn for classifier training.
+- `audio-online`: openpyxl for the Audio Online workbook, plus tomli on Python versions with no
+  `tomllib` in the standard library.
 - `dev`: pytest, ruff, and the HTTP test client.
 
 ### The `sonara` extra needs a local wheel
@@ -118,14 +121,14 @@ The `ml` extra records one mutually compatible loader stack. Installed packages 
 capabilities, checkpoints, and output shapes the adapters use, but the runtime does not reject a
 package solely because its distribution version changed.
 
-Use `uv` for this install because `pip` does not apply `[tool.uv.sources]`. On Windows AMD64 with
-Python 3.10, `uv` selects `torch`, `torchaudio`, and `torchvision` from the CUDA 13.0 index plus the
-exact TorchCodec `0.16.0+cu130` wheel and its SHA-256. Other supported environments select
-TorchCodec `0.16.0`. The CUDA package selection does not move shared audio decoding to the GPU:
-`AudioDecoder` has no device option in TorchCodec `0.16`, while `--device` controls model inference.
-The project requests mono output with `num_channels=1`, keeps `AudioSamples.data[0]` as a 1D CPU
-`torch.float32` tensor, and passes it directly to the adapters. Model-specific resampling remains in
-Torchaudio.
+The `ml` extra is the clearest case for the install rule above: it resolves through
+`[tool.uv.sources]`, which only `uv` reads. On Windows AMD64 with Python 3.10, `uv` selects `torch`,
+`torchaudio`, and `torchvision` from the CUDA 13.0 index plus the exact TorchCodec `0.16.0+cu130`
+wheel and its SHA-256. Other supported environments select TorchCodec `0.16.0`. The CUDA package
+selection does not move shared audio decoding to the GPU: `AudioDecoder` has no device option in
+TorchCodec `0.16`, while `--device` controls model inference. The project requests mono output with
+`num_channels=1`, keeps `AudioSamples.data[0]` as a 1D CPU `torch.float32` tensor, and passes it
+directly to the adapters. Model-specific resampling remains in Torchaudio.
 
 ## Build the frontend bundle
 

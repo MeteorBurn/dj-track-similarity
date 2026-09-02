@@ -13,15 +13,18 @@ python tools\audio-online\metadata_enrichment_cli.py --help
 
 ## Before the first run
 
-Install the tool-local dependencies and copy the configuration template:
+The tool runs on the project environment and has no install path of its own. Its extra dependencies
+are the `audio-online` extra in `pyproject.toml`, so install them with the same `uv sync` as
+everything else, from the repository root, then copy the configuration template:
 
 ```powershell
-python -m pip install -r tools\audio-online\requirements.txt
+uv sync --locked --extra audio-online
 Copy-Item tools\audio-online\config.example.toml tools\audio-online\config.toml
 ```
 
-`requirements.txt` asks for `openpyxl`, `mutagen`, and `tomli`. Only `mutagen` is already a project
-dependency. `tomli` matters on Python 3.10, which has no `tomllib`.
+The extra adds `openpyxl` for the workbook, plus `tomli` on Python versions with no `tomllib` in the
+standard library, which includes the pinned `3.10`. Mutagen is already a base dependency. Name every
+extra you want in one `uv sync`, because each run installs exactly the set you name.
 
 The workbook is written through a Node bridge, so `enrich` also needs Node and a `node_modules`
 directory that resolves `@oai/artifact-tool`. That package is declared in no manifest in this

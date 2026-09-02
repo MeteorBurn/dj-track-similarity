@@ -99,9 +99,9 @@ python -c "import sonara; print(sonara.__version__)"
 ```
 
 Expect `0.3.6` or newer. Version `0.3.5` installs cleanly and then fails on the first analysis,
-because it does not return the BPM range provenance that storage requires. Use `uv` rather than
-`pip` for anything including the `ml` extra, because `pip` does not apply the PyTorch source
-declared in `pyproject.toml`.
+because it does not return the BPM range provenance that storage requires. The `ml` extra resolves
+through `[tool.uv.sources]` the same way, which is one of the reasons `uv sync` is the only
+supported install.
 
 ## Classifier scoring reports success and scores nothing
 
@@ -116,13 +116,16 @@ silently. Reset the affected classifier keys yourself after a SONARA reset.
 
 ## A model adapter cannot load its dependencies
 
-Run `python -m pip check` in the same activated environment that runs `dj-sim`, then compare what is
-installed against `pyproject.toml` and `uv.lock`. Update the related packages together, so the
-adapter still gets the APIs, checkpoints, and output shapes it expects.
+Run `uv pip check` against the project `.venv`, then compare what is installed against
+`pyproject.toml` and `uv.lock`. Update the related packages together, so the adapter still gets the
+APIs, checkpoints, and output shapes it expects.
 
 ```powershell
-python -m pip check
+uv pip check
 ```
+
+`uv sync` installs no `pip` module into `.venv`, so this check runs through `uv`, which reads the
+same environment without one.
 
 Restart `dj-sim serve` and any running Rhythm Lab process after you change the environment.
 

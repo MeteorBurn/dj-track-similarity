@@ -76,7 +76,7 @@ CLI, API, storage, and model details remain available in the reference section.
 
 ## Current docs build command
 
-Run this from an activated environment with Node dependencies installed:
+Run this with the docs Node dependencies installed:
 
 ```powershell
 cd docs\dj-track-similarity

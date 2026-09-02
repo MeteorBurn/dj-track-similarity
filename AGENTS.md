@@ -23,6 +23,14 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
   interpreter delivers it. A pip environment reads neither `.python-version` nor
   `[tool.uv.sources]`, which leaves it on an older SQLite and unable to resolve
   the `ml` and `sonara` extras. Do not document or suggest a pip install path.
+- That rule covers `tools/` too. Every tool runs on the root `.venv`, and a tool
+  needing more than the base install declares an extra in `pyproject.toml`
+  rather than carrying its own requirements file: `audio-online` is the one that
+  does. No tool has a private install path.
+- Installing the whole checkout is three commands, because `uv` cannot manage a
+  Node manifest: `uv sync`, `npm --prefix ./frontend install`, and
+  `npm --prefix ./docs/dj-track-similarity install`. They stay separate on
+  purpose; there is no bootstrap script wrapping them.
 - `run_server.cmd` starts backend `127.0.0.1:8765` and Vite `127.0.0.1:5173`;
   Rhythm Lab uses `127.0.0.1:8777`. Check for an existing project process before
   claiming a fixed port.

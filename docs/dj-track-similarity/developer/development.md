@@ -5,16 +5,28 @@ it.
 
 ## Setup
 
-From a fresh Windows checkout, create the base Python environment, install the
-frontend dependencies used by the launcher, and verify the shared FFmpeg runtime:
+A fresh Windows checkout takes three installs, one per manifest the project
+keeps. `uv` owns every Python dependency, including the ones the tools under
+`tools/` need, and `npm` owns the two Node manifests, which `uv` cannot manage:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
+uv sync --locked --extra dev
 npm --prefix .\frontend install
-dj-sim doctor
+npm --prefix .\docs\dj-track-similarity install
 ```
+
+Then verify the shared FFmpeg runtime:
+
+```powershell
+uv run dj-sim doctor
+```
+
+`uv sync` is the only supported install. It reads `.python-version`, downloads
+that CPython build when the machine does not already have it, and builds `.venv`
+in the repository root from `uv.lock`. `--locked` installs the recorded
+dependency set rather than resolving a fresh one. `run_server.cmd` activates that
+`.venv` itself, and `uv run` reaches it for a single command without activating
+anything.
 
 Add the optional stack when working on model-backed analysis or Rhythm Lab:
 
@@ -22,17 +34,11 @@ Add the optional stack when working on model-backed analysis or Rhythm Lab:
 uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 ```
 
-Use `uv` for installs containing the `ml` extra because `pip` does not apply `[tool.uv.sources]`.
-On Windows AMD64 with Python 3.10, `uv` selects the PyTorch packages from the CUDA 13.0 index.
-
-`--locked` currently fails on this checkout. `uv.lock` records `provides-extras` of `ann`, `sonara`,
-`ml`, `rhythm-lab`, and `dev`, while `pyproject.toml` declares four extras with no `ann` among them.
-`--locked` verifies the lock against the manifest, so it reports that the lockfile needs updating and
-refuses to install. Drop the flag until the lock and the manifest agree again. There is no ANN
-backend in the source tree, so the extra in the lock names a dependency nothing consumes.
-
-The `dev` extra pins `pytest>=7.4` while `[dependency-groups].dev` pins `pytest>=9.1.1`, so
-`pip install -e ".[dev]"` and `uv sync` can install different pytest majors.
+`pyproject.toml` declares five extras: `sonara`, `ml`, `rhythm-lab`,
+`audio-online`, and `dev`. Each run installs exactly the set you name, so name
+every extra you want in one command. `ml` and `sonara` resolve through
+`[tool.uv.sources]`, which only `uv` reads. On Windows AMD64 with Python 3.10,
+`uv` selects the PyTorch packages from the CUDA 13.0 index.
 
 ## Ports
 

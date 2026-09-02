@@ -723,15 +723,15 @@ h2 {
    The rail keeps the column clickable at its full height, so getting back is
    one click anywhere down the strip rather than a hunt for an icon. */
 .workspace.setup-collapsed {
-  grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .workspace.library-collapsed {
-  grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr);
 }
 
 .workspace.setup-collapsed.library-collapsed {
-  grid-template-columns: 40px 40px minmax(0, 1fr);
+  grid-template-columns: 56px 56px minmax(0, 1fr);
 }
 
 .library-panel.collapsed,
@@ -760,8 +760,11 @@ h2 {
   color: var(--text-strong);
 }
 
+/* The name is the only thing a folded column says, so it is set at a size
+   that reads sideways rather than shrunk to fit the narrowest possible rail. */
 .panel-rail-label {
-  font-size: 12px;
+  color: var(--text-strong);
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.04em;
   /* Sideways, reading bottom-up, so the title survives a 40px column. */
@@ -1558,7 +1561,7 @@ h2 {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 32px);
-  max-width: min(560px, calc(100vw - 32px));
+  max-width: min(760px, calc(100vw - 32px));
   padding: 18px;
   position: relative;
   width: 100%;
@@ -1764,7 +1767,7 @@ h2 {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 32px);
-  max-width: min(560px, calc(100vw - 32px));
+  max-width: min(760px, calc(100vw - 32px));
   padding: 18px;
   position: relative;
   width: 100%;
@@ -2895,6 +2898,30 @@ h2 {
   display: grid;
   gap: 14px;
   min-width: 0;
+}
+
+/* Folding the other panels gives this one the whole row, and what should take
+   that room is not the same for every control. A prompt bank, a result list
+   and a set are text: more width is more of them visible at once, so they
+   stretch. A model picker, a limit and a mixer slider have a size at which
+   they read, and past it a wider box is only a longer distance to travel with
+   the pointer — so those stay put and the row simply ends earlier. */
+.search-filter-grid {
+  justify-content: start;
+}
+
+.search-filter-grid select,
+.search-filter-grid input {
+  max-width: 200px;
+}
+
+.search-workflow-section .sonara-search-filter-grid {
+  max-width: 520px;
+}
+
+.sonara-modifier-range,
+.sonara-mixer-range {
+  max-width: 260px;
 }
 
 .search-tab-panel-wrapper {

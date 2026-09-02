@@ -315,7 +315,7 @@ def _filter_sql(
             conditions.append(
                 """
                 t.track_id IN (
-                    SELECT CAST(track_id AS INTEGER)
+                    SELECT rowid
                     FROM track_search_fts
                     WHERE track_search_fts MATCH ?
                 )
@@ -337,7 +337,7 @@ def _filter_sql(
                     OR CAST(ft.year AS TEXT) LIKE ? ESCAPE '\\'
                     OR ft.track_number LIKE ? ESCAPE '\\'
                     OR t.track_id IN (
-                        SELECT CAST(track_id AS INTEGER)
+                        SELECT rowid
                         FROM track_search_fts
                         WHERE track_search_fts MATCH ?
                     )

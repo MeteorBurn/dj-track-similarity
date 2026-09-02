@@ -133,6 +133,48 @@ def test_classifier_score_counts_use_keys_and_count_rows_only(
     }
 
 
+def test_fts_search_reads_the_rowid_the_index_writer_stores(
+    tmp_path: Path,
+) -> None:
+    """Search resolves FTS hits through ``rowid``, not the stored column.
+
+    The index writer sets ``rowid`` and the UNINDEXED ``track_id`` column to
+    the same value, and both search modes rely on that to skip the FTS content
+    table. Pin the two halves together: whichever side moves first, this fails
+    instead of silently returning the wrong tracks.
+    """
+
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    wanted = _add_track(
+        database,
+        tmp_path / "wanted.wav",
+        title="Kollektiv Turmstrasse",
+        artist="Alpha",
+    )
+    _add_track(
+        database,
+        tmp_path / "other.wav",
+        title="Unrelated",
+        artist="Beta",
+    )
+
+    rows = database.filter_track_summaries(
+        query="Kollektiv",
+        search_mode="fts",
+    )
+
+    assert [row.track_id for row in rows] == [wanted.track_id]
+    with database.connect() as connection:
+        mismatched = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM track_search_fts
+            WHERE rowid <> CAST(track_id AS INTEGER)
+            """
+        ).fetchone()[0]
+    assert mismatched == 0
+
+
 def _add_track(
     database: LibraryDatabase,
     path: Path,

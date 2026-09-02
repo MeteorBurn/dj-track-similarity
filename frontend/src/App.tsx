@@ -1520,22 +1520,44 @@ export function App() {
       setNotice({ kind: "error", text: `Введите текстовый запрос для ${familyLabel(textEmbeddingFamily)}` });
       return;
     }
-    const manualQueries = promptQueriesFromText(prompt, textNegativeQuery, textUseNegativePrompt);
-    const positiveQueries = manualQueries.positiveQueries;
-    const negativeQueries = manualQueries.negativeQueries;
-    // Both models read the same words. Per-model wording exists in the
-    // vocabulary, but sending each its own variant would compare two prompts
-    // rather than two models, which is the one thing this mode must not do.
     const families: TextEmbeddingFamily[] = textCompareModels
       ? ["mulan", "clap"]
       : [textEmbeddingFamily];
+    // Each model reads its own wording. There is no neutral text to compare on:
+    // the vocabulary carries per-model variants precisely because the two towers
+    // were trained on different language, so one shared bank would test whichever
+    // model it was not written for on prose that suits it worse. What ships is a
+    // model together with its own bank, and that is the pair worth comparing.
+    //
+    // A hand-edited field is the exception: once the text stops matching what the
+    // selection composes, it is the question being asked, and both models get it.
+    const composedForTab = selectedPresetKeys.length
+      ? composePromptBanks(selectedPresetKeys, textEmbeddingFamily)
+      : null;
+    const bankIsUnedited =
+      composedForTab !== null
+      && composedForTab.positiveText === textQuery
+      && composedForTab.negativeText === textNegativeQuery;
+    const queriesFor = (family: TextEmbeddingFamily) => {
+      if (!bankIsUnedited || family === textEmbeddingFamily) {
+        return promptQueriesFromText(prompt, textNegativeQuery, textUseNegativePrompt);
+      }
+      const banks = composePromptBanks(selectedPresetKeys, family);
+      return promptQueriesFromText(banks.positiveText, banks.negativeText, textUseNegativePrompt);
+    };
+    const weightFor = (family: TextEmbeddingFamily) =>
+      bankIsUnedited && family !== textEmbeddingFamily
+        ? composePromptBanks(selectedPresetKeys, family).negativeWeight
+        : promptNegativeWeight;
     const label = textCompareModels ? "A/B" : familyLabel(textEmbeddingFamily);
     const ticket = beginGenericSearchRequest();
-    appendActivity("info", `${label} search запущен`, negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
+    appendActivity("info", `${label} search запущен`, prompt);
     try {
       const columns: TextComparisonColumn[] = [];
       for (const family of families) {
         const presetBanks = presetBanksFor(family);
+        const { positiveQueries, negativeQueries } = queriesFor(family);
+        const familyNegativeWeight = weightFor(family);
         const value = await api.textSearch({
           analysis_family: family,
           positive_queries: positiveQueries,
@@ -1544,8 +1566,8 @@ export function App() {
           ...(textUseFeedback && !textCompareModels && presetBanks.length
             ? { use_feedback: true }
             : {}),
-          ...(negativeQueries.length && promptNegativeWeight !== null
-            ? { negative_weight: promptNegativeWeight }
+          ...(negativeQueries.length && familyNegativeWeight !== null
+            ? { negative_weight: familyNegativeWeight }
             : {}),
           limit: filters.limit,
           device: analysisDevice

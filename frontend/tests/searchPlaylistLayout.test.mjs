@@ -118,11 +118,16 @@ test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", as
 
 test("PROMPT tab compares the two text models over one bank without merging them", () => {
   // Rank fusion was measured and rejected, so A/B keeps two orders apart and
-  // lets the ear decide. Both models read the same words: sending each its own
-  // wording would compare two prompts rather than two models.
+  // lets the ear decide. Each model reads its own variant of the bank: the
+  // vocabulary carries per-model wording because the two towers were trained on
+  // different language, so a single shared text would test one of them on prose
+  // written for the other. What ships is a model with its own bank.
   assert.match(appSource, /textCompareModels/);
   assert.match(appSource, /\["mulan", "clap"\]/);
   assert.match(appSource, /const families: TextEmbeddingFamily\[\]/);
+  assert.match(appSource, /composePromptBanks\(selectedPresetKeys, family\)/);
+  // A hand-edited field is the question being asked, so it goes to both as is.
+  assert.match(appSource, /bankIsUnedited/);
   // The first column also feeds the shared result list, so preview and the set
   // keep working off one source in both modes.
   assert.match(appSource, /commitGenericSearchResults\(ticket, "text", columns\[0\]\.results\)/);

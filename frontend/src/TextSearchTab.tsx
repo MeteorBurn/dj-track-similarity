@@ -527,15 +527,16 @@ export function TextSearchTab({
         </div>
       </div>
       {/* Which model ranks a label best is not written down anywhere: it is
-          decided by running both against the same bank and keeping what the ear
-          kept. This is that run, and it is opt-in — two searches and two sets
+          decided by running both and keeping what the ear kept. Each reads its
+          own variant of the bank, because that is the pair that ships and there
+          is no neutral wording to compare on. Opt-in: two searches and two sets
           of weights resident are a price for settling a model, not for finding
           a track. */}
       <button
         className={`text-compare-toggle ${textCompareModels ? "active" : ""}`}
         role="switch"
         aria-checked={textCompareModels}
-        title="Искать обеими моделями по одному и тому же банку и показать две выдачи рядом. Тексты не различаются: иначе сравнивались бы промпты, а не модели."
+        title="Искать обеими моделями и показать две выдачи рядом. Каждая получает свой вариант банка — тот, что отгружается при её выборе. Правка банка руками уходит в обе колонки как есть."
         onClick={() => onTextCompareModelsChange(!textCompareModels)}
         type="button"
       >

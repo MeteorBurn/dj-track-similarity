@@ -6,6 +6,7 @@ import {
   AnalysisModel,
   AnalysisPipelineStatus,
   api,
+  DatabaseOptimizationJobStatus,
   DatabaseValidationJobStatus,
   EmbeddingSource,
   GenreTagJobStatus,
@@ -37,7 +38,9 @@ import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
-import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
+import { analysisJobRequest, cancelAnalysisJob, formatMegabytes, optimizationPhaseLabel, scanSummary, stageIndicatorLabel } from "./jobUi";
+import type { ProcessLogKind } from "./jobUi";
+import { basename } from "./trackDisplay";
 import { LibraryPanel } from "./LibraryPanel";
 import { MLAnalysisSettingsDialog } from "./MLAnalysisSettingsDialog";
 import { writePreviewPosition } from "./previewPosition";
@@ -208,8 +211,9 @@ export function App() {
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
   const [databaseValidationJob, setDatabaseValidationJob] = useState<DatabaseValidationJobStatus | null>(null);
+  const [databaseOptimizationJob, setDatabaseOptimizationJob] = useState<DatabaseOptimizationJobStatus | null>(null);
   const [rhythmLabStatus, setRhythmLabStatus] = useState<RhythmLabStatus | null>(null);
-  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "database_validation">("scan");
+  const [processLogKind, setProcessLogKind] = useState<ProcessLogKind>("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(8);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(16);
@@ -230,6 +234,8 @@ export function App() {
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
+  // One optimization prompt per finished validation, however many polls observe it.
+  const optimizationPromptedForJob = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [serverShutdownAccepted, setServerShutdownAccepted] = useState(false);
   const [libraryPlaybackShuffle, setLibraryPlaybackShuffle] = useState(false);
@@ -334,15 +340,16 @@ export function App() {
   );
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const databaseValidationRunning = Boolean(databaseValidationJob && ["queued", "running"].includes(databaseValidationJob.state));
-  const stageRunning = scanImportStartToast || scanRunning || analysisRunning || genreTagRunning || databaseValidationRunning;
+  const databaseOptimizationRunning = Boolean(databaseOptimizationJob && ["queued", "running"].includes(databaseOptimizationJob.state));
+  const stageRunning = scanImportStartToast || scanRunning || analysisRunning || genreTagRunning || databaseValidationRunning || databaseOptimizationRunning;
   const rhythmLabRunning = Boolean(rhythmLabStatus?.running);
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
       || (analysisJob?.events || []).some((event) => event.level === "error")
       || (genreTagJob?.events || []).some((event) => event.level === "error");
-    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length) || Boolean(databaseValidationJob?.errors);
-  }, [activityLog, analysisJob, databaseValidationJob, genreTagJob, scanJob]);
+    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length) || Boolean(databaseValidationJob?.errors) || Boolean(databaseOptimizationJob?.error);
+  }, [activityLog, analysisJob, databaseOptimizationJob, databaseValidationJob, genreTagJob, scanJob]);
   // The library reports the one BPM range it analyses SONARA with. Once an
   // analysis job has claimed it, the range is fixed until that analysis is
   // reset or the library is cleared.
@@ -505,10 +512,30 @@ export function App() {
         const detail = `${job.checked} проверено · предупреждений ${job.warnings} · ошибок ${job.errors}`;
         const prefix = job.state === "completed" ? "Проверка БД завершена" : job.state === "cancelled" ? "Проверка БД отменена" : "Проверка БД";
         setNotice({ kind: job.errors ? "error" : "ok", text: `${prefix}: ${detail}` });
+        promptDatabaseOptimization(job);
       }).catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) }));
     }, 1000);
     return () => window.clearInterval(timer);
   }, [databaseValidationJob?.job_id, databaseValidationJob?.state]);
+
+  useEffect(() => {
+    if (!databaseOptimizationJob || !["queued", "running"].includes(databaseOptimizationJob.state)) return;
+    const timer = window.setInterval(() => {
+      void api.databaseOptimizationJob(databaseOptimizationJob.job_id).then((job) => {
+        setDatabaseOptimizationJob(job);
+        if (job.state === "completed") {
+          setNotice({ kind: "ok", text: `Оптимизация БД завершена: ${formatMegabytes(job.size_before)} → ${formatMegabytes(job.size_after)}` });
+          appendActivity("ok", "Оптимизация БД завершена", job.files.map((file) => basename(file.backup_path)).join(", "));
+          void refreshLibrarySummary();
+        } else if (job.state === "failed") {
+          setNotice({ kind: "error", text: `Оптимизация БД не удалась: ${job.error ?? "ошибка"}` });
+        } else {
+          setNotice({ kind: "ok", text: `Оптимизация БД: ${optimizationPhaseLabel(job)}` });
+        }
+      }).catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) }));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [databaseOptimizationJob?.job_id, databaseOptimizationJob?.state]);
 
   useEffect(() => {
     if (!analysisPipelineJob || !["queued", "running"].includes(analysisPipelineJob.state)) return;
@@ -626,6 +653,12 @@ export function App() {
         if (job) {
           setDatabaseValidationJob(job);
           if (["queued", "running"].includes(job.state)) setProcessLogKind("database_validation");
+        }
+      }).catch(() => undefined),
+      api.latestDatabaseOptimizationJob().then((job) => {
+        if (job) {
+          setDatabaseOptimizationJob(job);
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("database_optimization");
         }
       }).catch(() => undefined)
     ]);
@@ -1332,6 +1365,33 @@ export function App() {
     );
   }
 
+  async function handleOptimizeDatabase() {
+    await run(
+      () => api.startDatabaseOptimization(),
+      (job) => {
+        setDatabaseOptimizationJob(job);
+        setProcessLogKind("database_optimization");
+        return "Оптимизация БД запущена";
+      },
+    );
+  }
+
+  function promptDatabaseOptimization(job: DatabaseValidationJobStatus) {
+    // Only a clean validation earns the prompt: VACUUM must not run over a
+    // library whose rows just failed their contracts.
+    if (job.state !== "completed" || job.errors > 0) return;
+    if (optimizationPromptedForJob.current === job.job_id) return;
+    optimizationPromptedForJob.current = job.job_id;
+    requestConfirmation({
+      title: "Оптимизировать базу данных?",
+      message:
+        `Проверка завершена без ошибок: ${job.checked} проверок, предупреждений ${job.warnings}. ` +
+        "Будет создана проверенная резервная копия рядом с базой, затем выполнены VACUUM и ANALYZE. " +
+        "На большой базе это занимает несколько минут; запись в базу на это время приостанавливается.",
+      onConfirm: () => handleOptimizeDatabase(),
+    });
+  }
+
   async function handleClearDatabase() {
     appendActivity("warn", "Очистка базы запущена", "Удаляем только данные SQLite, аудиофайлы не трогаем");
     await run(
@@ -1693,7 +1753,7 @@ export function App() {
           >
             <Square size={15} />
           </button>
-          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob)}>
+          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob)}>
             <RefreshCcw size={17} />
           </span>
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
@@ -1949,6 +2009,7 @@ export function App() {
           analysisJob={analysisJob}
           genreTagJob={genreTagJob}
           databaseValidationJob={databaseValidationJob}
+          databaseOptimizationJob={databaseOptimizationJob}
           activityLog={activityLog}
           onClose={() => setLogFrameOpen(false)}
         />

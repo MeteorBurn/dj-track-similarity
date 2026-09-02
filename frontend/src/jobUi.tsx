@@ -1,4 +1,4 @@
-import { AnalysisJobStatus, AnalysisModel, api, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, DatabaseOptimizationJobStatus, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { basename, formatEta } from "./trackDisplay";
 
 const ACTIVE_JOB_STATES = ["queued", "running"] as const;
@@ -30,24 +30,28 @@ type UnifiedLogEvent = {
   detail?: string;
 };
 
+export type ProcessLogKind = "scan" | "analysis" | "genre_tags" | "database_validation" | "database_optimization";
+
 export function UnifiedLog({
   processKind,
   scanJob,
   analysisJob,
   genreTagJob,
   databaseValidationJob,
+  databaseOptimizationJob = null,
   events,
   className = ""
 }: {
-  processKind: "scan" | "analysis" | "genre_tags" | "database_validation";
+  processKind: ProcessLogKind;
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
   databaseValidationJob: DatabaseValidationJobStatus | null;
+  databaseOptimizationJob?: DatabaseOptimizationJobStatus | null;
   events: ActivityEvent[];
   className?: string;
 }) {
-  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, databaseValidationJob, events);
+  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, databaseValidationJob, databaseOptimizationJob, events);
   return (
     <section className={`log-panel ${className}`.trim()}>
       <div className="log-title">
@@ -55,7 +59,7 @@ export function UnifiedLog({
         <span>{mergedEvents.length}</span>
       </div>
       <div className="log-body">
-        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} databaseValidationJob={databaseValidationJob} />
+        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} databaseValidationJob={databaseValidationJob} databaseOptimizationJob={databaseOptimizationJob} />
         <UnifiedEventList events={mergedEvents} />
       </div>
     </section>
@@ -67,14 +71,17 @@ function ProcessStatus({
   scanJob,
   analysisJob,
   genreTagJob,
-  databaseValidationJob
+  databaseValidationJob,
+  databaseOptimizationJob
 }: {
-  kind: "scan" | "analysis" | "genre_tags" | "database_validation";
+  kind: ProcessLogKind;
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
   databaseValidationJob: DatabaseValidationJobStatus | null;
+  databaseOptimizationJob: DatabaseOptimizationJobStatus | null;
 }) {
+  if (kind === "database_optimization") return <DatabaseOptimizationProcessStatus job={databaseOptimizationJob} />;
   if (kind === "database_validation") return <DatabaseValidationProcessStatus job={databaseValidationJob} />;
   if (kind === "genre_tags") {
     return <GenreTagProcessStatus job={genreTagJob} />;
@@ -90,6 +97,7 @@ function unifiedLogEvents(
   analysisJob: AnalysisJobStatus | null,
   genreTagJob: GenreTagJobStatus | null,
   databaseValidationJob: DatabaseValidationJobStatus | null,
+  databaseOptimizationJob: DatabaseOptimizationJobStatus | null,
   activityEvents: ActivityEvent[]
 ) {
   const uiEvents = transformUiEvents(activityEvents);
@@ -100,7 +108,8 @@ function unifiedLogEvents(
   });
   const genreTagEvents = transformJobEvents("genre tags", genreTagJob?.events || [], { idPrefix: "genre-tags" });
   const validationEvents = transformJobEvents("validation", databaseValidationJob?.events || [], { idPrefix: "validation" });
-  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, MAX_LOG_EVENTS);
+  const optimizationEvents = transformJobEvents("optimization", databaseOptimizationJob?.events || [], { idPrefix: "optimization" });
+  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents, ...optimizationEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, MAX_LOG_EVENTS);
 }
 
 type JobEvent = { timestamp: number; level: string; message: string; path?: string | null };
@@ -204,6 +213,7 @@ function UnifiedEventList({ events }: { events: UnifiedLogEvent[] }) {
 
 function sourceLabel(source: string) {
   if (source === "validation") return "validation";
+  if (source === "optimization") return "optimization";
   if (source === "scan") return "scan";
   if (source === "analysis") return "analysis";
   if (source === "genre tags") return "genre tags";
@@ -244,6 +254,50 @@ function DatabaseValidationProcessStatus({ job }: { job: DatabaseValidationJobSt
   );
 }
 
+const OPTIMIZATION_PHASE_LABELS: Record<string, string> = {
+  inspect: "Проверка целостности",
+  backup: "Резервная копия",
+  optimize: "VACUUM и ANALYZE",
+  verify: "Проверка после оптимизации"
+};
+
+export function formatMegabytes(bytes: number | null | undefined) {
+  return bytes == null ? "—" : `${(bytes / 1048576).toFixed(1)} МБ`;
+}
+
+export function optimizationPhaseLabel(job: DatabaseOptimizationJobStatus) {
+  if (job.state === "completed") return "Готово";
+  if (job.state === "failed") return "Ошибка";
+  if (job.state === "queued") return "В очереди";
+  return job.phase ? OPTIMIZATION_PHASE_LABELS[job.phase] ?? job.phase : "Запуск";
+}
+
+function DatabaseOptimizationProcessStatus({ job }: { job: DatabaseOptimizationJobStatus | null }) {
+  if (!job) return <div className="process-box">Оптимизация БД не запущена</div>;
+  const running = isJobActive(job.state);
+  return (
+    <div className="process-box">
+      <div className="process-head">
+        <strong>{job.state}</strong>
+        <span>{job.phase_index}/{job.phase_count} · {optimizationPhaseLabel(job)}</span>
+      </div>
+      <progress max={job.phase_count || 1} value={job.phase_index} />
+      <div className="process-grid">
+        <span>до {formatMegabytes(job.size_before)}</span>
+        <span>после {formatMegabytes(job.size_after)}</span>
+        <span>{job.files.length ? `бэкапов ${job.files.length}` : running ? "бэкап ещё не создан" : "бэкапов нет"}</span>
+      </div>
+      {running && <span className="analysis-current">Сейчас: {optimizationPhaseLabel(job)}</span>}
+      {job.files.map((file) => (
+        <span className="analysis-muted" key={file.role}>
+          {file.role}: {basename(file.backup_path)}{file.checkpoint === "incomplete" ? " · checkpoint не завершён" : ""}
+        </span>
+      ))}
+      {job.error && <span className="analysis-error">{job.error}</span>}
+    </div>
+  );
+}
+
 export function scanSummary(job: ScanStats) {
   return `+${job.added || 0} · обновлено ${job.updated || 0} · без изменений ${job.unchanged || 0} · ошибок ${job.failed || 0}`;
 }
@@ -252,7 +306,9 @@ export function stageIndicatorLabel(
   scanJob: ScanStats | null,
   analysisJob: AnalysisJobStatus | null,
   genreTagJob?: GenreTagJobStatus | null,
+  databaseOptimizationJob?: DatabaseOptimizationJobStatus | null,
 ) {
+  if (databaseOptimizationJob && ["queued", "running"].includes(databaseOptimizationJob.state)) return "Идет оптимизация БД";
   if (scanJob?.state && ["queued", "running"].includes(scanJob.state)) return "Идет сканирование";
   if (analysisJob?.state === "running" && analysisJob.phase === "warmup") return "Прогрев моделей";
   if (analysisJob && ["queued", "running"].includes(analysisJob.state)) return "Идет анализ";

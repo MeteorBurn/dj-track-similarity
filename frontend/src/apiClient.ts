@@ -13,6 +13,7 @@ import type {
   AudioDedupScanRequest,
   ClassifierResetResult,
   DatabaseClearResult,
+  DatabaseOptimizationJobStatus,
   DatabaseSelection,
   DatabaseValidationJobStatus,
   EmbeddingRandomTrackPayload,
@@ -254,6 +255,9 @@ const libraryApi = {
       method: "POST",
       body: JSON.stringify({})
     }),
+  startDatabaseOptimization: () => request<DatabaseOptimizationJobStatus>("/api/database/optimization/jobs", { method: "POST", body: JSON.stringify({}) }),
+  databaseOptimizationJob: (jobId: string) => request<DatabaseOptimizationJobStatus>(`/api/database/optimization/jobs/${jobId}`),
+  latestDatabaseOptimizationJob: () => request<DatabaseOptimizationJobStatus | null>("/api/database/optimization/jobs/latest"),
   startDatabaseValidation: () => request<DatabaseValidationJobStatus>("/api/database/validation/jobs", { method: "POST", body: JSON.stringify({}) }),
   databaseValidationJob: (jobId: string) => request<DatabaseValidationJobStatus>(`/api/database/validation/jobs/${jobId}`),
   latestDatabaseValidationJob: () => request<DatabaseValidationJobStatus | null>("/api/database/validation/jobs/latest"),

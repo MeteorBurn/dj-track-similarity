@@ -482,6 +482,30 @@ export type DatabaseValidationJobStatus = {
   events: Array<{ timestamp: number; level: string; message: string; table?: string | null; track_id?: number | null; path?: string | null }>;
 };
 
+export type DatabaseOptimizationJobStatus = {
+  job_id: string;
+  state: "queued" | "running" | "completed" | "failed";
+  phase?: string | null;
+  phase_index: number;
+  phase_count: number;
+  database_kind?: string | null;
+  size_before?: number | null;
+  size_after?: number | null;
+  files: Array<{
+    role: string;
+    path: string;
+    backup_path: string;
+    journal_mode: string;
+    size_before: number;
+    size_after: number;
+    checkpoint?: string | null;
+  }>;
+  error?: string | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  events: Array<{ timestamp: number; level: string; message: string; path?: string | null }>;
+};
+
 export type RhythmLabSourceBinding = {
   catalog_uuid: string;
   database_path: string;

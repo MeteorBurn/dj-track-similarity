@@ -12,6 +12,7 @@ from .analysis_queue import AnalysisStageQueue
 from .audio_dedup_jobs import AudioDedupJobManager
 from .classifier_jobs import ClassifierJobManager
 from .database import LibraryDatabase
+from .database_optimization_jobs import DatabaseOptimizationJobManager
 from .database_validation_jobs import DatabaseValidationJobManager
 from .scan_jobs import ScanJobManager
 from .tags import GenreTagJobManager
@@ -43,6 +44,7 @@ class AppDatabaseState:
         self.scan_jobs: ScanJobManager | None = None
         self.genre_tag_jobs: GenreTagJobManager | None = None
         self.database_validation_jobs: DatabaseValidationJobManager | None = None
+        self.database_optimization_jobs: DatabaseOptimizationJobManager | None = None
         self.audio_dedup_jobs: AudioDedupJobManager | None = None
         if db_path is not None:
             self.switch(db_path)
@@ -90,6 +92,7 @@ class AppDatabaseState:
             scan_jobs = ScanJobManager(db)
             genre_tag_jobs = GenreTagJobManager(db)
             database_validation_jobs = DatabaseValidationJobManager(str(db.path))
+            database_optimization_jobs = DatabaseOptimizationJobManager(db.path)
             audio_dedup_jobs = AudioDedupJobManager(db)
 
             self.db_path = db.path
@@ -101,6 +104,7 @@ class AppDatabaseState:
             self.scan_jobs = scan_jobs
             self.genre_tag_jobs = genre_tag_jobs
             self.database_validation_jobs = database_validation_jobs
+            self.database_optimization_jobs = database_optimization_jobs
             self.audio_dedup_jobs = audio_dedup_jobs
             return self.current()
 
@@ -194,6 +198,11 @@ class AppDatabaseState:
         assert self.database_validation_jobs is not None
         return self.database_validation_jobs
 
+    def require_database_optimization_jobs(self) -> DatabaseOptimizationJobManager:
+        self._require_jobs_available()
+        assert self.database_optimization_jobs is not None
+        return self.database_optimization_jobs
+
     def require_audio_dedup_jobs(self) -> AudioDedupJobManager:
         self._require_jobs_available()
         assert self.audio_dedup_jobs is not None
@@ -207,6 +216,7 @@ class AppDatabaseState:
             self.scan_jobs,
             self.genre_tag_jobs,
             self.database_validation_jobs,
+            self.database_optimization_jobs,
             self.audio_dedup_jobs,
         ]
         for manager in managers:

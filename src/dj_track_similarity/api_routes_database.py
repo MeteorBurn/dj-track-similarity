@@ -68,3 +68,25 @@ def register_database_routes(
             return state.require_database_validation_jobs().cancel(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/database/optimization/jobs")
+    def start_optimization():
+        # VACUUM rewrites the whole file, so the job starts only on an idle
+        # database; the job itself then holds the write lock for its duration.
+        try:
+            with state.job_start():
+                state.require_idle_db("optimize the database")
+                return state.require_database_optimization_jobs().start()
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.get("/api/database/optimization/jobs/latest")
+    def latest_optimization():
+        return state.require_database_optimization_jobs().latest()
+
+    @app.get("/api/database/optimization/jobs/{job_id}")
+    def optimization_job(job_id: str):
+        try:
+            return state.require_database_optimization_jobs().get(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error

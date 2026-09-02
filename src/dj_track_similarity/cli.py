@@ -778,9 +778,22 @@ def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db"))
 
 @app.command("validate-database")
 def validate_database(db_path: Path = typer.Option(..., "--db"), report: Path | None = typer.Option(None, "--report")) -> None:
+    def echo_finding(item) -> None:
+        typer.echo(format_validation_finding(item))
+
+    def echo_track(track) -> None:
+        for finding in track.findings:
+            echo_finding(finding)
+
     try:
-        result = DatabaseValidator(db_path).run(lambda item: typer.echo(format_validation_finding(item)))
-        payload = {"status": result.status, "checked": result.checked, "warnings": result.warning_count, "errors": result.error_count}
+        result = DatabaseValidator(db_path).run(echo_finding, on_track=echo_track)
+        payload = {
+            "status": result.status,
+            "tracks": result.tracks_checked,
+            "checked": result.checked,
+            "warnings": result.warning_count,
+            "errors": result.error_count,
+        }
         if report is not None:
             _write_json_report(report, payload)
         typer.echo(json.dumps(payload, ensure_ascii=False))

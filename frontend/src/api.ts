@@ -465,10 +465,17 @@ export type DatabaseSelection = {
 export type DatabaseValidationJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  total: number;
+  processed: number;
+  valid: number;
+  warned: number;
+  failed: number;
   checked: number;
   warnings: number;
   errors: number;
   current_entity?: string | null;
+  current_path?: string | null;
+  avg_seconds_per_track?: number | null;
   cancel_requested: boolean;
   failures: Array<{ level: string; code: string; message: string; table?: string | null; track_id?: number | null; path?: string | null }>;
   failures_omitted: number;

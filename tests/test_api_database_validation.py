@@ -33,11 +33,17 @@ def test_validation_job_api_exposes_completed_job_and_its_ui_events(
     assert started.status_code == 200
     payload = started.json()
     assert payload["state"] == "completed"
-    assert payload["checked"] >= 1
     assert any(event["level"] == "ok" for event in payload["events"])
     assert payload["failures"][0]["code"] == "track_path_missing"
     assert payload["failures"][0]["track_id"] == 1
     assert payload["failures_omitted"] == 0
+    # Progress is counted in tracks, and each track reaches the log exactly once.
+    assert (payload["total"], payload["processed"]) == (1, 1)
+    assert (payload["valid"], payload["warned"], payload["failed"]) == (0, 1, 0)
+    track_events = [event for event in payload["events"] if event["track_id"] == 1]
+    assert [(event["level"], event["message"]) for event in track_events] == [
+        ("warn", "Track warning: stored file path does not exist")
+    ]
 
     latest = client.get("/api/database/validation/jobs/latest")
 

@@ -99,10 +99,7 @@ function unifiedLogEvents(
     filterFn: (event) => !isPerClassifierAnalysisEvent(event.message)
   });
   const genreTagEvents = transformJobEvents("genre tags", genreTagJob?.events || [], { idPrefix: "genre-tags" });
-  const validationEvents = transformJobEvents("validation", databaseValidationJob?.events || [], {
-    idPrefix: "validation",
-    formatDetail: (event) => event.path || undefined
-  });
+  const validationEvents = transformJobEvents("validation", databaseValidationJob?.events || [], { idPrefix: "validation" });
   return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, MAX_LOG_EVENTS);
 }
 
@@ -111,7 +108,7 @@ type JobEvent = { timestamp: number; level: string; message: string; path?: stri
 function transformJobEvents(
   source: string,
   events: JobEvent[],
-  options: { idPrefix: string; filterFn?: (event: JobEvent) => boolean; formatDetail?: (event: JobEvent) => string | undefined }
+  options: { idPrefix: string; filterFn?: (event: JobEvent) => boolean }
 ): UnifiedLogEvent[] {
   const filtered = options.filterFn ? events.filter(options.filterFn) : events;
   return filtered.map((event, index) => ({
@@ -120,7 +117,7 @@ function transformJobEvents(
     level: event.level as ActivityEvent["level"],
     source,
     message: event.message,
-    detail: options.formatDetail ? options.formatDetail(event) : event.path ? basename(event.path) : undefined
+    detail: event.path ? basename(event.path) : undefined
   }));
 }
 
@@ -215,13 +212,26 @@ function sourceLabel(source: string) {
 
 function DatabaseValidationProcessStatus({ job }: { job: DatabaseValidationJobStatus | null }) {
   if (!job) return <div className="process-box">Проверка БД не запущена</div>;
+  const percent = calculateProgressPercent(job.processed, job.total);
+  const running = isJobActive(job.state);
+  const etaSeconds = calculateEta(running, job.avg_seconds_per_track, job.total, job.processed);
   const shown = job.failures.slice(0, MAX_VALIDATION_FAILURES_SHOWN);
   const hidden = job.failures.length - shown.length + job.failures_omitted;
   return (
     <div className="process-box">
-      <div className="process-head"><strong>{job.state}</strong><span>{job.checked} проверено</span></div>
-      <div className="process-grid"><span>warn {job.warnings}</span><span>error {job.errors}</span></div>
-      {job.current_entity && <span className="analysis-current">Сейчас: {job.current_entity}</span>}
+      <div className="process-head">
+        <strong>{job.state}</strong>
+        <span>{job.processed}/{job.total} · {percent}%</span>
+      </div>
+      <progress max={job.total || 1} value={job.processed} />
+      <div className="process-grid">
+        <span>ok {job.valid}</span>
+        <span>warn {job.warned}</span>
+        <span>fail {job.failed}</span>
+        <span>{job.checked} проверок</span>
+      </div>
+      {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(3)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
+      {job.current_path ? <span className="analysis-current">Сейчас: {basename(job.current_path)}</span> : job.current_entity ? <span className="analysis-current">Сейчас: {job.current_entity}</span> : null}
       {shown.map((failure, index) => (
         <span className="analysis-error" key={`${failure.code}-${failure.track_id ?? index}`}>
           {failure.message}

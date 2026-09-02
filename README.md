@@ -386,15 +386,7 @@ and the PyAV binding. When FFmpeg is missing or its version is refused, the
 error names every directory that was examined and why each one was rejected,
 which is usually enough to see what to correct in step 2.
 
-> **`uv sync` is the only supported way to install.** Every environment the
-> project runs in has to carry the same SQLite as the one it is developed
-> against, and SQLite is compiled into the interpreter rather than installed
-> beside it. `uv` is what supplies the pinned interpreter, so it is what
-> supplies the right SQLite. A `python -m venv` plus `pip install` environment
-> reads neither `.python-version` nor `[tool.uv.sources]`: it takes whichever
-> Python you installed yourself, which on Windows stops at `3.10.11` and an
-> SQLite several years behind, and it cannot resolve the `ml` or `sonara`
-> extras at all. Use `uv sync`.
+> **`uv sync` is the only supported way to install.**
 
 ### First run
 

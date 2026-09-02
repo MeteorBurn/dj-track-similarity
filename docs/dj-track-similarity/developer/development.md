@@ -21,9 +21,9 @@ Then verify the shared FFmpeg runtime:
 uv run dj-sim doctor
 ```
 
-`uv sync` is the only supported install. It reads `.python-version`, downloads
-that CPython build when the machine does not already have it, and builds `.venv`
-in the repository root from `uv.lock`. `--locked` installs the recorded
+`uv sync` reads `.python-version`, downloads that CPython build when the machine
+does not already have it, and builds `.venv` in the repository root from
+`uv.lock`. `--locked` installs the recorded
 dependency set rather than resolving a fresh one. `run_server.cmd` activates that
 `.venv` itself, and `uv run` reaches it for a single command without activating
 anything.

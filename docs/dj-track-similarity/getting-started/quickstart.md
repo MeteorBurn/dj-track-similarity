@@ -22,9 +22,8 @@ string on screen.
 uv sync --locked --extra dev
 ```
 
-`uv sync` is the only supported install. It reads `.python-version`, downloads that CPython build
-when the machine does not already have it, and builds `.venv` in the repository root from
-`uv.lock`.
+`uv sync` reads `.python-version`, downloads that CPython build when the machine does not already
+have it, and builds `.venv` in the repository root from `uv.lock`.
 
 That covers scanning, serving the backend API, exporting, database operations, and reading SQLite
 analysis data you already have. New analysis jobs need the optional extras:

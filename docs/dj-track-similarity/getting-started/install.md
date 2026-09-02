@@ -67,9 +67,7 @@ dependency set instead of resolving a fresh one. `run_server.cmd` activates that
 nothing has to be activated by hand. To run a single command in the environment without activating
 it, prefix it with `uv run`, as in `uv run dj-sim doctor`.
 
-`uv sync` is the only supported way to install. Every environment has to carry the same SQLite the
-project is developed against, and SQLite is compiled into the interpreter rather than installed
-beside it, so only the pinned interpreter supplies it.
+`uv sync` is the only supported way to install.
 
 That install covers the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI, Uvicorn,
 Joblib, PyAV `17.1.0`, and the dev test tools. It is enough for scan, CLI, backend API, export, and

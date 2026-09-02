@@ -753,6 +753,54 @@ h2 {
   max-width: 1880px;
 }
 
+/* Collapsing the setup panel hands its third of the row to the library and the
+   search, which is what the screen is for once analysis is running or done.
+   The rail keeps the column clickable at its full height, so getting back is
+   one click anywhere down the strip rather than a hunt for an icon. */
+.workspace.setup-collapsed {
+  grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.library-panel.collapsed {
+  padding: 8px 4px;
+}
+
+.library-panel-rail {
+  align-items: center;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+  transition: background 140ms ease, color 140ms ease;
+  width: 100%;
+}
+
+.library-panel-rail:hover {
+  background: var(--surface-muted);
+  color: var(--text-strong);
+}
+
+.library-panel-rail-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  /* Sideways, reading bottom-up, so the title survives a 40px column. */
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+}
+
+/* Pushed to the end of the title row, away from the panel's own name. */
+.panel-collapse-button {
+  margin-left: auto;
+}
+
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -777,14 +825,22 @@ h2 {
 }
 
 /* Only the stage sections scroll, and only when the window is too short for
-   them. Their height is set by the stage list, so the bar comes and goes on a
-   resize and nowhere else - nothing to reserve a gutter against. */
+   them. The bar itself is hidden: it appeared and vanished on a resize, took
+   fifteen pixels off a column that is already the narrowest thing on screen,
+   and pointed at nothing the panel's own layout does not already show. The
+   wheel and the keyboard still reach every section. */
 .library-panel-body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.library-panel-body::-webkit-scrollbar {
+  height: 0;
+  width: 0;
 }
 
 .panel-title,
@@ -1112,8 +1168,14 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 42px;
 }
 
+/* The stage cards below carry an 8px pad inside a 1px border, so their content
+   starts nine pixels in from the panel. The database row has neither, and its
+   field and button sat nine pixels wider on each side than everything under
+   them. The inset lines the controls up with the cards instead of with the
+   panel edge. */
 .database-path-row {
   grid-template-columns: minmax(0, 1fr) 34px;
+  padding: 0 9px;
 }
 
 .database-path-row .icon-button,

@@ -1,4 +1,4 @@
-import { CopyCheck, Database, FlaskConical, FolderOpen, Minus, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2, Zap } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, CopyCheck, Database, FlaskConical, FolderOpen, Minus, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2, Zap } from "lucide-react";
 import { AnalysisModel } from "./api";
 import { mlAnalysisModelOrder, type AnalysisSelection, type StageSelection } from "./analysisSelection";
 
@@ -31,6 +31,8 @@ type StageAction = {
 };
 
 export function LibraryPanel({
+  collapsed,
+  onToggleCollapsed,
   databasePath,
   onChooseDatabase,
   busy,
@@ -58,6 +60,8 @@ export function LibraryPanel({
   onStart,
   onResetAnalysis,
 }: {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   databasePath: string | null;
   onChooseDatabase: () => void;
   busy: boolean;
@@ -143,9 +147,42 @@ export function LibraryPanel({
   if (missingScanFolder) warnings.push("Укажите папку с треками в настройках загрузки.");
   const startDisabled = stagesDisabled || !selectedStages.length || missingScanFolder;
 
+  if (collapsed) {
+    // Collapsed, the panel is a rail: one control, and the whole strip is that
+    // control, so the target is the width of the column rather than an icon.
+    return (
+      <aside className="panel library-panel collapsed">
+        <button
+          className="library-panel-rail"
+          title="Развернуть «База и анализ»"
+          aria-label="Развернуть «База и анализ»"
+          aria-expanded={false}
+          onClick={onToggleCollapsed}
+          type="button"
+        >
+          <ChevronsRight size={17} />
+          <span className="library-panel-rail-label">1. База и анализ</span>
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="panel library-panel">
-      <div className="panel-title"><FolderOpen size={18} /><h2>1. База и анализ</h2></div>
+      <div className="panel-title">
+        <FolderOpen size={18} />
+        <h2>1. База и анализ</h2>
+        <button
+          className="icon-button panel-collapse-button"
+          title="Свернуть «База и анализ» и отдать место библиотеке и поиску"
+          aria-label="Свернуть «База и анализ»"
+          aria-expanded
+          onClick={onToggleCollapsed}
+          type="button"
+        >
+          <ChevronsLeft size={17} />
+        </button>
+      </div>
 
       <div className="library-panel-body">
         <div className="stage-section-description">

@@ -46,7 +46,12 @@ import { MLAnalysisSettingsDialog } from "./MLAnalysisSettingsDialog";
 import { writePreviewPosition } from "./previewPosition";
 import { ScanImportDialog } from "./ScanImportDialog";
 import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
-import { appendVisibleTracksToPlaylist, nextLibraryPlaybackTrack } from "./libraryView";
+import {
+  appendVisibleTracksToPlaylist,
+  nextLibraryPlaybackTrack,
+  resolveSetupPanelCollapsed,
+  storeSetupPanelCollapsed
+} from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import { shutdownApplication } from "./shutdownApplication";
 import {
@@ -233,6 +238,10 @@ export function App() {
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
+  // The setup panel holds the database, the stages and Start. Once analysis is
+  // running or finished none of it is needed, and its third of the workspace is
+  // better spent on the library and the search.
+  const [setupCollapsed, setSetupCollapsed] = useState(resolveSetupPanelCollapsed);
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   // One optimization prompt per finished validation, however many polls observe it.
   const optimizationPromptedForJob = useRef<string | null>(null);
@@ -1435,6 +1444,13 @@ export function App() {
     );
   }
 
+  function toggleSetupPanel() {
+    setSetupCollapsed((collapsed) => {
+      storeSetupPanelCollapsed(!collapsed);
+      return !collapsed;
+    });
+  }
+
   async function handleTextSearch() {
     const prompt = textQuery.trim();
     const label = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
@@ -1778,8 +1794,10 @@ export function App() {
         </div>
       </header>
 
-      <section className="workspace">
+      <section className={`workspace ${setupCollapsed ? "setup-collapsed" : ""}`}>
         <LibraryPanel
+          collapsed={setupCollapsed}
+          onToggleCollapsed={toggleSetupPanel}
           databasePath={databasePath}
           onChooseDatabase={() => void handleChooseDatabase()}
           busy={busy}

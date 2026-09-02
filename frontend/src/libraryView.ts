@@ -71,3 +71,32 @@ export function likedTracksFilterTitle(likedOnly: boolean, likedCount: number) {
     ? `Вернуться ко всей библиотеке. Лайкнутых треков: ${likedCount}.`
     : `Показать только лайкнутые треки. Доступно: ${likedCount}.`;
 }
+
+export const setupPanelStorageKey = "dj-track-similarity-setup-collapsed";
+
+/**
+ * Whether the setup panel was left collapsed.
+ *
+ * Collapsing it hands its third of the workspace to the library and the search
+ * panels, which is what you want once the analysis is running or done. The
+ * choice outlives a reload; storage that cannot be read means open, because a
+ * panel nobody can find is worse than one taking room.
+ */
+export function resolveSetupPanelCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(setupPanelStorageKey) === "collapsed";
+  } catch {
+    return false;
+  }
+}
+
+export function storeSetupPanelCollapsed(collapsed: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(setupPanelStorageKey, collapsed ? "collapsed" : "open");
+  } catch {
+    // Browser privacy settings can block storage; the panel still toggles, it
+    // just forgets the choice on the next load.
+  }
+}

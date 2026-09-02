@@ -13,6 +13,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from dj_track_similarity.db_connection import connect_database_read_only  # noqa: E402
 from dj_track_similarity.db_schema import validate_library_schema  # noqa: E402
 from dj_track_similarity.db_storage import storage_database_paths  # noqa: E402
 
@@ -31,16 +32,21 @@ def _resolved(path: str | Path) -> Path:
 
 
 def _open_read_only(path: Path, label: str) -> sqlite3.Connection:
+    """Open one database for verification through the shared read-only recipe.
+
+    A ``mode=ro`` handle makes ``PRAGMA integrity_check`` skip CHECK constraint
+    verification and answer ``ok``, which turned this gate into a hollow pass.
+    ``connect_database_read_only`` refuses every write through
+    ``PRAGMA query_only`` instead, and already applies the connection pragmas
+    this function used to repeat.
+    """
+
     if not path.is_file():
         raise QAError(f"{label} database not found: {path}")
     try:
-        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
-    except sqlite3.Error as error:
+        return connect_database_read_only(path)
+    except (sqlite3.Error, OSError, ValueError) as error:
         raise QAError(f"cannot open {label} database {path}: {error}") from error
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute("PRAGMA query_only = ON")
-    return connection
 
 
 def _integrity_check(connection: sqlite3.Connection, label: str) -> None:

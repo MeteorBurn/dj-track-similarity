@@ -117,6 +117,8 @@ export function SearchPlaylistPanel({
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
+  textCompareModels,
+  onTextCompareModelsChange,
   seedEmbeddingFamily,
   onSeedEmbeddingFamilyChange,
   selectedPresetKeys,
@@ -135,6 +137,7 @@ export function SearchPlaylistPanel({
   genericSearchResultKey,
   genericSearchResultOrigin,
   textFeedback,
+  textComparison,
   onPrimarySearchTabChange,
   seedSet,
   playlistSet,
@@ -179,6 +182,8 @@ export function SearchPlaylistPanel({
   onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
+  textCompareModels: boolean;
+  onTextCompareModelsChange: (value: boolean) => void;
   seedEmbeddingFamily: SeedEmbeddingFamily;
   onSeedEmbeddingFamilyChange: (value: SeedEmbeddingFamily) => void;
   selectedPresetKeys: string[];
@@ -196,6 +201,17 @@ export function SearchPlaylistPanel({
   genericSearchInputKey: string;
   genericSearchResultKey: string;
   genericSearchResultOrigin: GenericSearchTab | null;
+  /**
+   * Two ranked lists over one bank, one per model, shown side by side. Present
+   * only in A/B; the ordinary search keeps its single list.
+   */
+  textComparison: {
+    family: "clap" | "mulan";
+    label: string;
+    results: SearchResult[];
+    verdicts: Record<string, 1 | -1>;
+    onVerdict?: (track: Track, verdict: 1 | -1) => void;
+  }[] | null;
   /** Verdict state for text-search rows; null when no preset built the list. */
   textFeedback: {
     verdicts: Record<string, 1 | -1>;
@@ -529,6 +545,8 @@ export function SearchPlaylistPanel({
             onTextUseNegativePromptChange={onTextUseNegativePromptChange}
             textEmbeddingFamily={textEmbeddingFamily}
             onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
+            textCompareModels={textCompareModels}
+            onTextCompareModelsChange={onTextCompareModelsChange}
             selectedPresetKeys={selectedPresetKeys}
             onTogglePreset={onTogglePreset}
             onClearPresets={onClearPresets}
@@ -670,7 +688,54 @@ export function SearchPlaylistPanel({
             )}
           </div>
         )}
-        {showGenericSearchResults && genericSearchResultOrigin ? (
+        {showGenericSearchResults && genericSearchResultOrigin && textComparison ? (
+          /* One bank, two models, two orders. Nothing is merged: rank fusion
+             was measured and rejected, so the lists stay apart and the ear
+             decides which one was right. */
+          <div className="generic-search-results generic-search-compare">
+            <div className="compare-columns">
+              {textComparison.map((column) => (
+                <div className="compare-column" key={column.family}>
+                  <div className="generic-search-result-provenance" role="status">
+                    {column.label} results
+                    <span>{column.results.length}</span>
+                  </div>
+                  <div className="results-list">
+                    {column.results.length ? column.results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }, index) => (
+                      <ResultRow
+                        key={track.track_id}
+                        track={track}
+                        rowIndex={index + 1}
+                        score={score}
+                        scoreBreakdown={score_breakdown}
+                        reason={reason}
+                        sonaraGroups={sonara_groups}
+                        classifierScores={classifier_scores}
+                        transition={transition}
+                        playingTrackId={playingTrackId}
+                        previewTrackId={previewTrackId}
+                        isSeed={seedSet.has(track.track_id)}
+                        inPlaylist={playlistSet.has(track.track_id)}
+                        onSeed={addSeed}
+                        onToggleLiked={toggleLiked}
+                        onTogglePlaylist={togglePlaylist}
+                        onPreview={setPreview}
+                        onSeekPreview={onSeekPreview}
+                        onDetails={setMetadataTrack}
+                        feedbackVerdict={column.verdicts[track.track_uuid] ?? null}
+                        onFeedback={column.onVerdict}
+                      />
+                    )) : (
+                      <div className="empty-state">
+                        {column.label} не нашла ничего по этому банку.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : showGenericSearchResults && genericSearchResultOrigin ? (
           <div className="generic-search-results">
             <div className="generic-search-result-provenance" role="status">
               {searchResultOriginLabel(genericSearchResultOrigin)} results

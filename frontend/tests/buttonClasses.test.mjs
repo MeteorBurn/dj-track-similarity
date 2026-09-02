@@ -263,7 +263,9 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(appSource, /embeddingCounts=\{\{[\s\S]*clap:\s*librarySummary\.clap/);
   assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /api\.textSearch/);
-  assert.match(appSource, /analysis_family:\s*textEmbeddingFamily/);
+  // A/B runs the same bank through each family in turn, so the request names
+  // the family of the column it is filling rather than the tab's own setting.
+  assert.match(appSource, /analysis_family:\s*family/);
   assert.match(appSource, /const\s+\[textUseNegativePrompt,\s*setTextUseNegativePrompt\]\s*=\s*useState\(true\)/);
   assert.match(appSource, /promptQueriesFromText\(prompt,\s*textNegativeQuery,\s*textUseNegativePrompt\)/);
   assert.match(appSource, /composePromptBanks\(keys,\s*model\)/);

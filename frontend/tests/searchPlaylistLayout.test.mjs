@@ -116,11 +116,20 @@ test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", as
   assert.match(appSource, /seed_embedding_family: seedEmbeddingFamily/);
 });
 
-test("PROMPT tab keeps results from both text embedding models visible", () => {
-  assert.match(
-    appSource,
-    /commitGenericSearchResults\(ticket, "text", value\)/
-  );
+test("PROMPT tab compares the two text models over one bank without merging them", () => {
+  // Rank fusion was measured and rejected, so A/B keeps two orders apart and
+  // lets the ear decide. Both models read the same words: sending each its own
+  // wording would compare two prompts rather than two models.
+  assert.match(appSource, /textCompareModels/);
+  assert.match(appSource, /\["mulan", "clap"\]/);
+  assert.match(appSource, /const families: TextEmbeddingFamily\[\]/);
+  // The first column also feeds the shared result list, so preview and the set
+  // keep working off one source in both modes.
+  assert.match(appSource, /commitGenericSearchResults\(ticket, "text", columns\[0\]\.results\)/);
+  // Each column carries its own verdicts, because the same track sits in both
+  // and the two answers may honestly differ.
+  assert.match(panelSource, /className="generic-search-results generic-search-compare"/);
+  assert.match(panelSource, /feedbackVerdict=\{column\.verdicts\[track\.track_uuid\] \?\? null\}/);
 });
 
 test("SONARA tab can add an unselected random SONARA-ready seed", () => {

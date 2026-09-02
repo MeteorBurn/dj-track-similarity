@@ -33,6 +33,8 @@ export function TextSearchTab({
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
+  textCompareModels,
+  onTextCompareModelsChange,
   selectedPresetKeys,
   onTogglePreset,
   onClearPresets,
@@ -56,6 +58,8 @@ export function TextSearchTab({
   onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
+  textCompareModels: boolean;
+  onTextCompareModelsChange: (value: boolean) => void;
   selectedPresetKeys: string[];
   onTogglePreset: (key: string) => void;
   onClearPresets: () => void;
@@ -170,14 +174,22 @@ export function TextSearchTab({
     }
     const controller = new AbortController();
     setWarmupState("warming");
-    api
-      .textSearchWarmup({ analysis_family: textEmbeddingFamily }, { signal: controller.signal })
+    // A/B searches with both models, so both weights are loaded up front
+    // rather than one of them landing on the first search.
+    const families: Extract<EmbeddingSource, "clap" | "mulan">[] = textCompareModels
+      ? ["mulan", "clap"]
+      : [textEmbeddingFamily];
+    Promise.all(
+      families.map((family) =>
+        api.textSearchWarmup({ analysis_family: family }, { signal: controller.signal })
+      )
+    )
       .then(() => setWarmupState("ready"))
       .catch(() => {
         if (!controller.signal.aborted) setWarmupState("failed");
       });
     return () => controller.abort();
-  }, [hasStoredTextEmbeddings, textEmbeddingFamily]);
+  }, [hasStoredTextEmbeddings, textEmbeddingFamily, textCompareModels]);
 
   // Escape closes the picker and hands focus back to the control that owns it,
   // so the keyboard never gets stranded inside an open menu.
@@ -449,8 +461,29 @@ export function TextSearchTab({
           ) : null}
         </div>
       </div>
+      {/* Which model ranks a label best is not written down anywhere: it is
+          decided by running both against the same bank and keeping what the ear
+          kept. This is that run, and it is opt-in — two searches and two sets
+          of weights resident are a price for settling a model, not for finding
+          a track. */}
+      <button
+        className={`text-compare-toggle ${textCompareModels ? "active" : ""}`}
+        role="switch"
+        aria-checked={textCompareModels}
+        title="Искать обеими моделями по одному и тому же банку и показать две выдачи рядом. Тексты не различаются: иначе сравнивались бы промпты, а не модели."
+        onClick={() => onTextCompareModelsChange(!textCompareModels)}
+        type="button"
+      >
+        <span className="text-compare-checkbox" aria-hidden="true">
+          {textCompareModels ? <Check size={13} strokeWidth={2.4} /> : null}
+        </span>
+        <span className="text-compare-label">A/B</span>
+        <span className="text-compare-state">
+          {textCompareModels ? "MuQ-MuLan и CLAP" : "одна модель"}
+        </span>
+      </button>
       <div className="search-filter-grid text-search-filter-grid text-group-labels">
-        <label title="Embedding family used for text-to-track retrieval">Model
+        <label title={textCompareModels ? "В режиме A/B ищут обе модели; выбор задаёт, чей вариант банка показан в поле" : "Embedding family used for text-to-track retrieval"}>Model
           <select
             value={textEmbeddingFamily}
             onChange={(event) => onTextEmbeddingFamilyChange(event.target.value as Extract<EmbeddingSource, "clap" | "mulan">)}
@@ -471,7 +504,7 @@ export function TextSearchTab({
       ) : null}
       <button className="text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
         <Search size={17} />
-        Search
+        {textCompareModels ? "Search · A/B" : "Search"}
       </button>
     </div>
   );

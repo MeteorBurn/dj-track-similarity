@@ -2894,6 +2894,88 @@ h2 {
   width: 100%;
 }
 
+/* A/B: one bank, two models, two orders, nothing merged. The columns split
+   the panel only where a result row still fits — measured, a row needs 422px
+   before its title gets a pixel, so 720px each is the floor at which two of
+   them are worth reading. Below that the grid falls back to one column and the
+   two lists stack, which is the same comparison one screen at a time rather
+   than a pair of unreadable slivers. */
+.generic-search-compare .compare-columns {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(720px, 1fr));
+  min-height: 0;
+}
+
+.generic-search-compare .compare-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* The model owns its column, so its name is a heading rather than a note. */
+.generic-search-compare .generic-search-result-provenance {
+  font-weight: 700;
+}
+
+/* The switch sits with the model select it overrides, and reads as a state
+   rather than as another button to press. */
+.text-compare-toggle {
+  align-items: center;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  justify-content: flex-start;
+  min-height: 32px;
+  padding: 5px 10px;
+  width: 100%;
+}
+
+.text-search-box .text-compare-toggle:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.text-search-box .text-compare-toggle.active {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-soft-border);
+  color: var(--accent-active-text);
+}
+
+.text-compare-checkbox {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  display: inline-flex;
+  height: 16px;
+  justify-content: center;
+  width: 16px;
+}
+
+.text-compare-toggle.active .text-compare-checkbox {
+  border-color: var(--accent-soft-border);
+}
+
+.text-compare-label {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.text-compare-state {
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.text-compare-toggle.active .text-compare-state {
+  color: var(--accent-active-text);
+}
+
 .search-tab-panel {
   display: grid;
   gap: 14px;

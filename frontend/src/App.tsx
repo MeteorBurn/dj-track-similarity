@@ -15,6 +15,7 @@ import {
   RhythmLabStatus,
   ScanRequest,
   ScanStats,
+  SearchResult,
   Track,
   TrackDetail,
 } from "./api";
@@ -100,6 +101,13 @@ type ResetAdapter = AnalysisModel;
 type GenericSearchResultState = {
   origin: GenericSearchTab;
   requestKey: string;
+};
+type TextEmbeddingFamily = "clap" | "mulan";
+type TextVerdictsByFamily = Partial<Record<TextEmbeddingFamily, Record<string, 1 | -1>>>;
+type TextComparisonColumn = {
+  family: TextEmbeddingFamily;
+  label: string;
+  results: SearchResult[];
 };
 type GuardedRequestTicket = {
   token: number;
@@ -203,11 +211,18 @@ export function App() {
     presetKeys: string[];
     family: "clap" | "mulan";
   } | null>(null);
-  const [textFeedbackVerdicts, setTextFeedbackVerdicts] = useState<Record<string, 1 | -1>>({});
+  // Keyed by model, because A/B shows one track in two lists at once and a
+  // verdict belongs to the model that ranked it, not to the track.
+  const [textFeedbackVerdicts, setTextFeedbackVerdicts] = useState<TextVerdictsByFamily>({});
   // How well each selected label matched a track on its own, as the search
   // reported it. A verdict then lands on the label that earned it instead of
   // being split evenly across everything that happened to be selected.
-  const [textPresetScores, setTextPresetScores] = useState<Record<string, Record<string, number>>>({});
+  const [textPresetScores, setTextPresetScores] = useState<Record<string, Record<string, Record<string, number>>>>({});
+  // Both models run against the same bank, each keeping its own ranked list.
+  // Turned on deliberately: it is two searches and two sets of weights resident,
+  // which is a price worth paying to settle a model, not to run a search.
+  const [textCompareModels, setTextCompareModels] = useState(false);
+  const [textComparison, setTextComparison] = useState<TextComparisonColumn[] | null>(null);
   const [promptNegativeWeight, setPromptNegativeWeight] = useState<number | null>(null);
   const [textNegativeQuery, setTextNegativeQuery] = useState("");
   const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(true);
@@ -1461,75 +1476,104 @@ export function App() {
     });
   }
 
+  function presetBanksFor(family: TextEmbeddingFamily) {
+    return selectedPresetKeys
+      .map((key) => {
+        const preset = presetByKey(key);
+        if (!preset) return null;
+        const queries = resolvePromptVariants(preset.positive, family);
+        return queries.length ? { key, positive_queries: queries } : null;
+      })
+      .filter((bank): bank is { key: string; positive_queries: string[] } => bank !== null);
+  }
+
+  function familyLabel(family: TextEmbeddingFamily) {
+    return family === "mulan" ? "MuQ-MuLan" : "CLAP";
+  }
+
   async function handleTextSearch() {
     const prompt = textQuery.trim();
-    const label = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
     if (!prompt) {
-      setNotice({ kind: "error", text: `Введите текстовый запрос для ${label}` });
+      setNotice({ kind: "error", text: `Введите текстовый запрос для ${familyLabel(textEmbeddingFamily)}` });
       return;
     }
     const manualQueries = promptQueriesFromText(prompt, textNegativeQuery, textUseNegativePrompt);
     const positiveQueries = manualQueries.positiveQueries;
     const negativeQueries = manualQueries.negativeQueries;
+    // Both models read the same words. Per-model wording exists in the
+    // vocabulary, but sending each its own variant would compare two prompts
+    // rather than two models, which is the one thing this mode must not do.
+    const families: TextEmbeddingFamily[] = textCompareModels
+      ? ["mulan", "clap"]
+      : [textEmbeddingFamily];
+    const label = textCompareModels ? "A/B" : familyLabel(textEmbeddingFamily);
     const ticket = beginGenericSearchRequest();
     appendActivity("info", `${label} search запущен`, negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
     try {
-      const presetBanks = selectedPresetKeys
-        .map((key) => {
-          const preset = presetByKey(key);
-          if (!preset) return null;
-          const queries = resolvePromptVariants(preset.positive, textEmbeddingFamily);
-          return queries.length ? { key, positive_queries: queries } : null;
-        })
-        .filter((bank): bank is { key: string; positive_queries: string[] } => bank !== null);
-      const value = await api.textSearch({
-        analysis_family: textEmbeddingFamily,
-        positive_queries: positiveQueries,
-        negative_queries: negativeQueries,
-        ...(presetBanks.length ? { preset_banks: presetBanks } : {}),
-        ...(negativeQueries.length && promptNegativeWeight !== null
-          ? { negative_weight: promptNegativeWeight }
-          : {}),
-        limit: filters.limit,
-        device: analysisDevice
-      }, {
-        signal: ticket.controller.signal,
-      });
-      if (commitGenericSearchResults(ticket, "text", value)) {
-        const presetKeys = [...selectedPresetKeys];
-        setTextFeedbackContext(
-          presetKeys.length ? { presetKeys, family: textEmbeddingFamily } : null
-        );
-        setTextFeedbackVerdicts({});
-        setTextPresetScores(
-          Object.fromEntries(
-            value
-              .filter((result) => result.preset_scores)
-              .map((result) => [result.track.track_uuid, result.preset_scores as Record<string, number>])
-          )
-        );
-        // What you already said about a track outlives the search that showed
-        // it. Without this the same row comes back unmarked in the next search
-        // and invites a second, blinder vote on top of the first.
-        if (presetKeys.length && value.length) {
+      const columns: TextComparisonColumn[] = [];
+      for (const family of families) {
+        const presetBanks = presetBanksFor(family);
+        const value = await api.textSearch({
+          analysis_family: family,
+          positive_queries: positiveQueries,
+          negative_queries: negativeQueries,
+          ...(presetBanks.length ? { preset_banks: presetBanks } : {}),
+          ...(negativeQueries.length && promptNegativeWeight !== null
+            ? { negative_weight: promptNegativeWeight }
+            : {}),
+          limit: filters.limit,
+          device: analysisDevice
+        }, {
+          signal: ticket.controller.signal,
+        });
+        if (!genericSearchRequestIsCurrent(ticket)) return;
+        columns.push({ family, label: familyLabel(family), results: value });
+      }
+
+      // The first column also feeds the shared result list, so preview, the
+      // set and everything else keeps working off one source in both modes.
+      if (!commitGenericSearchResults(ticket, "text", columns[0].results)) return;
+      const presetKeys = [...selectedPresetKeys];
+      setTextComparison(textCompareModels ? columns : null);
+      setTextFeedbackContext(presetKeys.length ? { presetKeys, family: textEmbeddingFamily } : null);
+      setTextFeedbackVerdicts({});
+      setTextPresetScores(
+        Object.fromEntries(
+          columns.map((column) => [
+            column.family,
+            Object.fromEntries(
+              column.results
+                .filter((result) => result.preset_scores)
+                .map((result) => [result.track.track_uuid, result.preset_scores as Record<string, number>])
+            )
+          ])
+        )
+      );
+      // What you already said about a track outlives the search that showed
+      // it. Without this the same row comes back unmarked in the next search
+      // and invites a second, blinder vote on top of the first.
+      if (presetKeys.length) {
+        for (const column of columns) {
+          if (!column.results.length) continue;
           void api
             .textSearchFeedbackLookup({
-              track_uuids: value.map((result) => result.track.track_uuid),
+              track_uuids: column.results.map((result) => result.track.track_uuid),
               preset_keys: presetKeys,
-              analysis_family: textEmbeddingFamily
+              analysis_family: column.family
             }, { signal: ticket.controller.signal })
             .then((stored) => {
               if (!genericSearchRequestIsCurrent(ticket)) return;
-              setTextFeedbackVerdicts(stored.verdicts);
+              setTextFeedbackVerdicts((previous) => ({ ...previous, [column.family]: stored.verdicts }));
             })
             .catch(() => {
               // A missing history is not a failed search: the rows simply show
               // unmarked, which is what they showed before this call existed.
             });
         }
-        appendActivity("ok", `${label} search завершен`, `Найдено: ${value.length}`);
-        setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }
+      const found = columns.map((column) => `${column.label} ${column.results.length}`).join(" · ");
+      appendActivity("ok", `${label} search завершен`, `Найдено: ${found}`);
+      setNotice({ kind: "ok", text: `Найдено: ${found}` });
     } catch (error) {
       if (!genericSearchRequestIsCurrent(ticket) || isAbortError(error)) return;
       const message = error instanceof Error ? error.message : String(error);
@@ -1540,24 +1584,30 @@ export function App() {
     }
   }
 
-  async function handleTextResultFeedback(track: Track, verdict: 1 | -1) {
+  async function handleTextResultFeedback(
+    track: Track,
+    verdict: 1 | -1,
+    family: TextEmbeddingFamily
+  ) {
     if (!textFeedbackContext) return;
-    const current = textFeedbackVerdicts[track.track_uuid];
+    // A verdict belongs to the model whose list it was cast in: in A/B the same
+    // track sits in both, and the two answers may honestly differ.
+    const current = textFeedbackVerdicts[family]?.[track.track_uuid];
     const next: -1 | 0 | 1 = current === verdict ? 0 : verdict;
     try {
-      const measured = textPresetScores[track.track_uuid];
+      const measured = textPresetScores[family]?.[track.track_uuid];
       await api.textSearchFeedback({
         track_uuid: track.track_uuid,
         preset_keys: textFeedbackContext.presetKeys,
-        analysis_family: textFeedbackContext.family,
+        analysis_family: family,
         verdict: next,
         ...(measured ? { preset_scores: measured } : {})
       });
       setTextFeedbackVerdicts((previous) => {
-        const updated = { ...previous };
-        if (next === 0) delete updated[track.track_uuid];
-        else updated[track.track_uuid] = next;
-        return updated;
+        const forFamily = { ...(previous[family] ?? {}) };
+        if (next === 0) delete forFamily[track.track_uuid];
+        else forFamily[track.track_uuid] = next;
+        return { ...previous, [family]: forFamily };
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1918,6 +1968,8 @@ export function App() {
           onTextEmbeddingFamilyChange={changeTextEmbeddingFamily}
           seedEmbeddingFamily={seedEmbeddingFamily}
           onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
+          textCompareModels={textCompareModels}
+          onTextCompareModelsChange={setTextCompareModels}
           selectedPresetKeys={selectedPresetKeys}
           onTogglePreset={togglePromptPreset}
           onClearPresets={() => applyPromptPresets([])}
@@ -1935,7 +1987,23 @@ export function App() {
           genericSearchResultOrigin={genericSearchResultState?.origin || null}
           textFeedback={
             genericSearchResultState?.origin === "text" && textFeedbackContext
-              ? { verdicts: textFeedbackVerdicts, onVerdict: handleTextResultFeedback }
+              ? {
+                  verdicts: textFeedbackVerdicts[textEmbeddingFamily] ?? {},
+                  onVerdict: (track: Track, verdict: 1 | -1) =>
+                    handleTextResultFeedback(track, verdict, textEmbeddingFamily)
+                }
+              : null
+          }
+          textComparison={
+            genericSearchResultState?.origin === "text" && textComparison
+              ? textComparison.map((column) => ({
+                  ...column,
+                  verdicts: textFeedbackVerdicts[column.family] ?? {},
+                  onVerdict: textFeedbackContext
+                    ? (track: Track, verdict: 1 | -1) =>
+                        handleTextResultFeedback(track, verdict, column.family)
+                    : undefined
+                }))
               : null
           }
           onPrimarySearchTabChange={handlePrimarySearchTabChange}

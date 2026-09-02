@@ -11,6 +11,7 @@ from typing import Any
 
 from .db_ddl import (
     TEXT_PRESET_FEEDBACK_INDEX_DDL,
+    TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL,
     TEXT_PRESET_FEEDBACK_TABLE_DDL,
 )
 from .track_models import TrackIdentity
@@ -80,6 +81,7 @@ class EvaluationRepository:
                 # migration of existing data.
                 connection.execute(TEXT_PRESET_FEEDBACK_TABLE_DDL)
                 connection.execute(TEXT_PRESET_FEEDBACK_INDEX_DDL)
+                _add_selection_size_column(connection)
                 row = connection.execute(
                     """
                     SELECT track_id FROM tracks
@@ -106,12 +108,13 @@ class EvaluationRepository:
                     """
                     INSERT INTO text_preset_feedback(
                         track_id, preset_key, analysis_family, verdict,
-                        created_at, updated_at
+                        selection_size, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(track_id, preset_key, analysis_family)
                     DO UPDATE SET
                         verdict = excluded.verdict,
+                        selection_size = excluded.selection_size,
                         updated_at = excluded.updated_at
                     """,
                     (
@@ -120,6 +123,7 @@ class EvaluationRepository:
                             preset_key,
                             analysis_family,
                             verdict,
+                            len(clean_keys),
                             timestamp,
                             timestamp,
                         )
@@ -127,6 +131,64 @@ class EvaluationRepository:
                     ),
                 )
                 return len(clean_keys)
+
+    def read_text_preset_feedback(
+        self,
+        *,
+        track_uuids: Sequence[str],
+        preset_keys: Sequence[str],
+        analysis_family: str,
+    ) -> dict[str, int]:
+        """Return the verdict already stored for each of these tracks.
+
+        A click writes the same verdict to every preset that built the bank, so
+        a track normally carries one answer across the selection. Where an older
+        selection disagrees with this one the track is reported as unmarked
+        rather than as whichever row happened to sort first: a half-remembered
+        verdict is worse than none, because the tab would render it as settled.
+
+        Tracks with nothing stored are absent from the result.
+        """
+
+        clean_uuids = [uuid for uuid in (u.strip() for u in track_uuids) if uuid]
+        clean_keys = [key for key in (k.strip() for k in preset_keys) if key]
+        if not clean_uuids or not clean_keys:
+            return {}
+        if analysis_family not in ("clap", "mulan"):
+            raise ValueError(f"Unknown text embedding family: {analysis_family}")
+        with closing(self.connect()) as connection:
+            # A library that has never carried a verdict has no table yet, and
+            # asking for one is a read, not a reason to create it.
+            if connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name = 'text_preset_feedback'
+                """
+            ).fetchone() is None:
+                return {}
+            uuid_slots = ", ".join("?" for _ in clean_uuids)
+            key_slots = ", ".join("?" for _ in clean_keys)
+            rows = connection.execute(
+                f"""
+                SELECT tracks.track_uuid, feedback.verdict
+                FROM text_preset_feedback AS feedback
+                JOIN tracks ON tracks.track_id = feedback.track_id
+                WHERE tracks.track_uuid IN ({uuid_slots})
+                  AND feedback.preset_key IN ({key_slots})
+                  AND feedback.analysis_family = ?
+                """,
+                (*clean_uuids, *clean_keys, analysis_family),
+            ).fetchall()
+        verdicts: dict[str, int] = {}
+        conflicted: set[str] = set()
+        for track_uuid, verdict in rows:
+            stored = verdicts.get(track_uuid)
+            if stored is not None and stored != int(verdict):
+                conflicted.add(track_uuid)
+            verdicts[track_uuid] = int(verdict)
+        for track_uuid in conflicted:
+            verdicts.pop(track_uuid, None)
+        return verdicts
 
     def list_search_sessions_with_events(self) -> list[dict[str, Any]]:
         connection = self.connect_evaluation(create=False)
@@ -908,6 +970,23 @@ def _json_object(value: object, field_name: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field_name} must be a JSON object")
     return dict(value)
+
+
+def _add_selection_size_column(connection: sqlite3.Connection) -> None:
+    """Give an older feedback table the column, once, without a migration step.
+
+    Verdicts are written on a click, so the write path is where a library first
+    meets this table at all. Adding the column here keeps that property: a
+    library that predates it gains it on the next click, and its existing rows
+    keep the default, which says exactly what they were — a whole example each.
+    """
+
+    columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(text_preset_feedback)")
+    }
+    if "selection_size" in columns:
+        return
+    connection.execute(TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL)
 
 
 def _required_text(value: object, field_name: str) -> str:

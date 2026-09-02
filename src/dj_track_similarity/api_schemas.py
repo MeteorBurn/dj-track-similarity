@@ -427,6 +427,27 @@ class TextSearchFeedbackResponse(BaseModel):
     verdict: int
 
 
+class TextSearchFeedbackLookupRequest(BaseModel):
+    """The verdicts already stored for a page of text-search results.
+
+    Without this the tab could only show what was clicked since the last
+    search, so the same track came back unmarked in the next one and invited a
+    second, blinder vote on top of the first.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    track_uuids: list[str] = Field(min_length=1, max_length=500)
+    preset_keys: list[str] = Field(min_length=1)
+    analysis_family: Literal["clap", "mulan"]
+
+
+class TextSearchFeedbackLookupResponse(BaseModel):
+    """Verdicts by track uuid. A track with nothing stored is simply absent."""
+
+    verdicts: dict[str, Literal[-1, 1]]
+
+
 class TrackIdentityRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 

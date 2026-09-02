@@ -53,6 +53,11 @@ class FeedbackPool:
     family: str
     positive_rows: NDArray[np.int64]
     negative_rows: NDArray[np.int64]
+    # One click on a bank merged from four labels writes four verdicts, and
+    # each of them is a quarter of an opinion rather than four opinions. The
+    # weights carry that discount into the metrics instead of letting a single
+    # judgement count four times.
+    row_weights: NDArray[np.float64]
 
 
 @dataclass(frozen=True)
@@ -172,9 +177,19 @@ def _tune_preset(adapter, output, matrix, pool: FeedbackPool, preset: dict, fami
                 BankScore(
                     variant=name,
                     weight=weight,
-                    roc_auc=float(roc_auc_score(truth[rows], scores[rows])),
+                    roc_auc=float(
+                        roc_auc_score(
+                            truth[rows],
+                            scores[rows],
+                            sample_weight=pool.row_weights,
+                        )
+                    ),
                     average_precision=float(
-                        average_precision_score(truth[rows], scores[rows])
+                        average_precision_score(
+                            truth[rows],
+                            scores[rows],
+                            sample_weight=pool.row_weights,
+                        )
                     ),
                 )
             )
@@ -213,7 +228,7 @@ def _load_pools(
         try:
             rows = connection.execute(
                 """
-                SELECT preset_key, verdict, track_id
+                SELECT preset_key, verdict, track_id, selection_size
                 FROM text_preset_feedback
                 WHERE analysis_family = ?
                 ORDER BY preset_key
@@ -222,15 +237,19 @@ def _load_pools(
             ).fetchall()
         except sqlite3.OperationalError:
             return []
-    by_preset: dict[str, tuple[list[int], list[int]]] = {}
-    for preset_key, verdict, track_id in rows:
+    by_preset: dict[str, tuple[dict[int, float], dict[int, float]]] = {}
+    for preset_key, verdict, track_id, selection_size in rows:
         if selected and preset_key not in selected:
             continue
         row = row_of_track.get(int(track_id))
         if row is None:
             continue
-        positive_rows, negative_rows = by_preset.setdefault(preset_key, ([], []))
-        (positive_rows if verdict > 0 else negative_rows).append(row)
+        positive_rows, negative_rows = by_preset.setdefault(preset_key, ({}, {}))
+        side = positive_rows if verdict > 0 else negative_rows
+        # A track judged twice under different selections keeps the stronger
+        # claim rather than being counted twice.
+        weight = 1.0 / max(1, int(selection_size or 1))
+        side[row] = max(side.get(row, 0.0), weight)
     pools = []
     for preset_key, (positive_rows, negative_rows) in sorted(by_preset.items()):
         if len(positive_rows) < min_per_class or len(negative_rows) < min_per_class:
@@ -245,8 +264,13 @@ def _load_pools(
             FeedbackPool(
                 preset_key=preset_key,
                 family=family,
-                positive_rows=np.asarray(sorted(set(positive_rows)), dtype=np.int64),
-                negative_rows=np.asarray(sorted(set(negative_rows)), dtype=np.int64),
+                positive_rows=np.asarray(sorted(positive_rows), dtype=np.int64),
+                negative_rows=np.asarray(sorted(negative_rows), dtype=np.int64),
+                row_weights=np.asarray(
+                    [positive_rows[row] for row in sorted(positive_rows)]
+                    + [negative_rows[row] for row in sorted(negative_rows)],
+                    dtype=np.float64,
+                ),
             )
         )
     return pools

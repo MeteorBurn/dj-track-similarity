@@ -284,7 +284,7 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(schemaSource, /verdict: Literal\[-1, 0, 1\]/);
   assert.match(appSource, /api\.textSearchFeedback/);
   assert.match(appSource, /textFeedbackContext/);
-  assert.match(appSource, /presetKeys: \[\.\.\.selectedPresetKeys\]/);
+  assert.match(appSource, /const presetKeys = \[\.\.\.selectedPresetKeys\]/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);
   assert.match(apiClientSource, /positive_queries:\s*string\[\]/);

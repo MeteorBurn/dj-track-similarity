@@ -1461,12 +1461,30 @@ export function App() {
         signal: ticket.controller.signal,
       });
       if (commitGenericSearchResults(ticket, "text", value)) {
+        const presetKeys = [...selectedPresetKeys];
         setTextFeedbackContext(
-          selectedPresetKeys.length
-            ? { presetKeys: [...selectedPresetKeys], family: textEmbeddingFamily }
-            : null
+          presetKeys.length ? { presetKeys, family: textEmbeddingFamily } : null
         );
         setTextFeedbackVerdicts({});
+        // What you already said about a track outlives the search that showed
+        // it. Without this the same row comes back unmarked in the next search
+        // and invites a second, blinder vote on top of the first.
+        if (presetKeys.length && value.length) {
+          void api
+            .textSearchFeedbackLookup({
+              track_uuids: value.map((result) => result.track.track_uuid),
+              preset_keys: presetKeys,
+              analysis_family: textEmbeddingFamily
+            }, { signal: ticket.controller.signal })
+            .then((stored) => {
+              if (!genericSearchRequestIsCurrent(ticket)) return;
+              setTextFeedbackVerdicts(stored.verdicts);
+            })
+            .catch(() => {
+              // A missing history is not a failed search: the rows simply show
+              // unmarked, which is what they showed before this call existed.
+            });
+        }
         appendActivity("ok", `${label} search завершен`, `Найдено: ${value.length}`);
         setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }

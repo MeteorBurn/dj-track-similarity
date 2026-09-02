@@ -108,6 +108,16 @@ type TextSearchFeedbackResult = {
   verdict: number;
 };
 
+type TextSearchFeedbackLookupPayload = {
+  track_uuids: string[];
+  preset_keys: string[];
+  analysis_family: "clap" | "mulan";
+};
+
+type TextSearchFeedbackLookupResult = {
+  verdicts: Record<string, -1 | 1>;
+};
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -366,6 +376,15 @@ const searchApi = {
     request<TextSearchFeedbackResult>("/api/search/text/feedback", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  textSearchFeedbackLookup: (
+    payload: TextSearchFeedbackLookupPayload,
+    options?: { signal?: AbortSignal },
+  ) =>
+    request<TextSearchFeedbackLookupResult>("/api/search/text/feedback/lookup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     })
 };
 

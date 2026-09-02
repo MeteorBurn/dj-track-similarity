@@ -22,6 +22,8 @@ from .api_schemas import (
     SonaraRandomTrackRequest,
     SonaraSearchRequest,
     TrackSummaryResponse,
+    TextSearchFeedbackLookupRequest,
+    TextSearchFeedbackLookupResponse,
     TextSearchFeedbackRequest,
     TextSearchFeedbackResponse,
     TextSearchRequest,
@@ -268,6 +270,24 @@ def register_search_routes(
             presets=presets,
             verdict=request.verdict,
         )
+
+    @app.post(
+        "/api/search/text/feedback/lookup",
+        response_model=TextSearchFeedbackLookupResponse,
+    )
+    def lookup_text_search_feedback(request: TextSearchFeedbackLookupRequest):
+        """Report what was already said about these tracks under this bank."""
+
+        database = state.require_db()
+        try:
+            verdicts = database.read_text_preset_feedback(
+                track_uuids=request.track_uuids,
+                preset_keys=request.preset_keys,
+                analysis_family=request.analysis_family,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return TextSearchFeedbackLookupResponse(verdicts=verdicts)
 
 def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
     positive_queries = _clean_text_queries(request.positive_queries)

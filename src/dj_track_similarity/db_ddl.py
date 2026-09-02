@@ -341,12 +341,20 @@ CREATE INDEX idx_transition_feedback_incoming ON transition_feedback(incoming_tr
 # read by scripts/prompt_preset_tune.py. IF NOT EXISTS is deliberate: libraries
 # created before this table gain it additively on the first verdict, which is
 # a new capability, not a migration of existing data.
+#
+# selection_size records how many presets shared one click. A bank merged from
+# four labels writes four rows, and without this column each of them looked
+# like an independent example of its own label, which inflates a single opinion
+# fourfold and teaches three labels from a track that may have matched only the
+# fourth. The column does not say which label earned the verdict — only that
+# the answer was shared, so a reader can weight it at 1/n instead of 1.
 TEXT_PRESET_FEEDBACK_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS text_preset_feedback (
     track_id         INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
     preset_key       TEXT    NOT NULL,
     analysis_family  TEXT    NOT NULL CHECK(analysis_family IN ('clap', 'mulan')),
     verdict          INTEGER NOT NULL CHECK(verdict IN (-1, 1)),
+    selection_size   INTEGER NOT NULL DEFAULT 1 CHECK(selection_size >= 1),
     created_at       TEXT    NOT NULL,
     updated_at       TEXT    NOT NULL,
     PRIMARY KEY(track_id, preset_key, analysis_family)
@@ -356,6 +364,14 @@ CREATE TABLE IF NOT EXISTS text_preset_feedback (
 TEXT_PRESET_FEEDBACK_INDEX_DDL = (
     "CREATE INDEX IF NOT EXISTS idx_text_preset_feedback_pool "
     "ON text_preset_feedback(preset_key, analysis_family, verdict, track_id);"
+)
+
+# A library that already carries verdicts predates the column. Adding it is
+# additive and keeps every stored row readable: the default says "counted as a
+# whole example", which is exactly how those rows were written.
+TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL = (
+    "ALTER TABLE text_preset_feedback "
+    "ADD COLUMN selection_size INTEGER NOT NULL DEFAULT 1;"
 )
 
 _DDL_TEXT_PRESET_FEEDBACK = (

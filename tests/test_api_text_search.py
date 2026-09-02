@@ -576,3 +576,157 @@ def test_text_search_feedback_stores_updates_and_withdraws_verdicts(
         },
     )
     assert missing.status_code == 404
+
+
+def test_text_search_feedback_lookup_returns_only_a_settled_verdict(
+    tmp_path: Path,
+) -> None:
+    """A page of results must come back carrying what was already said about it.
+
+    The tab used to keep verdicts in component state only, so the same track
+    returned unmarked in the next search and invited a second, blinder vote.
+    Where an older selection disagrees with the current one the track is
+    reported as unmarked rather than as whichever row sorted first.
+    """
+
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    agreed = _track_with_embedding(db, "agreed.wav", [1.0, 0.0, 0.0], "clap")
+    conflicted = _track_with_embedding(db, "conflicted.wav", [0.0, 1.0, 0.0], "clap")
+    silent = _track_with_embedding(db, "silent.wav", [0.0, 0.0, 1.0], "clap")
+    with db.connect() as connection:
+        uuids = {
+            row[0]: row[1]
+            for row in connection.execute(
+                "SELECT track_id, track_uuid FROM tracks"
+            ).fetchall()
+        }
+    client = TestClient(create_app(db_path))
+
+    for keys, track_id, verdict in (
+        (["mood/dark", "texture/lo-fi"], agreed, 1),
+        (["mood/dark"], conflicted, 1),
+        (["texture/lo-fi"], conflicted, -1),
+    ):
+        posted = client.post(
+            "/api/search/text/feedback",
+            json={
+                "track_uuid": uuids[track_id],
+                "preset_keys": keys,
+                "analysis_family": "clap",
+                "verdict": verdict,
+            },
+        )
+        assert posted.status_code == 200
+
+    looked_up = client.post(
+        "/api/search/text/feedback/lookup",
+        json={
+            "track_uuids": [uuids[agreed], uuids[conflicted], uuids[silent]],
+            "preset_keys": ["mood/dark", "texture/lo-fi"],
+            "analysis_family": "clap",
+        },
+    )
+    assert looked_up.status_code == 200
+    # The agreed track answers, the conflicted one stays quiet, and the track
+    # nobody judged is absent rather than reported as neutral.
+    assert looked_up.json() == {"verdicts": {uuids[agreed]: 1}}
+
+    # The verdict belongs to one embedding family, so the other family's tab
+    # must not inherit it.
+    other_family = client.post(
+        "/api/search/text/feedback/lookup",
+        json={
+            "track_uuids": [uuids[agreed]],
+            "preset_keys": ["mood/dark", "texture/lo-fi"],
+            "analysis_family": "mulan",
+        },
+    )
+    assert other_family.status_code == 200
+    assert other_family.json() == {"verdicts": {}}
+
+
+def test_text_search_feedback_lookup_rejects_unknown_contract_fields(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    client = TestClient(create_app(db_path))
+
+    rejected = client.post(
+        "/api/search/text/feedback/lookup",
+        json={
+            "track_uuids": ["whatever"],
+            "preset_keys": ["mood/dark"],
+            "analysis_family": "clap",
+            "limit": 10,
+        },
+    )
+    assert rejected.status_code == 422
+
+
+def test_text_search_feedback_records_how_many_presets_shared_the_click(
+    tmp_path: Path,
+) -> None:
+    """One click on a merged bank is one opinion, not one per label.
+
+    Without the count every row of a four-label selection looked like an
+    independent example of its own label, which inflates a single judgement
+    fourfold and teaches three labels from a track that may have matched only
+    the fourth. The column does not say which label earned it; it says the
+    answer was shared, so scripts/prompt_preset_tune.py can weight it at 1/n.
+    """
+
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _track_with_embedding(db, "shared.wav", [1.0, 0.0, 0.0], "clap")
+    with db.connect() as connection:
+        track_uuid = connection.execute(
+            "SELECT track_uuid FROM tracks WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+    client = TestClient(create_app(db_path))
+
+    shared = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": track_uuid,
+            "preset_keys": ["mood/dark", "texture/lo-fi", "rhythm/breakbeat"],
+            "analysis_family": "clap",
+            "verdict": 1,
+        },
+    )
+    assert shared.status_code == 200
+    with db.connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT preset_key, selection_size FROM text_preset_feedback
+            ORDER BY preset_key
+            """
+        ).fetchall()
+    assert [(row[0], row[1]) for row in rows] == [
+        ("mood/dark", 3),
+        ("rhythm/breakbeat", 3),
+        ("texture/lo-fi", 3),
+    ]
+
+    # Judging the same track again from a narrower bank replaces the count, so
+    # the sharpest answer is the one that stands.
+    alone = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": track_uuid,
+            "preset_keys": ["mood/dark"],
+            "analysis_family": "clap",
+            "verdict": 1,
+        },
+    )
+    assert alone.status_code == 200
+    with db.connect() as connection:
+        sizes = dict(
+            connection.execute(
+                "SELECT preset_key, selection_size FROM text_preset_feedback"
+            ).fetchall()
+        )
+    assert sizes["mood/dark"] == 1
+    assert sizes["texture/lo-fi"] == 3

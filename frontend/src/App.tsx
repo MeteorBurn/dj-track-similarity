@@ -231,6 +231,10 @@ export function App() {
   // of them, and the ones worth comparing models on are the ones where a model
   // misses — a label nobody has judged has nothing to say either way.
   const [textPresetTally, setTextPresetTally] = useState<TextPresetTally>({});
+  // Let the accumulated verdicts pull the query. Off by default and never in
+  // A/B: the offsets live in each model's own space, so a comparison running
+  // under them would measure the clicks rather than the models.
+  const [textUseFeedback, setTextUseFeedback] = useState(false);
   const [promptNegativeWeight, setPromptNegativeWeight] = useState<number | null>(null);
   const [textNegativeQuery, setTextNegativeQuery] = useState("");
   const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(true);
@@ -1537,6 +1541,9 @@ export function App() {
           positive_queries: positiveQueries,
           negative_queries: negativeQueries,
           ...(presetBanks.length ? { preset_banks: presetBanks } : {}),
+          ...(textUseFeedback && !textCompareModels && presetBanks.length
+            ? { use_feedback: true }
+            : {}),
           ...(negativeQueries.length && promptNegativeWeight !== null
             ? { negative_weight: promptNegativeWeight }
             : {}),
@@ -1998,6 +2005,8 @@ export function App() {
           seedEmbeddingFamily={seedEmbeddingFamily}
           onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
           textPresetTally={textPresetTally}
+          textUseFeedback={textUseFeedback}
+          onTextUseFeedbackChange={setTextUseFeedback}
           textCompareModels={textCompareModels}
           onTextCompareModelsChange={setTextCompareModels}
           selectedPresetKeys={selectedPresetKeys}

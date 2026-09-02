@@ -118,6 +118,8 @@ export function SearchPlaylistPanel({
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
   textPresetTally,
+  textUseFeedback,
+  onTextUseFeedbackChange,
   textCompareModels,
   onTextCompareModelsChange,
   seedEmbeddingFamily,
@@ -184,6 +186,8 @@ export function SearchPlaylistPanel({
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   textPresetTally: Record<string, Partial<Record<"clap" | "mulan", { relevant: number; irrelevant: number }>>>;
+  textUseFeedback: boolean;
+  onTextUseFeedbackChange: (value: boolean) => void;
   textCompareModels: boolean;
   onTextCompareModelsChange: (value: boolean) => void;
   seedEmbeddingFamily: SeedEmbeddingFamily;
@@ -548,6 +552,8 @@ export function SearchPlaylistPanel({
             textEmbeddingFamily={textEmbeddingFamily}
             onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
             textPresetTally={textPresetTally}
+            textUseFeedback={textUseFeedback}
+            onTextUseFeedbackChange={onTextUseFeedbackChange}
             textCompareModels={textCompareModels}
             onTextCompareModelsChange={onTextCompareModelsChange}
             selectedPresetKeys={selectedPresetKeys}

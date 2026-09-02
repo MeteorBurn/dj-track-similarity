@@ -20,6 +20,14 @@ import {
  * sixteen positive lines, and reading a bank through a three-row slot meant
  * scrolling inside a textarea to see what the search would actually send.
  */
+/**
+ * Approved tracks a label needs before the query moves at all.
+ *
+ * Mirrors FEEDBACK_MINIMUM_TRACKS in src/dj_track_similarity/search.py, which
+ * is what the server actually applies; the tab only says so before the search.
+ */
+export const feedbackMinimumTracks = 3;
+
 function bankRows(text: string, min: number, max: number) {
   return Math.min(max, Math.max(min, text.split(/\r?\n/).length));
 }
@@ -70,6 +78,8 @@ export function TextSearchTab({
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
   textPresetTally,
+  textUseFeedback,
+  onTextUseFeedbackChange,
   textCompareModels,
   onTextCompareModelsChange,
   selectedPresetKeys,
@@ -97,6 +107,8 @@ export function TextSearchTab({
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   /** Verdicts standing behind each label so far, per model. */
   textPresetTally: Record<string, Partial<Record<"clap" | "mulan", { relevant: number; irrelevant: number }>>>;
+  textUseFeedback: boolean;
+  onTextUseFeedbackChange: (value: boolean) => void;
   textCompareModels: boolean;
   onTextCompareModelsChange: (value: boolean) => void;
   selectedPresetKeys: string[];
@@ -158,6 +170,19 @@ export function TextSearchTab({
   // to the server default. The benchmark set these numbers, so the tab reports
   // the weight rather than offering it up for guessing.
   const appliedNegativeWeight = negativeWeight ?? defaultNegativeWeight;
+  // What stands behind the current selection for the model in use: the switch
+  // says so plainly rather than leaving the shift to be guessed at.
+  const selectedFeedbackCounts = useMemo(() => {
+    let relevant = 0;
+    let judged = 0;
+    for (const key of selectedPresetKeys) {
+      const counts = textPresetTally[key]?.[promptModel];
+      if (!counts) continue;
+      relevant += counts.relevant;
+      judged += counts.relevant + counts.irrelevant;
+    }
+    return { relevant, judged };
+  }, [selectedPresetKeys, textPresetTally, promptModel]);
 
   // The picker is one scrolling panel: a category is a divider, an axis is a
   // block under it, and the labels live inside the block. Filtering narrows the
@@ -520,6 +545,36 @@ export function TextSearchTab({
         <span className="text-compare-label">A/B</span>
         <span className="text-compare-state">
           {textCompareModels ? "MuQ-MuLan и CLAP" : "одна модель"}
+        </span>
+      </button>
+      {/* Rocchio relevance feedback: the query is pulled toward what was kept
+          for these labels and away from what was not. It needs three approved
+          tracks before it moves anything, and it is unavailable during A/B —
+          the offsets live in each model's own space, so a comparison running
+          under them would measure the clicks rather than the models. */}
+      <button
+        className={`text-compare-toggle text-feedback-toggle ${textUseFeedback && !textCompareModels ? "active" : ""}`}
+        role="switch"
+        aria-checked={textUseFeedback && !textCompareModels}
+        disabled={textCompareModels}
+        title={
+          textCompareModels
+            ? "Недоступно в A/B: поправка у каждой модели своя, и сравнение мерило бы твои оценки, а не модели."
+            : `Подтянуть выдачу к трекам, отмеченным по выбранным меткам. Нужно от ${feedbackMinimumTracks} одобренных; пока их меньше, поиск идёт по одним словам.`
+        }
+        onClick={() => onTextUseFeedbackChange(!textUseFeedback)}
+        type="button"
+      >
+        <span className="text-compare-checkbox" aria-hidden="true">
+          {textUseFeedback && !textCompareModels ? <Check size={13} strokeWidth={2.4} /> : null}
+        </span>
+        <span className="text-compare-label">Мои оценки</span>
+        <span className="text-compare-state">
+          {textCompareModels
+            ? "выключено в A/B"
+            : selectedFeedbackCounts.judged
+              ? `${selectedFeedbackCounts.relevant} по делу из ${selectedFeedbackCounts.judged}`
+              : "вердиктов нет"}
         </span>
       </button>
       <div className="search-filter-grid text-search-filter-grid text-group-labels">

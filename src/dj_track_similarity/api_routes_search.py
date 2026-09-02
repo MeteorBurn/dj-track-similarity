@@ -79,6 +79,9 @@ class _ClapTextSearchPlan:
     # Each selected label's own bank, kept apart from the merged query so the
     # search can say which of them a hit belongs to.
     preset_banks: tuple[tuple[str, tuple[str, ...]], ...]
+    # Tracks already judged for those labels, split by verdict, or None when
+    # the search was not asked to account for them.
+    feedback_track_ids: dict[str, list[int]] | None
 
 
 def register_search_routes(
@@ -201,7 +204,18 @@ def register_search_routes(
     def text_search(request: TextSearchRequest):
         database = state.require_db()
         try:
-            plan = _clap_text_search_plan(request)
+            # Read before the model is touched: an accumulated opinion is a
+            # database question, and a search that cannot answer it should
+            # still run on the words alone.
+            judged = (
+                database.list_text_preset_feedback_tracks(
+                    preset_keys=[bank.key for bank in request.preset_banks],
+                    analysis_family=request.analysis_family,
+                )
+                if request.use_feedback and request.preset_banks
+                else None
+            )
+            plan = _clap_text_search_plan(request, judged)
             with text_embedding_adapter(
                 request.analysis_family,
                 device=request.device,
@@ -306,7 +320,10 @@ def register_search_routes(
             presets=database.summarise_text_preset_feedback()
         )
 
-def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
+def _clap_text_search_plan(
+    request: TextSearchRequest,
+    feedback_track_ids: dict[str, list[int]] | None = None,
+) -> _ClapTextSearchPlan:
     positive_queries = _clean_text_queries(request.positive_queries)
     if not positive_queries:
         raise ValueError("At least one positive query is required")
@@ -328,6 +345,7 @@ def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
             for bank in request.preset_banks
             if (cleaned := _clean_text_queries(bank.positive_queries))
         ),
+        feedback_track_ids=feedback_track_ids,
     )
 
 
@@ -352,6 +370,7 @@ def _search_clap_text_prompts(
             limit=plan.limit,
             negative_weight=plan.negative_weight,
             preset_vectors=preset_vectors,
+            feedback_track_ids=plan.feedback_track_ids,
         )
     vector = adapter.embed_text(plan.prompt_bank.primary_query)
     return searcher.search_vector(vector, filters=plan.filters, limit=plan.limit)

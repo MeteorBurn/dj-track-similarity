@@ -882,3 +882,108 @@ def test_text_search_feedback_summary_counts_what_stands_behind_each_label(
             }
         }
     }
+
+
+def test_text_search_pulls_the_query_toward_the_tracks_that_were_kept(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Rocchio feedback, off by default and never silent.
+
+    The words alone put a distractor above the judged neighbourhood. With the
+    accumulated opinion allowed in, that order reverses — and the words still
+    hold most of the weight, so this is an adjustment rather than a takeover.
+    """
+
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    # "broken drums." embeds to [1, 0, 0]. The judged tracks sit off that axis,
+    # and the distractor sits slightly closer to it than they do.
+    kept = [
+        _track_with_embedding(db, f"kept{index}.wav", [0.5, 0.866, 0.0], "clap")
+        for index in range(3)
+    ]
+    distractor = _track_with_embedding(db, "distractor.wav", [0.55, 0.0, 0.835], "clap")
+    with db.connect() as connection:
+        uuids = dict(
+            connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
+        )
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    client = TestClient(create_app(db_path))
+
+    for track_id in kept:
+        posted = client.post(
+            "/api/search/text/feedback",
+            json={
+                "track_uuid": uuids[track_id],
+                "preset_keys": ["rhythm/breakbeat"],
+                "analysis_family": "clap",
+                "verdict": 1,
+            },
+        )
+        assert posted.status_code == 200
+
+    body = {
+        "analysis_family": "clap",
+        "positive_queries": ["broken drums."],
+        "preset_banks": [
+            {"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}
+        ],
+        "limit": 5,
+    }
+    plain = [row["track"]["track_id"] for row in client.post("/api/search/text", json={**body}).json()]
+    assert plain[0] == distractor
+
+    adjusted = [
+        row["track"]["track_id"]
+        for row in client.post("/api/search/text", json={**body, "use_feedback": True}).json()
+    ]
+    assert adjusted[0] in kept
+    assert adjusted.index(distractor) > 0
+    # Nothing is dropped: the shift reorders the same library rather than
+    # filtering it to what was already approved.
+    assert sorted(adjusted) == sorted(plain)
+
+
+def test_text_search_ignores_a_history_too_small_to_mean_anything(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Two verdicts are an afternoon, not an opinion, so the query stays put."""
+
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    kept = [
+        _track_with_embedding(db, f"few{index}.wav", [0.2, 0.98, 0.0], "clap")
+        for index in range(2)
+    ]
+    on_words = _track_with_embedding(db, "words.wav", [1.0, 0.0, 0.0], "clap")
+    with db.connect() as connection:
+        uuids = dict(
+            connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
+        )
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    client = TestClient(create_app(db_path))
+    for track_id in kept:
+        client.post(
+            "/api/search/text/feedback",
+            json={
+                "track_uuid": uuids[track_id],
+                "preset_keys": ["rhythm/breakbeat"],
+                "analysis_family": "clap",
+                "verdict": 1,
+            },
+        )
+
+    adjusted = client.post(
+        "/api/search/text",
+        json={
+            "analysis_family": "clap",
+            "positive_queries": ["broken drums."],
+            "preset_banks": [
+                {"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}
+            ],
+            "limit": 5,
+            "use_feedback": True,
+        },
+    )
+    assert adjusted.status_code == 200
+    assert adjusted.json()[0]["track"]["track_id"] == on_words

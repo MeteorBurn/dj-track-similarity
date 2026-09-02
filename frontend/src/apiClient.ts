@@ -86,6 +86,9 @@ type TextSearchPayload = {
   /** Each selected label's own bank, so the server can report which of them a
    * hit belongs to. The merged bank alone cannot say. */
   preset_banks?: { key: string; positive_queries: string[] }[];
+  /** Pull the query toward the tracks kept for those labels, away from the
+   * rejected ones. Off unless asked for. */
+  use_feedback?: boolean;
 };
 
 type TextSearchWarmupPayload = {

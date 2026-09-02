@@ -195,6 +195,57 @@ class EvaluationRepository:
             verdicts.pop(track_uuid, None)
         return verdicts
 
+    def list_text_preset_feedback_tracks(
+        self,
+        *,
+        preset_keys: Sequence[str],
+        analysis_family: str,
+    ) -> dict[str, list[int]]:
+        """The tracks judged for these labels, split by verdict.
+
+        Read at search time so an accumulated opinion can pull the query toward
+        what was kept and away from what was not. Returned as track ids because
+        the caller already holds the vector matrix and can find their rows in
+        it without a second read of the embeddings.
+        """
+
+        clean_keys = [key for key in (k.strip() for k in preset_keys) if key]
+        if not clean_keys:
+            return {"relevant": [], "irrelevant": []}
+        if analysis_family not in ("clap", "mulan"):
+            raise ValueError(f"Unknown text embedding family: {analysis_family}")
+        with closing(self.connect()) as connection:
+            if connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name = 'text_preset_feedback'
+                """
+            ).fetchone() is None:
+                return {"relevant": [], "irrelevant": []}
+            slots = ", ".join("?" for _ in clean_keys)
+            rows = connection.execute(
+                f"""
+                SELECT DISTINCT feedback.track_id, feedback.verdict
+                FROM text_preset_feedback AS feedback
+                JOIN tracks ON tracks.track_id = feedback.track_id
+                WHERE feedback.preset_key IN ({slots})
+                  AND feedback.analysis_family = ?
+                  AND tracks.missing_since IS NULL
+                """,
+                (*clean_keys, analysis_family),
+            ).fetchall()
+        relevant: list[int] = []
+        irrelevant: list[int] = []
+        for track_id, verdict in rows:
+            (relevant if int(verdict) > 0 else irrelevant).append(int(track_id))
+        # A track judged one way for one label and the other way for another
+        # says nothing usable about the selection as a whole.
+        contested = set(relevant) & set(irrelevant)
+        return {
+            "relevant": sorted(set(relevant) - contested),
+            "irrelevant": sorted(set(irrelevant) - contested),
+        }
+
     def summarise_text_preset_feedback(self) -> dict[str, dict[str, dict[str, int]]]:
         """Count the verdicts standing behind each label, per model.
 

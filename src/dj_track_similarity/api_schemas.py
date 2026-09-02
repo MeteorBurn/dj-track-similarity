@@ -399,6 +399,10 @@ class TextSearchRequest(BaseModel):
         default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
     )
     preset_banks: list[TextPresetBank] = Field(default_factory=list, max_length=64)
+    # Pull the query toward the tracks kept for these labels and away from the
+    # ones rejected. Off unless asked for: a search that quietly moves with
+    # past clicks cannot be told apart from one that answers the words.
+    use_feedback: bool = False
 
 
 class TextSearchWarmupRequest(BaseModel):

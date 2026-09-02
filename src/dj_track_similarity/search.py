@@ -27,6 +27,19 @@ from .vector_index import (
 FloatArray = NDArray[np.float32]
 EmbeddingFamily = Literal["maest", "mert", "muq", "mulan", "clap"]
 CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = 0.5
+
+# Rocchio relevance feedback: how far an accumulated opinion may pull a query.
+# The classic weighting keeps the words in charge and lets the judged tracks
+# adjust rather than replace them, and it treats a rejection as weaker evidence
+# than an approval, because a track can be rejected for reasons the label never
+# claimed. Nothing is trained: both centroids are means over vectors already
+# stored for the library.
+FEEDBACK_QUERY_WEIGHT: Final = 1.0
+FEEDBACK_RELEVANT_WEIGHT: Final = 0.75
+FEEDBACK_IRRELEVANT_WEIGHT: Final = 0.25
+# Below this the centroid is one person's afternoon rather than an opinion, and
+# a query pulled by it moves for no reason it could defend.
+FEEDBACK_MINIMUM_TRACKS: Final = 3
 _EMBEDDING_FAMILIES = frozenset({"maest", "mert", "muq", "mulan", "clap"})
 
 
@@ -325,6 +338,7 @@ class SimilaritySearch:
         limit: int = 50,
         negative_weight: float = CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
         preset_vectors: Mapping[str, Sequence[FloatArray]] | None = None,
+        feedback_track_ids: Mapping[str, Sequence[int]] | None = None,
     ) -> list[SimilaritySearchResult]:
         if not positive_vectors:
             raise ValueError(
@@ -345,6 +359,13 @@ class SimilaritySearch:
             output,
             self.repository.catalog_uuid,
         ).matrix
+        shifted_positive = _apply_relevance_feedback(
+            positive_vectors,
+            matrix=matrix,
+            rows=rows,
+            output=output,
+            feedback_track_ids=feedback_track_ids,
+        )
         (
             positive_scores,
             negative_scores,
@@ -353,7 +374,7 @@ class SimilaritySearch:
         ) = _contrast_vector_scores(
             matrix,
             output=output,
-            positive_vectors=positive_vectors,
+            positive_vectors=shifted_positive,
             negative_vectors=negative_vectors or (),
             negative_weight=negative_weight,
         )
@@ -861,6 +882,55 @@ def _contrast_vector_scores(
         positive_scores - bounded_weight * negative_scores,
         bounded_weight,
     )
+
+
+def _apply_relevance_feedback(
+    positive_vectors: Sequence[FloatArray],
+    *,
+    matrix: FloatArray,
+    rows: Sequence[AnalysisVectorRow],
+    output: AnalysisOutput,
+    feedback_track_ids: Mapping[str, Sequence[int]] | None,
+) -> Sequence[FloatArray]:
+    """Pull the query toward what was kept and away from what was not.
+
+    Rocchio relevance feedback, computed from the vectors already loaded for
+    this search: the pooled prompt bank keeps most of its weight, the mean of
+    the approved tracks is added, the mean of the rejected ones subtracted, and
+    the result is returned as the single vector the bank pools to.
+
+    The words stay in charge. A label whose judged tracks are too few to mean
+    anything is left alone, and so is one whose tracks are not in this library
+    any more, so an empty or stale history cannot quietly move a search.
+    """
+
+    if not feedback_track_ids:
+        return positive_vectors
+    relevant_ids = list(feedback_track_ids.get("relevant") or ())
+    irrelevant_ids = list(feedback_track_ids.get("irrelevant") or ())
+    if len(relevant_ids) < FEEDBACK_MINIMUM_TRACKS:
+        return positive_vectors
+    row_of_track = {row.target.track_id: index for index, row in enumerate(rows)}
+
+    def centroid(track_ids: Sequence[int]) -> FloatArray | None:
+        indices = [row_of_track[track_id] for track_id in track_ids if track_id in row_of_track]
+        if len(indices) < FEEDBACK_MINIMUM_TRACKS:
+            return None
+        return np.asarray(matrix[indices].mean(axis=0), dtype=np.float32)
+
+    approved = centroid(relevant_ids)
+    if approved is None:
+        return positive_vectors
+    bank = _normalize(
+        np.mean(_normalize_matrix(positive_vectors, output=output), axis=0)
+    )
+    shifted = FEEDBACK_QUERY_WEIGHT * bank + FEEDBACK_RELEVANT_WEIGHT * _normalize(approved)
+    rejected = centroid(irrelevant_ids)
+    if rejected is not None:
+        shifted = shifted - FEEDBACK_IRRELEVANT_WEIGHT * _normalize(rejected)
+    if not np.isfinite(shifted).all() or float(np.linalg.norm(shifted)) == 0.0:
+        return positive_vectors
+    return [_normalize(shifted)]
 
 
 def _preset_bank_scores(

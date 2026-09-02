@@ -2948,6 +2948,13 @@ h2 {
   color: var(--accent-active-text);
 }
 
+/* The same switch shape as A/B, and disabled while A/B runs, because a
+   comparison pulled by past clicks measures the clicks. */
+.text-feedback-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .text-compare-checkbox {
   align-items: center;
   border: 1px solid var(--border-strong);

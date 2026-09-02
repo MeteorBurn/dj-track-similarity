@@ -22,6 +22,10 @@ def _load_script():
     return module
 
 
+def _backup_files(directory: Path) -> list[Path]:
+    return sorted(directory.glob("*.bak-*"))
+
+
 def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
     tmp_path: Path,
 ) -> None:
@@ -49,6 +53,10 @@ def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
     assert summary.database_kind == "library"
     assert summary.integrity_before == "ok"
     assert summary.integrity_after == "ok"
+    library_file = summary.files[0]
+    assert library_file.journal_mode == "wal"
+    assert library_file.checkpoint == "complete"
+    assert not Path(f"{db_path}-wal").exists()
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM library").fetchone()[0] == 1
         assert connection.execute(
@@ -57,6 +65,9 @@ def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
         ).fetchone() == (
             mutation.identity.track_uuid,
         )
+        assert connection.execute(
+            "SELECT track_id FROM track_search_fts WHERE track_search_fts MATCH 'Track'"
+        ).fetchall() == [(mutation.identity.track_id,)]
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     with sqlite3.connect(evaluation_path) as connection:
         assert connection.execute(
@@ -85,18 +96,46 @@ def test_optimize_database_does_not_reject_future_library_tables(
         ).fetchone()[0] == "kept"
 
 
-def test_optimize_database_handles_generic_sqlite_file(tmp_path: Path) -> None:
+def test_optimize_database_keeps_generic_sqlite_file_and_its_journal_mode(
+    tmp_path: Path,
+) -> None:
     module = _load_script()
     db_path = tmp_path / "other.sqlite"
     with sqlite3.connect(db_path) as connection:
         connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
         connection.execute("INSERT INTO values_table(value) VALUES ('kept')")
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+
+    assert module.main(["--db", str(db_path), "--dry-run"]) == 0
+    assert _backup_files(tmp_path) == []
 
     summary = module.optimize_database(db_path)
 
     assert summary.database_kind == "sqlite"
     assert [item.role for item in summary.files] == ["sqlite"]
     assert summary.backup_path.exists()
+    assert summary.files[0].journal_mode == "delete"
+    assert summary.files[0].checkpoint is None
     with sqlite3.connect(db_path) as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
         assert connection.execute("SELECT value FROM values_table").fetchone()[0] == "kept"
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_optimize_database_refuses_a_database_that_fails_verification(
+    tmp_path: Path,
+) -> None:
+    module = _load_script()
+    db_path = tmp_path / "broken.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE values_table (value INTEGER CHECK(value > 0))")
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute("INSERT INTO values_table(value) VALUES (-1)")
+    size_before = db_path.stat().st_size
+
+    assert module.main(["--db", str(db_path)]) == 1
+
+    assert _backup_files(tmp_path) == []
+    assert db_path.stat().st_size == size_before
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT value FROM values_table").fetchone()[0] == -1

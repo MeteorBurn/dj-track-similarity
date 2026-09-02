@@ -299,7 +299,10 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   const afterTextRequest = schemaSource.split("class TextSearchRequest")[1];
   const textRequestSchema = afterTextRequest.slice(0, afterTextRequest.indexOf("class "));
   const textSearchPayloadType = apiClientSource.split("type TextSearchPayload = {")[1].split("};")[0];
-  for (const retired of [/adaptive_contrast/, /preset/, /query/]) {
+  // Field names, not substrings: preset_banks carries a full bank per label
+  // and is the opposite of the retired `preset`, which named one and threw the
+  // rest away. `queries` is the bank; `query` was the single-string copy.
+  for (const retired of [/adaptive_contrast/, /preset\s*[:?]/, /query\s*[:?]/]) {
     assert.doesNotMatch(textRequestSchema, retired);
     assert.doesNotMatch(textSearchPayloadType, retired);
   }

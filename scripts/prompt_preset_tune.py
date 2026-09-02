@@ -54,9 +54,10 @@ class FeedbackPool:
     positive_rows: NDArray[np.int64]
     negative_rows: NDArray[np.int64]
     # One click on a bank merged from four labels writes four verdicts, and
-    # each of them is a quarter of an opinion rather than four opinions. The
-    # weights carry that discount into the metrics instead of letting a single
-    # judgement count four times.
+    # each is a share of one opinion rather than four opinions. Where the search
+    # reported how well each label matched the track on its own, the share
+    # follows that; otherwise the click splits evenly. Either way the weights
+    # carry the discount into the metrics.
     row_weights: NDArray[np.float64]
 
 
@@ -228,7 +229,7 @@ def _load_pools(
         try:
             rows = connection.execute(
                 """
-                SELECT preset_key, verdict, track_id, selection_size
+                SELECT preset_key, verdict, track_id, weight
                 FROM text_preset_feedback
                 WHERE analysis_family = ?
                 ORDER BY preset_key
@@ -238,7 +239,7 @@ def _load_pools(
         except sqlite3.OperationalError:
             return []
     by_preset: dict[str, tuple[dict[int, float], dict[int, float]]] = {}
-    for preset_key, verdict, track_id, selection_size in rows:
+    for preset_key, verdict, track_id, weight in rows:
         if selected and preset_key not in selected:
             continue
         row = row_of_track.get(int(track_id))
@@ -248,8 +249,8 @@ def _load_pools(
         side = positive_rows if verdict > 0 else negative_rows
         # A track judged twice under different selections keeps the stronger
         # claim rather than being counted twice.
-        weight = 1.0 / max(1, int(selection_size or 1))
-        side[row] = max(side.get(row, 0.0), weight)
+        share = float(weight or 1.0)
+        side[row] = max(side.get(row, 0.0), share)
     pools = []
     for preset_key, (positive_rows, negative_rows) in sorted(by_preset.items()):
         if len(positive_rows) < min_per_class or len(negative_rows) < min_per_class:

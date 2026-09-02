@@ -644,43 +644,6 @@ h2 {
   width: 132px;
 }
 
-.library-summary-badge {
-  align-items: baseline;
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  box-shadow: 0 1px 0 var(--inset-highlight) inset;
-  color: var(--text);
-  display: inline-flex;
-  gap: 5px;
-  min-height: 22px;
-  padding: 3px 7px;
-}
-
-.library-summary-total-badge {
-  background: var(--accent-soft-bg);
-  border-color: var(--accent-soft-border);
-  color: var(--accent);
-}
-
-.library-summary-badge span {
-  color: var(--meta-label);
-  font-size: 9px;
-  font-weight: 760;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.library-summary-badge strong {
-  font-size: 11px;
-  font-weight: 760;
-  white-space: nowrap;
-}
-
-.library-summary-total-badge span {
-  color: var(--accent);
-}
-
 .topbar-actions {
   align-items: center;
   display: flex;
@@ -753,19 +716,30 @@ h2 {
   max-width: 1880px;
 }
 
-/* Collapsing the setup panel hands its third of the row to the library and the
-   search, which is what the screen is for once analysis is running or done.
+/* Only the search panel needs its full width all of the time: setup is done
+   once, and the library is a place to find a track rather than to watch.
+   Either column folds to a rail, and folding both leaves the search panel
+   nearly the whole row — which is what side-by-side model comparison needs.
    The rail keeps the column clickable at its full height, so getting back is
    one click anywhere down the strip rather than a hunt for an icon. */
 .workspace.setup-collapsed {
   grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr);
 }
 
-.library-panel.collapsed {
+.workspace.library-collapsed {
+  grid-template-columns: minmax(0, 1fr) 40px minmax(0, 1fr);
+}
+
+.workspace.setup-collapsed.library-collapsed {
+  grid-template-columns: 40px 40px minmax(0, 1fr);
+}
+
+.library-panel.collapsed,
+.track-panel.collapsed {
   padding: 8px 4px;
 }
 
-.library-panel-rail {
+.panel-rail {
   align-items: center;
   background: none;
   border: 0;
@@ -781,12 +755,12 @@ h2 {
   width: 100%;
 }
 
-.library-panel-rail:hover {
+.panel-rail:hover {
   background: var(--surface-muted);
   color: var(--text-strong);
 }
 
-.library-panel-rail-label {
+.panel-rail-label {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -854,11 +828,6 @@ h2 {
 
 .panel-title {
   margin-bottom: 10px;
-}
-
-.track-panel .panel-title .library-summary-total-badge {
-  flex: 0 0 auto;
-  margin-left: auto;
 }
 
 .panel-counter {

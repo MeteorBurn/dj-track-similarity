@@ -364,6 +364,21 @@ class SonaraRandomTrackRequest(BaseModel):
         return self
 
 
+class TextPresetBank(BaseModel):
+    """One label's own bank, sent alongside the merged query.
+
+    The server sees only the merged prompt bank, so it cannot tell which label
+    a hit came from. Naming the banks lets it score each one separately and
+    report the contribution, which is what a verdict needs in order to land on
+    the label that earned it rather than on every label that was selected.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    positive_queries: list[str] = Field(min_length=1)
+
+
 class TextSearchRequest(BaseModel):
     """One prompt bank searched against one text-embedding family.
 
@@ -383,6 +398,7 @@ class TextSearchRequest(BaseModel):
     device: str = Field(
         default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
     )
+    preset_banks: list[TextPresetBank] = Field(default_factory=list, max_length=64)
 
 
 class TextSearchWarmupRequest(BaseModel):
@@ -420,6 +436,10 @@ class TextSearchFeedbackRequest(BaseModel):
     preset_keys: list[str] = Field(min_length=1)
     analysis_family: Literal["clap", "mulan"]
     verdict: Literal[-1, 0, 1]
+    # How much each of those labels, on its own, matched this track, as the
+    # search reported it. Absent when the search did not name the banks, and
+    # then the verdict is split evenly, which is all that can be said.
+    preset_scores: dict[str, float] | None = None
 
 
 class TextSearchFeedbackResponse(BaseModel):
@@ -848,3 +868,5 @@ class SimilaritySearchResultResponse(_ResponseModel):
     track: TrackSummaryResponse
     score: float
     score_breakdown: dict[str, float] | None = None
+    # Per-label contribution, present only when the request named the banks.
+    preset_scores: dict[str, float] | None = None

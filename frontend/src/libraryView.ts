@@ -72,29 +72,37 @@ export function likedTracksFilterTitle(likedOnly: boolean, likedCount: number) {
     : `Показать только лайкнутые треки. Доступно: ${likedCount}.`;
 }
 
-export const setupPanelStorageKey = "dj-track-similarity-setup-collapsed";
+export type CollapsiblePanel = "setup" | "library";
+
+const panelStorageKeys: Record<CollapsiblePanel, string> = {
+  setup: "dj-track-similarity-setup-collapsed",
+  library: "dj-track-similarity-library-collapsed"
+};
 
 /**
- * Whether the setup panel was left collapsed.
+ * Whether a workspace panel was left collapsed.
  *
- * Collapsing it hands its third of the workspace to the library and the search
- * panels, which is what you want once the analysis is running or done. The
- * choice outlives a reload; storage that cannot be read means open, because a
- * panel nobody can find is worse than one taking room.
+ * The row is three equal columns, and only the search panel needs all of its
+ * width all of the time: setup is done once, and the library is a place to
+ * find a track rather than to watch. Collapsing either hands its column to the
+ * others, and collapsing both leaves the search panel nearly the whole row.
+ *
+ * The choice outlives a reload. Storage that cannot be read means open,
+ * because a panel nobody can find is worse than one taking room.
  */
-export function resolveSetupPanelCollapsed(): boolean {
+export function resolvePanelCollapsed(panel: CollapsiblePanel): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(setupPanelStorageKey) === "collapsed";
+    return window.localStorage.getItem(panelStorageKeys[panel]) === "collapsed";
   } catch {
     return false;
   }
 }
 
-export function storeSetupPanelCollapsed(collapsed: boolean) {
+export function storePanelCollapsed(panel: CollapsiblePanel, collapsed: boolean) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(setupPanelStorageKey, collapsed ? "collapsed" : "open");
+    window.localStorage.setItem(panelStorageKeys[panel], collapsed ? "collapsed" : "open");
   } catch {
     // Browser privacy settings can block storage; the panel still toggles, it
     // just forgets the choice on the next load.

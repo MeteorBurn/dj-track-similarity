@@ -730,3 +730,103 @@ def test_text_search_feedback_records_how_many_presets_shared_the_click(
         )
     assert sizes["mood/dark"] == 1
     assert sizes["texture/lo-fi"] == 3
+
+
+def test_text_search_reports_each_label_contribution_and_credits_by_it(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A merged bank cannot say which label a hit came from; naming them can.
+
+    Without this a verdict is split evenly across everything that happened to
+    be selected, which teaches the labels that did not match. With each label's
+    own bank named, the search reports how well each one matched, and the click
+    is credited in that proportion.
+    """
+
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    # The track sits exactly on the axis that "broken drums." names and square
+    # to the one that "straight house groove." names.
+    track_id = _track_with_embedding(db, "broken.wav", [1.0, 0.0, 0.0], "clap")
+    with db.connect() as connection:
+        track_uuid = connection.execute(
+            "SELECT track_uuid FROM tracks WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    client = TestClient(create_app(db_path))
+
+    found = client.post(
+        "/api/search/text",
+        json={
+            "analysis_family": "clap",
+            "positive_queries": ["broken drums.", "straight house groove."],
+            "preset_banks": [
+                {"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]},
+                {"key": "rhythm/four-on-the-floor", "positive_queries": ["straight house groove."]},
+            ],
+            "limit": 5,
+        },
+    )
+    assert found.status_code == 200
+    hit = found.json()[0]
+    contributions = hit["preset_scores"]
+    assert set(contributions) == {"rhythm/breakbeat", "rhythm/four-on-the-floor"}
+    # The breakbeat bank points at the track; the four-on-the-floor bank is
+    # orthogonal to it, so it contributed nothing.
+    assert contributions["rhythm/breakbeat"] > contributions["rhythm/four-on-the-floor"]
+
+    judged = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": track_uuid,
+            "preset_keys": ["rhythm/breakbeat", "rhythm/four-on-the-floor"],
+            "analysis_family": "clap",
+            "verdict": 1,
+            "preset_scores": contributions,
+        },
+    )
+    assert judged.status_code == 200
+    with db.connect() as connection:
+        weights = dict(
+            connection.execute(
+                "SELECT preset_key, weight FROM text_preset_feedback"
+            ).fetchall()
+        )
+    # One click, one opinion: the shares add up to it, and the label that
+    # matched carries almost all of it.
+    assert weights["rhythm/breakbeat"] > weights["rhythm/four-on-the-floor"]
+    assert abs(sum(weights.values()) - 1.0) < 1e-6
+
+
+def test_text_search_feedback_splits_a_click_evenly_without_contributions(
+    tmp_path: Path,
+) -> None:
+    """Where the search did not name the banks, an even split is all that is known."""
+
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _track_with_embedding(db, "even.wav", [1.0, 0.0, 0.0], "clap")
+    with db.connect() as connection:
+        track_uuid = connection.execute(
+            "SELECT track_uuid FROM tracks WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
+    client = TestClient(create_app(db_path))
+
+    posted = client.post(
+        "/api/search/text/feedback",
+        json={
+            "track_uuid": track_uuid,
+            "preset_keys": ["mood/dark", "texture/lo-fi", "space/roomy", "energy/loud"],
+            "analysis_family": "clap",
+            "verdict": -1,
+        },
+    )
+    assert posted.status_code == 200
+    with db.connect() as connection:
+        weights = [
+            row[0]
+            for row in connection.execute("SELECT weight FROM text_preset_feedback")
+        ]
+    assert weights == [0.25, 0.25, 0.25, 0.25]

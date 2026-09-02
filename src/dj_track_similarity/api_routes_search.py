@@ -75,6 +75,9 @@ class _ClapTextSearchPlan:
     filters: SearchFilters
     limit: int
     negative_weight: float
+    # Each selected label's own bank, kept apart from the merged query so the
+    # search can say which of them a hit belongs to.
+    preset_banks: tuple[tuple[str, tuple[str, ...]], ...]
 
 
 def register_search_routes(
@@ -261,6 +264,7 @@ def register_search_routes(
                 preset_keys=request.preset_keys,
                 analysis_family=request.analysis_family,
                 verdict=request.verdict,
+                preset_scores=request.preset_scores,
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
@@ -306,6 +310,11 @@ def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
             if request.negative_weight is None
             else request.negative_weight
         ),
+        preset_banks=tuple(
+            (bank.key, cleaned)
+            for bank in request.preset_banks
+            if (cleaned := _clean_text_queries(bank.positive_queries))
+        ),
     )
 
 
@@ -316,13 +325,20 @@ def _search_clap_text_prompts(
 ) -> list[SimilaritySearchResult]:
     positive_queries = plan.prompt_bank.positive_queries
     negative_queries = plan.prompt_bank.negative_queries
-    if negative_queries or len(positive_queries) > 1:
+    # Every line of every named bank is already a line of the merged bank, so
+    # embedding them once and reusing the vectors costs one forward pass rather
+    # than one per label.
+    preset_vectors = {
+        key: adapter.embed_texts(queries) for key, queries in plan.preset_banks
+    } or None
+    if negative_queries or len(positive_queries) > 1 or preset_vectors:
         return searcher.search_contrast_vectors(
             positive_vectors=adapter.embed_texts(positive_queries),
             negative_vectors=adapter.embed_texts(negative_queries),
             filters=plan.filters,
             limit=plan.limit,
             negative_weight=plan.negative_weight,
+            preset_vectors=preset_vectors,
         )
     vector = adapter.embed_text(plan.prompt_bank.primary_query)
     return searcher.search_vector(vector, filters=plan.filters, limit=plan.limit)
@@ -366,6 +382,11 @@ def _hydrate_similarity_results(
                 "score_breakdown": (
                     dict(result.score_breakdown)
                     if result.score_breakdown is not None
+                    else None
+                ),
+                "preset_scores": (
+                    dict(result.preset_scores)
+                    if result.preset_scores is not None
                     else None
                 ),
             }

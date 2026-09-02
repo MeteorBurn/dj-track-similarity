@@ -189,6 +189,9 @@ export type SearchResult = {
   track: Track;
   score: number;
   score_breakdown?: Record<string, number> | null;
+  /** How well each selected label matched this track on its own.
+   * Present only when the search named the banks. */
+  preset_scores?: Record<string, number> | null;
   reason?: string;
   sonara_groups?: Record<string, number>;
   classifier_scores?: Record<string, number>;

@@ -29,7 +29,9 @@ import {
 import {
   composePromptBanks,
   modelAdvice,
+  presetByKey,
   promptQueriesFromText,
+  resolvePromptVariants,
   textPromptAxes,
   textPromptPresets
 } from "./textPromptPresets";
@@ -49,9 +51,10 @@ import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
 import {
   appendVisibleTracksToPlaylist,
   nextLibraryPlaybackTrack,
-  resolveSetupPanelCollapsed,
-  storeSetupPanelCollapsed
+  resolvePanelCollapsed,
+  storePanelCollapsed
 } from "./libraryView";
+import type { CollapsiblePanel } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import { shutdownApplication } from "./shutdownApplication";
 import {
@@ -201,6 +204,10 @@ export function App() {
     family: "clap" | "mulan";
   } | null>(null);
   const [textFeedbackVerdicts, setTextFeedbackVerdicts] = useState<Record<string, 1 | -1>>({});
+  // How well each selected label matched a track on its own, as the search
+  // reported it. A verdict then lands on the label that earned it instead of
+  // being split evenly across everything that happened to be selected.
+  const [textPresetScores, setTextPresetScores] = useState<Record<string, Record<string, number>>>({});
   const [promptNegativeWeight, setPromptNegativeWeight] = useState<number | null>(null);
   const [textNegativeQuery, setTextNegativeQuery] = useState("");
   const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(true);
@@ -238,10 +245,12 @@ export function App() {
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
-  // The setup panel holds the database, the stages and Start. Once analysis is
-  // running or finished none of it is needed, and its third of the workspace is
-  // better spent on the library and the search.
-  const [setupCollapsed, setSetupCollapsed] = useState(resolveSetupPanelCollapsed);
+  // The workspace is three equal columns, and only the search panel needs all
+  // of its width all of the time: setup is done once, and the library is a
+  // place to find a track rather than to watch. Either can fold to a rail, and
+  // folding both leaves the search panel nearly the whole row.
+  const [setupCollapsed, setSetupCollapsed] = useState(() => resolvePanelCollapsed("setup"));
+  const [libraryCollapsed, setLibraryCollapsed] = useState(() => resolvePanelCollapsed("library"));
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   // One optimization prompt per finished validation, however many polls observe it.
   const optimizationPromptedForJob = useRef<string | null>(null);
@@ -1444,9 +1453,10 @@ export function App() {
     );
   }
 
-  function toggleSetupPanel() {
-    setSetupCollapsed((collapsed) => {
-      storeSetupPanelCollapsed(!collapsed);
+  function togglePanel(panel: CollapsiblePanel) {
+    const setter = panel === "setup" ? setSetupCollapsed : setLibraryCollapsed;
+    setter((collapsed) => {
+      storePanelCollapsed(panel, !collapsed);
       return !collapsed;
     });
   }
@@ -1464,10 +1474,19 @@ export function App() {
     const ticket = beginGenericSearchRequest();
     appendActivity("info", `${label} search запущен`, negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
     try {
+      const presetBanks = selectedPresetKeys
+        .map((key) => {
+          const preset = presetByKey(key);
+          if (!preset) return null;
+          const queries = resolvePromptVariants(preset.positive, textEmbeddingFamily);
+          return queries.length ? { key, positive_queries: queries } : null;
+        })
+        .filter((bank): bank is { key: string; positive_queries: string[] } => bank !== null);
       const value = await api.textSearch({
         analysis_family: textEmbeddingFamily,
         positive_queries: positiveQueries,
         negative_queries: negativeQueries,
+        ...(presetBanks.length ? { preset_banks: presetBanks } : {}),
         ...(negativeQueries.length && promptNegativeWeight !== null
           ? { negative_weight: promptNegativeWeight }
           : {}),
@@ -1482,6 +1501,13 @@ export function App() {
           presetKeys.length ? { presetKeys, family: textEmbeddingFamily } : null
         );
         setTextFeedbackVerdicts({});
+        setTextPresetScores(
+          Object.fromEntries(
+            value
+              .filter((result) => result.preset_scores)
+              .map((result) => [result.track.track_uuid, result.preset_scores as Record<string, number>])
+          )
+        );
         // What you already said about a track outlives the search that showed
         // it. Without this the same row comes back unmarked in the next search
         // and invites a second, blinder vote on top of the first.
@@ -1519,11 +1545,13 @@ export function App() {
     const current = textFeedbackVerdicts[track.track_uuid];
     const next: -1 | 0 | 1 = current === verdict ? 0 : verdict;
     try {
+      const measured = textPresetScores[track.track_uuid];
       await api.textSearchFeedback({
         track_uuid: track.track_uuid,
         preset_keys: textFeedbackContext.presetKeys,
         analysis_family: textFeedbackContext.family,
-        verdict: next
+        verdict: next,
+        ...(measured ? { preset_scores: measured } : {})
       });
       setTextFeedbackVerdicts((previous) => {
         const updated = { ...previous };
@@ -1794,10 +1822,12 @@ export function App() {
         </div>
       </header>
 
-      <section className={`workspace ${setupCollapsed ? "setup-collapsed" : ""}`}>
+      <section
+        className={`workspace ${setupCollapsed ? "setup-collapsed" : ""} ${libraryCollapsed ? "library-collapsed" : ""}`}
+      >
         <LibraryPanel
           collapsed={setupCollapsed}
-          onToggleCollapsed={toggleSetupPanel}
+          onToggleCollapsed={() => togglePanel("setup")}
           databasePath={databasePath}
           onChooseDatabase={() => void handleChooseDatabase()}
           busy={busy}
@@ -1835,6 +1865,8 @@ export function App() {
         />
 
         <TrackPanel
+          collapsed={libraryCollapsed}
+          onToggleCollapsed={() => togglePanel("library")}
           databaseSelected={Boolean(databasePath && databaseCatalogUuid)}
           query={query}
           onQueryChange={setQuery}
@@ -1853,7 +1885,6 @@ export function App() {
           playingTrackId={playingTrackId}
           previewTrackId={preview?.track_id ?? null}
           tracks={orderedTracks}
-          libraryTotalTracks={librarySummary.tracks}
           total={libraryTotal}
           offset={libraryOffset}
           loading={libraryLoading}

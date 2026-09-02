@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search, Shuffle } from "lucide-react";
+import { ArrowDownUp, AudioWaveform, ChevronsLeft, ChevronsRight, Heart, ListMusic, Plus, Search, Shuffle } from "lucide-react";
 import type { Track } from "./api";
 import { libraryPageSize } from "./libraryLoading";
 import {
@@ -14,6 +14,8 @@ import {
 import { TrackList } from "./TrackRows";
 
 export function TrackPanel({
+  collapsed,
+  onToggleCollapsed,
   databaseSelected,
   query,
   onQueryChange,
@@ -32,7 +34,6 @@ export function TrackPanel({
   playingTrackId,
   previewTrackId,
   tracks,
-  libraryTotalTracks,
   total,
   offset,
   loading,
@@ -53,6 +54,8 @@ export function TrackPanel({
   onSeekPreview,
   onDetails
 }: {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   databaseSelected: boolean;
   query: string;
   onQueryChange: (value: string) => void;
@@ -71,7 +74,6 @@ export function TrackPanel({
   playingTrackId: number | null;
   previewTrackId: number | null;
   tracks: Track[];
-  libraryTotalTracks: number;
   total: number;
   offset: number;
   loading: boolean;
@@ -118,19 +120,41 @@ export function TrackPanel({
     if (clampedPage !== currentPage) onPageJump(clampedPage);
   }
 
+  if (collapsed) {
+    // Folded, the panel is a rail: the whole strip is the control, so coming
+    // back is a click anywhere down the column rather than a hunt for an icon.
+    return (
+      <section className="panel track-panel collapsed">
+        <button
+          className="panel-rail"
+          title="Развернуть «Библиотека и прослушивание»"
+          aria-label="Развернуть «Библиотека и прослушивание»"
+          aria-expanded={false}
+          onClick={onToggleCollapsed}
+          type="button"
+        >
+          <ChevronsRight size={17} />
+          <span className="panel-rail-label">2. Библиотека и прослушивание</span>
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section className="panel track-panel">
       <div className="panel-title">
         <ListMusic size={18} />
         <h2>2. Библиотека и прослушивание</h2>
-        <span
-          className="library-summary-badge library-summary-total-badge"
-          title="Общее количество треков в библиотеке"
-          aria-label={`Общее количество треков в библиотеке: ${libraryTotalTracks}`}
+        <button
+          className="icon-button panel-collapse-button"
+          title="Свернуть «Библиотека и прослушивание» и отдать место поиску"
+          aria-label="Свернуть «Библиотека и прослушивание»"
+          aria-expanded
+          onClick={onToggleCollapsed}
+          type="button"
         >
-          <span>tracks</span>
-          <strong>{libraryTotalTracks}</strong>
-        </span>
+          <ChevronsLeft size={17} />
+        </button>
       </div>
       <div className="search-input">
         <Search size={16} />

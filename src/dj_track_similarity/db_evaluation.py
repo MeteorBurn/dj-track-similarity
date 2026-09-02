@@ -13,6 +13,7 @@ from .db_ddl import (
     TEXT_PRESET_FEEDBACK_INDEX_DDL,
     TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL,
     TEXT_PRESET_FEEDBACK_TABLE_DDL,
+    TEXT_PRESET_FEEDBACK_WEIGHT_DDL,
 )
 from .track_models import TrackIdentity
 
@@ -53,6 +54,7 @@ class EvaluationRepository:
         preset_keys: Sequence[str],
         analysis_family: str,
         verdict: int,
+        preset_scores: Mapping[str, float] | None = None,
     ) -> int:
         """Store one relevance verdict per selected preset for a text-search hit.
 
@@ -81,7 +83,7 @@ class EvaluationRepository:
                 # migration of existing data.
                 connection.execute(TEXT_PRESET_FEEDBACK_TABLE_DDL)
                 connection.execute(TEXT_PRESET_FEEDBACK_INDEX_DDL)
-                _add_selection_size_column(connection)
+                _add_missing_columns(connection)
                 row = connection.execute(
                     """
                     SELECT track_id FROM tracks
@@ -104,17 +106,19 @@ class EvaluationRepository:
                         (track_id, analysis_family, *clean_keys),
                     )
                     return int(cursor.rowcount)
+                weights = _preset_weights(clean_keys, preset_scores)
                 connection.executemany(
                     """
                     INSERT INTO text_preset_feedback(
                         track_id, preset_key, analysis_family, verdict,
-                        selection_size, created_at, updated_at
+                        selection_size, weight, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(track_id, preset_key, analysis_family)
                     DO UPDATE SET
                         verdict = excluded.verdict,
                         selection_size = excluded.selection_size,
+                        weight = excluded.weight,
                         updated_at = excluded.updated_at
                     """,
                     (
@@ -124,6 +128,7 @@ class EvaluationRepository:
                             analysis_family,
                             verdict,
                             len(clean_keys),
+                            weights[preset_key],
                             timestamp,
                             timestamp,
                         )
@@ -972,21 +977,49 @@ def _json_object(value: object, field_name: str) -> dict[str, Any]:
     return dict(value)
 
 
-def _add_selection_size_column(connection: sqlite3.Connection) -> None:
-    """Give an older feedback table the column, once, without a migration step.
+def _add_missing_columns(connection: sqlite3.Connection) -> None:
+    """Give an older feedback table its columns, once, without a migration step.
 
     Verdicts are written on a click, so the write path is where a library first
-    meets this table at all. Adding the column here keeps that property: a
-    library that predates it gains it on the next click, and its existing rows
-    keep the default, which says exactly what they were — a whole example each.
+    meets this table at all. Adding the columns here keeps that property: a
+    library that predates one gains it on the next click, and its existing rows
+    keep the defaults, which say exactly what they were — a whole example each.
     """
 
     columns = {
         row[1] for row in connection.execute("PRAGMA table_info(text_preset_feedback)")
     }
-    if "selection_size" in columns:
-        return
-    connection.execute(TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL)
+    if "selection_size" not in columns:
+        connection.execute(TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL)
+    if "weight" not in columns:
+        connection.execute(TEXT_PRESET_FEEDBACK_WEIGHT_DDL)
+
+
+def _preset_weights(
+    keys: Sequence[str],
+    preset_scores: Mapping[str, float] | None,
+) -> dict[str, float]:
+    """Split one click across the labels that shared it.
+
+    With the search's per-label match to hand, the share follows it: a label
+    that matched the track twice as well as its neighbour carries twice the
+    example. Without it the click splits evenly, which is all that is known.
+    Scores are cosines and can be negative or zero; a label that did not match
+    at all still carries a floor, because a verdict was cast on a list it was
+    part of and dropping it silently would misreport the pool size.
+    """
+
+    even = 1.0 / max(1, len(keys))
+    if not preset_scores:
+        return {key: even for key in keys}
+    floor = 1e-6
+    positive = {
+        key: max(float(preset_scores.get(key, 0.0)), floor) for key in keys
+    }
+    total = sum(positive.values())
+    if total <= 0.0:
+        return {key: even for key in keys}
+    return {key: value / total for key, value in positive.items()}
 
 
 def _required_text(value: object, field_name: str) -> str:

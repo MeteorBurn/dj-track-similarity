@@ -153,7 +153,7 @@ export function LibraryPanel({
     return (
       <aside className="panel library-panel collapsed">
         <button
-          className="library-panel-rail"
+          className="panel-rail"
           title="Развернуть «База и анализ»"
           aria-label="Развернуть «База и анализ»"
           aria-expanded={false}
@@ -161,7 +161,7 @@ export function LibraryPanel({
           type="button"
         >
           <ChevronsRight size={17} />
-          <span className="library-panel-rail-label">1. База и анализ</span>
+          <span className="panel-rail-label">1. База и анализ</span>
         </button>
       </aside>
     );

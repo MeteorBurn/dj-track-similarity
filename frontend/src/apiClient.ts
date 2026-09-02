@@ -83,6 +83,9 @@ type TextSearchPayload = {
   limit: number;
   min_similarity?: number | null;
   device?: "auto" | "cpu" | "cuda";
+  /** Each selected label's own bank, so the server can report which of them a
+   * hit belongs to. The merged bank alone cannot say. */
+  preset_banks?: { key: string; positive_queries: string[] }[];
 };
 
 type TextSearchWarmupPayload = {
@@ -101,6 +104,7 @@ type TextSearchFeedbackPayload = {
   preset_keys: string[];
   analysis_family: "clap" | "mulan";
   verdict: -1 | 0 | 1;
+  preset_scores?: Record<string, number>;
 };
 
 type TextSearchFeedbackResult = {

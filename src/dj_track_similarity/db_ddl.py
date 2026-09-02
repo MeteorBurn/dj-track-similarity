@@ -355,6 +355,7 @@ CREATE TABLE IF NOT EXISTS text_preset_feedback (
     analysis_family  TEXT    NOT NULL CHECK(analysis_family IN ('clap', 'mulan')),
     verdict          INTEGER NOT NULL CHECK(verdict IN (-1, 1)),
     selection_size   INTEGER NOT NULL DEFAULT 1 CHECK(selection_size >= 1),
+    weight           REAL    NOT NULL DEFAULT 1.0 CHECK(weight > 0.0),
     created_at       TEXT    NOT NULL,
     updated_at       TEXT    NOT NULL,
     PRIMARY KEY(track_id, preset_key, analysis_family)
@@ -372,6 +373,15 @@ TEXT_PRESET_FEEDBACK_INDEX_DDL = (
 TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL = (
     "ALTER TABLE text_preset_feedback "
     "ADD COLUMN selection_size INTEGER NOT NULL DEFAULT 1;"
+)
+
+# selection_size says how many labels shared a click; weight says how much of
+# it this one earned. Where the search reported each label's own match the
+# weight carries that measurement, and where it did not the click is split
+# evenly, which is all that can honestly be said about it.
+TEXT_PRESET_FEEDBACK_WEIGHT_DDL = (
+    "ALTER TABLE text_preset_feedback "
+    "ADD COLUMN weight REAL NOT NULL DEFAULT 1.0;"
 )
 
 _DDL_TEXT_PRESET_FEEDBACK = (

@@ -95,6 +95,11 @@ class SimilaritySearchResult:
     target: AnalysisTarget
     score: float
     score_breakdown: Mapping[str, float] | None = None
+    # How well each named bank, on its own, matches this track. A merged query
+    # cannot say which of its labels earned a hit, and a verdict credited to
+    # all of them equally teaches the wrong ones. Present only when the caller
+    # asked for it by naming the banks.
+    preset_scores: Mapping[str, float] | None = None
 
 
 class SimilaritySearch:
@@ -319,6 +324,7 @@ class SimilaritySearch:
         filters: SearchFilters | None = None,
         limit: int = 50,
         negative_weight: float = CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
+        preset_vectors: Mapping[str, Sequence[FloatArray]] | None = None,
     ) -> list[SimilaritySearchResult]:
         if not positive_vectors:
             raise ValueError(
@@ -400,11 +406,27 @@ class SimilaritySearch:
             key=lambda item: item[2],
             reverse=True,
         )[:bounded_limit]
+        preset_columns = _preset_bank_scores(
+            matrix,
+            output=output,
+            preset_vectors=preset_vectors,
+        )
+        row_of_track = {
+            row.target.track_id: index for index, row in enumerate(rows)
+        }
         return [
             SimilaritySearchResult(
                 target=target,
                 score=score,
                 score_breakdown=breakdown,
+                preset_scores=(
+                    {
+                        key: float(column[row_of_track[target.track_id]])
+                        for key, column in preset_columns.items()
+                    }
+                    if preset_columns
+                    else None
+                ),
             )
             for target, score, _ranking, breakdown in ranked
         ]
@@ -839,6 +861,34 @@ def _contrast_vector_scores(
         positive_scores - bounded_weight * negative_scores,
         bounded_weight,
     )
+
+
+def _preset_bank_scores(
+    matrix: FloatArray,
+    *,
+    output: AnalysisOutput,
+    preset_vectors: Mapping[str, Sequence[FloatArray]] | None,
+) -> dict[str, FloatArray]:
+    """Score every track against each named bank on its own.
+
+    The merged query answers "does this track match the selection"; these
+    answer "which label in the selection is it that matches", which is what a
+    verdict needs in order to land on the label that earned it. Each bank is
+    pooled and normalized exactly as the merged one is, so a contribution is
+    comparable with the score beside it.
+    """
+
+    if not preset_vectors:
+        return {}
+    scores: dict[str, FloatArray] = {}
+    for key, vectors in preset_vectors.items():
+        if not vectors:
+            continue
+        bank = _normalize(
+            np.mean(_normalize_matrix(vectors, output=output), axis=0)
+        )
+        scores[key] = matrix @ bank
+    return scores
 
 
 def _contrast_score_breakdown(

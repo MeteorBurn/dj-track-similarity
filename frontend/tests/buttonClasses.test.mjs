@@ -239,7 +239,7 @@ test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative co
   assert.match(textTabSource, /document\.addEventListener\("pointerdown"/);
   assert.match(textTabSource, /presetMenuRef/);
   assert.doesNotMatch(textTabSource, /text-generate-button/);
-  assert.match(textTabSource, /text-preset-axis-button/);
+  assert.match(textTabSource, /text-preset-label/);
   assert.match(textTabSource, /text-preset-chip/);
   assert.match(textTabSource, /text-prompt-hint/);
   assert.doesNotMatch(textTabSource, />\s*Avoid\s*</);

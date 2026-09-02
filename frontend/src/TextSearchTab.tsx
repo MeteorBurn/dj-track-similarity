@@ -6,24 +6,22 @@ import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPr
 import {
   axisByKey,
   defaultNegativeWeight,
-  modelAdvice,
-  modelForPreset,
   presetByKey,
   resolveNegativeWeight,
-  resolvePromptVariants
+  resolvePromptVariants,
+  textPromptCategories
 } from "./textPromptPresets";
 
 /**
- * Both banks are sized by the same rule, so the shorter one gets the shorter
- * field instead of a fixed box that fits neither.
+ * Both banks grow with their content between a floor and a ceiling, so the
+ * shorter one gets the shorter field instead of a fixed box that fits neither.
+ *
+ * The floors are generous on purpose: a selection of four labels already merges
+ * sixteen positive lines, and reading a bank through a three-row slot meant
+ * scrolling inside a textarea to see what the search would actually send.
  */
-function bankRows(text: string) {
-  return Math.min(10, Math.max(3, text.split(/\r?\n/).length));
-}
-
-/** A measured score, or a dash where that model was never scored. */
-function formatMeasured(score: number | undefined) {
-  return score == null ? "—" : score.toFixed(2);
+function bankRows(text: string, min: number, max: number) {
+  return Math.min(max, Math.max(min, text.split(/\r?\n/).length));
 }
 
 export function TextSearchTab({
@@ -74,9 +72,11 @@ export function TextSearchTab({
   handleTextSearch: () => void;
 }) {
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
-  const [activeAxis, setActiveAxis] = useState(promptAxes[0]?.key ?? "");
-  // The label under the pointer or the keyboard focus, previewed in the two
-  // columns below the options. A tooltip could not hold a whole prompt bank.
+  // Sixteen axes and 240 labels do not fit a window at once, and scrolling to a
+  // remembered label is slower than typing three letters of it.
+  const [labelFilter, setLabelFilter] = useState("");
+  // The label under the pointer or the keyboard focus, previewed under the
+  // list. A tooltip could not hold a whole prompt bank.
   const [previewPresetKey, setPreviewPresetKey] = useState<string | null>(null);
   // null while there is nothing to warm; the search itself still loads the
   // model, so a failed warmup costs the wait back rather than blocking.
@@ -85,10 +85,6 @@ export function TextSearchTab({
   const presetButtonRef = useRef<HTMLButtonElement>(null);
   const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
   const promptModel: TextPromptModel = textEmbeddingFamily;
-  const axisPresets = useMemo(
-    () => promptPresets.filter((preset) => preset.axis === activeAxis),
-    [promptPresets, activeAxis]
-  );
   const selectedPresets = useMemo(
     () => selectedPresetKeys.map((key) => presetByKey(key)).filter(Boolean) as TextPromptPreset[],
     [selectedPresetKeys]
@@ -119,53 +115,35 @@ export function TextSearchTab({
   // to the server default. The benchmark set these numbers, so the tab reports
   // the weight rather than offering it up for guessing.
   const appliedNegativeWeight = negativeWeight ?? defaultNegativeWeight;
-  // Rank fusion was measured and rejected, so the two models are never mixed.
-  // The selection instead points at whichever one was measured to rank it best,
-  // and says plainly when the measurements cannot point anywhere.
-  const advice = useMemo(() => modelAdvice(selectedPresetKeys), [selectedPresetKeys]);
-  const advisedModel = advice.kind === "single" ? advice.model : null;
-  const advisedModelLabel = advisedModel === "mulan" ? "MuQ-MuLan" : "CLAP";
-  // Which axes carry the measurement the model follows, so the switch can say
-  // what moved it instead of changing the select behind the user's back.
-  const modelDrivingAxes = useMemo(() => {
-    const labels: string[] = [];
-    for (const preset of selectedPresets) {
-      if (!modelForPreset(preset.key)) continue;
-      const label = axisByKey(preset.axis)?.label ?? preset.axis;
-      if (!labels.includes(label)) labels.push(label);
-    }
-    return labels;
-  }, [selectedPresets]);
-  const measuredPresets = useMemo(
-    () =>
-      selectedPresets.filter(
-        (preset) => preset.measured?.clap != null || preset.measured?.mulan != null
-      ),
-    [selectedPresets]
-  );
-  const unmeasuredPresets = useMemo(
-    () => selectedPresets.filter((preset) => !measuredPresets.includes(preset)),
-    [selectedPresets, measuredPresets]
-  );
-  const drivingAxesText = `${modelDrivingAxes.length > 1 ? "осей" : "оси"} ${modelDrivingAxes.join(", ")}`;
-  const modelEvidence =
-    advice.kind === "single" && advisedModel === textEmbeddingFamily
-      ? `${advisedModelLabel} — подставлена по замеру ${drivingAxesText}.`
-      : advice.kind === "single"
-        ? `Сейчас ${textModelLabel}, а замер ${drivingAxesText} указывает на ${advisedModelLabel}.`
-        : advice.kind === "conflict"
-          ? `Сейчас ${textModelLabel}. Выбранные оси меряны на разные модели, одного верного ответа нет, а смешивать их нельзя.`
-          : `Сейчас ${textModelLabel}. Замер не указывает ни на одну модель — выбор за тобой.`;
-  const activeAxisEntry = promptAxes.find((axis) => axis.key === activeAxis);
-  const activeAxisModelLabel = activeAxisEntry?.model === "mulan" ? "MuQ-MuLan" : "CLAP";
-  // An axis without a measured winner can still hold labels that were measured
-  // one by one, and saying so is more use than a flat "no measurement".
-  const activeAxisPinned = useMemo(
-    () =>
-      axisPresets
-        .filter((preset) => preset.model)
-        .map((preset) => `${preset.label} → ${preset.model === "mulan" ? "MuQ-MuLan" : "CLAP"}`),
-    [axisPresets]
+
+  // The picker is one scrolling panel: a category is a divider, an axis is a
+  // block under it, and the labels live inside the block. Filtering narrows the
+  // labels and drops whatever axis and category is left holding none.
+  const groups = useMemo(() => {
+    const needle = labelFilter.trim().toLowerCase();
+    const matches = (preset: TextPromptPreset) =>
+      !needle
+      || preset.label.toLowerCase().includes(needle)
+      || preset.hint.toLowerCase().includes(needle);
+    return textPromptCategories
+      .map((category) => ({
+        category,
+        axes: promptAxes
+          .filter((axis) => axis.category === category.key)
+          .map((axis) => ({
+            axis,
+            presets: promptPresets.filter(
+              (preset) => preset.axis === axis.key && matches(preset)
+            )
+          }))
+          .filter((entry) => entry.presets.length > 0)
+      }))
+      .filter((group) => group.axes.length > 0);
+  }, [promptAxes, promptPresets, labelFilter]);
+
+  const visibleCount = useMemo(
+    () => groups.reduce((total, group) => total + group.axes.reduce((n, e) => n + e.presets.length, 0), 0),
+    [groups]
   );
 
   useEffect(() => {
@@ -213,13 +191,13 @@ export function TextSearchTab({
   return (
     <div className="search-tab-panel">
       <div className="text-search-box text-prompt-box">
-        {/* The picker leads the panel: picking measured presets is the short path
-            to a working bank, and writing one by hand is the long one. */}
+        {/* The picker leads the panel: picking presets is the short path to a
+            working bank, and writing one by hand is the long one. */}
         <div className="text-preset-picker" ref={presetMenuRef} onKeyDown={closePresetMenuOnEscape}>
           <button
             className={`text-preset-button ${presetMenuOpen ? "active" : ""}`}
             ref={presetButtonRef}
-            title="Выбрать пресеты по осям. Несколько пресетов складываются в один банк."
+            title="Выбрать метки. Несколько меток складываются в один банк."
             aria-label="Выбрать prompt preset"
             aria-expanded={presetMenuOpen}
             aria-haspopup="true"
@@ -239,7 +217,7 @@ export function TextSearchTab({
                 <button
                   className="text-preset-chip"
                   key={preset.key}
-                  title={`${preset.hint} Нажмите, чтобы убрать пресет из банка.`}
+                  title={`${preset.hint} Нажмите, чтобы убрать метку из банка.`}
                   onClick={() => onTogglePreset(preset.key)}
                   type="button"
                 >
@@ -254,7 +232,7 @@ export function TextSearchTab({
               ))}
               <button
                 className="text-preset-chip-clear"
-                title="Убрать все пресеты и очистить банк"
+                title="Убрать все метки и очистить банк"
                 onClick={onClearPresets}
                 type="button"
               >
@@ -268,14 +246,14 @@ export function TextSearchTab({
                 <span className="text-preset-menu-title">Prompt presets</span>
                 <span
                   className="text-preset-menu-count"
-                  title={`Выбрано пресетов из ${promptPresets.length} в словаре. Каждый добавляет свои строки в банк.`}
+                  title={`Выбрано меток из ${promptPresets.length} в словаре. Каждая добавляет свои строки в банк.`}
                 >
                   {selectedPresets.length} / {promptPresets.length}
                 </span>
                 <button
                   className="text-preset-menu-close"
-                  title="Закрыть выбор пресетов"
-                  aria-label="Закрыть выбор пресетов"
+                  title="Закрыть выбор меток"
+                  aria-label="Закрыть выбор меток"
                   onClick={() => {
                     setPresetMenuOpen(false);
                     presetButtonRef.current?.focus();
@@ -285,96 +263,61 @@ export function TextSearchTab({
                   <X size={13} strokeWidth={2.4} />
                 </button>
               </div>
-              <div className="text-preset-axes">
-                {promptAxes.map((axis) => (
-                  <button
-                    className={`text-preset-axis-button ${activeAxis === axis.key ? "active" : ""}`}
-                    aria-pressed={activeAxis === axis.key}
-                    key={axis.key}
-                    title={axis.hint}
-                    onClick={() => {
-                      setActiveAxis(axis.key);
-                      setPreviewPresetKey(null);
-                    }}
-                    type="button"
-                  >
-                    {axis.label}
-                    {/* The dot marks the axes that move the model, so the rule
-                        is visible before a label is picked, not after. */}
-                    {axis.model ? (
-                      <span className="text-preset-axis-dot" data-model={axis.model} aria-hidden="true" />
-                    ) : null}
-                  </button>
+              <input
+                className="text-preset-filter"
+                type="search"
+                value={labelFilter}
+                placeholder="Фильтр по метке"
+                aria-label="Фильтр меток"
+                title="Сужает список по названию метки и её описанию. Пустые оси скрываются."
+                onChange={(event) => setLabelFilter(event.target.value)}
+              />
+              <div className="text-preset-scroll" onMouseLeave={() => setPreviewPresetKey(null)}>
+                {groups.map((group) => (
+                  <section className="text-preset-category" key={group.category.key}>
+                    <h4 className="text-preset-category-title">{group.category.label}</h4>
+                    {group.axes.map(({ axis, presets }) => {
+                      const chosen = presets.filter((preset) =>
+                        selectedPresetKeys.includes(preset.key)
+                      ).length;
+                      return (
+                        <div className="text-preset-axis-block" key={axis.key}>
+                          <div className="text-preset-axis-head" title={axis.hint}>
+                            <span className="text-preset-axis-name">{axis.label}</span>
+                            <span className="text-preset-axis-count">
+                              {chosen ? `${chosen} / ${presets.length}` : presets.length}
+                            </span>
+                          </div>
+                          <div className="text-preset-axis-labels">
+                            {presets.map((preset) => {
+                              const active = selectedPresetKeys.includes(preset.key);
+                              return (
+                                <button
+                                  className={`text-preset-label ${active ? "active" : ""}`}
+                                  aria-pressed={active}
+                                  key={preset.key}
+                                  title={preset.hint}
+                                  onClick={() => onTogglePreset(preset.key)}
+                                  onFocus={() => setPreviewPresetKey(preset.key)}
+                                  onMouseEnter={() => setPreviewPresetKey(preset.key)}
+                                  type="button"
+                                >
+                                  {active ? (
+                                    <Check size={12} strokeWidth={3} aria-hidden="true" />
+                                  ) : null}
+                                  {preset.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </section>
                 ))}
-              </div>
-              <div className="text-preset-axis-note">
-                <span>
-                  {activeAxisEntry?.model
-                    ? `Ось измерена на ${activeAxisModelLabel} — модель переключится сама.`
-                    : activeAxisPinned.length
-                      ? `Замера у оси нет, но отдельные метки закреплены: ${activeAxisPinned.join(", ")}.`
-                      : "Замера у оси нет — модель останется прежней. Проверяй ушами."}
-                </span>
-                {/* The dots on the axis row mean nothing without this, and the
-                    hints no longer explain them. */}
-                <span
-                  className="text-preset-legend"
-                  title="Точка отмечает ось или метку, под которую есть замер: при её выборе модель переключится сама. Цвет — на какую именно."
-                >
-                  <span className="text-preset-axis-dot" data-model="mulan" aria-hidden="true" />
-                  MuQ-MuLan
-                  <span className="text-preset-axis-dot" data-model="clap" aria-hidden="true" />
-                  CLAP
-                </span>
-              </div>
-              <div
-                className="text-preset-options"
-                onMouseLeave={() => setPreviewPresetKey(null)}
-              >
-                {axisPresets.map((preset) => {
-                  const active = selectedPresetKeys.includes(preset.key);
-                  const measured = preset.measured?.[promptModel];
-                  return (
-                    <button
-                      className={`text-preset-option-button ${active ? "active" : ""}`}
-                      aria-pressed={active}
-                      key={preset.key}
-                      onClick={() => onTogglePreset(preset.key)}
-                      onFocus={() => setPreviewPresetKey(preset.key)}
-                      onMouseEnter={() => setPreviewPresetKey(preset.key)}
-                      type="button"
-                    >
-                      <span className="text-preset-option-check" aria-hidden="true">
-                        {active ? <Check size={14} strokeWidth={2.8} /> : null}
-                      </span>
-                      <span className="text-preset-option-label">
-                        {preset.label}
-                        {preset.model ? (
-                          <span
-                            className="text-preset-axis-dot"
-                            data-model={preset.model}
-                            aria-hidden="true"
-                          />
-                        ) : null}
-                      </span>
-                      {measured ? (
-                        <span
-                          className="text-preset-option-measured"
-                          title={`Надёжность метки на размеченных примерах: ROC-AUC ${measured.toFixed(3)}.`}
-                        >
-                          {measured.toFixed(2)}
-                        </span>
-                      ) : (
-                        <span
-                          className="text-preset-option-measured unvalidated"
-                          title="Надёжность не измерена: нет размеченных примеров под этот ярлык. Проверяй ушами."
-                        >
-                          —
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                {visibleCount === 0 ? (
+                  <p className="text-preset-empty">Под фильтр «{labelFilter}» не подходит ни одна метка.</p>
+                ) : null}
               </div>
               {/* The bank is what a label actually does, and it is far too long
                   for a tooltip, so it gets read as two columns right here. */}
@@ -407,7 +350,7 @@ export function TextSearchTab({
                           </ul>
                         ) : (
                           <p className="text-preset-preview-empty">
-                            Вес 0 — измерено, что негативы этой метке только вредят.
+                            Вес 0 — у этой метки нет конкурирующего класса, который стоило бы вычитать.
                           </p>
                         )}
                       </div>
@@ -422,48 +365,19 @@ export function TextSearchTab({
             </div>
           ) : null}
         </div>
-        {/* Everything needed to judge a selection sits here, so the axis and
-            label hints can stay plain descriptions of the sound. */}
+        {/* Which model ranks a label best is not declared anywhere yet: it is
+            decided by running both against the same bank and keeping what the
+            ear kept. Until that comparison has run, the tab says so instead of
+            pointing at a model it cannot justify. */}
         {selectedPresets.length ? (
           <div className="text-model-advice">
             <div className="text-evidence-row">
               <span className="text-evidence-key">Модель</span>
-              <span className="text-evidence-value">{modelEvidence}</span>
+              <span className="text-evidence-value">
+                Сейчас {textModelLabel}. Ни у одной метки нет замера, который указывал бы на модель —
+                прогоняй обе и сравнивай на слух. Смешивать их нельзя: rank fusion проверен и отклонён.
+              </span>
             </div>
-            {measuredPresets.length ? (
-              <div className="text-evidence-row">
-                <span className="text-evidence-key">Замер</span>
-                <span className="text-evidence-value">
-                  {measuredPresets
-                    .map(
-                      (preset) =>
-                        `${preset.label} ${formatMeasured(preset.measured?.mulan)} / ${formatMeasured(preset.measured?.clap)}`
-                    )
-                    .join("; ")}
-                  {" — ROC-AUC на размеченных примерах, MuQ-MuLan / CLAP."}
-                </span>
-              </div>
-            ) : null}
-            {unmeasuredPresets.length ? (
-              <div className="text-evidence-row">
-                <span className="text-evidence-key">Без замера</span>
-                <span className="text-evidence-value">
-                  {unmeasuredPresets.map((preset) => preset.label).join(", ")} — размеченных
-                  примеров под {unmeasuredPresets.length > 1 ? "эти метки" : "эту метку"} нет,
-                  надёжность неизвестна. Проверяй ушами.
-                </span>
-              </div>
-            ) : null}
-            {advisedModel && advisedModel !== textEmbeddingFamily ? (
-              <button
-                className="text-model-advice-switch"
-                title="Переключить на модель, измеренную как лучшую для этих осей. Смешивать модели нельзя: rank fusion проверен и отклонён, он тянет сильную модель к слабой."
-                onClick={() => onTextEmbeddingFamilyChange(advisedModel)}
-                type="button"
-              >
-                Переключить на {advisedModelLabel}
-              </button>
-            ) : null}
           </div>
         ) : null}
         <label className="text-prompt-field" title={textPromptHelp}>
@@ -478,7 +392,7 @@ export function TextSearchTab({
           </span>
           <textarea
             className="text-prompt-input"
-            rows={bankRows(textQuery)}
+            rows={bankRows(textQuery, 8, 18)}
             value={textQuery}
             onChange={(event) => onTextQueryChange(event.target.value)}
             placeholder={"breakbeat.\nsyncopated drums, off-grid rhythm, shuffled hits."}
@@ -515,15 +429,15 @@ export function TextSearchTab({
               <textarea
                 className="text-negative-input"
                 aria-label="Hard-negative банк"
-                rows={bankRows(textNegativeQuery)}
+                rows={bankRows(textNegativeQuery, 5, 12)}
                 value={textNegativeQuery}
                 onChange={(event) => onTextNegativeQueryChange(event.target.value)}
                 placeholder={"four-on-the-floor, house, techno.\nvocal pop song."}
-                title="Hard-negative банк: по одному конкурирующему классу в строке. Пресеты заполняют это поле сами."
+                title="Hard-negative банк: по одному конкурирующему классу в строке. Метки заполняют это поле сами."
               />
               <div className="text-negative-hint">
                 Вес {appliedNegativeWeight.toFixed(2)}
-                {negativeWeight === null ? " — значение по умолчанию" : " — измерен для выбранных пресетов"}.
+                {negativeWeight === null ? " — значение по умолчанию" : " — пришёл с выбранными метками"}.
                 Негативы помогают, только когда называют реальный конкурирующий класс; выдуманный
                 банк по замеру ухудшает выдачу монотонно.
               </div>

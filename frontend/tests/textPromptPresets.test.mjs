@@ -63,116 +63,61 @@ test("every preset belongs to a declared axis and carries a unique key", () => {
   assert.deepEqual(
     [...textPromptAxes.map((axis) => axis.key)].sort(),
     [
-      "abstract", "bass", "complexity", "density", "energy", "function",
-      "groove", "harmony", "instruments", "mood", "movement", "organic",
-      "percussion", "rhythm", "space", "style", "synths", "tension",
-      "texture", "timbre", "voice",
+      "abstract", "bass", "energy", "field-fx", "function", "groove",
+      "instruments", "mood", "percussion", "rhythm", "space", "style",
+      "synths", "texture", "timbre", "voice",
     ],
   );
 });
 
-test("an axis only names a model where the measurement can carry the claim", () => {
-  const { textPromptAxes } = loadTextPromptModule();
+test("every axis is drawn under a declared category", () => {
+  const { textPromptAxes, textPromptCategories } = loadTextPromptModule();
 
-  const named = Object.fromEntries(
-    textPromptAxes.filter((axis) => axis.model).map((axis) => [axis.key, axis.model]),
-  );
-
-  // Measured by the share of the reference in the first 100 rows. Space has no
-  // reference at all, low has one label, and harmony's two models sit 0.017
-  // apart, so none of the three may claim a winner.
-  //
-  // Instruments and voice are withdrawn for a different reason: an axis average
-  // can only choose a model for its labels if its references can tell those
-  // labels apart. All 21 instrument labels were scored against one number,
-  // SONARA acousticness, and all 11 voice labels against one, vocal
-  // probability. Those averages measure "sounds live" and "has a voice", not
-  // which instrument or which kind of voice was found.
-  assert.deepEqual(named, {
-    rhythm: "mulan",
-    texture: "clap",
-    style: "mulan",
-  });
+  // A category is a divider in the picker and nothing else: it never reaches a
+  // bank, a request or a score. The one thing worth pinning is that no axis can
+  // point at a group that does not exist, which would leave it unrendered.
+  const categoryKeys = new Set(textPromptCategories.map((category) => category.key));
+  assert.ok(categoryKeys.size > 0);
   for (const axis of textPromptAxes) {
-    if (!axis.model) continue;
-    assert.ok(["clap", "mulan"].includes(axis.model), `${axis.key} names an unknown model`);
+    assert.ok(
+      categoryKeys.has(axis.category),
+      `axis ${axis.key} names unknown category ${axis.category}`,
+    );
+  }
+  for (const category of textPromptCategories) {
+    assert.ok(
+      textPromptAxes.some((axis) => axis.category === category.key),
+      `category ${category.key} holds no axis`,
+    );
+    assert.ok(category.label.length > 0);
   }
 });
 
-test("a label overrides its axis only where its own evidence outranks the axis", () => {
-  const { textPromptPresets, modelForPreset } = loadTextPromptModule();
+test("the vocabulary declares no model until the comparison fills it in", () => {
+  const { textPromptAxes, textPromptPresets, modelForPreset, modelAdvice } = loadTextPromptModule();
 
-  const overrides = textPromptPresets
-    .filter((preset) => preset.model)
-    .map((preset) => [preset.key, preset.model]);
+  // Which model ranks a label best is not a claim the vocabulary may make on its
+  // own. The earlier tags came from an axis average over references that could
+  // not tell an axis's labels apart, and the two models' own papers cannot
+  // settle it either: the released MuQ-MuLan checkpoint documents no training
+  // text at all. The assignment is now made by running both models against the
+  // same bank and recording which results the listener kept, and that
+  // measurement is what may write these fields.
+  // The module runs in its own realm, so its arrays fail a strict deep compare
+  // against a literal written here; count instead.
+  assert.equal(textPromptAxes.filter((axis) => axis.model).length, 0);
+  assert.equal(textPromptPresets.filter((preset) => preset.model).length, 0);
+  assert.equal(modelForPreset("rhythm/breakbeat"), undefined);
+  assert.equal(modelForPreset("style/jungle"), undefined);
+  assert.equal(modelForPreset("nope/missing"), undefined);
 
-  assert.deepEqual(Object.fromEntries(overrides), {
-    "texture/clean": "mulan",
-    "timbre/glassy": "mulan",
-    "timbre/metallic": "clap",
-    "harmony/jazz": "mulan",
-    "abstract/experimental": "clap",
-    "voice/vocal-led": "clap",
-  });
-  // CLAP ranks jazz against chord changes per second the wrong way round, and
-  // the harmony axis names no model, so nothing else would have warned. MuLan
-  // ranks metallic against spectral flatness the same wrong way round.
-  assert.equal(modelForPreset("harmony/jazz"), "mulan");
-  assert.equal(modelForPreset("harmony/drone"), undefined);
-  // The override has to actually win over the axis, or it is decoration.
-  assert.equal(modelForPreset("timbre/glassy"), "mulan");
-  assert.equal(modelForPreset("texture/lo-fi"), "clap");
-  // The CLAP override returned with the "The sound of ..." bank: on the hand
-  // pool it measures 0.927 against 0.906 for MuQ-MuLan, a gap the withdrawn
-  // 0.007 never had.
-  assert.equal(modelForPreset("voice/vocal-led"), "clap");
-  // No reference can say which model finds a sitar, so nothing recommends one.
-  assert.equal(modelForPreset("instruments/sitar"), undefined);
-  assert.equal(modelForPreset("instruments/steel-drum"), undefined);
-  assert.equal(modelForPreset("voice/whispered"), undefined);
-});
-
-test("advice names a model, or says which kind of silence this is", () => {
-  const { modelAdvice } = loadTextPromptModule();
-  // The module runs in its own realm, so its objects fail a strict deep compare
-  // against literals written here. Copy them into this realm first.
-  const advice = (keys) => {
-    const result = modelAdvice(keys);
-    return result.kind === "conflict"
-      ? { kind: result.kind, models: [...result.models] }
-      : { ...result };
-  };
-
-  assert.deepEqual(advice(["texture/lo-fi", "function/peak"]), {
-    kind: "single",
-    model: "clap",
-  });
-  assert.deepEqual(advice(["style/jungle", "rhythm/breakbeat"]), {
-    kind: "single",
-    model: "mulan",
-  });
-
-  // Fusion was measured and rejected, so a split selection must not pick a
-  // side. It must also not stay quiet: the two silent cases used to look the
-  // same, and a third of the vocabulary falls into the second one.
-  assert.deepEqual(advice(["texture/lo-fi", "style/jungle"]), {
-    kind: "conflict",
-    models: ["clap", "mulan"],
-  });
-
-  // An axis with no measurement neither recommends nor blocks. Instruments is
-  // now one of those axes, so a sitar rides whatever the rest of the bank says.
-  assert.deepEqual(advice(["space/wide"]), { kind: "unmeasured" });
-  assert.deepEqual(advice(["instruments/sitar"]), { kind: "unmeasured" });
-  assert.deepEqual(advice(["space/wide", "style/jungle"]), {
-    kind: "single",
-    model: "mulan",
-  });
-  assert.deepEqual(advice(["instruments/sitar", "style/jungle"]), {
-    kind: "single",
-    model: "mulan",
-  });
+  // Rank fusion was measured and rejected, so a selection may never be answered
+  // by mixing the two. With nothing declared, every selection is honestly
+  // unmeasured rather than silently pointed at a default.
+  const advice = (keys) => ({ ...modelAdvice(keys) });
   assert.deepEqual(advice([]), { kind: "unmeasured" });
+  assert.deepEqual(advice(["rhythm/breakbeat"]), { kind: "unmeasured" });
+  assert.deepEqual(advice(["texture/lo-fi", "style/jungle"]), { kind: "unmeasured" });
   assert.deepEqual(advice(["nope/missing"]), { kind: "unmeasured" });
 });
 
@@ -273,9 +218,8 @@ test("composing presets merges banks, drops duplicates and keeps the safest weig
   assert.ok(positive.includes("vocals."));
   assert.equal(new Set(positive).size, positive.length);
   assert.ok(composed.negativeText.split("\n").includes("instrumental."));
-  // breakbeat and vocal-led both carry 0.75 for MuQ-MuLan; the merge keeps
-  // the safest contributing weight.
-  assert.equal(composed.negativeWeight, 0.75);
+  // Both presets carry 0.5; the merge keeps the safest contributing weight.
+  assert.equal(composed.negativeWeight, 0.5);
 });
 
 test("a preset with a zero weight contributes prompts but no negatives", () => {

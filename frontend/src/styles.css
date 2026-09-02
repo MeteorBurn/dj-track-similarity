@@ -1126,20 +1126,26 @@ h2 {
   width: 34px;
 }
 
+/* Five labeled buttons wrap every label cleanly at a word boundary down to
+   about 360px of row width; narrower than that "Database" no longer fits on
+   a line of its own at any width. The row is one third of a resizable grid
+   column, not the viewport, so its own size is what should decide this: a
+   container query, the same technique .results-list uses above for the same
+   reason. */
 .library-tools-row {
+  container-name: library-tools;
+  container-type: inline-size;
   display: flex;
   gap: 6px;
+  justify-content: center;
   margin-bottom: 8px;
 }
 
 .library-tools-row button.icon-button {
   aspect-ratio: auto;
   flex: 1 1 0;
-  flex-direction: column;
   font-size: 11px;
   font-weight: 600;
-  gap: 4px;
-  justify-content: center;
   line-height: 1.15;
   min-width: 0;
   padding: 6px 4px;
@@ -1148,11 +1154,28 @@ h2 {
   width: auto;
 }
 
+.library-tools-row button.icon-button svg {
+  flex-shrink: 0;
+}
+
+/* Below the threshold, drop the labels rather than let a word overflow or
+   break mid-word: the icon plus the existing title/aria-label tooltip still
+   carries all five actions. */
+@container library-tools (max-width: 340px) {
+  .library-tools-row button.icon-button {
+    aspect-ratio: 1;
+    flex: 0 0 34px;
+    font-size: 0;
+    gap: 0;
+    padding: 0;
+  }
+}
+
 .library-tools-row button.icon-button:hover:not(:disabled),
 .library-tools-row button.icon-button:focus:not(:disabled) {
-  background: var(--button-bg);
-  border-color: var(--button-border);
-  color: var(--button-text);
+  background: var(--accent-muted-bg);
+  border-color: var(--accent-muted-border);
+  color: var(--text-strong);
 }
 
 .library-tools-row .refresh-tags-button svg {

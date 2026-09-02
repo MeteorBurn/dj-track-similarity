@@ -17,8 +17,12 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
   verified against. Use Node/npm for frontend or docs work, and FFmpeg `8.1.1`
   as a full shared build; `ffmpeg.exe` alone is insufficient.
 - Use `uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev`
-  for model-backed or Rhythm Lab development. Do not install the `ml` extra with
-  pip because pip does not apply the PyTorch source declared in `pyproject.toml`.
+  for model-backed or Rhythm Lab development. `uv sync` is the only supported
+  install: every environment must carry the same SQLite the project is developed
+  against, and SQLite ships inside the interpreter, so only the pinned
+  interpreter delivers it. A pip environment reads neither `.python-version` nor
+  `[tool.uv.sources]`, which leaves it on an older SQLite and unable to resolve
+  the `ml` and `sonara` extras. Do not document or suggest a pip install path.
 - `run_server.cmd` starts backend `127.0.0.1:8765` and Vite `127.0.0.1:5173`;
   Rhythm Lab uses `127.0.0.1:8777`. Check for an existing project process before
   claiming a fixed port.

@@ -380,29 +380,15 @@ and the PyAV binding. When FFmpeg is missing or its version is refused, the
 error names every directory that was examined and why each one was rejected,
 which is usually enough to see what to correct in step 2.
 
-<details>
-<summary>Installing with pip instead</summary>
-
-The project stays an ordinary `pip`-installable package, and `pyproject.toml`
-still accepts any Python `>=3.10`:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-```
-
-Two things are worth knowing before taking this route. `venv` and `pip` do not
-read `.python-version`, so you get whichever Python you installed yourself; on
-Windows that caps out at `3.10.11`, whose bundled SQLite is several years older
-than the pinned interpreter's. And `pip` ignores `[tool.uv.sources]`, so it
-cannot install the `ml` or `sonara` extras correctly.
-
-If `Activate.ps1` is blocked by the execution policy, either use
-`.\.venv\Scripts\activate.bat`, or allow local scripts for your account with
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
-
-</details>
+> **`uv sync` is the only supported way to install.** Every environment the
+> project runs in has to carry the same SQLite as the one it is developed
+> against, and SQLite is compiled into the interpreter rather than installed
+> beside it. `uv` is what supplies the pinned interpreter, so it is what
+> supplies the right SQLite. A `python -m venv` plus `pip install` environment
+> reads neither `.python-version` nor `[tool.uv.sources]`: it takes whichever
+> Python you installed yourself, which on Windows stops at `3.10.11` and an
+> SQLite several years behind, and it cannot resolve the `ml` or `sonara`
+> extras at all. Use `uv sync`.
 
 ### First run
 

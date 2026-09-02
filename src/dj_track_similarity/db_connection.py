@@ -61,6 +61,26 @@ def connect_database(
         raise
 
 
+def connect_database_read_only(path: str | Path) -> sqlite3.Connection:
+    """Open one existing SQLite file for verification, refusing every write.
+
+    ``PRAGMA query_only`` is the only way to stay both write-proof and fully
+    checked: a ``mode=ro`` handle makes ``PRAGMA integrity_check`` skip CHECK
+    constraint verification and answer ``ok`` on a database that violates them.
+    WAL is deliberately not enforced here, because ``PRAGMA journal_mode = WAL``
+    rewrites the header of a database that is not in WAL yet, and a verification
+    pass must leave the file byte-identical.
+    """
+
+    connection = _open_existing(resolve_database_path(path))
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        return connection
+    except BaseException:
+        connection.close()
+        raise
+
+
 def ensure_database_schema(
     path: str | Path,
     write_lock: threading.RLock | None = None,

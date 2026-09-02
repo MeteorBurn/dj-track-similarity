@@ -340,9 +340,8 @@ export function App() {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
       || (analysisJob?.events || []).some((event) => event.level === "error")
-      || (genreTagJob?.events || []).some((event) => event.level === "error")
-      || (databaseValidationJob?.events || []).some((event) => event.level === "error");
-    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
+      || (genreTagJob?.events || []).some((event) => event.level === "error");
+    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length) || Boolean(databaseValidationJob?.errors);
   }, [activityLog, analysisJob, databaseValidationJob, genreTagJob, scanJob]);
   // The library reports the one BPM range it analyses SONARA with. Once an
   // analysis job has claimed it, the range is fixed until that analysis is
@@ -504,7 +503,8 @@ export function App() {
       void api.databaseValidationJob(databaseValidationJob.job_id).then((job) => {
         setDatabaseValidationJob(job);
         const detail = `${job.checked} проверено · предупреждений ${job.warnings} · ошибок ${job.errors}`;
-        setNotice({ kind: job.errors ? "error" : "ok", text: job.state === "completed" ? `Проверка БД завершена: ${detail}` : `Проверка БД: ${detail}` });
+        const prefix = job.state === "completed" ? "Проверка БД завершена" : job.state === "cancelled" ? "Проверка БД отменена" : "Проверка БД";
+        setNotice({ kind: job.errors ? "error" : "ok", text: `${prefix}: ${detail}` });
       }).catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) }));
     }, 1000);
     return () => window.clearInterval(timer);
@@ -1479,6 +1479,18 @@ export function App() {
     );
   }
 
+  async function handleCancelDatabaseValidation() {
+    if (!databaseValidationJob) return;
+    await run(
+      () => api.cancelDatabaseValidation(databaseValidationJob.job_id),
+      (job) => {
+        setDatabaseValidationJob(job);
+        appendActivity("warn", "Database validation cancel requested", job.job_id.slice(0, 8));
+        return `Cancel requested: ${job.job_id.slice(0, 8)}`;
+      }
+    );
+  }
+
   async function handleStopActiveStage() {
     if (scanRunning) {
       await handleCancelScan();
@@ -1490,6 +1502,10 @@ export function App() {
     }
     if (genreTagRunning) {
       await handleCancelGenreTags();
+      return;
+    }
+    if (databaseValidationRunning) {
+      await handleCancelDatabaseValidation();
       return;
     }
   }

@@ -470,6 +470,8 @@ export type DatabaseValidationJobStatus = {
   errors: number;
   current_entity?: string | null;
   cancel_requested: boolean;
+  failures: Array<{ level: string; code: string; message: string; table?: string | null; track_id?: number | null; path?: string | null }>;
+  failures_omitted: number;
   events: Array<{ timestamp: number; level: string; message: string; table?: string | null; track_id?: number | null; path?: string | null }>;
 };
 

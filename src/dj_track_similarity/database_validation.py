@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import sqlite3
-import json
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-import numpy as np
 
-from .analysis_models import CURRENT_EMBEDDING_SPECS
+from .analysis_config import normalize_sonara_bpm_range
+from .analysis_models import CURRENT_EMBEDDING_SPECS, FingerprintOutput
+from .db_connection import connect_database_read_only
 from .db_embeddings import EmbeddingTrackIdentity, validate_embedding_row_payload
+from .db_schema import validate_library_schema
+from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_row
 
 
 ValidationLevel = str
@@ -81,9 +84,37 @@ class DatabaseValidator:
             if emit is not None:
                 emit(finding)
 
-        with self._connect_read_only() as connection:
+        with closing(self._connect_read_only()) as connection:
             for finding in self._database_findings(connection):
                 record(finding)
+            try:
+                catalog_uuid = validate_library_schema(connection)
+            except RuntimeError as error:
+                record(
+                    ValidationFinding(
+                        "error",
+                        "library_identity_invalid",
+                        "library",
+                        str(error),
+                        table="library",
+                    )
+                )
+                return DatabaseValidationReport(
+                    findings=tuple(findings),
+                    checked=checked,
+                    warning_count=warning_count,
+                    error_count=error_count,
+                )
+            record(
+                ValidationFinding(
+                    "ok",
+                    "library_identity_valid",
+                    "library",
+                    "library identity row is valid",
+                    table="library",
+                )
+            )
+            record(self._library_range_finding(connection))
             tracks: dict[int, EmbeddingTrackIdentity] = {}
             for row in connection.execute(
                 "SELECT track_id, track_uuid, file_path FROM tracks ORDER BY track_id"
@@ -91,7 +122,7 @@ class DatabaseValidator:
                 if cancelled is not None and cancelled():
                     is_cancelled = True
                     break
-                finding, identity = self._track_finding(row, connection)
+                finding, identity = self._track_finding(row, catalog_uuid)
                 if identity is not None:
                     tracks[identity.track_id] = identity
                 record(finding)
@@ -108,9 +139,9 @@ class DatabaseValidator:
                     if is_cancelled:
                         break
             if not is_cancelled:
+                columns = ", ".join(SONARA_CORE_COLUMNS)
                 for row in connection.execute(
-                    "SELECT track_id, mfcc_mean_blob, chroma_mean_blob, "
-                    "spectral_contrast_mean_blob FROM sonara_features ORDER BY track_id"
+                    f"SELECT {columns} FROM sonara_features ORDER BY track_id"
                 ):
                     if cancelled is not None and cancelled():
                         is_cancelled = True
@@ -118,15 +149,14 @@ class DatabaseValidator:
                     record(self._sonara_finding(row, tracks))
             if not is_cancelled:
                 for row in connection.execute(
-                    "SELECT track_id, track_uuid, classifier_key, feature_set, "
-                    "feature_names_json, positive_label, predicted_class, score_bucket, "
-                    "score, confidence, probabilities_json "
-                    "FROM classifier_scores ORDER BY track_id, classifier_key"
+                    "SELECT track_id, track_uuid, fingerprint_version, "
+                    "fingerprint_base64, analyzed_at FROM sonara_fingerprints "
+                    "ORDER BY track_id"
                 ):
                     if cancelled is not None and cancelled():
                         is_cancelled = True
                         break
-                    record(self._classifier_finding(row, tracks))
+                    record(self._fingerprint_finding(row, tracks))
 
         return DatabaseValidationReport(
             findings=tuple(findings),
@@ -137,11 +167,23 @@ class DatabaseValidator:
         )
 
     def _connect_read_only(self) -> sqlite3.Connection:
-        if not self.database_path.is_file():
-            raise FileNotFoundError(self.database_path)
-        connection = sqlite3.connect(f"{self.database_path.as_uri()}?mode=ro", uri=True)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_database_read_only(self.database_path)
+
+    @staticmethod
+    def _library_range_finding(connection: sqlite3.Connection) -> ValidationFinding:
+        row = connection.execute(
+            "SELECT sonara_bpm_min, sonara_bpm_max FROM library WHERE singleton_id = 1"
+        ).fetchone()
+        low, high = row["sonara_bpm_min"], row["sonara_bpm_max"]
+        if low is None and high is None:
+            return ValidationFinding("ok", "library_sonara_range_unclaimed", "library", "no SONARA BPM range is claimed", table="library")
+        if low is None or high is None:
+            return ValidationFinding("error", "library_sonara_range_invalid", "library", "the SONARA BPM range is half stored", table="library")
+        try:
+            normalize_sonara_bpm_range(low, high)
+        except (TypeError, ValueError) as error:
+            return ValidationFinding("error", "library_sonara_range_invalid", "library", str(error), table="library")
+        return ValidationFinding("ok", "library_sonara_range_valid", "library", f"SONARA BPM range {low:g}-{high:g} is valid", table="library")
 
     @staticmethod
     def _database_findings(connection: sqlite3.Connection) -> Iterator[ValidationFinding]:
@@ -164,7 +206,7 @@ class DatabaseValidator:
     @staticmethod
     def _track_finding(
         row: sqlite3.Row,
-        connection: sqlite3.Connection,
+        catalog_uuid: str,
     ) -> tuple[ValidationFinding, EmbeddingTrackIdentity | None]:
         track_id = row["track_id"]
         track_uuid = row["track_uuid"]
@@ -175,10 +217,7 @@ class DatabaseValidator:
             return ValidationFinding("error", "track_uuid_invalid", "track", "track_uuid is missing", track_id=track_id), None
         if not isinstance(path_value, str) or not path_value.strip():
             return ValidationFinding("error", "track_path_invalid", "track", "file_path is missing", track_id=track_id), None
-        catalog_row = connection.execute("SELECT catalog_uuid FROM library WHERE singleton_id = 1").fetchone()
-        if catalog_row is None or not isinstance(catalog_row[0], str) or not catalog_row[0].strip():
-            return ValidationFinding("error", "catalog_uuid_invalid", "track", "library catalog UUID is missing", track_id=track_id), None
-        identity = EmbeddingTrackIdentity(str(catalog_row[0]), track_id, track_uuid)
+        identity = EmbeddingTrackIdentity(catalog_uuid, track_id, track_uuid)
         if not Path(path_value).is_file():
             return ValidationFinding("warning", "track_path_missing", "track", "stored file path does not exist", table="tracks", track_id=track_id, path=path_value), identity
         return ValidationFinding("ok", "track_valid", "track", "track identity and path are valid", table="tracks", track_id=track_id, path=path_value), identity
@@ -201,26 +240,22 @@ class DatabaseValidator:
     @staticmethod
     def _sonara_finding(row: sqlite3.Row, tracks: dict[int, EmbeddingTrackIdentity]) -> ValidationFinding:
         track_id = row["track_id"]
-        if not isinstance(track_id, int) or track_id not in tracks:
+        if isinstance(track_id, bool) or not isinstance(track_id, int) or track_id not in tracks:
             return ValidationFinding("error", "sonara_feature_orphan", "sonara_feature", "SONARA features reference an unknown track", table="sonara_features", track_id=track_id if isinstance(track_id, int) else None)
-        for name, dim in (("mfcc_mean_blob", 13), ("chroma_mean_blob", 12), ("spectral_contrast_mean_blob", 7)):
-            blob = row[name]
-            if not isinstance(blob, bytes) or len(blob) != dim * 4 or not bool(np.all(np.isfinite(np.frombuffer(blob, dtype="<f4")))):
-                return ValidationFinding("error", "sonara_feature_invalid", "sonara_feature", f"{name} must contain {dim} finite float32 values", table="sonara_features", track_id=track_id)
-        return ValidationFinding("ok", "sonara_feature_valid", "sonara_feature", "SONARA feature vectors are valid", table="sonara_features", track_id=track_id)
+        valid, reason = validate_sonara_core_row(row, expected_track_id=track_id)
+        if not valid:
+            return ValidationFinding("error", "sonara_feature_invalid", "sonara_feature", reason or "invalid SONARA Core row", table="sonara_features", track_id=track_id)
+        return ValidationFinding("ok", "sonara_feature_valid", "sonara_feature", "SONARA Core row is valid", table="sonara_features", track_id=track_id)
 
     @staticmethod
-    def _classifier_finding(row: sqlite3.Row, tracks: dict[int, EmbeddingTrackIdentity]) -> ValidationFinding:
+    def _fingerprint_finding(row: sqlite3.Row, tracks: dict[int, EmbeddingTrackIdentity]) -> ValidationFinding:
         track_id = row["track_id"]
-        classifier_key = str(row["classifier_key"] or "unknown")
+        if isinstance(track_id, bool) or not isinstance(track_id, int) or track_id not in tracks:
+            return ValidationFinding("error", "sonara_fingerprint_orphan", "sonara_fingerprint", "fingerprint references an unknown track", table="sonara_fingerprints", track_id=track_id if isinstance(track_id, int) else None)
+        if row["track_uuid"] != tracks[track_id].track_uuid:
+            return ValidationFinding("error", "sonara_fingerprint_invalid", "sonara_fingerprint", "track_uuid mismatch", table="sonara_fingerprints", track_id=track_id)
         try:
-            expected = tracks[track_id]
-            probabilities = json.loads(row["probabilities_json"])
-            names = json.loads(row["feature_names_json"])
-            numeric = (float(row["score"]), float(row["confidence"]))
-            valid = (row["track_uuid"] == expected.track_uuid and isinstance(names, list) and isinstance(probabilities, dict) and bool(probabilities) and all(np.isfinite(float(value)) and 0 <= float(value) <= 1 for value in probabilities.values()) and all(np.isfinite(value) and 0 <= value <= 1 for value in numeric) and all(isinstance(row[name], str) and row[name].strip() for name in ("classifier_key", "feature_set", "positive_label", "predicted_class", "score_bucket")))
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-            valid = False
-        if not valid:
-            return ValidationFinding("error", "classifier_score_invalid", "classifier_score", f"Classifier «{classifier_key}»: stored values are invalid", table="classifier_scores", track_id=track_id if isinstance(track_id, int) else None)
-        return ValidationFinding("ok", "classifier_score_valid", "classifier_score", f"Classifier «{classifier_key}»: stored values are valid", table="classifier_scores", track_id=track_id)
+            FingerprintOutput(value=row["fingerprint_base64"], version=row["fingerprint_version"], analyzed_at=row["analyzed_at"])
+        except (TypeError, ValueError) as error:
+            return ValidationFinding("error", "sonara_fingerprint_invalid", "sonara_fingerprint", str(error), table="sonara_fingerprints", track_id=track_id)
+        return ValidationFinding("ok", "sonara_fingerprint_valid", "sonara_fingerprint", "fingerprint matches the current specification", table="sonara_fingerprints", track_id=track_id)

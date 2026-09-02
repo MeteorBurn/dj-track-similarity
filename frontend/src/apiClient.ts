@@ -256,7 +256,11 @@ const libraryApi = {
     }),
   startDatabaseValidation: () => request<DatabaseValidationJobStatus>("/api/database/validation/jobs", { method: "POST", body: JSON.stringify({}) }),
   databaseValidationJob: (jobId: string) => request<DatabaseValidationJobStatus>(`/api/database/validation/jobs/${jobId}`),
-  latestDatabaseValidationJob: () => request<DatabaseValidationJobStatus | null>("/api/database/validation/jobs/latest")
+  latestDatabaseValidationJob: () => request<DatabaseValidationJobStatus | null>("/api/database/validation/jobs/latest"),
+  cancelDatabaseValidation: (jobId: string) =>
+    request<DatabaseValidationJobStatus>(`/api/database/validation/jobs/${jobId}/cancel`, {
+      method: "POST"
+    })
 };
 
 const shellApi = {

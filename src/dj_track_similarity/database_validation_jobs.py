@@ -14,11 +14,27 @@ from .logging_config import event_log_level
 
 LOGGER = logging.getLogger(__name__)
 
+# The event log is a recency tail that a clean library fills with `ok` rows, so
+# findings keep their own list. It is bounded because one missing library row
+# makes every track, embedding and feature row a finding at once, and the whole
+# status is polled once per second.
+MAX_VALIDATION_FAILURES = 500
+
 
 @dataclass(frozen=True)
 class DatabaseValidationEvent:
     timestamp: float
     level: str
+    message: str
+    table: str | None = None
+    track_id: int | None = None
+    path: str | None = None
+
+
+@dataclass(frozen=True)
+class DatabaseValidationFailure:
+    level: str
+    code: str
     message: str
     table: str | None = None
     track_id: int | None = None
@@ -36,6 +52,8 @@ class DatabaseValidationJobStatus:
     started_at: float | None = None
     finished_at: float | None = None
     events: list[DatabaseValidationEvent] = field(default_factory=list)
+    failures: list[DatabaseValidationFailure] = field(default_factory=list)
+    failures_omitted: int = 0
     cancel_requested: bool = False
 
 
@@ -68,21 +86,31 @@ class DatabaseValidationJobManager:
         LOGGER.info("Database validation started job_id=%s", job_id)
 
         def emit(f: ValidationFinding) -> None:
-            status = self.get(job_id)
-            self._store.update(
-                job_id,
-                checked=status.checked + 1,
-                warnings=status.warnings + (f.level == "warning"),
-                errors=status.errors + (f.level == "error"),
-                current_entity=f.entity,
-            )
             message = format_validation_finding(f)
             if f.level != "ok":
                 LOGGER.log(event_log_level(f.level), "%s", message)
+            # Counters and the failure list move under one lock; append_event
+            # takes the same lock and must therefore stay outside this block.
+            with self._store.locked(job_id) as status:
+                status.checked += 1
+                status.warnings += f.level == "warning"
+                status.errors += f.level == "error"
+                status.current_entity = f.entity
+                if f.level != "ok":
+                    if len(status.failures) < MAX_VALIDATION_FAILURES:
+                        status.failures.append(
+                            DatabaseValidationFailure(f.level, f.code, f.message, f.table, f.track_id, f.path)
+                        )
+                    else:
+                        status.failures_omitted += 1
             self._store.append_event(job_id, DatabaseValidationEvent(time.time(), f.level, message, f.table, f.track_id, f.path))
 
+        def cancel_requested() -> bool:
+            with self._store.locked(job_id) as status:
+                return status.cancel_requested
+
         try:
-            report = DatabaseValidator(self.database_path).run(emit, lambda: self.get(job_id).cancel_requested)
+            report = DatabaseValidator(self.database_path).run(emit, cancel_requested)
             state = "cancelled" if report.cancelled else "completed"
             self._store.update(job_id, state=state, finished_at=time.time())
             LOGGER.info("Database validation %s job_id=%s checked=%s warnings=%s errors=%s", state, job_id, report.checked, report.warning_count, report.error_count)
@@ -103,4 +131,10 @@ class DatabaseValidationJobManager:
 
     @staticmethod
     def _copy(value: DatabaseValidationJobStatus) -> DatabaseValidationJobStatus:
-        return DatabaseValidationJobStatus(**{**value.__dict__, "events": list(value.events)})
+        return DatabaseValidationJobStatus(
+            **{
+                **value.__dict__,
+                "events": list(value.events),
+                "failures": list(value.failures),
+            }
+        )

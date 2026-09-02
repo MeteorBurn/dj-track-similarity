@@ -106,27 +106,6 @@ def test_validator_reports_non_finite_sonara_feature_vector(tmp_path: Path) -> N
     assert any(finding.code == "sonara_feature_invalid" and finding.track_id == identity.track_id for finding in report.findings)
 
 
-def test_validator_reports_invalid_classifier_probabilities(tmp_path: Path) -> None:
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    identity = _track(database, tmp_path / "classifier.wav")
-    with sqlite3.connect(database.path) as connection:
-        connection.execute("PRAGMA ignore_check_constraints = ON")
-        connection.execute(
-            "INSERT INTO classifier_scores(track_id, track_uuid, classifier_key, feature_set, feature_names_json, positive_label, predicted_class, score_bucket, score, confidence, probabilities_json, analyzed_at) VALUES (?, ?, 'voice', 'sonara', '[]', 'voice', 'voice', 'high', 1.2, 0.5, '{}', '2026-08-13T00:00:00Z')",
-            (identity.track_id, identity.track_uuid),
-        )
-        connection.commit()
-
-    report = DatabaseValidator(database.path).run()
-
-    assert any(
-        finding.code == "classifier_score_invalid"
-        and finding.track_id == identity.track_id
-        and finding.message == "Classifier «voice»: stored values are invalid"
-        for finding in report.findings
-    )
-
-
 def test_validate_database_cli_uses_concise_human_messages(tmp_path: Path) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
 

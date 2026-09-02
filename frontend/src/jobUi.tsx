@@ -4,6 +4,7 @@ import { basename, formatEta } from "./trackDisplay";
 const ACTIVE_JOB_STATES = ["queued", "running"] as const;
 const AUDIO_MODELS: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
 const MAX_LOG_EVENTS = 200;
+const MAX_VALIDATION_FAILURES_SHOWN = 10;
 const SECONDS_TO_MS = 1000;
 
 function calculateProgressPercent(processed: number, total: number): number {
@@ -214,10 +215,21 @@ function sourceLabel(source: string) {
 
 function DatabaseValidationProcessStatus({ job }: { job: DatabaseValidationJobStatus | null }) {
   if (!job) return <div className="process-box">Проверка БД не запущена</div>;
+  const shown = job.failures.slice(0, MAX_VALIDATION_FAILURES_SHOWN);
+  const hidden = job.failures.length - shown.length + job.failures_omitted;
   return (
     <div className="process-box">
       <div className="process-head"><strong>{job.state}</strong><span>{job.checked} проверено</span></div>
       <div className="process-grid"><span>warn {job.warnings}</span><span>error {job.errors}</span></div>
+      {job.current_entity && <span className="analysis-current">Сейчас: {job.current_entity}</span>}
+      {shown.map((failure, index) => (
+        <span className="analysis-error" key={`${failure.code}-${failure.track_id ?? index}`}>
+          {failure.message}
+          {failure.track_id != null ? ` · track ${failure.track_id}` : ""}
+          {failure.path ? ` · ${basename(failure.path)}` : ""}
+        </span>
+      ))}
+      {hidden > 0 && <span className="analysis-muted">…ещё {hidden}</span>}
     </div>
   );
 }

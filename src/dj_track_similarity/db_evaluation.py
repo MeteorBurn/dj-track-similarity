@@ -195,6 +195,41 @@ class EvaluationRepository:
             verdicts.pop(track_uuid, None)
         return verdicts
 
+    def summarise_text_preset_feedback(self) -> dict[str, dict[str, dict[str, int]]]:
+        """Count the verdicts standing behind each label, per model.
+
+        The picker holds 240 labels and no way to see which of them have been
+        judged at all. Walking them blind is the opposite of what the evidence
+        asks for: the labels worth comparing models on are the ones where a
+        model misses, and a label nobody has marked has nothing to say either
+        way. This is the tally that makes that visible.
+
+        Shaped as ``{preset_key: {family: {"relevant": n, "irrelevant": n}}}``.
+        Labels with nothing stored are absent rather than reported as zero.
+        """
+
+        with closing(self.connect()) as connection:
+            if connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name = 'text_preset_feedback'
+                """
+            ).fetchone() is None:
+                return {}
+            rows = connection.execute(
+                """
+                SELECT preset_key, analysis_family, verdict, COUNT(*)
+                FROM text_preset_feedback
+                GROUP BY preset_key, analysis_family, verdict
+                """
+            ).fetchall()
+        summary: dict[str, dict[str, dict[str, int]]] = {}
+        for preset_key, family, verdict, count in rows:
+            families = summary.setdefault(str(preset_key), {})
+            counts = families.setdefault(str(family), {"relevant": 0, "irrelevant": 0})
+            counts["relevant" if int(verdict) > 0 else "irrelevant"] += int(count)
+        return summary
+
     def list_search_sessions_with_events(self) -> list[dict[str, Any]]:
         connection = self.connect_evaluation(create=False)
         if connection is None:

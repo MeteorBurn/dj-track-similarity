@@ -830,3 +830,55 @@ def test_text_search_feedback_splits_a_click_evenly_without_contributions(
             for row in connection.execute("SELECT weight FROM text_preset_feedback")
         ]
     assert weights == [0.25, 0.25, 0.25, 0.25]
+
+
+def test_text_search_feedback_summary_counts_what_stands_behind_each_label(
+    tmp_path: Path,
+) -> None:
+    """The picker needs to know which labels have been judged and by which model.
+
+    A label nobody has marked is absent rather than reported as zero, so the
+    tally distinguishes "nothing here yet" from "judged and evenly split" —
+    the difference that decides where comparing the two models is worth doing.
+    """
+
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    hit = _track_with_embedding(db, "hit.wav", [1.0, 0.0, 0.0], "clap")
+    miss = _track_with_embedding(db, "miss.wav", [0.0, 1.0, 0.0], "clap")
+    with db.connect() as connection:
+        uuids = dict(
+            connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
+        )
+    client = TestClient(create_app(db_path))
+
+    empty = client.get("/api/search/text/feedback/summary")
+    assert empty.status_code == 200
+    assert empty.json() == {"presets": {}}
+
+    for track_id, family, verdict in (
+        (hit, "clap", 1),
+        (miss, "clap", -1),
+        (hit, "mulan", 1),
+    ):
+        posted = client.post(
+            "/api/search/text/feedback",
+            json={
+                "track_uuid": uuids[track_id],
+                "preset_keys": ["rhythm/breakbeat"],
+                "analysis_family": family,
+                "verdict": verdict,
+            },
+        )
+        assert posted.status_code == 200
+
+    summary = client.get("/api/search/text/feedback/summary")
+    assert summary.status_code == 200
+    assert summary.json() == {
+        "presets": {
+            "rhythm/breakbeat": {
+                "clap": {"relevant": 1, "irrelevant": 1},
+                "mulan": {"relevant": 1, "irrelevant": 0},
+            }
+        }
+    }

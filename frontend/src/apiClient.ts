@@ -122,6 +122,12 @@ type TextSearchFeedbackLookupResult = {
   verdicts: Record<string, -1 | 1>;
 };
 
+export type TextPresetVerdictCounts = { relevant: number; irrelevant: number };
+
+type TextSearchFeedbackSummaryResult = {
+  presets: Record<string, Partial<Record<"clap" | "mulan", TextPresetVerdictCounts>>>;
+};
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -388,6 +394,10 @@ const searchApi = {
     request<TextSearchFeedbackLookupResult>("/api/search/text/feedback/lookup", {
       method: "POST",
       body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
+  textSearchFeedbackSummary: (options?: { signal?: AbortSignal }) =>
+    request<TextSearchFeedbackSummaryResult>("/api/search/text/feedback/summary", {
       signal: options?.signal,
     })
 };

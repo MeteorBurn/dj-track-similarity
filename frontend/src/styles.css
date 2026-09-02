@@ -3886,6 +3886,23 @@ h2 {
   color: var(--preset-selected-text);
 }
 
+/* What a label has actually been judged to be, worn on the label itself. It
+   replaces the reliability column that showed 240 dashes: this number is
+   earned rather than declared, and an empty slot is the honest rendering of a
+   label nobody has marked — which is also the one worth going to next. */
+.text-preset-tally {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  margin-left: 2px;
+}
+
+.text-preset-label.active .text-preset-tally {
+  color: inherit;
+  opacity: 0.75;
+}
+
 .text-preset-empty {
   color: var(--text-faint);
   font-size: 12px;

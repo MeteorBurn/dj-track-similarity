@@ -24,6 +24,7 @@ from .api_schemas import (
     TrackSummaryResponse,
     TextSearchFeedbackLookupRequest,
     TextSearchFeedbackLookupResponse,
+    TextSearchFeedbackSummaryResponse,
     TextSearchFeedbackRequest,
     TextSearchFeedbackResponse,
     TextSearchRequest,
@@ -292,6 +293,18 @@ def register_search_routes(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return TextSearchFeedbackLookupResponse(verdicts=verdicts)
+
+    @app.get(
+        "/api/search/text/feedback/summary",
+        response_model=TextSearchFeedbackSummaryResponse,
+    )
+    def summarise_text_search_feedback():
+        """Report how much has been said about each label, per model."""
+
+        database = state.require_db()
+        return TextSearchFeedbackSummaryResponse(
+            presets=database.summarise_text_preset_feedback()
+        )
 
 def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
     positive_queries = _clean_text_queries(request.positive_queries)

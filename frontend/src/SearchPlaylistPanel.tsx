@@ -117,6 +117,7 @@ export function SearchPlaylistPanel({
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
+  textPresetTally,
   textCompareModels,
   onTextCompareModelsChange,
   seedEmbeddingFamily,
@@ -182,6 +183,7 @@ export function SearchPlaylistPanel({
   onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
+  textPresetTally: Record<string, Partial<Record<"clap" | "mulan", { relevant: number; irrelevant: number }>>>;
   textCompareModels: boolean;
   onTextCompareModelsChange: (value: boolean) => void;
   seedEmbeddingFamily: SeedEmbeddingFamily;
@@ -545,6 +547,7 @@ export function SearchPlaylistPanel({
             onTextUseNegativePromptChange={onTextUseNegativePromptChange}
             textEmbeddingFamily={textEmbeddingFamily}
             onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
+            textPresetTally={textPresetTally}
             textCompareModels={textCompareModels}
             onTextCompareModelsChange={onTextCompareModelsChange}
             selectedPresetKeys={selectedPresetKeys}

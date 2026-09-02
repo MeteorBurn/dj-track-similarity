@@ -468,6 +468,22 @@ class TextSearchFeedbackLookupResponse(BaseModel):
     verdicts: dict[str, Literal[-1, 1]]
 
 
+class TextPresetVerdictCounts(BaseModel):
+    relevant: int
+    irrelevant: int
+
+
+class TextSearchFeedbackSummaryResponse(BaseModel):
+    """How much has been said about each label, per model.
+
+    Shaped as ``{preset_key: {family: counts}}``. A label nobody has judged is
+    absent rather than reported as zero, so the picker can tell "nothing here
+    yet" from "judged and evenly split".
+    """
+
+    presets: dict[str, dict[str, TextPresetVerdictCounts]]
+
+
 class TrackIdentityRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 

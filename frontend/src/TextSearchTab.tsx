@@ -24,6 +24,42 @@ function bankRows(text: string, min: number, max: number) {
   return Math.min(max, Math.max(min, text.split(/\r?\n/).length));
 }
 
+type PresetTally = Partial<Record<TextPromptModel, { relevant: number; irrelevant: number }>>;
+
+/**
+ * What a label has been judged to be, per model, as a chip on the label.
+ *
+ * A label nobody has marked shows nothing at all: an empty slot is the honest
+ * rendering of no evidence, and it is also the thing worth looking for, since
+ * the labels that separate the two models are the ones where a model misses.
+ */
+function tallyMark(tally: PresetTally | undefined) {
+  if (!tally) return null;
+  const parts = (["mulan", "clap"] as const)
+    .map((model) => {
+      const counts = tally[model];
+      if (!counts) return null;
+      const judged = counts.relevant + counts.irrelevant;
+      return judged ? `${model === "mulan" ? "M" : "C"} ${counts.relevant}/${judged}` : null;
+    })
+    .filter(Boolean);
+  if (!parts.length) return null;
+  return <span className="text-preset-tally">{parts.join(" · ")}</span>;
+}
+
+function tallyTitle(tally: PresetTally | undefined) {
+  if (!tally) return " Вердиктов по этой метке ещё нет.";
+  const lines = (["mulan", "clap"] as const)
+    .map((model) => {
+      const counts = tally[model];
+      if (!counts) return null;
+      const name = model === "mulan" ? "MuQ-MuLan" : "CLAP";
+      return `${name}: по делу ${counts.relevant}, мимо ${counts.irrelevant}`;
+    })
+    .filter(Boolean);
+  return lines.length ? ` ${lines.join("; ")}.` : " Вердиктов по этой метке ещё нет.";
+}
+
 export function TextSearchTab({
   textQuery,
   onTextQueryChange,
@@ -33,6 +69,7 @@ export function TextSearchTab({
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
+  textPresetTally,
   textCompareModels,
   onTextCompareModelsChange,
   selectedPresetKeys,
@@ -58,6 +95,8 @@ export function TextSearchTab({
   onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
+  /** Verdicts standing behind each label so far, per model. */
+  textPresetTally: Record<string, Partial<Record<"clap" | "mulan", { relevant: number; irrelevant: number }>>>;
   textCompareModels: boolean;
   onTextCompareModelsChange: (value: boolean) => void;
   selectedPresetKeys: string[];
@@ -308,7 +347,7 @@ export function TextSearchTab({
                                   className={`text-preset-label ${active ? "active" : ""}`}
                                   aria-pressed={active}
                                   key={preset.key}
-                                  title={preset.hint}
+                                  title={`${preset.hint}${tallyTitle(textPresetTally[preset.key])}`}
                                   onClick={() => onTogglePreset(preset.key)}
                                   onFocus={() => setPreviewPresetKey(preset.key)}
                                   onMouseEnter={() => setPreviewPresetKey(preset.key)}
@@ -318,6 +357,7 @@ export function TextSearchTab({
                                     <Check size={12} strokeWidth={3} aria-hidden="true" />
                                   ) : null}
                                   {preset.label}
+                                  {tallyMark(textPresetTally[preset.key])}
                                 </button>
                               );
                             })}

@@ -104,6 +104,10 @@ type GenericSearchResultState = {
 };
 type TextEmbeddingFamily = "clap" | "mulan";
 type TextVerdictsByFamily = Partial<Record<TextEmbeddingFamily, Record<string, 1 | -1>>>;
+type TextPresetTally = Record<
+  string,
+  Partial<Record<TextEmbeddingFamily, { relevant: number; irrelevant: number }>>
+>;
 type TextComparisonColumn = {
   family: TextEmbeddingFamily;
   label: string;
@@ -223,6 +227,10 @@ export function App() {
   // which is a price worth paying to settle a model, not to run a search.
   const [textCompareModels, setTextCompareModels] = useState(false);
   const [textComparison, setTextComparison] = useState<TextComparisonColumn[] | null>(null);
+  // What has been said about each label so far, per model. The picker holds 240
+  // of them, and the ones worth comparing models on are the ones where a model
+  // misses — a label nobody has judged has nothing to say either way.
+  const [textPresetTally, setTextPresetTally] = useState<TextPresetTally>({});
   const [promptNegativeWeight, setPromptNegativeWeight] = useState<number | null>(null);
   const [textNegativeQuery, setTextNegativeQuery] = useState("");
   const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(true);
@@ -327,6 +335,17 @@ export function App() {
   const [randomSonaraTrackPending, setRandomSonaraTrackPending] = useState(false);
   const [randomEmbeddingTrackPending, setRandomEmbeddingTrackPending] = useState(false);
   const [genericSearchResultState, setGenericSearchResultState] = useState<GenericSearchResultState | null>(null);
+
+  // The tally belongs to the open library, so it is read when one is chosen
+  // and cleared when none is.
+  useEffect(() => {
+    if (!databasePath) {
+      setTextPresetTally({});
+      return;
+    }
+    refreshTextPresetTally();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [databasePath, databaseCatalogUuid]);
 
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const genericSearchInputKey = useMemo(
@@ -1584,6 +1603,15 @@ export function App() {
     }
   }
 
+  function refreshTextPresetTally() {
+    void api
+      .textSearchFeedbackSummary()
+      .then((summary) => setTextPresetTally(summary.presets))
+      .catch(() => {
+        // A library with no verdicts yet simply shows none.
+      });
+  }
+
   async function handleTextResultFeedback(
     track: Track,
     verdict: 1 | -1,
@@ -1609,6 +1637,7 @@ export function App() {
         else forFamily[track.track_uuid] = next;
         return { ...previous, [family]: forFamily };
       });
+      refreshTextPresetTally();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
@@ -1968,6 +1997,7 @@ export function App() {
           onTextEmbeddingFamilyChange={changeTextEmbeddingFamily}
           seedEmbeddingFamily={seedEmbeddingFamily}
           onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
+          textPresetTally={textPresetTally}
           textCompareModels={textCompareModels}
           onTextCompareModelsChange={setTextCompareModels}
           selectedPresetKeys={selectedPresetKeys}

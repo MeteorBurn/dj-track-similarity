@@ -74,10 +74,10 @@ current main database before reading, writing, or reasoning about "the" database
 Everything an agent reads or writes lives once, under `.workspace/`: `skills/`,
 `agents/`, `tools/`, and `work/` for finished output from past runs. Tracked
 tool scripts live in `tools/`; their local cache/results directories are
-ignored there: `firecrawl/`, `ruff/`, `agentproof/`, and `superpowers/`.
-AgentProof and Superpowers hardcode root-level state paths, so the ignored
-`.agentproof/` and `.superpowers/` entries are junctions to their `tools/`
-directories and contain no state themselves.
+ignored there: `firecrawl/` and `ruff/`. AgentProof and Superpowers hardcode
+root-level state paths and provide no supported output-root override: do not
+redirect them with a junction. If invoked for this repository, their local
+state necessarily appears at `.agentproof/` or `.superpowers/`.
 
 `.workspace/` is one local plugin, described by the Claude-compatible manifest
 `.workspace/.claude-plugin/plugin.json` and marketplace metadata beside it.
@@ -90,8 +90,7 @@ configuration and the generated projection built by
 
 Edit the Markdown under `.workspace/`; never the generated `.toml`. Run
 `bootstrap.ps1` after a fresh clone so both harnesses register and install the
-project plugin, Codex regenerates its projection, and the guarded AgentProof/
-Superpowers state junctions are created when their root paths are absent.
+project plugin and Codex regenerates its projection.
 
 Starting a Claude Code or Codex session never runs `bootstrap.ps1` or rewrites
 an agent. Claude Code loads the eight Markdown agents from the installed plugin.

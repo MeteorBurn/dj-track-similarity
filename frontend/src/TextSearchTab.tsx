@@ -1,7 +1,6 @@
 import { Check, ChevronDown, ListFilter, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EmbeddingSource } from "./api";
-import { api } from "./apiClient";
 import type { TextPromptAxis, TextPromptModel, TextPromptPreset } from "./textPromptPresets";
 import {
   axisByKey,
@@ -133,9 +132,6 @@ export function TextSearchTab({
   // The label under the pointer or the keyboard focus, previewed under the
   // list. A tooltip could not hold a whole prompt bank.
   const [previewPresetKey, setPreviewPresetKey] = useState<string | null>(null);
-  // null while there is nothing to warm; the search itself still loads the
-  // model, so a failed warmup costs the wait back rather than blocking.
-  const [warmupState, setWarmupState] = useState<"warming" | "ready" | "failed" | null>(null);
   const presetMenuRef = useRef<HTMLDivElement>(null);
   const presetButtonRef = useRef<HTMLButtonElement>(null);
   const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
@@ -225,35 +221,6 @@ export function TextSearchTab({
     document.addEventListener("pointerdown", closePresetMenuOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closePresetMenuOnOutsideClick);
   }, [presetMenuOpen]);
-
-  // The first embedding after an idle period deserializes the pinned weights,
-  // which is tens of seconds of silence under the first search. Opening the tab
-  // or switching the model starts that load now instead. It only runs where a
-  // search is possible at all, so a library with no text embeddings never pays
-  // for weights it cannot use.
-  useEffect(() => {
-    if (!hasStoredTextEmbeddings) {
-      setWarmupState(null);
-      return;
-    }
-    const controller = new AbortController();
-    setWarmupState("warming");
-    // A/B searches with both models, so both weights are loaded up front
-    // rather than one of them landing on the first search.
-    const families: Extract<EmbeddingSource, "clap" | "mulan">[] = textCompareModels
-      ? ["mulan", "clap"]
-      : [textEmbeddingFamily];
-    Promise.all(
-      families.map((family) =>
-        api.textSearchWarmup({ analysis_family: family }, { signal: controller.signal })
-      )
-    )
-      .then(() => setWarmupState("ready"))
-      .catch(() => {
-        if (!controller.signal.aborted) setWarmupState("failed");
-      });
-    return () => controller.abort();
-  }, [hasStoredTextEmbeddings, textEmbeddingFamily, textCompareModels]);
 
   // Escape closes the picker and hands focus back to the control that owns it,
   // so the keyboard never gets stranded inside an open menu.
@@ -591,13 +558,6 @@ export function TextSearchTab({
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
       {!hasStoredTextEmbeddings ? <span className="text-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
-      {warmupState && warmupState !== "ready" ? (
-        <span className={`text-warmup-state ${warmupState}`} role="status">
-          {warmupState === "warming"
-            ? `${textModelLabel} загружается — первый поиск не будет ждать веса.`
-            : `Прогреть ${textModelLabel} не удалось — веса загрузит сам поиск.`}
-        </span>
-      ) : null}
       <button className="text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
         <Search size={17} />
         {textCompareModels ? "Search · A/B" : "Search"}

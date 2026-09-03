@@ -10,7 +10,7 @@
       "name": "dj-track-similarity",
       "source": "./",
       "description": "Shared project agents and skills",
-      "version": "1.0.1"
+      "version": "1.0.0"
     }
   ]
 }

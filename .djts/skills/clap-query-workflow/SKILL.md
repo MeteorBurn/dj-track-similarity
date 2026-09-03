@@ -88,7 +88,7 @@ A track with {audible detail} and {audible detail}.
 ```powershell
 $env:DJ_SIM_DB = "<path-to-library.sqlite>"
 
-python .workspace\skills\clap-query-workflow\scripts\project_text_search.py `
+python .djts\skills\clap-query-workflow\scripts\project_text_search.py `
   --model mulan `
   --query "broken drums" `
   --positive "A breakbeat track." `
@@ -130,16 +130,16 @@ currently selected library has a different catalog and does not join to them.
 
 ## Bundled Resources
 
-These ship with this skill and live under `.workspace/skills/clap-query-workflow/`.
+These ship with this skill and live under `.djts/skills/clap-query-workflow/`.
 Every other path in this file is relative to the repository root.
 
-- `.workspace/skills/clap-query-workflow/scripts/project_text_search.py`: posts a prompt bank to the
+- `.djts/skills/clap-query-workflow/scripts/project_text_search.py`: posts a prompt bank to the
   running API for either text model.
-- `.workspace/skills/clap-query-workflow/scripts/validate_prompt_bank.py`: model-free structural check
+- `.djts/skills/clap-query-workflow/scripts/validate_prompt_bank.py`: model-free structural check
   for a bank you are drafting, before it becomes a preset.
-- `.workspace/skills/clap-query-workflow/scripts/score_prompt_bank.py`: standalone audio-file scorer for
+- `.djts/skills/clap-query-workflow/scripts/score_prompt_bank.py`: standalone audio-file scorer for
   experiments outside the project DB. It must load PyTorch checkpoints with `weights_only=True`.
-- `.workspace/skills/clap-query-workflow/references/clap_prompting_reference.md`: LAION-CLAP prompt
+- `.djts/skills/clap-query-workflow/references/clap_prompting_reference.md`: LAION-CLAP prompt
   engineering background.
 
 ## Implementation Changes
@@ -159,6 +159,6 @@ When changing text-layer code:
 ## Verification
 
 - Skill scripts: `.\.venv\Scripts\python.exe -m pytest tests\test_clap_query_workflow_scripts.py --override-ini addopts=`
-- API helper smoke: `python .workspace\skills\clap-query-workflow\scripts\project_text_search.py --help`
+- API helper smoke: `python .djts\skills\clap-query-workflow\scripts\project_text_search.py --help`
 - Frontend prompt changes: `cd frontend; node --test tests/textPromptPresets.test.mjs`
 - Backend scoring/API changes: `.\.venv\Scripts\python.exe -m pytest tests\test_api_text_search.py --override-ini addopts=`

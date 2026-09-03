@@ -1,0 +1,30 @@
+{
+  "name": "dj-track-similarity",
+  "version": "1.0.1",
+  "description": "Project-specific agents and skills for the DJ Track Similarity workbench",
+  "author": {
+    "name": "Meteorburn"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "DJ Track Similarity",
+    "shortDescription": "Agents and skills for the DJ library workbench",
+    "longDescription": "Specialized agents and repeatable workflows for analyzing a local music library, researching the codebase, and refining DJ-track similarity work.",
+    "developerName": "Meteorburn",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "brandColor": "#FF304E",
+    "composerIcon": "./dj-track-similarity-note.svg",
+    "logo": "./dj-track-similarity-note.svg",
+    "logoDark": "./dj-track-similarity-note.svg",
+    "screenshots": [],
+    "defaultPrompt": [
+      "Explore the DJ Track Similarity codebase and trace the relevant execution path",
+      "Plan a focused, safe change for the DJ Track Similarity workbench",
+      "Review this DJ Track Similarity change for regressions and missing verification"
+    ]
+  }
+}

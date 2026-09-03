@@ -103,17 +103,19 @@ graphify-out/????-??-??/
 # Graphify Codex hooks stay machine-local: they carry an absolute path.
 .codex/hooks.json
 
-# Agent layer. Everything lives once, under .workspace/: skills, agent
-# definitions, the tools that project them, and the working notes. The
-# instructions and tool scripts are shared and versioned; tool caches and
-# results live beside their scripts but remain local.
+# Agent plugin sources live once, under .djts/: skills, agent definitions,
+# manifests, and the scripts that project agents to Codex. .workspace/ holds
+# local working notes and Firecrawl output.
 #
 # .claude/ and .codex/ keep only what a harness hardcodes: config that names
 # absolute paths to locally installed binaries, plus the links and the generated
-# projection that let each one reach .workspace/. None of that is shareable.
+# projection that let each one reach .djts/. None of that is shareable.
 # .agents/ is not ours either: it is the path Codex scans, and it holds one link.
 .claude/*
 /.agents/
-.workspace/work/
+.workspace/audits/
+.workspace/handoffs/
+.workspace/ideas/
+.workspace/reports/
+.workspace/specs/
 .workspace/tools/firecrawl/
-.workspace/tools/ruff/

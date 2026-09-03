@@ -1,6 +1,6 @@
 # Sets up the two harness-specific projections of the shared agent layer.
 #
-# .workspace/ is the one source of skills, agents, tooling, and working notes.
+# .djts/ is the one source of skills, agents, plugin scripts, and manifests.
 # Claude Code consumes it as the project-local `dj-track-similarity` plugin;
 # this leaves .claude/ for Claude-only configuration, hooks, and runtime state.
 # Codex installs the same Claude-compatible source as a local plugin and
@@ -8,11 +8,11 @@
 
 $ErrorActionPreference = 'Stop'
 
-$workspaceRoot = Split-Path -Parent $PSScriptRoot
-$repoRoot = Split-Path -Parent $workspaceRoot
+$pluginRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent $pluginRoot
 
-$claudeManifest = Join-Path $workspaceRoot '.claude-plugin\plugin.json'
-$claudeMarketplace = Join-Path $workspaceRoot '.claude-plugin\marketplace.json'
+$claudeManifest = Join-Path $pluginRoot '.claude-plugin\plugin.json'
+$claudeMarketplace = Join-Path $pluginRoot '.claude-plugin\marketplace.json'
 foreach ($path in @($claudeManifest, $claudeMarketplace)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Missing Claude Code plugin manifest: $path"
@@ -43,7 +43,7 @@ if ($null -eq $claude) {
     Write-Warning 'Claude Code was not found; skipped the project plugin registration.'
 }
 else {
-    & $claude.Source plugin marketplace add $workspaceRoot --scope project
+    & $claude.Source plugin marketplace add $pluginRoot --scope project
     if ($LASTEXITCODE -ne 0) {
         throw "Claude Code could not register the project plugin marketplace (exit $LASTEXITCODE)."
     }
@@ -59,7 +59,7 @@ if ($null -eq $codex) {
     Write-Warning 'Codex CLI was not found; skipped the project plugin registration.'
 }
 else {
-    & $codex.Source plugin marketplace add $workspaceRoot
+    & $codex.Source plugin marketplace add $pluginRoot
     if ($LASTEXITCODE -ne 0) {
         throw "Codex could not register the project plugin marketplace (exit $LASTEXITCODE)."
     }

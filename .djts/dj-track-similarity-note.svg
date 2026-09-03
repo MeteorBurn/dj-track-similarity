@@ -1,0 +1,27 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">DJ Track Similarity</title>
+  <desc id="desc">A vivid red musical note on a deep charcoal tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="28" y1="18" x2="222" y2="244" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2A1820"/>
+      <stop offset="1" stop-color="#100D12"/>
+    </linearGradient>
+    <linearGradient id="note" x1="84" y1="60" x2="186" y2="198" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF6A7D"/>
+      <stop offset="0.48" stop-color="#FF304E"/>
+      <stop offset="1" stop-color="#C91437"/>
+    </linearGradient>
+    <filter id="glow" x="52" y="34" width="156" height="196" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feComposite in2="SourceAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 0.05 0 0 0 0 0.18 0 0 0 0.38 0"/>
+      <feBlend in2="BackgroundImageFix" result="effect1_dropShadow"/>
+      <feBlend in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+    </filter>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="62" fill="url(#tile)"/>
+  <rect x="13" y="13" width="230" height="230" rx="61" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="2"/>
+  <path d="M85 78.8C85 73.3 89.5 68.8 95 68.8L172.8 49.3C179.2 47.7 185.5 52.5 185.5 59.1V164.6C185.5 185.1 168.8 201.8 148.3 201.8C127.8 201.8 111.1 190.1 111.1 175.7C111.1 161.2 127.8 147.5 148.3 147.5C155.1 147.5 161.4 149 166.4 151.4V98.6L104.1 114.2V180.2C104.1 200.7 87.4 217.4 66.9 217.4C46.4 217.4 29.7 205.7 29.7 191.3C29.7 176.8 46.4 163.1 66.9 163.1C73.7 163.1 80 164.6 85 167V78.8Z" fill="url(#note)" filter="url(#glow)"/>
+  <path d="M104.1 114.2L166.4 98.6V110.9L104.1 126.5V114.2Z" fill="#FFD7DD" fill-opacity="0.58"/>
+</svg>

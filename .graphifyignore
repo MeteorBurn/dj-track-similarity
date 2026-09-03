@@ -7,14 +7,15 @@
 # written partly in Russian, a Russian question lands in it by accident instead
 # of in the code it is asking about.
 #
-# Agent-harness state is not product architecture. Keep the entire shared agent
-# workspace and every harness-specific directory out of the graph explicitly;
+# Agent-plugin sources, workspace state, and harness-specific directories are
+# not product architecture. Keep them out of the graph explicitly;
 # do not rely on the walker's dot-directory behaviour.
 .workspace/
+.djts/
 .agents/
 .claude/
 .codex/
 
 # Guard against an accidental root-level Firecrawl cache. Research output belongs
-# under .workspace/tools/firecrawl/, already excluded with the agent workspace.
+# under .workspace/tools/firecrawl/, already excluded with the workspace.
 .firecrawl/

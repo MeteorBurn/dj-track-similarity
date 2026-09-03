@@ -215,11 +215,11 @@ npm run check
 ```
 
 For this skill itself, run a skill validator against
-`.workspace\skills\codebase-documentation-writer` when the running harness ships one,
+`.djts\skills\codebase-documentation-writer` when the running harness ships one,
 and skip the step when it does not. Under Codex that validator is:
 
 ```powershell
-python "$env:CODEX_HOME\skills\.system\skill-creator\scripts\quick_validate.py" .workspace\skills\codebase-documentation-writer
+python "$env:CODEX_HOME\skills\.system\skill-creator\scripts\quick_validate.py" .djts\skills\codebase-documentation-writer
 ```
 
 If source behavior changes, use the focused verification matrix in `AGENTS.md`

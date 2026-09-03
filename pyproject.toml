@@ -67,9 +67,6 @@ name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
-[tool.ruff]
-cache-dir = ".workspace/tools/ruff"
-
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
 

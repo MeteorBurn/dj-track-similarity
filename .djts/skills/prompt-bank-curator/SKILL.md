@@ -73,7 +73,7 @@ overlap. A disagreement between MAEST and a tag is a signal worth surfacing, not
 ## Workflow
 
 1. **Draft.** Write the bank as JSON and check the structure without loading any model:
-   `python .workspace\skills\clap-query-workflow\scripts\validate_prompt_bank.py <draft.json>`
+   `python .djts\skills\clap-query-workflow\scripts\validate_prompt_bank.py <draft.json>`
 2. **Measure, when labels exist.** Add the concept to
    `scripts/text_prompt_benchmark_prompts.json` and run:
    `python scripts\text_prompt_benchmark.py --db database\volumes.sqlite --models mulan,clap`

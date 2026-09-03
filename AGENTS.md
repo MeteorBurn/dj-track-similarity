@@ -31,7 +31,7 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
   Node manifest: `uv sync`, `npm --prefix ./frontend install`, and
   `npm --prefix ./docs/dj-track-similarity install`. They stay separate on
   purpose; there is no bootstrap script wrapping them.
-- A fresh clone also needs `.workspace/tools/bootstrap.ps1` once. It registers
+- A fresh clone also needs `.djts/scripts/bootstrap.ps1` once. It registers
   and installs the shared Claude Code plugin, then regenerates the Codex agent
   projection. Nothing else in the repository depends on it, so a contributor who
   never runs an agent can skip it.
@@ -49,7 +49,8 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 |---|---|
 | `database/`, `logs/`, `reports/` | Local user state; never use as automated-test fixtures |
 | `frontend/dist/`, `graphify-out/` | Generated output; do not hand-edit |
-| `.workspace/` | The one copy of everything an agent reads or writes: `agents/`, `skills/`, and tool scripts are tracked; tool-local caches/results live in ignored subdirectories of `tools/`, while `work/` holds other local output. See AGENT LAYER |
+| `.workspace/` | Local working output only: `audits/`, `handoffs/`, `ideas/`, `reports/`, `specs/`, and `tools/firecrawl/`; never a source of agents or skills |
+| `.djts/` | The one tracked plugin root: `agents/`, `skills/`, plugin manifests, icon, and projection scripts |
 
 `database/` can hold more than one `.sqlite` library (`run_server.cmd` lists them and lets the
 user pick one at startup). There is no fixed "main" database — ask the user which file is the
@@ -71,36 +72,39 @@ current main database before reading, writing, or reasoning about "the" database
 
 ## AGENT LAYER
 
-Everything an agent reads or writes lives once, under `.workspace/`: `skills/`,
-`agents/`, `tools/`, and `work/` for finished output from past runs. Tracked
-tool scripts live in `tools/`; their local cache/results directories are
-ignored there: `firecrawl/` and `ruff/`. AgentProof and Superpowers hardcode
-root-level state paths and provide no supported output-root override: do not
-redirect them with a junction. If invoked for this repository, their local
-state necessarily appears at `.agentproof/` or `.superpowers/`.
+The shared plugin source lives once, under `.djts/`: `skills/`, `agents/`,
+both manifests, the root SVG icon, and `scripts/` for the Codex projection and
+bootstrap. `.workspace/` holds only local working output: `audits/`,
+`handoffs/`, `ideas/`, `reports/`, `specs/`, and `tools/firecrawl/`. Ruff uses
+its native root-level `.ruff_cache/`; do not override that path. AgentProof and
+Superpowers hardcode root-level state paths and provide no supported
+output-root override: do not redirect them with a junction. If invoked for this
+repository, their local state necessarily appears at `.agentproof/` or
+`.superpowers/`.
 
 OpenCode and Oh My OpenCode (OMO) are optional external tools, not part of the
 project agent layer. Do not restore a project `opencode.json`. OMO writes its
 own ignored root-level `.omo/` state when it is explicitly used; it may be
 cleared only while no OMO/OpenCode process is running.
 
-`.workspace/` is one local plugin, described by the Claude-compatible manifest
-`.workspace/.claude-plugin/plugin.json` and marketplace metadata beside it.
-Both Claude Code and Codex consume that standard plugin layout; Codex also
+`.djts/` is one local plugin, described by the matching Claude and Codex
+manifests, `.djts/.claude-plugin/plugin.json` and
+`.djts/.codex-plugin/plugin.json`; `dj-track-similarity-note.svg` is at its
+root. Both Claude Code and Codex consume that plugin layout; Codex also
 loads agent launchers from `.codex/agents/*.toml`. Therefore `.claude/` holds
 only Claude-specific configuration, hooks, and runtime state — never a link or
 copy of a project skill or agent. `.codex/` holds only Codex-specific
 configuration and the generated projection built by
-`.workspace/tools/sync-codex-agents.ps1`.
+`.djts/scripts/sync-codex-agents.ps1`.
 
-Edit the Markdown under `.workspace/`; never the generated `.toml`. Run
+Edit agent and skill Markdown under `.djts/`; never the generated `.toml`. Run
 `bootstrap.ps1` after a fresh clone so both harnesses register and install the
 project plugin and Codex regenerates its projection.
 
 Starting a Claude Code or Codex session never runs `bootstrap.ps1` or rewrites
 an agent. Claude Code loads the eight Markdown agents from the installed plugin.
 Codex reads the existing eight `.codex/agents/*.toml` launchers, generated from
-`.workspace/agents/*.md`; run `sync-codex-agents.ps1` explicitly after changing
+`.djts/agents/*.md`; run `sync-codex-agents.ps1` explicitly after changing
 an agent, and use `bootstrap.ps1` only for setup or full resynchronization.
 
 An **agent** is a worker: a role, a tool surface, and the procedures it carries
@@ -128,7 +132,7 @@ handed back to the caller as homework.
 
 Skills currently shared: `graphify`, `verification-routing`,
 `web-research-routing`, `clap-query-workflow`, `prompt-bank-curator`,
-`codebase-documentation-writer`. All six remain skills in `.workspace/skills`.
+`codebase-documentation-writer`. All six remain skills in `.djts/skills`.
 The last three request an isolated worker only in harnesses that honor
 `context: fork`; Codex discovers every project skill directly and its TOML
 projection is reserved for real agents.
@@ -314,7 +318,7 @@ npm --prefix .\frontend run build      # before a commit that touched frontend/
 `graphify-out/graph.json` is a queryable knowledge graph of this project: about
 7000 nodes and 20000 edges over `src/`, `frontend/src/`, `tools/`, `scripts/`,
 `tests/` and the documentation pages. The agent layer is not in it: `.graphifyignore`
-explicitly excludes `.workspace/`, `.agents/`, `.claude/`, and `.codex/` from the
+explicitly excludes `.workspace/`, `.djts/`, `.agents/`, `.claude/`, and `.codex/` from the
 corpus. Nodes carry `source_file` and `source_location`; edges carry a
 relation and an honest confidence tag, `EXTRACTED` or `INFERRED`. A post-commit
 git hook rebuilds it, so it tracks `HEAD` without anyone asking.
@@ -335,7 +339,7 @@ neither can stop a call — the rule lives here.
 | Get oriented in an unfamiliar area | `graphify god-nodes`, then `explain` |
 | Grep or bulk-read across `src/`, `frontend/src/`, `tools/`, `tests/` | any of the above — the grep comes after |
 
-`.workspace/skills/graphify/references/query.md` holds the full flow; what follows
+`.djts/skills/graphify/references/query.md` holds the full flow; what follows
 is what this project must not get wrong.
 
 ### Expand the question against the graph's vocabulary first
@@ -406,7 +410,7 @@ inherits none of it.
 
 `.graphifyignore` holds what stays out of the graph, and it is the place to fix
 a corpus problem — not a filter applied while reading results. It explicitly
-excludes `.workspace/`, `.agents/`, `.claude/`, and `.codex/`: the agent layer
+excludes `.workspace/`, `.djts/`, `.agents/`, `.claude/`, and `.codex/`: the agent layer
 is operational metadata, not product architecture. The graphify MCP
 server needs authorization and is unavailable in a non-interactive session; the
 CLI needs none and answers in about a second.

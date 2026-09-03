@@ -2,11 +2,11 @@
 #
 # One input, one output directory:
 #
-#   .workspace/agents/<name>.md          a real agent: a worker with a role and a
+#   .djts/agents/<name>.md               a real agent: a worker with a role and a
 #                                     tool surface. Claude reads it directly
 #                                     through the .claude/agents junction.
 #
-# Project skills remain in .workspace/skills/<name>/SKILL.md. Codex discovers
+# Project skills remain in .djts/skills/<name>/SKILL.md. Codex discovers
 # them there directly; a skill is never projected as an agent launcher.
 #
 # Real agents land in .codex/agents/*.toml. Those files are disposable — edit
@@ -22,7 +22,7 @@
 #   skills                   ->  named in the preamble, not emitted as
 #                                [[skills.config]]. That key is a per-skill
 #                                enablement override, and every skill under
-#                                .workspace/skills is already discoverable by Codex,
+#                                .djts/skills is already discoverable by Codex,
 #                                so an override would add nothing and its path
 #                                base is not documented clearly enough to risk.
 #
@@ -36,9 +36,9 @@
 
 $ErrorActionPreference = 'Stop'
 
-$workspaceRoot = Split-Path -Parent $PSScriptRoot
-$repoRoot = Split-Path -Parent $workspaceRoot
-$agentsDir = Join-Path $workspaceRoot 'agents'
+$pluginRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent $pluginRoot
+$agentsDir = Join-Path $pluginRoot 'agents'
 $targetDir = Join-Path $repoRoot '.codex\agents'
 [System.IO.Directory]::CreateDirectory($targetDir) | Out-Null
 
@@ -79,12 +79,12 @@ function Write-CodexAgent {
     }
     if ($Skills.Count -gt 0) {
         $preambleLines += ''
-        $preambleLines += "Skills that belong to this role, under .workspace/skills/: $($Skills -join ', '). Read the ones the task needs."
+        $preambleLines += "Skills that belong to this role, under .djts/skills/: $($Skills -join ', '). Read the ones the task needs."
     }
 
     $escaped = $Description.Replace('\', '\\').Replace('"', '\"')
     $lines = @(
-        "# Generated from $Origin by .workspace/tools/sync-codex-agents.ps1."
+        "# Generated from $Origin by .djts/scripts/sync-codex-agents.ps1."
         '# Do not edit: rerun the script instead.'
         "name = `"$Name`""
         "description = `"$escaped`""
@@ -141,7 +141,7 @@ if (Test-Path -LiteralPath $agentsDir) {
 
         Write-CodexAgent -Name $name -Description $description -Body $parts.Body `
             -SandboxMode $sandbox -Effort $effort -Skills $skills `
-            -Origin ".workspace/agents/$($file.Name)"
+            -Origin ".djts/agents/$($file.Name)"
         $written += $name
     }
 }

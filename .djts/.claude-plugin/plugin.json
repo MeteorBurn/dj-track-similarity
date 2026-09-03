@@ -1,6 +1,6 @@
 {
   "name": "dj-track-similarity",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Project-specific agents and skills for the DJ Track Similarity workbench",
   "author": {
     "name": "Meteorburn"

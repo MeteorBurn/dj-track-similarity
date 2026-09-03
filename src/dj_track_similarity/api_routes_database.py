@@ -5,7 +5,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from .api_schemas import DatabaseStateResponse, DatabaseSwitchRequest
+from .api_schemas import (
+    ClearLibraryResponse,
+    DatabaseStateResponse,
+    DatabaseSwitchRequest,
+)
 from .api_state import AppDatabaseState
 
 
@@ -42,6 +46,11 @@ def register_database_routes(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/api/database/clear", response_model=ClearLibraryResponse)
+    def clear_database():
+        with state.exclusive_db("clear the library") as database:
+            return database.clear_library()
 
     @app.post("/api/database/validation/jobs")
     def start_validation():

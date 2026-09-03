@@ -8,7 +8,6 @@ from fastapi.responses import FileResponse
 
 from .api_route_utils import query_classifier_min_scores, valid_classifier_min_scores
 from .api_schemas import (
-    ClearLibraryResponse,
     FilteredTracksRequest,
     LibrarySummaryResponse,
     RelocateLibraryRequest,
@@ -69,14 +68,6 @@ def register_library_routes(
                 )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-
-    @app.post(
-        "/api/database/clear",
-        response_model=ClearLibraryResponse,
-    )
-    def clear_database():
-        with state.exclusive_db("clear the library") as database:
-            return database.clear_library()
 
     @app.get("/api/library/scan/jobs/latest")
     def latest_scan_job():

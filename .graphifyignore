@@ -8,3 +8,7 @@
 # the corpus written partly in Russian, a Russian question lands in it by
 # accident instead of in the code it is asking about.
 .claude/plans/reports/
+
+# Local Firecrawl research cache is external working material, not project
+# architecture. It otherwise gets re-queued for semantic extraction forever.
+.firecrawl/

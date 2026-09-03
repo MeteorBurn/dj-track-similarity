@@ -8,10 +8,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
-CLAP_SKILL = ROOT / ".agents" / "skills" / "clap-query-workflow" / "SKILL.md"
-CURATOR_SKILL = ROOT / ".agents" / "skills" / "prompt-bank-curator" / "SKILL.md"
-SCORE_PROMPT_BANK = ROOT / ".agents" / "skills" / "clap-query-workflow" / "scripts" / "score_prompt_bank.py"
-PROJECT_SEARCH = ROOT / ".agents" / "skills" / "clap-query-workflow" / "scripts" / "project_text_search.py"
+CLAP_SKILL = ROOT / ".djts" / "skills" / "clap-query-workflow" / "SKILL.md"
+CURATOR_SKILL = ROOT / ".djts" / "skills" / "prompt-bank-curator" / "SKILL.md"
+SCORE_PROMPT_BANK = ROOT / ".djts" / "skills" / "clap-query-workflow" / "scripts" / "score_prompt_bank.py"
+PROJECT_SEARCH = ROOT / ".djts" / "skills" / "clap-query-workflow" / "scripts" / "project_text_search.py"
 
 
 def load_score_prompt_bank_module():

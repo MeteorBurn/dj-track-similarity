@@ -8,10 +8,12 @@ import pytest
 from typer.testing import CliRunner
 
 from dj_track_similarity import cli
+from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_ddl import create_library_schema
 from dj_track_similarity.db_migration import (
     MIGRATION_CONFIRMATION,
     LegacyLibraryMigrationError,
+    _validate_library,
     migrate_legacy_library_database,
 )
 
@@ -315,3 +317,25 @@ def test_migrate_database_cli_runs_the_explicit_legacy_pair_migration(
     assert result.exit_code == 0, result.output
     assert f"library={core_path.resolve()}" in result.output
     assert "integrity_check=ok foreign_key_violations=0" in result.output
+
+
+def test_migrated_library_validation_sees_check_constraint_violations(
+    tmp_path: Path,
+) -> None:
+    # A `mode=ro` handle makes `PRAGMA integrity_check` skip CHECK constraints
+    # and answer "ok" on a violating file, so the post-migration validator has
+    # to open the migrated library through the full-check read-only handle.
+    path = tmp_path / "library.sqlite"
+    catalog_uuid = LibraryDatabase(path).catalog_uuid
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute("UPDATE library SET schema_version = 0")
+        connection.commit()
+
+    with pytest.raises(LegacyLibraryMigrationError, match="integrity_check="):
+        _validate_library(
+            path,
+            catalog_uuid=catalog_uuid,
+            copied_rows={"tracks": 0},
+            fts_rows=0,
+        )

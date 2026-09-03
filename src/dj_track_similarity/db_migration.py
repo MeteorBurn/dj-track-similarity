@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .db_connection import connect_database_read_only
 from .db_ddl import create_library_schema
 from .db_search_fts import rebuild_track_search_fts
 
@@ -514,7 +515,9 @@ def _validate_library(
     copied_rows: Mapping[str, int],
     fts_rows: int,
 ) -> tuple[str, int]:
-    with closing(_open_read_only(path)) as connection:
+    # The migrated file is ours to open read-write; `mode=ro` would make
+    # `PRAGMA integrity_check` skip its CHECK constraints (see db_connection).
+    with closing(connect_database_read_only(path)) as connection:
         rows = connection.execute("SELECT catalog_uuid FROM library").fetchall()
         if len(rows) != 1 or str(rows[0][0]) != catalog_uuid:
             raise LegacyLibraryMigrationError("Migrated library catalog identity changed")

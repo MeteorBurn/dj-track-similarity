@@ -198,8 +198,8 @@ projection is reserved for real agents.
 ## SAFETY INVARIANTS
 
 - Treat source audio as user data. Scan, preview, analysis, search, reset,
-  relocation preview, export, graph export, classifier scoring, and routine
-  verification must not modify it.
+  relocation preview, export, classifier scoring, and routine verification
+  must not modify it.
 - Normal tag writing is explicit and genre-only. Browser AIFF preview may use a
   temporary WAV but must not rewrite or cache the source.
 - Route SQLite writes through `LibraryDatabase`; preserve WAL, busy-timeout,

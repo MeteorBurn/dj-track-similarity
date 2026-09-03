@@ -702,17 +702,22 @@ class RhythmLabDatabase:
             for label in (_classifier_label_from_row(row),)
         }
 
-    def label_counts(self) -> dict[str, int]:
+    def label_counts(self, *, catalog_uuid: str | None = None) -> dict[str, int]:
         profile_key = self._active_profile_key()
+        where = "classifier_key = ?"
+        params: list[object] = [profile_key]
+        if catalog_uuid is not None:
+            where += " AND catalog_uuid = ?"
+            params.append(catalog_uuid)
         with self.connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT label, COUNT(*) AS count
                 FROM classifier_labels
-                WHERE classifier_key = ?
+                WHERE {where}
                 GROUP BY label
                 """,
-                (profile_key,),
+                params,
             ).fetchall()
         return {str(row["label"]): int(row["count"]) for row in rows}
 
@@ -833,21 +838,30 @@ class RhythmLabDatabase:
             )
             return int(cursor.rowcount)
 
-    def training_labels(self) -> dict[TrackIdentity, str]:
+    def training_labels(
+        self,
+        *,
+        catalog_uuid: str | None = None,
+    ) -> dict[TrackIdentity, str]:
         profile_key = self._active_profile_key()
         training_keys = self.get_profile().training_label_keys
         if not training_keys:
             return {}
         placeholders = ", ".join("?" for _ in training_keys)
+        where = f"classifier_key = ? AND label IN ({placeholders})"
+        params: list[object] = [profile_key, *training_keys]
+        if catalog_uuid is not None:
+            where += " AND catalog_uuid = ?"
+            params.append(catalog_uuid)
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
                 SELECT catalog_uuid, track_uuid, selected_path, label
                 FROM classifier_labels
-                WHERE classifier_key = ? AND label IN ({placeholders})
+                WHERE {where}
                 ORDER BY catalog_uuid, track_uuid
                 """,
-                (profile_key, *training_keys),
+                params,
             ).fetchall()
         return {
             TrackIdentity(

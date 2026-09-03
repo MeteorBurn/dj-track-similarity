@@ -139,7 +139,7 @@ def build_labeled_feature_matrix_from_sources(
     labels: RhythmLabDatabase,
     feature_set: str,
 ) -> FeatureMatrix:
-    labels_by_identity = labels.training_labels()
+    labels_by_identity = labels.training_labels(catalog_uuid=str(source.catalog_uuid))
     return build_feature_matrix(
         source,
         feature_set,

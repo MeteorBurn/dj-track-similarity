@@ -557,9 +557,7 @@ function renderGuidance(summary) {
   const readiness = latestTrainingReadiness;
   const trainingCountText = trainingLabels().map(label => {
     const current = readiness?.current?.[label.key] ?? counts[label.key] ?? 0;
-    const usable = readiness?.usable?.[label.key];
-    const value = usable === undefined || usable === current ? `${current}` : `${usable}/${current} usable`;
-    return `${escapeHtml(label.name)} ${escapeHtml(value)}`;
+    return `${escapeHtml(label.name)} ${escapeHtml(current)}`;
   }).join(" · ");
   const winner = readiness?.artifact_summary?.benchmark_winner;
   const selected = selectedPromotionOption(readiness);

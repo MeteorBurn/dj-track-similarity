@@ -535,7 +535,9 @@ def create_app(
         base = {
             "profile": _profile_payload(profile),
             "tracks": 0,
-            "labels": scoped.label_counts(),
+            "labels": scoped.label_counts(
+                catalog_uuid=str(source.catalog_uuid) if source is not None else None
+            ),
             "sonara": 0,
             "mert": 0,
             "maest": 0,
@@ -1550,7 +1552,12 @@ def _training_readiness(
 ) -> dict[str, object]:
     profile = profile or labels_db.get_profile()
     feature_sources(feature_set)
-    counts = _training_label_counts(labels_db.label_counts(), profile=profile)
+    counts = _training_label_counts(
+        labels_db.label_counts(
+            catalog_uuid=str(source.catalog_uuid) if source is not None else None
+        ),
+        profile=profile,
+    )
     checkpoint = labels_db.training_checkpoint()
     checkpoint_counts = dict(checkpoint["counts"])
     checkpoint_artifact = checkpoint["model_artifact"]

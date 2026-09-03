@@ -149,6 +149,7 @@ def create_app(
         app,
         state,
         text_embedding_adapter=text_adapters.acquire,
+        loaded_text_embedding_adapters=text_adapters.loaded,
     )
     register_server_routes(app, stop_rhythm_lab=stop_rhythm_lab)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)

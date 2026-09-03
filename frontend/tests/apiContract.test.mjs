@@ -268,6 +268,19 @@ test("text warmup client posts only the family and device, and can be aborted", 
   assert.deepEqual(JSON.parse(calls[0].options.body), { analysis_family: "mulan" });
   assert.equal(calls[0].options.signal, controller.signal);
   assert.equal(result.seconds, 34.2);
+
+  // The status read shares the path as a GET and carries no body.
+  const statusCalls = [];
+  const { api: statusApi } = loadApiModule(async (path, options) => {
+    statusCalls.push({ path, options });
+    return jsonResponse({ loaded: [{ analysis_family: "clap", device: "cpu" }] });
+  });
+  const status = await statusApi.textSearchWarmupStatus({ signal: controller.signal });
+  assert.equal(statusCalls[0].path, "/api/search/text/warmup");
+  assert.equal(statusCalls[0].options.method ?? "GET", "GET");
+  assert.equal(statusCalls[0].options.body, undefined);
+  assert.equal(statusCalls[0].options.signal, controller.signal);
+  assert.deepEqual(status.loaded, [{ analysis_family: "clap", device: "cpu" }]);
 });
 
 test("detail and generic search clients forward AbortSignal unchanged", async () => {

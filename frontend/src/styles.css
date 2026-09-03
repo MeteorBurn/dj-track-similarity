@@ -4183,6 +4183,12 @@ h2 {
 
 /* Progress, not a problem: warming is quiet, and only a failed warmup borrows
    the warning colour, because that wait comes back on the first search. */
+.text-warmup-state {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .seed-remove-chip {
   background: var(--warning-soft-bg);
   border-color: var(--warning-soft-border);

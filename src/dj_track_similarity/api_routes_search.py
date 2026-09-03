@@ -27,9 +27,11 @@ from .api_schemas import (
     TextSearchFeedbackSummaryResponse,
     TextSearchFeedbackRequest,
     TextSearchFeedbackResponse,
+    TextSearchLoadedAdapter,
     TextSearchRequest,
     TextSearchWarmupRequest,
     TextSearchWarmupResponse,
+    TextSearchWarmupStatusResponse,
 )
 from .api_state import AppDatabaseState
 from .database import LibraryDatabase
@@ -92,6 +94,7 @@ def register_search_routes(
         ...,
         AbstractContextManager[_TextEmbeddingAdapter],
     ],
+    loaded_text_embedding_adapters: Callable[[], Sequence[tuple[str, str]]],
 ) -> None:
     @app.post(
         "/api/search",
@@ -237,6 +240,21 @@ def register_search_routes(
             raise HTTPException(status_code=400, detail=str(error)) from error
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.get(
+        "/api/search/text/warmup",
+        response_model=TextSearchWarmupStatusResponse,
+    )
+    def text_search_warmup_status():
+        """Report which families are resident, so a first search can say
+        that it is waiting on weights rather than on the library."""
+
+        return TextSearchWarmupStatusResponse(
+            loaded=[
+                TextSearchLoadedAdapter(analysis_family=family, device=device)
+                for family, device in loaded_text_embedding_adapters()
+            ]
+        )
 
     @app.post(
         "/api/search/text/warmup",

@@ -427,6 +427,21 @@ class TextSearchWarmupResponse(BaseModel):
     seconds: float
 
 
+class TextSearchLoadedAdapter(BaseModel):
+    analysis_family: Literal["clap", "mulan"]
+    device: str
+
+
+class TextSearchWarmupStatusResponse(BaseModel):
+    """Which text-embedding families are resident right now.
+
+    A search on a family that is not listed pays the weight load first; the
+    UI reads this to say so while that first search waits.
+    """
+
+    loaded: list[TextSearchLoadedAdapter]
+
+
 class TextSearchFeedbackRequest(BaseModel):
     """One relevance verdict for a text-search hit, credited to each preset.
 

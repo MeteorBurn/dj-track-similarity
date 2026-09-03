@@ -72,6 +72,12 @@ class TextEmbeddingAdapterCache(Generic[AdapterT]):
             finally:
                 entry.last_used = self._clock()
 
+    def loaded(self) -> tuple[tuple[str, str], ...]:
+        """The ``(family, device)`` keys held right now, in checkout order."""
+
+        with self._guard:
+            return tuple(self._entries)
+
     def evict_idle(self) -> int:
         """Drop adapters nobody has used for longer than the idle TTL."""
 

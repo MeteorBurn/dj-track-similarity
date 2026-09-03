@@ -121,6 +121,7 @@ export function SearchPlaylistPanel({
   textUseFeedback,
   onTextUseFeedbackChange,
   textCompareModels,
+  textModelLoadingLabel,
   onTextCompareModelsChange,
   seedEmbeddingFamily,
   onSeedEmbeddingFamilyChange,
@@ -189,6 +190,7 @@ export function SearchPlaylistPanel({
   textUseFeedback: boolean;
   onTextUseFeedbackChange: (value: boolean) => void;
   textCompareModels: boolean;
+  textModelLoadingLabel: string | null;
   onTextCompareModelsChange: (value: boolean) => void;
   seedEmbeddingFamily: SeedEmbeddingFamily;
   onSeedEmbeddingFamilyChange: (value: SeedEmbeddingFamily) => void;
@@ -555,6 +557,7 @@ export function SearchPlaylistPanel({
             textUseFeedback={textUseFeedback}
             onTextUseFeedbackChange={onTextUseFeedbackChange}
             textCompareModels={textCompareModels}
+            textModelLoadingLabel={textModelLoadingLabel}
             onTextCompareModelsChange={onTextCompareModelsChange}
             selectedPresetKeys={selectedPresetKeys}
             onTogglePreset={onTogglePreset}

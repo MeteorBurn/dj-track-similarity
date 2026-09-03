@@ -102,6 +102,11 @@ type TextSearchWarmupResult = {
   seconds: number;
 };
 
+/** Which text models are resident; a search on any other pays the load first. */
+type TextSearchWarmupStatus = {
+  loaded: Array<{ analysis_family: "clap" | "mulan"; device: string }>;
+};
+
 type TextSearchFeedbackPayload = {
   track_uuid: string;
   preset_keys: string[];
@@ -383,6 +388,10 @@ const searchApi = {
     request<TextSearchWarmupResult>("/api/search/text/warmup", {
       method: "POST",
       body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
+  textSearchWarmupStatus: (options?: { signal?: AbortSignal }) =>
+    request<TextSearchWarmupStatus>("/api/search/text/warmup", {
       signal: options?.signal,
     }),
   textSearchFeedback: (payload: TextSearchFeedbackPayload) =>

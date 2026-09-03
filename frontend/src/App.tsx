@@ -226,6 +226,8 @@ export function App() {
   // Turned on deliberately: it is two searches and two sets of weights resident,
   // which is a price worth paying to settle a model, not to run a search.
   const [textCompareModels, setTextCompareModels] = useState(false);
+  // Model names the running text search is loading into memory first, or null.
+  const [textModelLoadingLabel, setTextModelLoadingLabel] = useState<string | null>(null);
   const [textComparison, setTextComparison] = useState<TextComparisonColumn[] | null>(null);
   // What has been said about each label so far, per model. The picker holds 240
   // of them, and the ones worth comparing models on are the ones where a model
@@ -1553,6 +1555,19 @@ export function App() {
     const ticket = beginGenericSearchRequest();
     appendActivity("info", `${label} search запущен`, prompt);
     try {
+      // The first search after an idle period pays the weight load. Ask what is
+      // resident and say so while it waits, instead of a silent minute.
+      const resident = await api
+        .textSearchWarmupStatus({ signal: ticket.controller.signal })
+        .then((status) => new Set(status.loaded.map((entry) => entry.analysis_family)))
+        .catch(() => null);
+      if (!genericSearchRequestIsCurrent(ticket)) return;
+      const pending = resident ? families.filter((family) => !resident.has(family)) : [];
+      if (pending.length) {
+        const pendingLabel = pending.map(familyLabel).join(" и ");
+        setTextModelLoadingLabel(pendingLabel);
+        appendActivity("info", `${pendingLabel} загружается в память`, "Первый поиск ждёт веса");
+      }
       const columns: TextComparisonColumn[] = [];
       for (const family of families) {
         const presetBanks = presetBanksFor(family);
@@ -1628,6 +1643,7 @@ export function App() {
       setNotice({ kind: "error", text: message });
       appendActivity("error", `${label} search недоступен`, message);
     } finally {
+      setTextModelLoadingLabel(null);
       finishGenericSearchRequest(ticket);
     }
   }
@@ -2030,6 +2046,7 @@ export function App() {
           textUseFeedback={textUseFeedback}
           onTextUseFeedbackChange={setTextUseFeedback}
           textCompareModels={textCompareModels}
+          textModelLoadingLabel={textModelLoadingLabel}
           onTextCompareModelsChange={setTextCompareModels}
           selectedPresetKeys={selectedPresetKeys}
           onTogglePreset={togglePromptPreset}

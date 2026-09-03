@@ -92,6 +92,7 @@ export function TextSearchTab({
   textPromptHelp,
   limitHelp,
   hasStoredTextEmbeddings,
+  textModelLoadingLabel,
   busy,
   textSearchTitle,
   handleTextSearch
@@ -121,6 +122,8 @@ export function TextSearchTab({
   textPromptHelp: string;
   limitHelp: string;
   hasStoredTextEmbeddings: boolean;
+  /** Models the running search is loading into memory first, or null. */
+  textModelLoadingLabel: string | null;
   busy: boolean;
   textSearchTitle: string;
   handleTextSearch: () => void;
@@ -558,6 +561,11 @@ export function TextSearchTab({
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
       {!hasStoredTextEmbeddings ? <span className="text-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
+      {textModelLoadingLabel ? (
+        <span className="text-warmup-state" role="status">
+          {textModelLoadingLabel} загружается в память — первый поиск ждёт веса.
+        </span>
+      ) : null}
       <button className="text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">
         <Search size={17} />
         {textCompareModels ? "Search · A/B" : "Search"}

@@ -395,6 +395,8 @@ def test_text_search_warmup_loads_the_family_without_touching_the_library(
     monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
     client = TestClient(create_app(db_path))
 
+    assert client.get("/api/search/text/warmup").json() == {"loaded": []}
+
     response = client.post(
         "/api/search/text/warmup",
         json={"analysis_family": "clap", "device": "cpu"},
@@ -415,6 +417,10 @@ def test_text_search_warmup_loads_the_family_without_touching_the_library(
     )
     assert FakeClapAdapter.instances == 1
     assert FakeClapAdapter.queries == ["warmup", "warmup"]
+    # The status is what a first search reads to say it is waiting on weights.
+    assert client.get("/api/search/text/warmup").json() == {
+        "loaded": [{"analysis_family": "clap", "device": "cpu"}]
+    }
 
 
 def test_text_search_warmup_rejects_unknown_contract_fields(tmp_path: Path) -> None:

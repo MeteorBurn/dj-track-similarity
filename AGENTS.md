@@ -79,6 +79,11 @@ root-level state paths and provide no supported output-root override: do not
 redirect them with a junction. If invoked for this repository, their local
 state necessarily appears at `.agentproof/` or `.superpowers/`.
 
+OpenCode and Oh My OpenCode (OMO) are optional external tools, not part of the
+project agent layer. Do not restore a project `opencode.json`. OMO writes its
+own ignored root-level `.omo/` state when it is explicitly used; it may be
+cleared only while no OMO/OpenCode process is running.
+
 `.workspace/` is one local plugin, described by the Claude-compatible manifest
 `.workspace/.claude-plugin/plugin.json` and marketplace metadata beside it.
 Both Claude Code and Codex consume that standard plugin layout; Codex also

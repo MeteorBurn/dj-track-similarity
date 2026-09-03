@@ -257,17 +257,17 @@ def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, An
     risk_weights = _report_risk_weights(report)
     guardrails = _required_mapping(report.get("guardrails"), "guardrails")
     payload = {
-        "profile_name": _required_text(report.get("profile_name"), "profile_name"),
+        "profile_name": _coerced_text(report.get("profile_name"), "profile_name"),
         "source": SOURCE,
         "profile_source": SAVED_PROFILE_SOURCE,
-        "label_status": _required_text(report.get("label_status"), "label_status"),
-        "created_at": _required_text(report.get("created_at"), "created_at"),
+        "label_status": _coerced_text(report.get("label_status"), "label_status"),
+        "created_at": _coerced_text(report.get("created_at"), "created_at"),
         "saved_at": _utc_timestamp(),
         "objective": _objective(str(report.get("objective", DEFAULT_OBJECTIVE))),
         "split_by": _split_by(str(report.get("split_by", DEFAULT_SPLIT_BY))),
         "judged_pairs": _non_negative_int(report.get("judged_pairs"), "judged_pairs"),
         "judged_seeds": _non_negative_int(report.get("judged_seeds"), "judged_seeds"),
-        "rrf_k": _positive_int(report.get("rrf_k"), "rrf_k"),
+        "rrf_k": _coerced_positive_int(report.get("rrf_k"), "rrf_k"),
         "k_values": list(_clean_k_values(_required_sequence(report.get("k_values"), "k_values"))),
         "train_metrics": dict(_required_mapping(report.get("train_metrics"), "train_metrics")),
         "validation_metrics": dict(_required_mapping(report.get("validation_metrics"), "validation_metrics")),
@@ -280,8 +280,8 @@ def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, An
         "can_apply_as_default": True,
         "guardrails": {
             "split_by": "seed_track_id",
-            "min_judged_pairs": _positive_int(guardrails.get("min_judged_pairs"), "guardrails.min_judged_pairs"),
-            "effective_min_judged_pairs": _positive_int(
+            "min_judged_pairs": _coerced_positive_int(guardrails.get("min_judged_pairs"), "guardrails.min_judged_pairs"),
+            "effective_min_judged_pairs": _coerced_positive_int(
                 guardrails.get("effective_min_judged_pairs"),
                 "guardrails.effective_min_judged_pairs",
             ),
@@ -289,8 +289,8 @@ def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, An
             "validation_ndcg_improved": True,
             "bootstrap_stability_passed": True,
         },
-        "decision": _required_text(report.get("decision"), "decision"),
-        "default_update_policy": _required_text(report.get("default_update_policy"), "default_update_policy"),
+        "decision": _coerced_text(report.get("decision"), "decision"),
+        "default_update_policy": _coerced_text(report.get("default_update_policy"), "default_update_policy"),
     }
     _validate_saved_score_profile_payload(payload)
     return payload
@@ -330,7 +330,7 @@ def _report_weights(report: Mapping[str, Any]) -> dict[str, float]:
 def _report_risk_weights(report: Mapping[str, Any]) -> dict[str, float]:
     raw_risk_weights = _required_mapping(report.get("risk_weights"), "risk_weights")
     risk_weights = {
-        _required_text(name, "risk weight name"): _non_negative_finite_float(weight, f"risk_weights.{name}")
+        _coerced_text(name, "risk weight name"): _non_negative_finite_float(weight, f"risk_weights.{name}")
         for name, weight in raw_risk_weights.items()
     }
     if not risk_weights:
@@ -394,15 +394,15 @@ def _optimizer_request(
     grid_step: float,
     bootstrap_samples: int,
 ) -> OptimizerRequest:
-    clean_min_judged_pairs = _positive_int(min_judged_pairs, "min_judged_pairs")
+    clean_min_judged_pairs = _coerced_positive_int(min_judged_pairs, "min_judged_pairs")
     clean_k_values = _clean_k_values(k_values)
     return OptimizerRequest(
-        profile_name=_required_text(profile_name, "profile_name"),
+        profile_name=_coerced_text(profile_name, "profile_name"),
         objective=_objective(objective),
         split_by=_split_by(split_by),
         min_judged_pairs=clean_min_judged_pairs,
         effective_min_judged_pairs=max(clean_min_judged_pairs, CANDIDATE_PROFILE_JUDGED_PAIRS),
-        rrf_k=_positive_int(rrf_k, "rrf_k"),
+        rrf_k=_coerced_positive_int(rrf_k, "rrf_k"),
         k_values=clean_k_values,
         random_seed=_int_value(random_seed, "random_seed"),
         grid_step=_grid_step(grid_step),
@@ -426,15 +426,15 @@ def _matched_optimizer_examples(
             source_contributions = _source_contributions(event.get("score_breakdown"))
             if not source_contributions:
                 continue
-            candidate_track_id = _positive_int(event.get("track_id"), "candidate_track_id")
+            candidate_track_id = _coerced_positive_int(event.get("track_id"), "candidate_track_id")
             labels = matching_labels(seed_track_ids, candidate_track_id, feedback_source, feedback_map)
             for label in labels:
                 key = (int(label["seed_track_id"]), int(label["candidate_track_id"]), str(label["source"]))
                 examples_by_key.setdefault(
                     key,
                     OptimizerExample(
-                        session_id=_positive_int(session.get("id"), "session_id"),
-                        event_id=_positive_int(event.get("id"), "event_id"),
+                        session_id=_coerced_positive_int(session.get("id"), "session_id"),
+                        event_id=_coerced_positive_int(event.get("id"), "event_id"),
                         seed_track_id=int(label["seed_track_id"]),
                         candidate_track_id=int(label["candidate_track_id"]),
                         rating=_rating(label.get("rating")),
@@ -914,7 +914,7 @@ def _split_report(split: SeedSplit) -> dict[str, Any]:
 
 
 def _clean_k_values(k_values: Sequence[int]) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(sorted(_positive_int(k, "k") for k in k_values)))
+    clean_values = tuple(dict.fromkeys(sorted(_coerced_positive_int(k, "k") for k in k_values)))
     if not clean_values:
         return (GUARDRAIL_METRIC_CUTOFF,)
     if GUARDRAIL_METRIC_CUTOFF in clean_values:
@@ -943,7 +943,7 @@ def _grid_step(value: float) -> float:
     return number
 
 
-def _required_text(value: object, field_name: str) -> str:
+def _coerced_text(value: object, field_name: str) -> str:
     if value is None:
         raise ValueError(f"{field_name} must not be empty")
     text = str(value).strip()
@@ -952,7 +952,7 @@ def _required_text(value: object, field_name: str) -> str:
     return text
 
 
-def _positive_int(value: object, field_name: str) -> int:
+def _coerced_positive_int(value: object, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:

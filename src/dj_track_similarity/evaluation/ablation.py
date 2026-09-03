@@ -100,7 +100,7 @@ def build_source_ablation_report(
     judged_only: bool = False,
 ) -> dict[str, Any]:
     clean_k_values = _clean_k_values(k_values)
-    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = _coerced_positive_int(rrf_k, "rrf_k")
     clean_score_profile = _clean_score_profile(score_profile)
     raw_sessions = load_current_evaluation_sessions(db)
     sessions = _candidate_pool_sessions(raw_sessions)
@@ -726,13 +726,13 @@ def _session_feedback_source(session: Mapping[str, Any]) -> str:
 
 
 def _clean_k_values(k_values: Sequence[int]) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(sorted(_positive_int(k, "k") for k in k_values)))
+    clean_values = tuple(dict.fromkeys(sorted(_coerced_positive_int(k, "k") for k in k_values)))
     if not clean_values:
         raise ValueError("At least one positive --k value is required")
     return clean_values
 
 
-def _positive_int(value: int, field_name: str) -> int:
+def _coerced_positive_int(value: int, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:

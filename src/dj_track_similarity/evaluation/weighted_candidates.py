@@ -236,7 +236,7 @@ def write_weighted_candidate_pool_csv(path: str | Path, rows: Sequence[WeightedC
 
 
 def limit_weighted_candidate_rows_per_seed(rows: Sequence[WeightedCandidateRow], limit_per_seed: int) -> tuple[WeightedCandidateRow, ...]:
-    clean_limit = _positive_int(limit_per_seed, "limit_per_seed")
+    clean_limit = _parsed_positive_int(limit_per_seed, "limit_per_seed")
     counts_by_seed: dict[int, int] = {}
     capped_rows: list[WeightedCandidateRow] = []
     for row in rows:
@@ -265,10 +265,10 @@ def _parse_weighted_candidate_request(
     return WeightedCandidatePoolRequest(
         seed_track_ids=_positive_unique_ints(seed_track_ids, "seed_track_id"),
         sources=clean_sources,
-        per_source=_positive_int(per_source, "per_source"),
+        per_source=_parsed_positive_int(per_source, "per_source"),
         random_seed=_int_value(random_seed, "random_seed"),
         record_session=bool(record_session),
-        rrf_k=_positive_int(rrf_k, "rrf_k"),
+        rrf_k=_parsed_positive_int(rrf_k, "rrf_k"),
         transition_risk_weight=_risk_weight(transition_risk_weight, "transition_risk_weight"),
     )
 
@@ -491,13 +491,13 @@ def weighted_rrf_components(
     weights: Mapping[str, float],
     rrf_k: int,
 ) -> dict[str, dict[str, float | int]]:
-    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = _parsed_positive_int(rrf_k, "rrf_k")
     components: dict[str, dict[str, float | int]] = {}
     for source, weight in sorted(weights.items()):
         contribution = contributions.get(source)
         if contribution is None:
             continue
-        rank = _positive_int(contribution.rank, f"{source}.rank")
+        rank = _parsed_positive_int(contribution.rank, f"{source}.rank")
         clean_weight = _non_negative_finite_float(weight, f"weights.{source}")
         components[source] = {
             "rank": rank,
@@ -569,13 +569,13 @@ def _clean_sources(sources: Sequence[str]) -> tuple[str, ...]:
 
 
 def _positive_unique_ints(values: Sequence[int], field_name: str) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(_positive_int(value, field_name) for value in values))
+    clean_values = tuple(dict.fromkeys(_parsed_positive_int(value, field_name) for value in values))
     if not clean_values:
         raise ValueError(f"At least one --{field_name.replace('_', '-')} value is required")
     return clean_values
 
 
-def _positive_int(value: object, field_name: str) -> int:
+def _parsed_positive_int(value: object, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:

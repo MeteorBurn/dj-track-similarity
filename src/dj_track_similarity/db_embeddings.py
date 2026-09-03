@@ -44,7 +44,7 @@ class EmbeddingTrackIdentity:
             raise ValueError("track_uuid must be a non-empty string")
 
 
-def _positive_int(value: object) -> int | None:
+def _positive_int_or_none(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if value > 0 else None
@@ -101,7 +101,7 @@ def _validate_embedding_row_identity(
     }
     if not required_fields.issubset(values):
         return None, "embedding row is missing required fields"
-    row_track_id = _positive_int(values["track_id"])
+    row_track_id = _positive_int_or_none(values["track_id"])
     if row_track_id is None:
         return None, "invalid track_id"
     if row_track_id != expected_track.track_id:
@@ -120,7 +120,7 @@ def _validate_embedding_row_spec(
 ) -> tuple[int | None, str | None]:
     """Check the stored dimension and normalization against the family spec."""
 
-    dim = _positive_int(values["dim"])
+    dim = _positive_int_or_none(values["dim"])
     if dim is None:
         return None, "invalid dim"
     if dim != expected_spec.dimension:
@@ -164,7 +164,7 @@ def validate_embedding_row_metadata(
     dim, reason = _validate_embedding_row_spec(values, expected_spec=expected_spec)
     if dim is None:
         return False, reason
-    stored_bytes = _positive_int(values["embedding_bytes"])
+    stored_bytes = _positive_int_or_none(values["embedding_bytes"])
     if stored_bytes is None:
         return False, "invalid embedding_bytes"
     if stored_bytes != dim * 4:

@@ -12,7 +12,16 @@ TrackMutationAction = Literal["added", "updated", "unchanged"]
 def _required_text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
-    return value
+    return value.strip()
+
+
+def _canonical_text(value: object, field_name: str) -> str:
+    """Identity text: non-empty and already canonical, never normalized."""
+
+    text = _required_text(value, field_name)
+    if text != value:
+        raise ValueError(f"{field_name} must not contain surrounding whitespace")
+    return text
 
 
 def _positive_int(value: object, field_name: str) -> int:
@@ -62,9 +71,9 @@ class TrackIdentity:
     track_uuid: str
 
     def __post_init__(self) -> None:
-        _required_text(self.catalog_uuid, "catalog_uuid")
+        _canonical_text(self.catalog_uuid, "catalog_uuid")
         _positive_int(self.track_id, "track_id")
-        _required_text(self.track_uuid, "track_uuid")
+        _canonical_text(self.track_uuid, "track_uuid")
 
 
 @dataclass(frozen=True)
@@ -80,9 +89,9 @@ class TrackFileState:
     missing_since: str | None
 
     def __post_init__(self) -> None:
-        _required_text(self.catalog_uuid, "catalog_uuid")
+        _canonical_text(self.catalog_uuid, "catalog_uuid")
         _positive_int(self.track_id, "track_id")
-        _required_text(self.track_uuid, "track_uuid")
+        _canonical_text(self.track_uuid, "track_uuid")
         _required_text(self.file_path, "file_path")
         if (
             isinstance(self.file_size_bytes, bool)

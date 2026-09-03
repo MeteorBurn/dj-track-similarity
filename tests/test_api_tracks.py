@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from fastapi.responses import FileResponse
+import pytest
 from fastapi.testclient import TestClient
 
 from dj_track_similarity import api as api_module
@@ -224,11 +225,19 @@ def test_tracks_endpoint_liked_mutation_uses_composite_cas(
             "track_uuid": "stale-track-uuid",
         },
     )
+    padded = client.post(
+        url,
+        json={
+            **_liked_payload(identity, True),
+            "track_uuid": f" {identity.track_uuid} ",
+        },
+    )
     liked = client.post(url, json=_liked_payload(identity, True))
     liked_page = client.get("/api/tracks", params={"liked": "true"})
     unliked = client.post(url, json=_liked_payload(identity, False))
 
     assert stale.status_code == 409
+    assert padded.status_code == 422
     assert liked.status_code == 200
     assert liked.json()["liked"] is True
     assert liked.json()["track_uuid"] == identity.track_uuid
@@ -237,6 +246,8 @@ def test_tracks_endpoint_liked_mutation_uses_composite_cas(
     ] == [identity.track_id]
     assert unliked.status_code == 200
     assert unliked.json()["liked"] is False
+    with pytest.raises(ValueError, match="track_uuid must not contain surrounding whitespace"):
+        TrackIdentity(identity.catalog_uuid, identity.track_id, f" {identity.track_uuid} ")
 
 
 def _seed_evaluation_rows(database: LibraryDatabase, identity: TrackIdentity) -> None:

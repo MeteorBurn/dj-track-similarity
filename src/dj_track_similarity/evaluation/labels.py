@@ -70,8 +70,8 @@ def _load_jsonl_labels(path: Path, row_parser: Any) -> list[Any]:
 
 def _parse_pair_feedback_row(row: Mapping[str, Any], line_number: int) -> PairFeedbackLabel:
     return PairFeedbackLabel(
-        seed_track_id=_positive_int(row.get("seed_track_id"), "seed_track_id", line_number),
-        candidate_track_id=_positive_int(row.get("candidate_track_id"), "candidate_track_id", line_number),
+        seed_track_id=_parsed_positive_int(row.get("seed_track_id"), "seed_track_id", line_number),
+        candidate_track_id=_parsed_positive_int(row.get("candidate_track_id"), "candidate_track_id", line_number),
         rating=_rating(row.get("rating"), line_number),
         reason_tags=_tags(row.get("reason_tags"), "reason_tags", line_number),
         notes=_optional_text(row.get("notes")),
@@ -81,8 +81,8 @@ def _parse_pair_feedback_row(row: Mapping[str, Any], line_number: int) -> PairFe
 
 def _parse_transition_feedback_row(row: Mapping[str, Any], line_number: int) -> TransitionFeedbackLabel:
     return TransitionFeedbackLabel(
-        outgoing_track_id=_positive_int(row.get("outgoing_track_id"), "outgoing_track_id", line_number),
-        incoming_track_id=_positive_int(row.get("incoming_track_id"), "incoming_track_id", line_number),
+        outgoing_track_id=_parsed_positive_int(row.get("outgoing_track_id"), "outgoing_track_id", line_number),
+        incoming_track_id=_parsed_positive_int(row.get("incoming_track_id"), "incoming_track_id", line_number),
         rating=_rating(row.get("rating"), line_number),
         risk_tags=_tags(row.get("risk_tags"), "risk_tags", line_number),
         notes=_optional_text(row.get("notes")),
@@ -109,7 +109,7 @@ def _json_object(text: str, line_number: int) -> Mapping[str, Any]:
     return value
 
 
-def _positive_int(value: object, field_name: str, line_number: int) -> int:
+def _parsed_positive_int(value: object, field_name: str, line_number: int) -> int:
     if isinstance(value, bool):
         raise ValueError(f"Invalid {field_name} on line {line_number}: expected a positive integer")
     try:

@@ -445,8 +445,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
         "--track-counts",
         help="Comma-separated synthetic track counts, for example 1000,10000. Do not combine with --track-count.",
     )
-    parser.add_argument("--seed-count", default=20, type=_positive_int, help="Number of sampled seed tracks per run. Defaults to 20.")
-    parser.add_argument("--per-source", default=30, type=_positive_int, help="Candidate limit per source. Defaults to 30.")
+    parser.add_argument("--seed-count", default=20, type=_parsed_positive_int, help="Number of sampled seed tracks per run. Defaults to 20.")
+    parser.add_argument("--per-source", default=30, type=_parsed_positive_int, help="Candidate limit per source. Defaults to 30.")
     parser.add_argument("--random-seed", default=123, type=int, help="Deterministic random seed. Defaults to 123.")
     parser.add_argument("--keep-db", type=Path, help="Optional path for keeping the synthetic library database for debugging.")
     args = parser.parse_args(argv)
@@ -493,13 +493,13 @@ def _parse_track_counts(track_count: Sequence[int] | None, track_counts: str | N
 
 
 def _track_count_value(value: object) -> int:
-    clean_value = _positive_int(value)
+    clean_value = _parsed_positive_int(value)
     if clean_value < 2:
         raise argparse.ArgumentTypeError("track count must be at least 2")
     return clean_value
 
 
-def _positive_int(value: object) -> int:
+def _parsed_positive_int(value: object) -> int:
     if isinstance(value, bool):
         raise argparse.ArgumentTypeError("value must be a positive integer")
     try:

@@ -63,10 +63,10 @@ class EvaluationRepository:
         that ``scripts/prompt_preset_tune.py`` reads. It lives in the library
         database beside ``likes``; trained classifier outputs never enter it.
         """
-        clean_uuid = _required_text(track_uuid, "Track uuid")
+        clean_uuid = _coerced_text(track_uuid, "Track uuid")
         clean_keys: list[str] = []
         for preset_key in preset_keys:
-            clean_key = _required_text(preset_key, "Preset key")
+            clean_key = _coerced_text(preset_key, "Preset key")
             if clean_key not in clean_keys:
                 clean_keys.append(clean_key)
         if not clean_keys:
@@ -457,7 +457,7 @@ class EvaluationRepository:
     ) -> int:
         """Append an explicit score profile to optional Evaluation storage."""
 
-        clean_name = _required_text(profile_name, "Evaluation profile name")
+        clean_name = _coerced_text(profile_name, "Evaluation profile name")
         profile_json = _json_text(_json_object(profile, "Evaluation profile"))
         with self._write_lock:
             connection = _required_evaluation_connection(self, create=True)
@@ -479,7 +479,7 @@ class EvaluationRepository:
     ) -> dict[str, Any] | None:
         """Read the newest saved profile with an exact user-provided name."""
 
-        clean_name = _required_text(profile_name, "Evaluation profile name")
+        clean_name = _coerced_text(profile_name, "Evaluation profile name")
         connection = self.connect_evaluation(create=False)
         if connection is None:
             return None
@@ -512,7 +512,7 @@ class EvaluationRepository:
         seed_track_ids: Sequence[int],
         request: Mapping[str, Any],
     ) -> int:
-        clean_mode = _required_text(mode, "Search session mode")
+        clean_mode = _coerced_text(mode, "Search session mode")
         clean_seed_track_ids = _positive_unique_ints(
             seed_track_ids,
             "Seed track id",
@@ -569,8 +569,8 @@ class EvaluationRepository:
         total_score: float,
         score_breakdown: Mapping[str, Any],
     ) -> int:
-        clean_session_id = _positive_int(session_id, "Search session id")
-        clean_track_id = _positive_int(track_id, "Search result track id")
+        clean_session_id = _coerced_positive_int(session_id, "Search session id")
+        clean_track_id = _coerced_positive_int(track_id, "Search result track id")
         clean_rank = _non_negative_int(rank, "Search result rank")
         clean_total_score = _finite_float(
             total_score,
@@ -663,7 +663,7 @@ class EvaluationRepository:
             )
         clean_rating = _rating(rating)
         reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
-        clean_source = _required_text(source, "Pair feedback source")
+        clean_source = _coerced_text(source, "Pair feedback source")
         timestamp = _utc_timestamp()
         with (
             self._write_lock,
@@ -762,13 +762,13 @@ class EvaluationRepository:
             seed_track_ids,
             "Seed track id",
         )
-        clean_candidate_track_id = _positive_int(
+        clean_candidate_track_id = _coerced_positive_int(
             candidate_track_id,
             "Candidate track id",
         )
         clean_rating = _rating(rating)
         reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
-        clean_source = _required_text(source, "Pair feedback source")
+        clean_source = _coerced_text(source, "Pair feedback source")
         timestamp = _utc_timestamp()
         with (
             self._write_lock,
@@ -847,17 +847,17 @@ class EvaluationRepository:
         notes: str | None = None,
         source: str = "manual",
     ) -> int:
-        clean_outgoing_track_id = _positive_int(
+        clean_outgoing_track_id = _coerced_positive_int(
             outgoing_track_id,
             "Outgoing track id",
         )
-        clean_incoming_track_id = _positive_int(
+        clean_incoming_track_id = _coerced_positive_int(
             incoming_track_id,
             "Incoming track id",
         )
         clean_rating = _rating(rating)
         risk_tags_json = _json_text(_clean_tags(risk_tags, "Risk tag"))
-        clean_source = _required_text(source, "Transition feedback source")
+        clean_source = _coerced_text(source, "Transition feedback source")
         timestamp = _utc_timestamp()
         with (
             self._write_lock,
@@ -896,11 +896,11 @@ class EvaluationRepository:
         config: Mapping[str, Any],
         metrics: Mapping[str, Any],
     ) -> int:
-        clean_profile_name = _required_text(
+        clean_profile_name = _coerced_text(
             profile_name,
             "Calibration profile name",
         )
-        clean_search_mode = _required_text(
+        clean_search_mode = _coerced_text(
             search_mode,
             "Calibration search mode",
         )
@@ -1108,7 +1108,7 @@ def _preset_weights(
     return {key: value / total for key, value in positive.items()}
 
 
-def _required_text(value: object, field_name: str) -> str:
+def _coerced_text(value: object, field_name: str) -> str:
     if value is None:
         raise ValueError(f"{field_name} must not be empty")
     text = str(value).strip()
@@ -1117,7 +1117,7 @@ def _required_text(value: object, field_name: str) -> str:
     return text
 
 
-def _positive_int(value: int, field_name: str) -> int:
+def _coerced_positive_int(value: int, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:
@@ -1134,7 +1134,7 @@ def _positive_unique_ints(
     field_name: str,
 ) -> tuple[int, ...]:
     clean_values = tuple(
-        dict.fromkeys(_positive_int(value, field_name) for value in values)
+        dict.fromkeys(_coerced_positive_int(value, field_name) for value in values)
     )
     if not clean_values:
         raise ValueError(

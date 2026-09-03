@@ -63,7 +63,7 @@ def log_loss(predicted_probabilities: Sequence[float], labels: Sequence[int], ep
 
 
 def reliability_bins(predicted_probabilities: Sequence[float], labels: Sequence[int], bins: int = DEFAULT_BINS) -> list[dict[str, float | int | None]]:
-    clean_bins = _positive_int(bins, "bins")
+    clean_bins = _coerced_positive_int(bins, "bins")
     samples = _probability_samples(predicted_probabilities, labels)
     buckets: list[list[tuple[float, int]]] = [[] for _ in range(clean_bins)]
     for probability, label in samples:
@@ -73,7 +73,7 @@ def reliability_bins(predicted_probabilities: Sequence[float], labels: Sequence[
 
 
 def expected_calibration_error(predicted_probabilities: Sequence[float], labels: Sequence[int], bins: int = DEFAULT_BINS) -> float:
-    clean_bins = _positive_int(bins, "bins")
+    clean_bins = _coerced_positive_int(bins, "bins")
     samples = _probability_samples(predicted_probabilities, labels)
     total = len(samples)
     buckets: list[list[tuple[float, int]]] = [[] for _ in range(clean_bins)]
@@ -116,10 +116,10 @@ def build_calibration_report(
     judged_only: bool = False,
 ) -> dict[str, Any]:
     clean_score_mode = _score_mode(score_mode)
-    clean_bins = _positive_int(bins, "bins")
-    clean_min_samples = _positive_int(min_samples, "min_samples")
+    clean_bins = _coerced_positive_int(bins, "bins")
+    clean_min_samples = _coerced_positive_int(min_samples, "min_samples")
     clean_accepted_threshold = _rating_threshold(accepted_threshold)
-    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = _coerced_positive_int(rrf_k, "rrf_k")
     sessions = load_current_evaluation_sessions(db)
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=judged_only)
@@ -501,7 +501,7 @@ def _finite_float(value: float, field_name: str) -> float:
     return number
 
 
-def _positive_int(value: int, field_name: str) -> int:
+def _coerced_positive_int(value: int, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:

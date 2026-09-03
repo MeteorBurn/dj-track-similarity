@@ -105,7 +105,7 @@ def export_seed_sample(
     require_complete_analysis: bool = True,
     required_sources: Sequence[str] | None = None,
 ) -> SeedSampleResult:
-    clean_count = _positive_int(count, "count")
+    clean_count = _coerced_positive_int(count, "count")
     clean_random_seed = _int_value(random_seed, "random_seed")
     eligible_tracks = load_seed_sample_eligible_tracks(
         db,
@@ -155,7 +155,7 @@ def sample_seed_tracks(
     count: int,
     random_seed: int,
 ) -> tuple[tuple[SeedSampleTrack, ...], str]:
-    clean_count = _positive_int(count, "count")
+    clean_count = _coerced_positive_int(count, "count")
     if not tracks:
         return (), "random"
 
@@ -361,7 +361,7 @@ def _energy_bucket(energy: float | None) -> str:
     return "energy_high"
 
 
-def _positive_int(value: int, field_name: str) -> int:
+def _coerced_positive_int(value: int, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:

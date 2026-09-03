@@ -398,6 +398,15 @@ def _required_text(value: object, field_name: str) -> str:
     return value.strip()
 
 
+def _canonical_text(value: object, field_name: str) -> str:
+    """Identity text: non-empty and already canonical, never normalized."""
+
+    text = _required_text(value, field_name)
+    if text != value:
+        raise ValueError(f"{field_name} must not contain surrounding whitespace")
+    return text
+
+
 def _positive_int(value: object, field_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{field_name} must be a positive integer")
@@ -428,7 +437,7 @@ class AnalysisTarget:
         object.__setattr__(
             self,
             "catalog_uuid",
-            _required_text(self.catalog_uuid, "catalog_uuid"),
+            _canonical_text(self.catalog_uuid, "catalog_uuid"),
         )
         object.__setattr__(
             self,
@@ -438,7 +447,7 @@ class AnalysisTarget:
         object.__setattr__(
             self,
             "track_uuid",
-            _required_text(self.track_uuid, "track_uuid"),
+            _canonical_text(self.track_uuid, "track_uuid"),
         )
 
 

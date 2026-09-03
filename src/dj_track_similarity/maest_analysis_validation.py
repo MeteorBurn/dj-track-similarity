@@ -68,7 +68,7 @@ def validate_maest_analysis_row(
                 maximum=1,
             )
         parse_maest_genres_json(values["genres_json"])
-        _required_text(values["analyzed_at"], "analyzed_at")
+        _canonical_text(values["analyzed_at"], "analyzed_at")
     except (TypeError, ValueError, OverflowError) as error:
         return False, str(error)
     return True, None
@@ -105,7 +105,7 @@ def parse_maest_genres_json(
             raise ValueError(f"{field_name} must be a JSON object")
         if set(value) != {"label", "score"}:
             raise ValueError(f"{field_name} fields must be exactly ['label', 'score']")
-        label = _required_text(value["label"], f"{field_name}.label")
+        label = _canonical_text(value["label"], f"{field_name}.label")
         score = value["score"]
         if isinstance(score, bool) or not isinstance(score, (int, float)):
             raise ValueError(f"{field_name}.score must be a finite number")
@@ -171,7 +171,7 @@ def _required_int(
     return number
 
 
-def _required_text(value: object, field_name: str) -> str:
+def _canonical_text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     if value != value.strip():

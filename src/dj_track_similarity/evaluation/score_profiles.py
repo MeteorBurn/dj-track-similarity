@@ -155,11 +155,11 @@ def rank_candidates_with_profile(
     rrf_k: int = DEFAULT_RRF_K,
 ) -> tuple[RankedProfileCandidate, ...]:
     validate_score_profile(profile)
-    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = _parsed_positive_int(rrf_k, "rrf_k")
     candidate_scores: dict[int, float] = {}
     candidate_best_ranks: dict[int, int] = {}
     for candidate_track_id, source_contributions in candidate_source_contributions.items():
-        clean_candidate_id = _positive_int(candidate_track_id, "candidate_track_id")
+        clean_candidate_id = _parsed_positive_int(candidate_track_id, "candidate_track_id")
         if not isinstance(source_contributions, Mapping):
             raise ValueError("candidate source contributions must be source mappings")
         for source in profile.sources:
@@ -190,7 +190,7 @@ def build_score_profile_application_report(
 ) -> dict[str, Any]:
     validate_score_profile(profile)
     clean_k_values = _clean_k_values(k_values)
-    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = _parsed_positive_int(rrf_k, "rrf_k")
     sessions = load_current_evaluation_sessions(db)
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=judged_only)
@@ -262,7 +262,7 @@ def _ranked_session_report(
     if not ranked_candidates:
         return None
 
-    seed_track_ids = tuple(_positive_int(track_id, "seed_track_id") for track_id in session.get("seed_track_ids", ()))
+    seed_track_ids = tuple(_parsed_positive_int(track_id, "seed_track_id") for track_id in session.get("seed_track_ids", ()))
     feedback_source = _session_feedback_source(session)
     relevances_for_metrics: list[int] = []
     judged_relevances: list[int] = []
@@ -308,7 +308,7 @@ def _candidate_source_contributions(events: object) -> dict[int, dict[str, Any]]
         source_payload = _source_payload(event)
         if not source_payload:
             continue
-        candidate_track_id = _positive_int(event.get("track_id"), "candidate_track_id")
+        candidate_track_id = _parsed_positive_int(event.get("track_id"), "candidate_track_id")
         contributions[candidate_track_id] = dict(source_payload)
     return contributions
 
@@ -412,7 +412,7 @@ def _score_profile_from_mapping(payload: Mapping[str, Any]) -> ScoreProfile:
         created_at=_required_text(payload, "created_at"),
         source_report_summary=dict(_required_mapping(payload, "source_report_summary")),
         limitations=_limitations(payload.get("limitations")),
-        version=_positive_int(payload.get("version", SCORE_PROFILE_VERSION), "version"),
+        version=_parsed_positive_int(payload.get("version", SCORE_PROFILE_VERSION), "version"),
     )
 
 
@@ -548,7 +548,7 @@ def _non_negative_finite_float(value: object, field_name: str) -> float:
     return number
 
 
-def _positive_int(value: object, field_name: str) -> int:
+def _parsed_positive_int(value: object, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:
@@ -561,7 +561,7 @@ def _positive_int(value: object, field_name: str) -> int:
 
 
 def _clean_k_values(k_values: Sequence[int]) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(sorted(_positive_int(k, "k") for k in k_values)))
+    clean_values = tuple(dict.fromkeys(sorted(_parsed_positive_int(k, "k") for k in k_values)))
     if not clean_values:
         raise ValueError("At least one positive --k value is required")
     return clean_values

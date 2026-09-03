@@ -538,6 +538,13 @@ class TrackMutationIdentity(BaseModel):
     catalog_uuid: str = Field(min_length=1)
     track_uuid: str = Field(min_length=1)
 
+    @field_validator("catalog_uuid", "track_uuid")
+    @classmethod
+    def _canonical_identity(cls, value: str) -> str:
+        if value != value.strip():
+            raise ValueError("must not contain surrounding whitespace")
+        return value
+
 
 class TrackLikedRequest(TrackMutationIdentity):
     liked: bool

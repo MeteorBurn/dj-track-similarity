@@ -132,7 +132,7 @@ def _validate_identity(
     track_id = _required_int(values["track_id"], "track_id", minimum=1)
     if track_id != expected_track_id:
         raise ValueError("track_id does not match the expected track")
-    _required_text(values["analyzed_at"], "analyzed_at")
+    _canonical_text(values["analyzed_at"], "analyzed_at")
 
 
 def _validate_provenance(values: Mapping[str, object]) -> None:
@@ -315,8 +315,8 @@ def _validate_key_candidates(
         rank = _required_int(entry["rank"], f"{field_name}.rank", minimum=1)
         if rank != index + 1:
             raise ValueError(f"{field_name}.rank must equal {index + 1}")
-        key_name = _required_text(entry["key_name"], f"{field_name}.key_name")
-        camelot = _required_text(entry["camelot"], f"{field_name}.camelot")
+        key_name = _canonical_text(entry["key_name"], f"{field_name}.key_name")
+        camelot = _canonical_text(entry["camelot"], f"{field_name}.camelot")
         score = _required_number(
             entry["score"],
             f"{field_name}.score",
@@ -451,10 +451,10 @@ def _required_int(
 def _optional_text(value: object, field_name: str) -> str | None:
     if value is None:
         return None
-    return _required_text(value, field_name)
+    return _canonical_text(value, field_name)
 
 
-def _required_text(value: object, field_name: str) -> str:
+def _canonical_text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     if value != value.strip():

@@ -77,7 +77,7 @@ def build_risk_penalty_sweep_report(
     validate_score_profile(profile)
     clean_weights = _clean_risk_weights(DEFAULT_RISK_SWEEP_WEIGHTS if weights is None else weights)
     clean_k_values = _clean_k_values(k_values)
-    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = _parsed_positive_int(rrf_k, "rrf_k")
     clean_risk_version = _risk_version(risk_version)
 
     raw_sessions = load_current_evaluation_sessions(db)
@@ -179,7 +179,7 @@ def _recorded_candidate_session(
     if not candidates:
         return None
     return RiskSweepSession(
-        session_id=_positive_int(session.get("id"), "session_id"),
+        session_id=_parsed_positive_int(session.get("id"), "session_id"),
         mode=str(session.get("mode") or ""),
         seed_track_ids=seed_track_ids,
         feedback_source=_session_feedback_source(session),
@@ -246,7 +246,7 @@ def _raw_candidate(
 ) -> dict[str, Any] | None:
     if not sources:
         return None
-    candidate_track_id = _positive_int(event.get("track_id"), "candidate_track_id")
+    candidate_track_id = _parsed_positive_int(event.get("track_id"), "candidate_track_id")
     raw_rrf_score = _weighted_rrf_score(sources, profile, rrf_k)
     if raw_rrf_score <= 0.0:
         return None
@@ -661,7 +661,7 @@ def _event_mappings(events: object) -> tuple[Mapping[str, Any], ...]:
 def _seed_track_ids(value: object) -> tuple[int, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return ()
-    return tuple(_positive_int(track_id, "seed_track_id") for track_id in value)
+    return tuple(_parsed_positive_int(track_id, "seed_track_id") for track_id in value)
 
 
 def _clean_risk_weights(weights: Sequence[float]) -> tuple[float, ...]:
@@ -672,7 +672,7 @@ def _clean_risk_weights(weights: Sequence[float]) -> tuple[float, ...]:
 
 
 def _clean_k_values(k_values: Sequence[int]) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(_positive_int(value, "k") for value in k_values))
+    clean_values = tuple(dict.fromkeys(_parsed_positive_int(value, "k") for value in k_values))
     if not clean_values:
         raise ValueError("At least one --k value is required")
     return clean_values
@@ -692,7 +692,7 @@ def _risk_version(value: object) -> str:
     raise ValueError(f"transition risk version must be one of: {', '.join(TRANSITION_RISK_VERSIONS)}")
 
 
-def _positive_int(value: object, field_name: str) -> int:
+def _parsed_positive_int(value: object, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be a positive integer")
     try:

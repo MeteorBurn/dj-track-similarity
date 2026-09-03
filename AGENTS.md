@@ -31,6 +31,10 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
   Node manifest: `uv sync`, `npm --prefix ./frontend install`, and
   `npm --prefix ./docs/dj-track-similarity install`. They stay separate on
   purpose; there is no bootstrap script wrapping them.
+- A fresh clone also needs `.workspace/tools/bootstrap.ps1` once. It relinks the
+  three harness paths and regenerates the Codex projection, neither of which git
+  can carry. Nothing else in the repository depends on it, so a contributor who
+  never runs an agent can skip it.
 - `run_server.cmd` starts backend `127.0.0.1:8765` and Vite `127.0.0.1:5173`;
   Rhythm Lab uses `127.0.0.1:8777`. Check for an existing project process before
   claiming a fixed port.
@@ -45,6 +49,7 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 |---|---|
 | `database/`, `logs/`, `reports/` | Local user state; never use as automated-test fixtures |
 | `frontend/dist/`, `graphify-out/` | Generated output; do not hand-edit |
+| `.workspace/` | The one copy of everything an agent reads or writes: `agents/`, `skills/`, `tools/` are tracked, `work/` stays local. See AGENT LAYER |
 
 `database/` can hold more than one `.sqlite` library (`run_server.cmd` lists them and lets the
 user pick one at startup). There is no fixed "main" database — ask the user which file is the
@@ -64,6 +69,59 @@ current main database before reading, writing, or reasoning about "the" database
 | `frontend App` | Main UI controller for database, jobs, search, preview, and export |
 | `frontend api` | High-centrality client used by the UI; keep backend types aligned |
 
+## AGENT LAYER
+
+Everything an agent reads or writes lives once, under `.workspace/`: `skills/`,
+`agents/`, `tools/`, and `work/` for finished output from past runs.
+
+Neither harness can be pointed at it. Both hardcode where they look, and there
+is no setting in either product that changes those paths — Claude Code scans
+`.claude/skills` and `.claude/agents`, Codex scans `.agents/skills` upward from
+the working directory and `.codex/agents/*.toml`. So `.claude/` and `.codex/`
+keep only what is genuinely theirs: config naming machine-local binaries, three
+junctions holding no bytes of their own, and the generated Codex projection
+built by `.workspace/tools/sync-codex-agents.ps1`. `.agents/` survives as one
+link, because that name is Codex's convention rather than ours.
+
+Edit the Markdown; never the `.toml`. Run `bootstrap.ps1` after a fresh clone,
+because git carries neither a junction nor a generated file.
+
+**This rests partly on undocumented behaviour.** Only one of the links is
+covered by a published contract — Claude Code documents a symlink on an
+individual `.claude/skills/<name>` entry. Whole-directory links, links in
+`.claude/agents`, a link on Codex's scan root, and Windows junctions instead of
+symlinks all work on the versions in use and are verified against live sessions
+of both harnesses, but none is promised. If a harness update stops seeing the
+layer, that is the reason, and `bootstrap.ps1` is where to look first.
+
+An **agent** is a worker: a role, a tool surface, and the procedures it carries
+internally. A **skill** is a task anyone can invoke. A competency that belongs to
+one role is a section inside that agent, not a shared skill — that is why the
+shared catalogue is small and the agent files are long.
+
+| Agent | Owns | Delegates to |
+|---|---|---|
+| `code-explorer` | Read-only investigation: execution paths, architecture maps, blast radius. Runs commands, writes nothing | the layer owners, for facts it cannot establish |
+| `ml-engineer` | Audio to representation: preprocessing, inference, embeddings, classifiers, similarity semantics, ML evaluation | `code-explorer`, `database-expert`, `performance-optimizer` |
+| `database-expert` | Persistence: schema, indexes, query plans, migrations, integrity, locking | `code-explorer`, `backend-engineer`, `performance-optimizer`, `ml-engineer` |
+| `backend-engineer` | HTTP endpoints, CLI surface, job machinery, service Python, environment | `database-expert`, `frontend-engineer`, `code-explorer`, `ml-engineer`, `test-reviewer` |
+| `frontend-engineer` | React/Vite UI, client state, the typed client, presentation of results | `backend-engineer`, `code-explorer`, `ml-engineer`, `test-reviewer` |
+| `performance-optimizer` | Localizing a bottleneck across layers, profiling, benchmark design, proving a change helped | whichever layer owns the located cause |
+| `test-reviewer` | Whether a test earns its place, suite health, fixtures, failure triage | the layer owner when the code is wrong, not the test |
+| `code-refactor-master` | Structural change that preserves behavior: splitting, moving, deduplicating, updating every reference | `code-explorer`, `test-reviewer`, the layer owners |
+
+Two rules the roster depends on. An agent never names a model, a file path or a
+threshold that could change tomorrow — those live here, in the skills, or in
+`DESIGN.md`, so adding a model does not mean editing eight agents. And an agent
+that reaches into another's territory hands the work over instead: a change that
+crosses a boundary is delegated, integrated and reported as one answer, never
+handed back to the caller as homework.
+
+Skills currently shared: `graphify`, `verification-routing`,
+`web-research-routing`, `clap-query-workflow`, `prompt-bank-curator`,
+`codebase-documentation-writer`. The last three are marked `context: fork` and
+run as their own worker; the first three are read in place.
+
 ## CHANGE ROUTING
 
 - Add or change HTTP endpoints in the matching `api_routes_*.py` module; keep
@@ -79,6 +137,8 @@ current main database before reading, writing, or reasoning about "the" database
   own focused suites. Root pytest configuration collects only `tests/`.
 - Dependency changes use the owning package manager and lockfile: `uv.lock` for
   Python and `frontend/package-lock.json` for the frontend. Do not hand-edit locks.
+- UI work follows `DESIGN.md` at the repository root: no raw colours inside
+  components, `type="button"` on every button that does not submit.
 
 ## OPERATING MODEL
 
@@ -198,8 +258,9 @@ a test by existing, and a growing test count is a defect, not progress.
 
 Verification runs in two phases. While iterating, run the smallest selection
 that can fail. At the end, run one pass scoped to what the change touched. The
-global suites are for global changes; `.github/workflows/ci.yml` is the backstop
-that runs everything on a clean machine when that is what the moment needs.
+global suites are for global changes. There is no CI backstop in this
+repository any more, so a clean-machine run is something you do here or not at
+all.
 
 ### While iterating
 
@@ -230,15 +291,16 @@ evidence.
 ```powershell
 run_server.cmd                         # interactive backend + Vite UI
 run_server.cmd local --db C:/db/library.sqlite
-npm --prefix .\frontend run build      # mandatory before a commit
+npm --prefix .\frontend run build      # before a commit that touched frontend/
 ```
 
 ## GRAPHIFY
 
 `graphify-out/graph.json` is a queryable knowledge graph of this project: about
 7000 nodes and 20000 edges over `src/`, `frontend/src/`, `tools/`, `scripts/`,
-`tests/`, the documentation pages, and the design rationale under
-`.claude/plans/`. Nodes carry `source_file` and `source_location`; edges carry a
+`tests/` and the documentation pages. The agent layer is not in it: the walker
+skips dot-directories, so nothing under `.workspace/`, `.claude/` or `.codex/`
+reaches the corpus. Nodes carry `source_file` and `source_location`; edges carry a
 relation and an honest confidence tag, `EXTRACTED` or `INFERRED`. A post-commit
 git hook rebuilds it, so it tracks `HEAD` without anyone asking.
 
@@ -258,7 +320,7 @@ neither can stop a call — the rule lives here.
 | Get oriented in an unfamiliar area | `graphify god-nodes`, then `explain` |
 | Grep or bulk-read across `src/`, `frontend/src/`, `tools/`, `tests/` | any of the above — the grep comes after |
 
-`.codex/skills/graphify/references/query.md` holds the full flow; what follows
+`.workspace/skills/graphify/references/query.md` holds the full flow; what follows
 is what this project must not get wrong.
 
 ### Expand the question against the graph's vocabulary first

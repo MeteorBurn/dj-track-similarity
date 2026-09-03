@@ -1,13 +1,16 @@
 # Corpus rules for the graphify knowledge graph.
 #
 # The graph is the agent's first stop for any question about this codebase, so
-# what it holds has to be worth answering from. Source, tests, docs pages, and
-# the design rationale under .claude/plans/ideas|specs all qualify. Finished
-# working output from a past agent run does not: it is a snapshot of a codebase
-# that has since moved, it is never revised, and because it is the only place in
-# the corpus written partly in Russian, a Russian question lands in it by
-# accident instead of in the code it is asking about.
-.claude/plans/reports/
+# what it holds has to be worth answering from. Finished working output from a
+# past agent run does not qualify: it is a snapshot of a codebase that has since
+# moved, it is never revised, and because it is the only place in the corpus
+# written partly in Russian, a Russian question lands in it by accident instead
+# of in the code it is asking about.
+#
+# In practice the walker already skips dot-directories, so the agent layer never
+# enters the corpus and this rule is belt and braces. It is kept so the intent
+# survives a change in that behaviour.
+.workspace/work/
 
 # Local Firecrawl research cache is external working material, not project
 # architecture. It otherwise gets re-queued for semantic extraction forever.

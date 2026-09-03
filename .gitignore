@@ -102,12 +102,15 @@ graphify-out/????-??-??/
 # Graphify Codex hooks stay machine-local: they carry an absolute path.
 .codex/hooks.json
 
-# Agent layer. Every harness config here is machine-local: it names absolute
-# paths to locally installed binaries and differs per contributor. Planning
-# artifacts are local as well.
+# Agent layer. Everything lives once, under .workspace/: skills, agent
+# definitions, the tools that project them, and the working notes. The
+# instructions are shared and versioned — they carry no machine paths — while
+# .workspace/work/ holds finished output from past runs and stays local.
+#
+# .claude/ and .codex/ keep only what a harness hardcodes: config that names
+# absolute paths to locally installed binaries, plus the links and the generated
+# projection that let each one reach .workspace/. None of that is shareable.
+# .agents/ is not ours either: it is the path Codex scans, and it holds one link.
 .claude/*
-# The saved report bundle is a browser page dump with its own asset
-# folder. It stays on disk for local reading and is not published.
-.claude/plans/reports/REPORT.html
-.claude/plans/reports/REPORT_files/
-.agents/skills/
+/.agents/
+.workspace/work/

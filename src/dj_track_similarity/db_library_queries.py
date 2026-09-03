@@ -14,7 +14,6 @@ from pathlib import Path
 
 from .analysis_models import (
     AnalysisOutput,
-    ClassifierSpecification,
     OUTPUT_KINDS_BY_FAMILY,
     current_embedding_spec,
 )
@@ -179,26 +178,6 @@ def _parse_feature_names(raw: object) -> tuple[str, ...] | None:
     return tuple(str(value) for value in values)
 
 
-def _classifier_specifications_by_key(
-    values: Sequence[ClassifierSpecification] | None,
-) -> Mapping[str, ClassifierSpecification]:
-    if values is None:
-        return {}
-    result: dict[str, ClassifierSpecification] = {}
-    for value in values:
-        if not isinstance(value, ClassifierSpecification):
-            raise TypeError(
-                "classifier_specifications must contain "
-                "ClassifierSpecification values"
-            )
-        if value.classifier_key in result:
-            raise ValueError(
-                "classifier_specifications must contain unique classifier keys"
-            )
-        result[value.classifier_key] = value
-    return result
-
-
 def _fts_query(raw: str) -> str:
     terms = [term for term in raw.split() if term]
     if not terms:
@@ -300,10 +279,8 @@ def _filter_sql(
     syncopated_only: bool,
     classifier_filters: Sequence[tuple[str, float]],
     primary_classifier: tuple[str, float] | None,
-    classifier_specifications: Mapping[str, ClassifierSpecification],
     include_missing: bool,
 ) -> tuple[str, list[object]]:
-    del classifier_specifications
     conditions: list[str] = []
     params: list[object] = []
     if not include_missing:
@@ -460,7 +437,6 @@ def _query_base_rows(
     include_missing: bool,
     limit: int | None,
     offset: int,
-    classifier_specifications: Mapping[str, ClassifierSpecification] | None = None,
 ) -> tuple[list[sqlite3.Row], int]:
     classifier_filters = _validated_classifier_filters(classifier_min_scores)
     primary_classifier = (
@@ -474,7 +450,6 @@ def _query_base_rows(
         syncopated_only=syncopated_only,
         classifier_filters=classifier_filters,
         primary_classifier=primary_classifier,
-        classifier_specifications=classifier_specifications or {},
         include_missing=include_missing,
     )
     from_sql = _base_from_sql(
@@ -697,9 +672,7 @@ def _current_classifier_details(
     *,
     identities: Mapping[int, str],
     drive_from_requested: bool,
-    classifier_specifications: Mapping[str, ClassifierSpecification],
 ) -> dict[int, tuple[ClassifierScoreDetail, ...]]:
-    del classifier_specifications
     if not identities:
         return {}
     select_fields = """
@@ -777,7 +750,6 @@ def _coverage_and_classifiers(
     *,
     context: _ReadContext,
     rows: Sequence[sqlite3.Row],
-    classifier_specifications: Mapping[str, ClassifierSpecification] | None = None,
 ) -> tuple[
     dict[int, AnalysisCoverage],
     dict[int, tuple[ClassifierScoreDetail, ...]],
@@ -827,7 +799,6 @@ def _coverage_and_classifiers(
         connection,
         identities=identities,
         drive_from_requested=drive_from_requested,
-        classifier_specifications=classifier_specifications or {},
     )
     return coverage, classifiers, embedding_rows
 
@@ -876,13 +847,11 @@ def _assemble_summaries(
     *,
     context: _ReadContext,
     rows: Sequence[sqlite3.Row],
-    classifier_specifications: Mapping[str, ClassifierSpecification] | None = None,
 ) -> tuple[TrackSummary, ...]:
     coverage, classifiers, _embedding_rows = _coverage_and_classifiers(
         connection,
         context=context,
         rows=rows,
-        classifier_specifications=classifier_specifications,
     )
     return tuple(
         _track_summary(
@@ -1091,11 +1060,7 @@ class LibraryQueryRepository:
         self,
         *,
         include_missing: bool = False,
-        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> tuple[TrackSummary, ...]:
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
         with self._open_library() as (connection, context):
             rows, _total = _query_base_rows(
                 connection,
@@ -1113,7 +1078,6 @@ class LibraryQueryRepository:
                 connection,
                 context=context,
                 rows=rows,
-                classifier_specifications=specifications_by_key,
             )
 
     def get_track_summaries(
@@ -1121,7 +1085,6 @@ class LibraryQueryRepository:
         track_ids: Sequence[int],
         *,
         include_missing: bool = False,
-        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> tuple[TrackSummary, ...]:
         """Hydrate a strict selection in caller order.
 
@@ -1136,9 +1099,6 @@ class LibraryQueryRepository:
             requested.append(value)
         if not requested:
             return ()
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
 
         with self._open_library() as (connection, context):
             missing_sql = "" if include_missing else "AND t.missing_since IS NULL"
@@ -1159,7 +1119,6 @@ class LibraryQueryRepository:
                 connection,
                 context=context,
                 rows=rows,
-                classifier_specifications=specifications_by_key,
             )
         by_id = {summary.track_id: summary for summary in summaries}
         unavailable = sorted(set(requested).difference(by_id))
@@ -1181,14 +1140,10 @@ class LibraryQueryRepository:
         include_missing: bool = False,
         limit: int = 100,
         offset: int = 0,
-        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> TrackPage:
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         scores = dict(classifier_min_scores or {})
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
         with self._open_library() as (connection, context):
             rows, total = _query_base_rows(
                 connection,
@@ -1201,13 +1156,11 @@ class LibraryQueryRepository:
                 include_missing=include_missing,
                 limit=bounded_limit,
                 offset=bounded_offset,
-                classifier_specifications=specifications_by_key,
             )
             items = _assemble_summaries(
                 connection,
                 context=context,
                 rows=rows,
-                classifier_specifications=specifications_by_key,
             )
         return TrackPage(
             items=items,
@@ -1225,12 +1178,8 @@ class LibraryQueryRepository:
         syncopated_only: bool = False,
         classifier_min_scores: Mapping[str, float] | None = None,
         include_missing: bool = False,
-        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> tuple[TrackSummary, ...]:
         scores = dict(classifier_min_scores or {})
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
         with self._open_library() as (connection, context):
             rows, _total = _query_base_rows(
                 connection,
@@ -1243,13 +1192,11 @@ class LibraryQueryRepository:
                 include_missing=include_missing,
                 limit=None,
                 offset=0,
-                classifier_specifications=specifications_by_key,
             )
             return _assemble_summaries(
                 connection,
                 context=context,
                 rows=rows,
-                classifier_specifications=specifications_by_key,
             )
 
     def get_track_detail(
@@ -1257,11 +1204,7 @@ class LibraryQueryRepository:
         track_id: int,
         *,
         include_missing: bool = False,
-        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> TrackDetail:
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
         with self._open_library() as (connection, context):
             missing_sql = "" if include_missing else "AND t.missing_since IS NULL"
             row = connection.execute(
@@ -1280,7 +1223,6 @@ class LibraryQueryRepository:
                 connection,
                 context=context,
                 rows=[row],
-                classifier_specifications=specifications_by_key,
             )
             numeric_id = int(row["track_id"])
             classifier_details = classifiers.get(numeric_id, ())
@@ -1364,15 +1306,11 @@ class LibraryQueryRepository:
         *,
         expected: TrackIdentity,
         liked: bool,
-        classifier_specifications: Sequence[ClassifierSpecification] | None = None,
     ) -> TrackSummary:
         if not isinstance(liked, bool):
             raise TypeError("liked must be a bool")
         if expected.catalog_uuid != self.catalog_uuid:
             raise RuntimeError("Track like candidate belongs to a different catalog")
-        specifications_by_key = _classifier_specifications_by_key(
-            classifier_specifications
-        )
         with (
             self._write_lock,
             self._open_library() as (connection, context),
@@ -1425,8 +1363,7 @@ class LibraryQueryRepository:
                     connection,
                     context=context,
                     rows=[base_row],
-                    classifier_specifications=specifications_by_key,
-                )[0]
+                    )[0]
                 connection.commit()
                 return summary
             except BaseException:

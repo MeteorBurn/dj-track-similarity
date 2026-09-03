@@ -154,19 +154,10 @@ class _PublicClassifierReader:
         self._summaries = [summary for summary, _detail in tracks]
         self._details = {detail.track_id: detail for _summary, detail in tracks}
 
-    def list_track_summaries(
-        self,
-        *,
-        classifier_specifications: object = None,
-    ) -> list[TrackSummary]:
+    def list_track_summaries(self) -> list[TrackSummary]:
         return list(self._summaries)
 
-    def get_track_detail(
-        self,
-        track_id: int,
-        *,
-        classifier_specifications: object = None,
-    ) -> TrackDetail:
+    def get_track_detail(self, track_id: int) -> TrackDetail:
         return self._details[track_id]
 
     def list_liked_track_ids(self) -> list[int]:

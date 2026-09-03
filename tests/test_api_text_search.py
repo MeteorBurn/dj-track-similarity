@@ -19,6 +19,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db_embeddings import current_track_identity, read_valid_embeddings
 from dj_track_similarity.embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -128,8 +129,17 @@ def test_text_search_uses_persisted_mulan_embeddings_only(
     with db.connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM mulan_embeddings").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM clap_embeddings").fetchone()[0] == 1
+    with db.connect() as connection:
+        near = current_track_identity(connection, near_id)
+        assert near is not None
+        stored = read_valid_embeddings(
+            family="mulan",
+            identities={near.track_id: near.track_uuid},
+            catalog_uuid=near.catalog_uuid,
+            connection=connection,
+        )[near_id]
     assert np.allclose(
-        db.read_embedding(family="mulan", track_id=near_id),
+        stored,
         _typed_vector(current_embedding_analysis_output("mulan"), [0.0, 1.0, 0.0]),
     )
     monkeypatch.setattr(api, "MuqMulanEmbeddingAdapter", FakeMulanAdapter)

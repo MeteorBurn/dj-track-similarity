@@ -85,10 +85,7 @@ def build_classifier_calibration_report(
         if manifest.is_scoring_compatible
         else None
     )
-    specifications = () if specification is None else (specification,)
-    track_summaries = db.list_track_summaries(
-        classifier_specifications=specifications
-    )
+    track_summaries = db.list_track_summaries()
     liked_track_ids = frozenset(db.list_liked_track_ids())
     pair_feedback = db.get_pair_feedback_map()
     total_tracks = len(track_summaries)
@@ -199,9 +196,7 @@ def suggest_classifier_labels(
         }
 
     specification = classifier_specification_from_manifest(manifest)
-    track_summaries = db.list_track_summaries(
-        classifier_specifications=(specification,)
-    )
+    track_summaries = db.list_track_summaries()
     rows = _load_classifier_score_rows(
         db,
         key,
@@ -298,10 +293,7 @@ def _load_classifier_score_rows(
             score.classifier_key == classifier_key for score in track.classifier_scores
         ):
             continue
-        detail = db.get_track_detail(
-            track.track_id,
-            classifier_specifications=(specification,),
-        )
+        detail = db.get_track_detail(track.track_id)
         score = _classifier_score_detail(
             detail.classifier_scores_detail, classifier_key
         )

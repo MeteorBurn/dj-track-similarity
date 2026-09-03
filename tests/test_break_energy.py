@@ -228,22 +228,13 @@ def test_break_energy_job_scores_tracks_with_required_rows(
         1,
         0,
     )
-    ready_detail = db.get_track_detail(
-        ready.track_id,
-        classifier_specifications=(requirements.specification,),
-    ).classifier_scores_detail
+    ready_detail = db.get_track_detail(ready.track_id).classifier_scores_detail
     assert len(ready_detail) == 1
     assert ready_detail[0].classifier_key == "break_energy"
     assert ready_detail[0].score == pytest.approx(0.87)
     assert ready_detail[0].predicted_class == "broken"
     assert ready_detail[0].score_bucket == "high"
-    assert (
-        db.get_track_detail(
-            missing.track_id,
-            classifier_specifications=(requirements.specification,),
-        ).classifier_scores_detail
-        == ()
-    )
+    assert db.get_track_detail(missing.track_id).classifier_scores_detail == ()
 
 
 def test_break_energy_public_scorer_preserves_probability_precision(

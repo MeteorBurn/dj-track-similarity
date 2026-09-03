@@ -371,10 +371,8 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
     def enriched_detail(
         database: LibraryDatabase,
         track_id: int,
-        *,
-        classifier_specifications=(),
     ):
-        del database, classifier_specifications
+        del database
         assert track_id == identity.track_id
         return TrackDetail(
             track_id=identity.track_id,

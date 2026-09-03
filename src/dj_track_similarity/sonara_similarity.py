@@ -10,6 +10,14 @@ from .analysis_models import (
     SonaraFeatureRow,
 )
 from .search import SimilaritySearchResult
+from .search_arguments import (
+    merge_targets,
+    optional_targets,
+    optional_track_ids,
+    requested_track_ids,
+    result_limit,
+    validate_targets,
+)
 from .sonara_similarity_scoring import (
     ComparableTrack,
     DJ_TRANSITION_FIT_BLEND,
@@ -121,7 +129,7 @@ class SonaraSimilaritySearch:
     ) -> tuple[AnalysisTarget, ...]:
         """Resolve request IDs to current tracks with active SONARA Core."""
 
-        requested = _requested_track_ids(track_ids)
+        requested = requested_track_ids(track_ids)
         output = self.active_output()
         rows = self.repository.load_sonara_feature_rows(output)
         _validate_rows(
@@ -149,7 +157,7 @@ class SonaraSimilaritySearch:
     ) -> AnalysisTarget:
         """Choose one unselected current track with valid SONARA Core features."""
 
-        excluded = _optional_track_ids(exclude_track_ids)
+        excluded = optional_track_ids(exclude_track_ids)
         output = self.active_output()
         rejected = set(excluded)
         while True:
@@ -201,14 +209,14 @@ class SonaraSimilaritySearch:
             float(min_similarity)
         ):
             raise ValueError("min_similarity must be finite")
-        bounded_limit = _result_limit(limit)
-        seeds = _validate_targets(
+        bounded_limit = result_limit(limit, subject="SONARA search")
+        seeds = validate_targets(
             seed_targets,
             catalog_uuid=self.repository.catalog_uuid,
             field_name="seed_targets",
             require_nonempty=True,
         )
-        candidates = _optional_targets(
+        candidates = optional_targets(
             candidate_targets,
             catalog_uuid=self.repository.catalog_uuid,
         )
@@ -216,7 +224,7 @@ class SonaraSimilaritySearch:
         requested = (
             None
             if candidates is None
-            else _merge_targets(seeds, candidates)
+            else merge_targets(seeds, candidates)
         )
         if requested is None:
             seed_rows = self.repository.load_sonara_feature_rows(
@@ -437,111 +445,3 @@ def _validate_rows(
             )
         seen_targets.add(row.target)
         seen_track_ids.add(row.target.track_id)
-
-
-def _validate_targets(
-    targets: Sequence[AnalysisTarget],
-    *,
-    catalog_uuid: str,
-    field_name: str,
-    require_nonempty: bool,
-) -> tuple[AnalysisTarget, ...]:
-    selected = tuple(targets)
-    if require_nonempty and not selected:
-        raise ValueError(
-            f"{field_name} must contain at least one target"
-        )
-    if any(
-        not isinstance(target, AnalysisTarget)
-        for target in selected
-    ):
-        raise TypeError(
-            f"{field_name} must contain only AnalysisTarget values"
-        )
-    if any(
-        target.catalog_uuid != catalog_uuid
-        for target in selected
-    ):
-        raise ValueError(
-            f"{field_name} contains a target from another catalog"
-        )
-    if len(set(selected)) != len(selected):
-        raise ValueError(
-            f"{field_name} must not contain duplicate identities"
-        )
-    track_ids = [target.track_id for target in selected]
-    if len(set(track_ids)) != len(track_ids):
-        raise ValueError(
-            f"{field_name} contains conflicting identities "
-            "for one track ID"
-        )
-    return selected
-
-
-def _optional_targets(
-    targets: Sequence[AnalysisTarget] | None,
-    *,
-    catalog_uuid: str,
-) -> tuple[AnalysisTarget, ...] | None:
-    if targets is None:
-        return None
-    return _validate_targets(
-        targets,
-        catalog_uuid=catalog_uuid,
-        field_name="candidate_targets",
-        require_nonempty=False,
-    )
-
-
-def _merge_targets(
-    first: Sequence[AnalysisTarget],
-    second: Sequence[AnalysisTarget],
-) -> tuple[AnalysisTarget, ...]:
-    merged: list[AnalysisTarget] = []
-    seen: set[AnalysisTarget] = set()
-    for target in (*first, *second):
-        if target in seen:
-            continue
-        seen.add(target)
-        merged.append(target)
-    return tuple(merged)
-
-
-def _requested_track_ids(
-    track_ids: Sequence[int],
-) -> tuple[int, ...]:
-    requested = tuple(track_ids)
-    if not requested:
-        raise ValueError("At least one track ID is required")
-    if any(
-        isinstance(track_id, bool)
-        or not isinstance(track_id, int)
-        or track_id <= 0
-        for track_id in requested
-    ):
-        raise ValueError("Track IDs must be positive integers")
-    if len(set(requested)) != len(requested):
-        raise ValueError("Track IDs must not contain duplicates")
-    return requested
-
-
-def _optional_track_ids(track_ids: Sequence[int]) -> frozenset[int]:
-    requested = tuple(track_ids)
-    if any(
-        isinstance(track_id, bool)
-        or not isinstance(track_id, int)
-        or track_id <= 0
-        for track_id in requested
-    ):
-        raise ValueError("Track IDs must be positive integers")
-    if len(set(requested)) != len(requested):
-        raise ValueError("Track IDs must not contain duplicates")
-    return frozenset(requested)
-
-
-def _result_limit(limit: int) -> int:
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
-        raise ValueError(
-            "SONARA search result limit must be a non-negative integer"
-        )
-    return limit

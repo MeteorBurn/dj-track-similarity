@@ -11,12 +11,50 @@ import numpy as np
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
-    EmbeddingOutput,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_analysis_candidates import collect_analysis_candidates
+from dj_track_similarity.db_embeddings import (
+    read_valid_embeddings,
+    write_valid_embedding_in_transaction,
+)
 from dj_track_similarity.scanner import scan_library
 from dj_track_similarity.track_models import TrackIdentity
+
+
+def _write_embedding(
+    database: LibraryDatabase,
+    *,
+    track: TrackIdentity,
+    family: str,
+    vector: np.ndarray,
+    analyzed_at: str,
+) -> None:
+    with closing(database.connect()) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        write_valid_embedding_in_transaction(
+            connection=connection,
+            track=track,
+            family=family,
+            embedding=vector,
+            analyzed_at=analyzed_at,
+        )
+        connection.commit()
+
+
+def _read_embedding(
+    database: LibraryDatabase,
+    *,
+    track: TrackIdentity,
+    family: str,
+) -> np.ndarray | None:
+    with closing(database.connect()) as connection:
+        return read_valid_embeddings(
+            family=family,
+            identities={track.track_id: track.track_uuid},
+            catalog_uuid=track.catalog_uuid,
+            connection=connection,
+        ).get(track.track_id)
 
 
 def test_new_library_database_bootstraps_one_sqlite_file(tmp_path: Path) -> None:
@@ -112,16 +150,15 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
         track_uuid="track-a",
     )
 
-    database.write_embedding(
+    _write_embedding(
+        database,
         track=target,
-        output=EmbeddingOutput(
-            family="mert",
-            vector=vector,
-            analyzed_at="2026-08-12T00:00:00.000000Z",
-        ),
+        family="mert",
+        vector=vector,
+        analyzed_at="2026-08-12T00:00:00.000000Z",
     )
 
-    stored = database.read_embedding(family="mert", track_id=track_id)
+    stored = _read_embedding(database, track=target, family="mert")
     assert stored is not None
     assert np.array_equal(stored, vector)
     with closing(database.connect()) as connection:
@@ -159,13 +196,12 @@ def test_sonara_embedding_table_uses_the_fixed_unversioned_48d_format(
     vector = np.linspace(-1.0, 1.0, 48, dtype=np.float32)
     analyzed_at = "2026-08-12T00:00:00.000000Z"
 
-    database.write_embedding(
+    _write_embedding(
+        database,
         track=target,
-        output=EmbeddingOutput(
-            family="sonara",
-            vector=vector,
-            analyzed_at=analyzed_at,
-        ),
+        family="sonara",
+        vector=vector,
+        analyzed_at=analyzed_at,
     )
 
     with closing(database.connect()) as connection:
@@ -239,13 +275,12 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
     ]
     vector = np.zeros(768, dtype=np.float32)
     vector[0] = 1.0
-    database.write_embedding(
+    _write_embedding(
+        database,
         track=target,
-        output=EmbeddingOutput(
-            family="mert",
-            vector=vector,
-            analyzed_at="2026-08-12T00:00:00.000000Z",
-        ),
+        family="mert",
+        vector=vector,
+        analyzed_at="2026-08-12T00:00:00.000000Z",
     )
 
     assert database.list_analysis_candidates((output,)) == []
@@ -276,13 +311,12 @@ def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> Non
     target = TrackIdentity(database.catalog_uuid, track_id, "track-readiness")
     vector = np.zeros(768, dtype=np.float32)
     vector[0] = 1.0
-    database.write_embedding(
+    _write_embedding(
+        database,
         track=target,
-        output=EmbeddingOutput(
-            family="mert",
-            vector=vector,
-            analyzed_at="2026-08-12T00:00:00.000000Z",
-        ),
+        family="mert",
+        vector=vector,
+        analyzed_at="2026-08-12T00:00:00.000000Z",
     )
 
     with closing(database.connect()) as connection:
@@ -387,13 +421,12 @@ def test_rhythm_lab_reads_embeddings_from_the_library_database(
         )
     vector = np.zeros(768, dtype=np.float32)
     vector[0] = 1.0
-    database.write_embedding(
+    _write_embedding(
+        database,
         track=TrackIdentity(database.catalog_uuid, track_id, "track-c"),
-        output=EmbeddingOutput(
-            family="mert",
-            vector=vector,
-            analyzed_at="2026-08-12T00:00:00.000000Z",
-        ),
+        family="mert",
+        vector=vector,
+        analyzed_at="2026-08-12T00:00:00.000000Z",
     )
 
     source = SourceDatabase(database.path)

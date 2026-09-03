@@ -31,8 +31,8 @@ from dj_track_similarity.classifier_manifest import (  # noqa: E402
 from dj_track_similarity.classifier_scoring import promoted_classifiers  # noqa: E402
 from dj_track_similarity.db_analysis import AnalysisRepository  # noqa: E402
 from dj_track_similarity.db_ddl import create_library_schema  # noqa: E402
+from dj_track_similarity.db_library_queries import LibraryQueryRepository  # noqa: E402
 from dj_track_similarity.db_schema import insert_library  # noqa: E402
-from dj_track_similarity.db_summary import SummaryRepository  # noqa: E402
 from rhythm_lab.cli import promote_profile_model  # noqa: E402
 from rhythm_lab.artifact_io import (  # noqa: E402
     ArtifactIntegrityError,
@@ -70,7 +70,7 @@ class _ReadyClassifier:
         return np.full(len(matrix), "yes", dtype=object)
 
 
-class Repository(AnalysisRepository, SummaryRepository):
+class Repository(AnalysisRepository, LibraryQueryRepository):
     def __init__(self, root: Path) -> None:
         self.path = root / "library.sqlite"
         self.catalog_uuid = str(uuid.uuid4())

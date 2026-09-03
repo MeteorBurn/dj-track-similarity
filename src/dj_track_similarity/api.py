@@ -138,7 +138,6 @@ def create_app(
     register_library_routes(
         app,
         state,
-        promoted_classifiers=promoted_classifiers,
         reveal_track_file=reveal_track_file,
     )
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)

@@ -29,6 +29,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db_embeddings import read_valid_embeddings
 from dj_track_similarity.embedding import (
     MaestAnalysisResult,
     MaestEmbeddingAdapter,
@@ -36,7 +37,7 @@ from dj_track_similarity.embedding import (
     MuqMulanEmbeddingAdapter,
 )
 from dj_track_similarity.maest_windows import MaestWindowContext
-from dj_track_similarity.track_models import FileTags, ScannedFile
+from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
 def _mert_output() -> AnalysisOutput:
@@ -45,6 +46,21 @@ def _mert_output() -> AnalysisOutput:
 
 def _clap_output() -> AnalysisOutput:
     return current_embedding_analysis_output("clap", device="cpu")
+
+
+def _stored_embedding(
+    database: LibraryDatabase,
+    identity: TrackIdentity,
+    *,
+    family: str,
+) -> np.ndarray | None:
+    with database.connect() as connection:
+        return read_valid_embeddings(
+            family=family,
+            identities={identity.track_id: identity.track_uuid},
+            catalog_uuid=identity.catalog_uuid,
+            connection=connection,
+        ).get(identity.track_id)
 
 
 def _candidate(
@@ -627,10 +643,7 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
         "[torchcodec] Track analyzed"
     ]
     assert database.list_analysis_candidates(runner.candidate_outputs) == []
-    vector = database.read_embedding(
-        family="mert",
-        track_id=mutation.identity.track_id,
-    )
+    vector = _stored_embedding(database, mutation.identity, family="mert")
     assert vector is not None
     assert vector.shape == (768,)
     assert vector[0] == pytest.approx(1.0)
@@ -695,7 +708,7 @@ def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(
     assert [event.message for event in status.events if event.track_id is not None] == [
         "[ffmpeg] Track analyzed"
     ]
-    vector = database.read_embedding(family="mulan", track_id=mutation.identity.track_id)
+    vector = _stored_embedding(database, mutation.identity, family="mulan")
     assert vector is not None
     assert vector[0] == pytest.approx(1.0)
 

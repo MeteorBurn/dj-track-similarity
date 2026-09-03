@@ -6,11 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from .api_route_utils import (
-    current_classifier_specifications,
-    query_classifier_min_scores,
-    valid_classifier_min_scores,
-)
+from .api_route_utils import query_classifier_min_scores, valid_classifier_min_scores
 from .api_schemas import (
     ClearLibraryResponse,
     FilteredTracksRequest,
@@ -34,7 +30,6 @@ def register_library_routes(
     app: FastAPI,
     state: AppDatabaseState,
     *,
-    promoted_classifiers: Callable[[], list[dict[str, object]]],
     reveal_track_file: Callable[[Path], None],
 ) -> None:
     @app.post("/api/library/scan")
@@ -111,9 +106,6 @@ def register_library_routes(
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ):
-        classifier_specifications = current_classifier_specifications(
-            promoted_classifiers()
-        )
         return state.require_db().paginate_track_summaries(
             query=q,
             syncopated_only=preset == "syncopated",
@@ -122,15 +114,11 @@ def register_library_routes(
             limit=limit,
             offset=offset,
             search_mode=search_mode,
-            classifier_specifications=classifier_specifications,
         )
 
     @app.post("/api/tracks/{track_id}/liked", response_model=TrackSummaryResponse)
     def set_track_liked(track_id: int, request: TrackLikedRequest):
         try:
-            classifier_specifications = current_classifier_specifications(
-                promoted_classifiers()
-            )
             return state.require_db().set_track_liked(
                 expected=TrackIdentity(
                     catalog_uuid=request.catalog_uuid,
@@ -138,7 +126,6 @@ def register_library_routes(
                     track_uuid=request.track_uuid,
                 ),
                 liked=request.liked,
-                classifier_specifications=classifier_specifications,
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
@@ -165,13 +152,7 @@ def register_library_routes(
     @app.get("/api/tracks/{track_id}", response_model=TrackDetailResponse)
     def track(track_id: int):
         try:
-            classifier_specifications = current_classifier_specifications(
-                promoted_classifiers()
-            )
-            return state.require_db().get_track_detail(
-                track_id,
-                classifier_specifications=classifier_specifications,
-            )
+            return state.require_db().get_track_detail(track_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -194,16 +175,12 @@ def register_library_routes(
 
     @app.post("/api/tracks/filtered", response_model=list[TrackSummaryResponse])
     def filtered_tracks(request: FilteredTracksRequest):
-        classifier_specifications = current_classifier_specifications(
-            promoted_classifiers()
-        )
         return state.require_db().filter_track_summaries(
             query=request.query,
             syncopated_only=request.preset == "syncopated",
             liked_only=request.liked,
             classifier_min_scores=valid_classifier_min_scores(request.classifier_min_scores),
             search_mode=request.search_mode,
-            classifier_specifications=classifier_specifications,
         )
 
     @app.get("/api/library/summary", response_model=LibrarySummaryResponse)

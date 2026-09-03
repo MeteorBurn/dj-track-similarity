@@ -16,6 +16,14 @@ from .analysis_models import (
     AnalysisVectorRow,
     current_embedding_spec,
 )
+from .search_arguments import (
+    merge_targets,
+    optional_targets,
+    optional_track_ids,
+    requested_track_ids,
+    result_limit,
+    validate_targets,
+)
 from .vector_index import (
     ExactVectorSearchBackend,
     VectorIndexUnavailable,
@@ -193,7 +201,7 @@ class SimilaritySearch:
         track without the active embedding, and all three are not searchable.
         """
 
-        requested = _requested_track_ids(track_ids)
+        requested = requested_track_ids(track_ids)
         output = self.active_output()
         rows = self._load_full_rows(output)
         target_by_id = {row.target.track_id: row.target for row in rows}
@@ -223,7 +231,7 @@ class SimilaritySearch:
         read, so the pick costs the same on a library of any size.
         """
 
-        excluded = _optional_track_ids(exclude_track_ids)
+        excluded = optional_track_ids(exclude_track_ids)
         output = self.active_output()
         target = self.repository.random_embedding_target(
             output,
@@ -252,13 +260,13 @@ class SimilaritySearch:
         filters: SearchFilters | None = None,
         limit: int = 50,
     ) -> list[SimilaritySearchResult]:
-        seeds = _validate_targets(
+        seeds = validate_targets(
             seed_targets,
             catalog_uuid=self.repository.catalog_uuid,
             field_name="seed_targets",
             require_nonempty=True,
         )
-        selected_candidates = _optional_targets(
+        selected_candidates = optional_targets(
             candidate_targets,
             catalog_uuid=self.repository.catalog_uuid,
         )
@@ -309,7 +317,7 @@ class SimilaritySearch:
         filters: SearchFilters | None = None,
         limit: int = 50,
     ) -> list[SimilaritySearchResult]:
-        selected_candidates = _optional_targets(
+        selected_candidates = optional_targets(
             candidate_targets,
             catalog_uuid=self.repository.catalog_uuid,
         )
@@ -344,7 +352,7 @@ class SimilaritySearch:
             raise ValueError(
                 "At least one positive query vector is required"
             )
-        selected_candidates = _optional_targets(
+        selected_candidates = optional_targets(
             candidate_targets,
             catalog_uuid=self.repository.catalog_uuid,
         )
@@ -421,7 +429,7 @@ class SimilaritySearch:
             epsilon=active_filters.epsilon,
             score_index=1,
         )
-        bounded_limit = _result_limit(limit)
+        bounded_limit = result_limit(limit)
         ranked = sorted(
             candidates,
             key=lambda item: item[2],
@@ -501,7 +509,7 @@ class SimilaritySearch:
             return output, self._load_full_rows(output)
         rows = self.repository.load_analysis_vectors(
             output,
-            targets=_merge_targets(seeds, candidate_targets),
+            targets=merge_targets(seeds, candidate_targets),
         )
         _validate_rows(
             rows,
@@ -531,7 +539,7 @@ class SimilaritySearch:
         depth grows until that holds.
         """
 
-        bounded_limit = _result_limit(limit)
+        bounded_limit = result_limit(limit)
         total = len(prepared.targets)
         requested = min(total, bounded_limit + len(excluded))
         while True:
@@ -976,101 +984,6 @@ def _contrast_score_breakdown(
     }
 
 
-def _validate_targets(
-    targets: Sequence[AnalysisTarget],
-    *,
-    catalog_uuid: str,
-    field_name: str,
-    require_nonempty: bool,
-) -> tuple[AnalysisTarget, ...]:
-    selected = tuple(targets)
-    if require_nonempty and not selected:
-        raise ValueError(
-            f"{field_name} must contain at least one target"
-        )
-    if any(
-        not isinstance(target, AnalysisTarget)
-        for target in selected
-    ):
-        raise TypeError(
-            f"{field_name} must contain only AnalysisTarget values"
-        )
-    if any(
-        target.catalog_uuid != catalog_uuid
-        for target in selected
-    ):
-        raise ValueError(
-            f"{field_name} contains a target from another catalog"
-        )
-    if len(set(selected)) != len(selected):
-        raise ValueError(
-            f"{field_name} must not contain duplicate identities"
-        )
-    track_ids = [target.track_id for target in selected]
-    if len(set(track_ids)) != len(track_ids):
-        raise ValueError(
-            f"{field_name} contains conflicting identities "
-            "for one track ID"
-        )
-    return selected
-
-
-def _optional_targets(
-    targets: Sequence[AnalysisTarget] | None,
-    *,
-    catalog_uuid: str,
-) -> tuple[AnalysisTarget, ...] | None:
-    if targets is None:
-        return None
-    return _validate_targets(
-        targets,
-        catalog_uuid=catalog_uuid,
-        field_name="candidate_targets",
-        require_nonempty=False,
-    )
-
-
-def _merge_targets(
-    first: Sequence[AnalysisTarget],
-    second: Sequence[AnalysisTarget],
-) -> tuple[AnalysisTarget, ...]:
-    merged: list[AnalysisTarget] = []
-    seen: set[AnalysisTarget] = set()
-    for target in (*first, *second):
-        if target in seen:
-            continue
-        seen.add(target)
-        merged.append(target)
-    return tuple(merged)
-
-
-def _requested_track_ids(
-    track_ids: Sequence[int],
-) -> tuple[int, ...]:
-    requested = tuple(track_ids)
-    if not requested:
-        raise ValueError("At least one track ID is required")
-    if any(
-        isinstance(track_id, bool)
-        or not isinstance(track_id, int)
-        or track_id <= 0
-        for track_id in requested
-    ):
-        raise ValueError("Track IDs must be positive integers")
-    if len(set(requested)) != len(requested):
-        raise ValueError("Track IDs must not contain duplicates")
-    return requested
-
-
-def _optional_track_ids(
-    track_ids: Sequence[int],
-) -> frozenset[int]:
-    requested = tuple(track_ids)
-    if not requested:
-        return frozenset()
-    return frozenset(_requested_track_ids(requested))
-
-
 def _target_for_hit(
     hit: VectorSearchHit,
     targets: Sequence[AnalysisTarget],
@@ -1181,14 +1094,6 @@ def _target_ids(
     targets: Sequence[AnalysisTarget],
 ) -> list[int]:
     return [target.track_id for target in targets]
-
-
-def _result_limit(limit: int) -> int:
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
-        raise ValueError(
-            "Search result limit must be a non-negative integer"
-        )
-    return limit
 
 
 def _finite_number(value: object, field_name: str) -> float:

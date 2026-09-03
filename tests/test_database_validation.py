@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 from dj_track_similarity.cli import app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.database_validation import DatabaseValidator
-from dj_track_similarity.db_embeddings import write_valid_embedding
+from dj_track_similarity.db_embeddings import write_valid_embedding_in_transaction
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -64,13 +64,15 @@ def test_validator_reports_corrupt_embedding_payload(tmp_path: Path) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
     identity = _track(database, tmp_path / "track.wav")
     with database.connect() as connection:
-        write_valid_embedding(
+        connection.execute("BEGIN IMMEDIATE")
+        write_valid_embedding_in_transaction(
             connection=connection,
             track=identity,
             family="mert",
             embedding=np.ones(768, dtype="<f4") / np.sqrt(768),
             analyzed_at="2026-08-13T00:00:00Z",
         )
+        connection.commit()
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA ignore_check_constraints = ON")
         connection.execute(

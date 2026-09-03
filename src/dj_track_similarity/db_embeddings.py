@@ -56,9 +56,9 @@ def _validated_identity_pairs(
 ) -> list[list[object]]:
     """Apply :class:`EmbeddingTrackIdentity`'s rules to a whole batch at once.
 
-    The per-row form built one identity object per track purely to run these
-    three checks, which cost more than reading the vectors they guarded. The
-    rules and their errors are unchanged; only the number of objects is.
+    Building one identity object per track purely to run these three checks
+    cost more than reading the vectors they guarded. The rules and their
+    errors are those of the dataclass; only the number of objects differs.
     """
 
     if not isinstance(catalog_uuid, str) or not catalog_uuid.strip():
@@ -185,8 +185,7 @@ def validate_embedding_row_payload(
     normalization, blob length and shape. A bulk reader uses it to keep the
     per-row work in Python cheap and then run the finiteness and unit-norm
     checks once over the whole stack, which is the same test at a fraction of
-    the cost: the per-row form spends a NumPy call per track and dominated a
-    full-library load.
+    the cost: a NumPy call per track dominated a full-library load.
     """
 
     try:
@@ -258,39 +257,6 @@ def _validate_current_track_identity(
     return True, None
 
 
-def read_valid_embedding(
-    *,
-    family: str,
-    track_id: int,
-    connection: sqlite3.Connection,
-) -> np.ndarray | None:
-    table = _EMBEDDING_TABLES.get(family)
-    if table is None:
-        raise ValueError(f"unsupported embedding family: {family!r}")
-    expected_track = current_track_identity(connection, int(track_id))
-    if expected_track is None:
-        return None
-    row = connection.execute(
-        f"""
-        SELECT track_id, track_uuid,
-               dim, normalization, embedding_blob
-        FROM {table}
-        WHERE track_id = ?
-        """,
-        (int(track_id),),
-    ).fetchone()
-    if row is None:
-        return None
-    valid, _reason = validate_embedding_row_payload(
-        family=family,
-        row=row,
-        expected_track=expected_track,
-    )
-    if not valid:
-        return None
-    return np.frombuffer(row["embedding_blob"], dtype="<f4").copy()
-
-
 def read_valid_embeddings(
     *,
     family: str,
@@ -300,11 +266,10 @@ def read_valid_embeddings(
 ) -> dict[int, np.ndarray]:
     """Read every valid embedding for *identities* in one statement.
 
-    This is the bulk form of :func:`read_valid_embedding`, applying the same
-    payload validation and the same "skip anything that does not validate"
-    rule.  It takes already-verified current identities instead of re-reading
-    ``library`` and ``tracks`` once per track, so a full-library load costs one
-    query rather than three per track.
+    Every row goes through the payload validation with the "skip anything
+    that does not validate" rule. It takes already-verified current
+    identities instead of re-reading ``library`` and ``tracks`` once per
+    track, so a full-library load costs one query rather than three per track.
     """
 
     table = _EMBEDDING_TABLES.get(family)
@@ -315,12 +280,12 @@ def read_valid_embeddings(
     spec = current_embedding_spec(family)
     pairs = _validated_identity_pairs(identities, catalog_uuid)
 
-    # Every structural test the per-row form ran — identity match, dimension,
-    # normalization and blob length — is a predicate SQLite can apply while it
-    # reads. Doing it here skips a dict copy, an identity object and eighteen
-    # isinstance calls per track, which together cost more than the query.
-    # A row that fails any of them simply does not come back, which is the same
-    # "skip anything that does not validate" rule as before.
+    # Every structural test — identity match, dimension, normalization and
+    # blob length — is a predicate SQLite can apply while it reads. Doing it
+    # in SQL skips a dict copy, an identity object and eighteen isinstance
+    # calls per track, which together cost more than the query. A row that
+    # fails any of them simply does not come back: "skip anything that does
+    # not validate".
     rows = connection.execute(
         f"""
         SELECT embeddings.track_id AS track_id,
@@ -349,9 +314,9 @@ def read_valid_embeddings(
     if not accepted_ids:
         return vectors
 
-    # The finiteness and unit-norm tests the per-row form would have run, once
-    # over the whole stack. Rejection stays per row: a track that fails either
-    # test is dropped exactly as before, the rest are returned.
+    # The finiteness and unit-norm tests, once over the whole stack. Rejection
+    # stays per row: a track that fails either test is dropped, the rest are
+    # returned.
     stacked = np.vstack(accepted_vectors)
     keep = np.isfinite(stacked).all(axis=1)
     if spec.normalization == "l2":
@@ -427,31 +392,3 @@ def write_valid_embedding_in_transaction(
             analyzed_at,
         ),
     )
-
-
-def write_valid_embedding(
-    *,
-    connection: sqlite3.Connection,
-    track: EmbeddingTrackIdentity,
-    family: str,
-    embedding: Sequence[float] | np.ndarray,
-    analyzed_at: str,
-) -> None:
-    """Validate and atomically publish one embedding in the library."""
-
-    if connection.in_transaction:
-        raise RuntimeError("canonical embedding writes require an idle connection")
-    connection.execute("BEGIN IMMEDIATE")
-    try:
-        write_valid_embedding_in_transaction(
-            connection=connection,
-            track=track,
-            family=family,
-            embedding=embedding,
-            analyzed_at=analyzed_at,
-        )
-        connection.commit()
-    except BaseException:
-        if connection.in_transaction:
-            connection.rollback()
-        raise

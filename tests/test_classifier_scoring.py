@@ -687,10 +687,7 @@ def test_classifier_writer_valid_numbers_round_trip_through_reader(
     )
 
     result = db.save_classifier_scores((write,))[0]
-    detail = db.get_track_detail(
-        target.track_id,
-        classifier_specifications=(write.specification,),
-    )
+    detail = db.get_track_detail(target.track_id)
 
     assert result.ok
     assert len(detail.classifier_scores_detail) == 1

@@ -8,7 +8,7 @@ from dj_track_similarity.database import LibraryDatabase
 REPOSITORY_MODULES = {
     "dj_track_similarity.db_tracks": "TrackRepository",
     "dj_track_similarity.db_analysis": "AnalysisRepository",
-    "dj_track_similarity.db_summary": "SummaryRepository",
+    "dj_track_similarity.db_library_queries": "LibraryQueryRepository",
 }
 
 # LibraryDatabase owns connection setup, so it may redefine these. A repository

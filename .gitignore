@@ -71,6 +71,9 @@ docs/superpowers/
 /.playwright-mcp/
 /reports/
 
+# Local repository automation
+/.github/workflows/
+
 # Local Graphify artifacts
 graphify-out/*
 
@@ -78,8 +81,7 @@ graphify-out/*
 .vale/styles/*
 !.vale/styles/config/
 !.vale/styles/config/vocabularies/
-!.vale/styles/config/vocabularies/DJTrackSimilarity/
-!.vale/styles/config/vocabularies/DJTrackSimilarity/**
+.vale/styles/config/vocabularies/DJTrackSimilarity/
 
 # Environment
 .env
@@ -97,13 +99,15 @@ graphify-out/memory/
 graphify-out/reflections/
 graphify-out/????-??-??/
 
-# Track Graphify Codex integration
-!.codex/hooks.json
-!.codex/skills/
-.codex/skills/*
-!.codex/skills/graphify/
-!.codex/skills/graphify/**
+# Graphify Codex hooks stay machine-local: they carry an absolute path.
+.codex/hooks.json
 
-.codex/hooks.json
-.codex/hooks.json
-.codex/hooks.json
+# Agent layer. Every harness config here is machine-local: it names absolute
+# paths to locally installed binaries and differs per contributor. Planning
+# artifacts are local as well.
+.claude/*
+# The saved report bundle is a browser page dump with its own asset
+# folder. It stays on disk for local reading and is not published.
+.claude/plans/reports/REPORT.html
+.claude/plans/reports/REPORT_files/
+.agents/skills/

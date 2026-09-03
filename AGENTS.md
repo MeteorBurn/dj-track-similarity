@@ -90,7 +90,8 @@ configuration and the generated projection built by
 
 Edit the Markdown under `.workspace/`; never the generated `.toml`. Run
 `bootstrap.ps1` after a fresh clone so both harnesses register and install the
-project plugin and Codex regenerates its projection.
+project plugin, Codex regenerates its projection, and the guarded AgentProof/
+Superpowers state junctions are created when their root paths are absent.
 
 Starting a Claude Code or Codex session never runs `bootstrap.ps1` or rewrites
 an agent. Claude Code loads the eight Markdown agents from the installed plugin.

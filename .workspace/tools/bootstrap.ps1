@@ -5,11 +5,41 @@
 # this leaves .claude/ for Claude-only configuration, hooks, and runtime state.
 # Codex installs the same Claude-compatible source as a local plugin and
 # receives generated launcher TOMLs only for the real Markdown agents.
+# AgentProof and Superpowers retain their hardcoded root paths through guarded
+# junctions whose data lives under .workspace/tools/.
 
 $ErrorActionPreference = 'Stop'
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $workspaceRoot
+
+function Ensure-ToolStateJunction {
+    param([Parameter(Mandatory)][string]$Name)
+
+    $statePath = Join-Path $PSScriptRoot $Name
+    [System.IO.Directory]::CreateDirectory($statePath) | Out-Null
+
+    $legacyPath = Join-Path $repoRoot ('.' + $Name)
+    if (-not (Test-Path -LiteralPath $legacyPath)) {
+        New-Item -ItemType Junction -Path $legacyPath -Target $statePath | Out-Null
+        Write-Host "created $legacyPath junction -> $statePath"
+        return
+    }
+
+    $legacyItem = Get-Item -LiteralPath $legacyPath -Force
+    if (-not $legacyItem.LinkType) {
+        Write-Warning "Keeping existing directory; not replacing it with a junction: $legacyPath"
+        return
+    }
+
+    $actualTarget = [System.IO.Path]::GetFullPath([string]$legacyItem.Target)
+    $expectedTarget = [System.IO.Path]::GetFullPath($statePath)
+    if (-not [string]::Equals($actualTarget, $expectedTarget, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to replace an existing link: $legacyPath -> $actualTarget"
+    }
+
+    Write-Host "verified $legacyPath junction -> $statePath"
+}
 
 $claudeManifest = Join-Path $workspaceRoot '.claude-plugin\plugin.json'
 $claudeMarketplace = Join-Path $workspaceRoot '.claude-plugin\marketplace.json'
@@ -17,6 +47,10 @@ foreach ($path in @($claudeManifest, $claudeMarketplace)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Missing Claude Code plugin manifest: $path"
     }
+}
+
+foreach ($toolName in @('agentproof', 'superpowers')) {
+    Ensure-ToolStateJunction -Name $toolName
 }
 
 foreach ($legacyPath in @(

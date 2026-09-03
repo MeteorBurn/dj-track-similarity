@@ -31,9 +31,9 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
   Node manifest: `uv sync`, `npm --prefix ./frontend install`, and
   `npm --prefix ./docs/dj-track-similarity install`. They stay separate on
   purpose; there is no bootstrap script wrapping them.
-- A fresh clone also needs `.workspace/tools/bootstrap.ps1` once. It relinks the
-  three harness paths and regenerates the Codex projection, neither of which git
-  can carry. Nothing else in the repository depends on it, so a contributor who
+- A fresh clone also needs `.workspace/tools/bootstrap.ps1` once. It registers
+  and installs the shared Claude Code plugin, then regenerates the Codex agent
+  projection. Nothing else in the repository depends on it, so a contributor who
   never runs an agent can skip it.
 - `run_server.cmd` starts backend `127.0.0.1:8765` and Vite `127.0.0.1:5173`;
   Rhythm Lab uses `127.0.0.1:8777`. Check for an existing project process before
@@ -74,25 +74,24 @@ current main database before reading, writing, or reasoning about "the" database
 Everything an agent reads or writes lives once, under `.workspace/`: `skills/`,
 `agents/`, `tools/`, and `work/` for finished output from past runs.
 
-Neither harness can be pointed at it. Both hardcode where they look, and there
-is no setting in either product that changes those paths — Claude Code scans
-`.claude/skills` and `.claude/agents`, Codex scans `.agents/skills` upward from
-the working directory and `.codex/agents/*.toml`. So `.claude/` and `.codex/`
-keep only what is genuinely theirs: config naming machine-local binaries, three
-junctions holding no bytes of their own, and the generated Codex projection
-built by `.workspace/tools/sync-codex-agents.ps1`. `.agents/` survives as one
-link, because that name is Codex's convention rather than ours.
+`.workspace/` is one local plugin, described by the Claude-compatible manifest
+`.workspace/.claude-plugin/plugin.json` and marketplace metadata beside it.
+Both Claude Code and Codex consume that standard plugin layout; Codex also
+loads agent launchers from `.codex/agents/*.toml`. Therefore `.claude/` holds
+only Claude-specific configuration, hooks, and runtime state — never a link or
+copy of a project skill or agent. `.codex/` holds only Codex-specific
+configuration and the generated projection built by
+`.workspace/tools/sync-codex-agents.ps1`.
 
-Edit the Markdown; never the `.toml`. Run `bootstrap.ps1` after a fresh clone,
-because git carries neither a junction nor a generated file.
+Edit the Markdown under `.workspace/`; never the generated `.toml`. Run
+`bootstrap.ps1` after a fresh clone so both harnesses register and install the
+project plugin and Codex regenerates its projection.
 
-**This rests partly on undocumented behaviour.** Only one of the links is
-covered by a published contract — Claude Code documents a symlink on an
-individual `.claude/skills/<name>` entry. Whole-directory links, links in
-`.claude/agents`, a link on Codex's scan root, and Windows junctions instead of
-symlinks all work on the versions in use and are verified against live sessions
-of both harnesses, but none is promised. If a harness update stops seeing the
-layer, that is the reason, and `bootstrap.ps1` is where to look first.
+Starting a Claude Code or Codex session never runs `bootstrap.ps1` or rewrites
+an agent. Claude Code loads the eight Markdown agents from the installed plugin.
+Codex reads the existing eight `.codex/agents/*.toml` launchers, generated from
+`.workspace/agents/*.md`; run `sync-codex-agents.ps1` explicitly after changing
+an agent, and use `bootstrap.ps1` only for setup or full resynchronization.
 
 An **agent** is a worker: a role, a tool surface, and the procedures it carries
 internally. A **skill** is a task anyone can invoke. A competency that belongs to
@@ -119,8 +118,10 @@ handed back to the caller as homework.
 
 Skills currently shared: `graphify`, `verification-routing`,
 `web-research-routing`, `clap-query-workflow`, `prompt-bank-curator`,
-`codebase-documentation-writer`. The last three are marked `context: fork` and
-run as their own worker; the first three are read in place.
+`codebase-documentation-writer`. All six remain skills in `.workspace/skills`.
+The last three request an isolated worker only in harnesses that honor
+`context: fork`; Codex discovers every project skill directly and its TOML
+projection is reserved for real agents.
 
 ## CHANGE ROUTING
 
@@ -286,6 +287,10 @@ outside this checkout. Retrieved prose never outranks this checkout: executable
 sources and tests win on conflict, and retrieved model claims remain ranking
 evidence.
 
+Firecrawl research output is local working material: always pass an explicit
+`--output` path under `.workspace/work/firecrawl/`. Never create the tool's
+default root-level `.firecrawl/` directory.
+
 ## COMMANDS
 
 ```powershell
@@ -298,9 +303,9 @@ npm --prefix .\frontend run build      # before a commit that touched frontend/
 
 `graphify-out/graph.json` is a queryable knowledge graph of this project: about
 7000 nodes and 20000 edges over `src/`, `frontend/src/`, `tools/`, `scripts/`,
-`tests/` and the documentation pages. The agent layer is not in it: the walker
-skips dot-directories, so nothing under `.workspace/`, `.claude/` or `.codex/`
-reaches the corpus. Nodes carry `source_file` and `source_location`; edges carry a
+`tests/` and the documentation pages. The agent layer is not in it: `.graphifyignore`
+explicitly excludes `.workspace/`, `.agents/`, `.claude/`, and `.codex/` from the
+corpus. Nodes carry `source_file` and `source_location`; edges carry a
 relation and an honest confidence tag, `EXTRACTED` or `INFERRED`. A post-commit
 git hook rebuilds it, so it tracks `HEAD` without anyone asking.
 
@@ -390,7 +395,9 @@ inherits none of it.
 ### Corpus and rebuilds
 
 `.graphifyignore` holds what stays out of the graph, and it is the place to fix
-a corpus problem — not a filter applied while reading results. The graphify MCP
+a corpus problem — not a filter applied while reading results. It explicitly
+excludes `.workspace/`, `.agents/`, `.claude/`, and `.codex/`: the agent layer
+is operational metadata, not product architecture. The graphify MCP
 server needs authorization and is unavailable in a non-interactive session; the
 CLI needs none and answers in about a second.
 

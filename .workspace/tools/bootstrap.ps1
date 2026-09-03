@@ -1,58 +1,73 @@
-# Restores the links that let Claude Code reach the shared agent layer.
+# Sets up the two harness-specific projections of the shared agent layer.
 #
-# .workspace/ holds one copy of everything: skills (methods), agents (the workers
-# that carry them) and working notes. A skill that should run in isolation says
-# so itself, with `context: fork` in its own frontmatter.
-#
-# Codex finds .workspace/skills on its own — it is a documented project skill root,
-# scanned from the working directory up to the repository root, and it ignores
-# the Claude-only frontmatter keys. It cannot read Markdown agents at all, so
-# sync-codex-agents.ps1 projects those into .codex/agents/*.toml. Claude Code
-# scans only .claude/skills and .claude/agents, so those two paths are junctions
-# into .workspace/. Junctions are not stored by git, so a fresh clone needs this
-# script once.
-#
-# Junctions are used rather than symbolic links because they need neither
-# administrator rights nor Developer Mode. Both harnesses follow either kind;
-# this was verified against live sessions of both.
+# .workspace/ is the one source of skills, agents, tooling, and working notes.
+# Claude Code consumes it as the project-local `dj-track-similarity` plugin;
+# this leaves .claude/ for Claude-only configuration, hooks, and runtime state.
+# Codex installs the same Claude-compatible source as a local plugin and
+# receives generated launcher TOMLs only for the real Markdown agents.
 
 $ErrorActionPreference = 'Stop'
 
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $workspaceRoot
 
-$links = @(
-    # Claude Code scans these two and nothing else.
-    @{ Link = Join-Path $repoRoot '.claude\skills'; Target = Join-Path $workspaceRoot 'skills' }
-    @{ Link = Join-Path $repoRoot '.claude\agents'; Target = Join-Path $workspaceRoot 'agents' }
-    # Codex scans .agents/skills from the working directory up to the repository
-    # root. The name is its convention, not ours, so the path stays and holds
-    # nothing but this link.
-    @{ Link = Join-Path $repoRoot '.agents\skills'; Target = Join-Path $workspaceRoot 'skills' }
-)
+$claudeManifest = Join-Path $workspaceRoot '.claude-plugin\plugin.json'
+$claudeMarketplace = Join-Path $workspaceRoot '.claude-plugin\marketplace.json'
+foreach ($path in @($claudeManifest, $claudeMarketplace)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Missing Claude Code plugin manifest: $path"
+    }
+}
 
-foreach ($entry in $links) {
-    $link = $entry.Link
-    $target = $entry.Target
-    if (-not (Test-Path -LiteralPath $target)) {
-        throw "Missing target, refusing to link: $target"
+foreach ($legacyPath in @(
+    (Join-Path $repoRoot '.claude\skills'),
+    (Join-Path $repoRoot '.claude\agents')
+)) {
+    if (-not (Test-Path -LiteralPath $legacyPath)) {
+        continue
     }
 
-    if (Test-Path -LiteralPath $link) {
-        $item = Get-Item -LiteralPath $link -Force
-        if ($item.LinkType) {
-            # Never use Remove-Item -Recurse on a reparse point: older PowerShell
-            # follows it and deletes the target, which here is the canon itself.
-            [System.IO.Directory]::Delete($link, $false)
-        }
-        else {
-            throw "Refusing to replace a real directory: $link"
-        }
+    $item = Get-Item -LiteralPath $legacyPath -Force
+    if (-not $item.LinkType) {
+        throw "Refusing to replace a real directory: $legacyPath"
     }
 
-    [System.IO.Directory]::CreateDirectory((Split-Path -Parent $link)) | Out-Null
-    New-Item -ItemType Junction -Path $link -Target $target | Out-Null
-    Write-Host "linked $link -> $target"
+    # Never use Remove-Item -Recurse on a reparse point: older PowerShell can
+    # follow it and delete the shared source tree.
+    [System.IO.Directory]::Delete($legacyPath, $false)
+    Write-Host "removed legacy Claude junction: $legacyPath"
+}
+
+$claude = Get-Command claude -ErrorAction SilentlyContinue
+if ($null -eq $claude) {
+    Write-Warning 'Claude Code was not found; skipped the project plugin registration.'
+}
+else {
+    & $claude.Source plugin marketplace add $workspaceRoot --scope project
+    if ($LASTEXITCODE -ne 0) {
+        throw "Claude Code could not register the project plugin marketplace (exit $LASTEXITCODE)."
+    }
+
+    & $claude.Source plugin install 'dj-track-similarity@dj-track-similarity' --scope project --yes
+    if ($LASTEXITCODE -ne 0) {
+        throw "Claude Code could not install the project plugin (exit $LASTEXITCODE)."
+    }
+}
+
+$codex = Get-Command codex -ErrorAction SilentlyContinue
+if ($null -eq $codex) {
+    Write-Warning 'Codex CLI was not found; skipped the project plugin registration.'
+}
+else {
+    & $codex.Source plugin marketplace add $workspaceRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Codex could not register the project plugin marketplace (exit $LASTEXITCODE)."
+    }
+
+    & $codex.Source plugin add 'dj-track-similarity@dj-track-similarity'
+    if ($LASTEXITCODE -ne 0) {
+        throw "Codex could not install the project plugin (exit $LASTEXITCODE)."
+    }
 }
 
 & (Join-Path $PSScriptRoot 'sync-codex-agents.ps1')

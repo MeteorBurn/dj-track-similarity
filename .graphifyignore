@@ -7,11 +7,14 @@
 # written partly in Russian, a Russian question lands in it by accident instead
 # of in the code it is asking about.
 #
-# In practice the walker already skips dot-directories, so the agent layer never
-# enters the corpus and this rule is belt and braces. It is kept so the intent
-# survives a change in that behaviour.
-.workspace/work/
+# Agent-harness state is not product architecture. Keep the entire shared agent
+# workspace and every harness-specific directory out of the graph explicitly;
+# do not rely on the walker's dot-directory behaviour.
+.workspace/
+.agents/
+.claude/
+.codex/
 
-# Local Firecrawl research cache is external working material, not project
-# architecture. It otherwise gets re-queued for semantic extraction forever.
+# Guard against an accidental root-level Firecrawl cache. Research output belongs
+# under .workspace/work/firecrawl/, already excluded with the agent workspace.
 .firecrawl/

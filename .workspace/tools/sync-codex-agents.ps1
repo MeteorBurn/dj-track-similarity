@@ -1,17 +1,16 @@
 # Projects the shared agent layer into the shape Codex needs.
 #
-# Two inputs, one output directory:
+# One input, one output directory:
 #
 #   .workspace/agents/<name>.md          a real agent: a worker with a role and a
 #                                     tool surface. Claude reads it directly
 #                                     through the .claude/agents junction.
-#   .workspace/skills/<name>/SKILL.md    a method. Only those marked `context: fork`
-#     with `context: fork`            are projected: Claude forks them by itself,
-#                                     Codex has no per-skill fork flag and needs a
-#                                     callable file.
 #
-# Everything lands in .codex/agents/*.toml. Those files are disposable — edit the
-# Markdown, never the TOML.
+# Project skills remain in .workspace/skills/<name>/SKILL.md. Codex discovers
+# them there directly; a skill is never projected as an agent launcher.
+#
+# Real agents land in .codex/agents/*.toml. Those files are disposable — edit
+# the Markdown, never the TOML.
 #
 # What crosses the two formats, and what does not:
 #
@@ -40,7 +39,6 @@ $ErrorActionPreference = 'Stop'
 $workspaceRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $workspaceRoot
 $agentsDir = Join-Path $workspaceRoot 'agents'
-$skillsDir = Join-Path $workspaceRoot 'skills'
 $targetDir = Join-Path $repoRoot '.codex\agents'
 [System.IO.Directory]::CreateDirectory($targetDir) | Out-Null
 
@@ -50,7 +48,6 @@ $descriptionPattern = '(?m)^description:[ \t]*(.+?)[ \t\r]*$'
 $toolsPattern = '(?m)^tools:[ \t]*(.+?)[ \t\r]*$'
 $effortPattern = '(?m)^effort:[ \t]*(.+?)[ \t\r]*$'
 $sandboxPattern = '(?m)^sandbox_mode:[ \t]*(.+?)[ \t\r]*$'
-$forkPattern = '(?m)^context:[ \t]*fork[ \t\r]*$'
 $skillsBlockPattern = '(?ms)^skills:[ \t\r]*\n((?:[ \t]*-[ \t]*\S.*\r?\n?)+)'
 
 $writeTools = @('Write', 'Edit', 'Bash', 'PowerShell', 'NotebookEdit')
@@ -147,26 +144,6 @@ if (Test-Path -LiteralPath $agentsDir) {
             -Origin ".workspace/agents/$($file.Name)"
         $written += $name
     }
-}
-
-# --- forkable skills -------------------------------------------------------
-foreach ($skill in Get-ChildItem -LiteralPath $skillsDir -Directory | Sort-Object Name) {
-    $skillFile = Join-Path $skill.FullName 'SKILL.md'
-    if (-not (Test-Path -LiteralPath $skillFile)) { continue }
-
-    $parts = Split-Frontmatter $skillFile $skill.Name
-    if ($parts.Frontmatter -notmatch $forkPattern) { continue }
-
-    $name = [regex]::Match($parts.Frontmatter, $namePattern).Groups[1].Value.Trim()
-    $description = [regex]::Match($parts.Frontmatter, $descriptionPattern).Groups[1].Value.Trim()
-    if (-not $name) { throw "name missing: $($skill.Name)" }
-    if (-not $description) { throw "description missing: $($skill.Name)" }
-    if ($written -contains $name) { throw "name collides with an agent: $name" }
-
-    Write-CodexAgent -Name $name -Description $description -Body $parts.Body `
-        -SandboxMode '' -Effort '' -Skills @() `
-        -Origin ".workspace/skills/$name/SKILL.md"
-    $written += $name
 }
 
 # --- drop what no longer has a source --------------------------------------

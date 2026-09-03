@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "dj-track-similarity",
+  "description": "Project-local Claude Code plugin for DJ Track Similarity agents and skills",
+  "owner": {
+    "name": "Meteorburn"
+  },
+  "plugins": [
+    {
+      "name": "dj-track-similarity",
+      "source": "./",
+      "description": "Shared project agents and skills",
+      "version": "1.0.0"
+    }
+  ]
+}

@@ -65,6 +65,7 @@ docs-legacy/
 
 # Local Superpowers artifacts
 .superpowers/
+.agentproof/
 docs/superpowers/
 
 # Local browser and generated report artifacts
@@ -104,8 +105,8 @@ graphify-out/????-??-??/
 
 # Agent layer. Everything lives once, under .workspace/: skills, agent
 # definitions, the tools that project them, and the working notes. The
-# instructions are shared and versioned — they carry no machine paths — while
-# .workspace/work/ holds finished output from past runs and stays local.
+# instructions and tool scripts are shared and versioned; tool caches and
+# results live beside their scripts but remain local.
 #
 # .claude/ and .codex/ keep only what a harness hardcodes: config that names
 # absolute paths to locally installed binaries, plus the links and the generated
@@ -114,3 +115,7 @@ graphify-out/????-??-??/
 .claude/*
 /.agents/
 .workspace/work/
+.workspace/tools/firecrawl/
+.workspace/tools/ruff/
+.workspace/tools/agentproof/
+.workspace/tools/superpowers/

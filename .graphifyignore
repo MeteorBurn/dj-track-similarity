@@ -16,5 +16,5 @@
 .codex/
 
 # Guard against an accidental root-level Firecrawl cache. Research output belongs
-# under .workspace/work/firecrawl/, already excluded with the agent workspace.
+# under .workspace/tools/firecrawl/, already excluded with the agent workspace.
 .firecrawl/

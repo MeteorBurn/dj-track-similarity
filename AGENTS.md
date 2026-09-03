@@ -49,7 +49,7 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
 |---|---|
 | `database/`, `logs/`, `reports/` | Local user state; never use as automated-test fixtures |
 | `frontend/dist/`, `graphify-out/` | Generated output; do not hand-edit |
-| `.workspace/` | The one copy of everything an agent reads or writes: `agents/`, `skills/`, `tools/` are tracked, `work/` stays local. See AGENT LAYER |
+| `.workspace/` | The one copy of everything an agent reads or writes: `agents/`, `skills/`, and tool scripts are tracked; tool-local caches/results live in ignored subdirectories of `tools/`, while `work/` holds other local output. See AGENT LAYER |
 
 `database/` can hold more than one `.sqlite` library (`run_server.cmd` lists them and lets the
 user pick one at startup). There is no fixed "main" database — ask the user which file is the
@@ -72,7 +72,12 @@ current main database before reading, writing, or reasoning about "the" database
 ## AGENT LAYER
 
 Everything an agent reads or writes lives once, under `.workspace/`: `skills/`,
-`agents/`, `tools/`, and `work/` for finished output from past runs.
+`agents/`, `tools/`, and `work/` for finished output from past runs. Tracked
+tool scripts live in `tools/`; their local cache/results directories are
+ignored there: `firecrawl/`, `ruff/`, `agentproof/`, and `superpowers/`.
+AgentProof and Superpowers hardcode root-level state paths, so the ignored
+`.agentproof/` and `.superpowers/` entries are junctions to their `tools/`
+directories and contain no state themselves.
 
 `.workspace/` is one local plugin, described by the Claude-compatible manifest
 `.workspace/.claude-plugin/plugin.json` and marketplace metadata beside it.
@@ -288,7 +293,7 @@ sources and tests win on conflict, and retrieved model claims remain ranking
 evidence.
 
 Firecrawl research output is local working material: always pass an explicit
-`--output` path under `.workspace/work/firecrawl/`. Never create the tool's
+`--output` path under `.workspace/tools/firecrawl/`. Never create the tool's
 default root-level `.firecrawl/` directory.
 
 ## COMMANDS

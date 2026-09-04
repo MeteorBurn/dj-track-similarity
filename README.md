@@ -257,6 +257,8 @@ After CLAP or MuQ-MuLan audio embeddings exist, choose that family in the PROMPT
 dark hypnotic techno, rolling bass, low light, late night tension
 ```
 
+The selected text model is loaded into memory by the first search, not when the tab opens; a status line under the search field says which model is loading while that search waits. Later searches reuse the loaded model, and it is released again after about ten minutes without a search. In A/B mode both models load.
+
 CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Treat them as prompt evidence, not as a universal similarity value. MuQ-MuLan text-search scores stay inside that family's score space and are not directly comparable to CLAP or seed-search scores.
 
 ### 5. 🧪 Train personal classifiers
@@ -528,7 +530,8 @@ SIMILARITY, PROMPT, and CLASS. The SIMILARITY model selector searches separate M
 and MuQ-MuLan embedding spaces. Search results provide individual current-set actions, and the shared
 Current Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.
 Database changes clear catalog-bound state. Exact-identity writes carry the catalog UUID and the
-track UUID.
+track UUID, and the API refuses either value with surrounding whitespace (HTTP 422) instead of
+searching for a track that cannot exist.
 
 The interface is in Russian. Model names, tab labels, and mode names stay English. See
 [UI language](docs/dj-track-similarity/help/ui-language.md) for the label glossary the rest of the

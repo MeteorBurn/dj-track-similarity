@@ -606,6 +606,9 @@ Start here:
 
 ## 🧪 Development checks
 
+Development happens on `main`: branch from `origin/main` and push there. The `dev`
+branch is a frozen snapshot from 2026-09-04 and takes no new commits.
+
 Use the smallest check that covers the changed behavior. The root Pytest
 configuration collects only `tests/`; Rhythm Lab and script tests must be named
 explicitly.

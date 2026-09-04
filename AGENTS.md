@@ -164,10 +164,10 @@ projection is reserved for real agents.
 - Prefer one discoverable source of truth. Do not add aliases, duplicate
   registries, version gates, or hidden legacy branches. TEST POLICY governs what
   the suite is allowed to pin.
-- Keep work scoped and preserve unrelated dirty changes. `dev` is the working
-  branch for now and `main` is deliberately behind it: branch from
-  `origin/dev`, push there, and `git fetch` before committing, because
-  parallel worktrees land on that same branch.
+- Keep work scoped and preserve unrelated dirty changes. `main` is the working
+  branch: branch from `origin/main`, push there, and `git fetch` before
+  committing, because parallel worktrees land on that same branch. `dev` is a
+  frozen snapshot from 2026-09-04; do not push to it or branch from it.
 - Inspect `git status` and the scoped diff before delivery. Do not stage local
   databases, audio, logs, reports, model artifacts, or generated output.
 - Executable sources and tests beat prose when they disagree.

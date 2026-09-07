@@ -4,7 +4,6 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 import time
-from typing import Protocol
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -35,6 +34,7 @@ from .schemas import (
 )
 from .state import AppDatabaseState
 from ..database import LibraryDatabase
+from ..embedding.contracts import TextEmbeddingAdapter
 from ..search.engine import (
     CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
     SearchFilters,
@@ -53,16 +53,6 @@ FloatArray = NDArray[np.float32]
 # One short prompt is enough to force the deserialization and the first forward
 # pass; nothing is kept, so the wording carries no meaning of its own.
 _WARMUP_PROMPT = "warmup"
-
-
-class _TextEmbeddingAdapter(Protocol):
-    embedding_key: str
-
-    def embed_text(self, text: str) -> FloatArray:
-        ...
-
-    def embed_texts(self, texts: Sequence[str]) -> list[FloatArray]:
-        ...
 
 
 @dataclass(frozen=True)
@@ -92,7 +82,7 @@ def register_search_routes(
     *,
     text_embedding_adapter: Callable[
         ...,
-        AbstractContextManager[_TextEmbeddingAdapter],
+        AbstractContextManager[TextEmbeddingAdapter],
     ],
     loaded_text_embedding_adapters: Callable[[], Sequence[tuple[str, str]]],
 ) -> None:
@@ -369,7 +359,7 @@ def _clap_text_search_plan(
 
 def _search_clap_text_prompts(
     searcher: SimilaritySearch,
-    adapter: _TextEmbeddingAdapter,
+    adapter: TextEmbeddingAdapter,
     plan: _ClapTextSearchPlan,
 ) -> list[SimilaritySearchResult]:
     positive_queries = plan.prompt_bank.positive_queries

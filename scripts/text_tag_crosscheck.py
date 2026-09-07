@@ -28,7 +28,8 @@ from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
 
 from dj_track_similarity.analysis.model_runners import current_embedding_analysis_output
-from dj_track_similarity.embedding.registry import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
+from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
+from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.search.engine import _contrast_vector_scores
 
 FloatArray = NDArray[np.float32]

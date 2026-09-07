@@ -356,7 +356,7 @@ def test_model_preflight_failure_preserves_prior_active_output() -> None:
 
 def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     runners = [
-        default_model_runners(model, "cpu", 2, 3)
+        default_model_runners(model, "cpu", 7, 11)
         for model in ("maest", "mert", "muq", "mulan", "clap")
     ]
 
@@ -386,11 +386,13 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     }
     for runner in runners:
         assert getattr(runner.adapter, "_model") is None
+        assert runner.adapter.inference_batch_size == 7
         for output in runner.active_outputs:
             if output.output_kind == "embedding":
                 spec = current_embedding_spec(output.analysis_family)
                 assert spec.dimension == expected_dimensions[output.analysis_family]
                 assert spec.normalization == "l2"
+    assert runners[0].adapter.runtime_parameters()["top_k"] == 11
 
 
 def test_cancelled_queued_job_performs_no_repository_work() -> None:

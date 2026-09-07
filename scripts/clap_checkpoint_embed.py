@@ -34,7 +34,7 @@ from dj_track_similarity.audio.loader import (
     load_decoded_audio,
     load_decoded_audio_with_ffmpeg,
 )
-from dj_track_similarity.embedding.registry import ClapEmbeddingAdapter
+from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 
 FloatArray = NDArray[np.float32]
 

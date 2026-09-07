@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-import dj_track_similarity.api.application as api
+import dj_track_similarity.embedding.clap as embedding_clap
+import dj_track_similarity.embedding.mulan as embedding_mulan
 from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
@@ -75,7 +76,7 @@ def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> N
     near_id = _track_with_embedding(db, "near.wav", [0.0, 1.0, 0.0], "clap")
     far_id = _track_with_embedding(db, "far.wav", [1.0, 0.0, 0.0], "clap")
     _track_with_embedding(db, "mert-only.wav", [0.0, 1.0, 0.0], "mert")
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
@@ -99,7 +100,7 @@ def test_repeated_text_search_reuses_one_loaded_adapter(monkeypatch, tmp_path: P
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     _track_with_embedding(db, "near.wav", [0.0, 1.0, 0.0], "clap")
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
     client = TestClient(create_app(db_path))
 
     for _ in range(3):
@@ -143,7 +144,7 @@ def test_text_search_uses_persisted_mulan_embeddings_only(
         stored,
         _typed_vector(current_embedding_analysis_output("mulan"), [0.0, 1.0, 0.0]),
     )
-    monkeypatch.setattr(api, "MuqMulanEmbeddingAdapter", FakeMulanAdapter)
+    monkeypatch.setattr(embedding_mulan, "MuqMulanEmbeddingAdapter", FakeMulanAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
@@ -169,7 +170,7 @@ def test_text_search_subtracts_a_hard_negative_bank(monkeypatch, tmp_path: Path)
     positive_id = _track_with_embedding(db, "positive.wav", [0.0, 1.0, 0.0], "clap")
     mixed_id = _track_with_embedding(db, "mixed.wav", [0.7, 0.7, 0.0], "clap")
     negative_id = _track_with_embedding(db, "negative.wav", [1.0, 0.0, 0.0], "clap")
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
@@ -199,7 +200,7 @@ def test_text_search_mean_pools_positive_prompt_bank(monkeypatch, tmp_path: Path
     db = LibraryDatabase(db_path)
     bank_match_id = _track_with_embedding(db, "bank-match.wav", [0.70710677, 0.70710677, 0.0], "clap")
     single_prompt_id = _track_with_embedding(db, "single-prompt.wav", [1.0, 0.0, 0.0], "clap")
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
@@ -226,7 +227,7 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
     db = LibraryDatabase(db_path)
     positive_id = _track_with_embedding(db, "positive.wav", [1.0, 0.0, 0.0], "clap")
     negative_aligned_id = _track_with_embedding(db, "negative-aligned.wav", [0.70710677, 0.0, 0.70710677], "clap")
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
@@ -262,7 +263,7 @@ def test_text_search_applies_a_requested_negative_weight(monkeypatch, tmp_path: 
     negative_aligned_id = _track_with_embedding(
         db, "negative-aligned.wav", [0.70710677, 0.0, 0.70710677], "clap"
     )
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
@@ -326,7 +327,7 @@ def test_text_search_embeds_every_prompt_of_a_negated_bank(monkeypatch, tmp_path
     db = LibraryDatabase(db_path)
     first_line_id = _track_with_embedding(db, "direct.wav", [1.0, 0.0, 0.0], "clap")
     bank_id = _track_with_embedding(db, "bank.wav", [0.70710677, 0.70710677, 0.0], "clap")
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/text",
@@ -354,7 +355,7 @@ def test_text_search_embeds_every_prompt_of_a_negated_bank(monkeypatch, tmp_path
 
 def test_text_search_rejects_a_blank_bank_before_loading_clap(monkeypatch, tmp_path: Path) -> None:
     FakeClapAdapter.queries = []
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(tmp_path / "library.sqlite")).post(
         "/api/search/text",
@@ -393,7 +394,7 @@ def test_text_search_warmup_loads_the_family_without_touching_the_library(
     FakeClapAdapter.instances = 0
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
     client = TestClient(create_app(db_path))
 
     assert client.get("/api/search/text/warmup").json() == {"loaded": []}
@@ -770,7 +771,7 @@ def test_text_search_reports_each_label_contribution_and_credits_by_it(
             "SELECT track_uuid FROM tracks WHERE track_id = ?",
             (track_id,),
         ).fetchone()[0]
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
     client = TestClient(create_app(db_path))
 
     found = client.post(
@@ -924,7 +925,7 @@ def test_text_search_pulls_the_query_toward_the_tracks_that_were_kept(
         uuids = dict(
             connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
         )
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
     client = TestClient(create_app(db_path))
 
     for track_id in kept:
@@ -977,7 +978,7 @@ def test_text_search_ignores_a_history_too_small_to_mean_anything(
         uuids = dict(
             connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
         )
-    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
     client = TestClient(create_app(db_path))
     for track_id in kept:
         client.post(

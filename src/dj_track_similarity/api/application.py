@@ -21,8 +21,8 @@ from .routes_server import register_server_routes
 from .routes_tags_export import register_tags_export_routes
 from .state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
 from ..classifier.scoring import promoted_classifiers
-from ..embedding.clap import ClapEmbeddingAdapter
-from ..embedding.mulan import MuqMulanEmbeddingAdapter
+from ..embedding.contracts import TextEmbeddingAdapter
+from ..embedding.registry import create_embedding_adapter
 from ..audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from ..logging_config import configure_logging, install_asyncio_exception_logging, install_standard_stream_logging
 from ..rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
@@ -36,11 +36,9 @@ def _text_embedding_adapter(
     family: str,
     *,
     device: str,
-) -> ClapEmbeddingAdapter | MuqMulanEmbeddingAdapter:
-    if family == "clap":
-        return ClapEmbeddingAdapter(device=device)
-    if family == "mulan":
-        return MuqMulanEmbeddingAdapter(device=device)
+) -> TextEmbeddingAdapter:
+    if family == "clap" or family == "mulan":
+        return create_embedding_adapter(family, device=device)
     raise ValueError(f"Unsupported text embedding model: {family}")
 
 

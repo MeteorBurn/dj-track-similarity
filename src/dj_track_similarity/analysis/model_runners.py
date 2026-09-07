@@ -4,7 +4,7 @@ import math
 import re
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
-from typing import Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 import numpy as np
 import numpy.typing as npt
@@ -25,12 +25,12 @@ from ..audio.loader import (
     DecodedAudio,
     load_decoded_audio_with_ffmpeg,
 )
-from ..embedding.clap import ClapEmbeddingAdapter
-from ..embedding.maest import MaestAnalysisResult
-from ..embedding.maest import MaestEmbeddingAdapter
-from ..embedding.mert import MertEmbeddingAdapter
-from ..embedding.muq import MuqEmbeddingAdapter
-from ..embedding.mulan import MuqMulanEmbeddingAdapter
+from ..embedding.contracts import (
+    DecodedAudioEmbeddingAdapter,
+    EmbeddingIdentity,
+    MaestAnalysisAdapter,
+)
+from ..embedding.registry import create_embedding_adapter
 from ..maest_analysis_validation import has_maest_syncopated_rhythm
 from ..timestamps import utc_timestamp
 from .sonara_features import (
@@ -47,6 +47,9 @@ from .sonara_staging import (
     sonara_process_executor,
 )
 from .sonara_results import prepare_sonara_write
+
+if TYPE_CHECKING:
+    from ..embedding.maest import MaestAnalysisResult
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
@@ -239,9 +242,10 @@ class MaestModelRunner:
         device: str,
         top_k: int,
         inference_batch_size: int,
-        adapter: MaestEmbeddingAdapter | None = None,
+        adapter: MaestAnalysisAdapter | None = None,
     ) -> None:
-        self.adapter = adapter or MaestEmbeddingAdapter(
+        self.adapter = adapter or create_embedding_adapter(
+            "maest",
             device=device,
             top_k=top_k,
             inference_batch_size=inference_batch_size,
@@ -364,29 +368,17 @@ class EmbeddingModelRunner:
         *,
         device: str,
         inference_batch_size: int,
-        adapter: (
-            MertEmbeddingAdapter
-            | MuqEmbeddingAdapter
-            | MuqMulanEmbeddingAdapter
-            | ClapEmbeddingAdapter
-            | None
-        ) = None,
+        adapter: DecodedAudioEmbeddingAdapter | None = None,
     ) -> None:
         self.model = model
-        adapter_classes = {
-            "mert": MertEmbeddingAdapter,
-            "muq": MuqEmbeddingAdapter,
-            "mulan": MuqMulanEmbeddingAdapter,
-            "clap": ClapEmbeddingAdapter,
-        }
-        try:
-            adapter_class = adapter_classes[model]
-        except KeyError as error:
-            raise ValueError(f"Unsupported embedding model: {model}") from error
-        self.adapter = adapter or adapter_class(
-            device=device,
-            inference_batch_size=inference_batch_size,
-        )
+        if model == "mert" or model == "muq" or model == "mulan" or model == "clap":
+            self.adapter = adapter or create_embedding_adapter(
+                model,
+                device=device,
+                inference_batch_size=inference_batch_size,
+            )
+        else:
+            raise ValueError(f"Unsupported embedding model: {model}") from KeyError(model)
         self._active_outputs = (embedding_analysis_output(model, self.adapter),)
         self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
 
@@ -509,7 +501,7 @@ def default_model_runners(
 _default_model_runners: RunnerFactory = default_model_runners
 
 
-def _adapter_identity(adapter: object) -> dict[str, str]:
+def _adapter_identity(adapter: EmbeddingIdentity) -> dict[str, str]:
     identity = {
         "model_name": _required_adapter_text(adapter, "model_name"),
         "model_version": _required_adapter_text(adapter, "model_version"),
@@ -532,7 +524,7 @@ def _required_adapter_text(adapter: object, name: str) -> str:
 
 def embedding_analysis_output(
     model: str,
-    adapter: object,
+    adapter: EmbeddingIdentity,
 ) -> AnalysisOutput:
     """Name the embedding output of one production adapter, and check it.
 

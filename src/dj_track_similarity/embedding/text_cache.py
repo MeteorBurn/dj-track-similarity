@@ -17,7 +17,7 @@ import logging
 import sys
 import threading
 import time
-from typing import Generic, TypeVar
+from typing import Generic, Protocol, TypeVar
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +25,11 @@ DEFAULT_IDLE_TTL_SECONDS = 600.0
 _MINIMUM_SWEEP_SECONDS = 5.0
 
 AdapterT = TypeVar("AdapterT")
+AdapterT_co = TypeVar("AdapterT_co", covariant=True)
+
+
+class TextAdapterFactory(Protocol[AdapterT_co]):
+    def __call__(self, family: str, *, device: str) -> AdapterT_co: ...
 
 
 class _CacheEntry(Generic[AdapterT]):
@@ -39,7 +44,7 @@ class TextEmbeddingAdapterCache(Generic[AdapterT]):
 
     def __init__(
         self,
-        factory: Callable[..., AdapterT],
+        factory: TextAdapterFactory[AdapterT],
         *,
         idle_ttl_seconds: float = DEFAULT_IDLE_TTL_SECONDS,
         clock: Callable[[], float] = time.monotonic,

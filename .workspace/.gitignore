@@ -1,5 +1,5 @@
-# Finished output from past agent runs. Local by design: it is a snapshot of a
-# codebase that has since moved, and it is never revised.
+# Local consolidated plans and temporary working output.
+# Update plans when their status or supporting artifacts change.
 audits/
 handoffs/
 ideas/

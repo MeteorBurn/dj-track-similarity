@@ -120,6 +120,16 @@ $sqlite = 'C:\Utils\tools\sqlite-toolkit\native\windows-x64\sqlite3.exe'
 | `.workspace/` | Local working output only: `audits/`, `handoffs/`, `ideas/`, `reports/`, `specs/`, and `tools/firecrawl/`; never a source of agents or skills |
 | `.djts/` | The one tracked plugin root: `agents/`, `skills/`, plugin manifests, icon, and projection scripts |
 
+The local inventory verified on 2026-09-08 after the owner's cleanup contains
+only `.workspace/.gitignore` and three backlogs in `.workspace/specs/`:
+`engineering-reliability.md`, `mir-quality-evaluation.md`, and
+`prompt-search-and-personalization.md`. Earlier supporting artifact paths are
+absent from this workspace; transcribed results are historical summaries.
+Inspect the live tree before reusing a path. Do not recreate deleted artifacts
+or create cleanup archives unless requested. Consolidate related pending work
+and remove obsolete notes and empty nested directories during requested cleanup.
+The plans remain local and ignored by Git.
+
 `database/` can hold multiple libraries. The interactive launcher lists them;
 its default is not evidence of the user's active library. Use an explicitly
 named or already confirmed database. Ask only when the target remains unknown;

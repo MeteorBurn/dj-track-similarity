@@ -1,5 +1,5 @@
 import threading
-import time
+import weakref
 from types import SimpleNamespace
 
 import pytest
@@ -34,15 +34,17 @@ class FakeJobs:
 
 def test_pipeline_uses_fixed_order_and_continues_after_completed_per_file_failures() -> None:
     audio = FakeJobs(["completed", "completed"], sonara_count=0)
-    manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
-    job_id = manager.create_job(
+    stage_queue = AnalysisStageQueue()
+    manager = AnalysisPipelineManager(audio, stage_queue)
+    queued = manager.start(
         stages=["ml", "sonara"],
         limit=10,
         sonara={"batch_size": 16},
         ml={"models": ["mert"]},
     )
 
-    status = manager.run_job(job_id)
+    stage_queue.close()
+    status = manager.get(queued.job_id)
 
     assert status.state == "completed"
     assert status.order == ["sonara", "ml"]
@@ -198,31 +200,76 @@ def test_parent_cancel_propagates_to_current_child_and_cancels_pending_stages() 
     assert status.stages["ml"].state == "cancelled"
 
 
-def test_shared_analysis_queue_runs_callbacks_sequentially() -> None:
+def test_shared_analysis_queue_runs_callbacks_sequentially(monkeypatch) -> None:
     stage_queue = AnalysisStageQueue()
-    lock = threading.Lock()
-    finished = threading.Event()
-    active = 0
-    max_active = 0
+    entered = threading.Event()
+    release = threading.Event()
+    joining = threading.Event()
+    released_owner = threading.Event()
     order = []
+    join = stage_queue._thread.join
 
-    def callback(name):
-        def run():
-            nonlocal active, max_active
-            with lock:
-                active += 1
-                max_active = max(max_active, active)
-                order.append(f"{name}:start")
-            time.sleep(0.02)
-            with lock:
-                order.append(f"{name}:end")
-                active -= 1
-                if name == "second":
-                    finished.set()
-        return run
+    def observe_join(*args, **kwargs):
+        joining.set()
+        return join(*args, **kwargs)
 
-    stage_queue.submit(callback("first"))
-    stage_queue.submit(callback("second"))
-    assert finished.wait(1.0)
-    assert max_active == 1
-    assert order == ["first:start", "first:end", "second:start", "second:end"]
+    monkeypatch.setattr(stage_queue._thread, "join", observe_join)
+
+    def first():
+        order.append("first:start")
+        entered.set()
+        assert release.wait(5)
+        with pytest.raises(RuntimeError, match="worker"):
+            stage_queue.close()
+        order.append("first:end")
+        raise RuntimeError("failed callback must not prevent queue drain")
+
+    def interrupted():
+        order.append("interrupted")
+        raise KeyboardInterrupt("interrupted callback must not prevent queue drain")
+
+    class LastCallback:
+        def __call__(self):
+            order.append("second")
+
+    owner = LastCallback()
+    owner_ref = weakref.ref(owner)
+    weakref.finalize(owner, released_owner.set)
+    stage_queue.submit(first)
+    stage_queue.submit(interrupted)
+    stage_queue.submit(owner)
+    del owner
+    closer = threading.Thread(target=stage_queue.close, daemon=True)
+    try:
+        assert entered.wait(5)
+        closer.start()
+        assert joining.wait(5)
+        with pytest.raises(RuntimeError, match="closed"):
+            stage_queue.submit(lambda: order.append("late"))
+        assert closer.is_alive()
+    finally:
+        release.set()
+        if closer.ident is None:
+            closer.start()
+        closer.join(5)
+    assert not closer.is_alive()
+    assert not stage_queue._thread.is_alive()
+    assert order == ["first:start", "first:end", "interrupted", "second"]
+    assert released_owner.wait(5)
+    assert owner_ref() is None
+    stage_queue.close()
+
+    # Also prove release before an open queue waits for its next callback.
+    idle_queue = AnalysisStageQueue()
+    owner = LastCallback()
+    owner_ref = weakref.ref(owner)
+    released_owner.clear()
+    weakref.finalize(owner, released_owner.set)
+    idle_queue.submit(owner)
+    del owner
+    try:
+        assert released_owner.wait(5)
+        assert owner_ref() is None
+        assert idle_queue._thread.is_alive()
+    finally:
+        idle_queue.close()

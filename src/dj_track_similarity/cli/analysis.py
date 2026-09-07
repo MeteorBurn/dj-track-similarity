@@ -160,6 +160,8 @@ def analyze(
     except (FileNotFoundError, RuntimeError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
+    finally:
+        manager.close()
     result_summary = (
         f"state={status.state} total={status.total} processed={status.processed} "
         f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)}"
@@ -200,9 +202,10 @@ def analyze_pipeline(
         raise typer.Exit(1)
     db = _db(db_path)
     stage_queue = AnalysisStageQueue()
-    audio_manager = AnalysisJobManager(db, stage_queue=stage_queue)
-    manager = AnalysisPipelineManager(audio_manager, stage_queue)
+    audio_manager = None
     try:
+        audio_manager = AnalysisJobManager(db, stage_queue=stage_queue)
+        manager = AnalysisPipelineManager(audio_manager, stage_queue)
         job_id = manager.create_job(
             stages=selected_stages,
             limit=limit,
@@ -223,6 +226,10 @@ def analyze_pipeline(
     except (FileNotFoundError, RuntimeError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
+    finally:
+        stage_queue.close()
+        if audio_manager is not None:
+            audio_manager.close()
     typer.echo(
         f"state={status.state} order={','.join(status.order)} "
         + " ".join(

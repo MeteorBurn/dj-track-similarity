@@ -10,6 +10,7 @@ def _run_cli_job_with_progress(manager: object, job_id: str, *, label: str, poll
     typer.echo(f"Starting {label} analysis")
     result = None
     errors: list[BaseException] = []
+    completed = threading.Event()
 
     def run() -> None:
         nonlocal result
@@ -17,14 +18,21 @@ def _run_cli_job_with_progress(manager: object, job_id: str, *, label: str, poll
             result = manager.run_job(job_id)  # type: ignore[attr-defined]
         except BaseException as error:
             errors.append(error)
+        finally:
+            completed.set()
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
     previous_width = 0
-    while thread.is_alive():
-        previous_width = _write_cli_progress(manager.get(job_id), previous_width)  # type: ignore[attr-defined]
-        thread.join(poll_interval)
-    thread.join()
+    try:
+        while not completed.is_set():
+            previous_width = _write_cli_progress(manager.get(job_id), previous_width)  # type: ignore[attr-defined]
+            thread.join(poll_interval)
+    finally:
+        # An interrupted join can mark Thread stopped before its callback exits
+        # on CPython 3.10. The worker acknowledgement remains authoritative.
+        completed.wait()
+        thread.join()
     if errors:
         raise errors[0]
     status = result or manager.get(job_id)  # type: ignore[attr-defined]

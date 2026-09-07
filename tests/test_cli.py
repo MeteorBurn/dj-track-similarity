@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import _thread
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,14 +14,18 @@ from typer.testing import CliRunner
 import dj_track_similarity.api.application as api
 import dj_track_similarity.cli.application as cli
 import dj_track_similarity.cli.analysis as cli_analysis
+import dj_track_similarity.cli.progress as cli_progress
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 class _FakeAnalysisManager:
     last_kwargs: dict[str, object] = {}
+    last_instance = None
 
     def __init__(self, _database: LibraryDatabase) -> None:
+        type(self).last_instance = self
+        self.closed = False
         self.status = SimpleNamespace(
             state="completed",
             total=3,
@@ -50,6 +56,9 @@ class _FakeAnalysisManager:
 
     def get(self, _job_id: str):
         return self.status
+
+    def close(self):
+        self.closed = True
 
 
 def _typed_track(database: LibraryDatabase, path: Path):
@@ -287,6 +296,7 @@ def test_analyze_cli_prints_default_ml_progress_and_settings(
     assert "models=maest,mert,muq,mulan,clap" in result.output
     assert "sonara_batch_size" not in result.output
     assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
+    assert _FakeAnalysisManager.last_instance.closed
 
 
 def test_analyze_cli_runs_sonara_core_only(
@@ -399,3 +409,131 @@ def test_text_search_cli_writes_adapter_stderr_to_app_log(
     for handler in logging.getLogger("dj_track_similarity").handlers:
         handler.flush()
     assert "CLAP CLI adapter stderr" in log_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt])
+def test_analyze_cli_joins_worker_before_close_after_progress_failure(
+    monkeypatch, tmp_path: Path, error_type,
+) -> None:
+    progress_failed = threading.Event()
+    allow_finish = threading.Event()
+    worker_finished = threading.Event()
+    close_called = threading.Event()
+    waiting = threading.Event()
+    interrupted_wait = threading.Event()
+    closed_too_soon = []
+
+    class RunningManager(_FakeAnalysisManager):
+        def run_job(self, job_id):
+            assert allow_finish.wait(5)
+            worker_finished.set()
+            return super().run_job(job_id)
+
+        def close(self):
+            close_called.set()
+            assert worker_finished.is_set()
+            super().close()
+
+    class ObservedThread(threading.Thread):
+        def join(self, timeout=None):
+            if timeout is not None:
+                waiting.set()
+            try:
+                return super().join(timeout)
+            except KeyboardInterrupt:
+                interrupted_wait.set()
+                raise
+
+    def fail_progress(*_args):
+        if error_type is RuntimeError:
+            progress_failed.set()
+            raise RuntimeError("progress failed")
+        return 0
+
+    def finish_worker():
+        try:
+            if error_type is KeyboardInterrupt:
+                assert waiting.wait(5)
+                # Deliver during the real bounded join, as on the pinned
+                # CPython runtime, rather than raising from progress rendering.
+                threading.Event().wait(0.05)
+                _thread.interrupt_main()
+                assert interrupted_wait.wait(5)
+            else:
+                assert progress_failed.wait(5)
+            closed_too_soon.append(close_called.wait(0.1))
+        finally:
+            allow_finish.set()
+
+    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", RunningManager)
+    monkeypatch.setattr(cli_progress, "_write_cli_progress", fail_progress)
+    monkeypatch.setattr(cli_progress, "threading", SimpleNamespace(
+        Thread=ObservedThread, Event=threading.Event,
+    ))
+    controller = threading.Thread(target=finish_worker, daemon=True)
+    controller.start()
+    try:
+        result = CliRunner().invoke(cli.app, ["analyze", "--db", str(tmp_path / "library.sqlite")])
+    finally:
+        allow_finish.set()
+        controller.join(5)
+    assert not controller.is_alive()
+    assert result.exit_code == (130 if error_type is KeyboardInterrupt else 1)
+    assert closed_too_soon == [False]
+    assert close_called.is_set()
+    assert RunningManager.last_instance.closed
+
+
+@pytest.mark.parametrize("failure", [None, "audio-construction", "construction", "execution"])
+def test_analyze_pipeline_cli_releases_queue_then_manager(
+    monkeypatch, tmp_path: Path, failure,
+) -> None:
+    events = []
+    workers = []
+    queue_factory = cli_analysis.AnalysisStageQueue
+
+    class ObservedQueue(queue_factory):
+        def __init__(self):
+            super().__init__()
+            workers.append(self._thread)
+
+        def close(self):
+            super().close()
+            events.append("queue")
+
+    class AudioManager:
+        def __init__(self, *_args, **_kwargs):
+            if failure == "audio-construction":
+                raise RuntimeError("audio manager construction failed")
+
+        def close(self):
+            assert events == ["queue"]
+            events.append("manager")
+
+    class PipelineManager:
+        def __init__(self, *_args):
+            if failure == "construction":
+                raise RuntimeError("pipeline construction failed")
+
+        def create_job(self, **_kwargs):
+            return "pipeline-1"
+
+        def run_job(self, _job_id):
+            if failure == "execution":
+                raise RuntimeError("pipeline execution failed")
+            return SimpleNamespace(state="completed", order=[], stages={})
+
+    monkeypatch.setattr(cli_analysis, "AnalysisStageQueue", ObservedQueue)
+    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", AudioManager)
+    monkeypatch.setattr(cli_analysis, "AnalysisPipelineManager", PipelineManager)
+    result = CliRunner().invoke(cli.app, ["analyze-pipeline", "--db", str(tmp_path / "library.sqlite")])
+    assert result.exit_code == (0 if failure is None else 1)
+    assert events == (["queue"] if failure == "audio-construction" else ["queue", "manager"])
+    if failure is not None:
+        assert isinstance(result.exception, SystemExit)
+        message = (
+            "audio manager construction failed" if failure == "audio-construction"
+            else f"pipeline {failure} failed"
+        )
+        assert message in result.output
+    assert all(not worker.is_alive() for worker in workers)

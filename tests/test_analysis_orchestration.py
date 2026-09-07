@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+import threading
+import weakref
 
 import numpy as np
 import pytest
@@ -11,6 +13,7 @@ from dj_track_similarity.analysis import model_runners as runner_module
 from dj_track_similarity.analysis.config import build_analysis_job_config
 from dj_track_similarity.analysis.job_batch import AnalysisBatchItem, DecodeFailure
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
+from dj_track_similarity.analysis.queue import AnalysisStageQueue
 from dj_track_similarity.analysis.model_runners import (
     EmbeddingModelRunner,
     MaestModelRunner,
@@ -305,6 +308,18 @@ def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight() -> N
     assert first.state == second.state == "completed"
     assert len(created) == 1
     assert created[0].preflight_calls == 1
+
+    runner_ref = weakref.ref(created.pop())
+    manager.close()
+    manager.close()
+    assert runner_ref() is None
+    assert manager.get(first.job_id).state == "completed"
+    with pytest.raises(RuntimeError, match="closed"):
+        manager.start(models=["mert"], device="cpu")
+    with pytest.raises(RuntimeError, match="closed"):
+        manager.run_sync(models=["mert"], device="cpu")
+    with pytest.raises(RuntimeError, match="closed"):
+        manager.run_job(first.job_id)
 
 
 def test_ml_runtime_runner_is_not_reused_across_runtime_settings() -> None:
@@ -812,3 +827,162 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
     assert write.embedding is not None
     assert np.linalg.norm(write.embedding.vector) == pytest.approx(1.0)
     assert adapter.received_window_contexts == (context,)
+
+
+@pytest.mark.parametrize("mode", ["run_job", "run_sync", "threaded", "queued"])
+def test_manager_close_waits_for_execution_before_releasing_runners(mode) -> None:
+    output = _mert_output()
+    entered = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    closing = threading.Event()
+    stage_queue = AnalysisStageQueue() if mode == "queued" else None
+    results = []
+
+    class BlockingRunner(_FakeRunner):
+        def preflight(self):
+            with pytest.raises(RuntimeError, match="executing job"):
+                manager.close()
+            entered.set()
+            assert release.wait(5)
+            super().preflight()
+
+    runner = BlockingRunner("mert", (output,))
+    runner_ref = weakref.ref(runner)
+    manager = AnalysisJobManager(
+        _FakeRepository([]), model_runners={"mert": runner}, stage_queue=stage_queue,
+    )
+    del runner
+    # An undispatched status must not leave close waiting forever.
+    unused = manager.create_job(models=["mert"], device="cpu")
+
+    def run():
+        if mode == "run_job":
+            results.append(manager.run_job(unused))
+        else:
+            results.append(manager.run_sync(models=["mert"], device="cpu"))
+
+    def close():
+        closing.set()
+        try:
+            manager.close()
+        finally:
+            if stage_queue is not None:
+                stage_queue.close()
+        closed.set()
+
+    worker = None
+    closer = threading.Thread(target=close, daemon=True)
+    try:
+        if mode in {"queued", "threaded"}:
+            results.append(manager.start(models=["mert"], device="cpu"))
+        else:
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+        assert entered.wait(5)
+        closer.start()
+        assert closing.wait(5)
+        assert not closed.wait(0.1)
+        assert runner_ref() is not None
+    finally:
+        release.set()
+        if worker is not None and worker.ident is not None:
+            worker.join(5)
+        if closer.ident is None:
+            closer.start()
+        closer.join(5)
+    assert worker is None or not worker.is_alive()
+    assert not closer.is_alive()
+    assert closed.is_set()
+    assert runner_ref() is None
+    assert manager.get(results[0].job_id).state == "completed"
+    with pytest.raises(RuntimeError, match="closed"):
+        manager.create_job(models=["mert"], device="cpu")
+
+
+@pytest.mark.parametrize("mode", ["queued", "threaded"])
+def test_manager_close_in_dispatch_gap_preserves_accepted_work(monkeypatch, mode) -> None:
+    from types import SimpleNamespace
+    from dj_track_similarity.analysis import jobs as jobs_module
+
+    entered = threading.Event()
+    release = threading.Event()
+    closing = threading.Event()
+    closed = threading.Event()
+    statuses = []
+    output = _mert_output()
+    runner = _FakeRunner("mert", (output,))
+    stage_queue = AnalysisStageQueue() if mode == "queued" else None
+    manager = AnalysisJobManager(
+        _FakeRepository([]), model_runners={"mert": runner}, stage_queue=stage_queue,
+    )
+
+    def hold_dispatch():
+        entered.set()
+        assert release.wait(5)
+
+    if stage_queue is not None:
+        submit = stage_queue.submit
+
+        def delayed_submit(callback):
+            hold_dispatch()
+            submit(callback)
+
+        monkeypatch.setattr(stage_queue, "submit", delayed_submit)
+    else:
+        class DelayedThread(threading.Thread):
+            def start(self):
+                hold_dispatch()
+                super().start()
+
+        monkeypatch.setattr(jobs_module, "threading", SimpleNamespace(
+            Thread=DelayedThread, get_ident=threading.get_ident,
+        ))
+
+    starter = threading.Thread(target=lambda: statuses.append(
+        manager.start(models=["mert"], device="cpu")
+    ), daemon=True)
+
+    def close():
+        closing.set()
+        try:
+            manager.close()
+        finally:
+            if stage_queue is not None:
+                stage_queue.close()
+        closed.set()
+
+    closer = threading.Thread(target=close, daemon=True)
+    try:
+        starter.start()
+        assert entered.wait(5)
+        closer.start()
+        assert closing.wait(5)
+        assert not closed.wait(0.1)
+    finally:
+        release.set()
+        if starter.ident is not None:
+            starter.join(5)
+        if closer.ident is None:
+            closer.start()
+        closer.join(5)
+    assert not starter.is_alive()
+    assert not closer.is_alive()
+    assert closed.is_set()
+    assert manager.get(statuses[0].job_id).state == "completed"
+    assert runner.preflight_calls == 1
+
+
+def test_rejected_queue_dispatch_finishes_job_and_releases_reservation() -> None:
+    stage_queue = AnalysisStageQueue()
+    manager = AnalysisJobManager(_FakeRepository([]), stage_queue=stage_queue)
+    stage_queue.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        manager.start(models=["mert"], device="cpu")
+    assert manager.latest().state == "failed"
+    closed = threading.Event()
+    closer = threading.Thread(target=lambda: (manager.close(), closed.set()), daemon=True)
+    closer.start()
+    closer.join(5)
+    assert not closer.is_alive()
+    assert closed.is_set()

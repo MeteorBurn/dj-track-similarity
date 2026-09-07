@@ -186,6 +186,12 @@ class AnalysisJobManager:
         self.inference_batch_size = max(1, int(inference_batch_size))
         self.sonara_batch_size = max(1, int(sonara_batch_size))
         self._stage_queue = stage_queue
+        self._lifecycle = threading.Condition(threading.RLock())
+        self._closing = False
+        self._closed = False
+        self._closing_thread: int | None = None
+        self._active_work = 0
+        self._executing_threads: dict[int, int] = {}
         self._store: JobStore[AnalysisJobStatus] = JobStore(
             self._copy_status,
             unknown_label="analysis job",
@@ -233,6 +239,8 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
     ) -> str:
+        with self._lifecycle:
+            self._require_open()
         config = build_analysis_job_config(
             models=models,
             limit=limit,
@@ -356,21 +364,102 @@ class AnalysisJobManager:
         )
 
     def start(self, **kwargs: object) -> AnalysisJobStatus:
-        job_id = self.create_job(**kwargs)
-        if self._stage_queue is not None:
-            self._stage_queue.submit(lambda: self.run_job(job_id))
-        else:
-            threading.Thread(
-                target=self.run_job,
-                args=(job_id,),
-                daemon=True,
-            ).start()
+        job_id = self._create_admitted_job(**kwargs)
+        try:
+            if self._stage_queue is not None:
+                self._stage_queue.submit(lambda: self._run_admitted_job(job_id))
+            else:
+                threading.Thread(
+                    target=self._run_admitted_job,
+                    args=(job_id,),
+                    daemon=True,
+                ).start()
+        except BaseException as error:
+            try:
+                self._fail_stage(job_id, f"Analysis dispatch failed: {type(error).__name__}: {error}")
+            finally:
+                self._release_work()
+            raise
         return self.get(job_id)
 
     def run_sync(self, **kwargs: object) -> AnalysisJobStatus:
-        return self.run_job(self.create_job(**kwargs))
+        return self._run_admitted_job(self._create_admitted_job(**kwargs))
 
     def run_job(self, job_id: str) -> AnalysisJobStatus:
+        with self._lifecycle:
+            self._require_open()
+            self._active_work += 1
+        return self._run_admitted_job(job_id)
+
+    def _create_admitted_job(self, **kwargs: object) -> str:
+        with self._lifecycle:
+            self._require_open()
+            job_id = self.create_job(**kwargs)
+            # Reserve before dispatch: the callback/thread may not have started
+            # when another owner asks us to close.
+            self._active_work += 1
+            return job_id
+
+    def _require_open(self) -> None:
+        if self._closing:
+            raise RuntimeError("Analysis manager is closed")
+
+    def _release_work(self) -> None:
+        with self._lifecycle:
+            self._active_work -= 1
+            self._lifecycle.notify_all()
+
+    def _run_admitted_job(self, job_id: str) -> AnalysisJobStatus:
+        thread_id = threading.get_ident()
+        with self._lifecycle:
+            self._executing_threads[thread_id] = self._executing_threads.get(thread_id, 0) + 1
+        try:
+            return self._execute_job(job_id)
+        finally:
+            with self._lifecycle:
+                remaining = self._executing_threads[thread_id] - 1
+                if remaining:
+                    self._executing_threads[thread_id] = remaining
+                else:
+                    del self._executing_threads[thread_id]
+                self._release_work()
+
+    def close(self) -> None:
+        """Release runners after work unwinds; owners must first drain the shared queue."""
+        with self._lifecycle:
+            self.check_close_allowed()
+            if self._closing:
+                if self._closing_thread == threading.get_ident():
+                    return
+                self._lifecycle.wait_for(lambda: self._closed)
+                return
+            self._closing = True
+            self._closing_thread = threading.get_ident()
+            self._lifecycle.wait_for(lambda: self._active_work == 0)
+            runners = (
+                self._runtime_runners,
+                self._provided_runner_handles,
+                self._model_runners,
+            )
+            self._runtime_runners = {}
+            self._provided_runner_handles = None
+            self._model_runners = None
+        # Finalizers may need application/runner locks. Drop the last owned
+        # references only after leaving the lifecycle lock.
+        del runners
+        with self._lifecycle:
+            self._closed = True
+            self._lifecycle.notify_all()
+
+    def check_close_allowed(self) -> None:
+        """Reject waits on this thread before an owner detaches the manager."""
+        with self._lifecycle:
+            if threading.get_ident() in self._executing_threads:
+                raise RuntimeError("Analysis manager cannot close from an executing job")
+        if self._stage_queue is not None:
+            self._stage_queue.check_close_allowed()
+
+    def _execute_job(self, job_id: str) -> AnalysisJobStatus:
         status = self.get(job_id)
         if status.cancel_requested:
             return self._finish_cancelled(job_id)

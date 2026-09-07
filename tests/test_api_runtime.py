@@ -340,3 +340,69 @@ def test_job_start_reservation_closes_exclusive_operation_toctou(
     assert not start_thread.is_alive()
     assert not prepare_thread.is_alive()
     assert exclusive_result == ["blocked"]
+
+
+def test_state_close_drains_inline_pipeline_children_outside_state_lock(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    state = AppDatabaseState(tmp_path / "pipeline.sqlite")
+    audio = state.require_analysis_jobs()
+    pipeline = state.require_analysis_pipeline_jobs()
+    queue = state.analysis_queue
+    entered = threading.Event()
+    release = threading.Event()
+    joining = threading.Event()
+    closed = threading.Event()
+    joined = queue._thread.join
+    order = []
+
+    def observe_join(*args, **kwargs):
+        joining.set()
+        return joined(*args, **kwargs)
+
+    def execute(job_id):
+        models = audio.get(job_id).models
+        order.append(models)
+        if models == ["sonara"]:
+            with pytest.raises(RuntimeError, match="worker"):
+                state.close()
+            assert state.require_analysis_jobs() is audio
+            entered.set()
+            assert release.wait(5)
+            with pytest.raises(RuntimeError, match="worker"):
+                state.close()
+        # This lock acquisition must remain possible while shutdown is joining.
+        assert state.current()["selected"]
+        audio._update(job_id, state="completed")
+        return audio.get(job_id)
+
+    monkeypatch.setattr(queue._thread, "join", observe_join)
+    monkeypatch.setattr(audio, "_execute_job", execute)
+    monkeypatch.setattr(audio, "current_sonara_track_count", lambda: 1)
+    closer = threading.Thread(target=lambda: (state.close(), closed.set()), daemon=True)
+    second_close = threading.Thread(target=state.close, daemon=True)
+    try:
+        job = pipeline.start(stages=["sonara", "ml"], limit=None, ml={"models": ["mert"]})
+        assert entered.wait(5)
+        closer.start()
+        assert joining.wait(5)
+        second_close.start()
+        assert not closed.is_set()
+        with pytest.raises(DatabaseBusy, match="closed"):
+            with state.exclusive_db("late operation"):
+                pytest.fail("closed state admitted an exclusive operation")
+    finally:
+        release.set()
+        if closer.ident is None:
+            closer.start()
+        closer.join(5)
+        if second_close.ident is not None:
+            second_close.join(5)
+    assert not closer.is_alive()
+    assert not second_close.is_alive()
+    assert not queue._thread.is_alive()
+    assert closed.is_set()
+    assert pipeline.get(job.job_id).state == "completed"
+    assert order == [["sonara"], ["mert"]]
+    with pytest.raises(RuntimeError, match="closed"):
+        audio.run_sync(models=["mert"], device="cpu")

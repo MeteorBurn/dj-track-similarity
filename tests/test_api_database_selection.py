@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import weakref
 from pathlib import Path
 
 import pytest
@@ -352,3 +354,129 @@ def test_database_switch_is_rejected_while_scan_job_is_queued(
     assert switch_response.json() == {
         "detail": "Cannot switch database while jobs are running"
     }
+
+
+def test_idle_switch_releases_previous_owners_and_failed_switch_keeps_state(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    state = api_state.AppDatabaseState(tmp_path / "first.sqlite")
+    first_queue = state.analysis_queue
+    first_worker = first_queue._thread
+    retiring = threading.Event()
+    rejected_self_close = threading.Event()
+    first_join = first_worker.join
+
+    def observe_retirement(*args, **kwargs):
+        retiring.set()
+        return first_join(*args, **kwargs)
+
+    def old_callback():
+        assert retiring.wait(5)
+        with pytest.raises(RuntimeError, match="worker"):
+            state.close()
+        rejected_self_close.set()
+
+    monkeypatch.setattr(first_worker, "join", observe_retirement)
+    first_queue.submit(old_callback)
+    first_queue_ref = weakref.ref(first_queue)
+    first_manager_ref = weakref.ref(state.analysis_jobs)
+    first_manager_close = api_state.AnalysisJobManager.close
+
+    def close_old_manager(manager):
+        with pytest.raises(RuntimeError, match="replacement cleanup"):
+            state.close()
+        first_manager_close(manager)
+
+    del first_queue
+    with monkeypatch.context() as close_observer:
+        close_observer.setattr(api_state.AnalysisJobManager, "close", close_old_manager)
+        state.switch(tmp_path / "second.sqlite")
+    assert rejected_self_close.is_set()
+    assert not first_worker.is_alive()
+    assert first_queue_ref() is None
+    assert first_manager_ref() is None
+    before = state.current()
+    current_manager = state.require_analysis_jobs()
+    partial_workers = []
+    partial_owners = []
+    queue_factory = api_state.AnalysisStageQueue
+    manager_factory = api_state.AnalysisJobManager
+
+    def capture_queue():
+        queue = queue_factory()
+        partial_workers.append(queue._thread)
+        partial_owners.append(weakref.ref(queue))
+        return queue
+
+    def capture_manager(*args, **kwargs):
+        manager = manager_factory(*args, **kwargs)
+        partial_owners.append(weakref.ref(manager))
+        return manager
+
+    def fail_later_owner(_database):
+        raise RuntimeError("replacement construction failed")
+
+    monkeypatch.setattr(api_state, "AnalysisStageQueue", capture_queue)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", capture_manager)
+    monkeypatch.setattr(api_state, "GenreTagJobManager", fail_later_owner)
+    try:
+        with pytest.raises(RuntimeError, match="replacement construction failed"):
+            state.switch(tmp_path / "failed.sqlite")
+        assert state.current() == before
+        assert state.require_analysis_jobs() is current_manager
+        assert all(not worker.is_alive() for worker in partial_workers)
+        assert all(owner() is None for owner in partial_owners)
+        completed = threading.Event()
+        state.analysis_queue.submit(completed.set)
+        assert completed.wait(5)
+    finally:
+        state.close()
+    state.close()
+    with pytest.raises(api_state.DatabaseBusy, match="closed"):
+        state.switch(tmp_path / "late.sqlite")
+
+
+@pytest.mark.parametrize("fail_close", [False, True])
+def test_app_lifespan_closes_state_and_text_cache_even_on_cleanup_error(
+    monkeypatch, tmp_path: Path, fail_close: bool,
+) -> None:
+    events = []
+    states = []
+
+    class ObservedState(api_state.AppDatabaseState):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            states.append(self)
+
+        def close(self):
+            super().close()
+            events.append("state")
+            if fail_close:
+                raise RuntimeError("cleanup failure")
+
+    cache_close = api_module.TextEmbeddingAdapterCache.close
+
+    def close_cache(cache):
+        cache_close(cache)
+        events.append("text-cache")
+
+    monkeypatch.setattr(api_module, "AppDatabaseState", ObservedState)
+    monkeypatch.setattr(api_module.TextEmbeddingAdapterCache, "close", close_cache)
+    app = api_module.create_app(tmp_path / "lifespan.sqlite")
+    queue_worker = states[0].analysis_queue._thread
+
+    def use_app():
+        with TestClient(app) as client:
+            assert client.get("/api/database/current").status_code == 200
+            assert queue_worker.is_alive()
+
+    if fail_close:
+        with pytest.raises(RuntimeError, match="cleanup failure"):
+            use_app()
+    else:
+        use_app()
+    assert sorted(events) == ["state", "text-cache"]
+    assert not queue_worker.is_alive()
+    with pytest.raises(api_state.DatabaseBusy, match="closed"):
+        with states[0].job_start():
+            pytest.fail("closed state admitted work")

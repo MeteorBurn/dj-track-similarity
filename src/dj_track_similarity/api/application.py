@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -143,7 +144,14 @@ def create_app(
     register_evaluation_routes(app, state)
     register_reference_compare_routes(app, state)
     text_adapters = TextEmbeddingAdapterCache(_text_embedding_adapter)
-    app.router.on_shutdown.append(text_adapters.close)
+
+    async def close_runtime_owners() -> None:
+        try:
+            await run_in_threadpool(state.close)
+        finally:
+            text_adapters.close()
+
+    app.router.on_shutdown.append(close_runtime_owners)
     register_search_routes(
         app,
         state,

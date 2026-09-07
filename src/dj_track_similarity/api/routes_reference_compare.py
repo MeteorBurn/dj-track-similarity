@@ -1,24 +1,38 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
+from time import perf_counter
 
 from fastapi import FastAPI, HTTPException
 
 from .schemas import ReferenceCompareRequest, ReferenceCompareVerdictRequest
 from .state import AppDatabaseState
 from ..search.reference_compare import (
+    ReferenceCompareConflict,
     ReferenceCompareQuery,
+    ReferenceCompareResponse,
     build_reference_compare,
     record_reference_compare_verdict_exact,
 )
 from ..track_models import TrackIdentity
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 def register_reference_compare_routes(app: FastAPI, state: AppDatabaseState) -> None:
     @app.post("/api/reference/compare")
-    def reference_compare(request: ReferenceCompareRequest):
+    def reference_compare(request: ReferenceCompareRequest) -> ReferenceCompareResponse:
+        started = perf_counter()
+        LOGGER.info(
+            "LAB compare started seed=%s models=%s limit=%s",
+            request.seed_track_id,
+            ",".join(request.models),
+            request.limit,
+        )
         try:
-            return build_reference_compare(
+            response = build_reference_compare(
                 state.require_db(),
                 ReferenceCompareQuery(
                     seed_track_id=request.seed_track_id,
@@ -26,8 +40,37 @@ def register_reference_compare_routes(app: FastAPI, state: AppDatabaseState) -> 
                     limit=request.limit,
                 ),
             )
+        except ReferenceCompareConflict as error:
+            LOGGER.warning(
+                "LAB compare conflict seed=%s seconds=%.3f error=%s",
+                request.seed_track_id,
+                perf_counter() - started,
+                error,
+            )
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
+            LOGGER.warning(
+                "LAB compare rejected seed=%s seconds=%.3f error=%s",
+                request.seed_track_id,
+                perf_counter() - started,
+                error,
+            )
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except Exception:
+            LOGGER.exception(
+                "LAB compare failed seed=%s seconds=%.3f",
+                request.seed_track_id,
+                perf_counter() - started,
+            )
+            raise
+        LOGGER.info(
+            "LAB compare completed seed=%s groups=%s results=%s seconds=%.3f",
+            request.seed_track_id,
+            len(response.groups),
+            sum(len(group.results) for group in response.groups),
+            perf_counter() - started,
+        )
+        return response
 
     @app.post("/api/reference/compare/verdict")
     def reference_compare_verdict(request: ReferenceCompareVerdictRequest):

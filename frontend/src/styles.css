@@ -365,51 +365,106 @@ button {
 .reference-compare-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
+  min-width: 0;
 }
 
 .reference-compare-header {
-  align-items: end;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) minmax(76px, 92px) max-content;
+  min-width: 0;
 }
 
-.reference-compare-header > div,
-.reference-compare-header label {
+.reference-compare-heading,
+.reference-compare-controls label {
   color: var(--text-muted);
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
-.reference-compare-header strong {
+.reference-compare-heading strong {
   color: var(--text-strong);
+  font-size: 14px;
 }
 
-.reference-compare-header span,
-.reference-compare-header label {
+.reference-compare-heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-compare-heading span,
+.reference-compare-controls label {
   font-size: 12px;
 }
 
+.reference-compare-controls {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reference-compare-controls label {
+  flex: 0 0 64px;
+  font-weight: 700;
+}
+
+.reference-compare-controls input {
+  min-height: 34px;
+  width: 100%;
+}
+
+.reference-compare-run-button {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-soft-border);
+  color: var(--accent);
+  flex: 1 0 auto;
+  font-weight: 700;
+}
+
+.reference-compare-cancel-button {
+  flex: 0 0 auto;
+}
+
+.reference-compare-status {
+  align-items: baseline;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.reference-compare-status > span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
 .reference-compare-grid {
+  align-items: start;
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+  grid-template-columns: repeat(6, minmax(220px, 1fr));
   max-height: min(680px, 60vh);
   overflow: auto;
+  padding-bottom: 4px;
   padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .reference-compare-group {
   background: var(--surface-muted);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
+  container-name: lab-model;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 270px;
-  padding: 9px;
+  min-width: 0;
+  padding: 7px;
 }
 
 .reference-compare-group.missing {
@@ -419,16 +474,39 @@ button {
 
 .reference-compare-group-title {
   align-items: center;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border-soft);
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: space-between;
+  padding-bottom: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
-.reference-compare-group-title span,
+.reference-compare-group.missing .reference-compare-group-title {
+  background: var(--surface-disabled);
+}
+
+.reference-compare-count {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.reference-compare-count,
+.reference-compare-hint,
 .reference-compare-empty,
-.reference-compare-error {
+.reference-compare-error,
+.reference-compare-save-status {
   color: var(--text-muted);
   font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .reference-compare-error {
@@ -436,20 +514,86 @@ button {
 }
 
 .reference-compare-result {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
   display: grid;
   gap: 6px;
+  min-width: 0;
+  padding: 4px;
+}
+
+/* LAB cards have less width than the main results list. Keep the title and
+   score together, with the existing track actions on their own second line. */
+.reference-compare-result .result-row {
+  border: 0;
+  border-radius: 0;
+  gap: 6px;
+  grid-template-columns: 34px minmax(0, 1fr) repeat(3, 34px) minmax(42px, max-content);
+  min-width: 0;
+  padding: 0;
+}
+
+.reference-compare-result .result-row .result-preview-button {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.reference-compare-result .result-row .track-title-cell {
+  grid-column: 2 / -2;
+  grid-row: 1;
+}
+
+.reference-compare-result .result-row meter {
+  display: none;
+}
+
+.reference-compare-result .result-row .similarity-score {
+  display: block;
+  grid-column: -2 / -1;
+  grid-row: 1;
+  text-align: right;
+}
+
+.reference-compare-result .result-row .track-liked-button {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.reference-compare-result .result-row .result-metadata-button {
+  grid-column: 4;
+  grid-row: 2;
+}
+
+.reference-compare-result .result-row .result-seed-button {
+  grid-column: 5;
+  grid-row: 2;
+}
+
+.reference-compare-result .result-row .result-playlist-toggle-button {
+  grid-column: 6;
+  grid-row: 2;
+  justify-self: end;
+}
+
+.reference-compare-result .result-row .result-row-playback {
+  grid-column: 1 / -1;
+  grid-row: 3;
 }
 
 .reference-compare-verdicts {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 5px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .reference-compare-verdict-button {
   font-size: 12px;
   min-height: 28px;
-  padding: 4px 7px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 4px 3px;
+  white-space: normal;
 }
 
 .reference-compare-verdict-button.active {
@@ -458,29 +602,56 @@ button {
   color: var(--accent-active-text);
 }
 
-.reference-compare-notes {
-  color: var(--text-muted);
-  display: grid;
-  font-size: 12px;
-  gap: 4px;
+.reference-compare-save-status {
+  color: var(--accent);
 }
 
-.reference-compare-notes textarea {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-track);
-  font: inherit;
-  line-height: 1.35;
-  min-height: 58px;
-  padding: 7px 8px;
-  resize: vertical;
-  width: 100%;
+@container lab-model (max-width: 260px) {
+  .reference-compare-result .result-row {
+    gap: 4px 3px;
+    grid-template-columns: 28px minmax(35px, 1fr) repeat(4, 28px);
+  }
+
+  .reference-compare-result .result-row .track-title-cell {
+    grid-column: 1 / -1;
+  }
+
+  .reference-compare-result .result-row .track-title-cell strong {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.3;
+    min-height: 2.6em;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .reference-compare-result .result-row button.icon-button {
+    min-height: 28px;
+    min-width: 28px;
+    width: 28px;
+  }
+
+  .reference-compare-result .result-row .result-preview-button {
+    grid-row: 2;
+  }
+
+  .reference-compare-result .result-row .similarity-score {
+    font-size: 12px;
+    grid-column: 2;
+    grid-row: 2;
+    text-align: center;
+  }
+
+  .reference-compare-verdicts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.reference-compare-notes textarea:focus-visible {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px var(--accent-soft-border);
+.reference-compare-panel button:focus-visible,
+.reference-compare-panel input:focus-visible {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
   outline: none;
 }
 

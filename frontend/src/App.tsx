@@ -1440,6 +1440,7 @@ export function App() {
 
         <SearchPlaylistPanel
           seedTracks={seedTracks}
+          onActivity={appendActivity}
           textQuery={textQuery}
           onTextQueryChange={setTextQuery}
           textNegativeQuery={textNegativeQuery}

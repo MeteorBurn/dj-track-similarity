@@ -25,6 +25,7 @@ import {
 } from "./searchSurfaceState";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
+import type { useActivityLog } from "./useActivityLog";
 
 const playlistPageSize = 20;
 
@@ -109,6 +110,7 @@ const classifierEmptyStateMessage = "No promoted classifier profiles found. Prom
 
 export function SearchPlaylistPanel({
   seedTracks,
+  onActivity,
   textQuery,
   onTextQueryChange,
   textNegativeQuery,
@@ -178,6 +180,7 @@ export function SearchPlaylistPanel({
   handleExport
 }: {
   seedTracks: Track[];
+  onActivity: ReturnType<typeof useActivityLog>["appendActivity"];
   textQuery: string;
   onTextQueryChange: (value: string) => void;
   textNegativeQuery: string;
@@ -398,6 +401,7 @@ export function SearchPlaylistPanel({
           <div id="search-panel-lab" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-lab">
             <ReferenceComparePanel
               seedTracks={seedTracks}
+              onActivity={onActivity}
               busy={busy}
               seedSet={seedSet}
               playlistSet={playlistSet}

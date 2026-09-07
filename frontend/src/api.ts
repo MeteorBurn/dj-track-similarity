@@ -224,11 +224,14 @@ export type ReferenceComparePayload = {
   models?: ReferenceCompareModel[];
   limit?: number;
 };
+export type ReferenceCompareResult = SearchResult & {
+  saved_verdict: ReferenceCompareVerdict | null;
+};
 export type ReferenceCompareGroup = {
   model: ReferenceCompareModel;
   available: boolean;
   reason?: string | null;
-  results: SearchResult[];
+  results: ReferenceCompareResult[];
 };
 export type ReferenceCompareResponse = {
   seed_track_id: number;

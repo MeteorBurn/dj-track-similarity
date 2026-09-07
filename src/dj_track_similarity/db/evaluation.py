@@ -358,6 +358,96 @@ class EvaluationRepository:
             )
         return sessions
 
+    def get_track_pair_feedback_tags_exact(
+        self,
+        seed: TrackIdentity,
+        candidates: Sequence[TrackIdentity],
+        sources: Sequence[str],
+    ) -> dict[tuple[int, str], tuple[str, ...]]:
+        """Read selected pair labels against current identities in one snapshot."""
+
+        if not isinstance(seed, TrackIdentity):
+            raise TypeError("seed must be a TrackIdentity")
+        selected: dict[int, TrackIdentity] = {}
+        for candidate in candidates:
+            if not isinstance(candidate, TrackIdentity):
+                raise TypeError("candidates must contain TrackIdentity values")
+            previous = selected.setdefault(candidate.track_id, candidate)
+            if previous != candidate:
+                raise RuntimeError("Conflicting candidate identities; compare again")
+        if any(
+            identity.catalog_uuid != self.catalog_uuid
+            for identity in (seed, *selected.values())
+        ):
+            raise RuntimeError("Track identity is stale; refresh the current catalog")
+        clean_sources = tuple(dict.fromkeys(
+            _coerced_text(source, "Pair feedback source") for source in sources
+        ))
+        if not selected or not clean_sources:
+            return {}
+
+        feedback: dict[tuple[int, str], tuple[str, ...]] = {}
+        identities = tuple(selected.values())
+        with closing(self.connect()) as connection, connection:
+            connection.execute("BEGIN")
+            # Two binds per identity, plus the seed and selected sources.
+            for offset in range(0, len(identities), 400):
+                batch = identities[offset:offset + 400]
+                rows = connection.execute(
+                    f"""
+                    WITH requested(track_id, track_uuid) AS (
+                        VALUES {",".join("(?, ?)" for _ in batch)}
+                    )
+                    SELECT requested.track_id, current.track_uuid,
+                           feedback.source, feedback.reason_tags_json
+                    FROM requested
+                    LEFT JOIN tracks AS current
+                      ON current.track_id = requested.track_id
+                     AND current.track_uuid = requested.track_uuid
+                     AND current.missing_since IS NULL
+                    LEFT JOIN pair_feedback AS feedback
+                      ON feedback.seed_track_id = ?
+                     AND feedback.candidate_track_id = current.track_id
+                     AND feedback.source IN (
+                         {",".join("?" for _ in clean_sources)}
+                     )
+                    WHERE EXISTS (
+                        SELECT 1 FROM tracks
+                        WHERE track_id = ? AND track_uuid = ?
+                          AND missing_since IS NULL
+                    )
+                    """,
+                    (
+                        *(value for item in batch for value in (
+                            item.track_id, item.track_uuid,
+                        )),
+                        seed.track_id,
+                        *clean_sources,
+                        seed.track_id,
+                        seed.track_uuid,
+                    ),
+                ).fetchall()
+                current_ids: set[int] = set()
+                for row in rows:
+                    if row["track_uuid"] is None:
+                        raise RuntimeError(
+                            "Track identity is stale; refresh the current catalog"
+                        )
+                    candidate_id = int(row["track_id"])
+                    current_ids.add(candidate_id)
+                    if row["source"] is not None:
+                        tags = _json_load(
+                            row["reason_tags_json"], "Pair feedback reason tags"
+                        )
+                        feedback[(candidate_id, str(row["source"]))] = tuple(
+                            str(tag) for tag in tags
+                        )
+                if current_ids != {item.track_id for item in batch}:
+                    raise RuntimeError(
+                        "Track identity is stale; refresh the current catalog"
+                    )
+        return feedback
+
     def get_pair_feedback_map(
         self,
     ) -> dict[tuple[int, int, str], dict[str, Any]]:

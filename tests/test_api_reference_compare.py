@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -37,7 +37,8 @@ def test_reference_compare_returns_separate_model_groups(
     db_path = tmp_path / "library.sqlite"
     db, tracks = _reference_library(db_path, tmp_path)
 
-    response = _client(monkeypatch, db_path).post(
+    client = _client(monkeypatch, db_path)
+    response = client.post(
         "/api/reference/compare",
         json={"seed_track_id": tracks["seed"].track_id, "limit": 2},
     )
@@ -62,7 +63,32 @@ def test_reference_compare_returns_separate_model_groups(
         )
     assert groups["mulan"]["available"] is False
     assert groups["mulan"]["results"] == []
+    assert all(
+        result["saved_verdict"] is None
+        for group in groups.values()
+        for result in group["results"]
+    )
     assert not db.evaluation_path.exists()
+
+    get_summaries = LibraryDatabase.get_track_summaries
+
+    def changed_catalog(database, track_ids, *, include_missing=False):
+        return tuple(
+            replace(summary, catalog_uuid="changed-catalog")
+            if summary.track_id == tracks["mert_top"].track_id
+            else summary
+            for summary in get_summaries(
+                database, track_ids, include_missing=include_missing
+            )
+        )
+
+    monkeypatch.setattr(LibraryDatabase, "get_track_summaries", changed_catalog)
+    conflict = client.post(
+        "/api/reference/compare",
+        json={"seed_track_id": tracks["seed"].track_id, "limit": 2},
+    )
+    assert conflict.status_code == 409
+    assert "identity changed" in conflict.json()["detail"]
 
 
 def test_reference_compare_marks_missing_model_without_error(
@@ -103,8 +129,19 @@ def test_reference_compare_verdict_persists_pair_feedback(
     db = LibraryDatabase(db_path)
     seed = _track(db, tmp_path, "seed")
     candidate = _track(db, tmp_path, "candidate")
+    other_seed = _track(db, tmp_path, "other-seed")
+    outputs = _embedding_outputs()
+    db.register_analysis_outputs((outputs["muq"], outputs["mert"]))
+    for model in ("muq", "mert"):
+        for target, values in (
+            (seed, [1.0, 0.0]),
+            (candidate, [0.9, 0.1]),
+            (other_seed, [0.8, 0.2]),
+        ):
+            _embedding(db, target, outputs[model], values)
 
-    response = _client(monkeypatch, db_path).post(
+    client = _client(monkeypatch, db_path)
+    response = client.post(
         "/api/reference/compare/verdict",
         json={
             "seed": _identity_payload(seed),
@@ -128,6 +165,44 @@ def test_reference_compare_verdict_persists_pair_feedback(
     assert feedback["rating"] == 2
     assert feedback["reason_tags"] == ["palette"]
     assert feedback["notes"] == "same pressure and texture"
+
+    def saved_verdicts(reference: AnalysisTarget) -> dict[tuple[str, int], str | None]:
+        comparison = client.post(
+            "/api/reference/compare",
+            json={
+                "seed_track_id": reference.track_id,
+                "models": ["muq", "mert"],
+                "limit": 2,
+            },
+        )
+        assert comparison.status_code == 200
+        return {
+            (group["model"], result["track"]["track_id"]): result["saved_verdict"]
+            for group in comparison.json()["groups"]
+            for result in group["results"]
+        }
+
+    assert saved_verdicts(seed) == {
+        ("muq", candidate.track_id): "palette",
+        ("muq", other_seed.track_id): None,
+        ("mert", candidate.track_id): None,
+        ("mert", other_seed.track_id): None,
+    }
+    assert all(verdict is None for verdict in saved_verdicts(other_seed).values())
+    for verdict in ("miss", "genre"):
+        updated = client.post(
+            "/api/reference/compare/verdict",
+            json={
+                "seed": _identity_payload(seed),
+                "candidate": _identity_payload(candidate),
+                "model": "muq",
+                "verdict": verdict,
+            },
+        )
+        assert updated.status_code == 200
+        assert updated.json()["id"] == payload["id"]
+        assert saved_verdicts(seed)[("muq", candidate.track_id)] == verdict
+    assert not db.evaluation_path.exists()
 
 
 def test_reference_compare_verdict_rejects_legacy_numeric_only_body(

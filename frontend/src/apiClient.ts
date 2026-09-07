@@ -396,15 +396,17 @@ const searchApi = {
 };
 
 const referenceCompareApi = {
-  referenceCompare: (payload: ReferenceComparePayload) =>
+  referenceCompare: (payload: ReferenceComparePayload, options?: { signal?: AbortSignal }) =>
     request<ReferenceCompareResponse>("/api/reference/compare", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     }),
-  referenceCompareVerdict: (payload: ReferenceCompareVerdictPayload) =>
+  referenceCompareVerdict: (payload: ReferenceCompareVerdictPayload, options?: { signal?: AbortSignal }) =>
     request<ReferenceCompareVerdictResult>("/api/reference/compare/verdict", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     })
 };
 

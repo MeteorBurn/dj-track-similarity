@@ -521,17 +521,32 @@ def _typed_vector(
 
 
 def test_text_search_feedback_stores_updates_and_withdraws_verdicts(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     track_id = _track_with_embedding(db, "judged.wav", [0.0, 1.0, 0.0], "clap")
     with db.connect() as connection:
+        assert {row[1] for row in connection.execute("PRAGMA table_info(text_preset_feedback)")} == {
+            "track_id", "preset_key", "analysis_family", "verdict",
+            "selection_size", "weight", "created_at", "updated_at",
+        }
         track_uuid = connection.execute(
             "SELECT track_uuid FROM tracks WHERE track_id = ?",
             (track_id,),
         ).fetchone()[0]
     client = TestClient(create_app(db_path))
+
+    statements: list[str] = []
+    original_connect = LibraryDatabase.connect
+
+    def traced_connect(database: LibraryDatabase):
+        connection = original_connect(database)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(LibraryDatabase, "connect", traced_connect)
 
     stored = client.post(
         "/api/search/text/feedback",
@@ -594,6 +609,9 @@ def test_text_search_feedback_stores_updates_and_withdraws_verdicts(
         },
     )
     assert missing.status_code == 404
+    executed = [statement.lstrip().upper() for statement in statements]
+    assert any(statement.startswith("INSERT INTO TEXT_PRESET_FEEDBACK") for statement in executed)
+    assert not any(statement.startswith(("CREATE ", "ALTER ", "DROP ")) for statement in executed)
 
 
 def test_text_search_feedback_lookup_returns_only_a_settled_verdict(

@@ -338,9 +338,8 @@ CREATE INDEX idx_transition_feedback_incoming ON transition_feedback(incoming_tr
 
 # The raw reinforcement signal for tuning text-search presets: one relevance
 # verdict per (track, preset, text model). Written on an explicit user click,
-# read by scripts/prompt_preset_tune.py. IF NOT EXISTS is deliberate: libraries
-# created before this table gain it additively on the first verdict, which is
-# a new capability, not a migration of existing data.
+# read by scripts/prompt_preset_tune.py. Created with each new library;
+# older libraries require an explicit schema update before writing verdicts.
 #
 # selection_size records how many presets shared one click. A bank merged from
 # four labels writes four rows, and without this column each of them looked
@@ -365,23 +364,6 @@ CREATE TABLE IF NOT EXISTS text_preset_feedback (
 TEXT_PRESET_FEEDBACK_INDEX_DDL = (
     "CREATE INDEX IF NOT EXISTS idx_text_preset_feedback_pool "
     "ON text_preset_feedback(preset_key, analysis_family, verdict, track_id);"
-)
-
-# A library that already carries verdicts predates the column. Adding it is
-# additive and keeps every stored row readable: the default says "counted as a
-# whole example", which is exactly how those rows were written.
-TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL = (
-    "ALTER TABLE text_preset_feedback "
-    "ADD COLUMN selection_size INTEGER NOT NULL DEFAULT 1;"
-)
-
-# selection_size says how many labels shared a click; weight says how much of
-# it this one earned. Where the search reported each label's own match the
-# weight carries that measurement, and where it did not the click is split
-# evenly, which is all that can honestly be said about it.
-TEXT_PRESET_FEEDBACK_WEIGHT_DDL = (
-    "ALTER TABLE text_preset_feedback "
-    "ADD COLUMN weight REAL NOT NULL DEFAULT 1.0;"
 )
 
 _DDL_TEXT_PRESET_FEEDBACK = (

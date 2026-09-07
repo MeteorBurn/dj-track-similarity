@@ -9,12 +9,6 @@ from numbers import Integral, Real
 import sqlite3
 from typing import Any
 
-from .ddl import (
-    TEXT_PRESET_FEEDBACK_INDEX_DDL,
-    TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL,
-    TEXT_PRESET_FEEDBACK_TABLE_DDL,
-    TEXT_PRESET_FEEDBACK_WEIGHT_DDL,
-)
 from ..track_models import TrackIdentity
 
 
@@ -78,12 +72,6 @@ class EvaluationRepository:
         timestamp = _utc_timestamp()
         with self._write_lock:
             with closing(self.connect()) as connection, connection:
-                # Libraries created before this table gain it on the first
-                # explicit verdict click: an additive capability, not a
-                # migration of existing data.
-                connection.execute(TEXT_PRESET_FEEDBACK_TABLE_DDL)
-                connection.execute(TEXT_PRESET_FEEDBACK_INDEX_DDL)
-                _add_missing_columns(connection)
                 row = connection.execute(
                     """
                     SELECT track_id FROM tracks
@@ -1061,24 +1049,6 @@ def _json_object(value: object, field_name: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{field_name} must be a JSON object")
     return dict(value)
-
-
-def _add_missing_columns(connection: sqlite3.Connection) -> None:
-    """Give an older feedback table its columns, once, without a migration step.
-
-    Verdicts are written on a click, so the write path is where a library first
-    meets this table at all. Adding the columns here keeps that property: a
-    library that predates one gains it on the next click, and its existing rows
-    keep the defaults, which say exactly what they were — a whole example each.
-    """
-
-    columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(text_preset_feedback)")
-    }
-    if "selection_size" not in columns:
-        connection.execute(TEXT_PRESET_FEEDBACK_SELECTION_SIZE_DDL)
-    if "weight" not in columns:
-        connection.execute(TEXT_PRESET_FEEDBACK_WEIGHT_DDL)
 
 
 def _preset_weights(

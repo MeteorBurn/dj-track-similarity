@@ -8,12 +8,12 @@ import wave
 import numpy as np
 import pytest
 
-from dj_track_similarity.audio_loader import (
+from dj_track_similarity.audio.loader import (
     load_audio_mono_with_ffmpeg,
     load_decoded_audio,
     load_decoded_audio_with_ffmpeg,
 )
-from dj_track_similarity.ffmpeg_runtime import load_project_pyav
+from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
 
 
 def _write_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:

@@ -8,8 +8,8 @@ from fastapi.responses import FileResponse
 import pytest
 from fastapi.testclient import TestClient
 
-from dj_track_similarity import api as api_module
-from dj_track_similarity import media_preview as media_preview_module
+from dj_track_similarity.api import application as api_module
+from dj_track_similarity.api import media_preview as media_preview_module
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
@@ -564,7 +564,7 @@ def test_media_endpoint_transcodes_aiff_without_modifying_source(
 
     monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
     monkeypatch.setattr(
-        "dj_track_similarity.api_routes_library.transcoded_wav_file_response",
+        "dj_track_similarity.api.routes_library.transcoded_wav_file_response",
         fake_transcode,
     )
 
@@ -596,7 +596,7 @@ def test_media_endpoint_reports_transcode_failure_without_traceback(
 
     monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
     monkeypatch.setattr(
-        "dj_track_similarity.api_routes_library.transcoded_wav_file_response",
+        "dj_track_similarity.api.routes_library.transcoded_wav_file_response",
         fail_transcode,
     )
 

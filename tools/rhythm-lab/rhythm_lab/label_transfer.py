@@ -26,10 +26,10 @@ import sqlite3
 import tempfile
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
-from dj_track_similarity.classifier_manifest import (
+from dj_track_similarity.classifier.manifest import (
     resolve_classifier_artifact_paths,
 )
-from dj_track_similarity.db_schema import validate_library_schema
+from dj_track_similarity.db.schema import validate_library_schema
 
 
 EXPORT_KIND = "rhythm_lab_label_export"

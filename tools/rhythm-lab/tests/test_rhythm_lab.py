@@ -19,7 +19,7 @@ if str(LAB_ROOT) not in sys.path:
 
 from dj_track_similarity.analysis_models import current_embedding_spec  # noqa: E402
 from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
-from dj_track_similarity.sonara_classifier_features import (  # noqa: E402
+from dj_track_similarity.classifier.sonara_features import (  # noqa: E402
     resolve_sonara_classifier_feature,
 )
 from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402

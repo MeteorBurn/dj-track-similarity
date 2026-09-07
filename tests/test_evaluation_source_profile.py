@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dj_track_similarity.analysis_model_runners import current_embedding_analysis_output
+from dj_track_similarity.analysis.model_runners import current_embedding_analysis_output
 from dj_track_similarity.evaluation.candidates import CandidatePoolRow, CandidateSourceContribution
 from dj_track_similarity.evaluation.source_profile import SourceProfileRequest, build_source_profile, profile_candidate_rows
 from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary

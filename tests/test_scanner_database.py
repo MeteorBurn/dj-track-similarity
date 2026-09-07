@@ -8,7 +8,7 @@ import pytest
 from mutagen.id3 import ID3, TCON, TIT2, TPE1
 
 import dj_track_similarity.scanner as scanner
-from dj_track_similarity.analysis_model_runners import (
+from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.database import LibraryDatabase

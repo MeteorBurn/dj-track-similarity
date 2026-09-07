@@ -8,8 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api_test_support import create_api_client
-import dj_track_similarity.api as api
-from dj_track_similarity.analysis_model_runners import (
+import dj_track_similarity.api.application as api
+from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.analysis_models import (
@@ -17,8 +17,8 @@ from dj_track_similarity.analysis_models import (
     EmbeddingOutput,
     EmbeddingWrite,
 )
-from dj_track_similarity.api import create_app
-from dj_track_similarity.api_schemas import EvaluationSourceProfileRunRequest
+from dj_track_similarity.api.application import create_app
+from dj_track_similarity.api.schemas import EvaluationSourceProfileRunRequest
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 

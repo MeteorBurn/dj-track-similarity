@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from dj_track_similarity.classifier_production import normalize_label_suggestion_mode, suggest_classifier_labels
+from dj_track_similarity.classifier.production import normalize_label_suggestion_mode, suggest_classifier_labels
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import uvicorn_log_config
 from dj_track_similarity.rhythm_lab_collections import (

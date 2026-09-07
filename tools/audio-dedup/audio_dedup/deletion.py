@@ -5,7 +5,7 @@ import sqlite3
 from typing import Callable, Collection, Iterable
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import canonical_file_path
+from dj_track_similarity.db.tracks import canonical_file_path
 from dj_track_similarity.track_models import TrackIdentity
 
 from . import config as config_module

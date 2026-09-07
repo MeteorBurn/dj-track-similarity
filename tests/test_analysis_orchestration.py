@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dj_track_similarity import analysis_model_runners as runner_module
-from dj_track_similarity.analysis_config import build_analysis_job_config
-from dj_track_similarity.analysis_job_batch import AnalysisBatchItem, DecodeFailure
-from dj_track_similarity.analysis_jobs import AnalysisJobManager
-from dj_track_similarity.analysis_model_runners import (
+from dj_track_similarity.analysis import model_runners as runner_module
+from dj_track_similarity.analysis.config import build_analysis_job_config
+from dj_track_similarity.analysis.job_batch import AnalysisBatchItem, DecodeFailure
+from dj_track_similarity.analysis.jobs import AnalysisJobManager
+from dj_track_similarity.analysis.model_runners import (
     EmbeddingModelRunner,
     MaestModelRunner,
     SonaraModelRunner,
@@ -27,13 +27,13 @@ from dj_track_similarity.analysis_models import (
     MaestWrite,
     current_embedding_spec,
 )
-from dj_track_similarity.audio_loader import DecodedAudio
+from dj_track_similarity.audio.loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_embeddings import read_valid_embeddings
-from dj_track_similarity.embedding_maest import MaestAnalysisResult
-from dj_track_similarity.embedding_maest import MaestEmbeddingAdapter
-from dj_track_similarity.embedding_mert import MertEmbeddingAdapter
-from dj_track_similarity.embedding_mulan import MuqMulanEmbeddingAdapter
+from dj_track_similarity.db.embeddings import read_valid_embeddings
+from dj_track_similarity.embedding.maest import MaestAnalysisResult
+from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
+from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.maest_windows import MaestWindowContext
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 

@@ -17,8 +17,8 @@ import numpy as np
 from dj_track_similarity.analysis_models import (
     current_embedding_spec,
 )
-from dj_track_similarity.db_connection import connect_database, write_lock_for_path
-from dj_track_similarity.db_schema import validate_library_schema
+from dj_track_similarity.db.connection import connect_database, write_lock_for_path
+from dj_track_similarity.db.schema import validate_library_schema
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
     FileTags,

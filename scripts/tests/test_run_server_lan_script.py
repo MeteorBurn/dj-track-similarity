@@ -85,41 +85,6 @@ def _run_isolated_launcher(
     return completed, captured_launch
 
 
-def test_root_server_script_prompts_supports_modes_and_forwards_args() -> None:
-    root = Path(__file__).resolve().parents[2]
-    script = root / "run_server.cmd"
-
-    text = script.read_text(encoding="utf-8")
-
-    assert 'call "%PROJECT_ROOT%\\.venv\\Scripts\\activate.bat"' in text
-    assert "where dj-sim" in text
-    assert "where npm" in text
-    assert "dj-sim serve" in text
-    assert "python -m uvicorn" not in text
-    assert "Local virtual environment was not found" in text
-    assert "dj-sim is not available" in text
-    assert "npm is not available" in text
-    assert 'set "DEFAULT_DB_PATH=%~dp0database\\volumes.sqlite"' in text
-    assert r"C:\db\volumes.sqlite" not in text
-    assert "Database path [%DEFAULT_DB_PATH%]" in text
-    assert "Choose server mode" in text
-    assert text.index("Database path [%DEFAULT_DB_PATH%]") < text.index(
-        "Choose server mode"
-    )
-    assert 'if /I "%~1"=="local"' in text
-    assert 'if /I "%~1"=="lan"' in text
-    assert 'set "HOST=127.0.0.1"' in text
-    assert 'set "HOST=0.0.0.0"' in text
-    assert 'set "PORT=8765"' in text
-    assert 'set "FRONTEND_PORT=5173"' in text
-    assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV=1"' in text
-    assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_HOST=%FRONTEND_HOST%"' in text
-    assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_HOST=%HOST%"' in text
-    assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_PORT=%PORT%"' in text
-    assert 'set "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE=%DB_PATH%"' in text
-    assert 'python "%PROJECT_ROOT%\\scripts\\run_server_launcher.py" %*' in text
-
-
 @pytest.mark.skipif(os.name != "nt", reason="run_server.cmd requires Windows")
 def test_no_argument_launcher_prompts_for_database_before_mode_and_accepts_defaults(
     tmp_path: Path,

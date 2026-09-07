@@ -11,7 +11,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     AnalysisWriteResult,
 )
-from dj_track_similarity.sonara_features import (
+from dj_track_similarity.analysis.sonara_features import (
     analysis_outputs_for_sonara_runtime,
     analyze_and_store_sonara_batch,
 )

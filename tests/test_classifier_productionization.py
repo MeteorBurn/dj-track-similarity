@@ -4,11 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 
-from dj_track_similarity.classifier_production import (
+from dj_track_similarity.classifier.production import (
     build_classifier_calibration_report,
     suggest_classifier_labels,
 )
-from dj_track_similarity.classifier_scoring import promoted_classifiers
+from dj_track_similarity.classifier.scoring import promoted_classifiers
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
     ClassifierScoreDetail,

@@ -4,10 +4,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import dj_track_similarity.api as api
-import dj_track_similarity.api_routes_rhythm_lab as rhythm_lab_routes
+import dj_track_similarity.api.application as api
+import dj_track_similarity.api.routes_rhythm_lab as rhythm_lab_routes
 import dj_track_similarity.rhythm_lab_launcher as rhythm_lab_launcher
-from dj_track_similarity.api import create_app
+from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabCollections,

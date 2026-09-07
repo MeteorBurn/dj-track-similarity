@@ -3,18 +3,18 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from .db_analysis import AnalysisRepository
-from .db_connection import (
+from .db.analysis import AnalysisRepository
+from .db.connection import (
     connect_database,
     ensure_database_schema,
     resolve_database_path,
     write_lock_for_path,
 )
-from .db_evaluation import EvaluationRepository
-from .db_evaluation_sidecar import connect_evaluation_sidecar
-from .db_library_queries import LibraryQueryRepository
-from .db_storage import storage_database_paths
-from .db_tracks import TrackRepository
+from .db.evaluation import EvaluationRepository
+from .db.evaluation_sidecar import connect_evaluation_sidecar
+from .db.library_queries import LibraryQueryRepository
+from .db.storage import storage_database_paths
+from .db.tracks import TrackRepository
 
 
 __all__ = ["LibraryDatabase"]

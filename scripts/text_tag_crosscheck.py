@@ -27,9 +27,9 @@ from numpy.typing import NDArray
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score
 
-from dj_track_similarity.analysis_model_runners import current_embedding_analysis_output
-from dj_track_similarity.embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
-from dj_track_similarity.search import _contrast_vector_scores
+from dj_track_similarity.analysis.model_runners import current_embedding_analysis_output
+from dj_track_similarity.embedding.registry import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
+from dj_track_similarity.search.engine import _contrast_vector_scores
 
 FloatArray = NDArray[np.float32]
 

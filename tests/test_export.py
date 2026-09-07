@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from dj_track_similarity.api import create_app
+from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.exporter import export_tracks
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity

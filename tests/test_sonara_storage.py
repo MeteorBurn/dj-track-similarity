@@ -9,18 +9,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import dj_track_similarity.db_analysis as db_analysis
+import dj_track_similarity.db.analysis as db_analysis
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.sonara_runtime import (
+from dj_track_similarity.analysis.sonara_runtime import (
     DEFAULT_SONARA_BPM_MAX,
     SONARA_UNIT_INTERVAL_FIELDS,
 )
-from dj_track_similarity.sonara_storage import (
+from dj_track_similarity.analysis.sonara_results import (
     _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS,
     prepare_sonara_write,
 )
@@ -550,7 +550,7 @@ def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
     tmp_path: Path,
 ) -> None:
     """The range belongs to the library: the first job claims it, the rest reuse it."""
-    from dj_track_similarity.analysis_jobs import AnalysisJobManager
+    from dj_track_similarity.analysis.jobs import AnalysisJobManager
 
     database = LibraryDatabase(tmp_path / "library.sqlite")
     manager = AnalysisJobManager(database)
@@ -574,7 +574,7 @@ def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
 def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(
     tmp_path: Path,
 ) -> None:
-    from dj_track_similarity.analysis_jobs import AnalysisJobManager
+    from dj_track_similarity.analysis.jobs import AnalysisJobManager
     from dj_track_similarity.analysis_models import AnalysisOutput
 
     database = LibraryDatabase(tmp_path / "library.sqlite")

@@ -32,10 +32,10 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
     current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase  # noqa: E402
-from dj_track_similarity.db_storage import storage_database_paths  # noqa: E402
-from dj_track_similarity.search import SimilaritySearch  # noqa: E402
+from dj_track_similarity.db.storage import storage_database_paths  # noqa: E402
+from dj_track_similarity.search.engine import SimilaritySearch  # noqa: E402
 from dj_track_similarity.track_models import FileTags, ScannedFile  # noqa: E402
-from dj_track_similarity.vector_index import (  # noqa: E402
+from dj_track_similarity.search.vector_index import (  # noqa: E402
     EXACT_VECTOR_BACKEND_NAME,
 )
 

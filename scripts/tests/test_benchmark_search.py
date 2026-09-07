@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from dj_track_similarity.db_storage import storage_database_paths
+from dj_track_similarity.db.storage import storage_database_paths
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "benchmark_search.py"

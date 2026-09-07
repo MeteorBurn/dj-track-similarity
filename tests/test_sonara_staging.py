@@ -6,13 +6,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import dj_track_similarity.sonara_features as sonara_features_module
+import dj_track_similarity.analysis.sonara_features as sonara_features_module
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
 )
-from dj_track_similarity.sonara_staging import (
+from dj_track_similarity.analysis.sonara_staging import (
     SonaraStagingConfig,
     SonaraStagingSession,
     StagedSonaraCandidate,
@@ -21,7 +21,7 @@ from dj_track_similarity.sonara_staging import (
     analyze_staged_sonara_group,
     cleanup_orphaned_sonara_staging,
 )
-from dj_track_similarity.sonara_runtime import SONARA_SAMPLE_RATE
+from dj_track_similarity.analysis.sonara_runtime import SONARA_SAMPLE_RATE
 
 
 def _candidate(track_id: int, source: Path) -> AnalysisCandidate:
@@ -138,7 +138,7 @@ def test_staged_ffmpeg_fallback_decodes_copy_but_logs_source_identity(
         decode_copy,
     )
 
-    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.sonara_features"):
+    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.analysis.sonara_features"):
         results = analyze_staged_sonara_group((staged,))
 
     assert native_paths == [str(staged_path)]
@@ -375,7 +375,7 @@ def test_orphan_cleanup_preserves_live_job_directories(tmp_path: Path) -> None:
     (orphan / ".owner").write_text("99999999", encoding="ascii")
     (live / ".owner").write_text("4242", encoding="ascii")
 
-    import dj_track_similarity.sonara_staging as staging_module
+    import dj_track_similarity.analysis.sonara_staging as staging_module
 
     original_exists = staging_module._process_exists
     staging_module._process_exists = lambda pid: pid == 4242

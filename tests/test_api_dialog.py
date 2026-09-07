@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from dj_track_similarity import api as api_module
+from dj_track_similarity.api import application as api_module
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import canonical_file_path, resolved_file_path
+from dj_track_similarity.db.tracks import canonical_file_path, resolved_file_path
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 

@@ -6,7 +6,7 @@ import struct
 import uuid
 
 import numpy as np
-import dj_track_similarity.sonara_features as sonara_features_module
+import dj_track_similarity.analysis.sonara_features as sonara_features_module
 
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
@@ -15,7 +15,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisWriteResult,
     SonaraWrite,
 )
-from dj_track_similarity.sonara_runtime import (
+from dj_track_similarity.analysis.sonara_runtime import (
     DEFAULT_SONARA_BPM_MAX,
     DEFAULT_SONARA_BPM_MIN,
     SONARA_ANALYSIS_MODE,
@@ -24,7 +24,7 @@ from dj_track_similarity.sonara_runtime import (
     SONARA_VOCALNESS_MODEL_SELECTOR,
     sonara_requested_features,
 )
-from dj_track_similarity.sonara_features import (
+from dj_track_similarity.analysis.sonara_features import (
     SonaraBatchMetrics,
     analysis_outputs_for_sonara_runtime,
     analyze_and_store_sonara_batch,
@@ -292,7 +292,7 @@ def test_batch_recovers_native_sonara_failure_with_ffmpeg_pcm_and_logs(
         lambda path: (decoded_pcm, 44_100, "ffmpeg decode (arithmetic channel mean)"),
     )
 
-    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.sonara_features"):
+    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.analysis.sonara_features"):
         results = analyze_and_store_sonara_batch(
             repository,
             (_candidate(1),),

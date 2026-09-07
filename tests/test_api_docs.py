@@ -2,8 +2,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import dj_track_similarity.api as api
-from dj_track_similarity.api import create_app
+import dj_track_similarity.api.application as api
+from dj_track_similarity.api.application import create_app
 
 
 def test_docs_route_explains_when_static_docs_are_not_built(monkeypatch, tmp_path: Path) -> None:

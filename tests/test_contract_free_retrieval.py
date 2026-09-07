@@ -7,7 +7,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     AnalysisVectorRow,
 )
-from dj_track_similarity.search import SimilaritySearch
+from dj_track_similarity.search.engine import SimilaritySearch
 
 
 class _Repository:

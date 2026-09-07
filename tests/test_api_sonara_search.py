@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-import dj_track_similarity.api as api
+import dj_track_similarity.api.application as api
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -16,12 +16,12 @@ from dj_track_similarity.analysis_models import (
     SonaraWrite,
     current_embedding_spec,
 )
-from dj_track_similarity.analysis_model_runners import (
+from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
-from dj_track_similarity.api import create_app
+from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_ddl import SonaraRow
+from dj_track_similarity.db.ddl import SonaraRow
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 

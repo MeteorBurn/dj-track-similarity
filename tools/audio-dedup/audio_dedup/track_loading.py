@@ -9,7 +9,7 @@ import numpy as np
 
 from dj_track_similarity.analysis_models import current_embedding_spec
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import canonical_file_path, ordinal_path_key
+from dj_track_similarity.db.tracks import canonical_file_path, ordinal_path_key
 
 from . import config as config_module
 from . import models as models_module

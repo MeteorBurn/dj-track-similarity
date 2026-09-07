@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from dj_track_similarity.analysis_models import AnalysisCandidate, AnalysisTarget, AnalysisOutput
-from dj_track_similarity.audio_loader import DecodedAudio
-from dj_track_similarity.ml_staging import (
+from dj_track_similarity.audio.loader import DecodedAudio
+from dj_track_similarity.analysis.ml_staging import (
     MLStagingConfig,
     MLStagingSession,
     analyze_and_store_staged_ml,

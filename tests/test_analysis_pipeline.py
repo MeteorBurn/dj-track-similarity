@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
-from dj_track_similarity.analysis_queue import AnalysisStageQueue
-from dj_track_similarity.ml_staging import MLStagingConfig
-from dj_track_similarity.sonara_staging import SonaraStagingConfig
+from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
+from dj_track_similarity.analysis.queue import AnalysisStageQueue
+from dj_track_similarity.analysis.ml_staging import MLStagingConfig
+from dj_track_similarity.analysis.sonara_staging import SonaraStagingConfig
 
 
 class FakeJobs:

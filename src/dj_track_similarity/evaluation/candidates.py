@@ -8,10 +8,10 @@ from pathlib import Path
 import random
 from typing import TYPE_CHECKING
 
-from ..analysis_model_runners import current_embedding_analysis_output
+from ..analysis.model_runners import current_embedding_analysis_output
 from ..analysis_models import AnalysisOutput, AnalysisTarget
-from ..search import SimilaritySearch, SimilaritySearchResult
-from ..sonara_similarity import SonaraSimilaritySearch
+from ..search.engine import SimilaritySearch, SimilaritySearchResult
+from ..search.sonara import SonaraSimilaritySearch
 from ..tempo_resolution import resolve_tempo_evidence
 from ..track_resolution import resolve_track_camelot, resolve_track_energy, resolve_track_key
 from ..transition_diagnostics import TransitionTrack

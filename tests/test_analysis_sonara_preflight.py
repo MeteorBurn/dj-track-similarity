@@ -7,15 +7,15 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-import dj_track_similarity.api as api
-from dj_track_similarity.analysis_jobs import AnalysisJobManager
+import dj_track_similarity.api.application as api
+from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
 )
-from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
-from dj_track_similarity.analysis_queue import AnalysisStageQueue
+from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
+from dj_track_similarity.analysis.queue import AnalysisStageQueue
 
 
 _OUTPUTS = (

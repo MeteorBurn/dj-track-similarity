@@ -19,7 +19,7 @@ from typing import Literal
 
 import numpy as np
 
-from .db_ddl import ClassifierScoreRecord, SonaraRow
+from .db.ddl import ClassifierScoreRecord, SonaraRow
 from .maest_windows import MaestWindowContext
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(

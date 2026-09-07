@@ -8,14 +8,14 @@ import wave
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.analysis_model_runners import MaestModelRunner
+from dj_track_similarity.analysis.model_runners import MaestModelRunner
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     MaestGenreScore,
     MaestWrite,
 )
 from dj_track_similarity import tags, wave_tags
-from dj_track_similarity.api import create_app
+from dj_track_similarity.api.application import create_app
 from dj_track_similarity.tags import (
     GenreTagJobManager,
     apply_genre_tags_to_tracks,

@@ -17,7 +17,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Callable, Collection, Iterable, Iterator, cast
 
-from .db_tracks import TrackRepository, canonical_file_path, ordinal_path_key
+from .db.tracks import TrackRepository, canonical_file_path, ordinal_path_key
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure, log_job_event
 from .scanner import (

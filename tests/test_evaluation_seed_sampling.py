@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from dj_track_similarity.analysis_model_runners import (
+from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.analysis_models import (
@@ -20,7 +20,7 @@ from dj_track_similarity.analysis_models import (
     current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_ddl import SonaraRow
+from dj_track_similarity.db.ddl import SonaraRow
 from dj_track_similarity.evaluation.seed_sampling import (
     SEED_SAMPLE_COLUMNS,
     export_seed_sample,

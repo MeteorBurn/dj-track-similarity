@@ -20,15 +20,15 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
     current_embedding_spec,
 )
-from dj_track_similarity.classifier_manifest import load_classifier_manifest_summary
-from dj_track_similarity.classifier_scoring import (
+from dj_track_similarity.classifier.manifest import load_classifier_manifest_summary
+from dj_track_similarity.classifier.scoring import (
     ClassifierScorer,
     analyze_classifier,
     load_classifier_requirements,
     promoted_classifiers,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_ddl import ClassifierScoreRecord
+from dj_track_similarity.db.ddl import ClassifierScoreRecord
 
 
 _NOW = "2026-07-24T10:00:00.000000Z"

@@ -1,6 +1,6 @@
 """Back up and optimize one SQLite database from the command line.
 
-The work lives in ``dj_track_similarity.db_optimize``, which the server's
+The work lives in ``dj_track_similarity.db.optimize``, which the server's
 optimization job runs as well; this script only parses arguments and prints
 the report. ``--dry-run`` stops after the read-only inspection and the free
 space check.
@@ -13,7 +13,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from dj_track_similarity.db_optimize import (
+from dj_track_similarity.db.optimize import (
     DatabaseInspection,
     InspectedDatabaseFile,
     OptimizationError,

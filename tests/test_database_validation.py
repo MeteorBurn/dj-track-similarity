@@ -6,10 +6,10 @@ from pathlib import Path
 import numpy as np
 from typer.testing import CliRunner
 
-from dj_track_similarity.cli import app
+from dj_track_similarity.cli.application import app
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.database_validation import DatabaseValidator
-from dj_track_similarity.db_embeddings import write_valid_embedding_in_transaction
+from dj_track_similarity.db.validation import DatabaseValidator
+from dj_track_similarity.db.embeddings import write_valid_embedding_in_transaction
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 

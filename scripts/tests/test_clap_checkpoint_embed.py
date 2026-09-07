@@ -14,7 +14,7 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 import clap_checkpoint_embed as embed_script  # noqa: E402
 import text_prompt_benchmark as benchmark  # noqa: E402
 
-from dj_track_similarity.embedding import ClapEmbeddingAdapter  # noqa: E402
+from dj_track_similarity.embedding.registry import ClapEmbeddingAdapter  # noqa: E402
 
 
 def test_only_pinned_checkpoints_can_be_embedded() -> None:

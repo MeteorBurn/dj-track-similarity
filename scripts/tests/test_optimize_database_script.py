@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_storage import storage_database_paths
+from dj_track_similarity.db.storage import storage_database_paths
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 

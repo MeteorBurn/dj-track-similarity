@@ -13,8 +13,8 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_analysis_candidates import collect_analysis_candidates
-from dj_track_similarity.db_embeddings import (
+from dj_track_similarity.db.analysis_candidates import collect_analysis_candidates
+from dj_track_similarity.db.embeddings import (
     read_valid_embeddings,
     write_valid_embedding_in_transaction,
 )

@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from dj_track_similarity import api as api_module
-from dj_track_similarity.api_state import AppDatabaseState, DatabaseBusy
-from dj_track_similarity.classifier_jobs import ClassifierJobManager
+from dj_track_similarity.api import application as api_module
+from dj_track_similarity.api.state import AppDatabaseState, DatabaseBusy
+from dj_track_similarity.classifier.jobs import ClassifierJobManager
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.scan_jobs import ScanJobManager
 from dj_track_similarity.track_models import FileTags, ScannedFile

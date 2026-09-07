@@ -1,0 +1,171 @@
+from __future__ import annotations
+
+import logging
+import subprocess
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from .routes_docs import register_docs_routes
+from .routes_analysis import register_analysis_routes
+from .routes_audio_dedup import register_audio_dedup_routes
+from .routes_database import register_database_routes
+from .routes_evaluation import register_evaluation_routes
+from .routes_library import register_library_routes
+from .routes_reference_compare import register_reference_compare_routes
+from .routes_rhythm_lab import register_rhythm_lab_routes
+from .routes_search import register_search_routes
+from .routes_server import register_server_routes
+from .routes_tags_export import register_tags_export_routes
+from .state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
+from ..classifier.scoring import promoted_classifiers
+from ..embedding.clap import ClapEmbeddingAdapter
+from ..embedding.mulan import MuqMulanEmbeddingAdapter
+from ..audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
+from ..logging_config import configure_logging, install_asyncio_exception_logging, install_standard_stream_logging
+from ..rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
+from ..embedding.text_cache import TextEmbeddingAdapterCache
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _text_embedding_adapter(
+    family: str,
+    *,
+    device: str,
+) -> ClapEmbeddingAdapter | MuqMulanEmbeddingAdapter:
+    if family == "clap":
+        return ClapEmbeddingAdapter(device=device)
+    if family == "mulan":
+        return MuqMulanEmbeddingAdapter(device=device)
+    raise ValueError(f"Unsupported text embedding model: {family}")
+
+
+def open_folder_dialog() -> Path | None:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as error:  # pragma: no cover - depends on local Python GUI support.
+        raise RuntimeError("Native folder dialog is unavailable") from error
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+        root.update()
+        selected = filedialog.askdirectory(parent=root, title="Выберите папку с музыкой", mustexist=True)
+    finally:
+        root.destroy()
+    return Path(selected) if selected else None
+
+
+def open_database_file_dialog() -> Path | None:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as error:  # pragma: no cover - depends on local Python GUI support.
+        raise RuntimeError("Native database file dialog is unavailable") from error
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+        root.update()
+        selected = filedialog.asksaveasfilename(
+            parent=root,
+            title="Выберите SQLite базу",
+            defaultextension=".sqlite",
+            filetypes=[("SQLite database", "*.sqlite"), ("All files", "*.*")],
+            confirmoverwrite=False,
+        )
+    finally:
+        root.destroy()
+    if not selected:
+        return None
+    path = Path(selected)
+    return path.with_suffix(".sqlite") if not path.suffix else path
+
+
+def reveal_track_file(path: Path) -> None:
+    """Open Windows Explorer with the supplied audio file selected."""
+
+    subprocess.Popen(f'explorer.exe /select,"{path}"', shell=False)
+
+
+def create_app(
+    db_path: str | Path | None = None,
+    *,
+    log_level: int | str | None = None,
+    log_track_events: bool | None = None,
+) -> FastAPI:
+    log_path = configure_logging(level=log_level, log_track_events=log_track_events)
+    ffmpeg_runtime_dir = configure_shared_ffmpeg_runtime()
+    LOGGER.info("API app created db_path=%s log_path=%s", db_path, log_path)
+    LOGGER.debug("shared FFmpeg runtime directory=%s", ffmpeg_runtime_dir)
+    state = AppDatabaseState(db_path)
+    app = FastAPI(title="dj-track-similarity Utility")
+    app.router.on_startup.append(install_asyncio_exception_logging)
+    app.router.on_startup.append(install_standard_stream_logging)
+
+    @app.middleware("http")
+    async def log_http_error_responses(request: Request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception:
+            LOGGER.exception("HTTP request crashed method=%s path=%s", request.method, request.url.path)
+            raise
+        if response.status_code >= 400:
+            LOGGER.warning(
+                "HTTP request returned error method=%s path=%s status=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+        return response
+
+    @app.exception_handler(DatabaseNotSelected)
+    async def database_not_selected(_: Request, error: DatabaseNotSelected):
+        return JSONResponse(status_code=400, content={"detail": str(error)})
+
+    @app.exception_handler(DatabaseBusy)
+    async def database_busy(_: Request, error: DatabaseBusy):
+        return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    register_database_routes(app, state, open_database_file_dialog=open_database_file_dialog)
+    register_audio_dedup_routes(app, state)
+    register_library_routes(
+        app,
+        state,
+        reveal_track_file=reveal_track_file,
+    )
+    register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
+    register_evaluation_routes(app, state)
+    register_reference_compare_routes(app, state)
+    text_adapters = TextEmbeddingAdapterCache(_text_embedding_adapter)
+    app.router.on_shutdown.append(text_adapters.close)
+    register_search_routes(
+        app,
+        state,
+        text_embedding_adapter=text_adapters.acquire,
+        loaded_text_embedding_adapters=text_adapters.loaded,
+    )
+    register_server_routes(app, stop_rhythm_lab=stop_rhythm_lab)
+    register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)
+    register_rhythm_lab_routes(
+        app,
+        state,
+        launch_rhythm_lab=launch_rhythm_lab,
+        rhythm_lab_status=rhythm_lab_status,
+    )
+
+    package_path = Path(__file__).resolve()
+    register_docs_routes(app, package_path)
+
+    static_dir = package_path.parents[3] / "frontend" / "dist"
+    if static_dir.exists():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
+
+    return app

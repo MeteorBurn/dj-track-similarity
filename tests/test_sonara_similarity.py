@@ -4,14 +4,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import dj_track_similarity.db_analysis as db_analysis_module
+import dj_track_similarity.db.analysis as db_analysis_module
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     SonaraWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_ddl import SonaraRow
-from dj_track_similarity.sonara_similarity import SonaraSimilaritySearch
+from dj_track_similarity.db.ddl import SonaraRow
+from dj_track_similarity.search.sonara import SonaraSimilaritySearch
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 

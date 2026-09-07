@@ -25,12 +25,12 @@ from mutagen.oggvorbis import OggVorbis
 from mutagen.wave import WAVE
 from mutagen.wavpack import WavPack
 
-from .db_tracks import (
+from .db.tracks import (
     TrackRepository,
     ordinal_path_key,
     resolved_file_path,
 )
-from .ffmpeg_runtime import load_project_pyav
+from .audio.ffmpeg_runtime import load_project_pyav
 from .track_models import (
     FileTags,
     ScannedFile,

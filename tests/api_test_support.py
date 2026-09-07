@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import dj_track_similarity.api as api
+import dj_track_similarity.api.application as api
 
 
 def create_api_client(monkeypatch: pytest.MonkeyPatch, db_path: Path) -> TestClient:

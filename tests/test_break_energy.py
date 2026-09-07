@@ -18,14 +18,14 @@ from dj_track_similarity.analysis_models import (
     SonaraWrite,
     current_embedding_spec,
 )
-from dj_track_similarity.classifier_jobs import ClassifierJobManager
-from dj_track_similarity.classifier_scoring import (
+from dj_track_similarity.classifier.jobs import ClassifierJobManager
+from dj_track_similarity.classifier.scoring import (
     ClassifierScorer,
     default_classifier_model_path,
     load_classifier_requirements,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_ddl import SonaraRow
+from dj_track_similarity.db.ddl import SonaraRow
 
 
 _NOW = "2026-07-24T14:00:00.000000Z"

@@ -9,9 +9,9 @@ import numpy as np
 import pytest
 from typer.testing import CliRunner
 
-import dj_track_similarity.api as api
-import dj_track_similarity.cli as cli
-import dj_track_similarity.cli_analysis as cli_analysis
+import dj_track_similarity.api.application as api
+import dj_track_similarity.cli.application as cli
+import dj_track_similarity.cli.analysis as cli_analysis
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 

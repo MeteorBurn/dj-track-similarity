@@ -9,7 +9,7 @@ from types import MappingProxyType
 
 import numpy as np
 
-from dj_track_similarity.sonara_classifier_features import (
+from dj_track_similarity.classifier.sonara_features import (
     SONARA_CLASSIFIER_SCALAR_ALIASES,
     SONARA_CLASSIFIER_VECTOR_ALIASES,
     SONARA_CLASSIFIER_VECTOR_DIMS,

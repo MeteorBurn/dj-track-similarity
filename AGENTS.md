@@ -50,7 +50,7 @@ and VitePress. Model outputs are ranking evidence, never objective DJ decisions.
   only for requested docs work. Use npm's install/update commands for dependency
   changes. Python, frontend, and docs installations remain separate.
 - Audio requires the full shared FFmpeg runtime specified in
-  `src/dj_track_similarity/ffmpeg_runtime.py` (currently 8.1.1), including DLLs.
+  `src/dj_track_similarity/audio/ffmpeg_runtime.py` (currently 8.1.1), including DLLs.
   On this host it is under `C:\Utils\tools\ffmpeg\bin`; discovery uses
   `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` or PATH. Verify with
   `inspect_audio_runtime()`, which also checks project PyAV; finding
@@ -88,7 +88,7 @@ unclear. Invoke these verified absolute paths from PowerShell:
   target and the prescribed backup or disposable copy. Toolkit availability is
   not authorization to change user data.
 - For project integrity validation, use
-  `db_connection.connect_database_read_only()` with the root `.venv` (it sets
+  `db.connection.connect_database_read_only()` with the root `.venv` (it sets
   `PRAGMA query_only = ON` without enforcing WAL). A CLI `-readonly` integrity
   result alone does not replace the project's CHECK-constraint validation.
 - These are shared external utilities. Keep application SQLite on the pinned
@@ -125,8 +125,8 @@ never infer it from `volumes.sqlite`, timestamps, or a previous session.
 
 | Symbol | Role / blast radius |
 |---|---|
-| `cli.app` / `cli.serve` | Typer entry; server path reaches `create_app()` and Uvicorn |
-| `api.create_app` | Registers route modules, database state, and built frontend assets |
+| `cli.app` / `cli.application.serve` | Typer entry; server path reaches `create_app()` and Uvicorn |
+| `api.application.create_app` | Registers route modules, database state, and built frontend assets |
 | `LibraryDatabase` | Required gateway for library SQLite reads/writes and locking policy |
 | `SimilaritySearch` | Shared seed, vector, and contrast-vector ranking boundary |
 | `AnalysisJobManager` | Coordinates model runners, staging, writes, progress, and cancellation |
@@ -178,9 +178,9 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 
 ## CHANGE ROUTING
 
-- Add or change HTTP endpoints in the matching `api_routes_*.py` module; keep
-  `api.py:create_app` focused on application composition and shared state.
-- Database changes belong in `database.py` plus the focused `db_*.py` storage,
+- Add or change HTTP endpoints in the matching `api/routes_*.py` module; keep
+  `api/application.py:create_app` focused on application composition and shared state.
+- Database changes belong in `database.py` plus the focused `db/*.py` storage,
   schema, or identity module. Preserve `LibraryDatabase` as the public gateway.
 - When an API payload changes, update the backend contract, `frontend/src/api.ts`,
   `frontend/src/apiClient.ts`, UI callers, and focused Python/Node contract tests
@@ -217,7 +217,7 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 
 - State the model layer before changing shared files.
 - Text-to-track/tagging owns CLAP and MuQ-MuLan text paths, `/api/search/text`,
-  `src/dj_track_similarity/text_embedding_cache.py`,
+  `src/dj_track_similarity/embedding/text_cache.py`,
   `frontend/src/textPromptPresets.ts`, `frontend/src/TextSearchTab.tsx`, and
   `scripts/text_prompt_benchmark.py`.
 - SONARA, MERT, MAEST, MuQ seed search, their analysis jobs, and Rhythm Lab
@@ -225,7 +225,7 @@ workers must preserve others' edits. Honor the active harness's delegation rules
   logic in its owning layer. Ask before extending the task to a model layer
   the user has not authorized; already requested cross-layer work is delegated
   and integrated under AGENT LAYER.
-- Shared surfaces such as `search.py`, `analysis_models.py`, `TrackRows.tsx`,
+- Shared surfaces such as `search/engine.py`, `analysis_models.py`, `TrackRows.tsx`,
   and family unions in `frontend/src/api.ts` take additive, scoped changes only.
 - Keep CLAP text scores separate from audio-to-audio CLAP signals. Never
   substitute MuQ, MERT, MAEST, CLAP, MuQ-MuLan, or SONARA evidence for another.
@@ -340,7 +340,7 @@ LAN exposure must be requested. Confirm the database before using `--db`.
 .\run_server.cmd                         # interactive database and mode selection
 .\run_server.cmd local --db 'C:\path\selected.sqlite'
 & .\.venv\Scripts\python.exe -c 'import sys, sqlite3; print(sys.executable); print(sys.version); print(sqlite3.sqlite_version)'
-& .\.venv\Scripts\python.exe -c 'from dj_track_similarity.ffmpeg_runtime import inspect_audio_runtime; print(inspect_audio_runtime())'
+& .\.venv\Scripts\python.exe -c 'from dj_track_similarity.audio.ffmpeg_runtime import inspect_audio_runtime; print(inspect_audio_runtime())'
 npm --prefix .\frontend run build        # before a commit that touched frontend/
 ```
 

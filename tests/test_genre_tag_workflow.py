@@ -9,7 +9,7 @@ from mutagen import File as MutagenFile
 from mutagen.id3 import TALB, TBPM, TCON, TIT2, TKEY, TPE1
 
 from dj_track_similarity import tags
-from dj_track_similarity.analysis_model_runners import MaestModelRunner
+from dj_track_similarity.analysis.model_runners import MaestModelRunner
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     MaestGenreScore,

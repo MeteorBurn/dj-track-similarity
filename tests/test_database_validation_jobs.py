@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.database_validation_jobs import DatabaseValidationJobManager
+from dj_track_similarity.db.validation_jobs import DatabaseValidationJobManager
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -40,7 +40,7 @@ def test_job_retains_every_finding_while_ok_rows_rotate_out_of_the_event_log(tmp
         tags=FileTags(title="Validation fixture"),
     )
 
-    with caplog.at_level(logging.INFO, logger="dj_track_similarity.database_validation_jobs"):
+    with caplog.at_level(logging.INFO, logger="dj_track_similarity.db.validation_jobs"):
         status = DatabaseValidationJobManager(str(database.path)).run_sync()
 
     assert status.state == "completed"

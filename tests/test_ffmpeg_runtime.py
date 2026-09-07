@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-import dj_track_similarity.ffmpeg_runtime as ffmpeg_runtime
-from dj_track_similarity.ffmpeg_runtime import (
+import dj_track_similarity.audio.ffmpeg_runtime as ffmpeg_runtime
+from dj_track_similarity.audio.ffmpeg_runtime import (
     FFMPEG_SHARED_DIR_ENV_VAR,
     configure_shared_ffmpeg_runtime,
 )

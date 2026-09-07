@@ -24,15 +24,15 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
     EmbeddingWrite,
     current_embedding_spec,
 )
-from dj_track_similarity.classifier_manifest import (  # noqa: E402
+from dj_track_similarity.classifier.manifest import (  # noqa: E402
     load_classifier_manifest_summary,
     resolve_classifier_artifact_paths,
 )
-from dj_track_similarity.classifier_scoring import promoted_classifiers  # noqa: E402
-from dj_track_similarity.db_analysis import AnalysisRepository  # noqa: E402
-from dj_track_similarity.db_ddl import create_library_schema  # noqa: E402
-from dj_track_similarity.db_library_queries import LibraryQueryRepository  # noqa: E402
-from dj_track_similarity.db_schema import insert_library  # noqa: E402
+from dj_track_similarity.classifier.scoring import promoted_classifiers  # noqa: E402
+from dj_track_similarity.db.analysis import AnalysisRepository  # noqa: E402
+from dj_track_similarity.db.ddl import create_library_schema  # noqa: E402
+from dj_track_similarity.db.library_queries import LibraryQueryRepository  # noqa: E402
+from dj_track_similarity.db.schema import insert_library  # noqa: E402
 from rhythm_lab.cli import promote_profile_model  # noqa: E402
 from rhythm_lab.artifact_io import (  # noqa: E402
     ArtifactIntegrityError,

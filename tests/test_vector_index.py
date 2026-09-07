@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from dj_track_similarity.analysis_model_runners import (
+from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.analysis_models import (
@@ -14,13 +14,13 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.search import SimilaritySearch
+from dj_track_similarity.search.engine import SimilaritySearch
 from dj_track_similarity.track_models import (
     FileTags,
     ScannedFile,
     TrackIdentity,
 )
-from dj_track_similarity.vector_index import (
+from dj_track_similarity.search.vector_index import (
     ExactVectorSearchBackend,
 )
 

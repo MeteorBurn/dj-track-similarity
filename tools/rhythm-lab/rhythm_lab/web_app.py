@@ -12,10 +12,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from dj_track_similarity.classifier_manifest import load_classifier_manifest_summary
-from dj_track_similarity.ffmpeg_runtime import configure_shared_ffmpeg_runtime
+from dj_track_similarity.classifier.manifest import load_classifier_manifest_summary
+from dj_track_similarity.audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
-from dj_track_similarity.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
+from dj_track_similarity.api.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
 from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabCollectionSelection,
     RhythmLabCollections,

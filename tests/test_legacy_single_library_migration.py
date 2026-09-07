@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from dj_track_similarity import cli
+from dj_track_similarity.cli import application as cli
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_ddl import create_library_schema
-from dj_track_similarity.db_migration import (
+from dj_track_similarity.db.ddl import create_library_schema
+from dj_track_similarity.db.migration import (
     MIGRATION_CONFIRMATION,
     LegacyLibraryMigrationError,
     _validate_library,

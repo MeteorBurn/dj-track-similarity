@@ -17,10 +17,10 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     ClassifierFeatureRow,
 )
-from dj_track_similarity.classifier_manifest import (
+from dj_track_similarity.classifier.manifest import (
     require_scoring_compatible_manifest,
 )
-from dj_track_similarity.classifier_scoring import (
+from dj_track_similarity.classifier.scoring import (
     ClassifierScorer,
     load_classifier_requirements,
 )

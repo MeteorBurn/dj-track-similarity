@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from dj_track_similarity.analysis_config import (
+from dj_track_similarity.analysis.config import (
     build_analysis_job_config,
     normalize_analysis_device,
     normalize_analysis_models,
     parse_analysis_models_text,
 )
-from dj_track_similarity.sonara_staging import SonaraStagingConfig
+from dj_track_similarity.analysis.sonara_staging import SonaraStagingConfig
 
 
 def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() -> None:

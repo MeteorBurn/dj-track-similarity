@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import dj_track_similarity.classifier_jobs as classifier_jobs_module
+import dj_track_similarity.classifier.jobs as classifier_jobs_module
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -18,11 +18,11 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
     current_embedding_spec,
 )
-from dj_track_similarity.classifier_jobs import ClassifierJobManager
-from dj_track_similarity.classifier_manifest import ClassifierManifestSummary
-from dj_track_similarity.classifier_scoring import ClassifierRequirements
+from dj_track_similarity.classifier.jobs import ClassifierJobManager
+from dj_track_similarity.classifier.manifest import ClassifierManifestSummary
+from dj_track_similarity.classifier.scoring import ClassifierRequirements
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_ddl import ClassifierScoreRecord
+from dj_track_similarity.db.ddl import ClassifierScoreRecord
 
 
 _NOW = "2026-07-24T11:00:00.000000Z"

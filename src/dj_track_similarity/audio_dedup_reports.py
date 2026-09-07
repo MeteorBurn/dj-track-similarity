@@ -20,7 +20,7 @@ import re
 import threading
 
 from .database import LibraryDatabase
-from .db_tracks import canonical_file_path
+from .db.tracks import canonical_file_path
 from .track_models import TrackFileState
 
 REPORT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")

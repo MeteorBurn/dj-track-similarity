@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from dj_track_similarity import media_preview
+from dj_track_similarity.api import media_preview
 
 torch = pytest.importorskip("torch")
 pytestmark = pytest.mark.ml

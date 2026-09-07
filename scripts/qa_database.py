@@ -13,9 +13,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from dj_track_similarity.db_connection import connect_database_read_only  # noqa: E402
-from dj_track_similarity.db_schema import validate_library_schema  # noqa: E402
-from dj_track_similarity.db_storage import storage_database_paths  # noqa: E402
+from dj_track_similarity.db.connection import connect_database_read_only  # noqa: E402
+from dj_track_similarity.db.schema import validate_library_schema  # noqa: E402
+from dj_track_similarity.db.storage import storage_database_paths  # noqa: E402
 
 
 class QAError(RuntimeError):

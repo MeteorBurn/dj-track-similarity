@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dj_track_similarity.classifier_manifest import (
+from dj_track_similarity.classifier.manifest import (
     load_classifier_manifest_summary,
 )
 

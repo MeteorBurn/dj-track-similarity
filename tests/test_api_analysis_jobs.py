@@ -6,11 +6,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api_test_support import create_api_client
-import dj_track_similarity.api as api
-from dj_track_similarity.analysis_jobs import AnalysisJobManager
-from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
+import dj_track_similarity.api.application as api
+from dj_track_similarity.analysis.jobs import AnalysisJobManager
+from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.sonara_runtime import (
+from dj_track_similarity.analysis.sonara_runtime import (
     DEFAULT_SONARA_BPM_MAX,
     DEFAULT_SONARA_BPM_MIN,
 )

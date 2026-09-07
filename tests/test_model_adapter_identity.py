@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-import dj_track_similarity.embedding_clap as embedding_clap
-import dj_track_similarity.embedding_loading as embedding_loading
-import dj_track_similarity.embedding_maest as embedding_maest
-from dj_track_similarity.embedding_clap import ClapEmbeddingAdapter
-from dj_track_similarity.embedding_maest import MaestEmbeddingAdapter
-from dj_track_similarity.embedding_mert import MertEmbeddingAdapter
-from dj_track_similarity.embedding_muq import MuqEmbeddingAdapter
-from dj_track_similarity.embedding_mulan import MuqMulanEmbeddingAdapter
+import dj_track_similarity.embedding.clap as embedding_clap
+import dj_track_similarity.embedding.loading as embedding_loading
+import dj_track_similarity.embedding.maest as embedding_maest
+from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
+from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
+from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
+from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 
 
 def test_adapters_expose_dimensions_and_normalization_before_model_load() -> None:
@@ -62,7 +62,7 @@ def test_every_adapter_declares_a_pinned_immutable_identity() -> None:
 def test_adapter_identity_rejects_an_adapter_with_a_blank_field() -> None:
     """The check that stayed in the analysis path still refuses a bad adapter."""
 
-    from dj_track_similarity.analysis_model_runners import _adapter_identity
+    from dj_track_similarity.analysis.model_runners import _adapter_identity
 
     class _Blank:
         model_name = "x"

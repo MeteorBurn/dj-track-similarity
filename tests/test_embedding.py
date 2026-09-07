@@ -12,20 +12,20 @@ import pytest
 torch = pytest.importorskip("torch")
 pytestmark = pytest.mark.ml
 
-import dj_track_similarity.embedding_clap as embedding_clap
-import dj_track_similarity.embedding_loading as embedding_loading
-import dj_track_similarity.embedding_numerics as embedding_numerics
-import dj_track_similarity.embedding_audio as embedding_audio
-from dj_track_similarity.audio_loader import DecodedAudio
-from dj_track_similarity.embedding_clap import ClapEmbeddingAdapter
-from dj_track_similarity.embedding_maest import MaestEmbeddingAdapter
-from dj_track_similarity.embedding_mert import MertEmbeddingAdapter
-from dj_track_similarity.embedding_muq import MuqEmbeddingAdapter
-from dj_track_similarity.embedding_mulan import MuqMulanEmbeddingAdapter
-from dj_track_similarity.embedding_maest import _move_maest_runtime_modules
-from dj_track_similarity.embedding_numerics import _array_output_to_numpy
-from dj_track_similarity.embedding_audio import _pad_or_trim_audio_tensor
-from dj_track_similarity.embedding import adapter_factories
+import dj_track_similarity.embedding.clap as embedding_clap
+import dj_track_similarity.embedding.loading as embedding_loading
+import dj_track_similarity.embedding.numerics as embedding_numerics
+import dj_track_similarity.embedding.audio as embedding_audio
+from dj_track_similarity.audio.loader import DecodedAudio
+from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
+from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
+from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
+from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
+from dj_track_similarity.embedding.maest import _move_maest_runtime_modules
+from dj_track_similarity.embedding.numerics import _array_output_to_numpy
+from dj_track_similarity.embedding.audio import _pad_or_trim_audio_tensor
+from dj_track_similarity.embedding.registry import adapter_factories
 from dj_track_similarity.logging_config import configure_logging
 from dj_track_similarity.maest_windows import MaestWindowContext
 

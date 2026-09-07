@@ -1,6 +1,6 @@
 import threading
 
-from dj_track_similarity.text_embedding_cache import TextEmbeddingAdapterCache
+from dj_track_similarity.embedding.text_cache import TextEmbeddingAdapterCache
 
 
 class _FakeAdapter:

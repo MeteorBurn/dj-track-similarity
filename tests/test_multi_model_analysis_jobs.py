@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
-from dj_track_similarity.analysis_job_batch import AnalysisBatchItem
-from dj_track_similarity.analysis_jobs import AnalysisJobManager
-from dj_track_similarity.analysis_model_runners import (
+from dj_track_similarity.analysis.job_batch import AnalysisBatchItem
+from dj_track_similarity.analysis.jobs import AnalysisJobManager
+from dj_track_similarity.analysis.model_runners import (
     MaestModelRunner,
     SonaraModelRunner,
     current_embedding_analysis_output,
@@ -18,13 +18,13 @@ from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
 )
-from dj_track_similarity.audio_loader import DecodedAudio
-from dj_track_similarity.sonara_staging import (
+from dj_track_similarity.audio.loader import DecodedAudio
+from dj_track_similarity.analysis.sonara_staging import (
     SonaraStagingConfig,
     StagedSonaraCandidate,
     StagedSonaraResult,
 )
-from dj_track_similarity.sonara_features import SonaraBatchMetrics
+from dj_track_similarity.analysis.sonara_features import SonaraBatchMetrics
 
 
 def _mert_output() -> AnalysisOutput:

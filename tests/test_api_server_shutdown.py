@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
 def test_shutdown_route_requires_explicit_action_header() -> None:
-    module_path = Path("src/dj_track_similarity/api_routes_server.py")
-    if not module_path.exists():
-        pytest.fail("api_routes_server module is missing")
-
-    from dj_track_similarity.api_routes_server import register_server_routes
+    from dj_track_similarity.api.routes_server import register_server_routes
 
     calls: list[str] = []
     app = FastAPI()
@@ -25,11 +18,7 @@ def test_shutdown_route_requires_explicit_action_header() -> None:
 
 
 def test_shutdown_route_schedules_shutdown_after_acknowledgement() -> None:
-    module_path = Path("src/dj_track_similarity/api_routes_server.py")
-    if not module_path.exists():
-        pytest.fail("api_routes_server module is missing")
-
-    from dj_track_similarity.api_routes_server import register_server_routes
+    from dj_track_similarity.api.routes_server import register_server_routes
 
     calls: list[str] = []
     app = FastAPI()
@@ -46,7 +35,7 @@ def test_shutdown_route_schedules_shutdown_after_acknowledgement() -> None:
 
 
 def test_shutdown_route_stops_managed_dependencies_before_server() -> None:
-    from dj_track_similarity.api_routes_server import register_server_routes
+    from dj_track_similarity.api.routes_server import register_server_routes
 
     calls: list[str] = []
     app = FastAPI()
@@ -67,7 +56,7 @@ def test_shutdown_route_stops_managed_dependencies_before_server() -> None:
 
 
 def test_shutdown_route_still_stops_server_when_dependency_cleanup_fails() -> None:
-    from dj_track_similarity.api_routes_server import register_server_routes
+    from dj_track_similarity.api.routes_server import register_server_routes
 
     calls: list[str] = []
 

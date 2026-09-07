@@ -10,7 +10,7 @@ from mutagen.id3 import ID3, TIT2
 import dj_track_similarity.scan_jobs as scan_jobs_module
 from dj_track_similarity import scanner
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_tracks import canonical_file_path
+from dj_track_similarity.db.tracks import canonical_file_path
 from dj_track_similarity.scan_jobs import ScanJobManager, ScanJobPayload
 from dj_track_similarity.track_models import FileTags, ScannedFile
 

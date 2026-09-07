@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from .analysis_config import normalize_analysis_device
+from .analysis.config import normalize_analysis_device
 
 
 @dataclass(frozen=True)

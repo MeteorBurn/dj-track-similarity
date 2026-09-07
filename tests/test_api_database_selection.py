@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from dj_track_similarity import api as api_module
-from dj_track_similarity import api_state
+from dj_track_similarity.api import application as api_module
+from dj_track_similarity.api import state as api_state
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import (
     install_asyncio_exception_logging,

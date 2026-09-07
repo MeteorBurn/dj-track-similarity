@@ -5,6 +5,8 @@ import time
 
 import typer
 
+from .._shutdown import defer_keyboard_interrupt
+
 
 def _run_cli_job_with_progress(manager: object, job_id: str, *, label: str, poll_interval: float = 0.5):
     typer.echo(f"Starting {label} analysis")
@@ -31,8 +33,9 @@ def _run_cli_job_with_progress(manager: object, job_id: str, *, label: str, poll
     finally:
         # An interrupted join can mark Thread stopped before its callback exits
         # on CPython 3.10. The worker acknowledgement remains authoritative.
-        completed.wait()
-        thread.join()
+        with defer_keyboard_interrupt() as finish:
+            finish(completed.wait)
+            finish(thread.join)
     if errors:
         raise errors[0]
     status = result or manager.get(job_id)  # type: ignore[attr-defined]

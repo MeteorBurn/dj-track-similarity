@@ -26,6 +26,7 @@ from ..analysis.config import (
     normalize_analysis_device,
     parse_analysis_models_text,
 )
+from .._shutdown import defer_keyboard_interrupt
 from ..analysis.jobs import AnalysisJobManager
 from ..analysis.pipeline import AnalysisPipelineManager
 from ..analysis.queue import AnalysisStageQueue
@@ -227,9 +228,10 @@ def analyze_pipeline(
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
     finally:
-        stage_queue.close()
-        if audio_manager is not None:
-            audio_manager.close()
+        with defer_keyboard_interrupt() as finish:
+            finish(stage_queue.close)
+            if audio_manager is not None:
+                finish(audio_manager.close)
     typer.echo(
         f"state={status.state} order={','.join(status.order)} "
         + " ".join(

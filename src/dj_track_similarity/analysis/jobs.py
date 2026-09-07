@@ -48,6 +48,7 @@ from .model_runners import (
 from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .sonara_staging import SonaraStagingConfig, StagedSonaraResult
 from .ml_staging import MLStagingConfig, MLStagedResult, analyze_and_store_staged_ml
+from .._shutdown import defer_keyboard_interrupt
 from ..analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -426,30 +427,37 @@ class AnalysisJobManager:
 
     def close(self) -> None:
         """Release runners after work unwinds; owners must first drain the shared queue."""
-        with self._lifecycle:
-            self.check_close_allowed()
-            if self._closing:
-                if self._closing_thread == threading.get_ident():
+        with defer_keyboard_interrupt() as finish:
+            with self._lifecycle:
+                self.check_close_allowed()
+                while self._closing_thread is not None:
+                    if self._closing_thread == threading.get_ident():
+                        return
+                    finish(lambda: self._lifecycle.wait_for(lambda: self._closing_thread is None))
+                if self._closed:
                     return
-                self._lifecycle.wait_for(lambda: self._closed)
-                return
-            self._closing = True
-            self._closing_thread = threading.get_ident()
-            self._lifecycle.wait_for(lambda: self._active_work == 0)
-            runners = (
-                self._runtime_runners,
-                self._provided_runner_handles,
-                self._model_runners,
-            )
-            self._runtime_runners = {}
-            self._provided_runner_handles = None
-            self._model_runners = None
-        # Finalizers may need application/runner locks. Drop the last owned
-        # references only after leaving the lifecycle lock.
-        del runners
-        with self._lifecycle:
-            self._closed = True
-            self._lifecycle.notify_all()
+                self._closing = True
+                self._closing_thread = threading.get_ident()
+            try:
+                with self._lifecycle:
+                    finish(lambda: self._lifecycle.wait_for(lambda: self._active_work == 0))
+                    runners = (
+                        self._runtime_runners,
+                        self._provided_runner_handles,
+                        self._model_runners,
+                    )
+                    self._runtime_runners = {}
+                    self._provided_runner_handles = None
+                    self._model_runners = None
+                # Finalizers may need application/runner locks. Drop the last
+                # owned references only after leaving the lifecycle lock.
+                del runners
+                with self._lifecycle:
+                    self._closed = True
+            finally:
+                with self._lifecycle:
+                    self._closing_thread = None
+                    self._lifecycle.notify_all()
 
     def check_close_allowed(self) -> None:
         """Reject waits on this thread before an owner detaches the manager."""

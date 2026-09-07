@@ -353,11 +353,19 @@ def test_state_close_drains_inline_pipeline_children_outside_state_lock(
     release = threading.Event()
     joining = threading.Event()
     closed = threading.Event()
+    second_closed = threading.Event()
     joined = queue._thread.join
     order = []
+    interrupt = KeyboardInterrupt("state drain interrupted")
+    interrupted = False
+    close_errors = []
 
     def observe_join(*args, **kwargs):
+        nonlocal interrupted
         joining.set()
+        if not interrupted:
+            interrupted = True
+            raise interrupt
         return joined(*args, **kwargs)
 
     def execute(job_id):
@@ -379,15 +387,24 @@ def test_state_close_drains_inline_pipeline_children_outside_state_lock(
     monkeypatch.setattr(queue._thread, "join", observe_join)
     monkeypatch.setattr(audio, "_execute_job", execute)
     monkeypatch.setattr(audio, "current_sonara_track_count", lambda: 1)
-    closer = threading.Thread(target=lambda: (state.close(), closed.set()), daemon=True)
-    second_close = threading.Thread(target=state.close, daemon=True)
+
+    def close():
+        try:
+            state.close()
+        except BaseException as error:
+            close_errors.append(error.with_traceback(None))
+        finally:
+            closed.set()
+
+    closer = threading.Thread(target=close, daemon=True)
+    second_close = threading.Thread(target=lambda: (state.close(), second_closed.set()), daemon=True)
     try:
         job = pipeline.start(stages=["sonara", "ml"], limit=None, ml={"models": ["mert"]})
         assert entered.wait(5)
         closer.start()
         assert joining.wait(5)
         second_close.start()
-        assert not closed.is_set()
+        assert not closed.wait(0.1)
         with pytest.raises(DatabaseBusy, match="closed"):
             with state.exclusive_db("late operation"):
                 pytest.fail("closed state admitted an exclusive operation")
@@ -400,8 +417,10 @@ def test_state_close_drains_inline_pipeline_children_outside_state_lock(
             second_close.join(5)
     assert not closer.is_alive()
     assert not second_close.is_alive()
+    assert second_closed.is_set()
     assert not queue._thread.is_alive()
     assert closed.is_set()
+    assert close_errors == [interrupt]
     assert pipeline.get(job.job_id).state == "completed"
     assert order == [["sonara"], ["mert"]]
     with pytest.raises(RuntimeError, match="closed"):

@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from .._shutdown import defer_keyboard_interrupt
 from ..analysis.jobs import AnalysisJobManager
 from ..analysis.pipeline import AnalysisPipelineManager
 from ..analysis.queue import AnalysisStageQueue
@@ -140,10 +141,11 @@ class AppDatabaseState:
         stage_queue: AnalysisStageQueue | None,
         manager: AnalysisJobManager | None,
     ) -> None:
-        if stage_queue is not None:
-            stage_queue.close()
-        if manager is not None:
-            manager.close()
+        with defer_keyboard_interrupt() as finish:
+            if stage_queue is not None:
+                finish(stage_queue.close)
+            if manager is not None:
+                finish(manager.close)
 
     def _require_open(self) -> None:
         if self._closing:
@@ -151,39 +153,43 @@ class AppDatabaseState:
 
     def close(self) -> None:
         """Drain database-owned analysis resources without holding the state lock."""
-        with self._lifecycle:
-            stage_queue, manager = self._closing_owners or (self.analysis_queue, self.analysis_jobs)
-            for owned_queue, owned_manager, cleanup_thread in self._replacement_owners.values():
-                if cleanup_thread == threading.get_ident():
-                    raise RuntimeError("Database state cannot close from replacement cleanup")
-                if owned_queue is not None:
-                    owned_queue.check_close_allowed()
-                if owned_manager is not None:
-                    owned_manager.check_close_allowed()
-            if stage_queue is not None:
-                stage_queue.check_close_allowed()
-            if manager is not None:
-                manager.check_close_allowed()
-            if self._closing:
-                if self._closing_thread == threading.get_ident():
-                    return
-                self._lifecycle.wait_for(lambda: self._closed)
-                return
-            self._closing = True
-            self._closing_thread = threading.get_ident()
-            self._closing_owners = stage_queue, manager
-            self.analysis_queue = None
-            self.analysis_jobs = None
-            self.analysis_pipeline_jobs = None
-            self.classifier_jobs = None
-        try:
-            self._close_analysis(stage_queue, manager)
-        finally:
+        with defer_keyboard_interrupt() as finish:
             with self._lifecycle:
-                self._lifecycle.wait_for(lambda: not self._replacement_owners)
-                self._closing_owners = None
-                self._closed = True
-                self._lifecycle.notify_all()
+                stage_queue, manager = self._closing_owners or (self.analysis_queue, self.analysis_jobs)
+                for owned_queue, owned_manager, cleanup_thread in self._replacement_owners.values():
+                    if cleanup_thread == threading.get_ident():
+                        raise RuntimeError("Database state cannot close from replacement cleanup")
+                    if owned_queue is not None:
+                        owned_queue.check_close_allowed()
+                    if owned_manager is not None:
+                        owned_manager.check_close_allowed()
+                if stage_queue is not None:
+                    stage_queue.check_close_allowed()
+                if manager is not None:
+                    manager.check_close_allowed()
+                while self._closing_thread is not None:
+                    if self._closing_thread == threading.get_ident():
+                        return
+                    finish(lambda: self._lifecycle.wait_for(lambda: self._closing_thread is None))
+                if self._closed:
+                    return
+                self._closing = True
+                self._closing_thread = threading.get_ident()
+                self._closing_owners = stage_queue, manager
+                self.analysis_queue = None
+                self.analysis_jobs = None
+                self.analysis_pipeline_jobs = None
+                self.classifier_jobs = None
+            try:
+                finish(lambda: self._close_analysis(stage_queue, manager))
+                with self._lifecycle:
+                    finish(lambda: self._lifecycle.wait_for(lambda: not self._replacement_owners))
+                    self._closing_owners = None
+                    self._closed = True
+            finally:
+                with self._lifecycle:
+                    self._closing_thread = None
+                    self._lifecycle.notify_all()
 
     def require_db(self) -> LibraryDatabase:
         with self._lock:

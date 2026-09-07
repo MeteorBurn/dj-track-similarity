@@ -208,9 +208,21 @@ def test_shared_analysis_queue_runs_callbacks_sequentially(monkeypatch) -> None:
     released_owner = threading.Event()
     order = []
     join = stage_queue._thread.join
+    interrupt = KeyboardInterrupt("queue close interrupted")
+    join_interrupted = False
+    close_errors = []
+    close_done = threading.Event()
 
     def observe_join(*args, **kwargs):
+        nonlocal join_interrupted
         joining.set()
+        if not join_interrupted:
+            join_interrupted = True
+            raise interrupt
+        if not release.is_set():
+            # An interrupted CPython join may subsequently report completion
+            # even while the callback is still running.
+            return None
         return join(*args, **kwargs)
 
     monkeypatch.setattr(stage_queue._thread, "join", observe_join)
@@ -239,22 +251,33 @@ def test_shared_analysis_queue_runs_callbacks_sequentially(monkeypatch) -> None:
     stage_queue.submit(interrupted)
     stage_queue.submit(owner)
     del owner
-    closer = threading.Thread(target=stage_queue.close, daemon=True)
+
+    def close():
+        try:
+            stage_queue.close()
+        except BaseException as error:
+            close_errors.append(error.with_traceback(None))
+        finally:
+            close_done.set()
+
+    closer = threading.Thread(target=close, daemon=True)
     try:
         assert entered.wait(5)
         closer.start()
         assert joining.wait(5)
         with pytest.raises(RuntimeError, match="closed"):
             stage_queue.submit(lambda: order.append("late"))
-        assert closer.is_alive()
+        assert not close_done.wait(0.1)
     finally:
         release.set()
         if closer.ident is None:
             closer.start()
         closer.join(5)
     assert not closer.is_alive()
+    assert close_done.is_set()
     assert not stage_queue._thread.is_alive()
     assert order == ["first:start", "first:end", "interrupted", "second"]
+    assert close_errors == [interrupt]
     assert released_owner.wait(5)
     assert owner_ref() is None
     stage_queue.close()

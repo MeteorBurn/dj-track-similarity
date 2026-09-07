@@ -830,7 +830,7 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
 
 
 @pytest.mark.parametrize("mode", ["run_job", "run_sync", "threaded", "queued"])
-def test_manager_close_waits_for_execution_before_releasing_runners(mode) -> None:
+def test_manager_close_waits_for_execution_before_releasing_runners(monkeypatch, mode) -> None:
     output = _mert_output()
     entered = threading.Event()
     release = threading.Event()
@@ -855,6 +855,19 @@ def test_manager_close_waits_for_execution_before_releasing_runners(mode) -> Non
     del runner
     # An undispatched status must not leave close waiting forever.
     unused = manager.create_job(models=["mert"], device="cpu")
+    close_errors = []
+    interrupt = KeyboardInterrupt("manager close interrupted")
+    interrupted = threading.Event()
+    second_closed = threading.Event()
+    wait = manager._lifecycle.wait
+
+    def interrupt_wait(*args, **kwargs):
+        if mode == "run_job" and not interrupted.is_set():
+            interrupted.set()
+            raise interrupt
+        return wait(*args, **kwargs)
+
+    monkeypatch.setattr(manager._lifecycle, "wait", interrupt_wait)
 
     def run():
         if mode == "run_job":
@@ -866,6 +879,8 @@ def test_manager_close_waits_for_execution_before_releasing_runners(mode) -> Non
         closing.set()
         try:
             manager.close()
+        except BaseException as error:
+            close_errors.append(error.with_traceback(None))
         finally:
             if stage_queue is not None:
                 stage_queue.close()
@@ -873,6 +888,7 @@ def test_manager_close_waits_for_execution_before_releasing_runners(mode) -> Non
 
     worker = None
     closer = threading.Thread(target=close, daemon=True)
+    second_close = threading.Thread(target=lambda: (manager.close(), second_closed.set()), daemon=True)
     try:
         if mode in {"queued", "threaded"}:
             results.append(manager.start(models=["mert"], device="cpu"))
@@ -882,7 +898,11 @@ def test_manager_close_waits_for_execution_before_releasing_runners(mode) -> Non
         assert entered.wait(5)
         closer.start()
         assert closing.wait(5)
+        if mode == "run_job":
+            assert interrupted.wait(5)
+        second_close.start()
         assert not closed.wait(0.1)
+        assert not second_closed.is_set()
         assert runner_ref() is not None
     finally:
         release.set()
@@ -891,9 +911,13 @@ def test_manager_close_waits_for_execution_before_releasing_runners(mode) -> Non
         if closer.ident is None:
             closer.start()
         closer.join(5)
+        if second_close.ident is not None:
+            second_close.join(5)
     assert worker is None or not worker.is_alive()
     assert not closer.is_alive()
     assert closed.is_set()
+    assert second_closed.is_set()
+    assert close_errors == ([interrupt] if mode == "run_job" else [])
     assert runner_ref() is None
     assert manager.get(results[0].job_id).state == "completed"
     with pytest.raises(RuntimeError, match="closed"):

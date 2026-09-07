@@ -421,6 +421,7 @@ def test_analyze_cli_joins_worker_before_close_after_progress_failure(
     close_called = threading.Event()
     waiting = threading.Event()
     interrupted_wait = threading.Event()
+    cleanup_interrupted = threading.Event()
     closed_too_soon = []
 
     class RunningManager(_FakeAnalysisManager):
@@ -444,6 +445,13 @@ def test_analyze_cli_joins_worker_before_close_after_progress_failure(
                 interrupted_wait.set()
                 raise
 
+    class CompletionEvent(threading.Event):
+        def wait(self, timeout=None):
+            if error_type is KeyboardInterrupt and not cleanup_interrupted.is_set():
+                cleanup_interrupted.set()
+                raise KeyboardInterrupt("cleanup wait interrupted again")
+            return super().wait(timeout)
+
     def fail_progress(*_args):
         if error_type is RuntimeError:
             progress_failed.set()
@@ -459,6 +467,7 @@ def test_analyze_cli_joins_worker_before_close_after_progress_failure(
                 threading.Event().wait(0.05)
                 _thread.interrupt_main()
                 assert interrupted_wait.wait(5)
+                assert cleanup_interrupted.wait(5)
             else:
                 assert progress_failed.wait(5)
             closed_too_soon.append(close_called.wait(0.1))
@@ -468,7 +477,7 @@ def test_analyze_cli_joins_worker_before_close_after_progress_failure(
     monkeypatch.setattr(cli_analysis, "AnalysisJobManager", RunningManager)
     monkeypatch.setattr(cli_progress, "_write_cli_progress", fail_progress)
     monkeypatch.setattr(cli_progress, "threading", SimpleNamespace(
-        Thread=ObservedThread, Event=threading.Event,
+        Thread=ObservedThread, Event=CompletionEvent,
     ))
     controller = threading.Thread(target=finish_worker, daemon=True)
     controller.start()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Sequence
@@ -70,6 +71,7 @@ class MaestEmbeddingAdapter:
         )
         self.top_k = max(1, int(top_k))
         self.inference_batch_size = max(1, int(inference_batch_size))
+        self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
         self._torchaudio = None
@@ -258,21 +260,25 @@ class MaestEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        import torch
-        import torchaudio
-        from maest_infer import get_maest
+        with self._load_lock:
+            if self._model is not None:
+                return
+            import torch
+            import torchaudio
+            from maest_infer import get_maest
 
-        self._torch = torch
-        self._torchaudio = torchaudio
-        self.device = self._device()
-        _ensure_verified_maest_checkpoint(
-            torch,
-            checkpoint_url=self.checkpoint_url,
-            checkpoint_filename=self.checkpoint_filename,
-            expected_sha256=self.checkpoint_sha256,
-        )
-        self._model = get_maest(arch=self.model_name).to(self.device).eval()
-        _move_maest_runtime_modules(self._model, self.device)
+            self._torch = torch
+            self._torchaudio = torchaudio
+            self.device = self._device()
+            _ensure_verified_maest_checkpoint(
+                torch,
+                checkpoint_url=self.checkpoint_url,
+                checkpoint_filename=self.checkpoint_filename,
+                expected_sha256=self.checkpoint_sha256,
+            )
+            model = get_maest(arch=self.model_name).to(self.device).eval()
+            _move_maest_runtime_modules(model, self.device)
+            self._model = model
 
     def _device(self) -> str:
         assert self._torch is not None

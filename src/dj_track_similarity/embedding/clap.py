@@ -75,6 +75,7 @@ class ClapEmbeddingAdapter:
         self.window_seconds = window_seconds
         self.max_windows = max_windows
         self.inference_batch_size = max(1, int(inference_batch_size))
+        self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
         self._torchaudio = None
@@ -192,48 +193,51 @@ class ClapEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        import torch
-        import torchaudio
-        import laion_clap
-        from huggingface_hub import hf_hub_download, snapshot_download
-        from transformers import RobertaModel, RobertaTokenizer
+        with self._load_lock:
+            if self._model is not None:
+                return
+            import torch
+            import torchaudio
+            import laion_clap
+            from huggingface_hub import hf_hub_download, snapshot_download
+            from transformers import RobertaModel, RobertaTokenizer
 
-        self._torch = torch
-        self._torchaudio = torchaudio
-        self.device = self._device()
-        with ExitStack() as assets:
-            verified_checkpoint = assets.enter_context(
-                _download_verified_hf_checkpoint(
-                    hf_hub_download,
-                    repo_id=self.checkpoint_repo,
-                    filename=self.checkpoint_filename,
-                    revision=self.model_revision,
-                    expected_sha256=self.checkpoint_sha256,
+            self._torch = torch
+            self._torchaudio = torchaudio
+            self.device = self._device()
+            with ExitStack() as assets:
+                verified_checkpoint = assets.enter_context(
+                    _download_verified_hf_checkpoint(
+                        hf_hub_download,
+                        repo_id=self.checkpoint_repo,
+                        filename=self.checkpoint_filename,
+                        revision=self.model_revision,
+                        expected_sha256=self.checkpoint_sha256,
+                    )
                 )
-            )
-            verified_text_snapshot = assets.enter_context(
-                _download_verified_hf_snapshot(
-                    snapshot_download,
-                    repo_id=self.text_model_name,
-                    revision=self.text_model_revision,
-                    required_files=self.text_snapshot_files,
-                    expected_sha256=self.text_snapshot_sha256,
-                    checkpoint_filename=self.text_checkpoint_filename,
-                    expected_checkpoint_sha256=self.text_checkpoint_sha256,
+                verified_text_snapshot = assets.enter_context(
+                    _download_verified_hf_snapshot(
+                        snapshot_download,
+                        repo_id=self.text_model_name,
+                        revision=self.text_model_revision,
+                        required_files=self.text_snapshot_files,
+                        expected_sha256=self.text_snapshot_sha256,
+                        checkpoint_filename=self.text_checkpoint_filename,
+                        expected_checkpoint_sha256=self.text_checkpoint_sha256,
+                    )
                 )
-            )
-            model = _construct_clap_module_with_pinned_text_model(
-                laion_clap.CLAP_Module,
-                tokenizer_loader=RobertaTokenizer,
-                model_loader=RobertaModel,
-                snapshot_path=verified_text_snapshot.path,
-                enable_fusion=self.enable_fusion,
-                amodel=self.amodel,
-                tmodel=self.tmodel,
-                device=torch.device(self.device),
-            )
-            model.load_ckpt(str(verified_checkpoint.path), verbose=False)
-        self._model = model
+                model = _construct_clap_module_with_pinned_text_model(
+                    laion_clap.CLAP_Module,
+                    tokenizer_loader=RobertaTokenizer,
+                    model_loader=RobertaModel,
+                    snapshot_path=verified_text_snapshot.path,
+                    enable_fusion=self.enable_fusion,
+                    amodel=self.amodel,
+                    tmodel=self.tmodel,
+                    device=torch.device(self.device),
+                )
+                model.load_ckpt(str(verified_checkpoint.path), verbose=False)
+            self._model = model
 
     def _device(self) -> str:
         assert self._torch is not None

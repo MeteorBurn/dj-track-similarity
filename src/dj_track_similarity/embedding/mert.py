@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 import numpy as np
@@ -55,6 +56,7 @@ class MertEmbeddingAdapter:
         self.window_seconds = window_seconds
         self.max_windows = max_windows
         self.inference_batch_size = max(1, int(inference_batch_size))
+        self._load_lock = threading.RLock()
         self._model = None
         self._processor = None
         self._torch = None
@@ -156,46 +158,50 @@ class MertEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        import torch
-        import torchaudio
-        from huggingface_hub import snapshot_download
-        from transformers import AutoModel, Wav2Vec2FeatureExtractor
+        with self._load_lock:
+            if self._model is not None:
+                return
+            import torch
+            import torchaudio
+            from huggingface_hub import snapshot_download
+            from transformers import AutoModel, Wav2Vec2FeatureExtractor
 
-        self._torch = torch
-        self._torchaudio = torchaudio
-        binding = _download_verified_hf_snapshot(
-            snapshot_download,
-            repo_id=self.model_name,
-            revision=self.model_revision,
-            required_files=self.snapshot_files,
-            expected_sha256=self.snapshot_sha256,
-            checkpoint_filename=self.checkpoint_filename,
-            expected_checkpoint_sha256=self.checkpoint_sha256,
-        )
-        with binding as verified:
-            snapshot_path = str(verified.path)
-            processor = Wav2Vec2FeatureExtractor.from_pretrained(
-                snapshot_path,
-                local_files_only=True,
+            self._torch = torch
+            self._torchaudio = torchaudio
+            binding = _download_verified_hf_snapshot(
+                snapshot_download,
+                repo_id=self.model_name,
+                revision=self.model_revision,
+                required_files=self.snapshot_files,
+                expected_sha256=self.snapshot_sha256,
+                checkpoint_filename=self.checkpoint_filename,
+                expected_checkpoint_sha256=self.checkpoint_sha256,
             )
-            if int(processor.sampling_rate) != self.target_rate:
-                raise RuntimeError(
-                    "Local MERT processor sample rate does not match the "
-                    "configured adapter input: "
-                    f"expected {self.target_rate}, got {processor.sampling_rate}"
+            with binding as verified:
+                snapshot_path = str(verified.path)
+                processor = Wav2Vec2FeatureExtractor.from_pretrained(
+                    snapshot_path,
+                    local_files_only=True,
                 )
-            self.device = self._device()
-            model = AutoModel.from_pretrained(
-                snapshot_path,
-                trust_remote_code=True,
-                local_files_only=True,
-                use_safetensors=False,
-            )
-        to_float = getattr(model, "float", None)
-        if callable(to_float):
-            model = to_float()
-        self._processor = processor
-        self._model = model.to(self.device).eval()
+                if int(processor.sampling_rate) != self.target_rate:
+                    raise RuntimeError(
+                        "Local MERT processor sample rate does not match the "
+                        "configured adapter input: "
+                        f"expected {self.target_rate}, got {processor.sampling_rate}"
+                    )
+                self.device = self._device()
+                model = AutoModel.from_pretrained(
+                    snapshot_path,
+                    trust_remote_code=True,
+                    local_files_only=True,
+                    use_safetensors=False,
+                )
+            to_float = getattr(model, "float", None)
+            if callable(to_float):
+                model = to_float()
+            model = model.to(self.device).eval()
+            self._processor = processor
+            self._model = model
 
     def _device(self) -> str:
         assert self._torch is not None

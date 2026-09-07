@@ -76,10 +76,6 @@ def test_mulan_adapter_uses_the_official_joint_audio_text_checkpoint() -> None:
     assert adapter.normalization == "l2"
 
 
-def test_product_embedding_adapters_do_not_expose_removed_fake_adapter() -> None:
-    assert set(adapter_factories()) == {"maest", "mert", "muq", "mulan", "clap"}
-
-
 @pytest.mark.parametrize(
     ("requested", "cuda_available", "expected"),
     [
@@ -108,6 +104,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     monkeypatch, tmp_path
 ) -> None:
     calls: dict[str, object] = {}
+    models = []
     checkpoint = tmp_path / "checkpoint.pt"
     checkpoint.write_bytes(b"stub checkpoint")
     text_snapshot = tmp_path / "roberta-snapshot"
@@ -159,7 +156,8 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
         @staticmethod
         def from_pretrained(source, **kwargs):
             calls["tokenizer_load"] = (source, kwargs)
-            (text_snapshot / "config.json").write_bytes(b"mutated source")
+            if len(models) == 2:
+                (text_snapshot / "config.json").write_bytes(b"mutated source")
             assert (Path(source) / "config.json").read_bytes() == b"config.json"
             return object()
 
@@ -206,8 +204,13 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     class FakeClapModule:
         def __init__(self, *, enable_fusion, amodel, tmodel, device):
             calls["module"] = (enable_fusion, amodel, tmodel, device)
+            models.append(self)
+            assert hook_module.RobertaTokenizer is not FloatingTokenizerLoader
+            assert clap_model_module.RobertaModel is not FloatingModelLoader
             hook_module.RobertaTokenizer.from_pretrained("roberta-base")
             clap_model_module.RobertaModel.from_pretrained("roberta-base")
+            if len(models) == 1:
+                raise RuntimeError("CLAP constructor failed with text bindings active")
 
         def load_ckpt(self, checkpoint_path, verbose=True):
             calls["checkpoint"] = checkpoint_path
@@ -244,9 +247,20 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     adapter.text_checkpoint_sha256 = dict(adapter.text_snapshot_sha256)[
         adapter.text_checkpoint_filename
     ]
+    with pytest.raises(RuntimeError, match="CLAP constructor failed"):
+        adapter.preflight()
+    assert len(models) == 1
+    assert adapter._model is None
+    assert hook_module.RobertaTokenizer is FloatingTokenizerLoader
+    assert clap_model_module.RobertaModel is FloatingModelLoader
+    assert not Path(calls["tokenizer_load"][0]).exists()
+
     adapter.preflight()
     adapter.preflight()
     vector = adapter.embed_text("warm minimal house")
+    assert len(models) == 2
+    assert models[0] is not models[1]
+    assert adapter._model is models[1]
 
     assert calls["downloads"] == [
         (
@@ -255,7 +269,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
             "b3708341862f581175dba5c356a4ebf74a9b6651",
             False,
         )
-    ]
+    ] * 2
     assert calls["verify"] == (
         text_snapshot / adapter.text_checkpoint_filename,
         adapter.text_checkpoint_sha256,

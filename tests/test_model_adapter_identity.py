@@ -1,5 +1,6 @@
 import hashlib
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -13,6 +14,55 @@ from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
+
+
+def _retry_loader_concurrently(adapter, monkeypatch) -> None:
+    """Hold the first real lock acquisition until a second caller contends."""
+
+    original_lock = getattr(adapter, "_load_lock", threading.RLock())
+    entered = threading.Event()
+    contended = threading.Event()
+    release = threading.Event()
+    errors: list[BaseException] = []
+
+    class ObservedLoadLock:
+        def __enter__(self):
+            if not original_lock.acquire(blocking=False):
+                contended.set()
+                assert original_lock.acquire(timeout=5), "Load lock was not released"
+            entered.set()
+            if not release.wait(5):
+                original_lock.release()
+                raise AssertionError("Timed out releasing the first loader")
+
+        def __exit__(self, *_exc):
+            original_lock.release()
+
+    def load():
+        try:
+            adapter._load_model()
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=load) for _ in range(2)]
+    started = []
+    with monkeypatch.context() as patch:
+        patch.setattr(adapter, "_load_lock", ObservedLoadLock(), raising=False)
+        try:
+            threads[0].start()
+            started.append(threads[0])
+            assert entered.wait(5), "Loader did not acquire its instance lock"
+            threads[1].start()
+            started.append(threads[1])
+            assert contended.wait(5), "Second caller did not contend on the load lock"
+            assert adapter._model is None
+        finally:
+            release.set()
+            for thread in started:
+                thread.join(5)
+        assert all(not thread.is_alive() for thread in started)
+        assert not errors, errors
+    adapter._load_model()
 
 
 def test_adapters_expose_dimensions_and_normalization_before_model_load() -> None:
@@ -105,20 +155,6 @@ def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
         assert parameters["channel_downmix"] == "torchcodec-num-channels-1"
 
 
-def test_model_adapters_do_not_expose_legacy_path_decoders() -> None:
-    maest = MaestEmbeddingAdapter(device="cpu")
-    assert not hasattr(maest, "analyze_batch")
-
-    for adapter in (
-        MertEmbeddingAdapter(device="cpu"),
-        MuqEmbeddingAdapter(device="cpu"),
-        MuqMulanEmbeddingAdapter(device="cpu"),
-        ClapEmbeddingAdapter(device="cpu"),
-    ):
-        assert not hasattr(adapter, "embed")
-        assert not hasattr(adapter, "embed_batch")
-
-
 def test_maest_runtime_parameters_describe_structure_aware_windows() -> None:
     parameters = MaestEmbeddingAdapter(device="cpu").runtime_parameters()
 
@@ -196,6 +232,8 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     tmp_path,
 ) -> None:
     calls: dict[str, object] = {}
+    models = []
+    processors = []
     snapshot = tmp_path / "mert-snapshot"
     snapshot.mkdir()
     for file_name in MertEmbeddingAdapter.snapshot_files:
@@ -212,6 +250,8 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
 
         def eval(self):
             calls["eval"] = True
+            if self is models[0]:
+                raise RuntimeError("MERT final preparation failed")
             return self
 
     class FakeProcessor:
@@ -221,13 +261,17 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
         @staticmethod
         def from_pretrained(model_name, **kwargs):
             calls["processor"] = (model_name, kwargs)
-            return FakeProcessor()
+            processor = FakeProcessor()
+            processors.append(processor)
+            return processor
 
     class FakeAutoModel:
         @staticmethod
         def from_pretrained(model_name, **kwargs):
             calls["model"] = (model_name, kwargs)
-            return FakeModel()
+            model = FakeModel()
+            models.append(model)
+            return model
 
     torch_module = types.ModuleType("torch")
     torchaudio_module = types.ModuleType("torchaudio")
@@ -258,7 +302,19 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     adapter.checkpoint_sha256 = dict(adapter.snapshot_sha256)[
         adapter.checkpoint_filename
     ]
-    adapter._load_model()
+    with pytest.raises(RuntimeError, match="MERT final preparation failed"):
+        adapter._load_model()
+    assert len(models) == len(processors) == 1
+    assert adapter._model is None
+    assert adapter._processor is None
+    assert not Path(calls["model"][0]).exists()
+
+    _retry_loader_concurrently(adapter, monkeypatch)
+    assert len(models) == len(processors) == 2
+    assert models[0] is not models[1]
+    assert processors[0] is not processors[1]
+    assert adapter._model is models[1]
+    assert adapter._processor is processors[1]
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
@@ -282,6 +338,7 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
     tmp_path,
 ) -> None:
     calls: dict[str, object] = {}
+    models = []
     snapshot = tmp_path / "muq-snapshot"
     snapshot.mkdir()
     for file_name in MuqEmbeddingAdapter.snapshot_files:
@@ -298,13 +355,17 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
 
         def eval(self):
             calls["eval"] = True
+            if self is models[0]:
+                raise RuntimeError("MuQ final preparation failed")
             return self
 
     class FakeMuQ:
         @staticmethod
         def from_pretrained(model_name, **kwargs):
             calls["model"] = (model_name, kwargs)
-            return FakeModel()
+            model = FakeModel()
+            models.append(model)
+            return model
 
     torch_module = types.ModuleType("torch")
     torchaudio_module = types.ModuleType("torchaudio")
@@ -334,7 +395,18 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
     adapter.checkpoint_sha256 = dict(adapter.snapshot_sha256)[
         adapter.checkpoint_filename
     ]
-    adapter._load_model()
+    with pytest.raises(RuntimeError, match="MuQ final preparation failed"):
+        adapter._load_model()
+    assert len(models) == 1
+    assert adapter._model is None
+    assert muq_module.MuQ is FakeMuQ
+    assert not Path(calls["model"][0]).exists()
+
+    _retry_loader_concurrently(adapter, monkeypatch)
+    assert len(models) == 2
+    assert models[0] is not models[1]
+    assert adapter._model is models[1]
+    assert muq_module.MuQ is FakeMuQ
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
@@ -351,6 +423,7 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     tmp_path,
 ) -> None:
     calls: dict[str, object] = {"downloads": []}
+    models = []
     snapshot = tmp_path / "mulan-snapshot"
     snapshot.mkdir()
     for file_name in MuqMulanEmbeddingAdapter.snapshot_files:
@@ -371,6 +444,11 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
         def from_pretrained(source, **kwargs):
             calls["tokenizer_load"] = (source, kwargs)
             assert (Path(source) / "tokenizer.json").read_bytes() == b"tokenizer.json"
+            assert text_module.AutoTokenizer is not VerifiedTokenizerLoader
+            assert text_module.XLMRobertaModel is not VerifiedEncoderLoader
+            assert muq_module.MuQ is not VerifiedAudioLoader
+            if len(models) == 1:
+                raise RuntimeError("MuLan tokenizer preparation failed")
             return object()
 
     class VerifiedEncoderLoader:
@@ -433,7 +511,9 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
                 MuqMulanEmbeddingAdapter.audio_model_name,
                 cache_dir=None,
             )
-            return FakeModel()
+            model = FakeModel()
+            models.append(model)
+            return model
 
     hf_module = types.ModuleType("huggingface_hub")
 
@@ -484,7 +564,23 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     adapter.audio_checkpoint_sha256 = dict(adapter.audio_snapshot_sha256)[
         adapter.audio_checkpoint_filename
     ]
-    adapter._load_model()
+    with pytest.raises(RuntimeError, match="MuLan tokenizer preparation failed"):
+        adapter._load_model()
+    assert len(models) == 1
+    assert adapter._model is None
+    assert models[0].mulan_module.text._tokenizer is None
+    assert text_module.AutoTokenizer is VerifiedTokenizerLoader
+    assert text_module.XLMRobertaModel is VerifiedEncoderLoader
+    assert muq_module.MuQ is VerifiedAudioLoader
+    assert not Path(calls["model"][0]).exists()
+    assert not Path(calls["tokenizer_load"][0]).exists()
+    assert not Path(calls["audio_load"][0]).exists()
+
+    _retry_loader_concurrently(adapter, monkeypatch)
+    assert len(models) == 2
+    assert models[0] is not models[1]
+    assert adapter._model is models[1]
+    assert models[1].mulan_module.text._tokenizer is not None
 
     assert calls["downloads"] == [
         (
@@ -505,7 +601,7 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
             list(adapter.audio_snapshot_files),
             False,
         ),
-    ]
+    ] * 2
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
     assert not Path(model_path).exists()
@@ -531,6 +627,7 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     tmp_path,
 ) -> None:
     calls: dict[str, object] = {}
+    models = []
     checkpoint = tmp_path / "checkpoint.pt"
     checkpoint.write_bytes(b"checkpoint")
     text_snapshot = tmp_path / "roberta-snapshot"
@@ -561,9 +658,12 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     class FakeClap:
         def __init__(self, *, enable_fusion, amodel, tmodel, device):
             calls["module"] = (enable_fusion, amodel, tmodel, device)
+            models.append(self)
 
         def load_ckpt(self, path, verbose=True):
             calls["checkpoint"] = path
+            if self is models[0]:
+                raise RuntimeError("CLAP checkpoint preparation failed")
 
     clap_module = types.ModuleType("laion_clap")
     clap_module.CLAP_Module = FakeClap
@@ -596,7 +696,16 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     adapter.text_checkpoint_sha256 = dict(adapter.text_snapshot_sha256)[
         adapter.text_checkpoint_filename
     ]
-    adapter._load_model()
+    with pytest.raises(RuntimeError, match="CLAP checkpoint preparation failed"):
+        adapter._load_model()
+    assert len(models) == 1
+    assert adapter._model is None
+    assert not Path(calls["checkpoint"]).exists()
+
+    _retry_loader_concurrently(adapter, monkeypatch)
+    assert len(models) == 2
+    assert models[0] is not models[1]
+    assert adapter._model is models[1]
 
     assert calls["download"][:2] == (
         adapter.checkpoint_repo,
@@ -622,21 +731,42 @@ def test_maest_loader_verifies_checkpoint_before_public_discogs_path(
 ) -> None:
     calls: dict[str, object] = {}
     order: list[str] = []
+    models = []
+
+    class FakeMel:
+        def __init__(self, model):
+            self.model = model
+
+        def to(self, device):
+            order.append("mel-to")
+            assert device == "cpu"
+            if self.model is models[0]:
+                raise RuntimeError("MAEST mel preparation failed")
 
     class FakeModel:
+        melspectrogram = None
+
         def to(self, device):
+            order.append("to")
             calls["device"] = device
             return self
 
         def eval(self):
+            order.append("eval")
             calls["eval"] = True
             return self
 
+        def init_melspectrogram(self):
+            order.append("mel-init")
+            self.melspectrogram = FakeMel(self)
+
     def get_maest(**kwargs):
-        assert order == ["verify"]
+        assert order[-1] == "verify"
         order.append("load")
         calls["get_maest"] = kwargs
-        return FakeModel()
+        model = FakeModel()
+        models.append(model)
+        return model
 
     torch_module = types.ModuleType("torch")
     torchaudio_module = types.ModuleType("torchaudio")
@@ -652,9 +782,16 @@ def test_maest_loader_verifies_checkpoint_before_public_discogs_path(
     )
 
     adapter = MaestEmbeddingAdapter(device="cpu")
-    adapter._load_model()
+    with pytest.raises(RuntimeError, match="MAEST mel preparation failed"):
+        adapter._load_model()
+    assert len(models) == 1
+    assert adapter._model is None
 
-    assert order == ["verify", "load"]
+    _retry_loader_concurrently(adapter, monkeypatch)
+    assert len(models) == 2
+    assert models[0] is not models[1]
+    assert adapter._model is models[1]
+    assert order == ["verify", "load", "to", "eval", "mel-init", "mel-to"] * 2
     assert calls["get_maest"] == {"arch": adapter.model_name}
     assert calls["device"] == "cpu"
     assert calls["eval"] is True

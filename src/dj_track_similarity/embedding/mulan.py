@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import threading
 import time
 from collections.abc import Sequence
 from contextlib import ExitStack
@@ -87,6 +88,7 @@ class MuqMulanEmbeddingAdapter:
         self.window_seconds = window_seconds
         self.max_windows = max_windows
         self.inference_batch_size = max(1, int(inference_batch_size))
+        self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
         self._torchaudio = None
@@ -215,59 +217,62 @@ class MuqMulanEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        import torch
-        import torchaudio
-        from huggingface_hub import snapshot_download
-        from muq import MuQMuLan
+        with self._load_lock:
+            if self._model is not None:
+                return
+            import torch
+            import torchaudio
+            from huggingface_hub import snapshot_download
+            from muq import MuQMuLan
 
-        _silence_muq_weight_norm_deprecation()
-        self._torch = torch
-        self._torchaudio = torchaudio
-        with ExitStack() as assets:
-            verified = assets.enter_context(
-                _download_verified_hf_snapshot(
-                    snapshot_download,
-                    repo_id=self.model_name,
-                    revision=self.model_revision,
-                    required_files=self.snapshot_files,
-                    expected_sha256=self.snapshot_sha256,
-                    checkpoint_filename=self.checkpoint_filename,
-                    expected_checkpoint_sha256=self.checkpoint_sha256,
+            _silence_muq_weight_norm_deprecation()
+            self._torch = torch
+            self._torchaudio = torchaudio
+            with ExitStack() as assets:
+                verified = assets.enter_context(
+                    _download_verified_hf_snapshot(
+                        snapshot_download,
+                        repo_id=self.model_name,
+                        revision=self.model_revision,
+                        required_files=self.snapshot_files,
+                        expected_sha256=self.snapshot_sha256,
+                        checkpoint_filename=self.checkpoint_filename,
+                        expected_checkpoint_sha256=self.checkpoint_sha256,
+                    )
                 )
-            )
-            verified_text_snapshot = assets.enter_context(
-                _download_verified_hf_snapshot(
-                    snapshot_download,
-                    repo_id=self.text_model_name,
-                    revision=self.text_model_revision,
-                    required_files=self.text_snapshot_files,
-                    expected_sha256=self.text_snapshot_sha256,
-                    checkpoint_filename=self.text_checkpoint_filename,
-                    expected_checkpoint_sha256=self.text_checkpoint_sha256,
+                verified_text_snapshot = assets.enter_context(
+                    _download_verified_hf_snapshot(
+                        snapshot_download,
+                        repo_id=self.text_model_name,
+                        revision=self.text_model_revision,
+                        required_files=self.text_snapshot_files,
+                        expected_sha256=self.text_snapshot_sha256,
+                        checkpoint_filename=self.text_checkpoint_filename,
+                        expected_checkpoint_sha256=self.text_checkpoint_sha256,
+                    )
                 )
-            )
-            verified_audio_snapshot = assets.enter_context(
-                _download_verified_hf_snapshot(
-                    snapshot_download,
-                    repo_id=self.audio_model_name,
-                    revision=self.audio_model_revision,
-                    required_files=self.audio_snapshot_files,
-                    expected_sha256=self.audio_snapshot_sha256,
-                    checkpoint_filename=self.audio_checkpoint_filename,
-                    expected_checkpoint_sha256=self.audio_checkpoint_sha256,
+                verified_audio_snapshot = assets.enter_context(
+                    _download_verified_hf_snapshot(
+                        snapshot_download,
+                        repo_id=self.audio_model_name,
+                        revision=self.audio_model_revision,
+                        required_files=self.audio_snapshot_files,
+                        expected_sha256=self.audio_snapshot_sha256,
+                        checkpoint_filename=self.audio_checkpoint_filename,
+                        expected_checkpoint_sha256=self.audio_checkpoint_sha256,
+                    )
                 )
-            )
-            self.device = self._device()
-            model = _construct_muq_mulan_with_pinned_towers(
-                MuQMuLan,
-                snapshot_path=verified.path,
-                text_snapshot_path=verified_text_snapshot.path,
-                audio_snapshot_path=verified_audio_snapshot.path,
-            )
-        to_float = getattr(model, "float", None)
-        if callable(to_float):
-            model = to_float()
-        self._model = model.to(self.device).eval()
+                self.device = self._device()
+                model = _construct_muq_mulan_with_pinned_towers(
+                    MuQMuLan,
+                    snapshot_path=verified.path,
+                    text_snapshot_path=verified_text_snapshot.path,
+                    audio_snapshot_path=verified_audio_snapshot.path,
+                )
+            to_float = getattr(model, "float", None)
+            if callable(to_float):
+                model = to_float()
+            self._model = model.to(self.device).eval()
 
     def _device(self) -> str:
         assert self._torch is not None

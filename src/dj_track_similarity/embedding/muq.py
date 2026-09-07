@@ -55,6 +55,7 @@ class MuqEmbeddingAdapter:
         self.window_seconds = window_seconds
         self.max_windows = max_windows
         self.inference_batch_size = max(1, int(inference_batch_size))
+        self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
         self._torchaudio = None
@@ -135,36 +136,39 @@ class MuqEmbeddingAdapter:
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        import torch
-        import torchaudio
-        from huggingface_hub import snapshot_download
-        import muq
+        with self._load_lock:
+            if self._model is not None:
+                return
+            import torch
+            import torchaudio
+            from huggingface_hub import snapshot_download
+            import muq
 
-        _silence_muq_weight_norm_deprecation()
-        self._torch = torch
-        self._torchaudio = torchaudio
-        binding = _download_verified_hf_snapshot(
-            snapshot_download,
-            repo_id=self.model_name,
-            revision=self.model_revision,
-            required_files=self.snapshot_files,
-            expected_sha256=self.snapshot_sha256,
-            checkpoint_filename=self.checkpoint_filename,
-            expected_checkpoint_sha256=self.checkpoint_sha256,
-        )
-        with binding as verified, _MUQ_CONSTRUCTION_LOCK:
-            # Read under the lock: MuQ-MuLan construction rebinds this
-            # attribute to a proxy that only accepts its own snapshot.
-            MuQ = muq.MuQ
-            self.device = self._device()
-            model = MuQ.from_pretrained(
-                str(verified.path),
-                local_files_only=True,
+            _silence_muq_weight_norm_deprecation()
+            self._torch = torch
+            self._torchaudio = torchaudio
+            binding = _download_verified_hf_snapshot(
+                snapshot_download,
+                repo_id=self.model_name,
+                revision=self.model_revision,
+                required_files=self.snapshot_files,
+                expected_sha256=self.snapshot_sha256,
+                checkpoint_filename=self.checkpoint_filename,
+                expected_checkpoint_sha256=self.checkpoint_sha256,
             )
-        to_float = getattr(model, "float", None)
-        if callable(to_float):
-            model = to_float()
-        self._model = model.to(self.device).eval()
+            with binding as verified, _MUQ_CONSTRUCTION_LOCK:
+                # Read under the lock: MuQ-MuLan construction rebinds this
+                # attribute to a proxy that only accepts its own snapshot.
+                MuQ = muq.MuQ
+                self.device = self._device()
+                model = MuQ.from_pretrained(
+                    str(verified.path),
+                    local_files_only=True,
+                )
+            to_float = getattr(model, "float", None)
+            if callable(to_float):
+                model = to_float()
+            self._model = model.to(self.device).eval()
 
     def _device(self) -> str:
         assert self._torch is not None

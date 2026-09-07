@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 import dj_track_similarity.api as api
 import dj_track_similarity.cli as cli
+import dj_track_similarity.cli_analysis as cli_analysis
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -252,7 +253,7 @@ def test_analyze_cli_rejects_unknown_device_before_opening_manager(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", _FakeAnalysisManager)
     _FakeAnalysisManager.last_kwargs = {}
 
     result = CliRunner().invoke(
@@ -269,7 +270,7 @@ def test_analyze_cli_prints_default_ml_progress_and_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", _FakeAnalysisManager)
     _FakeAnalysisManager.last_kwargs = {}
 
     result = CliRunner().invoke(
@@ -292,7 +293,7 @@ def test_analyze_cli_runs_sonara_core_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", _FakeAnalysisManager)
     _FakeAnalysisManager.last_kwargs = {}
 
     result = CliRunner().invoke(
@@ -315,7 +316,7 @@ def test_analyze_cli_passes_separate_ml_batch_sizes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", _FakeAnalysisManager)
 
     result = CliRunner().invoke(
         cli.app,

@@ -74,6 +74,7 @@ class ScanJobStatus:
 @dataclass
 class ScanJobPayload:
     paths: Iterable[Path]
+    seen_paths: list[Path] = field(default_factory=list)
     track_states: dict[str, TrackFileState] = field(default_factory=dict)
     reconcile_missing: bool = True
     min_duration_seconds: int | None = None
@@ -165,28 +166,27 @@ class ScanJobManager:
             max_duration_seconds=max_duration_seconds,
             scan_limit=limit,
         )
+        # Import known active paths only once. Missing rows remain eligible for
+        # rediscovery in a full scan; limited imports retain new-path semantics.
+        paths = self._iter_scan_paths(
+            payload,
+            root_path,
+            selected_extensions,
+            known_path_keys={
+                # Stored paths are already resolved; building the snapshot
+                # must not touch every source file again.
+                ordinal_path_key(item.file_path)
+                for item in self.repository.list_track_paths(
+                    include_missing=limit is not None,
+                )
+            },
+        )
         if limit is None:
-            payload.paths = list(
-                self._iter_scan_paths(payload, root_path, selected_extensions)
-            )
+            payload.paths = list(paths)
             total = len(payload.paths)
         else:
-            # A limited scan adds new tracks only, so paths already stored are
-            # dropped before the limit counts them, and discovery stays lazy so
-            # the walk can stop as soon as the limit is filled.
-            payload.paths = self._iter_scan_paths(
-                payload,
-                root_path,
-                selected_extensions,
-                known_path_keys={
-                    # Stored paths are already resolved, so no path in the
-                    # library is resolved again to build this set.
-                    ordinal_path_key(item.file_path)
-                    for item in self.repository.list_track_paths(
-                        include_missing=True,
-                    )
-                },
-            )
+            # Keep discovery lazy so the walk stops when the limit is filled.
+            payload.paths = paths
             total = 0
         status = ScanJobStatus(
             job_id=job_id,
@@ -374,7 +374,7 @@ class ScanJobManager:
             try:
                 self.repository.mark_unseen_missing(
                     status.root,
-                    payload.paths,
+                    payload.seen_paths,
                 )
             except Exception as error:
                 error_text = exception_summary(error)
@@ -448,6 +448,9 @@ class ScanJobManager:
             root_path,
             extensions=SUPPORTED_AUDIO_EXTENSIONS,
         ):
+            if payload.reconcile_missing:
+                # Known files still exist even though they need no preparation.
+                payload.seen_paths.append(path)
             if path.suffix.lower() not in selected_extensions:
                 payload.extension_filtered_count += 1
                 continue

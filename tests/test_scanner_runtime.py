@@ -295,6 +295,7 @@ def test_windows_path_identity_uses_lower_not_unicode_casefold() -> None:
 
 def test_scan_job_manager_parallel_workers_share_thread_safe_repository(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     music_root = tmp_path / "parallel"
     for index in range(12):
@@ -303,26 +304,44 @@ def test_scan_job_manager_parallel_workers_share_thread_safe_repository(
     manager = ScanJobManager(database)
 
     first = manager.run_sync(music_root, workers=4)
+
+    submitted_paths: list[str] = []
+    original_submit = scan_jobs_module.ProcessPoolExecutor.submit
+
+    def record_submit(executor, function, paths, **kwargs):
+        submitted_paths.extend(paths)
+        return original_submit(executor, function, paths, **kwargs)
+
+    monkeypatch.setattr(scan_jobs_module.ProcessPoolExecutor, "submit", record_submit)
     second = manager.run_sync(music_root, workers=4)
+    assert submitted_paths == []
+    new_path = music_root / "new.wav"
+    _make_wav(new_path)
+    third = manager.run_sync(music_root, workers=4)
+    assert submitted_paths == [str(new_path)]
+    assert third.added == third.processed == 1
 
     assert first.state == "completed"
     assert first.processed == 12
     assert first.added == 12
     assert first.failed == 0
     assert second.state == "completed"
-    assert second.processed == 12
-    assert second.unchanged == 12
+    assert second.processed == 0
+    assert second.unchanged == 0
     assert second.failed == 0
     with database.connect() as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM tracks"
-        ).fetchone()[0] == 12
+        ).fetchone()[0] == 13
         assert connection.execute(
             "SELECT COUNT(*) FROM tags"
-        ).fetchone()[0] == 12
+        ).fetchone()[0] == 13
         assert connection.execute(
             "SELECT COUNT(*) FROM track_search_fts"
-        ).fetchone()[0] == 12
+        ).fetchone()[0] == 13
+        assert connection.execute(
+            "SELECT COUNT(*) FROM tracks WHERE missing_since IS NOT NULL"
+        ).fetchone()[0] == 0
         facts = connection.execute(
             """
             SELECT file_path, file_size_bytes, file_modified_ns

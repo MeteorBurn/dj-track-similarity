@@ -47,11 +47,10 @@ audio-online = [
 dev = [
   "httpx2>=2.0.0",
   "pytest>=7.4",
-  "ruff>=0.8",
 ]
 
 [tool.uv.sources]
-sonara = { path = "C:/projects/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
+sonara = { path = "E:/Rust/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
 torch = [
   { index = "pytorch-cu130", marker = "python_version == '3.10' and sys_platform == 'win32' and platform_machine == 'AMD64'" },
 ]

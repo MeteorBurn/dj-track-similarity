@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .db_evaluation_sidecar import delete_evaluation_track_rows
+from .db_track_relocation import _apply_relocation_paths, _plan_relocation
 from .db_search_fts import (
     delete_track_search_fts,
     rebuild_track_search_fts,
@@ -23,9 +24,6 @@ from .db_search_fts import (
 from .track_models import (
     ClearLibraryResult,
     FileTags,
-    MissingRelocationFile,
-    RelocationChange,
-    RelocationConflict,
     RelocationResult,
     ScannedFile,
     TrackFileState,
@@ -315,105 +313,6 @@ def _validated_track_ids(track_ids: Sequence[int]) -> tuple[int, ...]:
 def _chunks(values: Sequence[int], size: int = _SQLITE_IN_CHUNK_SIZE) -> Iterable[tuple[int, ...]]:
     for start in range(0, len(values), size):
         yield tuple(values[start : start + size])
-
-
-def _relocated_path(
-    file_path: str,
-    *,
-    old_root: str,
-    new_root: str,
-) -> str | None:
-    file_path_key = ordinal_path_key(file_path)
-    old_root_key = ordinal_path_key(old_root)
-    if file_path_key == old_root_key:
-        return new_root
-    prefix = f"{old_root_key}/"
-    if not file_path_key.startswith(prefix):
-        return None
-    return f"{new_root}/{file_path[len(prefix):]}"
-
-
-def _plan_relocation(
-    rows: Sequence[sqlite3.Row],
-    *,
-    old_root: str,
-    new_root: str,
-) -> tuple[
-    list[RelocationChange],
-    list[RelocationConflict],
-    list[MissingRelocationFile],
-]:
-    provisional: list[RelocationChange] = []
-    for row in rows:
-        old_path = str(row[2])
-        new_path = _relocated_path(
-            old_path,
-            old_root=old_root,
-            new_root=new_root,
-        )
-        if new_path is None:
-            continue
-        provisional.append(
-            RelocationChange(
-                track_id=int(row[0]),
-                track_uuid=str(row[1]),
-                old_path=old_path,
-                new_path=new_path,
-            )
-        )
-
-    moving_ids = {change["track_id"] for change in provisional}
-    existing_by_path = {
-        ordinal_path_key(str(row[2])): int(row[0])
-        for row in rows
-    }
-    planned_by_path: dict[str, int] = {}
-    conflicts: list[RelocationConflict] = []
-    missing_files: list[MissingRelocationFile] = []
-    for change in provisional:
-        new_path_key = ordinal_path_key(change["new_path"])
-        existing_track_id = existing_by_path.get(new_path_key)
-        if (
-            existing_track_id is not None
-            and existing_track_id != change["track_id"]
-            and existing_track_id not in moving_ids
-        ):
-            conflicts.append(
-                RelocationConflict(
-                    **change,
-                    existing_track_id=existing_track_id,
-                )
-            )
-        planned_track_id = planned_by_path.get(new_path_key)
-        if (
-            planned_track_id is not None
-            and planned_track_id != change["track_id"]
-        ):
-            conflicts.append(
-                RelocationConflict(
-                    **change,
-                    existing_track_id=planned_track_id,
-                )
-            )
-        planned_by_path[new_path_key] = change["track_id"]
-        if not Path(change["new_path"]).is_file():
-            missing_files.append(
-                MissingRelocationFile(
-                    track_id=change["track_id"],
-                    path=change["new_path"],
-                )
-            )
-    return provisional, conflicts, missing_files
-
-
-def _temporary_relocation_path(
-    old_path: str,
-    occupied_paths: set[str],
-) -> str:
-    while True:
-        candidate = f"{old_path}.relocating-{uuid.uuid4().hex}"
-        if candidate not in occupied_paths:
-            return candidate
 
 
 class TrackRepository:
@@ -1186,6 +1085,7 @@ class TrackRepository:
                         rows,
                         old_root=old_root_text,
                         new_root=new_root_text,
+                        path_key=ordinal_path_key,
                     )
                     if apply:
                         if conflicts:
@@ -1199,70 +1099,7 @@ class TrackRepository:
                                 "target files are missing"
                             )
                         timestamp = utc_now_text()
-                        occupied_paths = {
-                            str(row[2])
-                            for row in rows
-                        } | {
-                            change["new_path"]
-                            for change in changes
-                        }
-                        temporary_paths: dict[int, str] = {}
-                        for change in changes:
-                            temporary_path = _temporary_relocation_path(
-                                change["old_path"],
-                                occupied_paths,
-                            )
-                            occupied_paths.add(temporary_path)
-                            temporary_paths[change["track_id"]] = temporary_path
-                            cursor = connection.execute(
-                                """
-                                UPDATE tracks
-                                SET file_path = ?,
-                                    updated_at = ?
-                                WHERE track_id = ?
-                                  AND track_uuid = ?
-                                  AND file_path = ?
-                                """,
-                                (
-                                    temporary_path,
-                                    timestamp,
-                                    change["track_id"],
-                                    change["track_uuid"],
-                                    change["old_path"],
-                                ),
-                            )
-                            if cursor.rowcount != 1:
-                                raise RuntimeError(
-                                    "Track identity changed during relocation: "
-                                    f"{change['track_id']}"
-                                )
-                        for change in changes:
-                            cursor = connection.execute(
-                                """
-                                UPDATE tracks
-                                SET file_path = ?,
-                                    updated_at = ?
-                                WHERE track_id = ?
-                                  AND track_uuid = ?
-                                  AND file_path = ?
-                                """,
-                                (
-                                    change["new_path"],
-                                    timestamp,
-                                    change["track_id"],
-                                    change["track_uuid"],
-                                    temporary_paths[change["track_id"]],
-                                ),
-                            )
-                            if cursor.rowcount != 1:
-                                raise RuntimeError(
-                                    "Track identity changed during relocation: "
-                                    f"{change['track_id']}"
-                                )
-                            upsert_track_search_fts(
-                                connection,
-                                change["track_id"],
-                            )
+                        _apply_relocation_paths(connection, rows, changes, timestamp)
                         root_row = connection.execute(
                             "SELECT roots_json FROM library WHERE singleton_id = 1"
                         ).fetchone()

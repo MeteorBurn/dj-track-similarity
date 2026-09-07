@@ -95,8 +95,13 @@ class LibraryQueryRepository:
     @contextmanager
     def _open_library(
         self,
+        *,
+        write: bool = False,
     ) -> Iterator[tuple[sqlite3.Connection, _ReadContext]]:
         with closing(self.connect()) as connection:
+            # Keep context, page counts, rows and hydration on one snapshot.
+            # Writers reserve their lock before reading to avoid an upgrade.
+            connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             context = _read_context(
                 connection,
                 expected_catalog_uuid=self.catalog_uuid,
@@ -360,9 +365,8 @@ class LibraryQueryRepository:
             raise RuntimeError("Track like candidate belongs to a different catalog")
         with (
             self._write_lock,
-            self._open_library() as (connection, context),
+            self._open_library(write=True) as (connection, context),
         ):
-            connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute(
                     """

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import closing
 
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db import library_queries, library_query_sql
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -173,6 +175,57 @@ def test_fts_search_reads_the_rowid_the_index_writer_stores(
             """
         ).fetchone()[0]
     assert mismatched == 0
+
+
+def test_library_page_keeps_one_snapshot_while_wal_writes_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    first = _add_track(database, tmp_path / "first.wav", title="First", artist="Artist")
+    order_sql = library_query_sql._order_sql
+    assemble = library_queries._assemble_summaries
+
+    def insert_after_count(**kwargs):
+        _add_track(database, tmp_path / "second.wav", title="Second", artist="Artist")
+        return order_sql(**kwargs)
+
+    def score_after_page(connection, **kwargs):
+        # A separate gateway connection commits before the reader continues.
+        with closing(database.connect()) as writer, writer:
+            assert writer.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+            writer.execute("PRAGMA busy_timeout = 0")
+            writer.execute(
+                """
+                INSERT INTO classifier_scores (
+                    track_id, track_uuid, classifier_key, feature_set,
+                    feature_names_json, positive_label, predicted_class,
+                    score_bucket, score, confidence, probabilities_json,
+                    analyzed_at
+                ) VALUES (?, ?, 'energy', 'fixture', '["feature"]', 'positive',
+                          'positive', 'high', 0.9, 0.9,
+                          '{"negative": 0.1, "positive": 0.9}',
+                          '2026-08-12T00:00:00Z')
+                """,
+                (first.track_id, first.track_uuid),
+            )
+        return assemble(connection, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(library_query_sql, "_order_sql", insert_after_count)
+        patch.setattr(library_queries, "_assemble_summaries", score_after_page)
+        page = database.paginate_track_summaries()
+
+    assert page.total == 1
+    assert [row.track_id for row in page.items] == [first.track_id]
+    assert page.items[0].classifier_scores == ()
+    fresh_page = database.paginate_track_summaries()
+    assert fresh_page.total == len(fresh_page.items) == 2
+    refreshed = next(row for row in fresh_page.items if row.track_id == first.track_id)
+    assert refreshed.track_uuid == first.track_uuid
+    assert [(score.classifier_key, score.score) for score in refreshed.classifier_scores] == [
+        ("energy", 0.9),
+    ]
 
 
 def _add_track(

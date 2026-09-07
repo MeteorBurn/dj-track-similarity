@@ -526,6 +526,7 @@ export function App() {
   }
 
   function resetDatabaseScopedState() {
+    databaseCatalogUuidRef.current = null;
     cancelGenericSearchRequest();
     cancelTextSearch();
     cancelTrackDetailRequest();
@@ -1238,20 +1239,27 @@ export function App() {
   }
 
   async function handleToggleTrackLiked(track: Track): Promise<Track | null> {
+    if (databaseCatalogUuidRef.current !== track.catalog_uuid) return null;
     const nextLiked = !track.liked;
     try {
       const updated = await api.setTrackLiked(track, nextLiked);
+      if (
+        databaseCatalogUuidRef.current !== track.catalog_uuid
+        || !sameTrackIdentity(track, updated)
+      ) return null;
       updateTrackLiked(updated);
-      setPlaylist((current) => current.map((item) => (item.track_id === updated.track_id ? updated : item)));
+      setPlaylist((current) => current.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
       setResults((current) => current.map((item) => (
-        item.track.track_id === updated.track_id ? { ...item, track: updated } : item
+        sameTrackIdentity(item.track, updated) ? { ...item, track: updated } : item
       )));
       setSeedTrackMap((current) => (
-        current[updated.track_id] ? { ...current, [updated.track_id]: updated } : current
+        current[updated.track_id] && sameTrackIdentity(current[updated.track_id], updated)
+          ? { ...current, [updated.track_id]: updated } : current
       ));
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
       return updated;
     } catch (error) {
+      if (databaseCatalogUuidRef.current !== track.catalog_uuid) return null;
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось изменить лайк", message);

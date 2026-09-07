@@ -13,6 +13,7 @@ from dj_track_similarity.analysis import model_runners as runner_module
 from dj_track_similarity.analysis.config import build_analysis_job_config
 from dj_track_similarity.analysis.job_batch import AnalysisBatchItem, DecodeFailure
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
+from dj_track_similarity.analysis.ml_staging import MLStagingConfig, MLStagingSession
 from dj_track_similarity.analysis.queue import AnalysisStageQueue
 from dj_track_similarity.analysis.model_runners import (
     EmbeddingModelRunner,
@@ -287,6 +288,86 @@ def test_runner_initialization_failure_is_fatal_before_activation() -> None:
     assert status.processed == 0
     assert repository.events == []
     assert "identity is unavailable" in status.events[-1].message
+
+
+@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
+def test_staging_entry_failure_finishes_job_and_releases_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    error_type: type[BaseException],
+) -> None:
+    output = _mert_output()
+    repository = _FakeRepository([_candidate(1, (output,))])
+    runner = _FakeRunner("mert", (output,))
+    manager = AnalysisJobManager(repository, model_runners={"mert": runner})
+    job_id = manager.create_job(
+        models=["mert"], device="cpu", ml_staging_config=MLStagingConfig(root=tmp_path)
+    )
+    error = error_type("staging unavailable")
+    payload = manager._payload(job_id)
+
+    def fail_enter(_session: MLStagingSession) -> MLStagingSession:
+        assert payload.candidates and payload.targets_by_track and payload.track_outcomes
+        raise error
+
+    monkeypatch.setattr(MLStagingSession, "__enter__", fail_enter)
+    if isinstance(error, Exception):
+        status = manager.run_job(job_id)
+    else:
+        with pytest.raises(error_type) as caught:
+            manager.run_job(job_id)
+        assert caught.value is error
+        status = manager.get(job_id)
+
+    assert repository.events[-1][0] == "candidates"
+    assert status.state == "failed"
+    assert status.finished_at is not None
+    assert status.current_path is None
+    assert status.current_model is None
+    assert status.events[-1].level == "error"
+    assert "staging unavailable" in status.events[-1].message
+    assert payload.candidates == []
+    assert payload.targets_by_track == {}
+    assert payload.track_outcomes == {}
+    closed = threading.Event()
+    closer = threading.Thread(target=lambda: (manager.close(), closed.set()), daemon=True)
+    closer.start()
+    closer.join(5)
+    assert closed.is_set()
+
+
+@pytest.mark.parametrize("cancel", [False, True], ids=["completed", "cancelled"])
+def test_finished_job_releases_track_data_but_retains_status_and_configuration(cancel) -> None:
+    output = _mert_output()
+    repository = _FakeRepository([_candidate(1, (output,))])
+    candidate_ref = weakref.ref(repository.candidates[0])
+    outcome_refs = []
+
+    class ReleasingRunner(_FakeRunner):
+        def analyze_batch(self, _repository, items):
+            payload = manager._payload(job_id)
+            outcome_refs.extend(weakref.ref(value) for value in payload.track_outcomes.values())
+            repository.candidates.clear()
+            if cancel:
+                manager.cancel(job_id)
+            return [None] * len(items)
+
+    manager = AnalysisJobManager(
+        repository,
+        model_runners={"mert": ReleasingRunner("mert", (output,))},
+        decode_audio=lambda path: _decoded(str(path)),
+    )
+    job_id = manager.create_job(models=["mert"], device="cpu")
+    status = manager.run_job(job_id)
+
+    assert status.state == ("cancelled" if cancel else "completed")
+    assert candidate_ref() is None
+    assert outcome_refs and all(ref() is None for ref in outcome_refs)
+    assert manager.get(job_id) == status
+    assert manager.latest() == status
+    assert manager._payload(job_id).targets_by_track == {}
+    assert manager.run_job(job_id).state == status.state
+    manager.close()
 
 
 def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight() -> None:

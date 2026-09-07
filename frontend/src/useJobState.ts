@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type AnalysisJobStatus,
@@ -57,125 +57,88 @@ export function useJobState({
   const databaseValidationRunning = Boolean(databaseValidationJob && ["queued", "running"].includes(databaseValidationJob.state));
   const databaseOptimizationRunning = Boolean(databaseOptimizationJob && ["queued", "running"].includes(databaseOptimizationJob.state));
 
-  useEffect(() => {
-    if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
-    const timer = window.setInterval(() => {
-      void api.scanJob(scanJob.job_id!).then((job) => {
-        setScanJob(job);
-        if (["completed", "cancelled", "failed"].includes(job.state || "")) {
-          void refreshLibrary(0, { refreshSummary: true });
-          refreshClassifierProfilesInBackground();
-          if (job.state === "completed") {
-            appendActivity("ok", "Сканирование завершено", scanSummary(job));
-          }
-          if (job.state === "cancelled") {
-            appendActivity("warn", "Сканирование остановлено", scanSummary(job));
-          }
-        }
-      }).catch((error) => {
-        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-      });
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [scanJob?.job_id, scanJob?.state]);
+  const reportPollError = (error: unknown) => {
+    setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+  };
 
-  useEffect(() => {
-    if (!analysisJob || !["queued", "running"].includes(analysisJob.state)) return;
-    const timer = window.setInterval(() => {
-      const request = analysisJobRequest(analysisJob);
-      void request.then((job) => {
-        setAnalysisJob(job);
-        if (["completed", "cancelled", "failed"].includes(job.state)) {
-          void refreshLibrary(0, { refreshSummary: true });
-          refreshClassifierProfilesInBackground();
-        }
-      }).catch((error) => {
-        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-      });
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [analysisJob?.job_id, analysisJob?.state]);
+  useJobPolling(scanJob, 1200, (job) => api.scanJob(job.job_id!), (job) => {
+    setScanJob(job);
+    if (["completed", "cancelled", "failed"].includes(job.state || "")) {
+      void refreshLibrary(0, { refreshSummary: true });
+      refreshClassifierProfilesInBackground();
+      if (job.state === "completed") {
+        appendActivity("ok", "Сканирование завершено", scanSummary(job));
+      }
+      if (job.state === "cancelled") {
+        appendActivity("warn", "Сканирование остановлено", scanSummary(job));
+      }
+    }
+  }, reportPollError);
 
-  useEffect(() => {
-    if (!databaseValidationJob || !["queued", "running"].includes(databaseValidationJob.state)) return;
-    const timer = window.setInterval(() => {
-      void api.databaseValidationJob(databaseValidationJob.job_id).then((job) => {
-        setDatabaseValidationJob(job);
-        const detail = `${job.checked} проверено · предупреждений ${job.warnings} · ошибок ${job.errors}`;
-        const prefix = job.state === "completed" ? "Проверка БД завершена" : job.state === "cancelled" ? "Проверка БД отменена" : "Проверка БД";
-        setNotice({ kind: job.errors ? "error" : "ok", text: `${prefix}: ${detail}` });
-        promptDatabaseOptimization(job);
-      }).catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) }));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [databaseValidationJob?.job_id, databaseValidationJob?.state]);
+  const analysisRoute = analysisJob?.adapter_name === "multi" || analysisJob?.models?.length
+    ? "analysis" : `classifier:${analysisJob?.adapter_name}`;
+  useJobPolling(analysisJob, 1500, analysisJobRequest, (job) => {
+    setAnalysisJob(job);
+    if (["completed", "cancelled", "failed"].includes(job.state)) {
+      void refreshLibrary(0, { refreshSummary: true });
+      refreshClassifierProfilesInBackground();
+    }
+  }, reportPollError, analysisRoute);
 
-  useEffect(() => {
-    if (!databaseOptimizationJob || !["queued", "running"].includes(databaseOptimizationJob.state)) return;
-    const timer = window.setInterval(() => {
-      void api.databaseOptimizationJob(databaseOptimizationJob.job_id).then((job) => {
-        setDatabaseOptimizationJob(job);
-        if (job.state === "completed") {
-          setNotice({ kind: "ok", text: `Оптимизация БД завершена: ${formatMegabytes(job.size_before)} → ${formatMegabytes(job.size_after)}` });
-          appendActivity("ok", "Оптимизация БД завершена", job.files.map((file) => basename(file.backup_path)).join(", "));
-          void refreshLibrarySummary();
-        } else if (job.state === "failed") {
-          setNotice({ kind: "error", text: `Оптимизация БД не удалась: ${job.error ?? "ошибка"}` });
-        } else {
-          setNotice({ kind: "ok", text: `Оптимизация БД: ${optimizationPhaseLabel(job)}` });
-        }
-      }).catch((error) => setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) }));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [databaseOptimizationJob?.job_id, databaseOptimizationJob?.state]);
+  useJobPolling(databaseValidationJob, 1000, (job) => api.databaseValidationJob(job.job_id), (job) => {
+    setDatabaseValidationJob(job);
+    const detail = `${job.checked} проверено · предупреждений ${job.warnings} · ошибок ${job.errors}`;
+    const prefix = job.state === "completed" ? "Проверка БД завершена" : job.state === "cancelled" ? "Проверка БД отменена" : "Проверка БД";
+    setNotice({ kind: job.errors ? "error" : "ok", text: `${prefix}: ${detail}` });
+    promptDatabaseOptimization(job);
+  }, reportPollError);
 
-  useEffect(() => {
-    if (!analysisPipelineJob || !["queued", "running"].includes(analysisPipelineJob.state)) return;
-    // Each stage child is adopted once; its own poller keeps it current.
-    let adoptedChildJobId: string | null = null;
-    const timer = window.setInterval(() => {
-      void api.analysisPipeline(analysisPipelineJob.job_id).then((job) => {
-        setAnalysisPipelineJob(job);
-        const currentStage = job.current_stage;
-        const childJobId = currentStage ? job.stages[currentStage]?.child_job_id : null;
-        if (childJobId && childJobId !== adoptedChildJobId) {
-          adoptedChildJobId = childJobId;
-          void api.analysisJob(childJobId).then(setAnalysisJob).catch((error) => {
-            adoptedChildJobId = null;
-            setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-          });
-        }
-        if (["completed", "cancelled", "failed"].includes(job.state)) {
-          void refreshLibrary(0, { refreshSummary: true });
-          refreshClassifierProfilesInBackground();
-        }
-      }).catch((error) => {
-        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-      });
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [analysisPipelineJob?.job_id, analysisPipelineJob?.state]);
+  useJobPolling(databaseOptimizationJob, 1000, (job) => api.databaseOptimizationJob(job.job_id), (job) => {
+    setDatabaseOptimizationJob(job);
+    if (job.state === "completed") {
+      setNotice({ kind: "ok", text: `Оптимизация БД завершена: ${formatMegabytes(job.size_before)} → ${formatMegabytes(job.size_after)}` });
+      appendActivity("ok", "Оптимизация БД завершена", job.files.map((file) => basename(file.backup_path)).join(", "));
+      void refreshLibrarySummary();
+    } else if (job.state === "failed") {
+      setNotice({ kind: "error", text: `Оптимизация БД не удалась: ${job.error ?? "ошибка"}` });
+    } else {
+      setNotice({ kind: "ok", text: `Оптимизация БД: ${optimizationPhaseLabel(job)}` });
+    }
+  }, reportPollError);
 
+  // Each stage child is adopted once; its own poller keeps it current.
+  const adoptedChildJobId = useRef<string | null>(null);
   useEffect(() => {
-    if (!genreTagJob || !["queued", "running"].includes(genreTagJob.state)) return;
-    const timer = window.setInterval(() => {
-      void api.genreTagJob(genreTagJob.job_id).then((job) => {
-        setGenreTagJob(job);
-        if (["completed", "cancelled", "failed"].includes(job.state)) {
-          void refreshLibrary(0, { refreshSummary: true });
-          if (job.state === "completed") {
-            appendActivity("ok", "Запись жанров завершена", genreTagJobSummary(job));
-          }
-          if (job.state === "cancelled") {
-            appendActivity("warn", "Запись жанров остановлена", genreTagJobSummary(job));
-          }
-        }
-      }).catch((error) => {
-        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-      });
-    }, 1200);
-    return () => window.clearInterval(timer);
-  }, [genreTagJob?.job_id, genreTagJob?.state]);
+    adoptedChildJobId.current = null;
+  }, [analysisPipelineJob?.job_id]);
+  useJobPolling(analysisPipelineJob, 1500, (job) => api.analysisPipeline(job.job_id), async (job, isCurrent) => {
+    setAnalysisPipelineJob(job);
+    if (["completed", "cancelled", "failed"].includes(job.state)) {
+      void refreshLibrary(0, { refreshSummary: true });
+      refreshClassifierProfilesInBackground();
+    }
+    const currentStage = job.current_stage;
+    const childJobId = currentStage ? job.stages[currentStage]?.child_job_id : null;
+    if (childJobId && childJobId !== adoptedChildJobId.current) {
+      const child = await api.analysisJob(childJobId);
+      if (!isCurrent()) return;
+      adoptedChildJobId.current = childJobId;
+      setAnalysisJob(child);
+    }
+  }, reportPollError);
+
+  useJobPolling(genreTagJob, 1200, (job) => api.genreTagJob(job.job_id), (job) => {
+    setGenreTagJob(job);
+    if (["completed", "cancelled", "failed"].includes(job.state)) {
+      void refreshLibrary(0, { refreshSummary: true });
+      if (job.state === "completed") {
+        appendActivity("ok", "Запись жанров завершена", genreTagJobSummary(job));
+      }
+      if (job.state === "cancelled") {
+        appendActivity("warn", "Запись жанров остановлена", genreTagJobSummary(job));
+      }
+    }
+  }, reportPollError);
   async function loadLatestJobs(promotedClassifiers = classifiers) {
     await Promise.all([
       api.latestScanJob().then((job) => {
@@ -246,4 +209,43 @@ export function useJobState({
 
 function genreTagJobSummary(job: GenreTagJobStatus) {
   return `записано ${job.applied} · пропущено ${job.skipped} · ошибок ${job.failed} · всего ${job.total}`;
+}
+
+function useJobPolling<Job extends { job_id?: string | null; state?: string }>(
+  job: Job | null,
+  delay: number,
+  request: (job: Job) => Promise<Job>,
+  receive: (job: Job, isCurrent: () => boolean) => void | Promise<void>,
+  onError: (error: unknown) => void,
+  route = "",
+) {
+  const latest = useRef({ request, receive, onError });
+  useEffect(() => { latest.current = { request, receive, onError }; });
+  const active = Boolean(job?.job_id && ["queued", "running"].includes(job.state ?? ""));
+  const jobId = job?.job_id;
+  useEffect(() => {
+    if (!active || !job) return;
+    let current = true;
+    let terminal = false;
+    let timer: number;
+    const isCurrent = () => current;
+    async function poll() {
+      try {
+        const next = await latest.current.request(job!);
+        if (!current) return;
+        // Stop before invoking completion callbacks, even if React has not committed yet.
+        terminal = !["queued", "running"].includes(next.state ?? "");
+        await latest.current.receive(next, isCurrent);
+      } catch (error) {
+        if (current) latest.current.onError(error);
+      } finally {
+        if (current && !terminal) timer = window.setTimeout(() => { void poll(); }, delay);
+      }
+    }
+    timer = window.setTimeout(() => { void poll(); }, delay);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [jobId, active, route, delay]);
 }

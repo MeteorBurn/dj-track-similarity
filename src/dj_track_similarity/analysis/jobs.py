@@ -193,6 +193,7 @@ class AnalysisJobManager:
         self._closing_thread: int | None = None
         self._active_work = 0
         self._executing_threads: dict[int, int] = {}
+        self._executing_jobs: dict[str, int] = {}
         self._store: JobStore[AnalysisJobStatus] = JobStore(
             self._copy_status,
             unknown_label="analysis job",
@@ -412,18 +413,51 @@ class AnalysisJobManager:
 
     def _run_admitted_job(self, job_id: str) -> AnalysisJobStatus:
         thread_id = threading.get_ident()
+        payload: _AnalysisPayload | None = None
         with self._lifecycle:
             self._executing_threads[thread_id] = self._executing_threads.get(thread_id, 0) + 1
+            self._executing_jobs[job_id] = self._executing_jobs.get(job_id, 0) + 1
         try:
+            payload = self._payload(job_id)
             return self._execute_job(job_id)
+        except BaseException as error:
+            if self.get(job_id).state in {"queued", "running"}:
+                self._fail_stage(
+                    job_id,
+                    f"Analysis execution failed: {type(error).__name__}: {error}",
+                )
+            if not isinstance(error, Exception):
+                raise
+            return self.get(job_id)
         finally:
+            working_data = None
             with self._lifecycle:
-                remaining = self._executing_threads[thread_id] - 1
-                if remaining:
-                    self._executing_threads[thread_id] = remaining
+                remaining_jobs = self._executing_jobs[job_id] - 1
+                if remaining_jobs:
+                    self._executing_jobs[job_id] = remaining_jobs
                 else:
-                    del self._executing_threads[thread_id]
-                self._release_work()
+                    del self._executing_jobs[job_id]
+                    if payload is not None:
+                        working_data = (
+                            payload.candidates, payload.targets_by_track, payload.track_outcomes,
+                        )
+                        payload.candidates = []
+                        payload.targets_by_track = {}
+                        payload.track_outcomes = {}
+            try:
+                # Keep configuration for run_job replay; release library-sized
+                # data only after the final consumer exits, outside owner locks.
+                if working_data is not None:
+                    for collection in working_data:
+                        collection.clear()
+            finally:
+                with self._lifecycle:
+                    remaining = self._executing_threads[thread_id] - 1
+                    if remaining:
+                        self._executing_threads[thread_id] = remaining
+                    else:
+                        del self._executing_threads[thread_id]
+                    self._release_work()
 
     def close(self) -> None:
         """Release runners after work unwinds; owners must first drain the shared queue."""

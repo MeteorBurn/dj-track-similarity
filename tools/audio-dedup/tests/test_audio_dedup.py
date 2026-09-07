@@ -14,24 +14,39 @@ from dj_track_similarity.analysis_models import current_embedding_spec
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
+TOOL_ROOT = Path(__file__).resolve().parents[1]
+if str(TOOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOL_ROOT))
 
-def _load_dedup_module():
-    # `core` imports its siblings relatively, so it has to load as part of the
-    # `audio_dedup` package. Loading the file on its own leaves `__package__`
-    # empty and the relative import fails.
-    tool_root = Path(__file__).resolve().parents[1]
-    if str(tool_root) not in sys.path:
-        sys.path.insert(0, str(tool_root))
-    from audio_dedup import core
+from audio_dedup import cli as cli_module  # noqa: E402
 
-    return core
+from audio_dedup import config as config_module  # noqa: E402
+
+from audio_dedup import core as core_module  # noqa: E402
+
+from audio_dedup import deletion as deletion_module  # noqa: E402
+
+from audio_dedup import keeper as keeper_module  # noqa: E402
+
+from audio_dedup import models as models_module  # noqa: E402
+
+from audio_dedup import report_files as report_files_module  # noqa: E402
+
+from audio_dedup import report_payload as report_payload_module  # noqa: E402
+
+from audio_dedup import report_selection as report_selection_module  # noqa: E402
+
+from audio_dedup import scoring as scoring_module  # noqa: E402
+
+from audio_dedup import track_loading as track_loading_module  # noqa: E402
+
+from audio_dedup import xlsx_report as xlsx_report_module  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def _isolate_external_resources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    dedup = _load_dedup_module()
-    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
-    monkeypatch.setattr(dedup, "ffmpeg_available", lambda: False)
+    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
+    monkeypatch.setattr(core_module, "ffmpeg_available", lambda: False)
 
 
 def _create_library_db(path: Path) -> None:
@@ -207,32 +222,29 @@ def _identity_tuple(
 
 
 def test_root_filter_selects_only_tracks_inside_root(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/A/one.flac")
     _insert_track(db_path, track_id=2, path="M:/Volumes/Abstractedness/A/two.flac")
     _insert_track(db_path, track_id=3, path="N:/Volumes/Abstracted/A/three.flac")
 
-    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    tracks = track_loading_module.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
 
     assert [track.track_id for track in tracks] == [1]
 
 
 def test_path_contains_additionally_filters_inside_root(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/Keep/one.flac")
     _insert_track(db_path, track_id=2, path="M:/Volumes/Abstracted/Other/two.flac")
 
-    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=["keep"])
+    tracks = track_loading_module.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=["keep"])
 
     assert [track.track_id for track in tracks] == [1]
 
 
 def test_load_tracks_reports_progress_after_each_200_row_chunk(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     for track_id in range(1, 202):
@@ -243,7 +255,7 @@ def test_load_tracks_reports_progress_after_each_200_row_chunk(tmp_path: Path) -
         )
     progress: list[tuple[int, int, str]] = []
 
-    tracks = dedup.load_tracks(
+    tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
@@ -253,7 +265,7 @@ def test_load_tracks_reports_progress_after_each_200_row_chunk(tmp_path: Path) -
         ),
     )
 
-    assert dedup.TRACK_LOAD_CHUNK_SIZE == 200
+    assert track_loading_module.TRACK_LOAD_CHUNK_SIZE == 200
     assert len(tracks) == 201
     assert (0, 201, "Loading scoped tracks") in progress
     assert (200, 201, "Loading scoped tracks") in progress
@@ -263,7 +275,6 @@ def test_load_tracks_reports_progress_after_each_200_row_chunk(tmp_path: Path) -
 def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
     tmp_path: Path,
 ) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     vectors = {
@@ -280,7 +291,7 @@ def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
     )
     progress: list[tuple[int, int, str]] = []
 
-    tracks = dedup.load_tracks(
+    tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
@@ -290,7 +301,7 @@ def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
         ),
     )
 
-    assert dedup.EMBEDDING_LOAD_CHUNK_SIZE == 200
+    assert track_loading_module.EMBEDDING_LOAD_CHUNK_SIZE == 200
     assert set(tracks[0].embeddings) == {"mert", "maest"}
     assert (0, 1, "Loading MERT embeddings") in progress
     assert (1, 1, "Loading MERT embeddings") in progress
@@ -300,7 +311,6 @@ def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
 
 
 def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     vectors = {
@@ -329,7 +339,7 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
         )
         connection.commit()
 
-    tracks = dedup.load_tracks(
+    tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
@@ -350,7 +360,6 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
 def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
     tmp_path: Path,
 ) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     _insert_track(
@@ -360,7 +369,7 @@ def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
         vectors={"muq": [1.0, 0.0, 0.0]},
     )
 
-    tracks = dedup.load_tracks(
+    tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
@@ -387,7 +396,7 @@ def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
         )
         connection.commit()
 
-    invalid_tracks = dedup.load_tracks(
+    invalid_tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
@@ -399,7 +408,6 @@ def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
 def test_muq_influences_scores_and_disabling_it_restores_legacy_scores(
     tmp_path: Path,
 ) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     sonara = {"energy": 0.7}
@@ -427,18 +435,18 @@ def test_muq_influences_scores_and_disabling_it_restores_legacy_scores(
             "clap": [0.6, 0.8],
         },
     )
-    tracks = dedup.load_tracks(
+    tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
     )
-    config = dedup.resolve_preset("safe", min_score=None)
+    config = config_module.resolve_preset("safe", min_score=None)
 
-    all_sources = dedup.score_pair(tracks[0], tracks[1], config)
-    legacy_config = dedup.resolve_source_config(
+    all_sources = scoring_module.score_pair(tracks[0], tracks[1], config)
+    legacy_config = config_module.resolve_source_config(
         sources=["mert", "maest", "clap"],
     )
-    legacy = dedup.score_pair(
+    legacy = scoring_module.score_pair(
         tracks[0],
         tracks[1],
         config,
@@ -501,19 +509,17 @@ def test_source_config_rejects_invalid_sources_and_weights(
     weights: dict[str, float] | None,
     match: str,
 ) -> None:
-    dedup = _load_dedup_module()
 
     with pytest.raises(ValueError, match=match):
-        dedup.resolve_source_config(
+        config_module.resolve_source_config(
             sources=sources,
             weights=weights,
         )
 
 
 def test_cli_accepts_repeatable_sources_and_weights() -> None:
-    dedup = _load_dedup_module()
 
-    args = dedup.parse_args(
+    args = cli_module.parse_args(
         [
             "--root",
             "D:/Music",
@@ -527,9 +533,9 @@ def test_cli_accepts_repeatable_sources_and_weights() -> None:
             "muq=0.2",
         ]
     )
-    source_config = dedup.resolve_source_config(
+    source_config = config_module.resolve_source_config(
         sources=args.sources,
-        weights=dedup.parse_weight_arguments(args.weights),
+        weights=config_module.parse_weight_arguments(args.weights),
     )
 
     assert source_config.sources == ("mert", "muq")
@@ -557,7 +563,6 @@ def test_high_muq_only_report_candidate_is_never_safe_to_delete(
     weights: dict[str, float] | None,
     expected_blockers: set[str],
 ) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     vectors = {"muq": [1.0, 0.0, 0.0]}
@@ -575,24 +580,24 @@ def test_high_muq_only_report_candidate_is_never_safe_to_delete(
         size=8_000_000,
         vectors=vectors,
     )
-    tracks = dedup.load_tracks(
+    tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
     )
-    config = dedup.resolve_preset("safe", min_score=None)
-    source_config = dedup.resolve_source_config(
+    config = config_module.resolve_preset("safe", min_score=None)
+    source_config = config_module.resolve_source_config(
         sources=sources,
         weights=weights,
     )
 
-    groups = dedup.find_duplicate_groups(
+    groups = scoring_module.find_duplicate_groups(
         tracks,
         config,
         limit_groups=None,
         source_config=source_config,
     )
-    payload = dedup.build_report(
+    payload = report_payload_module.build_report(
         groups,
         tracks,
         config,
@@ -608,7 +613,7 @@ def test_high_muq_only_report_candidate_is_never_safe_to_delete(
     assert candidate["decision"] == "review"
     assert candidate["safe_to_delete"] == "false"
     assert expected_blockers <= set(candidate["blocked_reasons"])
-    assert dedup.safe_delete_candidates(payload) == []
+    assert report_selection_module.safe_delete_candidates(payload) == []
 
 
 @pytest.mark.parametrize(
@@ -652,7 +657,6 @@ def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
     expected_weight_blockers: set[str],
     expect_corroboration_blocker: bool,
 ) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     _insert_track(
@@ -679,24 +683,24 @@ def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
             "clap": [1.0, 0.0],
         },
     )
-    tracks = dedup.load_tracks(
+    tracks = track_loading_module.load_tracks(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
     )
-    config = dedup.resolve_preset("safe", min_score=None)
-    source_config = dedup.resolve_source_config(
+    config = config_module.resolve_preset("safe", min_score=None)
+    source_config = config_module.resolve_source_config(
         sources=sources,
         weights=weights,
     )
 
-    groups = dedup.find_duplicate_groups(
+    groups = scoring_module.find_duplicate_groups(
         tracks,
         config,
         limit_groups=None,
         source_config=source_config,
     )
-    payload = dedup.build_report(
+    payload = report_payload_module.build_report(
         groups,
         tracks,
         config,
@@ -723,13 +727,12 @@ def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
         for blocker in blockers
     )
     assert has_corroboration_blocker is expect_corroboration_blocker
-    assert dedup.safe_delete_candidates(payload) == []
+    assert report_selection_module.safe_delete_candidates(payload) == []
 
 
 def test_min_score_overrides_preset_threshold() -> None:
-    dedup = _load_dedup_module()
 
-    config = dedup.resolve_preset("safe", min_score=0.91)
+    config = config_module.resolve_preset("safe", min_score=0.91)
 
     assert config.name == "safe"
     assert config.min_score == 0.91
@@ -738,11 +741,10 @@ def test_min_score_overrides_preset_threshold() -> None:
 
 
 def test_presets_use_graduated_safe_delete_thresholds() -> None:
-    dedup = _load_dedup_module()
 
-    safe = dedup.resolve_preset("safe", min_score=None)
-    balanced = dedup.resolve_preset("balanced", min_score=None)
-    aggressive = dedup.resolve_preset("aggressive", min_score=None)
+    safe = config_module.resolve_preset("safe", min_score=None)
+    balanced = config_module.resolve_preset("balanced", min_score=None)
+    aggressive = config_module.resolve_preset("aggressive", min_score=None)
 
     assert safe.min_score == 0.965
     assert safe.min_similarity == 0.985
@@ -756,7 +758,6 @@ def test_presets_use_graduated_safe_delete_thresholds() -> None:
 
 
 def test_report_documents_audio_to_audio_clap_similarity_semantics(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     vectors = {
@@ -768,9 +769,9 @@ def test_report_documents_audio_to_audio_clap_similarity_semantics(tmp_path: Pat
     _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/one.flac", vectors=vectors)
     _insert_track(db_path, track_id=2, path="M:/Volumes/Abstracted/two.flac", vectors=vectors)
 
-    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
-    groups = dedup.find_duplicate_groups(tracks, dedup.resolve_preset("safe", min_score=None), limit_groups=None)
-    payload = dedup.build_report(groups, tracks, dedup.resolve_preset("safe", min_score=None), root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    tracks = track_loading_module.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    groups = scoring_module.find_duplicate_groups(tracks, config_module.resolve_preset("safe", min_score=None), limit_groups=None)
+    payload = report_payload_module.build_report(groups, tracks, config_module.resolve_preset("safe", min_score=None), root=Path("M:/Volumes/Abstracted"), path_contains=[])
 
     semantics = payload["score_semantics"]
     assert semantics["muq_similarity"]["kind"] == "audio_to_audio_cosine"
@@ -780,7 +781,6 @@ def test_report_documents_audio_to_audio_clap_similarity_semantics(tmp_path: Pat
 
 
 def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     out_dir = tmp_path / "reports"
     audio_dir = tmp_path / "Abstracted"
@@ -794,7 +794,7 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     _insert_track(db_path, track_id=1, path=str(first_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(second_path), size=8_000_000, mtime=200, vectors=vectors)
 
-    exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir), "--embedding"])
+    exit_code = cli_module.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir), "--embedding"])
 
     assert exit_code == 0
     assert first_path.exists()
@@ -815,7 +815,6 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
 
 
 def test_xlsx_summary_sheet_is_formatted_as_review_dashboard(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     payload = {
         "mode": "report-only",
         "generated_at": "2026-06-23T12:00:00",
@@ -847,7 +846,7 @@ def test_xlsx_summary_sheet_is_formatted_as_review_dashboard(tmp_path: Path) -> 
     }
     path = tmp_path / "dedup.xlsx"
 
-    dedup.write_xlsx_report(path, payload)
+    xlsx_report_module.write_xlsx_report(path, payload)
 
     with zipfile.ZipFile(path) as archive:
         summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
@@ -862,8 +861,7 @@ def test_xlsx_summary_sheet_is_formatted_as_review_dashboard(tmp_path: Path) -> 
 
 
 def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
-    dedup = _load_dedup_module()
-    low_bitrate_flac = dedup.TrackRecord(
+    low_bitrate_flac = models_module.TrackRecord(
         track_id=1,
         path="M:/Volumes/Abstracted/a.flac",
         size=10_000_000,
@@ -877,7 +875,7 @@ def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
         metadata={},
         embeddings={},
     )
-    high_bitrate_flac = dedup.TrackRecord(
+    high_bitrate_flac = models_module.TrackRecord(
         track_id=2,
         path="M:/Volumes/Abstracted/b.flac",
         size=20_000_000,
@@ -891,7 +889,7 @@ def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
         metadata={},
         embeddings={},
     )
-    mp3 = dedup.TrackRecord(
+    mp3 = models_module.TrackRecord(
         track_id=3,
         path="M:/Volumes/Abstracted/c.mp3",
         size=30_000_000,
@@ -906,11 +904,10 @@ def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
         embeddings={},
     )
 
-    assert dedup.choose_keeper([low_bitrate_flac, high_bitrate_flac, mp3]).track_id == 2
+    assert keeper_module.choose_keeper([low_bitrate_flac, high_bitrate_flac, mp3]).track_id == 2
 
 
 def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     _insert_track(
@@ -932,10 +929,10 @@ def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
         vectors={"mert": [0.84, 0.5425864, 0.0], "maest": [0.84, 0.5425864, 0.0]},
     )
 
-    config = dedup.resolve_preset("safe", min_score=0.925, min_similarity=0.8)
-    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
-    groups = dedup.find_duplicate_groups(tracks, config, limit_groups=None)
-    payload = dedup.build_report(groups, tracks, config, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    config = config_module.resolve_preset("safe", min_score=0.925, min_similarity=0.8)
+    tracks = track_loading_module.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    groups = scoring_module.find_duplicate_groups(tracks, config, limit_groups=None)
+    payload = report_payload_module.build_report(groups, tracks, config, root=Path("M:/Volumes/Abstracted"), path_contains=[])
 
     group = payload["groups"][0]
     assert {track["track_id"] for track in group["candidate_deletes"]} == {2, 3}
@@ -944,7 +941,6 @@ def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
 
 
 def test_safe_preset_requires_content_similarity_not_only_overall_score(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     sonara = {"bpm": 128.0, "danceability": 0.8, "energy": 0.7, "valence": 0.5}
@@ -964,17 +960,16 @@ def test_safe_preset_requires_content_similarity_not_only_overall_score(tmp_path
         vectors=near_but_not_duplicate,
     )
 
-    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
-    groups = dedup.find_duplicate_groups(tracks, dedup.resolve_preset("safe", min_score=None), limit_groups=None)
+    tracks = track_loading_module.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    groups = scoring_module.find_duplicate_groups(tracks, config_module.resolve_preset("safe", min_score=None), limit_groups=None)
 
     assert groups == []
 
 
 def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
-    dedup = _load_dedup_module()
-    config = dedup.resolve_preset("safe", min_score=None)
+    config = config_module.resolve_preset("safe", min_score=None)
     sonara = {"bpm": 128.0, "energy": 0.7, "onset_density": 0.4}
-    left = dedup.TrackRecord(
+    left = models_module.TrackRecord(
         track_id=1,
         path="M:/Volumes/Abstracted/one.flac",
         size=20_000_000,
@@ -988,7 +983,7 @@ def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
         metadata={"sonara_features": sonara},
         embeddings={},
     )
-    right = dedup.TrackRecord(
+    right = models_module.TrackRecord(
         track_id=2,
         path="M:/Volumes/Abstracted/two.flac",
         size=20_000_000,
@@ -1003,7 +998,7 @@ def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
         embeddings={},
     )
 
-    evidence = dedup.score_pair(left, right, config)
+    evidence = scoring_module.score_pair(left, right, config)
 
     assert evidence.sonara_similarity == 1.0
     assert not hasattr(evidence, "bpm_diff")
@@ -1011,14 +1006,13 @@ def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
 
 
 def test_sonara_similarity_reads_stored_feature_payload_values() -> None:
-    dedup = _load_dedup_module()
-    config = dedup.resolve_preset("safe", min_score=None)
+    config = config_module.resolve_preset("safe", min_score=None)
     sonara = {
         "bpm": {"value": 128.0, "type": "float"},
         "energy": {"value": 0.7, "type": "float"},
         "onset_density": {"value": 0.4, "type": "float"},
     }
-    left = dedup.TrackRecord(
+    left = models_module.TrackRecord(
         track_id=1,
         path="M:/Volumes/Abstracted/one.flac",
         size=20_000_000,
@@ -1032,7 +1026,7 @@ def test_sonara_similarity_reads_stored_feature_payload_values() -> None:
         metadata={"sonara_features": sonara},
         embeddings={},
     )
-    right = dedup.TrackRecord(
+    right = models_module.TrackRecord(
         track_id=2,
         path="M:/Volumes/Abstracted/two.flac",
         size=20_000_000,
@@ -1047,13 +1041,12 @@ def test_sonara_similarity_reads_stored_feature_payload_values() -> None:
         embeddings={},
     )
 
-    evidence = dedup.score_pair(left, right, config)
+    evidence = scoring_module.score_pair(left, right, config)
 
     assert evidence.sonara_similarity == 1.0
 
 
 def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     out_dir = tmp_path / "reports"
     _create_library_db(db_path)
@@ -1082,7 +1075,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     )
     _insert_track(db_path, track_id=3, path="N:/Volumes/Other/three.flac", size=20_000_000, sonara=sonara, vectors=vectors)
 
-    result = dedup.run_report(db_path=db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[], preset_name="safe", min_score=None, limit_groups=None, out_dir=out_dir, mode=dedup.MODE_EMBEDDING)
+    result = core_module.run_report(db_path=db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[], preset_name="safe", min_score=None, limit_groups=None, out_dir=out_dir, mode=config_module.MODE_EMBEDDING)
 
     json_payload = json.loads(result.json_path.read_text(encoding="utf-8"))
     assert json_payload["database_path"] == str(db_path.resolve())
@@ -1150,7 +1143,6 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
 
 
 def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
     out_dir = tmp_path / "reports"
@@ -1160,7 +1152,7 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
     duplicate_path = audio_dir / "duplicate.mp3"
     keeper_path.write_bytes(b"keeper")
     duplicate_path.write_bytes(b"duplicate")
-    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
+    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
     _create_library_db(db_path)
     _create_rhythm_lab_db(rhythm_lab_db)
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
@@ -1194,7 +1186,7 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
             (*duplicate_identity, str(duplicate_path)),
         )
 
-    result = dedup.run_report(
+    result = core_module.run_report(
         db_path=db_path,
         root=audio_dir,
         path_contains=[],
@@ -1202,7 +1194,7 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
         min_score=None,
         limit_groups=None,
         out_dir=out_dir,
-        mode=dedup.MODE_EMBEDDING,
+        mode=config_module.MODE_EMBEDDING,
     )
 
     payload = json.loads(result.json_path.read_text(encoding="utf-8"))
@@ -1241,7 +1233,6 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
 
 
 def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
     out_dir = tmp_path / "reports"
@@ -1251,7 +1242,7 @@ def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: 
     duplicate_path = audio_dir / "duplicate.mp3"
     keeper_path.write_bytes(b"keeper")
     duplicate_path.write_bytes(b"duplicate")
-    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
+    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
     _create_library_db(db_path)
     _create_rhythm_lab_db(rhythm_lab_db)
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
@@ -1270,7 +1261,7 @@ def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: 
             (*duplicate_identity, str(duplicate_path)),
         )
 
-    exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir), "--embedding"])
+    exit_code = cli_module.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir), "--embedding"])
 
     assert exit_code == 0
     stdout = capsys.readouterr().out
@@ -1282,8 +1273,7 @@ def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: 
 def test_console_progress_reporter_prints_phase_percent_and_final_newline(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    dedup = _load_dedup_module()
-    reporter = dedup.ConsoleProgressReporter(refresh_seconds=0.0)
+    reporter = cli_module.ConsoleProgressReporter(refresh_seconds=0.0)
 
     reporter(0, 0, "Reading database")
     reporter(50, 200, "Searching duplicate pairs")
@@ -1298,14 +1288,12 @@ def test_console_progress_reporter_prints_phase_percent_and_final_newline(
 
 
 def test_cli_does_not_accept_rhythm_lab_db_argument() -> None:
-    dedup = _load_dedup_module()
 
     with pytest.raises(SystemExit):
-        dedup.parse_args(["--root", "M:/Volumes/Abstracted", "--rhythm-lab-db", "lab.sqlite"])
+        cli_module.parse_args(["--root", "M:/Volumes/Abstracted", "--rhythm-lab-db", "lab.sqlite"])
 
 
 def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     out_dir = tmp_path / "reports"
     audio_dir = tmp_path / "Abstracted"
@@ -1314,12 +1302,12 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     duplicate_path = audio_dir / "duplicate.mp3"
     keeper_path.write_bytes(b"keeper")
     duplicate_path.write_bytes(b"duplicate")
-    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
+    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
     _create_library_db(db_path)
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
-    result = dedup.run_report(
+    result = core_module.run_report(
         db_path=db_path,
         root=audio_dir,
         path_contains=[],
@@ -1327,10 +1315,10 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
         min_score=None,
         limit_groups=None,
         out_dir=out_dir,
-        mode=dedup.MODE_EMBEDDING,
+        mode=config_module.MODE_EMBEDDING,
     )
 
-    apply_result = dedup.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)
+    apply_result = deletion_module.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)
 
     assert keeper_path.exists()
     assert not duplicate_path.exists()
@@ -1357,7 +1345,6 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
 
 
 def test_apply_log_lists_deleted_files(tmp_path: Path) -> None:
-    dedup = _load_dedup_module()
     log_path = tmp_path / "audio_dedup_report.log"
     deleted_path = tmp_path / "Abstracted" / "duplicate.mp3"
     payload = {
@@ -1384,7 +1371,7 @@ def test_apply_log_lists_deleted_files(tmp_path: Path) -> None:
             "affected_row_count": 0,
         },
     }
-    apply_result = dedup.ApplyResult(
+    apply_result = models_module.ApplyResult(
         deleted_track_ids=(2,),
         deleted_paths=(str(deleted_path),),
         skipped=(),
@@ -1392,7 +1379,7 @@ def test_apply_log_lists_deleted_files(tmp_path: Path) -> None:
         rhythm_lab_deleted_rows=0,
     )
 
-    dedup.write_text_log(log_path, payload, apply_result=apply_result)
+    report_files_module.write_text_log(log_path, payload, apply_result=apply_result)
 
     log_text = log_path.read_text(encoding="utf-8")
     assert "deleted_files:" in log_text
@@ -1400,7 +1387,6 @@ def test_apply_log_lists_deleted_files(tmp_path: Path) -> None:
 
 
 def _two_copy_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     audio_dir = tmp_path / "Abstracted"
     audio_dir.mkdir()
@@ -1408,12 +1394,12 @@ def _two_copy_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     duplicate_path = audio_dir / "duplicate.mp3"
     keeper_path.write_bytes(b"keeper")
     duplicate_path.write_bytes(b"duplicate")
-    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
+    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
     _create_library_db(db_path)
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
-    result = dedup.run_report(
+    result = core_module.run_report(
         db_path=db_path,
         root=audio_dir,
         path_contains=[],
@@ -1421,23 +1407,23 @@ def _two_copy_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         min_score=None,
         limit_groups=None,
         out_dir=tmp_path / "reports",
-        mode=dedup.MODE_EMBEDDING,
+        mode=config_module.MODE_EMBEDDING,
     )
-    return dedup, db_path, audio_dir, keeper_path, duplicate_path, result
+    return db_path, audio_dir, keeper_path, duplicate_path, result
 
 
 def test_apply_duplicate_deletions_deletes_the_reviewer_selection_including_the_keeper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    dedup, db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
+    db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
         tmp_path,
         monkeypatch,
     )
     keeper_track_id = int(result.payload["groups"][0]["suggested_keeper"]["track_id"])
     assert keeper_track_id == 1
 
-    apply_result = dedup.apply_duplicate_deletions(
+    apply_result = deletion_module.apply_duplicate_deletions(
         db_path=db_path,
         root=audio_dir,
         payload=result.payload,
@@ -1460,12 +1446,12 @@ def test_apply_duplicate_deletions_refuses_a_selection_that_empties_the_group(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    dedup, db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
+    db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
         tmp_path,
         monkeypatch,
     )
 
-    apply_result = dedup.apply_duplicate_deletions(
+    apply_result = deletion_module.apply_duplicate_deletions(
         db_path=db_path,
         root=audio_dir,
         payload=result.payload,
@@ -1482,7 +1468,7 @@ def test_apply_duplicate_deletions_never_deletes_permanently_when_the_recycle_bi
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    dedup, db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
+    db_path, audio_dir, keeper_path, duplicate_path, result = _two_copy_report(
         tmp_path,
         monkeypatch,
     )
@@ -1494,12 +1480,12 @@ def test_apply_duplicate_deletions_never_deletes_permanently_when_the_recycle_bi
     module.send2trash = refuse
     monkeypatch.setitem(sys.modules, "send2trash", module)
 
-    apply_result = dedup.apply_duplicate_deletions(
+    apply_result = deletion_module.apply_duplicate_deletions(
         db_path=db_path,
         root=audio_dir,
         payload=result.payload,
         selected_track_ids=[2],
-        deletion_mode=dedup.DELETION_MODE_TRASH,
+        deletion_mode=config_module.DELETION_MODE_TRASH,
     )
 
     assert apply_result.deleted_track_ids == ()
@@ -1516,7 +1502,6 @@ def test_apply_duplicate_deletions_never_deletes_permanently_when_the_recycle_bi
 
 
 def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_lab_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
     out_dir = tmp_path / "reports"
@@ -1526,7 +1511,7 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
     duplicate_path = audio_dir / "duplicate.mp3"
     keeper_path.write_bytes(b"keeper")
     duplicate_path.write_bytes(b"duplicate")
-    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
+    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
     _create_library_db(db_path)
     _create_rhythm_lab_db(rhythm_lab_db)
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
@@ -1565,7 +1550,7 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
         connection.execute(
             "INSERT INTO classifier_training_checkpoints(classifier_key, counts_json) VALUES ('break_energy', '{}')"
         )
-    result = dedup.run_report(
+    result = core_module.run_report(
         db_path=db_path,
         root=audio_dir,
         path_contains=[],
@@ -1573,10 +1558,10 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
         min_score=None,
         limit_groups=None,
         out_dir=out_dir,
-        mode=dedup.MODE_EMBEDDING,
+        mode=config_module.MODE_EMBEDDING,
     )
 
-    apply_result = dedup.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)
+    apply_result = deletion_module.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)
 
     assert apply_result.rhythm_lab_deleted_rows == 2
     with sqlite3.connect(rhythm_lab_db) as connection:

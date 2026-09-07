@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from .api_schemas import AudioDedupDeleteRequest, AudioDedupScanRequest
 from .api_state import AppDatabaseState
-from .audio_dedup_bridge import load_audio_dedup_core
+from .audio_dedup_bridge import load_audio_dedup_module
 from .audio_dedup_reports import (
     DEFAULT_GROUP_PAGE_LIMIT,
     group_page,
@@ -136,14 +136,14 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
             selected_track_ids = _validated_selection(payload, request)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        core = load_audio_dedup_core()
+        deletion_module = load_audio_dedup_module("deletion")
         root = str(payload.get("root", ""))
         if not root:
             raise HTTPException(status_code=400, detail="Report has no root to delete inside")
         try:
             with state.exclusive_db("delete duplicate files") as database:
                 _require_matching_database(payload, database.path)
-                result = core.apply_duplicate_deletions(
+                result = deletion_module.apply_duplicate_deletions(
                     database=database,
                     root=Path(root),
                     payload=payload,

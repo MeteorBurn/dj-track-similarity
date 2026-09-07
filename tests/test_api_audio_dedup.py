@@ -6,16 +6,16 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from dj_track_similarity import api as api_module
-from dj_track_similarity.audio_dedup_bridge import load_audio_dedup_core
+from dj_track_similarity.audio_dedup_bridge import load_audio_dedup_module
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
 def _client(monkeypatch, db_path: Path, out_dir: Path) -> TestClient:
     monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: db_path.parent)
-    core = load_audio_dedup_core()
+    config_module = load_audio_dedup_module("config")
     out_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(core, "DEFAULT_OUT_DIR", out_dir)
+    monkeypatch.setattr(config_module, "DEFAULT_OUT_DIR", out_dir)
     return TestClient(api_module.create_app(db_path))
 
 

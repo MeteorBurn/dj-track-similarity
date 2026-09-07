@@ -6,12 +6,22 @@ import zipfile
 
 import numpy as np
 
-
 TOOL_ROOT = Path(__file__).resolve().parents[1]
 if str(TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOL_ROOT))
 
-from audio_dedup import core, spectral_check  # noqa: E402
+from audio_dedup import config as config_module  # noqa: E402
+
+from audio_dedup import keeper as keeper_module  # noqa: E402
+
+from audio_dedup import models as models_module  # noqa: E402
+
+from audio_dedup import report_payload as report_payload_module  # noqa: E402
+
+from audio_dedup import scoring as scoring_module  # noqa: E402
+
+from audio_dedup import xlsx_report as xlsx_report_module  # noqa: E402
+from audio_dedup import spectral_check  # noqa: E402
 from audio_dedup.spectral import (  # noqa: E402
     SpectralResult,
     TRANSCODE_MIN_SHARPNESS_DB,
@@ -118,8 +128,8 @@ def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
 
 
 def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> None:
-    def _track(track_id: int, path: str) -> core.TrackRecord:
-        return core.TrackRecord(
+    def _track(track_id: int, path: str) -> models_module.TrackRecord:
+        return models_module.TrackRecord(
             track_id=track_id,
             path=path,
             size=40_000_000,
@@ -158,18 +168,18 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
         ),
     }
 
-    assert core.choose_keeper(tracks, spectral_results=spectral_map).track_id == 2
-    assert core.choose_keeper(tracks).track_id == 1
+    assert keeper_module.choose_keeper(tracks, spectral_results=spectral_map).track_id == 2
+    assert keeper_module.choose_keeper(tracks).track_id == 1
 
-    config = core.resolve_preset("safe", min_score=None)
-    groups = core.find_duplicate_groups(
+    config = config_module.resolve_preset("safe", min_score=None)
+    groups = scoring_module.find_duplicate_groups(
         tracks,
         config,
         limit_groups=None,
         candidate_sources={(1, 2): ("fingerprint_lsh",)},
         fingerprint_scores={(1, 2): 0.97},
     )
-    payload = core.build_report(
+    payload = report_payload_module.build_report(
         groups,
         tracks,
         config,
@@ -193,7 +203,7 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
     assert payload["statistics"]["fake_bitrate_group_count"] == 1
 
     xlsx_path = tmp_path / "dedup.xlsx"
-    core.write_xlsx_report(xlsx_path, payload)
+    xlsx_report_module.write_xlsx_report(xlsx_path, payload)
     with zipfile.ZipFile(xlsx_path) as archive:
         summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
         groups_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
@@ -212,8 +222,8 @@ def test_group_the_comparator_cannot_judge_is_review_only() -> None:
     rank the copies at all.
     """
 
-    def _track(track_id: int, path: str, dynamic_range: float) -> core.TrackRecord:
-        return core.TrackRecord(
+    def _track(track_id: int, path: str, dynamic_range: float) -> models_module.TrackRecord:
+        return models_module.TrackRecord(
             track_id=track_id,
             path=path,
             size=40_000_000 + track_id,
@@ -242,20 +252,20 @@ def test_group_the_comparator_cannot_judge_is_review_only() -> None:
     remaster = _track(2, "C:/music/remaster.flac", 8.1)
     near_copy = _track(3, "C:/music/near.flac", 11.0)
 
-    assert core.is_same_master([original, near_copy]) is True
-    assert core.is_same_master([original, remaster]) is False
+    assert keeper_module.is_same_master([original, near_copy]) is True
+    assert keeper_module.is_same_master([original, remaster]) is False
     # Inside one master the wider range still ranks; across masters it does not.
-    assert core.choose_keeper([original, near_copy]).track_id == 1
+    assert keeper_module.choose_keeper([original, near_copy]).track_id == 1
 
-    config = core.resolve_preset("safe", min_score=None)
-    groups = core.find_duplicate_groups(
+    config = config_module.resolve_preset("safe", min_score=None)
+    groups = scoring_module.find_duplicate_groups(
         [original, remaster],
         config,
         limit_groups=None,
         candidate_sources={(1, 2): ("fingerprint_lsh",)},
         fingerprint_scores={(1, 2): 0.99},
     )
-    payload = core.build_report(
+    payload = report_payload_module.build_report(
         groups,
         [original, remaster],
         config,
@@ -273,6 +283,6 @@ def test_group_the_comparator_cannot_judge_is_review_only() -> None:
     # compare to PCM by depth and rate. Both leave the comparator with nothing.
     ambiguous = _track(4, "C:/music/copy.m4a", 12.4)
     dsd = _track(5, "C:/music/copy.dsf", 12.4)
-    assert core.keeper_review_reasons([original, near_copy]) == []
-    assert core.keeper_review_reasons([original, ambiguous]) != []
-    assert core.keeper_review_reasons([original, dsd]) != []
+    assert keeper_module.keeper_review_reasons([original, near_copy]) == []
+    assert keeper_module.keeper_review_reasons([original, ambiguous]) != []
+    assert keeper_module.keeper_review_reasons([original, dsd]) != []

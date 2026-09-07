@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from audio_dedup.core import main
+from audio_dedup.cli import main
 
 
 if __name__ == "__main__":

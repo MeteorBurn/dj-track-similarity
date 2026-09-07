@@ -15,7 +15,7 @@ import time
 from typing import Mapping
 import uuid
 
-from .audio_dedup_bridge import load_audio_dedup_core
+from .audio_dedup_bridge import load_audio_dedup_module
 from .database import LibraryDatabase
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure
@@ -78,8 +78,8 @@ class AudioDedupJobPayload:
 class AudioDedupJobManager:
     def __init__(self, db: LibraryDatabase, *, out_dir: Path | None = None) -> None:
         self.db = db
-        core = load_audio_dedup_core()
-        self.out_dir = Path(out_dir) if out_dir is not None else Path(core.DEFAULT_OUT_DIR)
+        config_module = load_audio_dedup_module("config")
+        self.out_dir = Path(out_dir) if out_dir is not None else Path(config_module.DEFAULT_OUT_DIR)
         self._store: JobStore[AudioDedupJobStatus] = JobStore(
             self._copy,
             unknown_label="audio dedup job",
@@ -113,25 +113,25 @@ class AudioDedupJobManager:
         skip_spectral: bool = False,
         out_dir: str | Path | None = None,
     ) -> str:
-        core = load_audio_dedup_core()
+        config_module = load_audio_dedup_module("config")
         root_text = str(root).strip()
         if not root_text:
             raise ValueError("Root path is required")
-        selected_mode = search_mode or core.MODE_FINGERPRINT
-        if selected_mode not in core.SEARCH_MODES:
+        selected_mode = search_mode or config_module.MODE_FINGERPRINT
+        if selected_mode not in config_module.SEARCH_MODES:
             raise ValueError(f"Unsupported search mode: {selected_mode}")
         if limit_groups is not None and limit_groups < 1:
             raise ValueError("limit_groups must be greater than zero")
         # Validate before queueing so a bad preset, source, or weight is a request
         # error instead of a job that dies inside its own thread.
-        core.resolve_preset(preset, min_score=min_score, min_similarity=min_similarity)
-        if selected_mode == core.MODE_FINGERPRINT:
+        config_module.resolve_preset(preset, min_score=min_score, min_similarity=min_similarity)
+        if selected_mode == config_module.MODE_FINGERPRINT:
             if sources or weights:
                 raise ValueError("Sources and weights require the embedding search mode")
             selected_sources: list[str] = []
             selected_weights: dict[str, float] = {}
         else:
-            source_config = core.resolve_source_config(sources=sources, weights=weights)
+            source_config = config_module.resolve_source_config(sources=sources, weights=weights)
             selected_sources = list(source_config.sources)
             selected_weights = dict(source_config.weights)
         selected_path_contains = [item.strip() for item in (path_contains or []) if item.strip()]
@@ -175,7 +175,8 @@ class AudioDedupJobManager:
         return job_id
 
     def run_job(self, job_id: str) -> AudioDedupJobStatus:
-        core = load_audio_dedup_core()
+        core_module = load_audio_dedup_module("core")
+        models_module = load_audio_dedup_module("models")
         payload = self._store.payload(job_id)
         if not isinstance(payload, AudioDedupJobPayload):
             raise KeyError(f"Unknown audio dedup job: {job_id}")
@@ -183,7 +184,7 @@ class AudioDedupJobManager:
         self._store.update(job_id, state="running", started_at=time.time())
         LOGGER.info("Audio dedup started job_id=%s root=%s", job_id, payload.root)
         try:
-            result = core.run_report(
+            result = core_module.run_report(
                 database=self.db,
                 root=payload.root,
                 path_contains=list(payload.path_contains),
@@ -204,7 +205,7 @@ class AudioDedupJobManager:
                 ),
                 should_cancel=cancelled.is_set,
             )
-        except core.AudioDedupCancelled:
+        except models_module.AudioDedupCancelled:
             self._store.update(
                 job_id,
                 state="cancelled",

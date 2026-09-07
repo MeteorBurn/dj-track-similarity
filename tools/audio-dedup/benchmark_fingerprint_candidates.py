@@ -8,7 +8,12 @@ import time
 
 import numpy as np
 
-from audio_dedup import core
+from audio_dedup import candidates as candidates_module  # noqa: E402
+
+from audio_dedup import config as config_module  # noqa: E402
+
+from audio_dedup import models as models_module  # noqa: E402
+
 from audio_dedup.fingerprints import (
     FingerprintSketch,
     fingerprint_candidate_pairs,
@@ -27,7 +32,7 @@ def run_benchmark(
             "group_count must be positive and distractor_count must not be negative"
         )
     random = np.random.default_rng(seed)
-    tracks: list[core.TrackRecord] = []
+    tracks: list[models_module.TrackRecord] = []
     sketches: list[FingerprintSketch] = []
     duplicate_pairs: set[tuple[int, int]] = set()
     next_track_id = 1
@@ -65,13 +70,13 @@ def run_benchmark(
         sketches.append(fingerprint_sketch(next_track_id, 1, _as_base64(words)))
         next_track_id += 1
 
-    config = core.resolve_preset("safe", min_score=None)
-    source_config = core.resolve_source_config(sources=("mert",), weights={"mert": 1.0})
+    config = config_module.resolve_preset("safe", min_score=None)
+    source_config = config_module.resolve_source_config(sources=("mert",), weights={"mert": 1.0})
     fingerprint_started = time.perf_counter()
     fingerprint_pairs = fingerprint_candidate_pairs(sketches)
     fingerprint_elapsed = (time.perf_counter() - fingerprint_started) * 1000.0
     embedding_started = time.perf_counter()
-    embedding_pairs = core._signature_candidate_pairs(tracks, config, source_config)
+    embedding_pairs = candidates_module._signature_candidate_pairs(tracks, config, source_config)
     embedding_elapsed = (time.perf_counter() - embedding_started) * 1000.0
 
     fingerprint_then_embedding = set(fingerprint_pairs)
@@ -138,8 +143,8 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _benchmark_track(track_id: int, embedding: np.ndarray) -> core.TrackRecord:
-    return core.TrackRecord(
+def _benchmark_track(track_id: int, embedding: np.ndarray) -> models_module.TrackRecord:
+    return models_module.TrackRecord(
         track_id=track_id,
         path=f"C:/synthetic/{track_id}.flac",
         size=1_000_000,

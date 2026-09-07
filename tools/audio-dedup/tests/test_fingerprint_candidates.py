@@ -8,7 +8,6 @@ import sys
 import numpy as np
 import pytest
 
-
 TOOL_ROOT = Path(__file__).resolve().parents[1]
 if str(TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOL_ROOT))
@@ -21,7 +20,12 @@ from audio_dedup.fingerprints import (  # noqa: E402
     fingerprint_sketch,
     load_fingerprint_sketches,
 )
-from audio_dedup import core  # noqa: E402
+from audio_dedup import candidates as candidates_module  # noqa: E402
+from audio_dedup import config as config_module  # noqa: E402
+from audio_dedup import core as core_module  # noqa: E402
+from audio_dedup import models as models_module  # noqa: E402
+from audio_dedup import report_payload as report_payload_module  # noqa: E402
+from audio_dedup import scoring as scoring_module  # noqa: E402
 
 
 def _fingerprint_base64(words: np.ndarray) -> str:
@@ -230,7 +234,7 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
     None
 ):
     tracks = [
-        core.TrackRecord(
+        models_module.TrackRecord(
             track_id=1,
             path="C:/music/one.flac",
             size=100,
@@ -244,7 +248,7 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
             metadata={},
             embeddings={},
         ),
-        core.TrackRecord(
+        models_module.TrackRecord(
             track_id=2,
             path="C:/music/two.flac",
             size=90,
@@ -259,8 +263,8 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
             embeddings={},
         ),
     ]
-    config = core.resolve_preset("safe", min_score=None)
-    groups = core.find_duplicate_groups(
+    config = config_module.resolve_preset("safe", min_score=None)
+    groups = scoring_module.find_duplicate_groups(
         tracks,
         config,
         limit_groups=None,
@@ -272,7 +276,7 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
     evidence = groups[0].pair_evidence[0]
     assert evidence.fingerprint_similarity == pytest.approx(0.88)
     assert evidence.candidate_sources == ("fingerprint_lsh",)
-    payload = core.build_report(
+    payload = report_payload_module.build_report(
         groups,
         tracks,
         config,
@@ -294,8 +298,8 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
 def test_fingerprint_mode_candidates_come_only_from_fingerprint_lsh() -> None:
     shared = np.linspace(-1.0, 1.0, 96, dtype=np.float32)
 
-    def _track(track_id: int, embedding: np.ndarray | None = None) -> core.TrackRecord:
-        return core.TrackRecord(
+    def _track(track_id: int, embedding: np.ndarray | None = None) -> models_module.TrackRecord:
+        return models_module.TrackRecord(
             track_id=track_id,
             path=f"C:/music/{track_id}.flac",
             size=100,
@@ -325,10 +329,10 @@ def test_fingerprint_mode_candidates_come_only_from_fingerprint_lsh() -> None:
         fingerprint_sketch(4, 1, _fingerprint_base64(source_words)),
         fingerprint_sketch(5, 1, _fingerprint_base64(nearby_words)),
     ]
-    config = core.resolve_preset("safe", min_score=None)
-    empty_sources = core.SourceConfig(sources=(), weights={})
+    config = config_module.resolve_preset("safe", min_score=None)
+    empty_sources = models_module.SourceConfig(sources=(), weights={})
 
-    result = core._candidate_pair_sources(
+    result = candidates_module._candidate_pair_sources(
         tracks,
         config,
         empty_sources,
@@ -343,7 +347,7 @@ def test_default_fingerprint_mode_rejects_embedding_source_selection(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(ValueError, match="--embedding"):
-        core.run_report(
+        core_module.run_report(
             db_path=tmp_path / "missing.sqlite",
             root=Path("C:/music"),
             path_contains=[],
@@ -356,7 +360,7 @@ def test_default_fingerprint_mode_rejects_embedding_source_selection(
 
 
 def test_exact_fingerprint_checks_skip_duration_only_candidates() -> None:
-    pairs = core._fingerprint_exact_candidate_pairs(
+    pairs = candidates_module._fingerprint_exact_candidate_pairs(
         {
             (1, 2): ("duration_window",),
             (3, 4): ("mert_lsh",),

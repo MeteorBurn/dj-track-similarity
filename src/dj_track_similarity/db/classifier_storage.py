@@ -27,7 +27,10 @@ from .sonara_core_validation import (
 from ..classifier.sonara_features import resolve_sonara_classifier_feature
 
 
-_CLASSIFIER_SCORE_COLUMNS = tuple(field.name for field in fields(ClassifierScoreRecord))
+_CLASSIFIER_SCORE_COLUMNS = tuple(
+    field.name for field in fields(ClassifierScoreRecord)
+    if field.name not in {"feature_set", "feature_names_json"}
+) + ("feature_spec_id",)
 
 
 _SONARA_IDENTITY_COLUMNS = {
@@ -149,6 +152,21 @@ def _upsert_classifier_score(
     core_connection: sqlite3.Connection,
     score: ClassifierScoreRecord,
 ) -> None:
+    core_connection.execute(
+        """
+        INSERT INTO classifier_feature_specs (feature_set, feature_names_json)
+        VALUES (?, ?)
+        ON CONFLICT(feature_set, feature_names_json) DO NOTHING
+        """,
+        (score.feature_set, score.feature_names_json),
+    )
+    feature_spec_id = core_connection.execute(
+        """
+        SELECT feature_spec_id FROM classifier_feature_specs
+        WHERE feature_set = ? AND feature_names_json = ?
+        """,
+        (score.feature_set, score.feature_names_json),
+    ).fetchone()[0]
     placeholders = ", ".join("?" for _ in _CLASSIFIER_SCORE_COLUMNS)
     updates = ", ".join(
         f"{column} = excluded.{column}"
@@ -162,7 +180,10 @@ def _upsert_classifier_score(
         ) VALUES ({placeholders})
         ON CONFLICT(track_id, classifier_key) DO UPDATE SET {updates}
         """,
-        tuple(getattr(score, column) for column in _CLASSIFIER_SCORE_COLUMNS),
+        tuple(
+            feature_spec_id if column == "feature_spec_id" else getattr(score, column)
+            for column in _CLASSIFIER_SCORE_COLUMNS
+        ),
     )
 
 

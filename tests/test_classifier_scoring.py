@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import sys
 import types
 import uuid
@@ -29,6 +30,7 @@ from dj_track_similarity.classifier.scoring import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import ClassifierScoreRecord
+from dj_track_similarity.db.validation import DatabaseValidator
 
 
 _NOW = "2026-07-24T10:00:00.000000Z"
@@ -264,6 +266,7 @@ def _score_rows(
                 SELECT classifier_key, feature_names_json, predicted_class,
                        score_bucket, score, confidence
                 FROM classifier_scores
+                JOIN classifier_feature_specs USING (feature_spec_id)
                 WHERE classifier_key = ?
                 ORDER BY track_id
                 """,
@@ -700,6 +703,88 @@ def test_classifier_writer_valid_numbers_round_trip_through_reader(
         "negative": pytest.approx(1.0 - float(numeric_score)),
         "positive": pytest.approx(numeric_score),
     }
+    assert stored.feature_set == write.score.feature_set
+    assert stored.feature_names == write.specification.feature_names
+    assert stored.positive_label == write.score.positive_label
+    assert stored.predicted_class == write.score.predicted_class
+    assert stored.score_bucket == write.score.score_bucket
+    assert stored.analyzed_at == write.score.analyzed_at
+
+    # The persisted recipe belongs to the ordered feature set, not a track or key.
+    names = ("mert:0", "mert:1")
+    ordered = replace(
+        write,
+        specification=replace(write.specification, feature_names=names),
+        score=replace(write.score, feature_names_json=json.dumps(names, separators=(",", ":"))),
+    )
+    other_target = _insert_track(db)
+    shared = replace(
+        ordered,
+        target=other_target,
+        specification=replace(ordered.specification, classifier_key="other_classifier"),
+        score=replace(
+            ordered.score,
+            track_id=other_target.track_id,
+            track_uuid=other_target.track_uuid,
+            classifier_key="other_classifier",
+        ),
+    )
+    assert all(result.ok for result in db.save_classifier_scores((ordered, shared)))
+    with db.connect() as connection:
+        shared_ids = [row[0] for row in connection.execute(
+            "SELECT feature_spec_id FROM classifier_scores ORDER BY track_id"
+        )]
+    assert len(shared_ids) == 2 and shared_ids[0] == shared_ids[1]
+
+    reversed_names = tuple(reversed(names))
+    reordered = replace(
+        ordered,
+        specification=replace(ordered.specification, feature_names=reversed_names),
+        score=replace(ordered.score, feature_names_json=json.dumps(reversed_names, separators=(",", ":"))),
+    )
+    assert db.save_classifier_scores((reordered,))[0].ok
+    assert db.get_track_detail(target.track_id).classifier_scores_detail[0].feature_names == reversed_names
+    assert db.get_track_detail(other_target.track_id).classifier_scores_detail[0].feature_names == names
+    with db.connect() as connection:
+        distinct_ids = [row[0] for row in connection.execute(
+            "SELECT feature_spec_id FROM classifier_scores ORDER BY track_id"
+        )]
+        assert len(distinct_ids) == 2 and distinct_ids[0] != distinct_ids[1]
+        assert distinct_ids[1] == shared_ids[1]
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            connection.execute(
+                "DELETE FROM classifier_feature_specs WHERE feature_spec_id = ?",
+                (distinct_ids[0],),
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+            connection.execute(
+                "INSERT INTO classifier_feature_specs(feature_set, feature_names_json) VALUES ('invalid', '{}')"
+            )
+    renamed_set = replace(
+        ordered,
+        specification=replace(ordered.specification, feature_set="other-feature-set"),
+        score=replace(ordered.score, feature_set="other-feature-set"),
+    )
+    assert db.save_classifier_scores((renamed_set,))[0].ok
+    with db.connect() as connection:
+        stored_id = connection.execute(
+            "SELECT feature_spec_id FROM classifier_scores WHERE track_id = ?",
+            (target.track_id,),
+        ).fetchone()[0]
+        assert stored_id not in {*shared_ids, *distinct_ids}
+    assert db.get_track_detail(target.track_id).classifier_scores_detail[0].feature_set == "other-feature-set"
+    assert DatabaseValidator(db.path).run().error_count == 0
+
+    # Even an out-of-band broken reference must be visible to validation.
+    with sqlite3.connect(db.path) as connection:
+        connection.execute(
+            "UPDATE classifier_scores SET feature_spec_id = -1 WHERE track_id = ?",
+            (target.track_id,),
+        )
+    assert any(
+        finding.code == "foreign_key_violation" and finding.table == "classifier_scores"
+        for finding in DatabaseValidator(db.path).run().findings
+    )
 
 
 def test_promoted_discovery_rejects_artifact_digest_mismatch(

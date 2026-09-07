@@ -382,8 +382,8 @@ def _current_classifier_details(
             cs.score_bucket,
             cs.confidence,
             cs.probabilities_json,
-            cs.feature_set,
-            cs.feature_names_json,
+            spec.feature_set,
+            spec.feature_names_json,
             cs.positive_label,
             cs.analyzed_at
     """
@@ -395,6 +395,7 @@ def _current_classifier_details(
             + """
             FROM json_each(?) requested
             CROSS JOIN classifier_scores cs
+            JOIN classifier_feature_specs spec ON spec.feature_spec_id = cs.feature_spec_id
             WHERE cs.track_id = CAST(requested.value AS INTEGER)
             """
             + current_sql,
@@ -405,6 +406,7 @@ def _current_classifier_details(
             select_fields
             + """
             FROM classifier_scores cs
+            JOIN classifier_feature_specs spec ON spec.feature_spec_id = cs.feature_spec_id
             WHERE cs.track_id IN (
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)

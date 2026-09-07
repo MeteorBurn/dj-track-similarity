@@ -448,18 +448,18 @@ def _build_staged_library(
                 if not _attached_table_exists(target, source_schema, source_table):
                     copied_rows[target_table] = 0
                     continue
-                columns = _matching_columns(
-                    target,
-                    target_table,
-                    source_schema,
-                    source_table,
-                )
-                quoted_columns = ", ".join(_quote(column) for column in columns)
                 source_count = _attached_row_count(target, source_schema, source_table)
-                target.execute(
-                    f"INSERT INTO {_quote(target_table)} ({quoted_columns}) "
-                    f"SELECT {quoted_columns} FROM {_quote(source_schema)}.{_quote(source_table)}"
-                )
+                if target_table == "classifier_scores":
+                    _copy_legacy_classifier_scores(target, source_schema, source_table)
+                else:
+                    columns = _matching_columns(
+                        target, target_table, source_schema, source_table,
+                    )
+                    quoted_columns = ", ".join(_quote(column) for column in columns)
+                    target.execute(
+                        f"INSERT INTO {_quote(target_table)} ({quoted_columns}) "
+                        f"SELECT {quoted_columns} FROM {_quote(source_schema)}.{_quote(source_table)}"
+                    )
                 target_count = _row_count(target, target_table)
                 if target_count != source_count:
                     raise LegacyLibraryMigrationError(
@@ -477,6 +477,33 @@ def _build_staged_library(
     except BaseException:
         _cleanup_sqlite(staged_path)
         raise
+
+
+def _copy_legacy_classifier_scores(
+    connection: sqlite3.Connection, source_schema: str, source_table: str,
+) -> None:
+    columns = _table_columns(connection, "classifier_scores")
+    expected = (set(columns) - {"feature_spec_id"}) | {"feature_set", "feature_names_json"}
+    if set(_table_columns(connection, source_table, schema=source_schema)) != expected:
+        raise LegacyLibraryMigrationError(
+            "Cannot losslessly copy legacy classifier_scores: columns differ"
+        )
+    source = f"{_quote(source_schema)}.{_quote(source_table)}"
+    connection.execute(
+        "INSERT INTO classifier_feature_specs (feature_set, feature_names_json) "
+        f"SELECT DISTINCT feature_set, feature_names_json FROM {source}"
+    )
+    projection = ", ".join(
+        "spec.feature_spec_id" if column == "feature_spec_id" else f"score.{_quote(column)}"
+        for column in columns
+    )
+    connection.execute(
+        f"INSERT INTO classifier_scores ({', '.join(_quote(column) for column in columns)}) "
+        f"SELECT {projection} FROM {source} AS score "
+        "JOIN classifier_feature_specs AS spec "
+        "ON spec.feature_set = score.feature_set "
+        "AND spec.feature_names_json = score.feature_names_json"
+    )
 
 
 def _matching_columns(

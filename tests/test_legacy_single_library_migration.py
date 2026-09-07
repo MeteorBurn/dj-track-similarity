@@ -26,6 +26,29 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
     with sqlite3.connect(path) as connection:
         create_library_schema(connection)
         connection.execute("PRAGMA foreign_keys = OFF")
+        # Keep this historical input format independent of the current schema.
+        connection.execute("DROP TABLE classifier_scores")
+        connection.execute("DROP TABLE classifier_feature_specs")
+        connection.executescript(
+            """
+            CREATE TABLE classifier_scores (
+                track_id               INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+                track_uuid             TEXT    NOT NULL,
+                classifier_key         TEXT    NOT NULL,
+                feature_set            TEXT    NOT NULL,
+                feature_names_json     TEXT    NOT NULL CHECK(json_valid(feature_names_json) AND json_type(feature_names_json)='array'),
+                positive_label         TEXT    NOT NULL,
+                predicted_class        TEXT    NOT NULL,
+                score_bucket           TEXT    NOT NULL CHECK(score_bucket IN ('low','medium','high')),
+                score                  REAL    NOT NULL CHECK(score      BETWEEN 0 AND 1),
+                confidence             REAL    NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+                probabilities_json     TEXT    NOT NULL CHECK(json_valid(probabilities_json) AND json_type(probabilities_json)='object'),
+                analyzed_at            TEXT    NOT NULL,
+                PRIMARY KEY(track_id, classifier_key)
+            );
+            CREATE INDEX idx_classifier_scores_lookup ON classifier_scores(classifier_key, score DESC, track_id);
+            """
+        )
         for table in (
             "maest_embeddings",
             "mert_embeddings",

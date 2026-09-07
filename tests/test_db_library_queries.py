@@ -107,14 +107,17 @@ def test_classifier_score_counts_use_keys_and_count_rows_only(
         artist="Artist",
     )
     with database.connect() as connection:
+        connection.execute(
+            "INSERT INTO classifier_feature_specs(feature_spec_id, feature_set, feature_names_json) VALUES (1, 'fixture', '[\"feature\"]')"
+        )
         connection.executemany(
             """
             INSERT INTO classifier_scores (
-                track_id, track_uuid, classifier_key, feature_set,
-                feature_names_json, positive_label, predicted_class,
+                track_id, track_uuid, classifier_key, feature_spec_id,
+                positive_label, predicted_class,
                 score_bucket, score, confidence, probabilities_json,
                 analyzed_at
-            ) VALUES (?, ?, ?, 'fixture', '["feature"]', 'positive',
+            ) VALUES (?, ?, ?, 1, 'positive',
                       'positive', 'high', 0.9, 0.9,
                       '{"negative": 0.1, "positive": 0.9}',
                       '2026-08-12T00:00:00Z')
@@ -196,13 +199,16 @@ def test_library_page_keeps_one_snapshot_while_wal_writes_commit(
             assert writer.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
             writer.execute("PRAGMA busy_timeout = 0")
             writer.execute(
+                "INSERT INTO classifier_feature_specs(feature_spec_id, feature_set, feature_names_json) VALUES (1, 'fixture', '[\"feature\"]')"
+            )
+            writer.execute(
                 """
                 INSERT INTO classifier_scores (
-                    track_id, track_uuid, classifier_key, feature_set,
-                    feature_names_json, positive_label, predicted_class,
+                    track_id, track_uuid, classifier_key, feature_spec_id,
+                    positive_label, predicted_class,
                     score_bucket, score, confidence, probabilities_json,
                     analyzed_at
-                ) VALUES (?, ?, 'energy', 'fixture', '["feature"]', 'positive',
+                ) VALUES (?, ?, 'energy', 1, 'positive',
                           'positive', 'high', 0.9, 0.9,
                           '{"negative": 0.1, "positive": 0.9}',
                           '2026-08-12T00:00:00Z')

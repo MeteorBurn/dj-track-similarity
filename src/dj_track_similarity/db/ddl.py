@@ -278,12 +278,17 @@ CREATE INDEX idx_clap_embeddings_track_uuid ON clap_embeddings(track_uuid);
 """
 
 _DDL_CLASSIFIER_SCORES = """
+CREATE TABLE classifier_feature_specs (
+    feature_spec_id         INTEGER PRIMARY KEY,
+    feature_set             TEXT    NOT NULL,
+    feature_names_json      TEXT    NOT NULL CHECK(json_valid(feature_names_json) AND json_type(feature_names_json)='array'),
+    UNIQUE(feature_set, feature_names_json)
+);
 CREATE TABLE classifier_scores (
     track_id               INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
     track_uuid             TEXT    NOT NULL,
     classifier_key         TEXT    NOT NULL,
-    feature_set            TEXT    NOT NULL,
-    feature_names_json     TEXT    NOT NULL CHECK(json_valid(feature_names_json) AND json_type(feature_names_json)='array'),
+    feature_spec_id         INTEGER NOT NULL REFERENCES classifier_feature_specs(feature_spec_id),
     positive_label         TEXT    NOT NULL,
     predicted_class        TEXT    NOT NULL,
     score_bucket           TEXT    NOT NULL CHECK(score_bucket IN ('low','medium','high')),

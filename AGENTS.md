@@ -83,8 +83,8 @@ unclear. Invoke these verified absolute paths from PowerShell:
 - Start with `sqlite3 -readonly`, inspect tables/schema, and use `LIMIT` for
   exploratory queries. Use a consistent snapshot for comparisons of a live DB.
   Keep deterministic automation on `sqlite3`; use the other tools as needed.
-- Keep SAFETY INVARIANTS below: route library writes through `LibraryDatabase`;
-  imports, migrations, destructive work, and synchronization require an explicit
+- Follow SAFETY INVARIANTS below for application database access. Imports,
+  migrations, destructive work, and synchronization require an explicit
   target and the prescribed backup or disposable copy. Toolkit availability is
   not authorization to change user data.
 - For project integrity validation, use
@@ -96,8 +96,8 @@ unclear. Invoke these verified absolute paths from PowerShell:
   `track_search_fts` through `ensure_search_index_current()`. Use the explicit
   read-only path for verification of a user library.
 - These are shared external utilities. Keep application SQLite on the pinned
-  project interpreter and preserve its `LibraryDatabase` gateway. Toolkit
-  engines can differ; verify the actual engine when investigating compatibility.
+  project interpreter. Toolkit engines can differ; verify the actual engine
+  when investigating compatibility.
   Do not add Toolkit packages to the project, activate its private environments,
   change PATH, or install/update tools as a prerequisite to routine use.
 
@@ -140,9 +140,9 @@ Python packages under `src/dj_track_similarity/` follow responsibility boundarie
 | `evaluation/` | Evaluation datasets, experiments, metrics and reports |
 
 Keep shared domain contracts such as `analysis_models.py`, `track_models.py` and
-`library_models.py` at the package root. `database.py` remains the public database
-gateway. Import implementations from their owning modules; keep `__init__.py`
-lightweight and preserve the installed `dj_track_similarity.cli:app` entry point.
+`library_models.py` at the package root. Import implementations from their
+owning modules; keep `__init__.py` lightweight and preserve the installed
+`dj_track_similarity.cli:app` entry point.
 Keep SONARA processing, ranking, classifier features and persistence with their
 respective package owners.
 
@@ -152,7 +152,7 @@ respective package owners.
 |---|---|
 | `cli.app` / `cli.application.serve` | Typer entry; server path reaches `create_app()` and Uvicorn |
 | `api.application.create_app` | Registers route modules, database state, and built frontend assets |
-| `database.LibraryDatabase` | Required gateway for library SQLite reads/writes and locking policy |
+| `database.LibraryDatabase` | Main application library gateway; access rules are in SAFETY INVARIANTS |
 | `search.engine.SimilaritySearch` | Shared seed, vector, and contrast-vector ranking boundary |
 | `analysis.jobs.AnalysisJobManager` | Coordinates model runners, staging, writes, progress, cancellation and runtime release |
 | `analysis.queue.AnalysisStageQueue` | Serial execution and draining of accepted analysis/classifier work |
@@ -171,14 +171,28 @@ respective package owners.
 - Edit agent/skill Markdown there. After agent edits, explicitly run
   `.\.djts\scripts\sync-codex-agents.ps1` to regenerate `.codex/agents/*.toml`;
   never edit the generated launchers. Skills are not projected as agents.
-- For initial agent setup or full resynchronization, run
+- For initial agent setup, run
   `.\.djts\scripts\bootstrap.ps1`: it registers/installs the plugin for available
   Claude Code and Codex CLIs, then generates launchers. It is optional for
   application-only use and is not run automatically at session start.
+- For a requested plugin refresh, inspect its registered source and installation
+  scope first. Preserve the version unless the user requests a version change.
+  Refresh Codex with `codex plugin add dj-track-similarity@dj-track-similarity`.
+  For Claude, set `$pluginScope` to the verified existing scope (this checkout
+  uses `project`), then run
+  `claude plugin update dj-track-similarity@dj-track-similarity --scope $pluginScope --yes`.
+  If the installed content remains stale at the same version, run
+  `claude plugin uninstall dj-track-similarity@dj-track-similarity --scope $pluginScope --keep-data`
+  followed by
+  `claude plugin install dj-track-similarity@dj-track-similarity --scope $pluginScope --yes`.
+  Target only this plugin; bootstrap or a successful update message alone does
+  not prove its cached content was refreshed.
+- Compare the installed plugin files and skill inventory with `.djts/`, including
+  removal of deleted skills. Verify registration and enabled state separately.
+  An already open session can retain old capabilities until restarted.
 - `.claude/` holds only Claude configuration, hooks, and runtime state;
   `.codex/` holds Codex configuration and generated launchers. Do not put
-  copies or links to shared skills/agents in `.claude/`. Verify installed
-  registration and the current session's capabilities separately from source.
+  copies or links to shared skills/agents in `.claude/`.
 - Keep `.workspace/` scoped as listed in STRUCTURE. Optional AgentProof/Superpowers
   state stays at its supported roots (`.agentproof/`, `.superpowers/`), without
   junction redirection.
@@ -210,7 +224,7 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 - Add or change HTTP endpoints in the matching `api/routes_*.py` module; keep
   `api/application.py:create_app` focused on application composition and shared state.
 - Database changes belong in `database.py` plus the focused `db/*.py` storage,
-  schema, or identity module. Preserve `LibraryDatabase` as the public gateway.
+  schema, or identity module; follow the access boundaries in SAFETY INVARIANTS.
 - Route command changes to the owning `cli/` group and register root commands
   explicitly. Keep `cli/application.py` focused on composition and its retained
   commands; command modules must not import the application composer.
@@ -222,8 +236,6 @@ workers must preserve others' edits. Honor the active harness's delegation rules
   together.
 - Keep frontend state coordination in the existing hooks/helpers rather than
   growing `App.tsx`; use `App.tsx` to compose workflows and panels.
-- Tool-specific code under `tools/` and script code under `scripts/` have their
-  own focused suites. Root pytest configuration collects only `tests/`.
 - Dependency changes use the owning package manager and lockfile: `uv.lock` for
   Python and `frontend/package-lock.json` for the frontend. Do not hand-edit locks.
 - UI work follows `DESIGN.md` at the repository root: no raw colours inside
@@ -284,7 +296,10 @@ workers must preserve others' edits. Honor the active harness's delegation rules
   the user has not authorized; already requested cross-layer work is delegated
   and integrated under AGENT LAYER.
 - Shared surfaces such as `search/engine.py`, `analysis_models.py`, `TrackRows.tsx`,
-  and family unions in `frontend/src/api.ts` take additive, scoped changes only.
+  and family unions in `frontend/src/api.ts` take changes within the requested
+  scope. Preserve unaffected contracts; update affected consumers together when
+  the requested behavior changes a shared contract.
+- Do not expand, redesign, or remove Model Listening Lab without a new request.
 - Keep CLAP text scores separate from audio-to-audio CLAP signals. Never
   substitute MuQ, MERT, MAEST, CLAP, MuQ-MuLan, or SONARA evidence for another.
 - Zero-shot text tags are additional evidence, not replacements for MAEST or
@@ -301,11 +316,20 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 - Treat source audio as user data. Scan, preview, analysis, search, reset,
   relocation preview, export, classifier scoring, and routine verification
   must not modify it.
-- Normal tag writing is explicit and genre-only. Browser AIFF preview may use a
-  temporary WAV but must not rewrite or cache the source.
-- Route SQLite writes through `LibraryDatabase`; preserve WAL, busy-timeout,
-  and per-database locking. Real-database destructive work requires a backup or
-  disposable copy plus integrity and orphan checks.
+- Normal tag writing is explicit and genre-only. Browser preview transcoding
+  uses temporary output and must not rewrite or cache the source audio.
+- Use `LibraryDatabase` for the main application's library reads and writes;
+  explicit read-only inspection follows SQLITE TOOLKIT above. Preserve WAL,
+  busy-timeout and per-database locking on application write connections.
+  Rhythm Lab keeps its existing `SourceDatabase` boundary: query-only library
+  reads and the explicit liked-track toggle with its shared write-lock and
+  ID/UUID checks. Its other state remains separate from the source library.
+  This exception does not authorize additional direct library writes.
+  Real-database destructive work requires a backup or disposable copy plus
+  integrity and orphan checks.
+- Preserve existing catalog/track UUID, missing-state and selected-database
+  generation checks for deferred operations. A numeric track ID alone is not
+  sufficient authority to write results after the underlying identity changes.
 - Startup must not silently migrate old databases. Migrations are explicit,
   recoverable workflows; reanalysis remains a separate user choice.
 - Package, loader and lifetime refactors preserve existing schema, saved rows,
@@ -318,11 +342,13 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 - Audio Doctor is dry-run-first, confirmation-gated, backup-first, verified,
   and rollback-capable. Audio Dedup is report-first and deletes only confirmed,
   qualified targets inside the selected root. Never run apply modes for QA.
-- Rhythm Lab state remains separate from the source database except its explicit
-  liked-track toggle. Classifier scoring is database-only, scoped by classifier
-  key, and must validate promoted manifest feature order and artifact hashes.
+- Classifier scoring is database-only, scoped by classifier key, and must
+  validate promoted manifest feature order and artifact hashes.
 - Automated model/audio/database tests use temporary SQLite/WAV fixtures and
   stubs, never real project databases, music files, or downloaded model runs.
+  Keep Audio Dedup's `DEFAULT_RHYTHM_LAB_DB` as its single default constant;
+  isolate tests with `tmp_path` and `monkeypatch`, not additional runtime
+  configuration switches.
 
 ## DOCUMENTATION WORKFLOW
 
@@ -338,7 +364,8 @@ workers must preserve others' edits. Honor the active harness's delegation rules
   verification, or authorized Git delivery.
 - Documentation is English. Translate Russian UI labels in prose; only
   `docs/dj-track-similarity/help/ui-language.md` may contain Cyrillic to map
-  on-screen labels to English. `npm run lint:language` enforces this.
+  on-screen labels to English.
+  `npm --prefix .\docs\dj-track-similarity run lint:language` enforces this.
 
 ## TEST POLICY
 
@@ -358,7 +385,9 @@ a test by existing, and a growing test count is a defect, not progress.
 - Never assert on the text of a source file. Reading a module, script, or
   `.cmd` file and matching strings pins how the code is written instead of what
   it does. Drive the running module and assert its behavior.
-  `frontend/tests/testsExecuteCode.test.mjs` enforces this on the frontend.
+  `frontend/tests/testsExecuteCode.test.mjs` checks for loader patterns outside
+  its legacy exemptions; it does not prove that assertions exercise behavior
+  and does not replace review. Do not grow the legacy exemption list.
 - When behavior changes, edit the existing test that owns that contract instead
   of adding a second one. Two tests over one contract mean one is redundant.
 - Delete a test whose contract is gone, and delete a test that blocks an
@@ -371,18 +400,42 @@ a test by existing, and a growing test count is a defect, not progress.
   diff, `rg`, `git diff --check`, an import driver, or the owning test file.
   Invoke pytest through the root interpreter:
   `& .\.venv\Scripts\python.exe -m pytest 'tests/test_<area>.py'`; narrow with
-  `-k` when useful. Do not repeat a passed selection unless relevant code changed.
+  `-k` when useful.
 - Do not run `graphify update .`, builds, the docs check, or broad `ml`, `slow`,
   and `evaluation` selections between edits. Run focused owner tests when needed,
   including fake-loader tests marked `ml`; inspect and report skips rather than
   silently excluding the checks relevant to the change.
-- Before delivery, follow `verification-routing` once for the changed area.
-  Instruction-only changes need a scoped diff, whitespace check, and relevant
-  path/command checks, not application tests or a docs build.
-- Root pytest collects only `tests/`; name script/tool suites explicitly when
-  they are in scope. Broad checks require a shared contract, migration, broad
-  refactor, release, or an unresolved failure. Do not widen merely because a
-  focused check passed.
+- Before delivery, ensure checks covering the final changed state have passed.
+  Reuse a passed selection unless relevant code, configuration or dependencies
+  changed; do not rerun merely for delivery. Instruction-only changes need a
+  scoped diff, whitespace check and relevant path/command checks, not application
+  tests or a docs build.
+- A localized backend change ends at its owning test files. Broaden only for
+  affected shared contracts, persistence, broad refactors, releases, unresolved
+  failures, or dependency/runtime/test-runner changes with broad impact. Changes
+  outside `src/` do not by themselves require or prohibit backend checks.
+- Root pytest collects only `tests/`. Name affected script/tool suites explicitly:
+  `scripts/tests`, `tools/audio-dedup/tests`, `tools/audio-doctor/tests`,
+  `tools/audio-online/tests`, or `tools/rhythm-lab/tests`.
+  For Audio Online workbook-bridge changes, also run
+  `node --test tools/audio-online/workbook_bridge.test.mjs` with its existing
+  runtime and dependencies, including `METADATA_ENRICHMENT_NODE_MODULES`.
+  Report unavailable dependencies rather than creating another environment.
+- For frontend runtime or build changes, run
+  `npm --prefix .\frontend run typecheck` and `npm --prefix .\frontend test`;
+  also run `npm --prefix .\frontend run build`
+  before a commit. Frontend instruction-only and copy-only edits do not require
+  these checks. For maintained docs or docs tooling changes, run
+  `npm --prefix .\docs\dj-track-similarity run check`.
+- For behavior changes, exercise the matching surface with one happy path and
+  one relevant failure path: browser, HTTP request, CLI, or minimal import
+  driver. Existing focused tests can satisfy these scenarios when they exercise
+  the matching boundary; do not duplicate them with a manual smoke solely for
+  this checklist. Follow the temporary-fixture and user-data safety rules above.
+- Diagnose from source first, then confirm the hypothesis on the running
+  surface. For browser layout, use DOM geometry, overflow and computed styles
+  where supported; use screenshots when visual inspection is needed. Prefer
+  semantic locators or element references supported by the active browser tool.
 - Before testing database startup or persistence-sensitive refactors, inspect
   constructor/connect/schema paths for implicit migrations or data writes.
   For broad package/loader refactors, retain the same pre-change synthetic
@@ -397,10 +450,26 @@ a test by existing, and a growing test count is a defect, not progress.
 
 ## WEB RESEARCH ROUTING
 
-Use `web-research-routing` for external research. Retrieved prose does not
-override executable source/tests; model claims remain ranking evidence.
-For Firecrawl, pass an explicit `--output` under `.workspace/tools/firecrawl/`,
-never the default root-level `.firecrawl/`.
+- Start with built-in web search/page reading. Use Tavily or Firecrawl when
+  those results are insufficient; account for their API-credit costs. Discover
+  the tools available in the current session and follow the provider's own
+  skills/help rather than assuming fixed tool names or capabilities.
+- Use Tavily search for facts, news and links, research for multi-source
+  synthesis, and extraction for known URLs. For difficult or JS-rendered pages,
+  use the provider's supported advanced extraction or browser workflow.
+- Use map for URL discovery and crawl for page content, with explicit limits.
+  For structured extraction, use a supported schema workflow or shape fields
+  from extracted content when that capability is unavailable.
+- For library/API behavior and errors, use Firecrawl's developer index when
+  available to locate official documentation, repository issues and PRs.
+- For audio-model literature (CLAP, MuQ, MuQ-MuLan, MERT, MAEST, SONARA), use
+  the research-paper index when available, inspect relevant papers and linked
+  repositories, and cite the paper URL or ID for claims. A web-search research
+  category is not equivalent to searching a paper index or reading full text.
+- Retrieved prose does not override executable source/tests about this checkout;
+  model claims remain ranking evidence.
+- For Firecrawl CLI output, pass an explicit `--output` under
+  `.workspace/tools/firecrawl/`, never the default root-level `.firecrawl/`.
 
 ## COMMANDS
 
@@ -408,6 +477,9 @@ Examples below are selected by task, not run as a batch. Local mode uses backend
 `127.0.0.1:8765` and Vite `127.0.0.1:5173`; Rhythm Lab defaults to
 `127.0.0.1:8777`. Check existing processes/listeners before starting a server;
 LAN exposure must be requested. Confirm the database before using `--db`.
+Start project servers only through `run_server.cmd` in a visible interactive
+window so the user can see and stop them. Do not launch hidden direct `dj-sim`,
+Uvicorn or Vite processes.
 
 ```powershell
 .\run_server.cmd --help
@@ -415,7 +487,7 @@ LAN exposure must be requested. Confirm the database before using `--db`.
 .\run_server.cmd local --db 'C:\path\selected.sqlite'
 & .\.venv\Scripts\python.exe -c 'import sys, sqlite3; print(sys.executable); print(sys.version); print(sqlite3.sqlite_version)'
 & .\.venv\Scripts\python.exe -c 'from dj_track_similarity.audio.ffmpeg_runtime import inspect_audio_runtime; print(inspect_audio_runtime())'
-npm --prefix .\frontend run build        # before a commit that touched frontend/
+npm --prefix .\frontend run build        # frontend runtime/build changes; before a commit
 ```
 
 ## GRAPHIFY
@@ -425,6 +497,12 @@ scripts, and documentation. Read cited `source_file`/`source_location`; graph
 edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
 Use it proactively before broad source searches. Known files, `AGENTS.md`,
 configuration, locks, Git state, and the excluded agent layer are read directly.
+
+For read-only tasks or modes, use the existing graph, vocabulary and lessons
+without running the write steps below: vocabulary refresh, `reflect`,
+`save-result` or rebuilds. If vocabulary is missing or stale, derive tokens from
+graph labels in memory. Missing lessons do not block inspection. Report stale
+or unavailable graph data and verify findings directly in source.
 
 | Navigation task | Run first |
 |---|---|
@@ -457,7 +535,7 @@ Follow `.djts/skills/graphify/references/query.md` with these project rules:
 6. Pass the relevant graph rules to code-exploration workers explicitly; do not
    assume their prompts or tool access match the parent session.
 
-PowerShell vocabulary refresh (after verifying the graph exists):
+PowerShell vocabulary refresh (when writes are allowed and the graph exists):
 
 ```powershell
 $graphPython = (Get-Content -LiteralPath 'graphify-out\.graphify_python' -Raw).Trim()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
 import sys
@@ -12,6 +11,22 @@ import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
+
+
+TOOL_ROOT = Path(__file__).resolve().parents[1]
+if str(TOOL_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOL_ROOT))
+
+from audio_doctor import cli as cli_module  # noqa: E402
+from audio_doctor import config as config_module  # noqa: E402
+from audio_doctor import container_repair as container_repair_module  # noqa: E402
+from audio_doctor import file_repair as file_repair_module  # noqa: E402
+from audio_doctor import inspection as inspection_module  # noqa: E402
+from audio_doctor import models as models_module  # noqa: E402
+from audio_doctor import path_sources as path_sources_module  # noqa: E402
+from audio_doctor import result_formatting as result_formatting_module  # noqa: E402
+from audio_doctor import run_state as run_state_module  # noqa: E402
+from audio_doctor import xlsx_report as xlsx_report_module  # noqa: E402
 
 
 def test_audio_doctor_module_entrypoint_exposes_help() -> None:
@@ -26,16 +41,6 @@ def test_audio_doctor_module_entrypoint_exposes_help() -> None:
     )
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
-
-
-def _load_repair_module():
-    path = Path(__file__).resolve().parents[1] / "audio_doctor" / "core.py"
-    spec = importlib.util.spec_from_file_location("audio_doctor_core", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
 
 
 def _aiff_chunk(chunk_id: bytes, payload: bytes) -> bytes:
@@ -78,7 +83,6 @@ def _minimal_pcm_wave(data_payload: bytes, *, pad_data_chunk: bool = True) -> by
 
 
 def test_log_collection_stays_limited_to_wav_post_save_readback(tmp_path: Path) -> None:
-    repair = _load_repair_module()
     log_path = tmp_path / "app.log"
     wav_path = tmp_path / "bad.wav"
     aiff_path = tmp_path / "bad.aiff"
@@ -94,11 +98,10 @@ def test_log_collection_stays_limited_to_wav_post_save_readback(tmp_path: Path) 
         encoding="utf-8",
     )
 
-    assert repair.paths_from_log(log_path) == [wav_path]
+    assert path_sources_module.paths_from_log(log_path) == [wav_path]
 
 
 def test_collect_paths_includes_audio_files_from_folder_recursively(tmp_path: Path) -> None:
-    repair = _load_repair_module()
     root = tmp_path / "library"
     nested = root / "nested"
     nested.mkdir(parents=True)
@@ -109,19 +112,18 @@ def test_collect_paths_includes_audio_files_from_folder_recursively(tmp_path: Pa
     aiff_path.write_bytes(b"FORM\x00\x00\x00\x04AIFF")
     ignored.write_text("not audio", encoding="utf-8")
 
-    paths = repair.collect_paths([], [], folders=[root], since=None, until=None)
+    paths = path_sources_module.collect_paths([], [], folders=[root], since=None, until=None)
 
     assert set(paths) == {wav_path, aiff_path}
     assert ignored not in paths
 
 
 def test_mp3_content_with_flac_extension_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "wrong.flac"
     audio_path.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00")
-    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
+    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: None)
 
-    result = repair.inspect_file(audio_path)
+    result = inspection_module.inspect_file(audio_path)
 
     assert result.status == "suspicious"
     assert result.detected_format == "mp3"
@@ -129,12 +131,11 @@ def test_mp3_content_with_flac_extension_is_reported_as_suspicious(monkeypatch, 
 
 
 def test_mp3_content_with_ogg_extension_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "wrong.ogg"
     audio_path.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00")
-    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
+    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: None)
 
-    result = repair.inspect_file(audio_path)
+    result = inspection_module.inspect_file(audio_path)
 
     assert result.status == "suspicious"
     assert result.detected_format == "mp3"
@@ -142,14 +143,13 @@ def test_mp3_content_with_ogg_extension_is_reported_as_suspicious(monkeypatch, t
 
 
 def test_ogg_container_with_opus_codec_is_allowed(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "track.ogg"
     audio_path.write_bytes(b"OggS\x00\x02")
-    monkeypatch.setattr(repair, "probe_file", lambda path: ("ogg", "opus"))
-    monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
-    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
+    monkeypatch.setattr(inspection_module, "probe_file", lambda path: ("ogg", "opus"))
+    monkeypatch.setattr(inspection_module, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
+    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: None)
 
-    result = repair.inspect_file(audio_path)
+    result = inspection_module.inspect_file(audio_path)
 
     assert result.status == "ok"
     assert result.detected_format == "ogg"
@@ -157,14 +157,13 @@ def test_ogg_container_with_opus_codec_is_allowed(monkeypatch, tmp_path: Path) -
 
 
 def test_wav_container_with_flac_codec_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "wrong.wav"
     audio_path.write_bytes(b"RIFF\x04\x00\x00\x00WAVE")
-    monkeypatch.setattr(repair, "probe_file", lambda path: ("wav", "flac"))
-    monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
-    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
+    monkeypatch.setattr(inspection_module, "probe_file", lambda path: ("wav", "flac"))
+    monkeypatch.setattr(inspection_module, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
+    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: None)
 
-    result = repair.inspect_file(audio_path)
+    result = inspection_module.inspect_file(audio_path)
 
     assert result.status == "suspicious"
     assert result.detected_format == "wav"
@@ -173,14 +172,13 @@ def test_wav_container_with_flac_codec_is_reported_as_suspicious(monkeypatch, tm
 
 
 def test_flac_container_with_vorbis_codec_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "wrong.flac"
     audio_path.write_bytes(b"fLaC")
-    monkeypatch.setattr(repair, "probe_file", lambda path: ("flac", "vorbis"))
-    monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
-    monkeypatch.setattr(repair, "full_decode_error", lambda path: None)
+    monkeypatch.setattr(inspection_module, "probe_file", lambda path: ("flac", "vorbis"))
+    monkeypatch.setattr(inspection_module, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
+    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: None)
 
-    result = repair.inspect_file(audio_path)
+    result = inspection_module.inspect_file(audio_path)
 
     assert result.status == "suspicious"
     assert result.detected_format == "flac"
@@ -189,24 +187,22 @@ def test_flac_container_with_vorbis_codec_is_reported_as_suspicious(monkeypatch,
 
 
 def test_full_decode_failure_is_reported_even_when_header_tags_and_codec_look_valid(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "broken.flac"
     audio_path.write_bytes(b"fLaC")
-    monkeypatch.setattr(repair, "probe_file", lambda path: ("flac", "flac"))
-    monkeypatch.setattr(repair, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=yes")
-    monkeypatch.setattr(repair, "full_decode_error", lambda path: "[flac] invalid sync code")
+    monkeypatch.setattr(inspection_module, "probe_file", lambda path: ("flac", "flac"))
+    monkeypatch.setattr(inspection_module, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=yes")
+    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: "[flac] invalid sync code")
 
-    result = repair.inspect_file(audio_path)
+    result = inspection_module.inspect_file(audio_path)
 
     assert result.status == "failed"
     assert result.message == "full FFmpeg decode failed: [flac] invalid sync code"
 
 
 def test_aiff_repair_removes_only_empty_id3_chunks_and_preserves_sound_payload() -> None:
-    repair = _load_repair_module()
     data, ssnd_payload = _minimal_aiff_with_empty_id3_chunks()
 
-    result = repair.repair_aiff_bytes(data)
+    result = container_repair_module.repair_aiff_bytes(data)
 
     assert result.changed is True
     assert result.id3_seen == 3
@@ -217,12 +213,11 @@ def test_aiff_repair_removes_only_empty_id3_chunks_and_preserves_sound_payload()
 
 
 def test_wave_repair_reports_dropped_trailing_zero_padding() -> None:
-    repair = _load_repair_module()
     data_payload = b"\x01\x02\x03\x04"
     body = b"WAVE" + b"data" + len(data_payload).to_bytes(4, "little") + data_payload + b"\x00"
     data = b"RIFF" + len(body).to_bytes(4, "little") + body
 
-    result = repair.repair_wave_bytes(data)
+    result = container_repair_module.repair_wave_bytes(data)
 
     assert result.changed is True
     assert result.repaired_size == len(data) - 1
@@ -230,48 +225,44 @@ def test_wave_repair_reports_dropped_trailing_zero_padding() -> None:
 
 
 def test_wave_repair_trims_incomplete_pcm_data_tail_and_verifies_result(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     original_payload = b"\x01\x02\x03\x04\x05\x06\x07\x08\xaa\xbb"
-    result = repair.repair_wave_bytes(_minimal_pcm_wave(original_payload))
+    result = container_repair_module.repair_wave_bytes(_minimal_pcm_wave(original_payload))
 
     assert result.changed is True
-    assert repair.data_payload(result.data) == original_payload[:-2]
+    assert container_repair_module.data_payload(result.data) == original_payload[:-2]
     assert "trimmed incomplete PCM data tail at offset 44 size 2 for block align 4" in result.actions
 
     audio_path = tmp_path / "tail.wav"
     audio_path.write_bytes(result.data)
-    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
-    repair.verify_repaired_file(audio_path)
+    monkeypatch.setattr(container_repair_module, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    file_repair_module.verify_repaired_file(audio_path)
 
 
 def test_wave_verification_rejects_incomplete_pcm_data_tail(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "tail.wav"
     audio_path.write_bytes(_minimal_pcm_wave(b"\x01\x02\x03\x04\xaa\xbb"))
-    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    monkeypatch.setattr(container_repair_module, "mutagen_summary", lambda data: "mutagen ok tags=no")
 
-    with pytest.raises(repair.RepairError, match=r"2 trailing byte\(s\).*block align 4"):
-        repair.verify_repaired_file(audio_path)
+    with pytest.raises(models_module.RepairError, match=r"2 trailing byte\(s\).*block align 4"):
+        file_repair_module.verify_repaired_file(audio_path)
 
 
 def test_wave_repair_trims_single_pcm_tail_byte_without_final_riff_padding() -> None:
-    repair = _load_repair_module()
-    result = repair.repair_wave_bytes(
+    result = container_repair_module.repair_wave_bytes(
         _minimal_pcm_wave(b"\x01\x02\x03\x04\xaa", pad_data_chunk=False)
     )
 
-    assert repair.data_payload(result.data) == b"\x01\x02\x03\x04"
+    assert container_repair_module.data_payload(result.data) == b"\x01\x02\x03\x04"
     assert "inserted missing RIFF padding after final data chunk at offset 36" in result.actions
     assert "trimmed incomplete PCM data tail at offset 44 size 1 for block align 4" in result.actions
 
 
 def test_wave_dry_run_marks_incomplete_pcm_data_tail_repairable(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "tail.wav"
     audio_path.write_bytes(_minimal_pcm_wave(b"\x01\x02\x03\x04\xaa\xbb"))
-    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    monkeypatch.setattr(container_repair_module, "mutagen_summary", lambda data: "mutagen ok tags=no")
 
-    result = repair.repair_wave_file(
+    result = file_repair_module.repair_wave_file(
         audio_path,
         apply_changes=False,
         backup_dir=None,
@@ -280,23 +271,22 @@ def test_wave_dry_run_marks_incomplete_pcm_data_tail_repairable(monkeypatch, tmp
     )
 
     assert result.status == "repairable"
-    assert repair.repairable_reason(result) == "incomplete_pcm_tail"
+    assert result_formatting_module.repairable_reason(result) == "incomplete_pcm_tail"
 
 
 def test_wave_file_with_only_trailing_zero_padding_is_notice(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "track.wav"
     data_payload = b"\x01\x02\x03\x04"
     body = b"WAVE" + b"data" + len(data_payload).to_bytes(4, "little") + data_payload + b"\x00"
     audio_path.write_bytes(b"RIFF" + len(body).to_bytes(4, "little") + body)
-    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    monkeypatch.setattr(container_repair_module, "mutagen_summary", lambda data: "mutagen ok tags=no")
     monkeypatch.setattr(
-        repair,
+        inspection_module,
         "inspect_file",
-        lambda path: repair.FileInspectionResult(path=path, status="ok", message="ok", tag_summary="mutagen ok tags=no"),
+        lambda path: models_module.FileInspectionResult(path=path, status="ok", message="ok", tag_summary="mutagen ok tags=no"),
     )
 
-    result = repair.repair_file(
+    result = file_repair_module.repair_file(
         audio_path,
         apply_changes=False,
         backup_dir=None,
@@ -312,13 +302,12 @@ def test_wave_file_with_only_trailing_zero_padding_is_notice(monkeypatch, tmp_pa
 
 
 def test_wave_without_container_repair_is_failed_when_full_decode_fails(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "broken.wav"
     audio_path.write_bytes(_minimal_pcm_wave(b"\x01\x02\x03\x04"))
-    monkeypatch.setattr(repair, "mutagen_summary", lambda data: "mutagen ok tags=no")
-    monkeypatch.setattr(repair, "full_decode_error", lambda path: "[pcm] invalid packet")
+    monkeypatch.setattr(container_repair_module, "mutagen_summary", lambda data: "mutagen ok tags=no")
+    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: "[pcm] invalid packet")
 
-    result = repair.repair_wave_file(
+    result = file_repair_module.repair_wave_file(
         audio_path,
         apply_changes=False,
         backup_dir=None,
@@ -331,12 +320,11 @@ def test_wave_without_container_repair_is_failed_when_full_decode_fails(monkeypa
 
 
 def test_main_output_includes_total_and_track_number(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     first = tmp_path / "first.wav"
     second = tmp_path / "second.wav"
 
     def fake_repair_file(path: Path, **_kwargs):
-        return repair.FileRepairResult(
+        return models_module.FileRepairResult(
             path=path,
             status="ok",
             message="ok",
@@ -345,9 +333,9 @@ def test_main_output_includes_total_and_track_number(monkeypatch, tmp_path: Path
             mutagen_summary="mutagen ok tags=yes",
         )
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    exit_code = repair.main([str(first), str(second), "--no-file-log", "--no-report"])
+    exit_code = cli_module.main([str(first), str(second), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert exit_code == 0
@@ -357,12 +345,11 @@ def test_main_output_includes_total_and_track_number(monkeypatch, tmp_path: Path
 
 
 def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     wav_path = tmp_path / "repair.wav"
     flac_path = tmp_path / "wrong.flac"
     tag_path = tmp_path / "tags.aiff"
     results = {
-        wav_path: repair.FileRepairResult(
+        wav_path: models_module.FileRepairResult(
             path=wav_path,
             status="repairable",
             message="ok",
@@ -370,12 +357,12 @@ def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys)
             repaired_size=18,
             actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
         ),
-        flac_path: repair.FileRepairResult(
+        flac_path: models_module.FileRepairResult(
             path=flac_path,
             status="suspicious",
             message="extension=.flac detected=mp3",
         ),
-        tag_path: repair.FileRepairResult(
+        tag_path: models_module.FileRepairResult(
             path=tag_path,
             status="tag-error",
             message="mutagen error: ID3v2.32 not supported",
@@ -385,9 +372,9 @@ def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys)
     def fake_repair_file(path: Path, **_kwargs):
         return results[path]
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    exit_code = repair.main([str(wav_path), str(flac_path), str(tag_path), "--no-file-log", "--no-report"])
+    exit_code = cli_module.main([str(wav_path), str(flac_path), str(tag_path), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert exit_code == 0
@@ -398,8 +385,7 @@ def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys)
 
 
 def test_format_result_uses_compact_one_line_layout(tmp_path: Path) -> None:
-    repair = _load_repair_module()
-    result = repair.FileRepairResult(
+    result = models_module.FileRepairResult(
         path=tmp_path / "track.wav",
         status="repairable",
         message="ok",
@@ -411,7 +397,7 @@ def test_format_result_uses_compact_one_line_layout(tmp_path: Path) -> None:
         actions=["shrunk oversized data chunk", "normalized RIFF root size"],
     )
 
-    output = repair.format_result(result, dry_run=True, index=1, total=10, color=False)
+    output = result_formatting_module.format_result(result, dry_run=True, index=1, total=10, color=False)
 
     assert "\n" not in output
     assert output.startswith("[1/10] REPAIRABLE")
@@ -424,28 +410,26 @@ def test_format_result_uses_compact_one_line_layout(tmp_path: Path) -> None:
 
 
 def test_format_result_can_color_status(tmp_path: Path) -> None:
-    repair = _load_repair_module()
-    result = repair.FileRepairResult(path=tmp_path / "track.flac", status="suspicious", message="extension mismatch")
+    result = models_module.FileRepairResult(path=tmp_path / "track.flac", status="suspicious", message="extension mismatch")
 
-    output = repair.format_result(result, dry_run=True, index=1, total=1, color=True)
+    output = result_formatting_module.format_result(result, dry_run=True, index=1, total=1, color=True)
 
     assert "\x1b[" in output
     assert "SUSPICIOUS" in output
 
 
 def test_main_writes_file_log_for_each_processed_track(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     first = tmp_path / "first.wav"
     second = tmp_path / "second.wav"
     file_log = tmp_path / "repair.log"
     file_log.write_text("old log content\n", encoding="utf-8")
 
     def fake_repair_file(path: Path, **_kwargs):
-        return repair.FileRepairResult(path=path, status="ok", message="ok")
+        return models_module.FileRepairResult(path=path, status="ok", message="ok")
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    exit_code = repair.main([str(first), str(second), "--file-log", str(file_log), "--color", "always", "--no-report"])
+    exit_code = cli_module.main([str(first), str(second), "--file-log", str(file_log), "--color", "always", "--no-report"])
 
     assert exit_code == 0
     stdout = capsys.readouterr().out
@@ -458,14 +442,13 @@ def test_main_writes_file_log_for_each_processed_track(monkeypatch, tmp_path: Pa
 
 
 def test_main_writes_audio_doctor_report_bundle(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     out_dir = tmp_path / "reports"
     wav_path = tmp_path / "repair.wav"
     flac_path = tmp_path / "wrong.flac"
 
     def fake_repair_file(path: Path, **_kwargs):
         if path == wav_path:
-            return repair.FileRepairResult(
+            return models_module.FileRepairResult(
                 path=path,
                 status="repairable",
                 message="ok",
@@ -476,15 +459,15 @@ def test_main_writes_audio_doctor_report_bundle(monkeypatch, tmp_path: Path, cap
                 mutagen_summary="mutagen ok tags=yes keys=TCON",
                 actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
             )
-        return repair.FileRepairResult(
+        return models_module.FileRepairResult(
             path=path,
             status="suspicious",
             message="extension=.flac detected=mp3",
         )
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    exit_code = repair.main([str(wav_path), str(flac_path), "--out-dir", str(out_dir), "--no-file-log"])
+    exit_code = cli_module.main([str(wav_path), str(flac_path), "--out-dir", str(out_dir), "--no-file-log"])
 
     assert exit_code == 0
     stdout = capsys.readouterr().out
@@ -527,7 +510,6 @@ def test_main_writes_audio_doctor_report_bundle(monkeypatch, tmp_path: Path, cap
 
 
 def test_report_includes_current_state_entries_for_skipped_files(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     folder = tmp_path / "library"
     folder.mkdir()
     ok_path = folder / "checked.wav"
@@ -539,7 +521,7 @@ def test_report_includes_current_state_entries_for_skipped_files(monkeypatch, tm
 
     def fake_repair_file(path: Path, **_kwargs):
         if path == repair_path:
-            return repair.FileRepairResult(
+            return models_module.FileRepairResult(
                 path=path,
                 status="repairable",
                 message="ok",
@@ -547,12 +529,12 @@ def test_report_includes_current_state_entries_for_skipped_files(monkeypatch, tm
                 repaired_size=18,
                 actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
             )
-        return repair.FileRepairResult(path=path, status="ok", message="ok", original_size=20, repaired_size=20)
+        return models_module.FileRepairResult(path=path, status="ok", message="ok", original_size=20, repaired_size=20)
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    first_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
-    second_exit = repair.main(
+    first_exit = cli_module.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    second_exit = cli_module.main(
         ["--folder", str(folder), "--state", str(state_path), "--out-dir", str(out_dir), "--no-file-log"]
     )
 
@@ -578,7 +560,6 @@ def test_report_includes_current_state_entries_for_skipped_files(monkeypatch, tm
 def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
     monkeypatch, tmp_path: Path
 ) -> None:
-    repair = _load_repair_module()
     folder = tmp_path / "library"
     folder.mkdir()
     ok_path = folder / "checked.wav"
@@ -595,7 +576,7 @@ def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
         if path == repair_path:
             if apply_changes:
                 path.write_bytes(b"RIFF\x06\x00\x00\x00WAVEfx")
-                return repair.FileRepairResult(
+                return models_module.FileRepairResult(
                     path=path,
                     status="repaired",
                     message="ok",
@@ -603,7 +584,7 @@ def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
                     repaired_size=18,
                     actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
                 )
-            return repair.FileRepairResult(
+            return models_module.FileRepairResult(
                 path=path,
                 status="repairable",
                 message="ok",
@@ -611,12 +592,12 @@ def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
                 repaired_size=18,
                 actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
             )
-        return repair.FileRepairResult(path=path, status="ok", message="ok", original_size=20, repaired_size=20)
+        return models_module.FileRepairResult(path=path, status="ok", message="ok", original_size=20, repaired_size=20)
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
-    apply_exit = repair.main(
+    dry_run_exit = cli_module.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    apply_exit = cli_module.main(
         [
             "--folder",
             str(folder),
@@ -628,7 +609,7 @@ def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
             "--no-file-log",
         ]
     )
-    repeat_apply_exit = repair.main(
+    repeat_apply_exit = cli_module.main(
         [
             "--folder",
             str(folder),
@@ -667,7 +648,6 @@ def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
 
 
 def test_xlsx_report_escapes_xml_invalid_control_characters(tmp_path: Path) -> None:
-    repair = _load_repair_module()
     xlsx_path = tmp_path / "report.xlsx"
     payload = {
         "mode": "dry-run",
@@ -701,7 +681,7 @@ def test_xlsx_report_escapes_xml_invalid_control_characters(tmp_path: Path) -> N
         ],
     }
 
-    repair.write_xlsx_report(xlsx_path, payload)
+    xlsx_report_module.write_xlsx_report(xlsx_path, payload)
 
     import xml.etree.ElementTree as ET
 
@@ -717,7 +697,6 @@ def test_xlsx_report_escapes_xml_invalid_control_characters(tmp_path: Path) -> N
 
 
 def test_xlsx_report_truncates_text_to_excel_cell_limit(tmp_path: Path) -> None:
-    repair = _load_repair_module()
     xlsx_path = tmp_path / "report.xlsx"
     long_summary = "mutagen ok tags=yes keys=" + ("A" * 40000)
     payload = {
@@ -752,7 +731,7 @@ def test_xlsx_report_truncates_text_to_excel_cell_limit(tmp_path: Path) -> None:
         ],
     }
 
-    repair.write_xlsx_report(xlsx_path, payload)
+    xlsx_report_module.write_xlsx_report(xlsx_path, payload)
 
     import xml.etree.ElementTree as ET
 
@@ -765,7 +744,6 @@ def test_xlsx_report_truncates_text_to_excel_cell_limit(tmp_path: Path) -> None:
 
 
 def test_folder_state_skips_checked_files_and_processes_new_files(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     folder = tmp_path / "library"
     folder.mkdir()
     first = folder / "first.wav"
@@ -776,13 +754,13 @@ def test_folder_state_skips_checked_files_and_processes_new_files(monkeypatch, t
 
     def fake_repair_file(path: Path, **_kwargs):
         processed.append(path)
-        return repair.FileRepairResult(path=path, status="ok", message="ok")
+        return models_module.FileRepairResult(path=path, status="ok", message="ok")
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    first_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    first_exit = cli_module.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
     second.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-    second_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    second_exit = cli_module.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert first_exit == 0
@@ -794,7 +772,6 @@ def test_folder_state_skips_checked_files_and_processes_new_files(monkeypatch, t
 
 
 def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     db_path = tmp_path / "library.sqlite"
     db_root = tmp_path / "db-root"
     file_root = tmp_path / "file-root"
@@ -819,11 +796,11 @@ def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path:
 
     def fake_repair_file(path: Path, **_kwargs):
         processed.append(path)
-        return repair.FileRepairResult(path=path, status="ok", message="ok")
+        return models_module.FileRepairResult(path=path, status="ok", message="ok")
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    exit_code = repair.main(
+    exit_code = cli_module.main(
         [
             "--db",
             str(db_path),
@@ -846,7 +823,6 @@ def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path:
 
 
 def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     db_path = tmp_path / "library.sqlite"
     audio_path = tmp_path / "track.wav"
     state_path = tmp_path / "state.json"
@@ -865,12 +841,12 @@ def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) 
 
     def fake_repair_file(path: Path, **_kwargs):
         processed.append(path)
-        return repair.FileRepairResult(path=path, status="ok", message="ok")
+        return models_module.FileRepairResult(path=path, status="ok", message="ok")
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    first_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
-    second_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
+    first_exit = cli_module.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
+    second_exit = cli_module.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -883,9 +859,8 @@ def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) 
 
 
 def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, tmp_path: Path, capsys) -> None:
-    repair = _load_repair_module()
     run_dir = tmp_path / "audio_doctor"
-    monkeypatch.setattr(repair, "DEFAULT_RUN_DIR", run_dir)
+    monkeypatch.setattr(config_module, "DEFAULT_RUN_DIR", run_dir)
     first_folder = tmp_path / "library-a"
     second_folder = tmp_path / "library-b"
     first_folder.mkdir()
@@ -894,26 +869,26 @@ def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, t
     second_track = second_folder / "second.wav"
     first_track.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
     second_track.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-    first_state = repair.resolve_state_path(None, [first_folder])
-    second_state = repair.resolve_state_path(None, [second_folder])
+    first_state = run_state_module.resolve_state_path(None, [first_folder])
+    second_state = run_state_module.resolve_state_path(None, [second_folder])
     processed: list[Path] = []
 
     def fake_repair_file(path: Path, **_kwargs):
         processed.append(path)
-        return repair.FileRepairResult(path=path, status="ok", message="ok")
+        return models_module.FileRepairResult(path=path, status="ok", message="ok")
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    first_exit = repair.main(["--folder", str(first_folder), "--no-file-log", "--no-report"])
-    repeat_exit = repair.main(["--folder", str(first_folder), "--no-file-log", "--no-report"])
-    second_exit = repair.main(["--folder", str(second_folder), "--no-file-log", "--no-report"])
+    first_exit = cli_module.main(["--folder", str(first_folder), "--no-file-log", "--no-report"])
+    repeat_exit = cli_module.main(["--folder", str(first_folder), "--no-file-log", "--no-report"])
+    second_exit = cli_module.main(["--folder", str(second_folder), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert first_exit == 0
     assert repeat_exit == 0
     assert second_exit == 0
-    assert first_state == repair.resolve_state_path(None, [first_folder])
-    assert second_state == repair.resolve_state_path(None, [second_folder])
+    assert first_state == run_state_module.resolve_state_path(None, [first_folder])
+    assert second_state == run_state_module.resolve_state_path(None, [second_folder])
     assert first_state != second_state
     assert first_state.name.startswith("state.library-a.")
     assert second_state.name.startswith("state.library-b.")
@@ -926,13 +901,12 @@ def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, t
 
 
 def test_default_state_path_uses_safe_folder_label(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     run_dir = tmp_path / "audio_doctor"
-    monkeypatch.setattr(repair, "DEFAULT_RUN_DIR", run_dir)
+    monkeypatch.setattr(config_module, "DEFAULT_RUN_DIR", run_dir)
     folder = tmp_path / "Library Name #1"
     folder.mkdir()
 
-    state_path = repair.resolve_state_path(None, [folder])
+    state_path = run_state_module.resolve_state_path(None, [folder])
 
     assert state_path.parent == run_dir
     assert state_path.name.startswith("state.Library_Name_1.")
@@ -940,14 +914,13 @@ def test_default_state_path_uses_safe_folder_label(monkeypatch, tmp_path: Path) 
 
 
 def test_default_backup_dir_is_under_script_work_dir(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     backup_dir = tmp_path / "audio_doctor" / "backups"
     audio_path = tmp_path / "track.wav"
     audio_bytes = b"RIFF\x00\x00\x00\x00WAVE"
     audio_path.write_bytes(audio_bytes)
-    monkeypatch.setattr(repair, "DEFAULT_BACKUP_DIR", backup_dir)
+    monkeypatch.setattr(config_module, "DEFAULT_BACKUP_DIR", backup_dir)
 
-    backup_path = repair.create_backup(audio_path, backup_dir=None, no_backup=False)
+    backup_path = file_repair_module.create_backup(audio_path, backup_dir=None, no_backup=False)
 
     assert backup_path is not None
     assert backup_path.parent == backup_dir
@@ -957,18 +930,17 @@ def test_default_backup_dir_is_under_script_work_dir(monkeypatch, tmp_path: Path
 
 
 def test_apply_wav_backs_up_writes_and_fully_inspects_repaired_file(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "track.wav"
     backup_path = tmp_path / "track.wav.bak"
     audio_path.write_bytes(b"original")
     repaired_bytes = b"repaired"
     order: list[str] = []
 
-    monkeypatch.setattr(repair, "data_payload_hash", lambda data: "same")
+    monkeypatch.setattr(container_repair_module, "data_payload_hash", lambda data: "same")
     monkeypatch.setattr(
-        repair,
+        container_repair_module,
         "repair_wave_bytes",
-        lambda data, keep_id3: repair.ByteRepairResult(
+        lambda data, keep_id3: models_module.ByteRepairResult(
             changed=True,
             data=repaired_bytes,
             actions=["normalized RIFF root size"],
@@ -992,7 +964,7 @@ def test_apply_wav_backs_up_writes_and_fully_inspects_repaired_file(monkeypatch,
 
     def fake_inspect_file(path: Path):
         order.append("full-inspect")
-        return repair.FileInspectionResult(
+        return models_module.FileInspectionResult(
             path=path,
             status="ok",
             message="ok",
@@ -1001,12 +973,12 @@ def test_apply_wav_backs_up_writes_and_fully_inspects_repaired_file(monkeypatch,
             tag_summary="mutagen ok tags=yes keys=TCON",
         )
 
-    monkeypatch.setattr(repair, "create_backup", fake_create_backup)
-    monkeypatch.setattr(repair, "write_repaired_file", fake_write_repaired_file)
-    monkeypatch.setattr(repair, "verify_repaired_file", fake_verify_repaired_file)
-    monkeypatch.setattr(repair, "inspect_file", fake_inspect_file)
+    monkeypatch.setattr(file_repair_module, "create_backup", fake_create_backup)
+    monkeypatch.setattr(file_repair_module, "write_repaired_file", fake_write_repaired_file)
+    monkeypatch.setattr(file_repair_module, "verify_repaired_file", fake_verify_repaired_file)
+    monkeypatch.setattr(inspection_module, "inspect_file", fake_inspect_file)
 
-    result = repair.repair_wave_file(
+    result = file_repair_module.repair_wave_file(
         audio_path,
         apply_changes=True,
         backup_dir=None,
@@ -1022,7 +994,7 @@ def test_apply_wav_backs_up_writes_and_fully_inspects_repaired_file(monkeypatch,
     assert "backup created" in " | ".join(result.actions)
     assert "post-write inspection passed" in result.actions
     assert "backup deleted" in " | ".join(result.actions)
-    formatted = repair.format_result(result, dry_run=False, index=1, total=1, color=False)
+    formatted = result_formatting_module.format_result(result, dry_run=False, index=1, total=1, color=False)
     assert "actions=" in formatted
     assert "backup created" in formatted
     assert "post-write inspection passed" in formatted
@@ -1031,18 +1003,17 @@ def test_apply_wav_backs_up_writes_and_fully_inspects_repaired_file(monkeypatch,
 
 
 def test_apply_wav_restores_backup_when_full_inspection_fails(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     audio_path = tmp_path / "track.wav"
     backup_path = tmp_path / "track.wav.bak"
     original_bytes = b"original"
     repaired_bytes = b"repaired"
     audio_path.write_bytes(original_bytes)
 
-    monkeypatch.setattr(repair, "data_payload_hash", lambda data: "same")
+    monkeypatch.setattr(container_repair_module, "data_payload_hash", lambda data: "same")
     monkeypatch.setattr(
-        repair,
+        container_repair_module,
         "repair_wave_bytes",
-        lambda data, keep_id3: repair.ByteRepairResult(
+        lambda data, keep_id3: models_module.ByteRepairResult(
             changed=True,
             data=repaired_bytes,
             actions=["normalized RIFF root size"],
@@ -1056,13 +1027,13 @@ def test_apply_wav_restores_backup_when_full_inspection_fails(monkeypatch, tmp_p
         backup_path.write_bytes(path.read_bytes())
         return backup_path
 
-    monkeypatch.setattr(repair, "create_backup", fake_create_backup)
-    monkeypatch.setattr(repair, "write_repaired_file", lambda path, data: path.write_bytes(data))
-    monkeypatch.setattr(repair, "verify_repaired_file", lambda path: None)
+    monkeypatch.setattr(file_repair_module, "create_backup", fake_create_backup)
+    monkeypatch.setattr(file_repair_module, "write_repaired_file", lambda path, data: path.write_bytes(data))
+    monkeypatch.setattr(file_repair_module, "verify_repaired_file", lambda path: None)
     monkeypatch.setattr(
-        repair,
+        inspection_module,
         "inspect_file",
-        lambda path: repair.FileInspectionResult(
+        lambda path: models_module.FileInspectionResult(
             path=path,
             status="tag-error",
             message="mutagen error: repaired tags unreadable",
@@ -1070,7 +1041,7 @@ def test_apply_wav_restores_backup_when_full_inspection_fails(monkeypatch, tmp_p
         ),
     )
 
-    result = repair.repair_wave_file(
+    result = file_repair_module.repair_wave_file(
         audio_path,
         apply_changes=True,
         backup_dir=None,
@@ -1084,14 +1055,13 @@ def test_apply_wav_restores_backup_when_full_inspection_fails(monkeypatch, tmp_p
     assert not backup_path.exists()
     assert "backup restored" in " | ".join(result.actions)
     assert "backup deleted" in " | ".join(result.actions)
-    formatted = repair.format_result(result, dry_run=False, index=1, total=1, color=False)
+    formatted = result_formatting_module.format_result(result, dry_run=False, index=1, total=1, color=False)
     assert "actions=" in formatted
     assert "backup restored" in formatted
     assert "backup deleted" in formatted
 
 
 def test_folder_state_dry_run_does_not_skip_later_apply(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     folder = tmp_path / "library"
     folder.mkdir()
     audio_path = folder / "track.wav"
@@ -1101,17 +1071,17 @@ def test_folder_state_dry_run_does_not_skip_later_apply(monkeypatch, tmp_path: P
 
     def fake_repair_file(path: Path, *, apply_changes: bool, **_kwargs):
         calls.append(apply_changes)
-        return repair.FileRepairResult(
+        return models_module.FileRepairResult(
             path=path,
             status="repairable" if not apply_changes else "repaired",
             message="ok",
         )
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
-    apply_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report", "--apply"])
-    second_apply_exit = repair.main(
+    dry_run_exit = cli_module.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    apply_exit = cli_module.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report", "--apply"])
+    second_apply_exit = cli_module.main(
         ["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report", "--apply"]
     )
 
@@ -1122,7 +1092,6 @@ def test_folder_state_dry_run_does_not_skip_later_apply(monkeypatch, tmp_path: P
 
 
 def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     folder = tmp_path / "library"
     folder.mkdir()
     wav_path = folder / "broken.wav"
@@ -1132,28 +1101,28 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
     state_path = tmp_path / "state.json"
     calls: list[tuple[Path, bool]] = []
     wanted_reason = "OVERSIZED_DATA"
-    monkeypatch.setattr(repair.time, "time", lambda: 1234.9)
+    monkeypatch.setattr(time, "time", lambda: 1234.9)
 
     def fake_repair_file(path: Path, *, apply_changes: bool, **_kwargs):
         calls.append((path, apply_changes))
         if path == wav_path:
-            return repair.FileRepairResult(
+            return models_module.FileRepairResult(
                 path=path,
                 status="repaired" if apply_changes else "repairable",
                 message="ok",
                 actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
             )
-        return repair.FileRepairResult(
+        return models_module.FileRepairResult(
             path=path,
             status="repairable",
             message="ok",
             actions=["removed empty ID3 chunk at offset 128"],
         )
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
-    apply_exit = repair.main(
+    dry_run_exit = cli_module.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    apply_exit = cli_module.main(
         [
             "--folder",
             str(folder),
@@ -1171,7 +1140,7 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
     entries = {entry["title"]: entry for entry in state["files"].values()}
     assert dry_run_exit == 0
     assert apply_exit == 0
-    assert repair.state_key(wav_path) in state["files"]
+    assert run_state_module.state_key(wav_path) in state["files"]
     assert str(wav_path.resolve()) not in state["files"]
     assert list(entries["broken.wav"].keys()) == [
         "title",
@@ -1198,7 +1167,6 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
 
 
 def test_folder_dry_run_workers_process_multiple_files(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     folder = tmp_path / "library"
     folder.mkdir()
     paths = [folder / f"track-{index}.wav" for index in range(4)]
@@ -1209,11 +1177,11 @@ def test_folder_dry_run_workers_process_multiple_files(monkeypatch, tmp_path: Pa
     def fake_repair_file(path: Path, **_kwargs):
         time.sleep(0.01)
         calls.append(path)
-        return repair.FileRepairResult(path=path, status="ok", message="ok")
+        return models_module.FileRepairResult(path=path, status="ok", message="ok")
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    exit_code = repair.main(
+    exit_code = cli_module.main(
         [
             "--folder",
             str(folder),
@@ -1231,7 +1199,6 @@ def test_folder_dry_run_workers_process_multiple_files(monkeypatch, tmp_path: Pa
 
 
 def test_apply_forces_single_worker(monkeypatch, tmp_path: Path) -> None:
-    repair = _load_repair_module()
     folder = tmp_path / "library"
     folder.mkdir()
     paths = [folder / f"track-{index}.wav" for index in range(2)]
@@ -1241,11 +1208,11 @@ def test_apply_forces_single_worker(monkeypatch, tmp_path: Path) -> None:
 
     def fake_repair_file(path: Path, **_kwargs):
         calls.append(path)
-        return repair.FileRepairResult(path=path, status="repaired", message="ok")
+        return models_module.FileRepairResult(path=path, status="repaired", message="ok")
 
-    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
 
-    exit_code = repair.main(
+    exit_code = cli_module.main(
         [
             "--folder",
             str(folder),

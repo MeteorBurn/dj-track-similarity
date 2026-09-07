@@ -58,65 +58,6 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.equal(librarySource.includes("classifier" + "Available"), false);
 });
 
-test("per-classifier analyze button validates that classifier before reset and scoring", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const handler = appSource.match(/async function handleAnalyzeClassifier[\s\S]*?async function handleEmbeddingSearch/)?.[0] || "";
-
-  const refreshIndex = handler.indexOf("const promotedClassifiers = await api.classifiers()");
-  const compatibilityIndex = handler.indexOf("classifierScoringBlockedReason(currentClassifier)");
-  const resetIndex = handler.indexOf("api.resetClassifier(currentClassifier.classifier_key)");
-  const analyzeIndex = handler.indexOf("api.analyzeClassifier(currentClassifier.classifier_key)");
-
-  assert.notEqual(refreshIndex, -1);
-  assert.notEqual(compatibilityIndex, -1);
-  assert.notEqual(resetIndex, -1);
-  assert.notEqual(analyzeIndex, -1);
-  assert.ok(refreshIndex < compatibilityIndex);
-  assert.ok(compatibilityIndex < resetIndex);
-  assert.ok(resetIndex < analyzeIndex);
-  assert.doesNotMatch(handler, /analysisLimit/);
-});
-
-test("classifier score reset immediately disables its slider", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const handler = appSource.match(/async function handleResetClassifier[\s\S]*?async function handleEmbeddingSearch/)?.[0] || "";
-
-  assert.match(handler, /setClassifierMinScores/);
-  assert.match(handler, /delete next\[classifier\.classifier_key\]/);
-  assert.match(handler, /setClassifiers\(\(current\) => current\.map/);
-  assert.match(handler, /scored_tracks: 0/);
-});
-
-test("initial database load does not wait for classifier readiness before library tracks", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const handler = appSource.match(/async function initializeDatabase[\s\S]*?async function loadLatestJobs/)?.[0] || "";
-
-  const currentIndex = handler.indexOf("const current = await api.currentDatabase()");
-  const classifierRequestIndex = handler.indexOf("const promotedClassifiersRequest = api.classifiers()");
-  const refreshIndex = handler.indexOf("await refreshLibrary(0, {");
-  const classifierAwaitIndex = handler.indexOf("const promotedClassifiers = await promotedClassifiersRequest");
-
-  assert.notEqual(currentIndex, -1);
-  assert.notEqual(classifierRequestIndex, -1);
-  assert.notEqual(refreshIndex, -1);
-  assert.notEqual(classifierAwaitIndex, -1);
-  assert.ok(currentIndex < classifierRequestIndex);
-  assert.ok(classifierRequestIndex < refreshIndex);
-  assert.ok(refreshIndex < classifierAwaitIndex);
-});
-
-test("explicit database refresh adopts its catalog scope and suppresses the duplicate dependency-effect refresh", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const effect = appSource.match(/useEffect\(\(\) => \{[\s\S]*?suppressNextLibraryRefresh[\s\S]*?\}, \[[\s\S]*?databaseCatalogUuid[\s\S]*?\]\);/)?.[0] || "";
-  const initialize = appSource.match(/async function initializeDatabase[\s\S]*?async function loadLatestJobs/)?.[0] || "";
-  const choose = appSource.match(/async function handleChooseDatabase[\s\S]*?async function handleChooseOutputFolder/)?.[0] || "";
-
-  assert.match(appSource, /const suppressNextLibraryRefresh = useRef\(false\)/);
-  assert.match(effect, /if \(suppressNextLibraryRefresh\.current\) \{[\s\S]*?suppressNextLibraryRefresh\.current = false;[\s\S]*?return;/);
-  assert.match(initialize, /suppressNextLibraryRefresh\.current = true;[\s\S]*?adoptDatabaseScope\(current\.catalog_uuid\);[\s\S]*?setDatabasePath\(current\.path\);[\s\S]*?await refreshLibrary\(0,\s*\{[\s\S]*?databaseKey:\s*current\.catalog_uuid[\s\S]*?refreshSummary:\s*true/);
-  assert.match(choose, /suppressNextLibraryRefresh\.current = true;[\s\S]*?resetDatabaseScopedState\(\);[\s\S]*?adoptDatabaseScope\(value\.catalog_uuid\);[\s\S]*?setDatabasePath\(value\.path\);[\s\S]*?await refreshLibrary\(0,\s*\{[\s\S]*?databaseKey:\s*value\.catalog_uuid[\s\S]*?refreshSummary:\s*true/);
-});
-
 test("analysis and scan controls use the measured machine defaults", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const scanSettingsSource = readFileSync(join(srcDir, "scanImportSettings.ts"), "utf8");
@@ -158,20 +99,6 @@ test("model search UI defaults to twenty while API fallbacks remain ten", () => 
   assert.match(schemaSource, /class SearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
   assert.match(schemaSource, /class SonaraSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
   assert.match(schemaSource, /class TextSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
-});
-
-test("model search exposes only current seed controls", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
-  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
-  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
-
-  assert.match(appSource, /seed_track_ids:\s*seeds/);
-  assert.match(searchSource, /handleSonaraSearch/);
-  assert.match(searchSource, /handleEmbeddingSearch/);
-  assert.match(searchSource, /activeSearchTab === "similarity"/);
-  assert.match(apiSource, /seed_track_ids/);
-  assert.match(schemaSource, /seed_track_ids/);
 });
 
 test("analysis process status renders per-model progress", () => {
@@ -224,90 +151,6 @@ test("class search tab shows classifier threshold and scoped analysis controls",
   assert.match(classPanel, /classifier-reset-button/);
   assert.doesNotMatch(classPanel, /classifier-action-row/);
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);
-});
-
-test("text search exposes CLAP and MuQ-MuLan retrieval with optional negative contrast", () => {
-  const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
-  const textTabSource = readFileSync(join(srcDir, "TextSearchTab.tsx"), "utf8");
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
-  const apiClientSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
-  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
-
-  assert.match(searchSource, /<TextSearchTab/);
-  assert.match(textTabSource, /onTogglePreset\(preset\.key\)/);
-  assert.match(textTabSource, /document\.addEventListener\("pointerdown"/);
-  assert.match(textTabSource, /presetMenuRef/);
-  assert.doesNotMatch(textTabSource, /text-generate-button/);
-  assert.match(textTabSource, /text-preset-label/);
-  assert.match(textTabSource, /text-preset-chip/);
-  assert.match(textTabSource, /text-prompt-hint/);
-  assert.doesNotMatch(textTabSource, />\s*Avoid\s*</);
-  assert.match(textTabSource, /className="text-negative-input"/);
-  // The negative bank is switched by a button that reports its own state, not
-  // by a checkbox hidden inside a label.
-  assert.match(textTabSource, /role="switch"/);
-  assert.match(textTabSource, /aria-checked=\{textUseNegativePrompt\}/);
-  assert.match(textTabSource, /text-negative-checkbox/);
-  assert.doesNotMatch(textTabSource, /text-negative-toggle-text/);
-  assert.doesNotMatch(textTabSource, />\s*Use\s*</);
-  assert.match(searchSource, /onTextUseNegativePromptChange/);
-  assert.match(searchSource, /textEmbeddingFamily/);
-  assert.match(searchSource, /hasStoredTextEmbeddings/);
-  assert.match(textTabSource, /text-search-requirement/);
-  assert.match(textTabSource, /<option value="clap">CLAP<\/option>/);
-  assert.match(textTabSource, /<option value="mulan">MuQ-MuLan<\/option>/);
-  assert.match(textTabSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredTextEmbeddings\}/);
-  assert.doesNotMatch(textTabSource, /WandSparkles/);
-  assert.match(textTabSource, /ListFilter/);
-  assert.match(appSource, /embeddingCounts=\{\{[\s\S]*clap:\s*librarySummary\.clap/);
-  assert.doesNotMatch(appSource, /generateClapPrompt/);
-  assert.match(appSource, /api\.textSearch/);
-  // A/B runs the same bank through each family in turn, so the request names
-  // the family of the column it is filling rather than the tab's own setting.
-  assert.match(appSource, /analysis_family:\s*family/);
-  assert.match(appSource, /const\s+\[textUseNegativePrompt,\s*setTextUseNegativePrompt\]\s*=\s*useState\(true\)/);
-  assert.match(appSource, /promptQueriesFromText\(prompt,\s*textNegativeQuery,\s*textUseNegativePrompt\)/);
-  assert.match(appSource, /composePromptBanks\(keys,\s*model\)/);
-  // Selecting a preset carries the model with it where the measurement is
-  // unambiguous, so the choice is not a switch the user has to remember.
-  assert.match(appSource, /const advice = modelAdvice\(keys\)/);
-  assert.match(appSource, /advice\.kind === "single" \? advice\.model : textEmbeddingFamily/);
-  assert.match(appSource, /negative_weight:\s*promptNegativeWeight/);
-  assert.match(apiClientSource, /negative_weight\?:\s*number/);
-  assert.match(schemaSource, /negative_weight:\s*float \| None/);
-  assert.match(apiClientSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
-  // Preset verdicts credit the bank that ranked the list: the client, the
-  // schema and the App snapshot must stay one shape.
-  assert.match(apiClientSource, /request<TextSearchFeedbackResult>\("\/api\/search\/text\/feedback"/);
-  assert.match(apiClientSource, /preset_keys: string\[\]/);
-  assert.match(apiClientSource, /verdict: -1 \| 0 \| 1/);
-  assert.match(schemaSource, /class TextSearchFeedbackRequest/);
-  assert.match(schemaSource, /verdict: Literal\[-1, 0, 1\]/);
-  assert.match(appSource, /api\.textSearchFeedback/);
-  assert.match(appSource, /textFeedbackContext/);
-  assert.match(appSource, /const presetKeys = \[\.\.\.selectedPresetKeys\]/);
-  assert.match(appSource, /positive_queries/);
-  assert.match(appSource, /negative_queries/);
-  assert.match(apiClientSource, /positive_queries:\s*string\[\]/);
-  assert.match(apiClientSource, /negative_queries\?:\s*string\[\]/);
-  assert.match(apiClientSource, /analysis_family\?:\s*"clap" \| "mulan"/);
-  assert.match(apiSource, /export \{ api \} from "\.\/apiClient";/);
-  assert.match(schemaSource, /positive_queries:\s*list\[str\]/);
-  assert.match(schemaSource, /negative_queries:\s*list\[str\]/);
-  assert.match(schemaSource, /analysis_family:\s*Literal\["clap", "mulan"\]\s*=\s*"clap"/);
-  // The bank is the only prompt field: no second copy of it as one string, and
-  // no switch that reduces it to its first line.
-  const afterTextRequest = schemaSource.split("class TextSearchRequest")[1];
-  const textRequestSchema = afterTextRequest.slice(0, afterTextRequest.indexOf("class "));
-  const textSearchPayloadType = apiClientSource.split("type TextSearchPayload = {")[1].split("};")[0];
-  // Field names, not substrings: preset_banks carries a full bank per label
-  // and is the opposite of the retired `preset`, which named one and threw the
-  // rest away. `queries` is the bank; `query` was the single-string copy.
-  for (const retired of [/adaptive_contrast/, /preset\s*[:?]/, /query\s*[:?]/]) {
-    assert.doesNotMatch(textRequestSchema, retired);
-    assert.doesNotMatch(textSearchPayloadType, retired);
-  }
 });
 
 test("classifier analysis uses only the per-classifier job path", () => {

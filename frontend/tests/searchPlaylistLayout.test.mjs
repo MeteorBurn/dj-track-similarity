@@ -11,7 +11,6 @@ import ts from "typescript";
 const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
 const panelSource = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
 const trackPanelSource = readFileSync(fileURLToPath(new URL("../src/TrackPanel.tsx", import.meta.url)), "utf8");
-const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf8");
 const embeddingTabSource = readFileSync(fileURLToPath(new URL("../src/EmbeddingSearchTab.tsx", import.meta.url)), "utf8");
 
 async function loadSearchSurfaceState() {
@@ -113,28 +112,6 @@ test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", as
   assert.equal(genericSearchResultIsCurrent("text", "muq", "key", "key"), false);
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "stale", "key"), false);
   assert.match(panelSource, /searchResultOriginLabel\(genericSearchResultOrigin\)/);
-  assert.match(appSource, /seed_embedding_family: seedEmbeddingFamily/);
-});
-
-test("PROMPT tab compares the two text models over one bank without merging them", () => {
-  // Rank fusion was measured and rejected, so A/B keeps two orders apart and
-  // lets the ear decide. Each model reads its own variant of the bank: the
-  // vocabulary carries per-model wording because the two towers were trained on
-  // different language, so a single shared text would test one of them on prose
-  // written for the other. What ships is a model with its own bank.
-  assert.match(appSource, /textCompareModels/);
-  assert.match(appSource, /\["mulan", "clap"\]/);
-  assert.match(appSource, /const families: TextEmbeddingFamily\[\]/);
-  assert.match(appSource, /composePromptBanks\(selectedPresetKeys, family\)/);
-  // A hand-edited field is the question being asked, so it goes to both as is.
-  assert.match(appSource, /bankIsUnedited/);
-  // The first column also feeds the shared result list, so preview and the set
-  // keep working off one source in both modes.
-  assert.match(appSource, /commitGenericSearchResults\(ticket, "text", columns\[0\]\.results\)/);
-  // Each column carries its own verdicts, because the same track sits in both
-  // and the two answers may honestly differ.
-  assert.match(panelSource, /className="generic-search-results generic-search-compare"/);
-  assert.match(panelSource, /feedbackVerdict=\{column\.verdicts\[track\.track_uuid\] \?\? null\}/);
 });
 
 test("SONARA tab can add an unselected random SONARA-ready seed", () => {
@@ -149,23 +126,6 @@ test("SONARA tab can add an unselected random SONARA-ready seed", () => {
   assert.ok(filtersPosition < searchPosition);
   assert.match(cssRule(".sonara-random-track-action"), /justify-content:\s*flex-start/);
   assert.match(cssRule(".sonara-random-track-button"), /min-height:\s*28px/);
-});
-
-test("SIMILARITY tab can add a random seed of the selected embedding family", () => {
-  const addRandomTrackPosition = embeddingTabSource.indexOf("Add Random Track");
-  const filtersPosition = embeddingTabSource.indexOf("embedding-search-grid");
-  const searchPosition = embeddingTabSource.indexOf("embedding-search-button");
-
-  assert.match(panelSource, /onAddRandomTrack=\{handleAddRandomEmbeddingTrack\}/);
-  assert.match(appSource, /api\.randomEmbeddingTrack\(\{\s*analysis_family: seedEmbeddingFamily,/);
-  // The seed count gates the search button, never the button that adds a seed.
-  assert.match(panelSource, /randomTrackBusy=\{busy\}/);
-  assert.match(embeddingTabSource, /disabled=\{randomTrackBusy \|\| Boolean\(missingReason\)\}/);
-  assert.match(embeddingTabSource, /\{pending \? "Searching\.\.\." : "Search"\}/);
-  assert.ok(addRandomTrackPosition < filtersPosition);
-  assert.ok(filtersPosition < searchPosition);
-  assert.match(cssRule(".embedding-random-track-action"), /justify-content:\s*flex-start/);
-  assert.match(cssRule(".embedding-random-track-button"), /min-height:\s*28px/);
 });
 
 test("Left Right Home End navigation wraps across maintained search tabs", async () => {

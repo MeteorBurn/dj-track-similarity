@@ -25,8 +25,8 @@ actually touched what the line covers.
   widen to `tests/` to feel safe.
 - When no file under `src/` changed, do not run `tests/` at all. A frontend,
   docs, script, or tool change is verified in its own area and nowhere else.
-- `scripts/tests`, `tools/audio-dedup/tests`, and `tools/rhythm-lab/tests` run
-  only when those directories were touched; together they take about 20 seconds.
+- `scripts/tests`, `tools/audio-dedup/tests`, `tools/audio-doctor/tests`, and
+  `tools/rhythm-lab/tests` run only when those directories were touched.
 - Frontend, only when `frontend/` was touched: `npm run typecheck`, `npm test`,
   and `npm run build` before a commit. The three cost about 8 seconds.
 - `graphify update .` once after the last source edit, not per edit. It rebuilds

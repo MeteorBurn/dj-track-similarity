@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import zipfile
 
 import numpy as np
 
@@ -116,7 +117,7 @@ def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
     assert "clean" in lines[2]
 
 
-def test_suspected_transcode_loses_keepership_and_is_labeled() -> None:
+def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> None:
     def _track(track_id: int, path: str) -> core.TrackRecord:
         return core.TrackRecord(
             track_id=track_id,
@@ -188,6 +189,17 @@ def test_suspected_transcode_loses_keepership_and_is_labeled() -> None:
     assert candidate["spectral_note"] == "brickwall at 16.0 kHz"
     assert any("transcoded" in line for line in candidate["why_delete_or_review"])
     assert payload["spectral_analysis"]["suspected_transcode_count"] == 1
+    assert payload["statistics"]["fake_bitrate_candidate_count"] == 1
+    assert payload["statistics"]["fake_bitrate_group_count"] == 1
+
+    xlsx_path = tmp_path / "dedup.xlsx"
+    core.write_xlsx_report(xlsx_path, payload)
+    with zipfile.ZipFile(xlsx_path) as archive:
+        summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        groups_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+
+    assert "Fake-bitrate duplicate candidates" in summary_xml
+    assert "fake_bitrate_candidates" in groups_xml
 
 
 def test_group_the_comparator_cannot_judge_is_review_only() -> None:

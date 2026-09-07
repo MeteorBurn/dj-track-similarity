@@ -15,7 +15,7 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 def test_audio_doctor_module_entrypoint_exposes_help() -> None:
-    tool_root = Path(__file__).resolve().parents[2] / "tools" / "audio-doctor"
+    tool_root = Path(__file__).resolve().parents[1]
 
     completed = subprocess.run(
         (sys.executable, "-m", "audio_doctor", "--help"),
@@ -29,7 +29,7 @@ def test_audio_doctor_module_entrypoint_exposes_help() -> None:
 
 
 def _load_repair_module():
-    path = Path(__file__).resolve().parents[2] / "tools" / "audio-doctor" / "audio_doctor" / "core.py"
+    path = Path(__file__).resolve().parents[1] / "audio_doctor" / "core.py"
     spec = importlib.util.spec_from_file_location("audio_doctor_core", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -831,6 +831,8 @@ def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path:
             str(db_root),
             "--file-root",
             str(file_root),
+            "--state",
+            str(tmp_path / "state.json"),
             "--no-file-log",
             "--no-report",
         ]

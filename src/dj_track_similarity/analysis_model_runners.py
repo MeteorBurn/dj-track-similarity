@@ -25,14 +25,12 @@ from .audio_loader import (
     DecodedAudio,
     load_decoded_audio_with_ffmpeg,
 )
-from .embedding import (
-    ClapEmbeddingAdapter,
-    MaestAnalysisResult,
-    MaestEmbeddingAdapter,
-    MertEmbeddingAdapter,
-    MuqEmbeddingAdapter,
-    MuqMulanEmbeddingAdapter,
-)
+from .embedding_clap import ClapEmbeddingAdapter
+from .embedding_maest import MaestAnalysisResult
+from .embedding_maest import MaestEmbeddingAdapter
+from .embedding_mert import MertEmbeddingAdapter
+from .embedding_muq import MuqEmbeddingAdapter
+from .embedding_mulan import MuqMulanEmbeddingAdapter
 from .maest_analysis_validation import has_maest_syncopated_rhythm
 from .timestamps import utc_timestamp
 from .sonara_features import (

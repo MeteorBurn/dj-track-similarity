@@ -12,19 +12,20 @@ import pytest
 torch = pytest.importorskip("torch")
 pytestmark = pytest.mark.ml
 
-import dj_track_similarity.embedding as embedding
+import dj_track_similarity.embedding_clap as embedding_clap
+import dj_track_similarity.embedding_loading as embedding_loading
+import dj_track_similarity.embedding_numerics as embedding_numerics
+import dj_track_similarity.embedding_audio as embedding_audio
 from dj_track_similarity.audio_loader import DecodedAudio
-from dj_track_similarity.embedding import (
-    ClapEmbeddingAdapter,
-    MaestEmbeddingAdapter,
-    MertEmbeddingAdapter,
-    MuqEmbeddingAdapter,
-    MuqMulanEmbeddingAdapter,
-    _move_maest_runtime_modules,
-    _array_output_to_numpy,
-    _pad_or_trim_audio_tensor,
-    adapter_factories,
-)
+from dj_track_similarity.embedding_clap import ClapEmbeddingAdapter
+from dj_track_similarity.embedding_maest import MaestEmbeddingAdapter
+from dj_track_similarity.embedding_mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding_muq import MuqEmbeddingAdapter
+from dj_track_similarity.embedding_mulan import MuqMulanEmbeddingAdapter
+from dj_track_similarity.embedding_maest import _move_maest_runtime_modules
+from dj_track_similarity.embedding_numerics import _array_output_to_numpy
+from dj_track_similarity.embedding_audio import _pad_or_trim_audio_tensor
+from dj_track_similarity.embedding import adapter_factories
 from dj_track_similarity.logging_config import configure_logging
 from dj_track_similarity.maest_windows import MaestWindowContext
 
@@ -229,7 +230,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     def verify(path, *, expected_sha256, description):
         calls["verify"] = (path, expected_sha256, description)
 
-    monkeypatch.setattr(embedding, "_verify_checkpoint_sha256", verify)
+    monkeypatch.setattr(embedding_loading, "_verify_checkpoint_sha256", verify)
 
     adapter = ClapEmbeddingAdapter(device="cpu")
     adapter.checkpoint_sha256 = hashlib.sha256(b"stub checkpoint").hexdigest()
@@ -356,12 +357,12 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
     monkeypatch.setattr(
-        embedding,
+        embedding_loading,
         "_verify_checkpoint_sha256",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        embedding,
+        embedding_clap,
         "_construct_clap_module_with_pinned_text_model",
         lambda clap_module_type, **kwargs: clap_module_type(
             enable_fusion=kwargs["enable_fusion"],
@@ -413,11 +414,11 @@ def test_array_output_to_numpy_accepts_tensor_like_output() -> None:
 def test_normalize_rows_rejects_non_finite_vectors() -> None:
     for value in (np.nan, np.inf, -np.inf):
         with pytest.raises(ValueError, match="non-finite"):
-            embedding._normalize_rows(np.asarray([[1.0, value, 0.0]], dtype=np.float32))
+            embedding_numerics._normalize_rows(np.asarray([[1.0, value, 0.0]], dtype=np.float32))
 
 
 def test_normalize_rows_returns_flat_float32_unit_vectors() -> None:
-    vectors = embedding._normalize_rows(np.asarray([[3.0, 4.0, 0.0]], dtype=np.float64))
+    vectors = embedding_numerics._normalize_rows(np.asarray([[3.0, 4.0, 0.0]], dtype=np.float64))
 
     assert len(vectors) == 1
     assert vectors[0].shape == (3,)
@@ -428,7 +429,7 @@ def test_normalize_rows_returns_flat_float32_unit_vectors() -> None:
 
 def test_normalize_rows_rejects_zero_vectors() -> None:
     with pytest.raises(ValueError, match="zero vector"):
-        embedding._normalize_rows(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+        embedding_numerics._normalize_rows(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
 
 
 def test_pad_or_trim_audio_tensor_returns_fixed_length_float32() -> None:
@@ -438,10 +439,10 @@ def test_pad_or_trim_audio_tensor_returns_fixed_length_float32() -> None:
 
 
 def test_clap_repeatpad_or_trim_audio_window_matches_laion_short_audio_fill() -> None:
-    assert embedding._repeatpad_or_trim_audio_window(np.array([1.0, 2.0]), 5).tolist() == [1.0, 2.0, 1.0, 2.0, 0.0]
-    assert embedding._repeatpad_or_trim_audio_window(np.array([1.0, 2.0]), 4).tolist() == [1.0, 2.0, 1.0, 2.0]
-    assert embedding._repeatpad_or_trim_audio_window(np.array([1.0, 2.0, 3.0]), 2).tolist() == [1.0, 2.0]
-    assert embedding._repeatpad_or_trim_audio_window(np.array([1, 2], dtype=np.int16), 2).dtype == np.float32
+    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1.0, 2.0]), 5).tolist() == [1.0, 2.0, 1.0, 2.0, 0.0]
+    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1.0, 2.0]), 4).tolist() == [1.0, 2.0, 1.0, 2.0]
+    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1.0, 2.0, 3.0]), 2).tolist() == [1.0, 2.0]
+    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1, 2], dtype=np.int16), 2).dtype == np.float32
 
 
 class FakeClapAudioModel:

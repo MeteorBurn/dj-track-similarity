@@ -30,12 +30,10 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_embeddings import read_valid_embeddings
-from dj_track_similarity.embedding import (
-    MaestAnalysisResult,
-    MaestEmbeddingAdapter,
-    MertEmbeddingAdapter,
-    MuqMulanEmbeddingAdapter,
-)
+from dj_track_similarity.embedding_maest import MaestAnalysisResult
+from dj_track_similarity.embedding_maest import MaestEmbeddingAdapter
+from dj_track_similarity.embedding_mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding_mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.maest_windows import MaestWindowContext
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 

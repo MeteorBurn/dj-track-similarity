@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-import dj_track_similarity.embedding as embedding
-from dj_track_similarity.embedding import (
-    ClapEmbeddingAdapter,
-    MaestEmbeddingAdapter,
-    MertEmbeddingAdapter,
-    MuqEmbeddingAdapter,
-    MuqMulanEmbeddingAdapter,
-)
+import dj_track_similarity.embedding_clap as embedding_clap
+import dj_track_similarity.embedding_loading as embedding_loading
+import dj_track_similarity.embedding_maest as embedding_maest
+from dj_track_similarity.embedding_clap import ClapEmbeddingAdapter
+from dj_track_similarity.embedding_maest import MaestEmbeddingAdapter
+from dj_track_similarity.embedding_mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding_muq import MuqEmbeddingAdapter
+from dj_track_similarity.embedding_mulan import MuqMulanEmbeddingAdapter
 
 
 def test_adapters_expose_dimensions_and_normalization_before_model_load() -> None:
@@ -142,7 +142,7 @@ def test_checkpoint_verification_rejects_wrong_bytes(tmp_path) -> None:
     checkpoint.write_bytes(b"not the pinned checkpoint")
 
     with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-        embedding._verify_checkpoint_sha256(
+        embedding_loading._verify_checkpoint_sha256(
             checkpoint,
             expected_sha256="0" * 64,
             description="test checkpoint",
@@ -165,9 +165,9 @@ def test_hf_checkpoint_download_creates_immutable_verified_binding(
     def verify(path, *, expected_sha256, description):
         calls["verify"] = (path, expected_sha256, description)
 
-    monkeypatch.setattr(embedding, "_verify_checkpoint_sha256", verify)
+    monkeypatch.setattr(embedding_loading, "_verify_checkpoint_sha256", verify)
 
-    resolved = embedding._download_verified_hf_checkpoint(
+    resolved = embedding_loading._download_verified_hf_checkpoint(
         download,
         repo_id="owner/model",
         filename="model.bin",
@@ -245,7 +245,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
-    monkeypatch.setattr(embedding, "_verify_checkpoint_sha256", lambda *args, **kwargs: None)
+    monkeypatch.setattr(embedding_loading, "_verify_checkpoint_sha256", lambda *args, **kwargs: None)
 
     adapter = MertEmbeddingAdapter(device="cpu")
     adapter.snapshot_sha256 = tuple(
@@ -321,7 +321,7 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
     monkeypatch.setitem(sys.modules, "muq", muq_module)
-    monkeypatch.setattr(embedding, "_verify_checkpoint_sha256", lambda *args, **kwargs: None)
+    monkeypatch.setattr(embedding_loading, "_verify_checkpoint_sha256", lambda *args, **kwargs: None)
 
     adapter = MuqEmbeddingAdapter(device="cpu")
     adapter.snapshot_sha256 = tuple(
@@ -457,7 +457,7 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     monkeypatch.setitem(sys.modules, "muq", muq_module)
     monkeypatch.setitem(sys.modules, "muq.muq_mulan.models.text", text_module)
     monkeypatch.setattr(
-        embedding,
+        embedding_loading,
         "_verify_checkpoint_sha256",
         lambda *args, **kwargs: None,
     )
@@ -572,9 +572,9 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setitem(sys.modules, "laion_clap", clap_module)
-    monkeypatch.setattr(embedding, "_verify_checkpoint_sha256", lambda *args, **kwargs: None)
+    monkeypatch.setattr(embedding_loading, "_verify_checkpoint_sha256", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        embedding,
+        embedding_clap,
         "_construct_clap_module_with_pinned_text_model",
         lambda clap_module_type, **kwargs: clap_module_type(
             enable_fusion=kwargs["enable_fusion"],
@@ -646,7 +646,7 @@ def test_maest_loader_verifies_checkpoint_before_public_discogs_path(
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "maest_infer", maest_module)
     monkeypatch.setattr(
-        embedding,
+        embedding_maest,
         "_ensure_verified_maest_checkpoint",
         lambda *args, **kwargs: order.append("verify"),
     )
@@ -679,7 +679,7 @@ def test_maest_checkpoint_is_downloaded_and_verified_before_use(
             Path(destination).write_bytes(checkpoint_bytes)
 
     fake_torch = types.SimpleNamespace(hub=FakeHub())
-    checkpoint = embedding._ensure_verified_maest_checkpoint(
+    checkpoint = embedding_maest._ensure_verified_maest_checkpoint(
         fake_torch,
         checkpoint_url=MaestEmbeddingAdapter.checkpoint_url,
         checkpoint_filename=MaestEmbeddingAdapter.checkpoint_filename,
@@ -709,7 +709,7 @@ def test_maest_cached_checkpoint_hash_is_checked_before_use(tmp_path) -> None:
     expected = hashlib.sha256(b"expected checkpoint").hexdigest()
 
     with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-        embedding._ensure_verified_maest_checkpoint(
+        embedding_maest._ensure_verified_maest_checkpoint(
             fake_torch,
             checkpoint_url=MaestEmbeddingAdapter.checkpoint_url,
             checkpoint_filename=MaestEmbeddingAdapter.checkpoint_filename,

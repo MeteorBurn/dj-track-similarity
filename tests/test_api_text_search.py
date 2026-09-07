@@ -20,7 +20,8 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_embeddings import current_track_identity, read_valid_embeddings
-from dj_track_similarity.embedding import ClapEmbeddingAdapter, MuqMulanEmbeddingAdapter
+from dj_track_similarity.embedding_clap import ClapEmbeddingAdapter
+from dj_track_similarity.embedding_mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 

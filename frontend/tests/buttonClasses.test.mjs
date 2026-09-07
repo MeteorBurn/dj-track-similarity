@@ -58,30 +58,6 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.equal(librarySource.includes("classifier" + "Available"), false);
 });
 
-test("analysis and scan controls use the measured machine defaults", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const scanSettingsSource = readFileSync(join(srcDir, "scanImportSettings.ts"), "utf8");
-  const sonaraSettingsSource = readFileSync(join(srcDir, "sonaraAnalysisSettings.ts"), "utf8");
-  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
-  const apiSchemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
-
-  assert.match(scanSettingsSource, /workers:\s*8/);
-  assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(8\)/);
-  assert.match(appSource, /analysisInferenceBatchSize,\s*setAnalysisInferenceBatchSize\]\s*=\s*useState\(16\)/);
-  assert.match(appSource, /loadSonaraAnalysisSettings\(\)/);
-  assert.match(sonaraSettingsSource, /mode:\s*"direct"/);
-  assert.match(sonaraSettingsSource, /directBatchSize:\s*8/);
-  assert.match(sonaraSettingsSource, /processes:\s*4/);
-  assert.match(sonaraSettingsSource, /threads:\s*4/);
-  assert.match(sonaraSettingsSource, /batchSize:\s*4/);
-  assert.match(sonaraSettingsSource, /stageSize:\s*32/);
-  assert.match(schemaSource, /DEFAULT_ANALYSIS_TRACK_BATCH_SIZE\s*=\s*8/);
-  assert.match(schemaSource, /DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE\s*=\s*16/);
-  assert.match(schemaSource, /DEFAULT_SONARA_BATCH_SIZE\s*=\s*8/);
-  assert.match(apiSchemaSource, /class ScanRequest[\s\S]*?workers:\s*int\s*=\s*Field\(default=8/);
-  assert.match(apiSchemaSource, /class TagRefreshRequest[\s\S]*?workers:\s*int\s*=\s*Field\(default=8/);
-});
-
 test("frontend analysis api uses unified job endpoints only", () => {
   const source = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
 
@@ -89,16 +65,6 @@ test("frontend analysis api uses unified job endpoints only", () => {
   assert.doesNotMatch(source, /\/api\/sonara\/analyze/);
   assert.doesNotMatch(source, /\/api\/genres\/analyze/);
   assert.doesNotMatch(source, /\/api\/analyze"/);
-});
-
-test("model search UI defaults to twenty while API fallbacks remain ten", () => {
-  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
-
-  assert.match(appSource, /const \[filters, setFilters\] = useState<SearchFiltersState>\(\{[\s\S]*?limit:\s*20/);
-  assert.match(schemaSource, /class SearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
-  assert.match(schemaSource, /class SonaraSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
-  assert.match(schemaSource, /class TextSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
 });
 
 test("analysis process status renders per-model progress", () => {

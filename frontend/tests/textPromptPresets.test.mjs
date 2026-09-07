@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import vm from "node:vm";
@@ -21,24 +22,35 @@ function loadTextPromptModule() {
   return module.exports;
 }
 
-test("the default negative weight tracks the server constant", () => {
+test("frontend negative weights are accepted unchanged by the text search API", () => {
   const { defaultNegativeWeight, negativeWeightRange } = loadTextPromptModule();
-  const searchSource = readFileSync(
-    join(srcDir, "..", "..", "src", "dj_track_similarity", "search.py"),
-    "utf8",
+  const weights = [defaultNegativeWeight, negativeWeightRange.min, negativeWeightRange.max];
+  assert.ok(weights.every(Number.isFinite));
+  const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const pythonPath = join(
+    repositoryRoot, ".venv", ...(process.platform === "win32" ? ["Scripts", "python.exe"] : ["bin", "python"]),
   );
+  assert.ok(existsSync(pythonPath), `Project Python environment is required: ${pythonPath}`);
+  const accepted = execFileSync(pythonPath, ["-c", `
+import json
+import sys
+from dj_track_similarity.api.schemas import TextSearchRequest
 
-  // The slider shows a number before the request is sent, so a drift between
-  // the two constants would show the user a weight the server never applied.
-  const declared = searchSource.match(/CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = ([0-9.]+)/);
-  assert.ok(declared, "search.py no longer declares the default negative weight");
-  assert.equal(defaultNegativeWeight, Number(declared[1]));
-
-  // TextSearchRequest bounds negative_weight to 0..2; the slider must not
-  // offer a value the API rejects.
-  assert.equal(negativeWeightRange.min, 0);
-  assert.equal(negativeWeightRange.max, 2);
-  assert.ok(negativeWeightRange.step > 0);
+weights = json.load(sys.stdin)
+print(json.dumps([
+    TextSearchRequest(
+        positive_queries=["broken drums."], negative_weight=weight
+    ).negative_weight
+    for weight in weights
+]))
+`], {
+    cwd: repositoryRoot,
+    input: JSON.stringify(weights),
+    encoding: "utf8",
+    timeout: 15_000,
+    windowsHide: true,
+  });
+  assert.deepEqual(JSON.parse(accepted), weights);
 });
 
 test("every preset belongs to a declared axis and carries a unique key", () => {

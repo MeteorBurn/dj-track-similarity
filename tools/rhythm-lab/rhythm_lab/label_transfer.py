@@ -1919,7 +1919,7 @@ def _required_mapping(value: object, *, field: str) -> dict[str, Any]:
 
 def _required_text(row: Mapping[str, Any], field: str) -> str:
     value = row.get(field)
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field} must be a non-empty string")
     return value
 

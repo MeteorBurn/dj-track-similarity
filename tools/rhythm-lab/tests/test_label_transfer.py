@@ -729,6 +729,17 @@ def test_resealed_semantically_invalid_bundles_are_rejected(
     with pytest.raises(ValueError, match="summary"):
         LABEL_TRANSFER._verified_bundle(_reseal(bad_summary))
 
+    for blank in ("", "   ", "\t\r\n", "\u00a0"):
+        bad_provenance = json.loads(json.dumps(bundle))
+        bad_provenance["source_database"]["journal_mode"] = blank
+        with pytest.raises(ValueError, match="journal_mode must be a non-empty string"):
+            LABEL_TRANSFER._verified_bundle(_reseal(bad_provenance))
+
+    padded_provenance = json.loads(json.dumps(bundle))
+    padded_provenance["source_database"]["journal_mode"] = " delete "
+    verified = LABEL_TRANSFER._verified_bundle(_reseal(padded_provenance))
+    assert verified["source_database"]["journal_mode"] == " delete "
+
     bad_feature_count = json.loads(json.dumps(bundle))
     bad_feature_count["promoted_models"][0]["feature_count"] = 99
     with pytest.raises(ValueError, match="feature_count"):

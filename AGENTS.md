@@ -91,6 +91,10 @@ unclear. Invoke these verified absolute paths from PowerShell:
   `db.connection.connect_database_read_only()` with the root `.venv` (it sets
   `PRAGMA query_only = ON` without enforcing WAL). A CLI `-readonly` integrity
   result alone does not replace the project's CHECK-constraint validation.
+- Ordinary application startup is not a read-only database inspection:
+  `LibraryDatabase.connect()` enforces WAL, and database selection can refresh
+  `track_search_fts` through `ensure_search_index_current()`. Use the explicit
+  read-only path for verification of a user library.
 - These are shared external utilities. Keep application SQLite on the pinned
   project interpreter and preserve its `LibraryDatabase` gateway. Toolkit
   engines can differ; verify the actual engine when investigating compatibility.
@@ -121,15 +125,40 @@ its default is not evidence of the user's active library. Use an explicitly
 named or already confirmed database. Ask only when the target remains unknown;
 never infer it from `volumes.sqlite`, timestamps, or a previous session.
 
+Python packages under `src/dj_track_similarity/` follow responsibility boundaries:
+
+| Package | Owns |
+|---|---|
+| `api/` | FastAPI composition, routes, payload schemas, database selection and preview serving |
+| `cli/` | Typer composition, command groups, shared input/output and progress |
+| `audio/` | Decoding, audio loading and shared FFmpeg discovery |
+| `embedding/` | Family adapters, construction registry, capability types, shared loading/audio/numerics and text cache |
+| `analysis/` | Jobs, queue, pipeline, model runners, staging and SONARA extraction/runtime/results |
+| `db/` | Repositories, connections, schema, stored formats, queries, migration and maintenance |
+| `classifier/` | Promoted manifests/artifacts, feature requirements, scoring and jobs |
+| `search/` | Ranking engines, vector index, SONARA similarity and reference comparison |
+| `evaluation/` | Evaluation datasets, experiments, metrics and reports |
+
+Keep shared domain contracts such as `analysis_models.py`, `track_models.py` and
+`library_models.py` at the package root. `database.py` remains the public database
+gateway. Import implementations from their owning modules; keep `__init__.py`
+lightweight and preserve the installed `dj_track_similarity.cli:app` entry point.
+Keep SONARA processing, ranking, classifier features and persistence with their
+respective package owners.
+
 ## CODE MAP
 
 | Symbol | Role / blast radius |
 |---|---|
 | `cli.app` / `cli.application.serve` | Typer entry; server path reaches `create_app()` and Uvicorn |
 | `api.application.create_app` | Registers route modules, database state, and built frontend assets |
-| `LibraryDatabase` | Required gateway for library SQLite reads/writes and locking policy |
-| `SimilaritySearch` | Shared seed, vector, and contrast-vector ranking boundary |
-| `AnalysisJobManager` | Coordinates model runners, staging, writes, progress, and cancellation |
+| `database.LibraryDatabase` | Required gateway for library SQLite reads/writes and locking policy |
+| `search.engine.SimilaritySearch` | Shared seed, vector, and contrast-vector ranking boundary |
+| `analysis.jobs.AnalysisJobManager` | Coordinates model runners, staging, writes, progress, cancellation and runtime release |
+| `analysis.queue.AnalysisStageQueue` | Serial execution and draining of accepted analysis/classifier work |
+| `api.state.AppDatabaseState` | Owns the selected database's managers and queue; replaces and closes their resources |
+| `embedding.registry.create_embedding_adapter` | Typed lazy construction shared by analysis and text API |
+| `embedding.text_cache.TextEmbeddingAdapterCache` | Application-owned text adapters, leases and idle expiry |
 | `analysis_models` contracts | Shared family/output/reset types; changes affect backend, tests, and UI |
 | `frontend App` | Main UI controller for database, jobs, search, preview, and export |
 | `frontend api` | High-centrality client used by the UI; keep backend types aligned |
@@ -182,6 +211,12 @@ workers must preserve others' edits. Honor the active harness's delegation rules
   `api/application.py:create_app` focused on application composition and shared state.
 - Database changes belong in `database.py` plus the focused `db/*.py` storage,
   schema, or identity module. Preserve `LibraryDatabase` as the public gateway.
+- Route command changes to the owning `cli/` group and register root commands
+  explicitly. Keep `cli/application.py` focused on composition and its retained
+  commands; command modules must not import the application composer.
+- When moving modules, update all consumers and actual-owner monkeypatch targets,
+  including scripts, tools and Windows process-pool references. Preserve resource
+  roots derived from module paths; moving code does not move assets or databases.
 - When an API payload changes, update the backend contract, `frontend/src/api.ts`,
   `frontend/src/apiClient.ts`, UI callers, and focused Python/Node contract tests
   together.
@@ -216,6 +251,29 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 ## MODEL LAYER OWNERSHIP
 
 - State the model layer before changing shared files.
+- `embedding/registry.py` owns the single `adapter_factories()` map and typed
+  `create_embedding_adapter()` factory; `embedding/contracts.py` defines the
+  capabilities used by callers. Use the factory for shared analysis/text API
+  construction. Family-specific callers import concrete classes from their
+  family modules. SONARA keeps its dedicated runner in `analysis/model_runners.py`.
+- Keep heavy imports and weight loading lazy. Each embedding adapter serializes
+  construction per instance, checks readiness again after acquiring its lock,
+  and publishes ready state only after all family preparation succeeds. Preserve
+  shared MuQ/MuLan and CLAP construction locks, verified asset lifetimes and
+  restoration of temporary loader bindings through `finally`.
+- Loaded analysis runners belong to `AnalysisJobManager`; text adapters belong
+  to the application's `TextEmbeddingAdapterCache`. Preserve their separate
+  caches, leases and runtime keys. Database switching releases old analysis
+  owners while retaining the application text cache.
+- Owners drain `AnalysisStageQueue` before closing `AnalysisJobManager`, so
+  accepted pipeline callbacks can finish their child stages. A closing queue
+  rejects further submissions; release runners only after admitted work unwinds.
+  Perform joins and final resource release outside locks needed by callbacks,
+  and reject self-close. Replacement construction failure preserves the previously
+  published state.
+  App teardown closes these analysis owners and the text cache; analysis CLI
+  closes its queue/manager. CLI cleanup must await actual worker completion even
+  when progress reporting or a thread join is interrupted.
 - Text-to-track/tagging owns CLAP and MuQ-MuLan text paths, `/api/search/text`,
   `src/dj_track_similarity/embedding/text_cache.py`,
   `frontend/src/textPromptPresets.ts`, `frontend/src/TextSearchTab.tsx`, and
@@ -250,6 +308,11 @@ workers must preserve others' edits. Honor the active harness's delegation rules
   disposable copy plus integrity and orphan checks.
 - Startup must not silently migrate old databases. Migrations are explicit,
   recoverable workflows; reanalysis remains a separate user choice.
+- Package, loader and lifetime refactors preserve existing schema, saved rows,
+  model/output identities, vector formats and analysis readiness. They must not
+  introduce data rewrites, schema or model/adapter revision bumps, or requirements
+  to reanalyze, rescore or retrain merely because source paths or in-memory
+  ownership changed.
 - Keep launcher subprocess arguments list-based with `shell=False`. Local mode
   binds `127.0.0.1`; LAN exposure must be explicit.
 - Audio Doctor is dry-run-first, confirmation-gated, backup-first, verified,
@@ -309,8 +372,10 @@ a test by existing, and a growing test count is a defect, not progress.
   Invoke pytest through the root interpreter:
   `& .\.venv\Scripts\python.exe -m pytest 'tests/test_<area>.py'`; narrow with
   `-k` when useful. Do not repeat a passed selection unless relevant code changed.
-- Do not run `graphify update .`, builds, the docs check, or the `ml`, `slow`,
-  and `evaluation` selections between edits.
+- Do not run `graphify update .`, builds, the docs check, or broad `ml`, `slow`,
+  and `evaluation` selections between edits. Run focused owner tests when needed,
+  including fake-loader tests marked `ml`; inspect and report skips rather than
+  silently excluding the checks relevant to the change.
 - Before delivery, follow `verification-routing` once for the changed area.
   Instruction-only changes need a scoped diff, whitespace check, and relevant
   path/command checks, not application tests or a docs build.
@@ -318,6 +383,15 @@ a test by existing, and a growing test count is a defect, not progress.
   they are in scope. Broad checks require a shared contract, migration, broad
   refactor, release, or an unresolved failure. Do not widen merely because a
   focused check passed.
+- Before testing database startup or persistence-sensitive refactors, inspect
+  constructor/connect/schema paths for implicit migrations or data writes.
+  For broad package/loader refactors, retain the same pre-change synthetic
+  database and affected classifier artifacts, then compare read/search results,
+  readiness and file seals without regenerating fixtures or running analysis.
+- If sandbox permissions make the default temporary directory unusable, choose
+  a unique workspace `--basetemp`; redirect process `TEMP`/`TMP` and application
+  logs there when subprocesses or tools bypass pytest fixtures. Never point test
+  temporary paths at user libraries or remove shared temp directories to retry.
 - There is no tracked CI workflow. Report checks actually run and any blocked
   verification; do not imply CI or source inspection proves live behavior.
 

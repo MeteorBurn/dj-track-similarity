@@ -200,32 +200,6 @@ test("track deletion client sends the current track identity to the delete endpo
   });
 });
 
-test("SONARA status client reads neutral current-output counts", async () => {
-  const calls = [];
-  const { api } = loadApiModule(async (path, options) => {
-    calls.push({ path, options });
-    return jsonResponse({
-      catalog_uuid: "catalog-current",
-      total_tracks: 12,
-      outputs: [
-        { output_kind: "core", present_count: 10, missing_count: 2 },
-        { output_kind: "embedding", present_count: 7, missing_count: 5 }
-      ]
-    });
-  });
-
-  const status = await api.sonaraStatus();
-
-  assert.equal(calls[0].path, "/api/analysis/sonara/status");
-  assert.equal(calls[0].options.method, undefined);
-  assert.equal(status.catalog_uuid, "catalog-current");
-  assert.equal(status.total_tracks, 12);
-  assert.deepEqual(status.outputs, [
-    { output_kind: "core", present_count: 10, missing_count: 2 },
-    { output_kind: "embedding", present_count: 7, missing_count: 5 }
-  ]);
-});
-
 test("CLAP text search client keeps positive and negative prompt arrays separate", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
@@ -251,25 +225,8 @@ test("CLAP text search client keeps positive and negative prompt arrays separate
   });
 });
 
-test("text warmup client posts only the family and device, and can be aborted", async () => {
-  const calls = [];
-  const { api } = loadApiModule(async (path, options) => {
-    calls.push({ path, options });
-    return jsonResponse({ analysis_family: "mulan", device: "auto", seconds: 34.2 });
-  });
+test("text warmup status client uses GET without a body and forwards AbortSignal", async () => {
   const controller = new AbortController();
-
-  const result = await api.textSearchWarmup(
-    { analysis_family: "mulan" },
-    { signal: controller.signal }
-  );
-
-  assert.equal(calls[0].path, "/api/search/text/warmup");
-  assert.deepEqual(JSON.parse(calls[0].options.body), { analysis_family: "mulan" });
-  assert.equal(calls[0].options.signal, controller.signal);
-  assert.equal(result.seconds, 34.2);
-
-  // The status read shares the path as a GET and carries no body.
   const statusCalls = [];
   const { api: statusApi } = loadApiModule(async (path, options) => {
     statusCalls.push({ path, options });

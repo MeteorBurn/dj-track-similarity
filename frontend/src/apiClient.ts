@@ -34,7 +34,6 @@ import type {
   ServerShutdownResult,
   SonaraMixerWeights,
   SonaraModifiers,
-  SonaraStatus,
   SonaraSearchMode,
   Track,
   TrackDeleteResult,
@@ -89,17 +88,6 @@ type TextSearchPayload = {
   /** Pull the query toward the tracks kept for those labels, away from the
    * rejected ones. Off unless asked for. */
   use_feedback?: boolean;
-};
-
-type TextSearchWarmupPayload = {
-  analysis_family: "clap" | "mulan";
-  device?: "auto" | "cpu" | "cuda";
-};
-
-type TextSearchWarmupResult = {
-  analysis_family: "clap" | "mulan";
-  device: string;
-  seconds: number;
 };
 
 /** Which text models are resident; a search on any other pays the load first. */
@@ -316,7 +304,6 @@ const shellApi = {
 };
 
 const analysisApi = {
-  sonaraStatus: () => request<SonaraStatus>("/api/analysis/sonara/status"),
   resetAnalysis: (analysisFamily: AnalysisModel) =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",
@@ -380,12 +367,6 @@ const searchApi = {
     }),
   textSearch: (payload: TextSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search/text", {
-      method: "POST",
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    }),
-  textSearchWarmup: (payload: TextSearchWarmupPayload, options?: { signal?: AbortSignal }) =>
-    request<TextSearchWarmupResult>("/api/search/text/warmup", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,

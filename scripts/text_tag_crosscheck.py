@@ -230,7 +230,7 @@ def verdict_for(statistic: float, lift: float, independence: str) -> str:
     return "suspect"
 
 
-def load_presets() -> list[dict]:
+def load_presets(*, include_composed_banks: bool = False) -> list[dict]:
     """Read the vocabulary from the TypeScript module that owns it."""
 
     script = (
@@ -238,10 +238,17 @@ def load_presets() -> list[dict]:
         "const out=ts.transpileModule(fs.readFileSync(process.argv[1],'utf8'),"
         "{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;"
         "const m={exports:{}};new Function('module','exports',out)(m,m.exports);"
-        "console.log(JSON.stringify(m.exports.textPromptPresets));"
+        "const presets=m.exports.textPromptPresets;"
+        "if(process.argv[2]==='resolved'){for(const preset of presets){"
+        "preset.productionBanks={};for(const family of ['clap','mulan']){"
+        "const bank=m.exports.composePromptBanks([preset.key],family);"
+        "const queries=m.exports.promptQueriesFromText(bank.positiveText,bank.negativeText);"
+        "preset.productionBanks[family]={positive_queries:queries.positiveQueries,"
+        "negative_queries:queries.negativeQueries,negative_weight:bank.negativeWeight??0};}}}"
+        "console.log(JSON.stringify(presets));"
     )
     completed = subprocess.run(
-        ["node", "-e", script, str(PRESETS_TS)],
+        ["node", "-e", script, str(PRESETS_TS), "resolved" if include_composed_banks else "raw"],
         cwd=str(REPO_ROOT / "frontend"),
         capture_output=True,
         # node prints UTF-8; without this the Windows locale codec decodes it.

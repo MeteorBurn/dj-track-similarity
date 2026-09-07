@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from uuid import uuid4
 import time
 
 import numpy as np
@@ -13,6 +15,7 @@ from ..analysis_models import AnalysisTarget
 from ..analysis.model_runners import (
     current_embedding_analysis_output,
     embedding_analysis_output,
+    _adapter_identity,
 )
 from .schemas import (
     EmbeddingRandomTrackRequest,
@@ -23,16 +26,19 @@ from .schemas import (
     TrackSummaryResponse,
     TextSearchFeedbackLookupRequest,
     TextSearchFeedbackLookupResponse,
-    TextSearchFeedbackSummaryResponse,
     TextSearchFeedbackRequest,
     TextSearchFeedbackResponse,
     TextSearchLoadedAdapter,
     TextSearchRequest,
+    TextSearchResponse,
     TextSearchWarmupRequest,
     TextSearchWarmupResponse,
     TextSearchWarmupStatusResponse,
 )
-from .state import AppDatabaseState
+from .state import AppDatabaseState, DatabaseBusy
+from .text_search_context import TextSearchRunCache
+from ..text_search_models import QueryContext, TextSearchRun, canonical_json, content_hash, query_context_key
+from ..db.text_feedback import TextFeedbackSchemaError, TextFeedbackConflict
 from ..database import LibraryDatabase
 from ..embedding.contracts import TextEmbeddingAdapter
 from ..search.engine import (
@@ -85,6 +91,7 @@ def register_search_routes(
         AbstractContextManager[TextEmbeddingAdapter],
     ],
     loaded_text_embedding_adapters: Callable[[], Sequence[tuple[str, str]]],
+    text_search_runs: TextSearchRunCache,
 ) -> None:
     @app.post(
         "/api/search",
@@ -190,40 +197,84 @@ def register_search_routes(
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post(
-        "/api/search/text",
-        response_model=list[SimilaritySearchResultResponse],
-    )
+    @app.post("/api/search/text", response_model=TextSearchResponse)
     def text_search(request: TextSearchRequest):
-        database = state.require_db()
+        database, generation = state.capture_db()
         try:
-            # Read before the model is touched: an accumulated opinion is a
-            # database question, and a search that cannot answer it should
-            # still run on the words alone.
-            judged = (
-                database.list_text_preset_feedback_tracks(
-                    preset_keys=[bank.key for bank in request.preset_banks],
+            plan = _clap_text_search_plan(request)
+            capability = database.text_feedback_capability()
+            with text_embedding_adapter(request.analysis_family, device=request.device) as adapter:
+                analysis_output = embedding_analysis_output(adapter.embedding_key, adapter)
+                context = QueryContext(
+                    catalog_uuid=database.catalog_uuid,
                     analysis_family=request.analysis_family,
-                )
-                if request.use_feedback and request.preset_banks
-                else None
-            )
-            plan = _clap_text_search_plan(request, judged)
-            with text_embedding_adapter(
-                request.analysis_family,
-                device=request.device,
-            ) as adapter:
-                analysis_output = embedding_analysis_output(
-                    adapter.embedding_key,
-                    adapter,
-                )
-                searcher = SimilaritySearch(
-                    database,
-                    adapter.embedding_key,
-                    analysis_output=analysis_output,
-                )
+                    analysis_output_identity={
+                        **_adapter_identity(adapter),
+                        "analysis_family": analysis_output.analysis_family,
+                        "output_kind": analysis_output.output_kind,
+                    },
+                    positive_queries=plan.prompt_bank.positive_queries,
+                    negative_queries=plan.prompt_bank.negative_queries,
+                    negative_weight=plan.negative_weight,
+                    selected_preset_keys=tuple(bank.key for bank in request.preset_banks),
+                    input_mode=request.input_mode,
+                    scope={"kind": "all_eligible_tracks", "filters": ({"min_similarity": request.min_similarity} if request.min_similarity is not None else {})},
+                ).to_dict()
+                query_key = query_context_key(context)
+                history = None
+                feedback_enabled = request.use_feedback and request.comparison_mode == "single" and capability == "ready"
+                if feedback_enabled:
+                    history = database.list_text_query_feedback_tracks(query_key)
+                    plan = replace(plan, feedback_track_ids={key: history[key] for key in ("relevant", "irrelevant")})
+                searcher = SimilaritySearch(database, adapter.embedding_key, analysis_output=analysis_output)
                 results = _search_clap_text_prompts(searcher, adapter, plan)
-            return _hydrate_similarity_results(database, results)
+                resolved_device = str(adapter.device or (request.device if request.device != "auto" else "unavailable"))
+            feedback = {
+                "requested": request.use_feedback,
+                "applied": False,
+                "reason": "not_requested",
+                "policy_version": "exact-query-rocchio-v1",
+                "history_revision": history["history_revision"] if history else None,
+                "usable_relevant_count": 0,
+                "usable_irrelevant_count": 0,
+            }
+            if capability != "ready":
+                feedback["reason"] = "schema_unavailable"
+            elif request.comparison_mode == "product_ab":
+                feedback["reason"] = "disabled_for_product_ab"
+            elif feedback_enabled:
+                feedback.update(searcher.text_feedback_status)
+                usable_ids = set(searcher.text_feedback_track_ids["relevant"]) | set(searcher.text_feedback_track_ids["irrelevant"])
+                feedback["history_revision"] = content_hash(sorted(
+                    [judgement["track_uuid"], judgement["verdict"], judgement["revision"]]
+                    for track_id, judgement in history["judgements"].items()
+                    if track_id in usable_ids
+                ))
+            execution = {
+                "run_id": uuid4().hex,
+                "query_key": query_key,
+                "query_context": context,
+                "executed_at": datetime.now(timezone.utc).isoformat(),
+                "code_revision": None,
+                "device": resolved_device,
+                "mode": request.comparison_mode,
+                "comparison_id": request.comparison_id,
+                "bank_origin": {key: context[key] for key in ("input_mode", "selected_preset_keys", "bank_hash")},
+                "limit": request.limit,
+                "eligible_count": searcher.text_eligible_count,
+                "eligibility_digest": None,
+                "eligibility_digest_reason": "index_revision_unavailable",
+                "feedback": feedback,
+                "feedback_capability": capability,
+            }
+            with state.captured_db(database, generation):
+                hydrated = _hydrate_similarity_results(database, results)
+                text_search_runs.put(TextSearchRun(
+                    execution_json=canonical_json(execution),
+                    membership=tuple((result.target.track_uuid, rank) for rank, result in enumerate(results, 1)),
+                    database_generation=generation,
+                ))
+            return {"results": hydrated, "execution": execution}
         except VectorIndexUnavailable as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
@@ -275,58 +326,58 @@ def register_search_routes(
             seconds=time.perf_counter() - started,
         )
 
-    @app.post(
-        "/api/search/text/feedback",
-        response_model=TextSearchFeedbackResponse,
-    )
+    def require_run(run_id: str) -> TextSearchRun:
+        run = text_search_runs.get(run_id)
+        if run is None:
+            raise HTTPException(status_code=409, detail="text_search_context_expired")
+        return run
+
+    @app.post("/api/search/text/feedback", response_model=TextSearchFeedbackResponse)
     def text_search_feedback(request: TextSearchFeedbackRequest):
-        database = state.require_db()
+        run = require_run(request.run_id)
+        database, generation = state.capture_db()
         try:
-            presets = database.record_text_preset_feedback(
-                track_uuid=request.track_uuid,
-                preset_keys=request.preset_keys,
-                analysis_family=request.analysis_family,
-                verdict=request.verdict,
-                preset_scores=request.preset_scores,
-            )
+            if generation != run.database_generation:
+                raise DatabaseBusy("text_search_context_expired")
+            snapshot = run.for_track(request.track_uuid)
+            with state.captured_db(database, generation):
+                result = database.record_text_query_feedback(
+                    context=snapshot["query_context"], run=snapshot,
+                    track_uuid=request.track_uuid, verdict=request.verdict,
+                    expected_revision=request.expected_revision,
+                )
+            return {"query_key": snapshot["query_key"], "track_uuid": request.track_uuid, "verdict": result["verdict"], "revision": result["revision"]}
+        except TextFeedbackConflict as error:
+            raise HTTPException(status_code=409, detail={"code": "text_feedback_revision_conflict", "current": error.current}) from error
+        except TextFeedbackSchemaError as error:
+            raise HTTPException(status_code=409, detail="text_feedback_schema_required") from error
+        except DatabaseBusy as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        return TextSearchFeedbackResponse(
-            presets=presets,
-            verdict=request.verdict,
-        )
 
-    @app.post(
-        "/api/search/text/feedback/lookup",
-        response_model=TextSearchFeedbackLookupResponse,
-    )
+    @app.post("/api/search/text/feedback/lookup", response_model=TextSearchFeedbackLookupResponse)
     def lookup_text_search_feedback(request: TextSearchFeedbackLookupRequest):
-        """Report what was already said about these tracks under this bank."""
-
-        database = state.require_db()
+        run = require_run(request.run_id)
+        database, generation = state.capture_db()
         try:
-            verdicts = database.read_text_preset_feedback(
-                track_uuids=request.track_uuids,
-                preset_keys=request.preset_keys,
-                analysis_family=request.analysis_family,
-            )
+            if generation != run.database_generation:
+                raise DatabaseBusy("text_search_context_expired")
+            for track_uuid in request.track_uuids:
+                run.for_track(track_uuid)
+            snapshot = run.to_dict()
+            with state.captured_db(database, generation):
+                verdicts = database.read_text_query_feedback(snapshot["query_key"], request.track_uuids)
+            return {"query_key": snapshot["query_key"], "verdicts": verdicts}
+        except TextFeedbackSchemaError as error:
+            raise HTTPException(status_code=409, detail="text_feedback_schema_required") from error
+        except DatabaseBusy as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        return TextSearchFeedbackLookupResponse(verdicts=verdicts)
 
-    @app.get(
-        "/api/search/text/feedback/summary",
-        response_model=TextSearchFeedbackSummaryResponse,
-    )
-    def summarise_text_search_feedback():
-        """Report how much has been said about each label, per model."""
-
-        database = state.require_db()
-        return TextSearchFeedbackSummaryResponse(
-            presets=database.summarise_text_preset_feedback()
-        )
 
 def _clap_text_search_plan(
     request: TextSearchRequest,
@@ -370,7 +421,7 @@ def _search_clap_text_prompts(
     preset_vectors = {
         key: adapter.embed_texts(queries) for key, queries in plan.preset_banks
     } or None
-    if negative_queries or len(positive_queries) > 1 or preset_vectors:
+    if negative_queries or len(positive_queries) > 1 or preset_vectors or plan.feedback_track_ids is not None:
         return searcher.search_contrast_vectors(
             positive_vectors=adapter.embed_texts(positive_queries),
             negative_vectors=adapter.embed_texts(negative_queries),

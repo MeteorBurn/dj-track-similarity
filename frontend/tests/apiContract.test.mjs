@@ -204,10 +204,10 @@ test("CLAP text search client keeps positive and negative prompt arrays separate
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
-    return jsonResponse([]);
+    return jsonResponse({ results: [], execution: { run_id: "run", query_key: "query" } });
   });
 
-  await api.textSearch({
+  const response = await api.textSearch({
     positive_queries: ["breakbeat.", "This audio is a syncopated drum track."],
     negative_queries: ["This audio is a straight house track."],
     limit: 10,
@@ -215,6 +215,8 @@ test("CLAP text search client keeps positive and negative prompt arrays separate
     device: "auto"
   });
 
+  assert.equal(response.execution.run_id, "run");
+  assert.equal(response.results.length, 0);
   assert.equal(calls[0].path, "/api/search/text");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     positive_queries: ["breakbeat.", "This audio is a syncopated drum track."],
@@ -223,6 +225,20 @@ test("CLAP text search client keeps positive and negative prompt arrays separate
     min_similarity: 0,
     device: "auto"
   });
+});
+
+test("text feedback transports issued run and expected revision", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options) => {
+    calls.push({ path, payload: JSON.parse(options.body) });
+    return jsonResponse({ query_key: "query", track_uuid: "track", verdict: 0, revision: 5 });
+  });
+  const result = await api.textSearchFeedback({ run_id: "run", track_uuid: "track", verdict: 0, expected_revision: 4 });
+  assert.deepEqual(calls[0].payload, { run_id: "run", track_uuid: "track", verdict: 0, expected_revision: 4 });
+  assert.equal(result.revision, 5);
+  await api.textSearchFeedbackLookup({ run_id: "run", track_uuids: ["track"] });
+  assert.equal(calls[1].path, "/api/search/text/feedback/lookup");
+  assert.deepEqual(calls[1].payload, { run_id: "run", track_uuids: ["track"] });
 });
 
 test("text warmup status client uses GET without a body and forwards AbortSignal", async () => {

@@ -131,11 +131,12 @@ def test_search_vector_uses_requested_embedding_space(tmp_path: Path) -> None:
     clap_near = _add_track(db, tmp_path, clap, "clap-near.wav", [0.0, 1.0, 0.0])
     clap_far = _add_track(db, tmp_path, clap, "clap-far.wav", [1.0, 0.0, 0.0])
 
-    results = SimilaritySearch(
+    searcher = SimilaritySearch(
         db,
         "clap",
         analysis_output=clap,
-    ).search_vector(
+    )
+    results = searcher.search_vector(
         _query(clap, [0.0, 1.0, 0.0]), limit=5
     )
 
@@ -144,6 +145,13 @@ def test_search_vector_uses_requested_embedding_space(tmp_path: Path) -> None:
         clap_far.track_id,
     ]
     assert mert_track not in {result.target for result in results}
+
+    assert searcher.text_eligible_count == 2
+    assert searcher.text_feedback_status["reason"] == "not_requested"
+    searcher.text_feedback_status["reason"] = "applied"
+    searcher.search_vector(_query(clap, [1.0, 0.0, 0.0]), limit=1)
+    assert searcher.text_eligible_count == 2
+    assert searcher.text_feedback_status["reason"] == "not_requested"
 
 
 def test_search_contrast_vectors_rank_positive_over_negative_match(
@@ -176,6 +184,30 @@ def test_search_contrast_vectors_rank_positive_over_negative_match(
         "contrast": 1.0,
         "negative_weight": 0.5,
     }
+
+    from dj_track_similarity.search.engine import FEEDBACK_MINIMUM_TRACKS
+
+    searcher = SimilaritySearch(db, "clap", analysis_output=output)
+    query = [_query(output, [0.0, 1.0, 0.0])]
+    cold = searcher.search_contrast_vectors(positive_vectors=query)
+    duplicate_history = {"relevant": [positive_match.track_id] * FEEDBACK_MINIMUM_TRACKS + [999999], "irrelevant": []}
+    unchanged = searcher.search_contrast_vectors(positive_vectors=query, feedback_track_ids=duplicate_history)
+    assert [(r.target, r.score) for r in unchanged] == [(r.target, r.score) for r in cold]
+    assert searcher.text_feedback_status["reason"] == "insufficient_relevant"
+    assert searcher.text_feedback_status["usable_relevant_count"] == 1
+    cancelling = [
+        _add_track(db, tmp_path, output, f"cancel-{index}.wav", [1.0 if index % 2 else -1.0, 0.0, 0.0])
+        for index in range(2 * FEEDBACK_MINIMUM_TRACKS)
+    ]
+    history = {"relevant": [target.track_id for target in cancelling], "irrelevant": []}
+    searcher = SimilaritySearch(db, "clap", analysis_output=output)
+    searcher.search_contrast_vectors(positive_vectors=query, feedback_track_ids=history)
+    assert searcher.text_feedback_status["reason"] == "invalid_centroid"
+    approved = [target.track_id for index, target in enumerate(cancelling) if index % 2]
+    searcher.search_contrast_vectors(positive_vectors=query, feedback_track_ids={"relevant": approved, "irrelevant": []})
+    assert searcher.text_feedback_status["applied"] is True
+    searcher.search_contrast_vectors(positive_vectors=query, feedback_track_ids={"relevant": approved, "irrelevant": [target.track_id for target in cancelling]})
+    assert searcher.text_feedback_status["reason"] == "insufficient_relevant"
 
 
 def test_search_contrast_vectors_use_hard_negative_margin_not_probability(

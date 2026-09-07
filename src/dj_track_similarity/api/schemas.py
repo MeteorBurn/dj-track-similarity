@@ -403,6 +403,64 @@ class TextSearchRequest(BaseModel):
     # ones rejected. Off unless asked for: a search that quietly moves with
     # past clicks cannot be told apart from one that answers the words.
     use_feedback: bool = False
+    input_mode: Literal["preset", "custom"] = "custom"
+    comparison_mode: Literal["single", "product_ab"] = "single"
+    comparison_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+
+class TextQueryContextResponse(BaseModel):
+    context_version: Literal[1]
+    catalog_uuid: str
+    analysis_family: Literal["clap", "mulan"]
+    analysis_output_identity: dict[str, Any]
+    bank_hash: str
+    positive_queries: list[str]
+    negative_queries: list[str]
+    negative_weight: float
+    composition: str
+    selected_preset_keys: list[str]
+    input_mode: Literal["preset", "custom"]
+    scope: dict[str, Any]
+
+
+class TextFeedbackStatusResponse(BaseModel):
+    requested: bool
+    applied: bool
+    reason: str
+    policy_version: str
+    history_revision: str | None
+    usable_relevant_count: int
+    usable_irrelevant_count: int
+
+
+class TextBankOriginResponse(BaseModel):
+    input_mode: Literal["preset", "custom"]
+    selected_preset_keys: list[str]
+    bank_hash: str
+
+
+class TextSearchExecutionResponse(BaseModel):
+    run_id: str
+    query_key: str
+    query_context: TextQueryContextResponse
+    executed_at: str
+    code_revision: str | None
+    device: str
+    mode: Literal["single", "product_ab"]
+    comparison_id: str | None
+    bank_origin: TextBankOriginResponse
+    limit: int
+    eligible_count: int
+    eligibility_digest: str | None
+    eligibility_digest_reason: str | None
+    feedback: TextFeedbackStatusResponse
+    feedback_capability: Literal["ready", "absent", "incompatible"]
+
+
+class TextSearchResponse(BaseModel):
+    results: list[SimilaritySearchResultResponse]
+    execution: TextSearchExecutionResponse
 
 
 class TextSearchWarmupRequest(BaseModel):
@@ -443,64 +501,34 @@ class TextSearchWarmupStatusResponse(BaseModel):
 
 
 class TextSearchFeedbackRequest(BaseModel):
-    """One relevance verdict for a text-search hit, credited to each preset.
-
-    ``verdict`` +1 marks the track relevant for the presets that built the
-    bank, -1 marks it irrelevant, and 0 withdraws the stored verdicts.
-    """
-
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
+    run_id: str = Field(min_length=1)
     track_uuid: str = Field(min_length=1)
-    preset_keys: list[str] = Field(min_length=1)
-    analysis_family: Literal["clap", "mulan"]
     verdict: Literal[-1, 0, 1]
-    # How much each of those labels, on its own, matched this track, as the
-    # search reported it. Absent when the search did not name the banks, and
-    # then the verdict is split evenly, which is all that can be said.
-    preset_scores: dict[str, float] | None = None
+    expected_revision: int = Field(ge=0)
 
 
 class TextSearchFeedbackResponse(BaseModel):
-    presets: int
-    verdict: int
+    query_key: str
+    track_uuid: str
+    verdict: Literal[-1, 0, 1]
+    revision: int
+
+
+class TextQueryVerdictResponse(BaseModel):
+    verdict: Literal[-1, 0, 1]
+    revision: int
 
 
 class TextSearchFeedbackLookupRequest(BaseModel):
-    """The verdicts already stored for a page of text-search results.
-
-    Without this the tab could only show what was clicked since the last
-    search, so the same track came back unmarked in the next one and invited a
-    second, blinder vote on top of the first.
-    """
-
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
+    run_id: str = Field(min_length=1)
     track_uuids: list[str] = Field(min_length=1, max_length=500)
-    preset_keys: list[str] = Field(min_length=1)
-    analysis_family: Literal["clap", "mulan"]
 
 
 class TextSearchFeedbackLookupResponse(BaseModel):
-    """Verdicts by track uuid. A track with nothing stored is simply absent."""
-
-    verdicts: dict[str, Literal[-1, 1]]
-
-
-class TextPresetVerdictCounts(BaseModel):
-    relevant: int
-    irrelevant: int
-
-
-class TextSearchFeedbackSummaryResponse(BaseModel):
-    """How much has been said about each label, per model.
-
-    Shaped as ``{preset_key: {family: counts}}``. A label nobody has judged is
-    absent rather than reported as zero, so the picker can tell "nothing here
-    yet" from "judged and evenly split".
-    """
-
-    presets: dict[str, dict[str, TextPresetVerdictCounts]]
+    query_key: str
+    verdicts: dict[str, TextQueryVerdictResponse]
 
 
 class TrackIdentityRequest(BaseModel):

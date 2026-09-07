@@ -31,42 +31,6 @@ function bankRows(text: string, min: number, max: number) {
   return Math.min(max, Math.max(min, text.split(/\r?\n/).length));
 }
 
-type PresetTally = Partial<Record<TextPromptModel, { relevant: number; irrelevant: number }>>;
-
-/**
- * What a label has been judged to be, per model, as a chip on the label.
- *
- * A label nobody has marked shows nothing at all: an empty slot is the honest
- * rendering of no evidence, and it is also the thing worth looking for, since
- * the labels that separate the two models are the ones where a model misses.
- */
-function tallyMark(tally: PresetTally | undefined) {
-  if (!tally) return null;
-  const parts = (["mulan", "clap"] as const)
-    .map((model) => {
-      const counts = tally[model];
-      if (!counts) return null;
-      const judged = counts.relevant + counts.irrelevant;
-      return judged ? `${model === "mulan" ? "M" : "C"} ${counts.relevant}/${judged}` : null;
-    })
-    .filter(Boolean);
-  if (!parts.length) return null;
-  return <span className="text-preset-tally">{parts.join(" · ")}</span>;
-}
-
-function tallyTitle(tally: PresetTally | undefined) {
-  if (!tally) return " Вердиктов по этой метке ещё нет.";
-  const lines = (["mulan", "clap"] as const)
-    .map((model) => {
-      const counts = tally[model];
-      if (!counts) return null;
-      const name = model === "mulan" ? "MuQ-MuLan" : "CLAP";
-      return `${name}: по делу ${counts.relevant}, мимо ${counts.irrelevant}`;
-    })
-    .filter(Boolean);
-  return lines.length ? ` ${lines.join("; ")}.` : " Вердиктов по этой метке ещё нет.";
-}
-
 export function TextSearchTab({
   textQuery,
   onTextQueryChange,
@@ -76,7 +40,6 @@ export function TextSearchTab({
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
-  textPresetTally,
   textUseFeedback,
   onTextUseFeedbackChange,
   textCompareModels,
@@ -87,6 +50,7 @@ export function TextSearchTab({
   promptAxes,
   promptPresets,
   negativeWeight,
+  negativeWeightOverride, onNegativeWeightOverrideChange, bankMode, onResetPromptBank,
   limit,
   onLimitChange,
   textPromptHelp,
@@ -106,7 +70,6 @@ export function TextSearchTab({
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
   /** Verdicts standing behind each label so far, per model. */
-  textPresetTally: Record<string, Partial<Record<"clap" | "mulan", { relevant: number; irrelevant: number }>>>;
   textUseFeedback: boolean;
   onTextUseFeedbackChange: (value: boolean) => void;
   textCompareModels: boolean;
@@ -117,6 +80,10 @@ export function TextSearchTab({
   promptAxes: TextPromptAxis[];
   promptPresets: TextPromptPreset[];
   negativeWeight: number | null;
+  negativeWeightOverride: number | null;
+  onNegativeWeightOverrideChange: (value: number | null) => void;
+  bankMode: "preset" | "custom";
+  onResetPromptBank: () => void;
   limit: number;
   onLimitChange: (value: number) => void;
   textPromptHelp: string;
@@ -169,20 +136,6 @@ export function TextSearchTab({
   // to the server default. The benchmark set these numbers, so the tab reports
   // the weight rather than offering it up for guessing.
   const appliedNegativeWeight = negativeWeight ?? defaultNegativeWeight;
-  // What stands behind the current selection for the model in use: the switch
-  // says so plainly rather than leaving the shift to be guessed at.
-  const selectedFeedbackCounts = useMemo(() => {
-    let relevant = 0;
-    let judged = 0;
-    for (const key of selectedPresetKeys) {
-      const counts = textPresetTally[key]?.[promptModel];
-      if (!counts) continue;
-      relevant += counts.relevant;
-      judged += counts.relevant + counts.irrelevant;
-    }
-    return { relevant, judged };
-  }, [selectedPresetKeys, textPresetTally, promptModel]);
-
   // The picker is one scrolling panel: a category is a divider, an axis is a
   // block under it, and the labels live inside the block. Filtering narrows the
   // labels and drops whatever axis and category is left holding none.
@@ -342,7 +295,7 @@ export function TextSearchTab({
                                   className={`text-preset-label ${active ? "active" : ""}`}
                                   aria-pressed={active}
                                   key={preset.key}
-                                  title={`${preset.hint}${tallyTitle(textPresetTally[preset.key])}`}
+                                  title={preset.hint}
                                   onClick={() => onTogglePreset(preset.key)}
                                   onFocus={() => setPreviewPresetKey(preset.key)}
                                   onMouseEnter={() => setPreviewPresetKey(preset.key)}
@@ -352,7 +305,6 @@ export function TextSearchTab({
                                     <Check size={12} strokeWidth={3} aria-hidden="true" />
                                   ) : null}
                                   {preset.label}
-                                  {tallyMark(textPresetTally[preset.key])}
                                 </button>
                               );
                             })}
@@ -427,6 +379,10 @@ export function TextSearchTab({
             </div>
           </div>
         ) : null}
+        <div className="text-prompt-hint">
+          {bankMode === "preset" ? "Банк выбранных меток" : "Свой текст для обеих моделей"}
+          <button type="button" onClick={onResetPromptBank} disabled={!selectedPresetKeys.length}>Вернуть банк меток</button>
+        </div>
         <label className="text-prompt-field" title={textPromptHelp}>
           <span className="text-field-head">
             Prompt bank
@@ -482,12 +438,12 @@ export function TextSearchTab({
                 placeholder={"four-on-the-floor, house, techno.\nvocal pop song."}
                 title="Hard-negative банк: по одному конкурирующему классу в строке. Метки заполняют это поле сами."
               />
-              <div className="text-negative-hint">
-                Вес {appliedNegativeWeight.toFixed(2)}
-                {negativeWeight === null ? " — значение по умолчанию" : " — пришёл с выбранными метками"}.
-                Негативы помогают, только когда называют реальный конкурирующий класс; выдуманный
-                банк по замеру ухудшает выдачу монотонно.
-              </div>
+              <label className="text-negative-hint">Вес negatives для обеих моделей
+                <input type="number" min={0} max={2} step={0.05}
+                  value={negativeWeightOverride ?? ""} placeholder={appliedNegativeWeight.toFixed(2)}
+                  onChange={(event) => onNegativeWeightOverrideChange(event.target.value === "" ? null : Number(event.target.value))} />
+                <button type="button" onClick={() => onNegativeWeightOverrideChange(null)}>Вес из банка</button>
+              </label>
             </>
           ) : negativeLineCount ? (
             <div className="text-negative-parked">
@@ -531,7 +487,7 @@ export function TextSearchTab({
         title={
           textCompareModels
             ? "Недоступно в A/B: поправка у каждой модели своя, и сравнение мерило бы твои оценки, а не модели."
-            : `Подтянуть выдачу к трекам, отмеченным по выбранным меткам. Нужно от ${feedbackMinimumTracks} одобренных; пока их меньше, поиск идёт по одним словам.`
+            : `Подтянуть выдачу к трекам, одобренным для этого точного запроса. Нужно от ${feedbackMinimumTracks} одобренных; пока их меньше, поиск идёт по одним словам.`
         }
         onClick={() => onTextUseFeedbackChange(!textUseFeedback)}
         type="button"
@@ -543,9 +499,7 @@ export function TextSearchTab({
         <span className="text-compare-state">
           {textCompareModels
             ? "выключено в A/B"
-            : selectedFeedbackCounts.judged
-              ? `${selectedFeedbackCounts.relevant} по делу из ${selectedFeedbackCounts.judged}`
-              : "вердиктов нет"}
+            : "история этого запроса"}
         </span>
       </button>
       <div className="search-filter-grid text-search-filter-grid text-group-labels">
@@ -563,7 +517,7 @@ export function TextSearchTab({
       {!hasStoredTextEmbeddings ? <span className="text-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
       {textModelLoadingLabel ? (
         <span className="text-warmup-state" role="status">
-          {textModelLoadingLabel} загружается в память — первый поиск ждёт веса.
+          {textModelLoadingLabel} выполняет поиск…
         </span>
       ) : null}
       <button className="text-search-button" title={textSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredTextEmbeddings} onClick={handleTextSearch} type="button">

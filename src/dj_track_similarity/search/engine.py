@@ -317,6 +317,10 @@ class SimilaritySearch:
         filters: SearchFilters | None = None,
         limit: int = 50,
     ) -> list[SimilaritySearchResult]:
+        self.text_eligible_count = 0
+        self.text_feedback_status = _empty_text_feedback_status()
+        self.text_feedback_track_ids: dict[str, tuple[int, ...]] = {"relevant": (), "irrelevant": ()}
+
         selected_candidates = optional_targets(
             candidate_targets,
             catalog_uuid=self.repository.catalog_uuid,
@@ -325,6 +329,7 @@ class SimilaritySearch:
             seeds=(),
             candidate_targets=selected_candidates,
         )
+        self.text_eligible_count = len(rows)
         if not rows:
             return []
         query = _query_for_output(vector, output)
@@ -348,6 +353,10 @@ class SimilaritySearch:
         preset_vectors: Mapping[str, Sequence[FloatArray]] | None = None,
         feedback_track_ids: Mapping[str, Sequence[int]] | None = None,
     ) -> list[SimilaritySearchResult]:
+        self.text_eligible_count = 0
+        self.text_feedback_status = _empty_text_feedback_status()
+        self.text_feedback_track_ids = {"relevant": (), "irrelevant": ()}
+
         if not positive_vectors:
             raise ValueError(
                 "At least one positive query vector is required"
@@ -360,7 +369,10 @@ class SimilaritySearch:
             seeds=(),
             candidate_targets=selected_candidates,
         )
+        self.text_eligible_count = len(rows)
         if not rows:
+            if feedback_track_ids is not None:
+                self.text_feedback_status["reason"] = "insufficient_relevant"
             return []
         matrix = _PREPARED.prepared(
             rows,
@@ -373,6 +385,8 @@ class SimilaritySearch:
             rows=rows,
             output=output,
             feedback_track_ids=feedback_track_ids,
+            status=self.text_feedback_status,
+            usable_track_ids=self.text_feedback_track_ids,
         )
         (
             positive_scores,
@@ -892,6 +906,15 @@ def _contrast_vector_scores(
     )
 
 
+def _empty_text_feedback_status() -> dict[str, object]:
+    return {
+        "applied": False,
+        "reason": "not_requested",
+        "usable_relevant_count": 0,
+        "usable_irrelevant_count": 0,
+    }
+
+
 def _apply_relevance_feedback(
     positive_vectors: Sequence[FloatArray],
     *,
@@ -899,46 +922,55 @@ def _apply_relevance_feedback(
     rows: Sequence[AnalysisVectorRow],
     output: AnalysisOutput,
     feedback_track_ids: Mapping[str, Sequence[int]] | None,
+    status: dict[str, object] | None = None,
+    usable_track_ids: dict[str, tuple[int, ...]] | None = None,
 ) -> Sequence[FloatArray]:
-    """Pull the query toward what was kept and away from what was not.
-
-    Rocchio relevance feedback, computed from the vectors already loaded for
-    this search: the pooled prompt bank keeps most of its weight, the mean of
-    the approved tracks is added, the mean of the rejected ones subtracted, and
-    the result is returned as the single vector the bank pools to.
-
-    The words stay in charge. A label whose judged tracks are too few to mean
-    anything is left alone, and so is one whose tracks are not in this library
-    any more, so an empty or stale history cannot quietly move a search.
-    """
-
-    if not feedback_track_ids:
-        return positive_vectors
-    relevant_ids = list(feedback_track_ids.get("relevant") or ())
-    irrelevant_ids = list(feedback_track_ids.get("irrelevant") or ())
-    if len(relevant_ids) < FEEDBACK_MINIMUM_TRACKS:
+    """Apply equal-weight feedback for one exact query to eligible unique tracks."""
+    report = status if status is not None else {}
+    report.update(_empty_text_feedback_status())
+    if feedback_track_ids is None:
         return positive_vectors
     row_of_track = {row.target.track_id: index for index, row in enumerate(rows)}
-
-    def centroid(track_ids: Sequence[int]) -> FloatArray | None:
-        indices = [row_of_track[track_id] for track_id in track_ids if track_id in row_of_track]
-        if len(indices) < FEEDBACK_MINIMUM_TRACKS:
-            return None
-        return np.asarray(matrix[indices].mean(axis=0), dtype=np.float32)
-
-    approved = centroid(relevant_ids)
-    if approved is None:
-        return positive_vectors
-    bank = _normalize(
-        np.mean(_normalize_matrix(positive_vectors, output=output), axis=0)
+    relevant = set(feedback_track_ids.get("relevant") or ()) & row_of_track.keys()
+    irrelevant = set(feedback_track_ids.get("irrelevant") or ()) & row_of_track.keys()
+    conflict = relevant & irrelevant
+    relevant -= conflict
+    irrelevant -= conflict
+    if usable_track_ids is not None:
+        usable_track_ids.update(relevant=tuple(sorted(relevant)), irrelevant=tuple(sorted(irrelevant)))
+    report.update(
+        reason="insufficient_relevant",
+        usable_relevant_count=len(relevant),
+        usable_irrelevant_count=len(irrelevant),
     )
-    shifted = FEEDBACK_QUERY_WEIGHT * bank + FEEDBACK_RELEVANT_WEIGHT * _normalize(approved)
-    rejected = centroid(irrelevant_ids)
-    if rejected is not None:
-        shifted = shifted - FEEDBACK_IRRELEVANT_WEIGHT * _normalize(rejected)
-    if not np.isfinite(shifted).all() or float(np.linalg.norm(shifted)) == 0.0:
+    if len(relevant) < FEEDBACK_MINIMUM_TRACKS:
         return positive_vectors
-    return [_normalize(shifted)]
+
+    def unit(vector: FloatArray) -> FloatArray | None:
+        norm = float(np.linalg.norm(np.asarray(vector, dtype=np.float64)))
+        if not np.isfinite(vector).all() or not math.isfinite(norm) or norm <= 0:
+            return None
+        return _normalize(vector)
+
+    approved = unit(np.asarray(matrix[[row_of_track[key] for key in sorted(relevant)]].mean(axis=0), dtype=np.float32))
+    if approved is None:
+        report["reason"] = "invalid_centroid"
+        return positive_vectors
+    bank = unit(np.mean(_normalize_matrix(positive_vectors, output=output), axis=0))
+    if bank is None:
+        report["reason"] = "invalid_centroid"
+        return positive_vectors
+    shifted = FEEDBACK_QUERY_WEIGHT * bank + FEEDBACK_RELEVANT_WEIGHT * approved
+    if len(irrelevant) >= FEEDBACK_MINIMUM_TRACKS:
+        rejected = unit(np.asarray(matrix[[row_of_track[key] for key in sorted(irrelevant)]].mean(axis=0), dtype=np.float32))
+        if rejected is not None:
+            shifted = shifted - FEEDBACK_IRRELEVANT_WEIGHT * rejected
+    result = unit(shifted)
+    if result is None:
+        report["reason"] = "invalid_centroid"
+        return positive_vectors
+    report.update(applied=True, reason="applied")
+    return [result]
 
 
 def _preset_bank_scores(
@@ -949,11 +981,8 @@ def _preset_bank_scores(
 ) -> dict[str, FloatArray]:
     """Score every track against each named bank on its own.
 
-    The merged query answers "does this track match the selection"; these
-    answer "which label in the selection is it that matches", which is what a
-    verdict needs in order to land on the label that earned it. Each bank is
-    pooled and normalized exactly as the merged one is, so a contribution is
-    comparable with the score beside it.
+    These are positive-only similarities for each selected bank. They are
+    descriptors, not causal contributions or weights for query feedback.
     """
 
     if not preset_vectors:

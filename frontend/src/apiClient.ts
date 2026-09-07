@@ -31,6 +31,7 @@ import type {
   ScanRequest,
   ScanStats,
   SearchResult,
+  TextSearchExecution,
   ServerShutdownResult,
   SonaraMixerWeights,
   SonaraModifiers,
@@ -74,7 +75,10 @@ type SonaraRandomTrackPayload = {
   exclude_track_ids: number[];
 };
 
-type TextSearchPayload = {
+export type TextSearchPayload = {
+  input_mode?: "preset" | "custom";
+  comparison_mode?: "single" | "product_ab";
+  comparison_id?: string;
   positive_queries: string[];
   analysis_family?: "clap" | "mulan";
   negative_queries?: string[];
@@ -96,34 +100,15 @@ type TextSearchWarmupStatus = {
 };
 
 type TextSearchFeedbackPayload = {
-  track_uuid: string;
-  preset_keys: string[];
-  analysis_family: "clap" | "mulan";
-  verdict: -1 | 0 | 1;
-  preset_scores?: Record<string, number>;
+  run_id: string; track_uuid: string; verdict: -1 | 0 | 1; expected_revision: number;
 };
-
 type TextSearchFeedbackResult = {
-  presets: number;
-  verdict: number;
+  query_key: string; track_uuid: string; verdict: -1 | 0 | 1; revision: number;
 };
-
-type TextSearchFeedbackLookupPayload = {
-  track_uuids: string[];
-  preset_keys: string[];
-  analysis_family: "clap" | "mulan";
-};
-
+type TextSearchFeedbackLookupPayload = { run_id: string; track_uuids: string[] };
 type TextSearchFeedbackLookupResult = {
-  verdicts: Record<string, -1 | 1>;
+  query_key: string; verdicts: Record<string, { verdict: -1 | 0 | 1; revision: number }>;
 };
-
-export type TextPresetVerdictCounts = { relevant: number; irrelevant: number };
-
-type TextSearchFeedbackSummaryResult = {
-  presets: Record<string, Partial<Record<"clap" | "mulan", TextPresetVerdictCounts>>>;
-};
-
 export class ApiError extends Error {
   readonly status: number;
 
@@ -366,7 +351,7 @@ const searchApi = {
       signal: options?.signal,
     }),
   textSearch: (payload: TextSearchPayload, options?: { signal?: AbortSignal }) =>
-    request<SearchResult[]>("/api/search/text", {
+    request<{ results: SearchResult[]; execution: TextSearchExecution }>("/api/search/text", {
       method: "POST",
       body: JSON.stringify(payload),
       signal: options?.signal,
@@ -389,10 +374,7 @@ const searchApi = {
       body: JSON.stringify(payload),
       signal: options?.signal,
     }),
-  textSearchFeedbackSummary: (options?: { signal?: AbortSignal }) =>
-    request<TextSearchFeedbackSummaryResult>("/api/search/text/feedback/summary", {
-      signal: options?.signal,
-    })
+
 };
 
 const referenceCompareApi = {

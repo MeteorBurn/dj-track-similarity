@@ -46,6 +46,7 @@ class AppDatabaseState:
         self._exclusive_operation: str | None = None
         self.db_path: Path | None = None
         self.db: LibraryDatabase | None = None
+        self._generation = 0
         self.analysis_jobs: AnalysisJobManager | None = None
         self.analysis_pipeline_jobs: AnalysisPipelineManager | None = None
         self.analysis_queue: AnalysisStageQueue | None = None
@@ -118,6 +119,7 @@ class AppDatabaseState:
                 self._replacement_owners[cleanup_token] = (cleanup_queue, cleanup_jobs, cleanup_thread)
                 self.db_path = db.path
                 self.db = db
+                self._generation += 1
                 self.analysis_queue = analysis_queue
                 self.analysis_jobs = analysis_jobs
                 self.classifier_jobs = classifier_jobs
@@ -197,6 +199,21 @@ class AppDatabaseState:
             if self.db is None:
                 raise DatabaseNotSelected("Database is not selected")
             return self.db
+
+    def capture_db(self) -> tuple[LibraryDatabase, int]:
+        with self._lock:
+            return self.require_db(), self._generation
+
+    @contextmanager
+    def captured_db(self, database: LibraryDatabase, generation: int) -> Iterator[LibraryDatabase]:
+        """Serialize a short captured-owner transaction against database replacement."""
+        with self._lock:
+            self._require_open()
+            if self.db is not database or self._generation != generation:
+                raise DatabaseBusy("text_search_context_expired")
+            if self._exclusive_operation is not None:
+                raise DatabaseBusy("Database maintenance is running")
+            yield database
 
     def require_idle_db(self, operation: str) -> LibraryDatabase:
         """Return the selected database only when no background job is active."""

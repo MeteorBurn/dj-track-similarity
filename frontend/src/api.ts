@@ -760,3 +760,27 @@ export type AudioDedupDeleteResult = {
 };
 
 export { api } from "./apiClient";
+
+export type TextSearchExecution = {
+  run_id: string;
+  query_key: string;
+  query_context: {
+    context_version: number; catalog_uuid: string; analysis_family: "clap" | "mulan";
+    analysis_output_identity: Record<string, unknown>; bank_hash: string;
+    positive_queries: string[]; negative_queries: string[]; negative_weight: number;
+    composition: string; selected_preset_keys: string[]; input_mode: "preset" | "custom";
+    scope: { kind: string; filters: Record<string, unknown> };
+  };
+  executed_at: string; code_revision: string | null; device: string;
+  mode: "single" | "product_ab"; comparison_id: string | null;
+  bank_origin: { input_mode: "preset" | "custom"; selected_preset_keys: string[]; bank_hash: string };
+  limit: number; eligible_count: number; eligibility_digest: string | null;
+  eligibility_digest_reason: string | null;
+  feedback: {
+    requested: boolean; applied: boolean;
+    reason: "not_requested" | "disabled_for_product_ab" | "schema_unavailable" | "insufficient_relevant" | "invalid_centroid" | "applied";
+    policy_version: string; history_revision: string | null;
+    usable_relevant_count: number; usable_irrelevant_count: number;
+  };
+  feedback_capability: "ready" | "absent" | "incompatible";
+};

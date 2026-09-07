@@ -1,3 +1,5 @@
+import { TextExecutionDetails } from "./TextExecutionDetails";
+import type { TextSearchExecution } from "./api";
 import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useState } from "react";
 import { Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
@@ -119,7 +121,6 @@ export function SearchPlaylistPanel({
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
-  textPresetTally,
   textUseFeedback,
   onTextUseFeedbackChange,
   textCompareModels,
@@ -133,6 +134,7 @@ export function SearchPlaylistPanel({
   promptAxes,
   promptPresets,
   promptNegativeWeight,
+  negativeWeightOverride, onNegativeWeightOverrideChange, bankMode, onResetPromptBank, textExecution,
   databaseIdentity,
   busy,
   filters,
@@ -189,7 +191,6 @@ export function SearchPlaylistPanel({
   onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
-  textPresetTally: Record<string, Partial<Record<"clap" | "mulan", { relevant: number; irrelevant: number }>>>;
   textUseFeedback: boolean;
   onTextUseFeedbackChange: (value: boolean) => void;
   textCompareModels: boolean;
@@ -203,6 +204,11 @@ export function SearchPlaylistPanel({
   promptAxes: TextPromptAxis[];
   promptPresets: TextPromptPreset[];
   promptNegativeWeight: number | null;
+  negativeWeightOverride: number | null;
+  onNegativeWeightOverrideChange: (value: number | null) => void;
+  bankMode: "preset" | "custom";
+  onResetPromptBank: () => void;
+  textExecution: TextSearchExecution | null;
   databaseIdentity: string | null;
   busy: boolean;
   filters: SearchFiltersState;
@@ -219,13 +225,18 @@ export function SearchPlaylistPanel({
   textComparison: {
     family: "clap" | "mulan";
     label: string;
+    status: "pending" | "success" | "error";
+    error?: string;
+    execution?: TextSearchExecution;
     results: SearchResult[];
     verdicts: Record<string, 1 | -1>;
+    pending: Record<string, boolean>;
     onVerdict?: (track: Track, verdict: 1 | -1) => void;
   }[] | null;
   /** Verdict state for text-search rows; null when no preset built the list. */
   textFeedback: {
     verdicts: Record<string, 1 | -1>;
+    pending: Record<string, boolean>;
     onVerdict: (track: Track, verdict: 1 | -1) => void;
   } | null;
   onPrimarySearchTabChange: (tab: PrimarySearchTab) => void;
@@ -304,7 +315,9 @@ export function SearchPlaylistPanel({
   const availableClassifierCount = orderedClassifierProfiles.filter(classifierIsAvailable).length;
   const blockedClassifierCount = orderedClassifierProfiles.length - availableClassifierCount;
   const textModelLabel = textEmbeddingFamily === "mulan" ? "MuQ-MuLan" : "CLAP";
-  const hasStoredTextEmbeddings = embeddingCounts[textEmbeddingFamily] > 0;
+  const hasStoredTextEmbeddings = textCompareModels
+    ? embeddingCounts.clap > 0 || embeddingCounts.mulan > 0
+    : embeddingCounts[textEmbeddingFamily] > 0;
   const textSearchTitle = hasStoredTextEmbeddings
     ? `Найти треки через ${textModelLabel} по текстовому описанию звучания. Требуются сохраненные ${textModelLabel} audio embeddings в SQLite.`
     : `${textModelLabel} search requires stored audio embeddings. Запустите анализ ${textModelLabel} для библиотеки, затем повторите текстовый поиск.`;
@@ -557,7 +570,6 @@ export function SearchPlaylistPanel({
             onTextUseNegativePromptChange={onTextUseNegativePromptChange}
             textEmbeddingFamily={textEmbeddingFamily}
             onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
-            textPresetTally={textPresetTally}
             textUseFeedback={textUseFeedback}
             onTextUseFeedbackChange={onTextUseFeedbackChange}
             textCompareModels={textCompareModels}
@@ -569,6 +581,10 @@ export function SearchPlaylistPanel({
             promptAxes={promptAxes}
             promptPresets={promptPresets}
             negativeWeight={promptNegativeWeight}
+            negativeWeightOverride={negativeWeightOverride}
+            onNegativeWeightOverrideChange={onNegativeWeightOverrideChange}
+            bankMode={bankMode}
+            onResetPromptBank={onResetPromptBank}
             limit={filters.limit}
             onLimitChange={(value) => setFilters({ ...filters, limit: value })}
             textPromptHelp={helpText.textPrompt}
@@ -716,6 +732,9 @@ export function SearchPlaylistPanel({
                     {column.label} results
                     <span>{column.results.length}</span>
                   </div>
+                  {column.execution ? <TextExecutionDetails execution={column.execution} /> : null}
+                  {column.status === "pending" ? <div role="status">{column.label}: поиск…</div> : null}
+                  {column.status === "error" ? <div role="alert">{column.error}</div> : null}
                   <div className="results-list">
                     {column.results.length ? column.results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }, index) => (
                       <ResultRow
@@ -739,11 +758,11 @@ export function SearchPlaylistPanel({
                         onSeekPreview={onSeekPreview}
                         onDetails={setMetadataTrack}
                         feedbackVerdict={column.verdicts[track.track_uuid] ?? null}
-                        onFeedback={column.onVerdict}
+                        onFeedback={column.pending[track.track_uuid] ? undefined : column.onVerdict}
                       />
                     )) : (
                       <div className="empty-state">
-                        {column.label} не нашла ничего по этому банку.
+                        {column.status === "success" ? `${column.label}: пустая выдача.` : ""}
                       </div>
                     )}
                   </div>
@@ -753,6 +772,7 @@ export function SearchPlaylistPanel({
           </div>
         ) : showGenericSearchResults && genericSearchResultOrigin ? (
           <div className="generic-search-results">
+            {genericSearchResultOrigin === "text" && textExecution ? <TextExecutionDetails execution={textExecution} /> : null}
             <div className="generic-search-result-provenance" role="status">
               {searchResultOriginLabel(genericSearchResultOrigin)} results
               <span>{results.length}</span>
@@ -780,7 +800,7 @@ export function SearchPlaylistPanel({
                   onSeekPreview={onSeekPreview}
                   onDetails={setMetadataTrack}
                   feedbackVerdict={textFeedback ? textFeedback.verdicts[track.track_uuid] ?? null : null}
-                  onFeedback={textFeedback ? textFeedback.onVerdict : undefined}
+                  onFeedback={textFeedback && !textFeedback.pending[track.track_uuid] ? textFeedback.onVerdict : undefined}
                 />
               )) : (
                 <div className="empty-state">

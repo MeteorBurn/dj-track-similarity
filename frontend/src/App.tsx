@@ -240,12 +240,12 @@ export function App() {
   const {
     selectedPresetKeys,
     textFeedbackContext,
+    executions, feedbackPending, feedbackReady, bankMode, negativeWeightOverride, setNegativeWeightOverride, changeTextQuery,
     textFeedbackVerdicts,
     textCompareModels,
     setTextCompareModels,
     textModelLoadingLabel,
     textComparison,
-    textPresetTally,
     textUseFeedback,
     setTextUseFeedback,
     promptNegativeWeight,
@@ -258,8 +258,10 @@ export function App() {
     togglePromptPreset,
     changeTextEmbeddingFamily,
     handleTextSearch,
+    cancelTextSearch,
     handleTextResultFeedback,
   } = useTextSearch({
+    embeddingCounts: { clap: librarySummary.clap, mulan: librarySummary.mulan },
     databasePath,
     databaseCatalogUuid,
     textQuery,
@@ -280,6 +282,7 @@ export function App() {
     textUseNegativePrompt,
     selectedPresetKeys,
     promptNegativeWeight,
+    textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
     analysisDevice,
     textEmbeddingFamily,
     seedEmbeddingFamily,
@@ -524,6 +527,7 @@ export function App() {
 
   function resetDatabaseScopedState() {
     cancelGenericSearchRequest();
+    cancelTextSearch();
     cancelTrackDetailRequest();
     resetLibraryState();
     setDatabaseCatalogUuid(null);
@@ -562,6 +566,7 @@ export function App() {
 
   function handlePrimarySearchTabChange(tab: PrimarySearchTab) {
     cancelGenericSearchRequest();
+    cancelTextSearch();
     if (tab === "class" && databasePath) {
       refreshClassifierProfilesInBackground();
     }
@@ -1442,7 +1447,7 @@ export function App() {
           seedTracks={seedTracks}
           onActivity={appendActivity}
           textQuery={textQuery}
-          onTextQueryChange={setTextQuery}
+          onTextQueryChange={changeTextQuery}
           textNegativeQuery={textNegativeQuery}
           onTextNegativeQueryChange={setTextNegativeQuery}
           textUseNegativePrompt={textUseNegativePrompt}
@@ -1451,7 +1456,6 @@ export function App() {
           onTextEmbeddingFamilyChange={changeTextEmbeddingFamily}
           seedEmbeddingFamily={seedEmbeddingFamily}
           onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
-          textPresetTally={textPresetTally}
           textUseFeedback={textUseFeedback}
           onTextUseFeedbackChange={setTextUseFeedback}
           textCompareModels={textCompareModels}
@@ -1463,6 +1467,11 @@ export function App() {
           promptAxes={textPromptAxes}
           promptPresets={textPromptPresets}
           promptNegativeWeight={promptNegativeWeight}
+          negativeWeightOverride={negativeWeightOverride}
+          onNegativeWeightOverrideChange={setNegativeWeightOverride}
+          bankMode={bankMode}
+          onResetPromptBank={() => applyPromptPresets(selectedPresetKeys)}
+          textExecution={textFeedbackContext}
           databaseIdentity={databaseCatalogUuid}
           busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}
           filters={filters}
@@ -1473,9 +1482,10 @@ export function App() {
           genericSearchResultKey={genericSearchResultState?.requestKey || ""}
           genericSearchResultOrigin={genericSearchResultState?.origin || null}
           textFeedback={
-            genericSearchResultState?.origin === "text" && textFeedbackContext
+            genericSearchResultState?.origin === "text" && textFeedbackContext?.feedback_capability === "ready" && feedbackReady[textFeedbackContext.run_id]
               ? {
                   verdicts: textFeedbackVerdicts[textEmbeddingFamily] ?? {},
+                  pending: Object.fromEntries(Object.entries(feedbackPending).filter(([key]) => key.startsWith(`${textFeedbackContext.run_id}:`)).map(([key, value]) => [key.slice(textFeedbackContext.run_id.length + 1), value])),
                   onVerdict: (track: Track, verdict: 1 | -1) =>
                     handleTextResultFeedback(track, verdict, textEmbeddingFamily)
                 }
@@ -1486,7 +1496,8 @@ export function App() {
               ? textComparison.map((column) => ({
                   ...column,
                   verdicts: textFeedbackVerdicts[column.family] ?? {},
-                  onVerdict: textFeedbackContext
+                  pending: Object.fromEntries(Object.entries(feedbackPending).filter(([key]) => key.startsWith(`${column.execution?.run_id}:`)).map(([key, value]) => [key.slice((column.execution?.run_id.length ?? 0) + 1), value])),
+                  onVerdict: executions[column.family]?.feedback_capability === "ready" && !!feedbackReady[column.execution?.run_id ?? ""]
                     ? (track: Track, verdict: 1 | -1) =>
                         handleTextResultFeedback(track, verdict, column.family)
                     : undefined

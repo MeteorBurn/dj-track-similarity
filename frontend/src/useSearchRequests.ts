@@ -41,6 +41,10 @@ type SearchRequestsOptions = {
   textUseNegativePrompt: boolean;
   selectedPresetKeys: string[];
   promptNegativeWeight: number | null;
+  textCompareModels: boolean;
+  textUseFeedback: boolean;
+  bankMode: "preset" | "custom";
+  negativeWeightOverride: number | null;
   analysisDevice: "auto" | "cpu" | "cuda";
   textEmbeddingFamily: "clap" | "mulan";
   seedEmbeddingFamily: SeedEmbeddingFamily;
@@ -61,6 +65,7 @@ export function useSearchRequests({
   textUseNegativePrompt,
   selectedPresetKeys,
   promptNegativeWeight,
+  textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
   analysisDevice,
   textEmbeddingFamily,
   seedEmbeddingFamily,
@@ -89,6 +94,7 @@ export function useSearchRequests({
       text_use_negative_prompt: textUseNegativePrompt,
       prompt_preset_keys: selectedPresetKeys,
       prompt_negative_weight: promptNegativeWeight,
+      textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
       analysis_device: analysisDevice,
       text_embedding_family: textEmbeddingFamily,
       seed_embedding_family: seedEmbeddingFamily,
@@ -98,6 +104,7 @@ export function useSearchRequests({
       textNegativeQuery,
       selectedPresetKeys,
       promptNegativeWeight,
+      textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
       textUseNegativePrompt,
       textEmbeddingFamily,
       seedEmbeddingFamily,
@@ -109,6 +116,7 @@ export function useSearchRequests({
     ]
   );
   const genericSearchInputKeyRef = useRef(genericSearchInputKey);
+  genericSearchInputKeyRef.current = genericSearchInputKey;
 
   useEffect(() => {
     genericSearchInputKeyRef.current = genericSearchInputKey;

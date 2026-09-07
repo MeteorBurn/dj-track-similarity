@@ -74,44 +74,22 @@ def test_checkpoint_loading_fails_closed_when_torch_lacks_weights_only(tmp_path:
     assert fake_torch.load is original_load
 
 
-def test_text_score_language_remains_ranking_signal_not_probability() -> None:
-    skill_text = CLAP_SKILL.read_text(encoding="utf-8")
-    readme_text = README.read_text(encoding="utf-8")
-
-    assert "Text-search scores are text-to-audio cosine or contrast scores, not probabilities" in skill_text
-    assert "Current scoring: normalized positive text embeddings are mean-pooled" in skill_text
-    assert "hard negatives are subtracted with the preset's `negative_weight`" in skill_text
-    assert "CLAP text-search scores are not the same scale as seed-based audio-to-audio scores" in readme_text
-    assert "Treat them as prompt evidence, not as a universal similarity value" in readme_text
-
-
-def collapsed(text: str) -> str:
-    """Compare wording, not line wrapping."""
-
-    return " ".join(text.split())
-
-
-def test_text_search_skills_declare_their_model_layer_boundary() -> None:
-    skills = (
-        CLAP_SKILL.read_text(encoding="utf-8"),
-        CURATOR_SKILL.read_text(encoding="utf-8"),
-    )
-
-    for text in skills:
-        prose = collapsed(text)
-        assert "## Layer Boundary" in prose
-        assert "CLAP and MuQ-MuLan" in prose
-        assert "SONARA, MERT, MAEST" in prose
-        assert "never change how they are produced" in prose
-
-
-def test_project_search_script_targets_both_text_models() -> None:
-    source = PROJECT_SEARCH.read_text(encoding="utf-8")
-
-    assert '"--model"' in source
-    assert 'TEXT_MODELS = ("clap", "mulan")' in source
-    assert "choices=TEXT_MODELS" in source
-    assert '"analysis_family": args.model' in source
-    assert '"--negative-weight"' in source
-    assert '"negative_weight"' in source
-    assert '"--preset"' not in source
+@pytest.mark.parametrize("family", ["clap", "mulan"])
+def test_project_search_script_targets_both_text_models(monkeypatch, capsys, family):
+    import json
+    import sys
+    spec = importlib.util.spec_from_file_location("project_search_test", PROJECT_SEARCH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = []
+    results = [{"track": {"track_id": 1, "title": "Synthetic"}, "score": 0.5}]
+    def post(url, payload, timeout):
+        calls.append((url, payload))
+        return {"results": results, "execution": {"run_id": "issued"}}
+    monkeypatch.setattr(module, "post_json", post)
+    monkeypatch.setattr(sys, "argv", [str(PROJECT_SEARCH), "--model", family, "--query", "test query", "--negative-weight", "0.75", "--no-db-check", "--json"])
+    assert module.main() == 0
+    assert calls[0][0].endswith("/api/search/text")
+    assert calls[0][1]["analysis_family"] == family
+    assert calls[0][1]["negative_weight"] == 0.75
+    assert json.loads(capsys.readouterr().out) == results

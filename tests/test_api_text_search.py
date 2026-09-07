@@ -88,7 +88,7 @@ def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> N
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["results"]
     assert [item["track"]["track_id"] for item in payload] == [near_id, far_id]
     assert payload[0]["score"] > payload[1]["score"]
     assert FakeClapAdapter.queries == ["dark rolling techno"]
@@ -157,7 +157,7 @@ def test_text_search_uses_persisted_mulan_embeddings_only(
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["results"]
     assert [item["track"]["track_id"] for item in payload] == [near_id, far_id]
     assert payload[0]["score"] > payload[1]["score"]
     assert FakeMulanAdapter.queries == ["dark rolling techno"]
@@ -183,7 +183,7 @@ def test_text_search_subtracts_a_hard_negative_bank(monkeypatch, tmp_path: Path)
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["results"]
     assert [item["track"]["track_id"] for item in payload] == [
         positive_id,
         mixed_id,
@@ -212,7 +212,7 @@ def test_text_search_mean_pools_positive_prompt_bank(monkeypatch, tmp_path: Path
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["results"]
     assert [item["track"]["track_id"] for item in payload] == [
         bank_match_id,
         single_prompt_id,
@@ -240,7 +240,7 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["results"]
     assert [item["track"]["track_id"] for item in payload] == [
         positive_id,
         negative_aligned_id,
@@ -277,7 +277,7 @@ def test_text_search_applies_a_requested_negative_weight(monkeypatch, tmp_path: 
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["results"]
     assert [item["track"]["track_id"] for item in payload] == [
         positive_id,
         negative_aligned_id,
@@ -340,7 +340,7 @@ def test_text_search_embeds_every_prompt_of_a_negated_bank(monkeypatch, tmp_path
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["results"]
     assert [item["track"]["track_id"] for item in payload] == [
         bank_id,
         first_line_id,
@@ -520,506 +520,145 @@ def _typed_vector(
     return vector / np.linalg.norm(vector)
 
 
-def test_text_search_feedback_stores_updates_and_withdraws_verdicts(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = _track_with_embedding(db, "judged.wav", [0.0, 1.0, 0.0], "clap")
-    with db.connect() as connection:
-        assert {row[1] for row in connection.execute("PRAGMA table_info(text_preset_feedback)")} == {
-            "track_id", "preset_key", "analysis_family", "verdict",
-            "selection_size", "weight", "created_at", "updated_at",
-        }
-        track_uuid = connection.execute(
-            "SELECT track_uuid FROM tracks WHERE track_id = ?",
-            (track_id,),
-        ).fetchone()[0]
-    client = TestClient(create_app(db_path))
-
-    statements: list[str] = []
-    original_connect = LibraryDatabase.connect
-
-    def traced_connect(database: LibraryDatabase):
-        connection = original_connect(database)
-        connection.set_trace_callback(statements.append)
-        return connection
-
-    monkeypatch.setattr(LibraryDatabase, "connect", traced_connect)
-
-    stored = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": track_uuid,
-            "preset_keys": ["mood/dark", "tension/uneasy"],
-            "analysis_family": "clap",
-            "verdict": 1,
-        },
-    )
-    assert stored.status_code == 200
-    assert stored.json() == {"presets": 2, "verdict": 1}
-
-    flipped = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": track_uuid,
-            "preset_keys": ["mood/dark"],
-            "analysis_family": "clap",
-            "verdict": -1,
-        },
-    )
-    assert flipped.status_code == 200
-    with db.connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT preset_key, verdict FROM text_preset_feedback
-            ORDER BY preset_key
-            """
-        ).fetchall()
-    assert [(row[0], row[1]) for row in rows] == [
-        ("mood/dark", -1),
-        ("tension/uneasy", 1),
-    ]
-
-    withdrawn = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": track_uuid,
-            "preset_keys": ["mood/dark", "tension/uneasy"],
-            "analysis_family": "clap",
-            "verdict": 0,
-        },
-    )
-    assert withdrawn.status_code == 200
-    assert withdrawn.json() == {"presets": 2, "verdict": 0}
-    with db.connect() as connection:
-        remaining = connection.execute(
-            "SELECT COUNT(*) FROM text_preset_feedback"
-        ).fetchone()[0]
-    assert remaining == 0
-
-    missing = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": "no-such-track",
-            "preset_keys": ["mood/dark"],
-            "analysis_family": "clap",
-            "verdict": 1,
-        },
-    )
-    assert missing.status_code == 404
-    executed = [statement.lstrip().upper() for statement in statements]
-    assert any(statement.startswith("INSERT INTO TEXT_PRESET_FEEDBACK") for statement in executed)
-    assert not any(statement.startswith(("CREATE ", "ALTER ", "DROP ")) for statement in executed)
+def _search(client, **fields):
+    response = client.post("/api/search/text", json={"positive_queries": ["broken drums."], "limit": 20, **fields})
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
-def test_text_search_feedback_lookup_returns_only_a_settled_verdict(
-    tmp_path: Path,
-) -> None:
-    """A page of results must come back carrying what was already said about it.
-
-    The tab used to keep verdicts in component state only, so the same track
-    returned unmarked in the next search and invited a second, blinder vote.
-    Where an older selection disagrees with the current one the track is
-    reported as unmarked rather than as whichever row sorted first.
-    """
-
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    agreed = _track_with_embedding(db, "agreed.wav", [1.0, 0.0, 0.0], "clap")
-    conflicted = _track_with_embedding(db, "conflicted.wav", [0.0, 1.0, 0.0], "clap")
-    silent = _track_with_embedding(db, "silent.wav", [0.0, 0.0, 1.0], "clap")
-    with db.connect() as connection:
-        uuids = {
-            row[0]: row[1]
-            for row in connection.execute(
-                "SELECT track_id, track_uuid FROM tracks"
-            ).fetchall()
-        }
-    client = TestClient(create_app(db_path))
-
-    for keys, track_id, verdict in (
-        (["mood/dark", "texture/lo-fi"], agreed, 1),
-        (["mood/dark"], conflicted, 1),
-        (["texture/lo-fi"], conflicted, -1),
-    ):
-        posted = client.post(
-            "/api/search/text/feedback",
-            json={
-                "track_uuid": uuids[track_id],
-                "preset_keys": keys,
-                "analysis_family": "clap",
-                "verdict": verdict,
-            },
-        )
-        assert posted.status_code == 200
-
-    looked_up = client.post(
-        "/api/search/text/feedback/lookup",
-        json={
-            "track_uuids": [uuids[agreed], uuids[conflicted], uuids[silent]],
-            "preset_keys": ["mood/dark", "texture/lo-fi"],
-            "analysis_family": "clap",
-        },
-    )
-    assert looked_up.status_code == 200
-    # The agreed track answers, the conflicted one stays quiet, and the track
-    # nobody judged is absent rather than reported as neutral.
-    assert looked_up.json() == {"verdicts": {uuids[agreed]: 1}}
-
-    # The verdict belongs to one embedding family, so the other family's tab
-    # must not inherit it.
-    other_family = client.post(
-        "/api/search/text/feedback/lookup",
-        json={
-            "track_uuids": [uuids[agreed]],
-            "preset_keys": ["mood/dark", "texture/lo-fi"],
-            "analysis_family": "mulan",
-        },
-    )
-    assert other_family.status_code == 200
-    assert other_family.json() == {"verdicts": {}}
+def _judge(client, run, track_uuid, verdict=1, revision=0):
+    return client.post("/api/search/text/feedback", json={"run_id": run["execution"]["run_id"], "track_uuid": track_uuid, "verdict": verdict, "expected_revision": revision})
 
 
-def test_text_search_feedback_lookup_rejects_unknown_contract_fields(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "library.sqlite"
-    LibraryDatabase(db_path)
-    client = TestClient(create_app(db_path))
-
-    rejected = client.post(
-        "/api/search/text/feedback/lookup",
-        json={
-            "track_uuids": ["whatever"],
-            "preset_keys": ["mood/dark"],
-            "analysis_family": "clap",
-            "limit": 10,
-        },
-    )
-    assert rejected.status_code == 422
-
-
-def test_text_search_feedback_records_how_many_presets_shared_the_click(
-    tmp_path: Path,
-) -> None:
-    """One click on a merged bank is one opinion, not one per label.
-
-    Without the count every row of a four-label selection looked like an
-    independent example of its own label, which inflates a single judgement
-    fourfold and teaches three labels from a track that may have matched only
-    the fourth. The column does not say which label earned it; it says the
-    answer was shared, so scripts/prompt_preset_tune.py can weight it at 1/n.
-    """
-
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = _track_with_embedding(db, "shared.wav", [1.0, 0.0, 0.0], "clap")
-    with db.connect() as connection:
-        track_uuid = connection.execute(
-            "SELECT track_uuid FROM tracks WHERE track_id = ?",
-            (track_id,),
-        ).fetchone()[0]
-    client = TestClient(create_app(db_path))
-
-    shared = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": track_uuid,
-            "preset_keys": ["mood/dark", "texture/lo-fi", "rhythm/breakbeat"],
-            "analysis_family": "clap",
-            "verdict": 1,
-        },
-    )
-    assert shared.status_code == 200
-    with db.connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT preset_key, selection_size FROM text_preset_feedback
-            ORDER BY preset_key
-            """
-        ).fetchall()
-    assert [(row[0], row[1]) for row in rows] == [
-        ("mood/dark", 3),
-        ("rhythm/breakbeat", 3),
-        ("texture/lo-fi", 3),
-    ]
-
-    # Judging the same track again from a narrower bank replaces the count, so
-    # the sharpest answer is the one that stands.
-    alone = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": track_uuid,
-            "preset_keys": ["mood/dark"],
-            "analysis_family": "clap",
-            "verdict": 1,
-        },
-    )
-    assert alone.status_code == 200
-    with db.connect() as connection:
-        sizes = dict(
-            connection.execute(
-                "SELECT preset_key, selection_size FROM text_preset_feedback"
-            ).fetchall()
-        )
-    assert sizes["mood/dark"] == 1
-    assert sizes["texture/lo-fi"] == 3
-
-
-def test_text_search_reports_each_label_contribution_and_credits_by_it(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """A merged bank cannot say which label a hit came from; naming them can.
-
-    Without this a verdict is split evenly across everything that happened to
-    be selected, which teaches the labels that did not match. With each label's
-    own bank named, the search reports how well each one matched, and the click
-    is credited in that proportion.
-    """
-
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    # The track sits exactly on the axis that "broken drums." names and square
-    # to the one that "straight house groove." names.
-    track_id = _track_with_embedding(db, "broken.wav", [1.0, 0.0, 0.0], "clap")
-    with db.connect() as connection:
-        track_uuid = connection.execute(
-            "SELECT track_uuid FROM tracks WHERE track_id = ?",
-            (track_id,),
-        ).fetchone()[0]
+def _feedback_client(monkeypatch, tmp_path):
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track_with_embedding(db, "judged.wav", [1.0, 0.0, 0.0], "clap")
     monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
-    client = TestClient(create_app(db_path))
+    app = create_app(db.path)
+    return db, TestClient(app), app
 
-    found = client.post(
-        "/api/search/text",
-        json={
-            "analysis_family": "clap",
-            "positive_queries": ["broken drums.", "straight house groove."],
-            "preset_banks": [
-                {"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]},
-                {"key": "rhythm/four-on-the-floor", "positive_queries": ["straight house groove."]},
-            ],
-            "limit": 5,
-        },
-    )
-    assert found.status_code == 200
-    hit = found.json()[0]
-    contributions = hit["preset_scores"]
-    assert set(contributions) == {"rhythm/breakbeat", "rhythm/four-on-the-floor"}
-    # The breakbeat bank points at the track; the four-on-the-floor bank is
-    # orthogonal to it, so it contributed nothing.
-    assert contributions["rhythm/breakbeat"] > contributions["rhythm/four-on-the-floor"]
 
-    judged = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": track_uuid,
-            "preset_keys": ["rhythm/breakbeat", "rhythm/four-on-the-floor"],
-            "analysis_family": "clap",
-            "verdict": 1,
-            "preset_scores": contributions,
-        },
-    )
-    assert judged.status_code == 200
+def test_text_search_feedback_stores_updates_and_withdraws_verdicts(monkeypatch, tmp_path):
+    db, client, _app = _feedback_client(monkeypatch, tmp_path)
+    run = _search(client, preset_banks=[{"key": "voice/vocal-led", "positive_queries": ["broken drums."]}, {"key": "instruments/piano", "positive_queries": ["broken drums."]}], input_mode="preset")
+    uuid = run["results"][0]["track"]["track_uuid"]
+    assert _judge(client, run, uuid).json()["revision"] == 1
+    # An identical retry is idempotent; a competing desired verdict conflicts.
+    assert _judge(client, run, uuid).json()["revision"] == 1
+    conflict = _judge(client, run, uuid, -1)
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["current"]["revision"] == 1
+    assert _judge(client, run, uuid, -1, 1).json()["revision"] == 2
+    assert _judge(client, run, uuid, 0, 2).json()["revision"] == 3
     with db.connect() as connection:
-        weights = dict(
-            connection.execute(
-                "SELECT preset_key, weight FROM text_preset_feedback"
-            ).fetchall()
-        )
-    # One click, one opinion: the shares add up to it, and the label that
-    # matched carries almost all of it.
-    assert weights["rhythm/breakbeat"] > weights["rhythm/four-on-the-floor"]
-    assert abs(sum(weights.values()) - 1.0) < 1e-6
+        assert connection.execute("SELECT COUNT(*) FROM text_search_feedback").fetchone()[0] == 1
 
 
-def test_text_search_feedback_splits_a_click_evenly_without_contributions(
-    tmp_path: Path,
-) -> None:
-    """Where the search did not name the banks, an even split is all that is known."""
+def test_text_search_feedback_lookup_restores_exact_query_only(monkeypatch, tmp_path):
+    _db, client, _app = _feedback_client(monkeypatch, tmp_path)
+    run = _search(client)
+    uuid = run["results"][0]["track"]["track_uuid"]
+    assert _judge(client, run, uuid).status_code == 200
+    repeated = _search(client, limit=5, comparison_mode="product_ab", comparison_id="comparison", use_feedback=True)
+    assert repeated["execution"]["run_id"] != run["execution"]["run_id"]
+    assert repeated["execution"]["query_key"] == run["execution"]["query_key"]
+    assert repeated["execution"]["feedback"]["reason"] == "disabled_for_product_ab"
+    lookup = client.post("/api/search/text/feedback/lookup", json={"run_id": repeated["execution"]["run_id"], "track_uuids": [uuid]})
+    assert lookup.json() == {"query_key": run["execution"]["query_key"], "verdicts": {uuid: {"verdict": 1, "revision": 1}}}
+    changed = _search(client, positive_queries=["dark rolling techno"])
+    lookup = client.post("/api/search/text/feedback/lookup", json={"run_id": changed["execution"]["run_id"], "track_uuids": [uuid]})
+    assert lookup.json()["verdicts"] == {}
 
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = _track_with_embedding(db, "even.wav", [1.0, 0.0, 0.0], "clap")
+
+def test_text_search_feedback_lookup_rejects_retired_contract_fields(monkeypatch, tmp_path):
+    _db, client, _app = _feedback_client(monkeypatch, tmp_path)
+    assert client.post("/api/search/text/feedback/lookup", json={"track_uuids": ["whatever"], "preset_keys": ["mood/dark"], "analysis_family": "clap"}).status_code == 422
+    assert client.post("/api/search/text/feedback", json={"track_uuid": "whatever", "preset_keys": ["mood/dark"], "analysis_family": "clap", "verdict": 1}).status_code == 422
+
+
+def test_query_identity_tracks_effective_bank_and_output(monkeypatch, tmp_path):
+    from dj_track_similarity.text_search_models import query_context_key
+    _db, client, _app = _feedback_client(monkeypatch, tmp_path)
+    run = _search(client, positive_queries=[" broken drums. ", "syncopated percussion."], negative_queries=["straight house groove."], negative_weight=0.5)
+    context = run["execution"]["query_context"]
+    assert context["positive_queries"] == ["broken drums.", "syncopated percussion."]
+    assert context["negative_weight"] == 0.5
+    key = run["execution"]["query_key"]
+    for fields in ({"negative_weight": 0.75}, {"positive_queries": ["syncopated percussion.", "broken drums."]}, {"input_mode": "preset"}, {"analysis_family": "mulan"}):
+        monkeypatch.setattr(embedding_mulan, "MuqMulanEmbeddingAdapter", FakeMulanAdapter)
+        other = _search(client, positive_queries=context["positive_queries"], negative_queries=context["negative_queries"], **({"negative_weight": 0.5} | fields)) if "positive_queries" not in fields else _search(client, negative_queries=context["negative_queries"], negative_weight=0.5, **fields)
+        assert other["execution"]["query_key"] != key
+    changed = {**context, "analysis_output_identity": {**context["analysis_output_identity"], "model_version": "different"}}
+    assert query_context_key(changed) != key
+    assert _search(client, negative_weight=0.75)["execution"]["query_key"] == _search(client, negative_weight=0.0)["execution"]["query_key"]
+
+
+def test_text_search_reports_positive_only_preset_descriptors(monkeypatch, tmp_path):
+    _db, client, _app = _feedback_client(monkeypatch, tmp_path)
+    run = _search(client, positive_queries=["broken drums.", "straight house groove."], preset_banks=[{"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}, {"key": "rhythm/four-on-the-floor", "positive_queries": ["straight house groove."]}])
+    scores = run["results"][0]["preset_scores"]
+    assert scores["rhythm/breakbeat"] > scores["rhythm/four-on-the-floor"]
+
+
+def test_feedback_rejects_unissued_expired_and_other_database_runs(monkeypatch, tmp_path):
+    from dj_track_similarity.api.text_search_context import TextSearchRunCache
+    db, client, app = _feedback_client(monkeypatch, tmp_path)
+    run = _search(client)
+    uuid = run["results"][0]["track"]["track_uuid"]
+    assert _judge(client, run, "not-in-results").status_code == 400
+    forged = {"execution": {"run_id": "not-issued"}}
+    assert _judge(client, forged, uuid).status_code == 409
+    # Exercise the actual cache expiration/eviction behavior using an injected clock.
+    cache = TextSearchRunCache(ttl_seconds=1, max_entries=1, clock=lambda: 0.0)
+    cached_run = app.state.text_search_runs.get(run["execution"]["run_id"])
+    cache.put(cached_run)
+    cache._clock = lambda: 2.0
+    assert cache.get(run["execution"]["run_id"]) is None
+    app.state.text_search_runs._clock = lambda: float("inf")
+    assert _judge(client, run, uuid).status_code == 409
+    app.state.text_search_runs._clock = lambda: 0.0
+    new_run = _search(client)
+    selected = client.post("/api/database/switch", json={"path": str(tmp_path / "other.sqlite")})
+    assert selected.status_code == 200, selected.text
+    assert _judge(client, new_run, uuid).status_code == 409
     with db.connect() as connection:
-        track_uuid = connection.execute(
-            "SELECT track_uuid FROM tracks WHERE track_id = ?",
-            (track_id,),
-        ).fetchone()[0]
-    client = TestClient(create_app(db_path))
-
-    posted = client.post(
-        "/api/search/text/feedback",
-        json={
-            "track_uuid": track_uuid,
-            "preset_keys": ["mood/dark", "texture/lo-fi", "space/roomy", "energy/loud"],
-            "analysis_family": "clap",
-            "verdict": -1,
-        },
-    )
-    assert posted.status_code == 200
-    with db.connect() as connection:
-        weights = [
-            row[0]
-            for row in connection.execute("SELECT weight FROM text_preset_feedback")
-        ]
-    assert weights == [0.25, 0.25, 0.25, 0.25]
+        assert connection.execute("SELECT COUNT(*) FROM text_search_feedback").fetchone()[0] == 0
 
 
-def test_text_search_feedback_summary_counts_what_stands_behind_each_label(
-    tmp_path: Path,
-) -> None:
-    """The picker needs to know which labels have been judged and by which model.
-
-    A label nobody has marked is absent rather than reported as zero, so the
-    tally distinguishes "nothing here yet" from "judged and evenly split" —
-    the difference that decides where comparing the two models is worth doing.
-    """
-
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    hit = _track_with_embedding(db, "hit.wav", [1.0, 0.0, 0.0], "clap")
-    miss = _track_with_embedding(db, "miss.wav", [0.0, 1.0, 0.0], "clap")
-    with db.connect() as connection:
-        uuids = dict(
-            connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
-        )
-    client = TestClient(create_app(db_path))
-
-    empty = client.get("/api/search/text/feedback/summary")
-    assert empty.status_code == 200
-    assert empty.json() == {"presets": {}}
-
-    for track_id, family, verdict in (
-        (hit, "clap", 1),
-        (miss, "clap", -1),
-        (hit, "mulan", 1),
-    ):
-        posted = client.post(
-            "/api/search/text/feedback",
-            json={
-                "track_uuid": uuids[track_id],
-                "preset_keys": ["rhythm/breakbeat"],
-                "analysis_family": family,
-                "verdict": verdict,
-            },
-        )
-        assert posted.status_code == 200
-
-    summary = client.get("/api/search/text/feedback/summary")
-    assert summary.status_code == 200
-    assert summary.json() == {
-        "presets": {
-            "rhythm/breakbeat": {
-                "clap": {"relevant": 1, "irrelevant": 1},
-                "mulan": {"relevant": 1, "irrelevant": 0},
-            }
-        }
-    }
-
-
-def test_text_search_pulls_the_query_toward_the_tracks_that_were_kept(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """Rocchio feedback, off by default and never silent.
-
-    The words alone put a distractor above the judged neighbourhood. With the
-    accumulated opinion allowed in, that order reverses — and the words still
-    hold most of the weight, so this is an adjustment rather than a takeover.
-    """
-
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    # "broken drums." embeds to [1, 0, 0]. The judged tracks sit off that axis,
-    # and the distractor sits slightly closer to it than they do.
-    kept = [
-        _track_with_embedding(db, f"kept{index}.wav", [0.5, 0.866, 0.0], "clap")
-        for index in range(3)
-    ]
+def test_text_search_pulls_exact_query_toward_kept_tracks(monkeypatch, tmp_path):
+    from dj_track_similarity.search.engine import FEEDBACK_MINIMUM_TRACKS
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    kept = [_track_with_embedding(db, f"kept{i}.wav", [0.5, 0.866, 0.0], "clap") for i in range(FEEDBACK_MINIMUM_TRACKS)]
     distractor = _track_with_embedding(db, "distractor.wav", [0.55, 0.0, 0.835], "clap")
-    with db.connect() as connection:
-        uuids = dict(
-            connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
-        )
     monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
-    client = TestClient(create_app(db_path))
-
-    for track_id in kept:
-        posted = client.post(
-            "/api/search/text/feedback",
-            json={
-                "track_uuid": uuids[track_id],
-                "preset_keys": ["rhythm/breakbeat"],
-                "analysis_family": "clap",
-                "verdict": 1,
-            },
-        )
-        assert posted.status_code == 200
-
-    body = {
-        "analysis_family": "clap",
-        "positive_queries": ["broken drums."],
-        "preset_banks": [
-            {"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}
-        ],
-        "limit": 5,
-    }
-    plain = [row["track"]["track_id"] for row in client.post("/api/search/text", json={**body}).json()]
-    assert plain[0] == distractor
-
-    adjusted = [
-        row["track"]["track_id"]
-        for row in client.post("/api/search/text", json={**body, "use_feedback": True}).json()
-    ]
-    assert adjusted[0] in kept
-    assert adjusted.index(distractor) > 0
-    # Nothing is dropped: the shift reorders the same library rather than
-    # filtering it to what was already approved.
-    assert sorted(adjusted) == sorted(plain)
+    client = TestClient(create_app(db.path))
+    plain = _search(client)
+    assert plain["results"][0]["track"]["track_id"] == distractor
+    judged = []
+    for row in plain["results"]:
+        if row["track"]["track_id"] in kept:
+            uuid = row["track"]["track_uuid"]
+            assert _judge(client, plain, uuid).status_code == 200
+            judged.append(uuid)
+    warm = _search(client, use_feedback=True)
+    assert warm["execution"]["feedback"]["applied"]
+    assert warm["results"][0]["track"]["track_id"] in kept
+    assert _search(client)["results"] == plain["results"]
+    other = _search(client, use_feedback=True, input_mode="preset")
+    assert not other["execution"]["feedback"]["applied"]
+    assert _judge(client, warm, judged[0], 0, 1).status_code == 200
+    withdrawn = _search(client, use_feedback=True)
+    assert not withdrawn["execution"]["feedback"]["applied"]
+    assert withdrawn["execution"]["feedback"]["history_revision"] != warm["execution"]["feedback"]["history_revision"]
 
 
-def test_text_search_ignores_a_history_too_small_to_mean_anything(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """Two verdicts are an afternoon, not an opinion, so the query stays put."""
-
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    kept = [
-        _track_with_embedding(db, f"few{index}.wav", [0.2, 0.98, 0.0], "clap")
-        for index in range(2)
-    ]
-    on_words = _track_with_embedding(db, "words.wav", [1.0, 0.0, 0.0], "clap")
+def test_old_library_search_is_cold_and_does_not_create_feedback_schema(monkeypatch, tmp_path):
+    db, client, _app = _feedback_client(monkeypatch, tmp_path)
     with db.connect() as connection:
-        uuids = dict(
-            connection.execute("SELECT track_id, track_uuid FROM tracks").fetchall()
-        )
-    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
-    client = TestClient(create_app(db_path))
-    for track_id in kept:
-        client.post(
-            "/api/search/text/feedback",
-            json={
-                "track_uuid": uuids[track_id],
-                "preset_keys": ["rhythm/breakbeat"],
-                "analysis_family": "clap",
-                "verdict": 1,
-            },
-        )
-
-    adjusted = client.post(
-        "/api/search/text",
-        json={
-            "analysis_family": "clap",
-            "positive_queries": ["broken drums."],
-            "preset_banks": [
-                {"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}
-            ],
-            "limit": 5,
-            "use_feedback": True,
-        },
-    )
-    assert adjusted.status_code == 200
-    assert adjusted.json()[0]["track"]["track_id"] == on_words
+        connection.execute("DROP TABLE text_search_feedback")
+    run = _search(client, use_feedback=True)
+    assert run["execution"]["feedback"]["reason"] == "schema_unavailable"
+    uuid = run["results"][0]["track"]["track_uuid"]
+    assert _judge(client, run, uuid).status_code == 409
+    with db.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM sqlite_schema WHERE name = 'text_search_feedback'").fetchone()[0] == 0

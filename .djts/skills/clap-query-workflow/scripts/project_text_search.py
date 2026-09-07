@@ -139,7 +139,10 @@ def run_text_search(args: argparse.Namespace) -> int:
     if args.negative_weight is not None:
         payload["negative_weight"] = args.negative_weight
 
-    results = post_json(base_url + "/api/search/text", payload, timeout=args.timeout)
+    response = post_json(base_url + "/api/search/text", payload, timeout=args.timeout)
+    if not isinstance(response, dict) or not isinstance(response.get("results"), list):
+        raise SystemExit("Invalid text-search response: expected results/execution envelope")
+    results = response["results"]
     if args.json:
         print(json.dumps(results, ensure_ascii=False, indent=2))
         return 0

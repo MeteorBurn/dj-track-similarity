@@ -1,16 +1,13 @@
 """Rank a labelled library with text prompts and report how each prompt form scores.
 
-Preset wording, model choice and the hard-negative weight have been argued about
-without evidence. This script settles those arguments on one library: it reads
-stored audio embeddings and Rhythm Lab labels, embeds each prompt form with the
-real text adapters, and reports ranking quality per concept.
+This exploratory tool reads production-eligible stored embeddings and existing
+Rhythm Lab labels, embeds each prompt form, and reports judged-pool rankings.
+Max-negative is an experimental alternative; production uses top2-mean.
 
-The script only reads. It opens both databases read-only and writes nothing back.
-
-Labels come from review sessions rather than a random sample of the library, so
-the absolute numbers describe that labelled pool, not the whole collection. The
-comparison between models, prompt forms and negative weights stays valid because
-every configuration is scored on the same pool.
+The script reads both databases without writing them. Review-session labels are
+not a random sample or an independent held-out set. These in-sample measurements
+do not establish a production winner; use prompt_preset_tune's explicit grouped
+evaluation input for candidate selection and held-out evidence.
 """
 
 from __future__ import annotations
@@ -28,6 +25,7 @@ from numpy.typing import NDArray
 from sklearn.metrics import average_precision_score, roc_auc_score
 
 from dj_track_similarity.analysis.model_runners import current_embedding_analysis_output
+from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.search.engine import _contrast_vector_scores, _normalize_matrix
@@ -44,7 +42,6 @@ FloatArray = NDArray[np.float32]
 
 DEFAULT_PROMPTS = Path(__file__).with_name("text_prompt_benchmark_prompts.json")
 DEFAULT_WEIGHTS = (0.0, 0.15, 0.35, 0.5, 0.75, 1.0)
-PRODUCTION_WEIGHT = 0.35
 TOP_K = 20
 
 ADAPTERS = {
@@ -74,6 +71,7 @@ class Measurement:
     average_precision: float
     precision_at_k: float
     median_library_rank: float
+    evidence: str = "exploration_in_sample"
 
     def as_row(self) -> str:
         return (
@@ -210,20 +208,19 @@ def _measure_family(
             positives = adapter.embed_texts(bank["positive"])
             negatives = adapter.embed_texts(bank.get("negative", []))
             for space, scored_matrix in spaces:
-                positive_scores, negative_max, _contrast, _weight = (
+                positive_scores, _production_penalty, _contrast, _weight = (
                     _contrast_vector_scores(
                         scored_matrix,
                         output=output,
                         positive_vectors=positives,
                         negative_vectors=negatives,
-                        negative_weight=PRODUCTION_WEIGHT,
+                        negative_weight=0.0,
                     )
                 )
                 for pooling, negative_scores in _negative_poolings(
                     scored_matrix,
                     output=output,
                     negative_vectors=negatives,
-                    negative_max=negative_max,
                 ):
                     for weight in DEFAULT_WEIGHTS:
                         if weight and not negatives:
@@ -248,23 +245,16 @@ def _negative_poolings(
     *,
     output,
     negative_vectors: list[FloatArray],
-    negative_max: FloatArray,
 ) -> list[tuple[str, FloatArray]]:
-    """Ways of turning a negative bank into one penalty per track.
+    """Compare rowwise max against production's mean of the closest two."""
 
-    Production takes the maximum, which lets the single closest negative decide
-    the whole penalty. Averaging the two closest asks two prompts to agree
-    before a track is pushed down, which should be steadier when one negative is
-    worded badly and noisier when the bank is small.
-    """
-
-    poolings: list[tuple[str, FloatArray]] = [("max", negative_max)]
-    if len(negative_vectors) < 2:
-        return poolings
+    if not negative_vectors:
+        zeros = np.zeros(matrix.shape[0], dtype=np.float32)
+        return [("max", zeros), ("top2-mean", zeros.copy())]
     similarities = matrix @ _normalize_matrix(negative_vectors, output=output).T
-    top_two = np.sort(similarities, axis=1)[:, -2:]
-    poolings.append(("top2-mean", top_two.mean(axis=1).astype(np.float32)))
-    return poolings
+    maximum = similarities.max(axis=1).astype(np.float32)
+    top_two = np.sort(similarities, axis=1)[:, -min(2, len(negative_vectors)):]
+    return [("max", maximum), ("top2-mean", top_two.mean(axis=1).astype(np.float32))]
 
 
 def _measure(
@@ -305,21 +295,12 @@ def _measure(
 
 
 def _load_matrix(db_path: Path, family: str) -> tuple[FloatArray, dict[int, int]]:
-    with sqlite3.connect(_read_only_uri(db_path), uri=True) as connection:
-        rows = connection.execute(
-            f"select track_id, dim, embedding_blob from {family}_embeddings order by track_id"
-        ).fetchall()
+    snapshot = LibraryDatabase.read_text_evaluation_embeddings(db_path, current_embedding_analysis_output(family))
+    rows = snapshot["rows"]
     if not rows:
-        raise SystemExit(f"{db_path} has no {family} embeddings")
-    dimension = rows[0][1]
-    matrix = np.empty((len(rows), dimension), dtype=np.float32)
-    row_of_track: dict[int, int] = {}
-    for index, (track_id, dim, blob) in enumerate(rows):
-        if dim != dimension:
-            raise SystemExit(f"{family} embedding dimensions are mixed: {dim} != {dimension}")
-        matrix[index] = np.frombuffer(blob, dtype=np.float32)
-        row_of_track[track_id] = index
-    return _normalized(matrix), row_of_track
+        raise SystemExit(f"{db_path} has no production-eligible {family} embeddings")
+    matrix = np.vstack([row.vector for row in rows]).astype(np.float32)
+    return matrix, {row.target.track_id: index for index, row in enumerate(rows)}
 
 
 def _load_sidecar_matrix(
@@ -455,7 +436,7 @@ def _print_report(measurements: list[Measurement]) -> None:
             print(item.as_row())
         best = max(rows, key=lambda row: row.roc_auc)
         print(
-            f"  best: {best.model} / {best.form} / {best.space} / {best.pooling} "
+            f"  highest observed in-sample: {best.model} / {best.form} / {best.space} / {best.pooling} "
             f"/ w={best.negative_weight:.2f} "
             f"-> ROC-AUC {best.roc_auc:.3f}"
         )

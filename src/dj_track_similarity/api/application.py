@@ -18,6 +18,7 @@ from .routes_library import register_library_routes
 from .routes_reference_compare import register_reference_compare_routes
 from .routes_rhythm_lab import register_rhythm_lab_routes
 from .routes_search import register_search_routes
+from .text_search_context import TextSearchRunCache
 from .routes_server import register_server_routes
 from .routes_tags_export import register_tags_export_routes
 from .state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
@@ -55,7 +56,7 @@ def open_folder_dialog() -> Path | None:
     try:
         root.attributes("-topmost", True)
         root.update()
-        selected = filedialog.askdirectory(parent=root, title="Выберите папку с музыкой", mustexist=True)
+        selected = filedialog.askdirectory(parent=root, title="Р’С‹Р±РµСЂРёС‚Рµ РїР°РїРєСѓ СЃ РјСѓР·С‹РєРѕР№", mustexist=True)
     finally:
         root.destroy()
     return Path(selected) if selected else None
@@ -75,7 +76,7 @@ def open_database_file_dialog() -> Path | None:
         root.update()
         selected = filedialog.asksaveasfilename(
             parent=root,
-            title="Выберите SQLite базу",
+            title="Р’С‹Р±РµСЂРёС‚Рµ SQLite Р±Р°Р·Сѓ",
             defaultextension=".sqlite",
             filetypes=[("SQLite database", "*.sqlite"), ("All files", "*.*")],
             confirmoverwrite=False,
@@ -152,11 +153,14 @@ def create_app(
             text_adapters.close()
 
     app.router.on_shutdown.append(close_runtime_owners)
+    text_search_runs = TextSearchRunCache()
+    app.state.text_search_runs = text_search_runs
     register_search_routes(
         app,
         state,
         text_embedding_adapter=text_adapters.acquire,
         loaded_text_embedding_adapters=text_adapters.loaded,
+        text_search_runs=text_search_runs,
     )
     register_server_routes(app, stop_rhythm_lab=stop_rhythm_lab)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)

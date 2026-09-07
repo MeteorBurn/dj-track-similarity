@@ -19,7 +19,7 @@ Tables (emission order matches FK dependency order):
   13. likes                 — user like per track
   14. pair_feedback         — candidate pair ratings with reason_tags_json
   15. transition_feedback   — transition ratings with risk_tags_json
-  16. text_preset_feedback  — per-preset relevance verdicts from text search
+  16. text_search_feedback  — exact-query relevance verdicts from text search
   17. track_search_fts      — FTS5 virtual table (human text only)
 
 """
@@ -336,39 +336,24 @@ CREATE INDEX idx_transition_feedback_outgoing ON transition_feedback(outgoing_tr
 CREATE INDEX idx_transition_feedback_incoming ON transition_feedback(incoming_track_id, outgoing_track_id);
 """
 
-# The raw reinforcement signal for tuning text-search presets: one relevance
-# verdict per (track, preset, text model). Written on an explicit user click,
-# read by scripts/prompt_preset_tune.py. Created with each new library;
-# older libraries require an explicit schema update before writing verdicts.
-#
-# selection_size records how many presets shared one click. A bank merged from
-# four labels writes four rows, and without this column each of them looked
-# like an independent example of its own label, which inflates a single opinion
-# fourfold and teaches three labels from a track that may have matched only the
-# fourth. The column does not say which label earned the verdict — only that
-# the answer was shared, so a reader can weight it at 1/n instead of 1.
-TEXT_PRESET_FEEDBACK_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS text_preset_feedback (
-    track_id         INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
-    preset_key       TEXT    NOT NULL,
-    analysis_family  TEXT    NOT NULL CHECK(analysis_family IN ('clap', 'mulan')),
-    verdict          INTEGER NOT NULL CHECK(verdict IN (-1, 1)),
-    selection_size   INTEGER NOT NULL DEFAULT 1 CHECK(selection_size >= 1),
-    weight           REAL    NOT NULL DEFAULT 1.0 CHECK(weight > 0.0),
-    created_at       TEXT    NOT NULL,
-    updated_at       TEXT    NOT NULL,
-    PRIMARY KEY(track_id, preset_key, analysis_family)
+# Exact-query relevance feedback. Existing libraries opt in through an explicit
+# schema update; ordinary startup validates identity without creating this table.
+TEXT_SEARCH_FEEDBACK_DDL = """
+CREATE TABLE text_search_feedback (
+    query_key TEXT NOT NULL,
+    track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+    context_json TEXT NOT NULL,
+    verdict INTEGER NOT NULL CHECK(verdict IN (-1, 0, 1)),
+    revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND revision > 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_run_json TEXT NOT NULL,
+    PRIMARY KEY(query_key, track_id),
+    CONSTRAINT text_search_feedback_v1 CHECK(length(query_key) = 64)
 );
 """
 
-TEXT_PRESET_FEEDBACK_INDEX_DDL = (
-    "CREATE INDEX IF NOT EXISTS idx_text_preset_feedback_pool "
-    "ON text_preset_feedback(preset_key, analysis_family, verdict, track_id);"
-)
-
-_DDL_TEXT_PRESET_FEEDBACK = (
-    TEXT_PRESET_FEEDBACK_TABLE_DDL + "\n" + TEXT_PRESET_FEEDBACK_INDEX_DDL
-)
+TEXT_FEEDBACK_DDL = (TEXT_SEARCH_FEEDBACK_DDL,)
 
 _DDL_TRACK_SEARCH_FTS = """
 CREATE VIRTUAL TABLE track_search_fts USING fts5(
@@ -406,7 +391,7 @@ _ALL_DDL: list[str] = [
     _DDL_LIKES,
     _DDL_PAIR_FEEDBACK,
     _DDL_TRANSITION_FEEDBACK,
-    _DDL_TEXT_PRESET_FEEDBACK,
+    *TEXT_FEEDBACK_DDL,
     _DDL_TRACK_SEARCH_FTS,
 ]
 

@@ -38,7 +38,6 @@ from dj_track_similarity.embedding.maest import MaestAnalysisResult
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
-from dj_track_similarity.maest_windows import MaestWindowContext
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
@@ -482,7 +481,7 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     }
     for runner in runners:
         assert getattr(runner.adapter, "_model") is None
-        if runner.model not in {"mulan", "clap"}:
+        if runner.model in {"mert", "muq"}:
             assert runner.adapter.inference_batch_size == 7
         for output in runner.active_outputs:
             if output.output_kind == "embedding":
@@ -811,15 +810,11 @@ def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(
 
 
 class _FakeMaestAdapter(MaestEmbeddingAdapter):
-    received_window_contexts: tuple[MaestWindowContext | None, ...]
-
     def __init__(self) -> None:
         super().__init__(
             device="cpu",
             top_k=3,
-            inference_batch_size=2,
         )
-        self.received_window_contexts = ()
 
     def preflight(self) -> None:
         pass
@@ -827,10 +822,7 @@ class _FakeMaestAdapter(MaestEmbeddingAdapter):
     def analyze_decoded_batch(
         self,
         decoded_items: Sequence[DecodedAudio],
-        *,
-        window_contexts: Sequence[MaestWindowContext | None] | None = None,
     ) -> list[MaestAnalysisResult]:
-        self.received_window_contexts = tuple(window_contexts or ())
         results: list[MaestAnalysisResult] = []
         for item in decoded_items:
             vector = np.zeros(768, dtype=np.float32)
@@ -863,12 +855,6 @@ class _MaestWriteRepository:
 
 
 def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() -> None:
-    context = MaestWindowContext(
-        leading_silence_seconds=5.0,
-        trailing_silence_seconds=10.0,
-        intro_end_seconds=40.0,
-        outro_start_seconds=170.0,
-    )
     adapter = _FakeMaestAdapter()
     runner = MaestModelRunner(
         device="cpu",
@@ -883,7 +869,6 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
         file_size_bytes=base_candidate.file_size_bytes,
         file_modified_ns=base_candidate.file_modified_ns,
         missing_outputs=(runner.candidate_outputs[1],),
-        maest_window_context=context,
     )
     repository = _MaestWriteRepository()
 
@@ -908,7 +893,6 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
     assert write.syncopated_rhythm is True
     assert write.embedding is not None
     assert np.linalg.norm(write.embedding.vector) == pytest.approx(1.0)
-    assert adapter.received_window_contexts == (context,)
 
 
 @pytest.mark.parametrize("mode", ["run_job", "run_sync", "threaded", "queued"])

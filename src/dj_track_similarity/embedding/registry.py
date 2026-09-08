@@ -39,7 +39,7 @@ def create_embedding_adapter(
     family: Literal["maest"],
     *,
     device: str,
-    inference_batch_size: int,
+    inference_batch_size: int | None = None,
     top_k: int,
 ) -> MaestEmbeddingAdapter: ...
 
@@ -81,11 +81,10 @@ def create_embedding_adapter(
 
     factories = adapter_factories()
     if family == "maest":
-        if top_k is None or inference_batch_size is None:
-            raise TypeError("MAEST construction requires top_k and inference_batch_size")
+        if top_k is None:
+            raise TypeError("MAEST construction requires top_k")
         return factories["maest"](
             device=device,
-            inference_batch_size=inference_batch_size,
             top_k=top_k,
         )
     if family == "mert" or family == "muq" or family == "mulan" or family == "clap":

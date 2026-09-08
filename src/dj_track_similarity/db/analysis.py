@@ -8,8 +8,12 @@ import sqlite3
 from collections.abc import Sequence
 from contextlib import closing
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..track_models import TrackFileState
 
 from ..analysis_models import (
     AnalysisCandidate,
@@ -390,6 +394,45 @@ def _vector_rows_nbytes(rows: Sequence[AnalysisVectorRow]) -> int:
 
 class AnalysisRepository:
     """Mixin implemented by :class:`LibraryDatabase`."""
+
+    def require_maest_export_source(self, target: AnalysisTarget | int) -> TrackFileState:
+        """Bind a CLI selection or validate a captured identity, using a read-only snapshot."""
+        from .connection import connect_database_read_only
+        from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_row
+        from ..track_models import TrackFileState
+
+        with closing(connect_database_read_only(self.path)) as connection:
+            connection.execute("BEGIN")
+            catalog_uuid = _catalog_uuid(connection)
+            if isinstance(target, int):
+                if isinstance(target, bool) or target < 1:
+                    raise ValueError("track_id must be a positive integer")
+                identity = connection.execute(
+                    "SELECT track_uuid FROM tracks WHERE track_id = ?", (target,),
+                ).fetchone()
+                if identity is None:
+                    raise StaleAnalysisTargetError("Unknown track_id")
+                target = AnalysisTarget(catalog_uuid, target, str(identity[0]))
+            _require_current_target(connection, target, catalog_uuid=catalog_uuid)
+            source = connection.execute(
+                "SELECT file_path, file_size_bytes, file_modified_ns FROM tracks WHERE track_id = ?",
+                (target.track_id,),
+            ).fetchone()
+            sonara = connection.execute(
+                f"SELECT {', '.join(SONARA_CORE_COLUMNS)} FROM sonara_features WHERE track_id = ?",
+                (target.track_id,),
+            ).fetchone()
+            valid = sonara is not None and validate_sonara_core_row(
+                sonara, expected_track_id=target.track_id,
+            )[0]
+            if not valid:
+                raise ValueError("MAEST export requires valid SONARA analysis for this track")
+            return TrackFileState(
+                catalog_uuid=target.catalog_uuid, track_id=target.track_id,
+                track_uuid=target.track_uuid, file_path=str(source[0]),
+                file_size_bytes=int(source[1]), file_modified_ns=int(source[2]),
+                missing_since=None,
+            )
 
     _library_vector_cache: dict[
         tuple[str, str],

@@ -29,7 +29,6 @@ from dj_track_similarity.embedding.maest import _move_maest_runtime_modules
 from dj_track_similarity.embedding.numerics import _array_output_to_numpy
 from dj_track_similarity.embedding.audio import _pad_or_trim_audio_tensor
 from dj_track_similarity.logging_config import configure_logging
-from dj_track_similarity.maest_windows import MaestWindowContext
 
 
 def _text_embedding_rows(rows: int) -> np.ndarray:
@@ -914,52 +913,46 @@ class MovableModule:
 
 
 class FakeMaestModel:
-    labels = ["A", "B", "C"]
+    labels = ["A", "B", "C"] + [f"label-{index}" for index in range(3, 519)]
 
     def __init__(self) -> None:
-        self.calls: list[tuple[tuple[int, ...], bool]] = []
-        self.first_samples: list[float] = []
+        self.audio_calls = []
         self.melspectrogram: MovableModule | None = None
         self.init_calls = 0
-        self.offset = 0
+        self.outputs = []
+        for logits, embeddings in (
+            ([[0., 4., 1.], [1., 0., 2.]], [[3., 0.], [0., 4.]]),
+            ([[3., 1., 0.], [2., 1., 0.], [1., 1., 0.]], [[1., 0.], [2., 4.], [3., 2.]]),
+            ([[1., 0., 0.]] * 4, [[1., 2.], [2., 1.], [1., 3.], [3., 2.]]),
+        ):
+            scores = torch.full((len(logits), 519), -10., dtype=torch.float32)
+            scores[:, :3] = torch.tensor(logits)
+            vectors = torch.zeros((len(embeddings), 768), dtype=torch.float32)
+            vectors[:, :2] = torch.tensor(embeddings)
+            self.outputs.append((scores, vectors))
 
     def init_melspectrogram(self) -> None:
         self.init_calls += 1
         self.melspectrogram = MovableModule()
 
     def __call__(self, audio, *, melspectrogram_input=False):
-        self.calls.append((tuple(audio.shape), melspectrogram_input))
-        self.first_samples.extend(float(row[0].item()) for row in audio)
-        logits = [
-            [0.0, 2.0, 1.0],
-            [0.5, 1.5, 1.0],
-            [1.0, 1.0, 1.0],
-            [3.0, 1.0, 0.0],
-            [2.0, 1.0, 0.0],
-            [1.0, 1.0, 0.0],
-        ]
-        embeddings = [
-            [1.0, 10.0],
-            [2.0, 20.0],
-            [3.0, 30.0],
-            [4.0, 40.0],
-            [5.0, 50.0],
-            [6.0, 60.0],
-        ]
-        start = self.offset
-        end = start + audio.shape[0]
-        self.offset = end
-        return torch.tensor(logits[start:end]), torch.tensor(embeddings[start:end])
+        assert audio.ndim == 1, "MAEST native API requires one full 1D waveform"
+        assert audio.dtype == torch.float32
+        assert melspectrogram_input is False
+        output = self.outputs[len(self.audio_calls)]
+        self.audio_calls.append(audio.clone())
+        return output
 
 
 class BatchMaestAdapter(MaestEmbeddingAdapter):
-    def __init__(self, *, inference_batch_size: int = 32) -> None:
-        super().__init__(device="cpu", top_k=2, inference_batch_size=inference_batch_size)
+    def __init__(self) -> None:
+        super().__init__(device="cpu", top_k=2)
         self.fake_model = FakeMaestModel()
+        self.fake_torchaudio = None
 
     def _load_model(self) -> None:
         self._torch = torch
-        self._torchaudio = object()
+        self._torchaudio = self.fake_torchaudio
         self.device = "cpu"
         self._model = self.fake_model
 
@@ -982,117 +975,74 @@ def test_maest_initializes_only_missing_melspectrogram() -> None:
 def test_maest_analyze_decoded_batch_returns_genres_and_embeddings() -> None:
     adapter = BatchMaestAdapter()
     decoded = [
-        DecodedAudio(
-            path="a.wav",
-            audio=torch.full((16000 * 120,), 1.0),
-            sample_rate=16000,
-            detail="shared",
-        ),
-        DecodedAudio(
-            path="b.wav",
-            audio=torch.full((16000 * 120,), 2.0),
-            sample_rate=16000,
-            detail="shared",
-        ),
+        DecodedAudio(path="a.wav", audio=torch.ones(16_000 * 6), sample_rate=16_000, detail="shared"),
+        DecodedAudio(path="b.wav", audio=torch.ones(16_000 * 65), sample_rate=16_000, detail="shared"),
     ]
 
     results = adapter.analyze_decoded_batch(decoded)
 
-    assert adapter.fake_model.calls == [((6, 480000), False)]
-    assert [[genre["label"] for genre in result.genres] for result in results] == [
-        ["B", "C"],
-        ["A", "B"],
-    ]
-    assert results[0].genres[0]["score"] == pytest.approx(
-        torch.sigmoid(torch.tensor([2.0, 1.5, 1.0])).mean().item()
-    )
-    np.testing.assert_allclose(
-        results[0].embedding,
-        np.asarray([2.0, 20.0], dtype=np.float32) / np.linalg.norm([2.0, 20.0]),
-    )
-    np.testing.assert_allclose(
-        results[1].embedding,
-        np.asarray([5.0, 50.0], dtype=np.float32) / np.linalg.norm([5.0, 50.0]),
-    )
-
-
-def test_maest_analyze_decoded_batch_chunks_windows() -> None:
-    adapter = BatchMaestAdapter(inference_batch_size=2)
-    decoded = [
-        DecodedAudio(
-            path=path,
-            audio=torch.full((16000 * 120,), 1.0),
-            sample_rate=16000,
-            detail="shared",
-        )
-        for path in ("a.wav", "b.wav")
-    ]
-
-    results = adapter.analyze_decoded_batch(decoded)
-
-    assert adapter.fake_model.calls == [
-        ((2, 480000), False),
-        ((2, 480000), False),
-        ((2, 480000), False),
-    ]
     assert len(results) == 2
+    assert [[genre["label"] for genre in result.genres] for result in results] == [["C", "B"], ["A", "B"]]
+    for result, (logits, embeddings) in zip(results, adapter.fake_model.outputs):
+        expected_scores = torch.sigmoid(logits).mean(dim=0)
+        for genre in result.genres:
+            assert genre["score"] == pytest.approx(expected_scores[adapter.fake_model.labels.index(genre["label"])].item())
+        mean_embedding = embeddings.mean(dim=0).numpy()
+        expected_embedding = mean_embedding / np.linalg.norm(mean_embedding)
+        assert result.embedding.shape == (768,)
+        assert result.embedding.dtype == np.float32
+        np.testing.assert_allclose(result.embedding, expected_embedding)
 
 
-def test_maest_analyze_decoded_batch_uses_shared_audio() -> None:
+def test_maest_analyze_decoded_batch_rejects_invalid_native_outputs() -> None:
+    decoded = [DecodedAudio(path="invalid.wav", audio=torch.ones(16_000 * 6), sample_rate=16_000, detail="shared")]
+    invalid_outputs = [
+        (torch.ones(519), torch.ones(768)),
+        (torch.ones((1, 2, 519)), torch.ones((1, 2, 768))),
+        (torch.ones((2, 519)), torch.ones((2, 767))),
+        (torch.ones((2, 518)), torch.ones((2, 768))),
+        (torch.ones((2, 519)), torch.ones((3, 768))),
+        (torch.ones((0, 519)), torch.ones((0, 768))),
+        (torch.full((2, 519), torch.nan), torch.ones((2, 768))),
+        (torch.ones((2, 519)), torch.full((2, 768), torch.inf)),
+        (torch.ones((2, 519)), torch.zeros((2, 768))),
+    ]
+    for output in invalid_outputs:
+        adapter = BatchMaestAdapter()
+        adapter.fake_model.outputs = [output]
+        with pytest.raises(ValueError):
+            adapter.analyze_decoded_batch(decoded)
+
+
+def test_maest_analyze_decoded_batch_forwards_full_resampled_audio(monkeypatch) -> None:
     adapter = BatchMaestAdapter()
+    resample_calls = []
+
+    class FakeResampler:
+        def __init__(self, source_rate, target_rate):
+            assert (source_rate, target_rate) == (8_000, 16_000)
+
+        def __call__(self, waveform):
+            resample_calls.append(waveform.clone())
+            return waveform.repeat_interleave(2, dim=-1)
+
+    adapter.fake_torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResampler))
+    monkeypatch.setattr(embedding_audio, "_RESAMPLERS", {})
+    inputs = [
+        torch.linspace(-0.3, 0.4, 8_000 * 6, dtype=torch.float64),
+        torch.linspace(-0.5, 0.6, 16_000 * 30),
+        torch.linspace(-0.7, 0.8, 16_000 * 65),
+    ]
     decoded = [
-        DecodedAudio(
-            path="a.wav",
-            audio=torch.full((16000 * 120,), 1.0),
-            sample_rate=16000,
-            detail="shared",
-        ),
-        DecodedAudio(
-            path="b.wav",
-            audio=torch.full((16000 * 120,), 2.0),
-            sample_rate=16000,
-            detail="shared",
-        ),
+        DecodedAudio(path=f"{index}.wav", audio=audio, sample_rate=rate, detail="shared")
+        for index, (audio, rate) in enumerate(zip(inputs, [8_000, 16_000, 16_000]))
     ]
 
     results = adapter.analyze_decoded_batch(decoded)
 
-    assert adapter.fake_model.calls == [((6, 480000), False)]
-    assert len(results) == 2
-
-
-def test_maest_decoded_batch_applies_context_per_track() -> None:
-    sample_rate = 16_000
-    adapter = BatchMaestAdapter()
-    structured = MaestWindowContext(
-        leading_silence_seconds=5.0,
-        trailing_silence_seconds=10.0,
-        intro_end_seconds=40.0,
-        outro_start_seconds=170.0,
-    )
-    decoded = [
-        DecodedAudio(
-            path="structured.wav",
-            audio=torch.arange(sample_rate * 200, dtype=torch.float32),
-            sample_rate=sample_rate,
-            detail="test",
-        ),
-        DecodedAudio(
-            path="fallback.wav",
-            audio=torch.arange(sample_rate * 200, dtype=torch.float32)
-            + 10_000_000.0,
-            sample_rate=sample_rate,
-            detail="test",
-        ),
-    ]
-
-    adapter.analyze_decoded_batch(decoded, window_contexts=[structured, None])
-
-    assert adapter.fake_model.first_samples == [
-        float(sample_rate * 51),
-        float(sample_rate * 90),
-        float(sample_rate * 129),
-        float(10_000_000 + sample_rate * 25),
-        float(10_000_000 + sample_rate * 85),
-        float(10_000_000 + sample_rate * 145),
-    ]
+    assert len(resample_calls) == 1
+    torch.testing.assert_close(resample_calls[0].reshape(-1), inputs[0].float())
+    assert len(adapter.fake_model.audio_calls) == len(results) == 3
+    expected = [inputs[0].float().repeat_interleave(2), inputs[1], inputs[2]]
+    for actual, full in zip(adapter.fake_model.audio_calls, expected):
+        torch.testing.assert_close(actual, full)

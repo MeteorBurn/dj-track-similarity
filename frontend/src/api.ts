@@ -52,6 +52,11 @@ export type TrackMutationIdentity = {
   track_uuid: string;
 };
 
+export type MaestMelExportRequest = TrackMutationIdentity & {
+  device?: "auto" | "cpu" | "cuda";
+  top_k?: number;
+};
+
 export type TrackIdentity = Pick<
   Track,
   "track_id" | "catalog_uuid" | "track_uuid"

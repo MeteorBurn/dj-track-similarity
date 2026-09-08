@@ -146,6 +146,14 @@ class DatabaseStateResponse(BaseModel):
     selected: bool
 
 
+class MaestMelExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    catalog_uuid: str = Field(min_length=1)
+    track_uuid: str = Field(min_length=1)
+    device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
+    top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
+
+
 class AnalysisJobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -13,7 +13,6 @@ from ..analysis_models import (
 )
 from .embeddings import EmbeddingTrackIdentity
 from ..maest_analysis_validation import MAEST_ANALYSIS_COLUMNS, validate_maest_analysis_row
-from ..maest_windows import MaestWindowContext
 from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_row
 
 
@@ -53,14 +52,8 @@ def read_current_track_rows(connection: sqlite3.Connection) -> list[sqlite3.Row]
         """
         SELECT
             tracks.track_id, tracks.track_uuid, tracks.file_path,
-            tracks.file_size_bytes, tracks.file_modified_ns,
-            sonara.leading_silence_seconds,
-            sonara.trailing_silence_seconds,
-            sonara.intro_end_seconds,
-            sonara.outro_start_seconds
+            tracks.file_size_bytes, tracks.file_modified_ns
         FROM tracks
-        LEFT JOIN sonara_features AS sonara
-          ON sonara.track_id = tracks.track_id
         WHERE tracks.missing_since IS NULL
         ORDER BY tracks.file_path COLLATE NOCASE, tracks.track_id
         """
@@ -72,12 +65,8 @@ def read_current_track_identities(
 ) -> list[sqlite3.Row]:
     """Read only what a search needs: the identity of every current track.
 
-    ``read_current_track_rows`` also carries file facts and the SONARA
-    structure boundaries, because the analysis-candidate pipeline builds a
-    MAEST window context from them. A search reads neither, and paying for the
-    join into ``sonara_features`` on every request costs more than the cosine
-    it is fetching vectors for. The ORDER BY is kept identical so row order,
-    and with it the tie-break among equal scores, does not move.
+    Analysis candidates also need file facts. Search only needs identities;
+    keep the same ordering for deterministic tie-breaking among equal scores.
     """
 
     return connection.execute(
@@ -99,23 +88,6 @@ def target_from_track_row(
         catalog_uuid=catalog_uuid,
         track_id=int(row["track_id"]),
         track_uuid=str(row["track_uuid"]),
-    )
-
-
-def _maest_window_context(row: sqlite3.Row) -> MaestWindowContext | None:
-    values = (
-        row["leading_silence_seconds"],
-        row["trailing_silence_seconds"],
-        row["intro_end_seconds"],
-        row["outro_start_seconds"],
-    )
-    if all(value is None for value in values):
-        return None
-    return MaestWindowContext(
-        leading_silence_seconds=(None if values[0] is None else float(values[0])),
-        trailing_silence_seconds=(None if values[1] is None else float(values[1])),
-        intro_end_seconds=None if values[2] is None else float(values[2]),
-        outro_start_seconds=None if values[3] is None else float(values[3]),
     )
 
 
@@ -309,12 +281,9 @@ def collect_analysis_candidates(
         if limit == 0:
             return []
     sonara_output = AnalysisOutput("sonara", "core")
-    needs_sonara = require_current_sonara or any(
-        output.analysis_family == "maest" for output in normalized
-    )
     readiness_outputs = (
         normalized
-        if not needs_sonara or sonara_output in normalized
+        if not require_current_sonara or sonara_output in normalized
         else (*normalized, sonara_output)
     )
     ready = ready_target_keys_by_output(
@@ -322,7 +291,7 @@ def collect_analysis_candidates(
         catalog_uuid=catalog_uuid,
         outputs=readiness_outputs,
     )
-    sonara_ready = ready.get(sonara_output.key, set()) if needs_sonara else set()
+    sonara_ready = ready.get(sonara_output.key, set()) if require_current_sonara else set()
     candidates: list[AnalysisCandidate] = []
     for row in read_current_track_rows(connection):
         target = target_from_track_row(row, catalog_uuid=catalog_uuid)
@@ -339,9 +308,6 @@ def collect_analysis_candidates(
                 file_size_bytes=int(row["file_size_bytes"]),
                 file_modified_ns=int(row["file_modified_ns"]),
                 missing_outputs=missing,
-                maest_window_context=(
-                    _maest_window_context(row) if target_key in sonara_ready else None
-                ),
             )
         )
         if limit is not None and len(candidates) >= limit:

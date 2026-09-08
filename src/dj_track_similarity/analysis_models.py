@@ -20,7 +20,6 @@ from typing import Literal
 import numpy as np
 
 from .db.ddl import ClassifierScoreRecord, SonaraRow
-from .maest_windows import MaestWindowContext
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
@@ -153,7 +152,7 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
     ),
 )
 
-MAEST_PREPROCESSING = "shared-mono/maest-16khz-30s-three-windows-v1"
+MAEST_PREPROCESSING = "shared-mono/maest-16khz-native-full-track-v2"
 MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows-v1"
 MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-interior-windows-v1"
 MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track-v2"
@@ -203,36 +202,30 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
 ] = {
     ("maest", "analysis"): {
         "sample_rate_hz": 16_000,
-        "input_seconds": 30.0,
-        "analysis_window_positions": (0.2, 0.5, 0.8),
+        "audio_input": "full-track",
         "channel_downmix": "torchcodec-num-channels-1",
         "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
-        "window_selection": "structure-aware-main-range-centered-20-50-80",
-        "window_context": "sonara-current-generation-optional",
-        "window_fallback": "main-range->non-silent-range->full-duration",
-        "window_dedup_tolerance_seconds": 1.0,
-        "short_audio": "right-zero-pad-to-30s",
-        "model_input": "raw-waveform-melspectrogram-input-false",
+        "block_selection": "upstream-mel-contiguous-blocks",
+        "tail_handling": "upstream-trim-incomplete-mel-block",
+        "short_audio": "upstream-variable-length-mel",
+        "model_input": "1d-raw-waveform-melspectrogram-input-false",
         "score_activation": "sigmoid-logits",
-        "score_pooling": "window-mean-then-top-k",
+        "score_pooling": "upstream-sigmoid-then-block-mean-then-top-k",
     },
     ("maest", "embedding"): {
         "sample_rate_hz": 16_000,
-        "input_seconds": 30.0,
-        "analysis_window_positions": (0.2, 0.5, 0.8),
-        "pooling": "distilled-token-mean+window-mean+l2",
+        "audio_input": "full-track",
+        "pooling": "native-distilled-token-mean+storage-block-mean+l2",
         "channel_downmix": "torchcodec-num-channels-1",
         "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
-        "window_selection": "structure-aware-main-range-centered-20-50-80",
-        "window_context": "sonara-current-generation-optional",
-        "window_fallback": "main-range->non-silent-range->full-duration",
-        "window_dedup_tolerance_seconds": 1.0,
-        "short_audio": "right-zero-pad-to-30s",
-        "model_input": "raw-waveform-melspectrogram-input-false",
+        "block_selection": "upstream-mel-contiguous-blocks",
+        "tail_handling": "upstream-trim-incomplete-mel-block",
+        "short_audio": "upstream-variable-length-mel",
+        "model_input": "1d-raw-waveform-melspectrogram-input-false",
         "score_activation": "sigmoid-logits",
-        "score_pooling": "window-mean-then-top-k",
+        "score_pooling": "upstream-sigmoid-then-block-mean-then-top-k",
     },
     ("mert", "embedding"): {
         "sample_rate_hz": 24_000,
@@ -299,8 +292,7 @@ _REQUIRED_PARAMETER_KEYS = {
         {
             "adapter_revision",
             "sample_rate_hz",
-            "input_seconds",
-            "analysis_window_positions",
+            "audio_input",
             "top_k",
             "dtype",
             "device_precision",
@@ -312,8 +304,7 @@ _REQUIRED_PARAMETER_KEYS = {
         {
             "adapter_revision",
             "sample_rate_hz",
-            "input_seconds",
-            "analysis_window_positions",
+            "audio_input",
             "pooling",
             "dtype",
             "device_precision",
@@ -489,7 +480,6 @@ class AnalysisCandidate:
     file_size_bytes: int
     file_modified_ns: int
     missing_outputs: tuple[AnalysisOutput, ...]
-    maest_window_context: MaestWindowContext | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -513,13 +503,6 @@ class AnalysisCandidate:
         if not missing:
             raise ValueError("analysis candidate must have at least one missing output")
         object.__setattr__(self, "missing_outputs", missing)
-        if (
-            self.maest_window_context is not None
-            and not isinstance(self.maest_window_context, MaestWindowContext)
-        ):
-            raise TypeError(
-                "maest_window_context must be a MaestWindowContext or None"
-            )
 
 
 def _validate_short_float_blob(blob: bytes, *, dim: int, field_name: str) -> None:

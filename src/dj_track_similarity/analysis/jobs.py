@@ -6,7 +6,10 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
+
+if TYPE_CHECKING:
+    from .maest_export import MaestMelExport
 
 from . import model_runners as model_runner_module
 from .config import (
@@ -52,6 +55,7 @@ from .._shutdown import defer_keyboard_interrupt
 from ..analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
+    AnalysisTarget,
 )
 from .queue import AnalysisStageQueue
 from ..audio.loader import load_decoded_audio
@@ -405,6 +409,32 @@ class AnalysisJobManager:
     def _require_open(self) -> None:
         if self._closing:
             raise RuntimeError("Analysis manager is closed")
+
+    def export_maest_mel(
+        self, target: AnalysisTarget | int, *, device: str = "auto", top_k: int = 3,
+    ) -> MaestMelExport:
+        """Run a synchronous export under the same runner and shutdown ownership as analysis."""
+        from .maest_export import build_maest_mel_export
+
+        config = build_analysis_job_config(models=["maest"], device=device, top_k=top_k)
+        thread_id = threading.get_ident()
+        with self._lifecycle:
+            self._require_open()
+            self._active_work += 1
+            self._executing_threads[thread_id] = self._executing_threads.get(thread_id, 0) + 1
+        try:
+            key = _RunnerRuntimeKey("maest", config.device, self.inference_batch_size, config.top_k)
+            handle = self._cached_ml_runner(key)
+            with handle.lock:
+                if not isinstance(handle.runner, MaestModelRunner):
+                    raise RuntimeError("MAEST export requires a MAEST analysis runner")
+                return build_maest_mel_export(self.db, target, handle.runner.adapter)
+        finally:
+            with self._lifecycle:
+                self._executing_threads[thread_id] -= 1
+                if not self._executing_threads[thread_id]:
+                    del self._executing_threads[thread_id]
+                self._release_work()
 
     def _release_work(self) -> None:
         with self._lifecycle:
@@ -913,15 +943,23 @@ class AnalysisJobManager:
             inference_batch_size=status.inference_batch_size,
             top_k=status.top_k,
         )
+        return self._cached_ml_runner(key)
+
+    def _cached_ml_runner(self, key: _RunnerRuntimeKey) -> _RunnerHandle:
+        if self._provided_runner_handles is not None:
+            try:
+                return self._provided_runner_handles[key.model]
+            except KeyError as error:
+                raise ValueError(f"No analysis runner configured for: {key.model}") from error
         with self._runtime_runners_lock:
             cached = self._runtime_runners.get(key)
             if cached is None:
                 cached = _RunnerHandle(
                     self._runner_factory(
-                        model,
-                        status.device_requested,
-                        status.inference_batch_size,
-                        status.top_k,
+                        key.model,
+                        key.device_requested,
+                        key.inference_batch_size,
+                        key.top_k,
                     )
                 )
                 self._runtime_runners[key] = cached

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.analysis_models import AnalysisOutput, SonaraWrite
+from dj_track_similarity.db.ddl import SonaraRow
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
 
 
@@ -235,6 +238,29 @@ def test_analysis_candidates_are_path_ordered_limited_and_skip_missing_tracks(
     assert [candidate.file_path for candidate in limited] == [
         second.resolve().as_posix()
     ]
+
+    maest_output = AnalysisOutput("maest", "embedding")
+    assert database.list_analysis_candidates(
+        (maest_output,), require_current_sonara=True,
+    ) == []
+    target = limited[0].target
+    values = {field.name: None for field in fields(SonaraRow)}
+    values.update(
+        track_id=target.track_id,
+        analysis_schema_version=6,
+        analyzed_at="2026-09-08T00:00:00Z",
+        mfcc_mean_blob=struct.pack("<13f", *([0.0] * 13)),
+        chroma_mean_blob=struct.pack("<12f", *([0.0] * 12)),
+        spectral_contrast_mean_blob=struct.pack("<7f", *([0.0] * 7)),
+    )
+    written = database.save_sonara_results(
+        (SonaraWrite(target=target, core=SonaraRow(**values)),),
+    )
+    assert written[0].ok, written[0].error
+    admitted = database.list_analysis_candidates(
+        (maest_output,), require_current_sonara=True,
+    )
+    assert [candidate.target for candidate in admitted] == [target]
 
     alpha_state = _scanned_state(database, second)
     assert database.mark_missing(alpha_state.track_id)

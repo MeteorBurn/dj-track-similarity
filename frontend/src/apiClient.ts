@@ -20,6 +20,7 @@ import type {
   EmbeddingSearchPayload,
   GenreTagJobStatus,
   LibrarySummary,
+  MaestMelExportRequest,
   PromotedClassifier,
   ReferenceComparePayload,
   ReferenceCompareResponse,
@@ -289,6 +290,17 @@ const shellApi = {
 };
 
 const analysisApi = {
+  exportMaestMel: async (trackId: number, payload: MaestMelExportRequest): Promise<Blob> => {
+    const response = await fetch(`/api/tracks/${trackId}/maest/mel-spectrogram`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, responseErrorMessage(await response.text(), response.statusText));
+    }
+    return response.blob();
+  },
   resetAnalysis: (analysisFamily: AnalysisModel) =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",

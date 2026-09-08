@@ -11,6 +11,7 @@ import numpy.typing as npt
 
 from .job_batch import AnalysisBatchItem
 from ..analysis_models import (
+    AnalysisTarget,
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisWriteResult,
@@ -49,11 +50,14 @@ from .sonara_staging import (
 from .sonara_results import prepare_sonara_write
 
 if TYPE_CHECKING:
+    from ..track_models import TrackFileState
     from ..embedding.maest import MaestAnalysisResult
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 class AnalysisWriteRepository(Protocol):
+    def require_maest_export_source(self, target: AnalysisTarget | int) -> TrackFileState: ...
+
     def current_sonara_track_count(self) -> int: ...
 
     def register_analysis_outputs(
@@ -326,9 +330,6 @@ class MaestModelRunner:
             direct_items = [items[index] for index in direct_indexes]
             direct_results = self.adapter.analyze_decoded_batch(
                 _decoded_items(direct_items),
-                window_contexts=[
-                    item.candidate.maest_window_context for item in direct_items
-                ],
             )
             if len(direct_results) != len(direct_items):
                 raise ValueError("MAEST batch result count does not match track count")
@@ -343,7 +344,6 @@ class MaestModelRunner:
                 decoded = load_decoded_audio_with_ffmpeg(item.candidate.file_path)
                 ffmpeg_results = self.adapter.analyze_decoded_batch(
                     [decoded],
-                    window_contexts=[item.candidate.maest_window_context],
                 )
                 if len(ffmpeg_results) != 1:
                     raise ValueError("MAEST FFmpeg fallback did not return one result")

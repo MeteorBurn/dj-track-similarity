@@ -8,7 +8,6 @@ from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from ..audio.loader import DecodedAudio
-    from ..maest_windows import MaestWindowContext
     from .maest import MaestAnalysisResult
 
 
@@ -56,5 +55,5 @@ class MaestAnalysisAdapter(EmbeddingRuntime, Protocol):
         self,
         decoded_items: Sequence[DecodedAudio],
         *,
-        window_contexts: Sequence[MaestWindowContext | None] | None = None,
+        include_mel_spectrogram: bool = False,
     ) -> list[MaestAnalysisResult]: ...

@@ -155,24 +155,6 @@ def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
         assert parameters["channel_downmix"] == "torchcodec-num-channels-1"
 
 
-def test_maest_runtime_parameters_describe_structure_aware_windows() -> None:
-    parameters = MaestEmbeddingAdapter(device="cpu").runtime_parameters()
-
-    assert parameters["analysis_window_positions"] == (0.2, 0.5, 0.8)
-    assert (
-        parameters["window_selection"]
-        == "structure-aware-main-range-centered-20-50-80"
-    )
-    assert parameters["window_context"] == "sonara-current-generation-optional"
-    assert (
-        parameters["window_fallback"]
-        == "main-range->non-silent-range->full-duration"
-    )
-    assert parameters["window_dedup_tolerance_seconds"] == 1.0
-    assert "analysis_offset_seconds" not in parameters
-    assert "analysis_window_ratios" not in parameters
-
-
 def test_checkpoint_verification_rejects_wrong_bytes(tmp_path) -> None:
     checkpoint = tmp_path / "checkpoint.bin"
     checkpoint.write_bytes(b"not the pinned checkpoint")

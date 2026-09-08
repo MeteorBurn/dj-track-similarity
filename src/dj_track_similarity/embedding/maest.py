@@ -23,13 +23,7 @@ from ..analysis_models import (
 from ..audio.loader import DecodedAudio
 from .audio import _resample_to
 from .loading import _verify_checkpoint_sha256
-from ..genres import rank_maest_genres
-from ..maest_windows import (
-    MAEST_WINDOW_DEDUP_TOLERANCE_SECONDS,
-    MAEST_WINDOW_POSITIONS,
-    MaestWindowContext,
-    select_maest_window_starts,
-)
+from ..genres import rank_genres
 from ..runtime import select_torch_device
 from ..verified_assets import bind_verified_file
 
@@ -41,6 +35,13 @@ _MAEST_CONSTRUCTION_LOCK = threading.RLock()
 class MaestAnalysisResult:
     genres: list[dict[str, float | str]]
     embedding: np.ndarray
+    mel_spectrogram: MaestMelSpectrogram | None = None
+
+
+@dataclass(frozen=True)
+class MaestMelSpectrogram:
+    values: np.ndarray
+    metadata: dict[str, object]
 
 class MaestEmbeddingAdapter:
     embedding_key = "maest"
@@ -58,9 +59,7 @@ class MaestEmbeddingAdapter:
     preprocessing = MAEST_PREPROCESSING
     dim = 768
     target_rate = 16_000
-    input_seconds = 30.0
-    analysis_window_positions = MAEST_WINDOW_POSITIONS
-    pooling = "distilled-token-mean+window-mean+l2"
+    pooling = "native-distilled-token-mean+storage-block-mean+l2"
     encoding = "float32-le"
     normalization = "l2"
 
@@ -68,15 +67,14 @@ class MaestEmbeddingAdapter:
         self,
         device: str | None = None,
         top_k: int = 3,
-        inference_batch_size: int = 8,
     ) -> None:
         self.requested_device = device or "auto"
         self.device_name = (
             None if self.requested_device == "auto" else self.requested_device
         )
         self.top_k = max(1, int(top_k))
-        self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
+        self._inference_lock = threading.RLock()
         self._model = None
         self._torch = None
         self._torchaudio = None
@@ -87,21 +85,18 @@ class MaestEmbeddingAdapter:
         return {
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
-            "input_seconds": self.input_seconds,
-            "analysis_window_positions": self.analysis_window_positions,
+            "audio_input": "full-track",
             "top_k": self.top_k,
             "pooling": self.pooling,
             "channel_downmix": "torchcodec-num-channels-1",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
-            "window_selection": "structure-aware-main-range-centered-20-50-80",
-            "window_context": "sonara-current-generation-optional",
-            "window_fallback": "main-range->non-silent-range->full-duration",
-            "window_dedup_tolerance_seconds": MAEST_WINDOW_DEDUP_TOLERANCE_SECONDS,
-            "short_audio": "right-zero-pad-to-30s",
-            "model_input": "raw-waveform-melspectrogram-input-false",
+            "block_selection": "upstream-mel-contiguous-blocks",
+            "tail_handling": "upstream-trim-incomplete-mel-block",
+            "short_audio": "upstream-variable-length-mel",
+            "model_input": "1d-raw-waveform-melspectrogram-input-false",
             "score_activation": "sigmoid-logits",
-            "score_pooling": "window-mean-then-top-k",
+            "score_pooling": "upstream-sigmoid-then-block-mean-then-top-k",
             "dtype": "float32",
             "device_precision": "float32-eval",
             "checkpoint_release": self.checkpoint_release,
@@ -116,151 +111,116 @@ class MaestEmbeddingAdapter:
         self,
         decoded_items: Sequence[DecodedAudio],
         *,
-        window_contexts: Sequence[MaestWindowContext | None] | None = None,
+        include_mel_spectrogram: bool = False,
+    ) -> list[MaestAnalysisResult]:
+        with self._inference_lock:
+            return self._analyze_decoded_batch(
+                decoded_items, include_mel_spectrogram=include_mel_spectrogram,
+            )
+
+    def _analyze_decoded_batch(
+        self,
+        decoded_items: Sequence[DecodedAudio],
+        *,
+        include_mel_spectrogram: bool,
     ) -> list[MaestAnalysisResult]:
         self._load_model()
-        torch = self._torch
-        assert torch is not None
-        contexts = (
-            [None] * len(decoded_items)
-            if window_contexts is None
-            else list(window_contexts)
-        )
-        if len(contexts) != len(decoded_items):
-            raise ValueError("MAEST window context count does not match track count")
-
-        prepared: list[object] = []
-        window_track_indexes: list[int] = []
-        prepare_started = time.perf_counter()
-        for track_index, (decoded, context) in enumerate(zip(decoded_items, contexts)):
-            windows = self._prepare_audio_windows_from_audio(
-                decoded.path,
-                decoded.audio,
-                decoded.sample_rate,
-                window_context=context,
-            )
-            prepared.extend(windows)
-            window_track_indexes.extend([track_index] * len(windows))
-        prepare_seconds = time.perf_counter() - prepare_started
-        return self._analyze_prepared_batch(
-            prepared,
-            window_track_indexes,
-            expected_tracks=len(decoded_items),
-            prepare_seconds=prepare_seconds,
-        )
-
-    def _analyze_prepared_batch(
-        self,
-        prepared: Sequence[object],
-        window_track_indexes: Sequence[int],
-        *,
-        expected_tracks: int,
-        prepare_seconds: float,
-    ) -> list[MaestAnalysisResult]:
         torch = self._torch
         assert torch is not None and self._model is not None
         device = self._device()
         _move_maest_runtime_modules(self._model, device)
-
-        score_rows: list[list[float]] = []
+        labels = [str(label) for label in self._model.labels]
+        genres_by_track: list[list[dict[str, float | str]]] = []
         embedding_rows: list[np.ndarray] = []
-        inference_started = time.perf_counter()
-        with torch.inference_mode():
-            for start in range(0, len(prepared), self.inference_batch_size):
-                chunk = prepared[start : start + self.inference_batch_size]
-                audio_batch = torch.stack(chunk, dim=0).to(device)
-                logits, embeddings = self._model(
-                    audio_batch,
-                    melspectrogram_input=False,
+        block_track_indexes: list[int] = []
+        spectrograms: list[MaestMelSpectrogram | None] = []
+        prepare_seconds = 0.0
+        inference_seconds = 0.0
+        for track_index, decoded in enumerate(decoded_items):
+            prepare_started = time.perf_counter()
+            waveform = self._prepare_audio_from_decoded(decoded).to(device)
+            prepare_seconds += time.perf_counter() - prepare_started
+            inference_started = time.perf_counter()
+            with torch.inference_mode():
+                captured: list[np.ndarray] = []
+                capture_handle = None
+                if include_mel_spectrogram:
+                    def capture_mel(_module, _args, output):
+                        captured.append(output.detach().cpu().numpy().copy())
+
+                    capture_handle = self._model.melspectrogram.register_forward_hook(capture_mel)
+                try:
+                    logits, embeddings = self._model(
+                        waveform,
+                        melspectrogram_input=False,
+                    )
+                finally:
+                    if capture_handle is not None:
+                        capture_handle.remove()
+                block_count = _validate_maest_output(
+                    logits, name="logits", width=len(labels),
                 )
-                score_rows.extend(
-                    _maest_score_rows(
-                        torch.sigmoid(logits),
-                        expected_rows=len(chunk),
+                _validate_maest_output(
+                    embeddings, name="embeddings", width=self.dim,
+                    expected_rows=block_count,
+                )
+                scores = torch.sigmoid(logits).mean(dim=0).detach().cpu().numpy()
+                embedding_rows.extend(
+                    np.array(
+                        embeddings.detach().cpu().numpy(), dtype=np.float32, copy=True,
                     )
                 )
-                embedding_rows.extend(
-                    _maest_embedding_rows(embeddings, expected_rows=len(chunk))
+                spectrograms.append(
+                    _maest_mel_spectrogram(self._model, captured, block_count)
+                    if include_mel_spectrogram else None
                 )
-        inference_seconds = time.perf_counter() - inference_started
+            inference_seconds += time.perf_counter() - inference_started
+            genres_by_track.append(rank_genres(labels, scores.tolist(), self.top_k))
+            block_track_indexes.extend([track_index] * block_count)
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
             "inference_seconds": inference_seconds,
-            "tracks": expected_tracks,
-            "windows": len(prepared),
+            "tracks": len(decoded_items),
+            "windows": len(block_track_indexes),
         }
 
-        labels = [str(label) for label in getattr(self._model, "labels")]
-        genres_by_track = rank_maest_genres(
-            labels,
-            score_rows,
-            window_track_indexes,
-            expected_tracks=expected_tracks,
-            top_k=self.top_k,
-        )
+        # Storage needs one unit vector; native inference returns block embeddings.
         averaged_embeddings = _average_maest_embeddings(
             embedding_rows,
-            window_track_indexes,
-            expected_tracks=expected_tracks,
+            block_track_indexes,
+            expected_tracks=len(decoded_items),
         )
         return [
             MaestAnalysisResult(
                 genres=genres,
                 embedding=embedding,
+                mel_spectrogram=spectrogram,
             )
-            for genres, embedding in zip(genres_by_track, averaged_embeddings)
+            for genres, embedding, spectrogram in zip(
+                genres_by_track, averaged_embeddings, spectrograms,
+            )
         ]
 
-    def _prepare_audio_windows_from_audio(
-        self,
-        path: str | Path,
-        audio_values: Tensor,
-        sample_rate: int,
-        *,
-        window_context: MaestWindowContext | None = None,
-    ) -> list[object]:
+    def _prepare_audio_from_decoded(self, decoded: DecodedAudio) -> Tensor:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None
-        audio = audio_values.to(dtype=torch.float32).unsqueeze(0)
-        if sample_rate != self.target_rate:
+        audio = decoded.audio.to(dtype=torch.float32)
+        if audio.ndim != 1 or audio.numel() == 0:
+            raise ValueError(f"MAEST requires non-empty mono audio: {decoded.path}")
+        if decoded.sample_rate != self.target_rate:
             if torchaudio is None:
                 raise RuntimeError(
                     "MAEST shared-audio analysis requires torchaudio resampling: "
-                    f"{path}"
+                    f"{decoded.path}"
                 )
             audio = _resample_to(
-                audio,
-                source_rate=sample_rate,
+                audio.unsqueeze(0),
+                source_rate=decoded.sample_rate,
                 target_rate=self.target_rate,
                 torchaudio=torchaudio,
-            )
-        audio = audio.squeeze(0)
-        target_samples = int(self.target_rate * self.input_seconds)
-        if audio.numel() < target_samples:
-            return [
-                torch.nn.functional.pad(
-                    audio,
-                    (0, target_samples - audio.numel()),
-                )
-            ]
-
-        starts = select_maest_window_starts(
-            audio.numel() / self.target_rate,
-            self.input_seconds,
-            window_context,
-        )
-        windows: list[object] = []
-        for start_seconds in starts:
-            start = max(0, int(self.target_rate * start_seconds))
-            segment = audio[start : start + target_samples]
-            if segment.numel() < target_samples:
-                segment = torch.nn.functional.pad(
-                    segment,
-                    (0, target_samples - segment.numel()),
-                )
-            windows.append(segment)
-        return windows or [audio[:target_samples]]
+            ).squeeze(0)
+        return audio.to(dtype=torch.float32)
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -364,74 +324,61 @@ def _move_maest_runtime_modules(model: object, device: str) -> None:
     if callable(move):
         move(device)
 
-def _maest_score_rows(values: object, *, expected_rows: int) -> list[list[float]]:
-    detach = getattr(values, "detach", None)
-    if callable(detach):
-        values = detach()
-    cpu = getattr(values, "cpu", None)
-    if callable(cpu):
-        values = cpu()
-    numpy = getattr(values, "numpy", None)
-    if callable(numpy):
-        values = numpy()
+def _maest_mel_spectrogram(model, captured: list[np.ndarray], block_count: int) -> MaestMelSpectrogram:
+    if len(captured) != 1:
+        raise RuntimeError("MAEST must produce exactly one full-track mel spectrogram")
+    values = captured[0]
+    frontend = model.melspectrogram
+    if values.dtype != np.float32 or values.ndim != 2 or values.shape[0] != frontend.n_mel:
+        raise ValueError("Unexpected MAEST mel spectrogram shape or dtype")
+    if not np.isfinite(values).all():
+        raise ValueError("MAEST mel spectrogram contains non-finite values")
+    values.setflags(write=False)
+    frames_per_block = int(model.img_size[1])
+    used_frames = min(values.shape[1], block_count * frames_per_block)
+    return MaestMelSpectrogram(values, {
+        "representation": "maest-normalized-log-mel",
+        "axes": ["mel_band", "time_frame"],
+        "sample_rate_hz": int(frontend.sr),
+        "hop_length_samples": int(frontend.hop_len),
+        "fft_size": int(frontend.win_len),
+        "window_length_samples": int(frontend.spec.win_length),
+        "center": bool(frontend.spec.center),
+        "pad_mode": str(frontend.spec.pad_mode),
+        "power": float(frontend.power),
+        "mel_bands": int(frontend.n_mel),
+        "mel_scale": str(frontend.mel_scale_type),
+        "mel_norm": str(frontend.norm),
+        "normalization": "(log10(1 + mel * 10000) - mean) / (2 * std)",
+        "normalization_mean": float(frontend.norm_mean),
+        "normalization_std": float(frontend.norm_std),
+        "frames_per_native_block": frames_per_block,
+        "native_blocks": block_count,
+        "used_frames": used_frames,
+        "discarded_tail_frames": values.shape[1] - used_frames,
+        "includes_discarded_tail": True,
+    })
 
-    shape = getattr(values, "shape", None)
-    if shape is not None and len(shape) >= 2:
-        rows = [
-            [float(score) for score in row] for row in values  # type: ignore[union-attr]
-        ]
-        if len(rows) != expected_rows:
-            raise ValueError(
-                "MAEST batch output shape does not match the requested batch size"
-            )
-        return rows
 
-    flat = _maest_float_list(values)
-    if expected_rows == 1:
-        return [flat]
-    raise ValueError("MAEST batch output shape does not include per-track rows")
-
-def _maest_float_list(values: object) -> list[float]:
-    detach = getattr(values, "detach", None)
-    if callable(detach):
-        values = detach()
-    cpu = getattr(values, "cpu", None)
-    if callable(cpu):
-        values = cpu()
-    numpy = getattr(values, "numpy", None)
-    if callable(numpy):
-        values = numpy()
-    reshape = getattr(values, "reshape", None)
-    if callable(reshape):
-        values = reshape(-1)
-    return [float(value) for value in values]  # type: ignore[union-attr]
-
-def _maest_embedding_rows(
-    values: object,
+def _validate_maest_output(
+    values: Tensor | None,
     *,
-    expected_rows: int,
-) -> list[np.ndarray]:
+    name: str,
+    width: int,
+    expected_rows: int | None = None,
+) -> int:
     if values is None:
-        raise ValueError("MAEST model did not return embeddings")
-    detach = getattr(values, "detach", None)
-    if callable(detach):
-        values = detach()
-    cpu = getattr(values, "cpu", None)
-    if callable(cpu):
-        values = cpu()
-    numpy = getattr(values, "numpy", None)
-    if callable(numpy):
-        values = numpy()
-    array = np.asarray(values, dtype=np.float32)
-    if array.ndim == 3:
-        array = array.mean(axis=1)
-    if array.ndim != 2:
-        raise ValueError(f"Unsupported MAEST embedding shape: {array.shape}")
-    if array.shape[0] != expected_rows:
+        raise ValueError(f"MAEST model did not return {name}")
+    if values.ndim != 2 or values.shape[0] == 0 or values.shape[1] != width:
+        raise ValueError(f"Unsupported MAEST {name} shape: {tuple(values.shape)}")
+    if expected_rows is not None and values.shape[0] != expected_rows:
         raise ValueError(
-            "MAEST embedding row count does not match audio window count"
+            "MAEST embedding row count does not match native logit block count"
         )
-    return [array[index].astype(np.float32, copy=True) for index in range(array.shape[0])]
+    if not values.isfinite().all():
+        raise ValueError(f"MAEST model produced non-finite {name}")
+    return int(values.shape[0])
+
 
 def _average_maest_embeddings(
     rows: Sequence[np.ndarray],

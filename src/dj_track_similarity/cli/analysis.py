@@ -264,3 +264,30 @@ def register_commands(app: typer.Typer) -> None:
     app.command()(analyze)
     app.command('analyze-pipeline')(analyze_pipeline)
     app.command('analyze-classifier')(analyze_classifier)
+    app.command('export-maest-mel')(export_maest_mel)
+
+
+def export_maest_mel(
+    track_id: int = typer.Argument(..., min=1),
+    db_path: Path = typer.Option(..., "--db", exists=True, dir_okay=False),
+    output: Path = typer.Option(..., "--output", help="New .npz file containing mel, embedding and metadata_json."),
+    device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device"),
+    top_k: int = typer.Option(DEFAULT_ANALYSIS_TOP_K, "--top-k", min=MIN_ANALYSIS_TOP_K, max=MAX_ANALYSIS_TOP_K),
+) -> None:
+    from ..analysis.maest_export import write_maest_mel_export
+
+    if output.suffix.lower() != ".npz" or output.exists() or not output.parent.is_dir():
+        raise typer.BadParameter("Choose a new .npz file in an existing output directory", param_hint="--output")
+    database = _db(db_path, configure_file_logging=False)
+    manager = AnalysisJobManager(database)
+    try:
+        export = manager.export_maest_mel(
+            track_id, device=device, top_k=top_k,
+        )
+        write_maest_mel_export(export, output)
+    except (OSError, RuntimeError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    finally:
+        manager.close()
+    typer.echo(f"output={output.resolve()} track_id={track_id}")

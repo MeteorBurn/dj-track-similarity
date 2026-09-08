@@ -3,11 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import Response
 
 from ..analysis.config import build_analysis_job_config
 from ..analysis_models import (
     AnalysisOutput,
     AnalysisResetResult,
+    AnalysisTarget,
+    StaleAnalysisTargetError,
 )
 from .schemas import (
     AnalysisJobRequest,
@@ -17,8 +20,9 @@ from .schemas import (
     ClassifierAnalyzeRequest,
     ClassifierResetRequest,
     SonaraStatusResponse,
+    MaestMelExportRequest,
 )
-from .state import AppDatabaseState
+from .state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
 from ..classifier.production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
 from ..analysis.sonara_staging import SonaraStagingConfig
 from ..analysis.ml_staging import MLStagingConfig
@@ -30,6 +34,32 @@ def register_analysis_routes(
     *,
     promoted_classifiers: Callable[[], list[dict[str, object]]],
 ) -> None:
+    @app.post(
+        "/api/tracks/{track_id}/maest/mel-spectrogram",
+        response_class=Response,
+        responses={200: {"content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}},
+    )
+    def export_maest_mel(track_id: int, request: MaestMelExportRequest):
+        try:
+            target = AnalysisTarget(request.catalog_uuid, track_id, request.track_uuid)
+            with state.exclusive_db("export MAEST mel spectrogram"):
+                manager = state.analysis_jobs
+                if manager is None:
+                    raise DatabaseBusy("Analysis manager is unavailable")
+                export = manager.export_maest_mel(target, device=request.device, top_k=request.top_k)
+            return Response(
+                export.content, media_type="application/octet-stream",
+                headers={"Content-Disposition": f'attachment; filename="{export.filename}"'},
+            )
+        except (DatabaseBusy, DatabaseNotSelected, StaleAnalysisTargetError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except (OSError, RuntimeError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     @app.post(
         "/api/analysis/reset",
         response_model=AnalysisResetResponse,

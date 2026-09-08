@@ -8,7 +8,7 @@ def rank_genres(
     scores: Sequence[float],
     top_k: int,
 ) -> list[dict[str, float | str]]:
-    """Rank MAEST genre probabilities already activated and pooled by the adapter."""
+    """Rank track genre probabilities returned by MAEST's native predict_labels."""
 
     ranked = sorted(zip(labels, scores), key=lambda item: item[1], reverse=True)
     return [

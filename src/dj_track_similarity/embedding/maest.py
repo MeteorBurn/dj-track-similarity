@@ -5,6 +5,7 @@ import threading
 import time
 from collections import defaultdict
 from collections.abc import Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -129,7 +130,7 @@ class MaestEmbeddingAdapter:
         assert torch is not None and self._model is not None
         device = self._device()
         _move_maest_runtime_modules(self._model, device)
-        labels = [str(label) for label in self._model.labels]
+        expected_labels = list(self._model.labels)
         genres_by_track: list[list[dict[str, float | str]]] = []
         embedding_rows: list[np.ndarray] = []
         block_track_indexes: list[int] = []
@@ -143,28 +144,35 @@ class MaestEmbeddingAdapter:
             inference_started = time.perf_counter()
             with torch.inference_mode():
                 captured: list[np.ndarray] = []
-                capture_handle = None
-                if include_mel_spectrogram:
-                    def capture_mel(_module, _args, output):
-                        captured.append(output.detach().cpu().numpy().copy())
+                head_outputs: list[tuple[Tensor, Tensor]] = []
 
-                    capture_handle = self._model.melspectrogram.register_forward_hook(capture_mel)
-                try:
-                    logits, embeddings = self._model(
-                        waveform,
-                        melspectrogram_input=False,
-                    )
-                finally:
-                    if capture_handle is not None:
-                        capture_handle.remove()
+                def capture_head(_module, args, output):
+                    if len(args) != 1:
+                        raise ValueError("Unexpected MAEST classification head input")
+                    # The mean-distilled head receives the native block embeddings.
+                    head_outputs.append((args[0], output))
+
+                with ExitStack() as hooks:
+                    head_handle = self._model.head.register_forward_hook(capture_head)
+                    hooks.callback(head_handle.remove)
+                    if include_mel_spectrogram:
+                        def capture_mel(_module, _args, output):
+                            captured.append(output.detach().cpu().numpy().copy())
+
+                        mel_handle = self._model.melspectrogram.register_forward_hook(capture_mel)
+                        hooks.callback(mel_handle.remove)
+                    scores, labels = self._model.predict_labels(waveform)
+                if len(head_outputs) != 1:
+                    raise ValueError("MAEST must produce exactly one classification head output")
+                embeddings, logits = head_outputs[0]
                 block_count = _validate_maest_output(
-                    logits, name="logits", width=len(labels),
+                    logits, name="logits", width=519,
                 )
                 _validate_maest_output(
                     embeddings, name="embeddings", width=self.dim,
                     expected_rows=block_count,
                 )
-                scores = torch.sigmoid(logits).mean(dim=0).detach().cpu().numpy()
+                _validate_maest_predictions(scores, labels, expected_labels)
                 embedding_rows.extend(
                     np.array(
                         embeddings.detach().cpu().numpy(), dtype=np.float32, copy=True,
@@ -367,8 +375,12 @@ def _validate_maest_output(
     width: int,
     expected_rows: int | None = None,
 ) -> int:
+    from torch import Tensor
+
     if values is None:
         raise ValueError(f"MAEST model did not return {name}")
+    if not isinstance(values, Tensor):
+        raise ValueError(f"MAEST model did not return tensor {name}")
     if values.ndim != 2 or values.shape[0] == 0 or values.shape[1] != width:
         raise ValueError(f"Unsupported MAEST {name} shape: {tuple(values.shape)}")
     if expected_rows is not None and values.shape[0] != expected_rows:
@@ -378,6 +390,23 @@ def _validate_maest_output(
     if not values.isfinite().all():
         raise ValueError(f"MAEST model produced non-finite {name}")
     return int(values.shape[0])
+
+
+def _validate_maest_predictions(scores, labels, expected_labels: list[str]) -> None:
+    try:
+        returned_labels = list(labels)
+    except TypeError as exc:
+        raise ValueError("MAEST predictions did not return ordered labels") from exc
+    if len(expected_labels) != 519 or returned_labels != expected_labels:
+        raise ValueError("MAEST predictions do not match the ordered Discogs-519 labels")
+    if (
+        not isinstance(scores, np.ndarray)
+        or scores.shape != (519,)
+        or not np.issubdtype(scores.dtype, np.floating)
+    ):
+        raise ValueError("MAEST predictions must contain 519 floating-point scores")
+    if not np.isfinite(scores).all() or np.any(scores < 0.0) or np.any(scores > 1.0):
+        raise ValueError("MAEST predictions must be finite probabilities in [0, 1]")
 
 
 def _average_maest_embeddings(

@@ -903,8 +903,9 @@ def test_mert_embed_decoded_batch_uses_feature_vector_attention_mask() -> None:
     assert adapter.fake_model.feature_mask_calls == [(2, (2, 4))]
 
 
-class MovableModule:
+class MovableModule(torch.nn.Module):
     def __init__(self) -> None:
+        super().__init__()
         self.devices: list[str] = []
 
     def to(self, device: str):
@@ -912,14 +913,25 @@ class MovableModule:
         return self
 
 
-class FakeMaestModel:
+class FakeMaestHead(torch.nn.Module):
+    def forward(self, embeddings):
+        return self.logits
+
+
+class FakeMaestModel(torch.nn.Module):
     labels = ["A", "B", "C"] + [f"label-{index}" for index in range(3, 519)]
 
     def __init__(self) -> None:
+        super().__init__()
+        self.head = FakeMaestHead()
         self.audio_calls = []
+        self.predict_calls = 0
+        self.prediction_error = None
+        self.prediction_labels = list(self.labels)
         self.melspectrogram: MovableModule | None = None
         self.init_calls = 0
         self.outputs = []
+        self.predictions = []
         for logits, embeddings in (
             ([[0., 4., 1.], [1., 0., 2.]], [[3., 0.], [0., 4.]]),
             ([[3., 1., 0.], [2., 1., 0.], [1., 1., 0.]], [[1., 0.], [2., 4.], [3., 2.]]),
@@ -930,18 +942,31 @@ class FakeMaestModel:
             vectors = torch.zeros((len(embeddings), 768), dtype=torch.float32)
             vectors[:, :2] = torch.tensor(embeddings)
             self.outputs.append((scores, vectors))
+        for values in ([0.73, 0.17, 0.31], [0.23, 0.91, 0.44], [0.12, 0.56, 0.34]):
+            scores = np.zeros(519, dtype=np.float32)
+            scores[:3] = values
+            self.predictions.append(scores)
 
     def init_melspectrogram(self) -> None:
         self.init_calls += 1
         self.melspectrogram = MovableModule()
 
-    def __call__(self, audio, *, melspectrogram_input=False):
+    def forward(self, audio, *, melspectrogram_input=False):
         assert audio.ndim == 1, "MAEST native API requires one full 1D waveform"
         assert audio.dtype == torch.float32
         assert melspectrogram_input is False
-        output = self.outputs[len(self.audio_calls)]
+        assert torch.is_inference_mode_enabled()
+        logits, embeddings = self.outputs[len(self.audio_calls)]
         self.audio_calls.append(audio.clone())
-        return output
+        self.head.logits = logits
+        return self.head(embeddings), embeddings
+
+    def predict_labels(self, audio):
+        self.predict_calls += 1
+        self.forward(audio)
+        if self.prediction_error is not None:
+            raise self.prediction_error
+        return self.predictions[len(self.audio_calls) - 1], self.prediction_labels
 
 
 class BatchMaestAdapter(MaestEmbeddingAdapter):
@@ -982,11 +1007,14 @@ def test_maest_analyze_decoded_batch_returns_genres_and_embeddings() -> None:
     results = adapter.analyze_decoded_batch(decoded)
 
     assert len(results) == 2
-    assert [[genre["label"] for genre in result.genres] for result in results] == [["C", "B"], ["A", "B"]]
-    for result, (logits, embeddings) in zip(results, adapter.fake_model.outputs):
-        expected_scores = torch.sigmoid(logits).mean(dim=0)
+    assert [[genre["label"] for genre in result.genres] for result in results] == [["A", "C"], ["B", "C"]]
+    assert adapter.fake_model.predict_calls == len(adapter.fake_model.audio_calls) == 2
+    assert not adapter.fake_model.head._forward_hooks
+    for result, (_, embeddings), expected_scores in zip(
+        results, adapter.fake_model.outputs, adapter.fake_model.predictions,
+    ):
         for genre in result.genres:
-            assert genre["score"] == pytest.approx(expected_scores[adapter.fake_model.labels.index(genre["label"])].item())
+            assert genre["score"] == pytest.approx(expected_scores[adapter.fake_model.labels.index(genre["label"])])
         mean_embedding = embeddings.mean(dim=0).numpy()
         expected_embedding = mean_embedding / np.linalg.norm(mean_embedding)
         assert result.embedding.shape == (768,)
@@ -994,7 +1022,7 @@ def test_maest_analyze_decoded_batch_returns_genres_and_embeddings() -> None:
         np.testing.assert_allclose(result.embedding, expected_embedding)
 
 
-def test_maest_analyze_decoded_batch_rejects_invalid_native_outputs() -> None:
+def test_maest_analyze_decoded_batch_rejects_invalid_native_outputs(monkeypatch) -> None:
     decoded = [DecodedAudio(path="invalid.wav", audio=torch.ones(16_000 * 6), sample_rate=16_000, detail="shared")]
     invalid_outputs = [
         (torch.ones(519), torch.ones(768)),
@@ -1012,6 +1040,45 @@ def test_maest_analyze_decoded_batch_rejects_invalid_native_outputs() -> None:
         adapter.fake_model.outputs = [output]
         with pytest.raises(ValueError):
             adapter.analyze_decoded_batch(decoded)
+        assert not adapter.fake_model.head._forward_hooks
+
+    for scores in (
+        np.ones((1, 519)), np.ones(518), np.full(519, np.nan),
+        np.full(519, np.inf), np.full(519, 1.1), np.full(519, -0.1),
+    ):
+        adapter = BatchMaestAdapter()
+        adapter.fake_model.predictions[0] = scores
+        with pytest.raises(ValueError):
+            adapter.analyze_decoded_batch(decoded)
+        assert not adapter.fake_model.head._forward_hooks
+
+    for labels in (FakeMaestModel.labels[:-1], list(reversed(FakeMaestModel.labels))):
+        adapter = BatchMaestAdapter()
+        adapter.fake_model.prediction_labels = labels
+        with pytest.raises(ValueError):
+            adapter.analyze_decoded_batch(decoded)
+        assert not adapter.fake_model.head._forward_hooks
+
+    adapter = BatchMaestAdapter()
+    adapter.fake_model.prediction_error = RuntimeError("native prediction failed")
+    with pytest.raises(RuntimeError, match="native prediction failed"):
+        adapter.analyze_decoded_batch(decoded, include_mel_spectrogram=True)
+    assert not adapter.fake_model.head._forward_hooks
+    assert not adapter.fake_model.melspectrogram._forward_hooks
+    adapter.fake_model.prediction_error = None
+    assert len(adapter.analyze_decoded_batch(decoded)) == 1
+    assert adapter.fake_model.predict_calls == len(adapter.fake_model.audio_calls) == 2
+    assert not adapter.fake_model.head._forward_hooks
+
+    def registration_failed(*args, **kwargs):
+        raise RuntimeError("mel hook registration failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(adapter.fake_model.melspectrogram, "register_forward_hook", registration_failed)
+        with pytest.raises(RuntimeError, match="mel hook registration failed"):
+            adapter.analyze_decoded_batch(decoded, include_mel_spectrogram=True)
+    assert not adapter.fake_model.head._forward_hooks
+    assert not adapter.fake_model.melspectrogram._forward_hooks
 
 
 def test_maest_analyze_decoded_batch_forwards_full_resampled_audio(monkeypatch) -> None:

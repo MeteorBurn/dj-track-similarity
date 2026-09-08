@@ -276,6 +276,17 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 ## MODEL LAYER OWNERSHIP
 
 - State the model layer before changing shared files.
+- For MAEST integration changes and reviews, use
+  [maest_infer_contract.json](models/contracts/maest_infer_contract.json) as the
+  single active native-inference contract. Ground contract updates in the
+  `maest-infer` source identified there; verify the installed package when
+  assessing runtime behavior. Keep `MAEST_MODEL_NAME` in `analysis_models.py`
+  aligned with the contract's `model.arch`. Use native `predict_labels()` for
+  genre activation and block averaging; obtain embeddings from the same pass.
+  Decoder/device choices, top-k, track-level embedding pooling and L2
+  normalization are caller policies,
+  separate from native model outputs. Files in `models/contracts/backup/`
+  are historical references, not additional requirements.
 - `embedding/registry.py` owns the single `adapter_factories()` map and typed
   `create_embedding_adapter()` factory; `embedding/contracts.py` defines the
   capabilities used by callers. Use the factory for shared analysis/text API

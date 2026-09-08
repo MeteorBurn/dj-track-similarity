@@ -30,6 +30,9 @@ state.*.json
 .omo/
 models/*
 !models/.gitkeep
+!models/contracts/
+models/contracts/*
+!models/contracts/muq_config_contract.json
 /.ideas/
 tools/audio-dedup/data/reports/*
 !tools/audio-dedup/data/reports/.gitkeep

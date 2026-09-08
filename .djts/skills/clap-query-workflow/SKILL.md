@@ -59,11 +59,16 @@ instrument questions. When unsure, run both and compare the top lists.
 
 ## Prompt Rules
 
-These come from measurement on this library, not from taste:
+The bank layout below is the user's current curation contract. Historical
+measurements do not establish that this layout outperforms a single prompt.
 
-1. **A bank beats one long sentence.** A single caption scored between 0.955 and 0.495 depending on
-   wording; a bank of four short prompts stayed stable. Use 4-5 lines: one label-only anchor plus
-   three or four short descriptive variants.
+1. **Use six positive lines per label and model, balanced 2 + 2 + 2.** In order,
+   write two short label anchors, two comma-separated keyword lists, and two short
+   descriptions. Tags are concise musical or acoustic keywords, usually one or
+   two words each. Each form contributes two equally weighted prompt vectors.
+   Keep all six lines focused on the same audible property; vary the wording
+   without adding another axis or repeating whole phrases. Individual technical
+   terms may recur when a synonym would change the meaning.
 2. **Never name the competing class in a positive prompt.** A positive caption containing
    "over the instrumental" dropped voice retrieval from 0.873 to 0.640.
 3. **Never write `no`, `not` or `without`.** The text encoders do not model negation; the negated
@@ -71,31 +76,41 @@ These come from measurement on this library, not from taste:
 4. **Hard negatives only when they name a real competing class.** Then a high weight helps: ROC rose
    with weight up to 0.75-1.0 on broken drums and voice. An invented negative bank hurt monotonically,
    so omit negatives rather than inventing them.
-5. Keep every line short. The CLAP text tower truncates at 77 tokens; current presets peak at 19.
+5. Keep every line short. The CLAP text tower truncates at 77 tokens.
 6. Write prompts in English. MuQ-MuLan's text tower is multilingual, but its contrastive training was
    English and Chinese, and Russian is unmeasured here. Explain in Russian, prompt in English.
 
-Templates that work:
+For **MuQ-MuLan**, use compact terms or label templates, explicit tag lists, and
+short sentences. `A {label} track.` is a possible label anchor, not a fourth form.
+Use lowercase bare keywords in the MuQ-MuLan tag rows, without a final period:
+`breakbeat, syncopation, backbeat`. Established multiword terms such as
+`drum breaks` are valid tags; long descriptive clauses joined by commas do not
+meet this format. Do not interpret the open training recipe's plain/template
+sampling probability as inference weights.
 
-```text
-{label}.
-A {label} track.
-A track with {audible detail} and {audible detail}.
-```
+For **CLAP**, retain track-centered wording in all three forms: a short label
+anchor such as `The track has {label}.`, a list such as
+`This track has {tag}, {tag}, {tag}.`, and a concrete description of what the
+track sounds like. Keep the two list rows concise even with this framing.
+
+These are writing forms within one string array, not separate API fields. Encode
+each complete line, L2-normalize its vector, average all six vectors equally, and
+L2-normalize the result. Do not split a tag list at commas or add format weights.
+See [the prompt reference](references/clap_prompting_reference.md) for examples.
 
 ## Running A Search
 
 ```powershell
 $env:DJ_SIM_DB = "<path-to-library.sqlite>"
 
-python .djts\skills\clap-query-workflow\scripts\project_text_search.py `
+.\.venv\Scripts\python.exe .djts\skills\clap-query-workflow\scripts\project_text_search.py `
   --model mulan `
-  --query "broken drums" `
+  --positive "Breakbeat rhythm." `
   --positive "A breakbeat track." `
-  --positive "A track with broken drums and syncopated percussion." `
-  --positive "An electronic club track built on chopped drum breaks and uneven accents." `
-  --negative "A four-on-the-floor house track." `
-  --negative-weight 0.75 `
+  --positive "breakbeat, syncopation, backbeat" `
+  --positive "drum breaks, offbeat, percussion" `
+  --positive "The drums repeat a break with irregular kicks and snare backbeats." `
+  --positive "The kick and snare interlock in a repeating broken pattern." `
   --limit 25
 ```
 
@@ -139,8 +154,8 @@ Every other path in this file is relative to the repository root.
   for a bank you are drafting, before it becomes a preset.
 - `.djts/skills/clap-query-workflow/scripts/score_prompt_bank.py`: standalone audio-file scorer for
   experiments outside the project DB. It must load PyTorch checkpoints with `weights_only=True`.
-- `.djts/skills/clap-query-workflow/references/clap_prompting_reference.md`: LAION-CLAP prompt
-  engineering background.
+- `.djts/skills/clap-query-workflow/references/clap_prompting_reference.md`: balanced prompt
+  forms for CLAP and MuQ-MuLan, plus CLAP scoring background.
 
 ## Implementation Changes
 
@@ -152,7 +167,9 @@ When changing text-layer code:
   `TextSearchRequest` aligned with `frontend/src/apiClient.ts`.
 - `positive_queries` is the only prompt field and is required. There is no `query` string beside it,
   no `preset`, and no switch that reduces the bank to its first line.
-- Mean-pool normalized positive embeddings before scoring.
+- Mean-pool normalized positive embeddings with equal weights, then normalize the
+  mean before scoring. Each selected label supplies six lines; commas stay inside
+  the text of a single prompt.
 - Never imply that text-search scores are calibrated probabilities.
 - Text search must not modify audio files or write into `classifier_scores`.
 

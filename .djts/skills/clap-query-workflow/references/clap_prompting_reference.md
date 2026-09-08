@@ -1,6 +1,7 @@
-# CLAP Prompting Reference
+# Text Prompt Bank Reference
 
-This reference is for LAION-CLAP prompt engineering with emphasis on music retrieval, zero-shot classification, and tagging.
+This reference describes the current balanced prompt-bank format for CLAP and
+MuQ-MuLan, followed by CLAP scoring background.
 
 ## Model assumptions
 
@@ -37,46 +38,36 @@ Weak anchors are:
 - taste claims
 - negative clauses with many `no/not/without` terms
 
-## Recommended prompt families
+## Balanced prompt forms
 
-### Label-only
+Use six positive lines for every label and every model: two label anchors, two
+tag lists, and two descriptions, in that order. This is the user's curation
+contract; superiority over a single prompt requires a retrieval comparison.
 
-Use when labels are already common genre or sound names:
+### Label anchors: lines 1-2
 
-```text
-microhouse.
-dub techno.
-deep tech house.
-experimental electronic music.
-```
+Name the target property directly. For MuQ-MuLan, a compact term and a short
+`A {label} track.` template can both serve as anchors. For CLAP, frame both
+anchors through the track, such as `The track has {label}.`. Use the precise
+musical term rather than a broader synonym chosen only for variety.
 
-### Music template
+### Tag lists: lines 3-4
 
-Use for genre/style labels:
+Write two distinct lists of short, comma-separated musical or acoustic keywords,
+usually one or two words per tag. Use established multiword terms such as
+`drum breaks`; do not fill these rows with descriptive clauses. MuQ-MuLan receives
+lowercase bare lists without a final period, such as
+`breakbeat, syncopation, backbeat`. Each complete list remains one prompt;
+commas do not create separate vectors.
+CLAP keeps a short track frame, such as `This track has {tag}, {tag}, {tag}.`.
+Select only tags describing the target axis and label.
 
-```text
-This audio is a {label} track.
-This audio is a {label} song.
-A {label} track with {audible details}.
-```
+### Short descriptions: lines 5-6
 
-### Sound-event template
-
-Use for non-music classes:
-
-```text
-This is an audio clip of {label}.
-A sound recording of {label}.
-The sound of {label}.
-```
-
-### Acoustic description
-
-Use to disambiguate labels:
-
-```text
-A dub techno track with deep sub bass, chord stabs, tape delay, spacious reverb, and a steady four-on-the-floor beat.
-```
+Describe the audible behavior in two short sentences. Preserve the label's
+meaning without adding genre, mood, instrumentation, tempo or another condition
+unless that condition defines the selected label. CLAP descriptions stay
+track-centered; MuQ-MuLan descriptions can be more compact.
 
 ## Prompt length
 
@@ -86,9 +77,9 @@ Practical bands:
 
 | Type | Recommended size |
 |---|---:|
-| label-only | 1–4 words |
-| template | 5–12 words |
-| descriptive | 12–35 words |
+| label anchor | a short term or a short track template |
+| tag list | 2–4 concise tags, with a short track frame for CLAP |
+| short description | one concrete sentence |
 | production upper bound | under ~50 text tokens |
 | hard ceiling | 77 tokens |
 
@@ -96,13 +87,15 @@ Practical bands:
 
 For each label:
 
-1. Embed all prompts.
+1. Embed each of the six complete prompt lines.
 2. L2-normalize every prompt embedding.
-3. Average embeddings.
+3. Average all six embeddings with equal weights.
 4. L2-normalize the average.
 5. Compare audio embeddings to label vectors via cosine similarity.
 
-Use equal prompt counts for labels being compared.
+Each form contributes two vectors out of six. Keep that balance across labels
+and models. The form names are a writing convention, not a text classifier,
+special tokenizer input or an additional weighting mechanism.
 
 ## Handling negative concepts
 
@@ -155,45 +148,32 @@ Aggregate with:
 
 For club music, `median` and `top20_mean` are often more useful than a single whole-track score.
 
-## Domain-specific prompt examples
+## Balanced bank examples
 
-### Microhouse / Romanian minimal
+Each block is one six-line bank: anchors first, then tag lists, then descriptions.
+Keep each line focused on the label; these examples are writing patterns, not
+evidence that six prompts improve retrieval.
+
+### Breakbeat: MuQ-MuLan
 
 ```text
-microhouse.
-This audio is a microhouse track.
-This audio is a Romanian minimal house track.
-A sparse microhouse track with dry drums, shuffled percussion, subtle bassline, and a hypnotic repetitive groove.
-A Romanian minimal house track with micro-samples, tight percussion, and an afterhours club atmosphere.
+Breakbeat rhythm.
+A breakbeat track.
+breakbeat, syncopation, backbeat
+drum breaks, offbeat, percussion
+The drums repeat a break with irregular kicks and snare backbeats.
+The kick and snare interlock in a repeating broken pattern.
 ```
 
-### Dub techno
+### Breakbeat: CLAP
 
 ```text
-dub techno.
-This audio is a dub techno track.
-This audio is a dub techno song.
-A dub techno track with deep sub bass, chord stabs, tape delay, spacious reverb, and a steady four-on-the-floor beat.
-A hypnotic electronic track with echoing chords, warm low-end, and a spacious dub-influenced atmosphere.
-```
-
-### Deep tech house
-
-```text
-deep tech house.
-This audio is a deep tech house track.
-This audio is a minimal tech house track.
-A deep tech house track with a rolling bassline, tight drums, muted percussion, and a dark club groove.
-A minimal house track with deep bass, precise percussion, and a restrained late-night atmosphere.
-```
-
-### Experimental electronics
-
-```text
-experimental electronic music.
-This audio is an experimental electronic track.
-An experimental electronic track with abstract textures, irregular rhythms, and unconventional sound design.
-A leftfield electronic piece with glitchy percussion, synthetic textures, and an unconventional structure.
+The track has a breakbeat drum pattern.
+A track with a broken drum rhythm.
+This track features breakbeat, syncopation, backbeats.
+A track with drum breaks, offbeat accents, percussion.
+This track features a broken rhythm with syncopated kick and snare hits.
+The track repeats a drum break whose irregular kicks interlock with snare backbeats.
 ```
 
 ## Calibration checklist

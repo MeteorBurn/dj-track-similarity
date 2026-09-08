@@ -1,7 +1,7 @@
 {
   "name": "dj-track-similarity",
   "version": "1.0.0",
-  "description": "Project-specific agents and skills for the DJ Track Similarity workbench",
+  "description": "Project-specific engineering, design-system, and documentation agents and skills for the DJ Track Similarity workbench",
   "author": {
     "name": "Meteorburn"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "DJ Track Similarity",
     "shortDescription": "Agents and skills for the DJ library workbench",
-    "longDescription": "Specialized agents and repeatable workflows for analyzing a local music library, researching the codebase, and refining DJ-track similarity work.",
+    "longDescription": "Specialized agents and repeatable workflows for analyzing a local music library, researching the codebase, refining DJ-track similarity, maintaining the design system, and writing evidence-backed documentation.",
     "developerName": "Meteorburn",
     "category": "Productivity",
     "capabilities": [

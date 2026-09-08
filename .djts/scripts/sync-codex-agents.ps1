@@ -4,7 +4,11 @@
 #
 #   .djts/agents/<name>.md               a real agent: a worker with a role and a
 #                                     tool surface. Claude reads it directly
-#                                     through the .claude/agents junction.
+#                                     from the installed .djts plugin.
+#
+# All Markdown agents are discovered automatically, including design-system
+# and documentation roles. Register a role in its source frontmatter; do not
+# maintain a second list of names in this script or project configuration.
 #
 # Project skills remain in .djts/skills/<name>/SKILL.md. Codex discovers
 # them there directly; a skill is never projected as an agent launcher.
@@ -40,7 +44,6 @@ $pluginRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $pluginRoot
 $agentsDir = Join-Path $pluginRoot 'agents'
 $targetDir = Join-Path $repoRoot '.codex\agents'
-[System.IO.Directory]::CreateDirectory($targetDir) | Out-Null
 
 $frontmatterPattern = '(?s)^---\r?\n(.*?)\r?\n---\r?\n(.*)$'
 $namePattern = '(?m)^name:[ \t]*(.+?)[ \t\r]*$'
@@ -101,7 +104,10 @@ function Write-CodexAgent {
 }
 
 $written = @()
+$agentsToWrite = @()
 
+# Validate every source before changing launchers. An incomplete agent draft
+# must not leave a partially regenerated set or trigger orphan removal.
 # --- real agents -----------------------------------------------------------
 if (Test-Path -LiteralPath $agentsDir) {
     foreach ($file in Get-ChildItem -LiteralPath $agentsDir -Filter '*.md' | Sort-Object Name) {
@@ -112,6 +118,14 @@ if (Test-Path -LiteralPath $agentsDir) {
         $description = [regex]::Match($fm, $descriptionPattern).Groups[1].Value.Trim()
         if (-not $name) { throw "name missing: $($file.Name)" }
         if (-not $description) { throw "description missing: $($file.Name)" }
+        if ($name -cne $file.BaseName -or $name -cnotmatch '^[a-z0-9]+(?:-[a-z0-9]+)*$') {
+            throw "name must match the lowercase hyphenated filename: $($file.Name)"
+        }
+        if (-not $parts.Body) { throw "body missing: $($file.Name)" }
+        if ($parts.Body -match "'''") { throw "body contains a TOML literal-string delimiter: $name" }
+
+        $toolsRaw = [regex]::Match($fm, $toolsPattern).Groups[1].Value.Trim()
+        if (-not $toolsRaw) { throw "tools missing: $($file.Name)" }
 
         # Codex has no equivalent of the `tools` allowlist; the closest honest
         # projection is the sandbox. An explicit `sandbox_mode:` in the
@@ -121,7 +135,6 @@ if (Test-Path -LiteralPath $agentsDir) {
         # no file-writing tool is a read-only worker.
         $sandbox = [regex]::Match($fm, $sandboxPattern).Groups[1].Value.Trim()
         if (-not $sandbox) {
-            $toolsRaw = [regex]::Match($fm, $toolsPattern).Groups[1].Value
             if ($toolsRaw) {
                 $tools = $toolsRaw.Split(',') | ForEach-Object { $_.Trim() }
                 $canWrite = $false
@@ -139,11 +152,22 @@ if (Test-Path -LiteralPath $agentsDir) {
             $skills = $skillsBlock -split "`n" | ForEach-Object { ($_ -replace '^[ \t]*-[ \t]*', '').Trim() } | Where-Object { $_ }
         }
 
-        Write-CodexAgent -Name $name -Description $description -Body $parts.Body `
-            -SandboxMode $sandbox -Effort $effort -Skills $skills `
-            -Origin ".djts/agents/$($file.Name)"
+        $agentsToWrite += @{
+            Name = $name
+            Description = $description
+            Body = $parts.Body
+            SandboxMode = $sandbox
+            Effort = $effort
+            Skills = $skills
+            Origin = ".djts/agents/$($file.Name)"
+        }
         $written += $name
     }
+}
+
+[System.IO.Directory]::CreateDirectory($targetDir) | Out-Null
+foreach ($agent in $agentsToWrite) {
+    Write-CodexAgent @agent
 }
 
 # --- drop what no longer has a source --------------------------------------

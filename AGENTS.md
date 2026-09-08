@@ -220,6 +220,9 @@ configuration and source instead of duplicating model lists, paths, or threshold
 | `database-expert` | Schema, indexes, queries, migrations, integrity, locking |
 | `backend-engineer` | HTTP/CLI contracts, jobs, service Python, environment |
 | `frontend-engineer` | React/Vite, client state, typed API client, rendering |
+| `design-system-engineer` | Design tokens, reusable UI primitives, visual consistency, accessibility |
+| `documentation-expert` | Documentation structure, evidence audits, navigation, tooling, instruction maintenance |
+| `technical-writer` | Audience-focused guides, references, runbooks, troubleshooting, requested release and migration notes |
 | `performance-optimizer` | Bottleneck localization, profiling, benchmarks, measured improvement |
 | `test-reviewer` | Test value, fixtures, suite health, failure triage |
 | `code-refactor-master` | Behavior-preserving splits, moves, deduplication, reference updates |

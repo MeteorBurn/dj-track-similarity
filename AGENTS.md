@@ -151,10 +151,12 @@ a test by existing, and a growing test count is a defect, not progress.
   change does not authorize a docs pass; do not plan/delegate one, report a gap,
   or offer to close it. Instruction-file maintenance does not imply a docs-site
   update.
-- For requested product/developer documentation, use
-  `codebase-documentation-writer` for scope, layer routing, and docs verification.
-  Read `README.md` for setup orientation when needed; verify current behavior
-  against executable source and tests. Maintained docs can lag the code.
+- For requested product/developer documentation, delegate to
+  `documentation-expert` (structure, audits, tooling) or `technical-writer`
+  (reader-facing pages) per the agent-layer guide; scope, source ownership and
+  verification come from this file and executable code. Read `README.md` for
+  setup orientation when needed; verify current behavior against executable
+  source and tests. Maintained docs can lag the code.
 - Document current behavior, not plans. Docs do not block implementation,
   verification, or authorized Git delivery.
 - Documentation is English. Translate Russian UI labels in prose; only

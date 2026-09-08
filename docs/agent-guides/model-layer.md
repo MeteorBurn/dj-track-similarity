@@ -11,8 +11,10 @@ are relative to this file. These guides are read by task, not imported as a batc
 - State the model layer before changing shared files.
 - For MAEST integration changes and reviews, use `models/maest/contract.json`
   as the active native-inference reference. It is machine-local, like the rest
-  of the untracked model store, and sits next to the staged `maest-infer`
-  source it describes; ground contract updates in that source and verify the
+  of the untracked model store; the package itself is the pinned `maest-infer`
+  release from the `ml` extra, and `embedding/loading.py` resolves every
+  family's assets under `models/<family>` inside the checkout. Ground contract
+  updates in the `maest-infer` source identified there and verify the
   installed package when assessing runtime behavior. Keep `MAEST_MODEL_NAME`
   in `analysis_models.py` aligned with the variant the contract marks
   `default_application_model`. Use native `predict_labels()` for genre

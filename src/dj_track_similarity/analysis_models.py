@@ -44,7 +44,7 @@ CLAP_TEXT_MODEL_NAME = "roberta-base"
 MAEST_ADAPTER_REVISION = "maest-adapter-v2"
 MERT_ADAPTER_REVISION = "mert-adapter-v1"
 MUQ_ADAPTER_REVISION = "muq-adapter-v1"
-MULAN_ADAPTER_REVISION = "mulan-adapter-v1"
+MULAN_ADAPTER_REVISION = "mulan-adapter-v2"
 CLAP_ADAPTER_REVISION = "clap-adapter-v2"
 
 MAEST_MODEL_VERSION = "v0.0.0-beta"
@@ -156,7 +156,7 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
 MAEST_PREPROCESSING = "shared-mono/maest-16khz-30s-three-windows-v1"
 MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows-v1"
 MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-interior-windows-v1"
-MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-interior-windows-v1"
+MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track-v2"
 CLAP_PREPROCESSING = "shared-mono/clap-48khz-10s-repeatpad-v1"
 
 MAEST_EMBEDDING_DIM = 768
@@ -260,14 +260,15 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
     },
     ("mulan", "embedding"): {
         "sample_rate_hz": 24_000,
-        "window_seconds": 10.0,
-        "max_windows": 5,
-        "pooling": "mulan-audio-latent+per-window-l2+window-mean+l2",
+        "clip_seconds": 10.0,
+        "audio_input": "full-track",
+        "pooling": "mulan-audio-latent+per-clip-l2+all-clips-mean+l2",
         "channel_downmix": "torchcodec-num-channels-1",
         "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
-        "window_selection": "10%-90%-interior-evenly-spaced-rounded",
-        "short_audio": "right-zero-pad-to-window",
+        "clip_selection": "upstream-consecutive-nonoverlapping",
+        "tail_padding": "upstream-append-track-start-once",
+        "parallel_processing": False,
     },
     ("clap", "embedding"): {
         "sample_rate_hz": 48_000,
@@ -356,8 +357,11 @@ _REQUIRED_PARAMETER_KEYS = {
         {
             "adapter_revision",
             "sample_rate_hz",
-            "window_seconds",
-            "max_windows",
+            "clip_seconds",
+            "audio_input",
+            "clip_selection",
+            "tail_padding",
+            "parallel_processing",
             "pooling",
             "dtype",
             "device_precision",

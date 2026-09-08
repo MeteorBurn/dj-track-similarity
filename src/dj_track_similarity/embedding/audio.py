@@ -26,11 +26,11 @@ def _prepare_windows(
     torchaudio,
     model_label: str,
 ) -> tuple[list[list[int]], list, float]:
-    """Decode-side windowing shared by every waveform adapter.
+    """Decode-side windowing for adapters that select fixed waveform excerpts.
 
     ``pad`` is the one thing these models genuinely disagree about, and each
     choice is theirs to make: MERT feeds a short track as a single
-    variable-length window, MuQ and MuQ-MuLan zero-pad it out to the window,
+    variable-length window, MuQ zero-pads it out to the window,
     and CLAP repeat-pads because that is what LAION-CLAP does. Everything
     around it — resampling, the interior 10–90% selection, the per-track index
     bookkeeping — was one loop written three times.

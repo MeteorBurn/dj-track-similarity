@@ -482,7 +482,8 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     }
     for runner in runners:
         assert getattr(runner.adapter, "_model") is None
-        assert runner.adapter.inference_batch_size == 7
+        if runner.model != "mulan":
+            assert runner.adapter.inference_batch_size == 7
         for output in runner.active_outputs:
             if output.output_kind == "embedding":
                 spec = current_embedding_spec(output.analysis_family)
@@ -607,7 +608,7 @@ def test_embedding_runner_writes_typed_contract_output_only() -> None:
 
 class _FakeMulanAdapter(MuqMulanEmbeddingAdapter):
     def __init__(self) -> None:
-        super().__init__(device="cpu", inference_batch_size=2)
+        super().__init__(device="cpu")
 
     def preflight(self) -> None:
         pass

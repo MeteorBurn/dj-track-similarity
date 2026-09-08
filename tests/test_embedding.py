@@ -731,8 +731,14 @@ def test_muq_embed_decoded_batch_resamples_to_strict_24khz_float32() -> None:
 
 
 class FakeMulanModel:
-    def __call__(self, *, wavs=None, texts=None):
+    def __init__(self):
+        self.audio_calls = []
+        self.text_calls = []
+
+    def __call__(self, *, wavs=None, texts=None, parallel_processing=None):
         if wavs is not None:
+            assert parallel_processing is False
+            self.audio_calls.append(wavs.clone())
             rows = int(wavs.shape[0])
             vector = torch.zeros((rows, 512), dtype=torch.float32, device=wavs.device)
             vector[:, 0] = 3.0
@@ -740,24 +746,40 @@ class FakeMulanModel:
             return vector
         if texts is not None:
             assert len(texts) == 1
+            self.text_calls.append(list(texts))
             return torch.tensor([[5.0] + [0.0] * 511], dtype=torch.float32)
         raise AssertionError("MuQ-MuLan adapter must provide audio or text input")
 
 
 class SharedAudioMulanAdapter(MuqMulanEmbeddingAdapter):
+    def __init__(self):
+        super().__init__(device="cpu")
+        self.fake_model = FakeMulanModel()
+        self.fake_torchaudio = None
+
     def _load_model(self) -> None:
         self._torch = torch
-        self._torchaudio = None
+        self._torchaudio = self.fake_torchaudio
         self.device = "cpu"
-        self._model = FakeMulanModel()
+        self._model = self.fake_model
 
 
-def test_mulan_adapter_returns_unit_audio_and_text_embeddings(monkeypatch) -> None:
-    adapter = SharedAudioMulanAdapter(
-        device="cpu",
-        window_seconds=1.0,
-        max_windows=1,
+def test_mulan_adapter_forwards_full_tracks_and_normalizes_audio_and_text(monkeypatch) -> None:
+    adapter = SharedAudioMulanAdapter()
+    resample_calls = []
+
+    class FakeResampler:
+        def __init__(self, source_rate, target_rate):
+            assert (source_rate, target_rate) == (12_000, 24_000)
+
+        def __call__(self, waveform):
+            resample_calls.append(waveform.clone())
+            return waveform.repeat_interleave(2, dim=-1)
+
+    adapter.fake_torchaudio = types.SimpleNamespace(
+        transforms=types.SimpleNamespace(Resample=FakeResampler),
     )
+    monkeypatch.setattr(embedding_audio, "_RESAMPLERS", {})
     monkeypatch.setattr(
         torch,
         "from_numpy",
@@ -766,22 +788,44 @@ def test_mulan_adapter_returns_unit_audio_and_text_embeddings(monkeypatch) -> No
         ),
     )
 
-    audio_vector = adapter.embed_decoded_batch(
+    long_audio = torch.linspace(-1.0, 1.0, 639_000, dtype=torch.float64)
+    short_audio = torch.linspace(0.0, 0.5, 24_001, dtype=torch.float32)
+    audio_vectors = adapter.embed_decoded_batch(
         [
             DecodedAudio(
-                path="mulan.wav",
-                audio=torch.ones(24_000),
+                path="long-mulan.wav",
+                audio=long_audio,
+                sample_rate=12_000,
+                detail="shared",
+            ),
+            DecodedAudio(
+                path="short-mulan.wav",
+                audio=short_audio,
                 sample_rate=24_000,
                 detail="shared",
             )
         ]
-    )[0]
+    )
     text_vector = adapter.embed_text("rolling techno")
+    bank_vectors = adapter.embed_texts(["rolling techno", "ambient"])
 
-    assert audio_vector.shape == (512,)
-    assert text_vector.shape == (512,)
-    assert np.linalg.norm(audio_vector) == pytest.approx(1.0)
-    assert np.linalg.norm(text_vector) == pytest.approx(1.0)
+    assert len(resample_calls) == 1
+    torch.testing.assert_close(resample_calls[0], long_audio.float().unsqueeze(0))
+    assert len(adapter.fake_model.audio_calls) == 2
+    torch.testing.assert_close(
+        adapter.fake_model.audio_calls[0],
+        long_audio.float().repeat_interleave(2).unsqueeze(0),
+    )
+    torch.testing.assert_close(adapter.fake_model.audio_calls[1], short_audio.unsqueeze(0))
+    assert adapter.fake_model.text_calls == [["rolling techno"], ["rolling techno"], ["ambient"]]
+    for vector in audio_vectors + [text_vector] + bank_vectors:
+        assert vector.shape == (512,)
+        assert vector.dtype == np.float32
+        assert np.linalg.norm(vector) == pytest.approx(1.0)
+    for vector in audio_vectors:
+        np.testing.assert_allclose(vector[:2], [0.6, 0.8])
+        assert np.count_nonzero(vector[2:]) == 0
+    np.testing.assert_array_equal(text_vector, bank_vectors[0])
 
 
 class FakeMertProcessor:

@@ -25,16 +25,13 @@ from ..analysis_models import (
     MUQ_SNAPSHOT_SHA256,
 )
 from ..audio.loader import DecodedAudio
-from .audio import _prepare_windows
+from .audio import _resample_to
 from .loading import (
     _download_verified_hf_snapshot,
     _local_only_from_pretrained_proxy,
 )
 from .muq import _MUQ_CONSTRUCTION_LOCK, _silence_muq_weight_norm_deprecation
-from .numerics import (
-    _average_l2_window_embeddings,
-    _normalized_embedding_rows,
-)
+from .numerics import _normalized_embedding_rows
 from ..runtime import select_torch_device
 
 
@@ -50,7 +47,8 @@ class MuqMulanEmbeddingAdapter:
     preprocessing = MULAN_PREPROCESSING
     dim = 512
     target_rate = 24_000
-    pooling = "mulan-audio-latent+per-window-l2+window-mean+l2"
+    clip_seconds = 10.0
+    pooling = "mulan-audio-latent+per-clip-l2+all-clips-mean+l2"
     dtype = "float32"
     encoding = "float32-le"
     normalization = "l2"
@@ -78,17 +76,11 @@ class MuqMulanEmbeddingAdapter:
     def __init__(
         self,
         device: str | None = None,
-        window_seconds: float = 10.0,
-        max_windows: int = 5,
-        inference_batch_size: int = 8,
     ) -> None:
         self.requested_device = device or "auto"
         self.device_name = (
             None if self.requested_device == "auto" else self.requested_device
         )
-        self.window_seconds = window_seconds
-        self.max_windows = max_windows
-        self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
@@ -100,15 +92,16 @@ class MuqMulanEmbeddingAdapter:
         return {
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
-            "window_seconds": self.window_seconds,
-            "max_windows": self.max_windows,
+            "clip_seconds": self.clip_seconds,
+            "audio_input": "full-track",
             "pooling": self.pooling,
             "dtype": self.dtype,
             "channel_downmix": "torchcodec-num-channels-1",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
-            "window_selection": "10%-90%-interior-evenly-spaced-rounded",
-            "short_audio": "right-zero-pad-to-window",
+            "clip_selection": "upstream-consecutive-nonoverlapping",
+            "tail_padding": "upstream-append-track-start-once",
+            "parallel_processing": False,
             "device_precision": "float32-eval-no-autocast-no-compile",
             "model_revision": self.model_revision,
             "checkpoint_filename": self.checkpoint_filename,
@@ -175,45 +168,56 @@ class MuqMulanEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
-        track_windows, all_windows, prepare_seconds = _prepare_windows(
-            decoded_items,
-            target_rate=self.target_rate,
-            window_seconds=self.window_seconds,
-            max_windows=self.max_windows,
-            pad="zero",
-            torch=torch,
-            torchaudio=torchaudio,
-            model_label="MuQ-MuLan",
-        )
-
-        pooled_windows: list[np.ndarray] = []
-        inference_started = time.perf_counter()
-        for start in range(0, len(all_windows), self.inference_batch_size):
-            wavs = torch.stack(
-                all_windows[start : start + self.inference_batch_size],
-                dim=0,
-            ).to(
+        vectors: list[np.ndarray] = []
+        prepare_seconds = 0.0
+        inference_seconds = 0.0
+        clip_count = 0
+        clip_samples = int(self.target_rate * self.clip_seconds)
+        for decoded in decoded_items:
+            prepare_started = time.perf_counter()
+            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
+            if waveform.numel() == 0:
+                raise ValueError(f"No audio samples could be extracted: {decoded.path}")
+            if decoded.sample_rate != self.target_rate:
+                if torchaudio is None:
+                    raise RuntimeError(
+                        "MuQ-MuLan shared-audio analysis requires "
+                        f"torchaudio resampling: {decoded.path}"
+                    )
+                waveform = _resample_to(
+                    waveform,
+                    source_rate=decoded.sample_rate,
+                    target_rate=self.target_rate,
+                    torchaudio=torchaudio,
+                )
+            waveform = waveform.to(
                 device=self._device(),
                 dtype=torch.float32,
             )
+            clip_count += (int(waveform.shape[-1]) + clip_samples - 1) // clip_samples
+            prepare_seconds += time.perf_counter() - prepare_started
+
+            inference_started = time.perf_counter()
             with torch.inference_mode():
-                output = self._model(wavs=wavs)
-            pooled_windows.extend(
+                # The official forward owns consecutive clips, tail wrapping,
+                # and the mean of every clip's normalized latent.
+                output = self._model(wavs=waveform, parallel_processing=False)
+            vectors.extend(
                 _normalized_embedding_rows(
                     output,
-                    expected_rows=int(wavs.shape[0]),
+                    expected_rows=1,
                     expected_dim=self.dim,
                     model_label="MuQ-MuLan audio",
                 )
             )
-        inference_seconds = time.perf_counter() - inference_started
+            inference_seconds += time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
-            "windows": len(all_windows),
+            "windows": clip_count,
         }
-        return _average_l2_window_embeddings(pooled_windows, track_windows)
+        return vectors
 
     def _load_model(self) -> None:
         if self._model is not None:

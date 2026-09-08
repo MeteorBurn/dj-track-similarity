@@ -3119,13 +3119,6 @@ h2 {
   color: var(--accent-active-text);
 }
 
-/* The same switch shape as A/B, and disabled while A/B runs, because a
-   comparison pulled by past clicks measures the clicks. */
-.text-feedback-toggle:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 .text-compare-checkbox {
   align-items: center;
   border: 1px solid var(--border-strong);
@@ -4269,60 +4262,6 @@ h2 {
 
 .text-search-box .text-preset-label {
   min-height: 25px;
-}
-
-/* The evidence panel: what stands behind the current selection, in the one
-   place a selection is judged. Hints describe the sound, this describes the
-   ground under it. */
-.text-model-advice {
-  background: var(--accent-soft-bg);
-  border: 1px solid var(--accent-soft-border);
-  border-radius: 8px;
-  color: var(--text-muted);
-  display: grid;
-  font-size: 11px;
-  gap: 6px;
-  line-height: 1.4;
-  padding: 8px 10px;
-}
-
-.text-evidence-row {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: 72px minmax(0, 1fr);
-}
-
-.text-evidence-key {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.text-evidence-value {
-  min-width: 0;
-  overflow-wrap: break-word;
-}
-
-.text-model-advice-switch {
-  background: transparent;
-  border: 1px solid var(--accent-soft-border);
-  border-radius: 999px;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 11px;
-  justify-self: start;
-  padding: 3px 9px;
-  white-space: nowrap;
-}
-
-.text-search-box .text-model-advice-switch {
-  height: auto;
-  min-height: 0;
-}
-
-.text-negative-hint {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
 }
 
 /* One rule for both banks: the negative field no longer sits inside a label,

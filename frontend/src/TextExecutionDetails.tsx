@@ -2,7 +2,6 @@ import type { TextSearchExecution } from "./api";
 
 const feedbackReasons: Record<TextSearchExecution["feedback"]["reason"], string> = {
   not_requested: "Персонализация выключена",
-  disabled_for_product_ab: "A/B без персонализации",
   schema_unavailable: "Хранилище оценок недоступно: требуется обновление библиотеки",
   insufficient_relevant: "Недостаточно пригодных оценок этого запроса",
   invalid_centroid: "История оценок не дала пригодной поправки",

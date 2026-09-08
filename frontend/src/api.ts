@@ -778,7 +778,7 @@ export type TextSearchExecution = {
   eligibility_digest_reason: string | null;
   feedback: {
     requested: boolean; applied: boolean;
-    reason: "not_requested" | "disabled_for_product_ab" | "schema_unavailable" | "insufficient_relevant" | "invalid_centroid" | "applied";
+    reason: "not_requested" | "schema_unavailable" | "insufficient_relevant" | "invalid_centroid" | "applied";
     policy_version: string; history_revision: string | null;
     usable_relevant_count: number; usable_irrelevant_count: number;
   };

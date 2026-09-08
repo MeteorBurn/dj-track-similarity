@@ -130,18 +130,38 @@ test("cancel and per-axis selection changes prevent stale search results from pu
   assert.deepEqual([...ui.selectedPresetKeys], []);
 });
 
-test("feedback waits for revisions, withdraws the known verdict and serializes clicks", async () => {
-  const lookup = deferred(), mutation = deferred(); const calls = [];
-  const h = harness({ textSearch: async () => response("run", "ready"), textSearchFeedbackLookup: () => lookup.promise,
-    textSearchFeedback: (payload) => { calls.push(payload); return mutation.promise; } });
-  let ui = h.render(); ui.togglePromptPreset("rhythm/first"); ui = h.render();
-  await ui.handleTextSearch(h.requests); ui = h.render();
-  await ui.handleTextResultFeedback({ track_uuid: "track" }, 1, "mulan"); assert.equal(calls.length, 0);
-  lookup.resolve({ query_key: "query", verdicts: { track: { verdict: 1, revision: 4 } } }); await flush(); ui = h.render();
-  const updating = ui.handleTextResultFeedback({ track_uuid: "track" }, 1, "mulan");
-  await ui.handleTextResultFeedback({ track_uuid: "track" }, -1, "mulan");
-  assert.equal(calls.length, 1); assert.equal(calls[0].expected_revision, 4); assert.equal(calls[0].verdict, 0);
-  ui.cancelTextSearch();
-  mutation.resolve({ query_key: "query", track_uuid: "track", verdict: 0, revision: 5 }); await updating;
-  ui = h.render(); assert.equal(Object.keys(ui.textFeedbackVerdicts).length, 0);
+test("feedback uses each executed A/B run, serializes revisions and ignores stale completions", async () => {
+  for (const [family, invalidate] of [
+    ["mulan", (ui) => ui.cancelTextSearch()],
+    ["clap", (ui) => ui.togglePromptPreset("rhythm/second")],
+    ["mulan", (ui) => ui.changeTextEmbeddingFamily("clap")],
+  ]) {
+    const lookups = { "run-mulan": deferred(), "run-clap": deferred() };
+    const mutation = deferred(); const calls = [], lookupCalls = [];
+    const h = harness({ textSearch: async (payload) => response(`run-${payload.analysis_family}`, "ready"),
+      textSearchFeedbackLookup: (payload) => { lookupCalls.push(payload); return lookups[payload.run_id].promise; },
+      textSearchFeedback: (payload) => { calls.push(payload); return mutation.promise; } });
+    let ui = h.render(); ui.togglePromptPreset("rhythm/first"); ui.setTextCompareModels(true); ui = h.render();
+    await ui.handleTextSearch(h.requests); ui = h.render();
+    assert.deepEqual(lookupCalls.map((payload) => payload.run_id).sort(), ["run-clap", "run-mulan"]);
+    for (const payload of lookupCalls) assert.deepEqual([...payload.track_uuids], ["track"]);
+    await ui.handleTextResultFeedback({ track_uuid: "track" }, 1, family); assert.equal(calls.length, 0);
+    const runId = `run-${family}`;
+    lookups[runId].resolve({ query_key: "query", verdicts: { track: { verdict: 1, revision: 4 } } });
+    await flush(); ui = h.render();
+    const updating = ui.handleTextResultFeedback({ track_uuid: "track" }, 1, family);
+    await ui.handleTextResultFeedback({ track_uuid: "track" }, -1, family);
+    assert.equal(calls.length, 1);
+    assert.deepEqual({ ...calls[0] }, { run_id: runId, track_uuid: "track", expected_revision: 4, verdict: 0 });
+    invalidate(ui); h.render();
+    // The other arm's lookup and this arm's write both finish after invalidation.
+    const otherRunId = family === "clap" ? "run-mulan" : "run-clap";
+    lookups[otherRunId].resolve({ query_key: "query", verdicts: { track: { verdict: -1, revision: 2 } } });
+    mutation.resolve({ query_key: "query", track_uuid: "track", verdict: 0, revision: 5 });
+    await updating; await flush(); ui = h.render();
+    assert.equal(Object.keys(ui.textFeedbackVerdicts).length, 0);
+    assert.equal(Object.keys(ui.feedbackReady).length, 0);
+    assert.equal(Object.keys(ui.executions).length, 0);
+    assert.equal(Object.keys(ui.feedbackPending).length, 0);
+  }
 });

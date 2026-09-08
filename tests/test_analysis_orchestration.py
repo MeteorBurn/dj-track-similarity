@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
+import gc
 from pathlib import Path
 import threading
 import weakref
@@ -34,6 +35,7 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.audio.loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.embeddings import read_valid_embeddings
+from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
 from dj_track_similarity.embedding.maest import MaestAnalysisResult
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
@@ -246,7 +248,8 @@ def test_ml_job_is_unavailable_without_current_sonara() -> None:
     assert repository.events == []
 
 
-def test_per_file_runner_failure_does_not_fail_the_job() -> None:
+@pytest.mark.parametrize("failure_origin", ["result", "mert_batch", "mert_staged"])
+def test_per_file_runner_failure_does_not_fail_the_job(failure_origin: str, tmp_path: Path) -> None:
     output = _mert_output()
     candidates = [_candidate(1, (output,)), _candidate(2, (output,))]
     repository = _FakeRepository(candidates)
@@ -255,21 +258,54 @@ def test_per_file_runner_failure_does_not_fail_the_job() -> None:
         (output,),
         errors=(None, RuntimeError("stale target")),
     )
+    if failure_origin != "result":
+        class FailingMertAdapter(_FakeMertAdapter):
+            def embed_decoded_batch(self, decoded_items, *, cancelled=None):
+                if any(Path(item.path).stem == "2" for item in decoded_items):
+                    raise RuntimeError("stale target")
+                return super().embed_decoded_batch(decoded_items, cancelled=cancelled)
+
+        runner = EmbeddingModelRunner(
+            "mert", device="cpu", inference_batch_size=2, adapter=FailingMertAdapter(),
+        )
+        write_repository = _EmbeddingWriteRepository()
+        repository.save_embedding_results = write_repository.save_embedding_results
+    runners = {"mert": runner}
+    staging_config = None
+    if failure_origin == "mert_staged":
+        clap_output = _clap_output()
+        runners["clap"] = _FakeRunner("clap", (clap_output,))
+        for index, candidate in enumerate(candidates):
+            path = tmp_path / f"{candidate.target.track_id}.wav"
+            path.write_text(f"{candidate.target.track_id}.wav")
+            candidates[index] = replace(
+                candidate, file_path=str(path), missing_outputs=(output, clap_output),
+            )
+        staging_config = MLStagingConfig(
+            root=tmp_path / "staging", copy_workers=1, decode_workers=1,
+            stage_size=2, inference_batch_size=2,
+        )
 
     status = AnalysisJobManager(
         repository,
-        model_runners={"mert": runner},
-        decode_audio=lambda path: _decoded(str(path)),
-    ).run_sync(models=["mert"], device="cpu")
+        model_runners=runners,
+        decode_audio=lambda path: _decoded(Path(path).read_text() if staging_config else str(path)),
+    ).run_sync(models=list(runners), device="cpu", ml_staging_config=staging_config)
 
     assert status.state == "completed"
     assert status.processed == 2
+    if failure_origin != "result":
+        assert [write.target.track_id for write in write_repository.writes] == [1]
     assert status.analyzed == 1
     assert status.failed == 1
     assert status.model_progress["mert"].analyzed == 1
     assert status.model_progress["mert"].failed == 1
     assert status.errors[0].track_id == 2
     assert "stale target" in status.errors[0].error
+    if failure_origin == "mert_staged":
+        assert status.model_progress["clap"].analyzed == 2
+        assert status.model_progress["clap"].failed == 0
+        assert [error.model for error in status.errors] == ["mert"]
 
 
 def test_runner_initialization_failure_is_fatal_before_activation() -> None:
@@ -335,31 +371,152 @@ def test_staging_entry_failure_finishes_job_and_releases_execution(
     assert closed.is_set()
 
 
-@pytest.mark.parametrize("cancel", [False, True], ids=["completed", "cancelled"])
-def test_finished_job_releases_track_data_but_retains_status_and_configuration(cancel) -> None:
+@pytest.mark.parametrize(
+    ("mode", "cancel_at"),
+    [
+        ("direct", None),
+        ("direct", "inference"),
+        ("direct", "retry"),
+        ("direct", "recovery"),
+        ("direct", "before_write"),
+        ("staged", "inference"),
+    ],
+)
+def test_finished_job_releases_track_data_but_retains_status_and_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, cancel_at: str | None,
+) -> None:
     output = _mert_output()
-    repository = _FakeRepository([_candidate(1, (output,))])
+    maest_runner = (
+        MaestModelRunner(device="cpu", top_k=3, inference_batch_size=2, adapter=_FakeMaestAdapter())
+        if mode == "staged" else None
+    )
+    outputs = (output,) if maest_runner is None else (*maest_runner.candidate_outputs, output)
+    repository = _FakeRepository([])
+    for track_id in range(1, 5):
+        path = tmp_path / f"{track_id}.wav"
+        path.write_text(str(track_id))
+        repository.candidates.append(replace(_candidate(track_id, outputs), file_path=str(path)))
     candidate_ref = weakref.ref(repository.candidates[0])
     outcome_refs = []
+    audio_refs = []
+    partial_results = []
+    calls: list[tuple[int, ...]] = []
+    fallback_calls: list[int] = []
+    writes: list[EmbeddingWrite] = []
+    maest_writes: list[MaestWrite] = []
 
-    class ReleasingRunner(_FakeRunner):
-        def analyze_batch(self, _repository, items):
+    def save_embedding_results(selected):
+        writes.extend(selected)
+        return tuple(
+            AnalysisWriteResult(target=write.target, written_outputs=(output,))
+            for write in selected
+        )
+
+    repository.save_embedding_results = save_embedding_results
+
+    def save_maest_results(selected):
+        maest_writes.extend(selected)
+        return tuple(
+            AnalysisWriteResult(target=write.target, written_outputs=write.outputs)
+            for write in selected
+        )
+
+    if maest_runner is not None:
+        repository.save_maest_results = save_maest_results
+
+    def decode_audio(path):
+        track_id = int(Path(path).read_text())
+        if cancel_at == "recovery" and track_id == 3:
+            raise RuntimeError("broken decode")
+        audio = np.asarray([track_id], dtype=np.float32)
+        audio_refs.append(weakref.ref(audio))
+        return DecodedAudio(
+            path=str(path), audio=audio,
+            sample_rate=24_000, detail="test",
+        )
+
+    def fallback_audio(path):
+        track_id = int(Path(path).read_text())
+        fallback_calls.append(track_id)
+        return DecodedAudio(
+            path=str(path), audio=np.asarray([track_id], dtype=np.float32),
+            sample_rate=24_000, detail="ffmpeg",
+        )
+
+    monkeypatch.setattr(runner_module, "load_decoded_audio_with_ffmpeg", fallback_audio)
+
+    class ReleasingMertAdapter(_FakeMertAdapter):
+        def embed_decoded_batch(self, decoded_items, *, cancelled=None):
             payload = manager._payload(job_id)
             outcome_refs.extend(weakref.ref(value) for value in payload.track_outcomes.values())
             repository.candidates.clear()
-            if cancel:
+            track_ids = tuple(int(item.audio[0]) for item in decoded_items)
+            calls.append(track_ids)
+            if cancel_at and 3 in track_ids:
+                if cancel_at == "retry" and len(track_ids) > 1:
+                    raise ValueError("retry this batch per track")
                 manager.cancel(job_id)
-            return [None] * len(items)
+                if cancel_at != "before_write":
+                    assert cancelled is not None and cancelled()
+                    raise EmbeddingCancelledError("MERT analysis cancelled")
+            return super().embed_decoded_batch(decoded_items)
 
+    runner = EmbeddingModelRunner(
+        "mert", device="cpu", inference_batch_size=2, adapter=ReleasingMertAdapter(),
+    )
+    runners = {"mert": runner}
+    if maest_runner is not None:
+        runners["maest"] = maest_runner
     manager = AnalysisJobManager(
         repository,
-        model_runners={"mert": ReleasingRunner("mert", (output,))},
-        decode_audio=lambda path: _decoded(str(path)),
+        model_runners=runners,
+        decode_audio=decode_audio,
     )
-    job_id = manager.create_job(models=["mert"], device="cpu")
+    if mode == "staged":
+        record_staged = manager._record_staged_ml_result
+
+        def retain_partial_result(job_id, result):
+            if set(result.model_errors) == {"maest"}:
+                partial_results.append(result)
+            record_staged(job_id, result)
+
+        monkeypatch.setattr(manager, "_record_staged_ml_result", retain_partial_result)
+    staging_config = (
+        MLStagingConfig(
+            root=tmp_path / "staging", copy_workers=1, decode_workers=1,
+            stage_size=2, inference_batch_size=2,
+        )
+        if mode == "staged" else None
+    )
+    job_id = manager.create_job(
+        models=list(runners), device="cpu", track_batch_size=2, ml_staging_config=staging_config,
+    )
     status = manager.run_job(job_id)
 
-    assert status.state == ("cancelled" if cancel else "completed")
+    assert status.state == ("cancelled" if cancel_at else "completed")
+    assert status.failed == 0
+    assert status.errors == []
+    assert status.analyzed == len(writes)
+    assert fallback_calls == ([3] if cancel_at == "recovery" else [])
+    assert [write.target.track_id for write in writes] == ([1, 2] if cancel_at else [1, 2, 3, 4])
+    assert calls.count((3, 4)) <= 1
+    if cancel_at == "retry":
+        assert calls == [(1, 2), (3, 4), (3,)]
+    if cancel_at == "inference":
+        assert calls == [(1, 2), (3, 4)]
+    if mode == "staged":
+        assert [write.target.track_id for write in maest_writes] == [1, 2, 3, 4]
+        assert status.model_progress["maest"].processed == status.model_progress["maest"].analyzed == 4
+        assert status.model_progress["mert"].processed == status.model_progress["mert"].analyzed == 2
+        assert status.model_progress["maest"].failed == status.model_progress["mert"].failed == 0
+        assert status.total == 4
+        assert status.processed == status.analyzed == 2
+        assert status.skipped == 0
+        assert [result.target.track_id for result in partial_results] == [3, 4]
+        assert all(not result.track_complete for result in partial_results)
+        assert all(result.error is None and result.model_errors == {"maest": None} for result in partial_results)
+        gc.collect()
+        assert len(audio_refs) == 4 and all(ref() is None for ref in audio_refs)
     assert candidate_ref() is None
     assert outcome_refs and all(ref() is None for ref in outcome_refs)
     assert manager.get(job_id) == status
@@ -481,8 +638,7 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     }
     for runner in runners:
         assert getattr(runner.adapter, "_model") is None
-        if runner.model in {"mert", "muq"}:
-            assert runner.adapter.inference_batch_size == 7
+        assert runner.adapter.inference_batch_size == 7
         for output in runner.active_outputs:
             if output.output_kind == "embedding":
                 spec = current_embedding_spec(output.analysis_family)
@@ -538,8 +694,6 @@ class _FakeMertAdapter(MertEmbeddingAdapter):
     def __init__(self) -> None:
         super().__init__(
             device="cpu",
-            window_seconds=5.0,
-            max_windows=5,
             inference_batch_size=2,
         )
 
@@ -549,6 +703,8 @@ class _FakeMertAdapter(MertEmbeddingAdapter):
     def embed_decoded_batch(
         self,
         decoded_items: Sequence[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
     ) -> list[np.ndarray]:
         vector = np.zeros(768, dtype=np.float32)
         vector[0] = 1.0

@@ -1,8 +1,12 @@
 """Tests for ML staging pipeline."""
 
+import gc
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
+import weakref
 
+import numpy as np
 import pytest
 
 from dj_track_similarity.analysis_models import AnalysisCandidate, AnalysisTarget, AnalysisOutput
@@ -207,13 +211,13 @@ def test_analyze_and_store_staged_ml_basic(
     assert mock_model_runner.analyze_batch.call_count >= 1
 
 
+@pytest.mark.parametrize("failure", [None, "returned", "raised"])
 def test_analyze_and_store_staged_ml_refills_window_until_all_candidates_complete(
     tmp_path: Path,
     mock_repository: MagicMock,
-    mock_model_runner: MagicMock,
-    mock_decode_fn: Mock,
+    failure: str | None,
 ) -> None:
-    """Staged analysis continues past one active staging window."""
+    """Refilling releases completed audio even when a runner returns an error."""
     staging_root = tmp_path / "ml_staging"
     staging_root.mkdir()
     candidates = []
@@ -238,11 +242,31 @@ def test_analyze_and_store_staged_ml_refills_window_until_all_candidates_complet
         )
         targets_by_track[track_id] = ("muq",)
 
+    audio_refs: list[weakref.ReferenceType] = []
+
+    def decode_audio(path: Path) -> DecodedAudio:
+        audio = np.zeros(128, dtype=np.float32)
+        audio_refs.append(weakref.ref(audio))
+        return DecodedAudio(path=str(path), audio=audio, sample_rate=24_000, detail="test")
+
+    def analyze_batch(_repository, items):
+        if failure and items[0].candidate.target.track_id == 2:
+            try:
+                raise ValueError("invalid model input")
+            except ValueError as cause:
+                try:
+                    raise RuntimeError("track inference failed") from cause
+                except RuntimeError as error:
+                    if failure == "returned":
+                        return [error]
+                    raise
+        return [None] * len(items)
+
     completed_track_ids: list[int] = []
     results = analyze_and_store_staged_ml(
         repository=mock_repository,
         candidates=candidates,
-        model_runners={"muq": mock_model_runner},
+        model_runners={"muq": SimpleNamespace(analyze_batch=analyze_batch)},
         targets_by_track=targets_by_track,
         config=MLStagingConfig(
             root=staging_root,
@@ -251,7 +275,7 @@ def test_analyze_and_store_staged_ml_refills_window_until_all_candidates_complet
             stage_size=2,
             inference_batch_size=1,
         ),
-        decode_audio=mock_decode_fn,
+        decode_audio=decode_audio,
         track_result_callback=lambda result: completed_track_ids.append(
             result.candidate.target.track_id
         ),
@@ -259,7 +283,22 @@ def test_analyze_and_store_staged_ml_refills_window_until_all_candidates_complet
 
     assert [result.candidate.target.track_id for result in results] == [1, 2, 3, 4, 5]
     assert completed_track_ids == [1, 2, 3, 4, 5]
-    assert mock_decode_fn.call_count == 5
+    assert len(audio_refs) == 5
+    gc.collect()
+    assert all(audio_ref() is None for audio_ref in audio_refs)
+    errors = [result.error for result in results if result.error is not None]
+    assert len(errors) == (1 if failure else 0)
+    model_errors = [
+        error for result in results for error in result.model_errors.values() if error is not None
+    ]
+    assert len(model_errors) == len(errors)
+    assert all(set(result.model_errors) == {"muq"} for result in results)
+    if errors:
+        assert "track inference failed" in str(errors[0])
+        for error in errors + model_errors:
+            assert error.__traceback__ is None
+            assert error.__context__ is None
+            assert error.__cause__ is None
 
 
 def test_analyze_and_store_staged_ml_empty_queue(

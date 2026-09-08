@@ -6,17 +6,19 @@ import logging
 import os
 import shutil
 import time
+import traceback
 import uuid
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from .job_batch import AnalysisBatchItem, DecodeFailure
-from ..analysis_models import AnalysisCandidate
+from ..analysis_models import AnalysisCandidate, AnalysisTarget
 from ..audio.loader import DecodedAudio, load_decoded_audio_with_ffmpeg
+from ..embedding.contracts import EmbeddingCancelledError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -75,7 +77,7 @@ class MLStagedCandidate:
 
 @dataclass(frozen=True)
 class MLStagedResult:
-    """One completed ML staged analysis result.
+    """ML outcomes for a completed track or an interrupted inference batch.
 
     KEY DIFFERENCES FROM SONARA:
     1. Per-model timing breakdown (not single analyze_seconds)
@@ -84,8 +86,9 @@ class MLStagedResult:
     """
 
     candidate: AnalysisCandidate
-    decoded: DecodedAudio | DecodeFailure | None = None
     error: Exception | None = None
+    model_errors: dict[str, Exception | None] = field(default_factory=dict)
+    track_complete: bool = True
 
     # Timing breakdown (more granular than SONARA)
     copy_seconds: float = 0.0
@@ -100,7 +103,7 @@ class MLStagedResult:
     used_ffmpeg_fallback: bool = False
 
     @property
-    def target(self):
+    def target(self) -> AnalysisTarget:
         return self.candidate.target
 
 
@@ -295,10 +298,35 @@ def analyze_and_store_staged_ml(
     exhausted = False
 
     def complete(result: MLStagedResult) -> None:
-        """Record completed result."""
-        outcomes.append(result)
+        """Record model outcomes and classify only completed tracks."""
+        snapshots: dict[int, Exception] = {}
+
+        def snapshot(error: Exception | None) -> Exception | None:
+            if error is None:
+                return None
+            if isinstance(error, EmbeddingCancelledError):
+                raise error
+            if id(error) not in snapshots:
+                # Log text, so neither results nor log handlers retain audio frames.
+                LOGGER.error(
+                    "ML staged analysis failed for %s:\n%s",
+                    result.candidate.file_path,
+                    "".join(traceback.format_exception(type(error), error, error.__traceback__)),
+                )
+                snapshots[id(error)] = RuntimeError(f"{type(error).__name__}: {error}")
+            return snapshots[id(error)]
+
+        result = replace(
+            result,
+            error=snapshot(result.error),
+            model_errors={model: snapshot(error) for model, error in result.model_errors.items()},
+        )
+        if result.track_complete:
+            outcomes.append(result)
         if track_result_callback is not None:
             track_result_callback(result)
+        if result.track_complete and mark_track_processed is not None:
+            mark_track_processed(result.candidate)
 
     def fill_copy_window() -> None:
         """Fill copy window up to stage_size."""
@@ -339,7 +367,7 @@ def analyze_and_store_staged_ml(
             or ready_decoded
         ):
             if cancelled is not None and cancelled():
-                raise RuntimeError("ML staging cancelled")
+                raise EmbeddingCancelledError("ML staging cancelled")
 
             # Start decode jobs from staged_ready
             while staged_ready and len(decode_futures) < config.decode_workers:
@@ -361,7 +389,7 @@ def analyze_and_store_staged_ml(
                         session,
                         complete,
                         progress_callback,
-                        mark_track_processed,
+                        cancelled,
                     )
                 fill_copy_window()
                 continue
@@ -414,7 +442,7 @@ def analyze_and_store_staged_ml(
                 session,
                 complete,
                 progress_callback,
-                mark_track_processed,
+                cancelled,
             )
 
     return outcomes
@@ -444,6 +472,8 @@ def _decode_staged(
     try:
         decoded = decode_audio(staged.staged_path)
         return staged, decoded, time.perf_counter() - started
+    except EmbeddingCancelledError:
+        raise
     except Exception as primary_error:
         # Try shared FFmpeg fallback
         try:
@@ -475,7 +505,7 @@ def _process_inference_batch(
     session: MLStagingSession,
     complete: Callable[[MLStagedResult], None],
     progress_callback: Callable[[str, int, int], None] | None,
-    mark_track_processed: Callable[[AnalysisCandidate], None] | None,
+    cancelled: Callable[[], bool] | None,
 ) -> None:
     """Process inference batch through all models.
 
@@ -516,73 +546,79 @@ def _process_inference_batch(
     model_timings: dict[int, dict[str, float]] = {
         item.candidate.target.track_id: {} for item in items
     }
-    model_errors: dict[int, Exception | None] = {
-        item.candidate.target.track_id: None for item in items
+    model_errors: dict[int, dict[str, Exception | None]] = {
+        item.candidate.target.track_id: {} for item in items
     }
 
     # Run each model sequentially (they share GPU)
     from .config import ANALYSIS_MODEL_ORDER
 
-    for model_name in ANALYSIS_MODEL_ORDER:
-        runner = model_runners.get(model_name)
-        if not runner:
-            continue
+    def emit_results(*, track_complete: bool) -> None:
+        for staged, _decoded, decode_seconds in batch:
+            track_id = staged.candidate.target.track_id
+            if not track_complete and not model_errors[track_id]:
+                continue
+            result = MLStagedResult(
+                candidate=staged.candidate,
+                error=next((error for error in model_errors[track_id].values() if error is not None), None),
+                model_errors=model_errors[track_id],
+                track_complete=track_complete,
+                copy_seconds=staged.copy_seconds,
+                decode_seconds=decode_seconds,
+                inference_seconds=sum(model_timings.get(track_id, {}).values()),
+                model_timings=model_timings.get(track_id, {}),
+                # FFmpeg fallback used if either decode phase or runner used it
+                used_ffmpeg_fallback=ffmpeg_used_in_decode.get(track_id, False),
+            )
+            if track_complete:
+                session.release(staged)
+            complete(result)
 
-        model_items = [item for item in items if model_name in item.models]
-        if not model_items:
-            continue
+    try:
+        for model_name in ANALYSIS_MODEL_ORDER:
+            if cancelled is not None and cancelled():
+                raise EmbeddingCancelledError("ML staging cancelled")
+            runner = model_runners.get(model_name)
+            if not runner:
+                continue
 
-        started = time.perf_counter()
-        try:
-            # Runners handle their own analyze_batch + storage
-            # They may do internal FFmpeg fallback for DecodeFailure items
-            errors = runner.analyze_batch(repository, model_items)
-            elapsed = time.perf_counter() - started
+            model_items = [item for item in items if model_name in item.models]
+            if not model_items:
+                continue
 
-            # Record timing and check for errors
-            for item, error in zip(model_items, errors):
-                track_id = item.candidate.target.track_id
-                model_timings[track_id][model_name] = elapsed / len(model_items)
-                if error and model_errors[track_id] is None:
-                    model_errors[track_id] = error
+            started = time.perf_counter()
+            try:
+                # Runners handle their own analyze_batch + storage
+                # They may do internal FFmpeg fallback for DecodeFailure items
+                errors = runner.analyze_batch(repository, model_items)
+                elapsed = time.perf_counter() - started
 
-            # Check if runner used FFmpeg fallback (from runner.last_ffmpeg_fallback_track_ids)
-            if hasattr(runner, 'last_ffmpeg_fallback_track_ids'):
-                for track_id in runner.last_ffmpeg_fallback_track_ids:
-                    if track_id in ffmpeg_used_in_decode:
-                        ffmpeg_used_in_decode[track_id] = True
+                # Record timing and check for errors
+                for item, error in zip(model_items, errors):
+                    if isinstance(error, EmbeddingCancelledError):
+                        raise error
+                    track_id = item.candidate.target.track_id
+                    model_timings[track_id][model_name] = elapsed / len(model_items)
+                    model_errors[track_id][model_name] = error
 
-            if progress_callback:
-                progress_callback(f"inference:{model_name}", len(model_items), len(items))
-        except Exception as error:
-            LOGGER.exception("Model %s batch inference failed", model_name)
-            for item in model_items:
-                track_id = item.candidate.target.track_id
-                if model_errors[track_id] is None:
-                    model_errors[track_id] = error
+                # Check if runner used FFmpeg fallback (from runner.last_ffmpeg_fallback_track_ids)
+                if hasattr(runner, 'last_ffmpeg_fallback_track_ids'):
+                    for track_id in runner.last_ffmpeg_fallback_track_ids:
+                        if track_id in ffmpeg_used_in_decode:
+                            ffmpeg_used_in_decode[track_id] = True
 
-    # Complete each track and mark as processed
-    for staged, decoded, decode_seconds in batch:
-        track_id = staged.candidate.target.track_id
+                if progress_callback:
+                    progress_callback(f"inference:{model_name}", len(model_items), len(items))
+            except EmbeddingCancelledError:
+                raise
+            except Exception as error:
+                for item in model_items:
+                    track_id = item.candidate.target.track_id
+                    model_errors[track_id][model_name] = error
+    except EmbeddingCancelledError:
+        # Runners have already stored completed model outputs. Report those
+        # without classifying interrupted tracks or inventing missing results.
+        emit_results(track_complete=False)
+        raise
 
-        result = MLStagedResult(
-            candidate=staged.candidate,
-            decoded=decoded if not isinstance(decoded, DecodeFailure) else None,
-            error=model_errors.get(track_id),
-            copy_seconds=staged.copy_seconds,
-            decode_seconds=decode_seconds,
-            inference_seconds=sum(model_timings.get(track_id, {}).values()),
-            model_timings=model_timings.get(track_id, {}),
-            # FFmpeg fallback used if either decode phase or runner used it
-            used_ffmpeg_fallback=ffmpeg_used_in_decode.get(track_id, False),
-        )
-
-        # Release staged copy
-        session.release(staged)
-
-        # Mark track as processed
-        if mark_track_processed:
-            mark_track_processed(staged.candidate)
-
-        # Complete result
-        complete(result)
+    emit_results(track_complete=True)

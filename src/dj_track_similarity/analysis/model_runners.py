@@ -4,7 +4,7 @@ import math
 import re
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -28,6 +28,7 @@ from ..audio.loader import (
 )
 from ..embedding.contracts import (
     DecodedAudioEmbeddingAdapter,
+    EmbeddingCancelledError,
     EmbeddingIdentity,
     MaestAnalysisAdapter,
 )
@@ -52,6 +53,7 @@ from .sonara_results import prepare_sonara_write
 if TYPE_CHECKING:
     from ..track_models import TrackFileState
     from ..embedding.maest import MaestAnalysisResult
+    from ..embedding.mert import MertEmbeddingAdapter
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
@@ -381,6 +383,7 @@ class EmbeddingModelRunner:
             raise ValueError(f"Unsupported embedding model: {model}") from KeyError(model)
         self._active_outputs = (embedding_analysis_output(model, self.adapter),)
         self.last_ffmpeg_fallback_track_ids: frozenset[int] = frozenset()
+        self.cancelled: Callable[[], bool] | None = None
 
     @property
     def model_name(self) -> str:
@@ -406,6 +409,7 @@ class EmbeddingModelRunner:
         repository: AnalysisWriteRepository,
         items: Sequence[AnalysisBatchItem],
     ) -> Sequence[Exception | None]:
+        self._check_cancelled()
         self.last_ffmpeg_fallback_track_ids = frozenset()
         vectors = self._embedding_vectors(items)
         prepared: list[EmbeddingWrite | Exception] = []
@@ -423,12 +427,50 @@ class EmbeddingModelRunner:
                         ),
                     )
                 )
+            except EmbeddingCancelledError:
+                raise
             except Exception as error:
                 prepared.append(error)
 
         writes = tuple(item for item in prepared if isinstance(item, EmbeddingWrite))
+        self._check_cancelled()
         write_results = repository.save_embedding_results(writes)
         return _merge_write_results(prepared, writes, write_results)
+
+    def _check_cancelled(self) -> None:
+        if self.model == "mert" and self.cancelled is not None and self.cancelled():
+            raise EmbeddingCancelledError("MERT analysis cancelled")
+
+    def _embed_decoded_items(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
+        self._check_cancelled()
+        if self.model == "mert":
+            vectors = cast("MertEmbeddingAdapter", self.adapter).embed_decoded_batch(
+                decoded_items, cancelled=self.cancelled,
+            )
+            if len(vectors) != len(decoded_items):
+                raise ValueError("MERT batch result count does not match track count")
+            return vectors
+        return self.adapter.embed_decoded_batch(decoded_items)
+
+    def _mert_vectors(self, items: list[AnalysisBatchItem]) -> list[np.ndarray | Exception]:
+        try:
+            return list(self._embed_decoded_items(_decoded_items(items)))
+        except EmbeddingCancelledError:
+            raise
+        except Exception as error:
+            if len(items) == 1:
+                return [error]
+
+        # A bad track must not discard its neighbours in staged or direct mode.
+        vectors: list[np.ndarray | Exception] = []
+        for item in items:
+            try:
+                vectors.extend(self._embed_decoded_items(_decoded_items([item])))
+            except EmbeddingCancelledError:
+                raise
+            except Exception as error:
+                vectors.append(error)
+        return vectors
 
     def _embedding_vectors(
         self,
@@ -442,7 +484,11 @@ class EmbeddingModelRunner:
         ]
         if direct_indexes:
             direct_items = [items[index] for index in direct_indexes]
-            vectors = self.adapter.embed_decoded_batch(_decoded_items(direct_items))
+            vectors = (
+                self._mert_vectors(direct_items)
+                if self.model == "mert"
+                else self._embed_decoded_items(_decoded_items(direct_items))
+            )
             if len(vectors) != len(direct_items):
                 raise ValueError(
                     f"{self.model.upper()} batch result count does not match track count"
@@ -454,15 +500,18 @@ class EmbeddingModelRunner:
         for index, item in enumerate(items):
             if not isinstance(item.decoded, DecodeFailure):
                 continue
+            self._check_cancelled()
             try:
                 decoded = load_decoded_audio_with_ffmpeg(item.candidate.file_path)
-                ffmpeg_vectors = self.adapter.embed_decoded_batch([decoded])
+                ffmpeg_vectors = self._embed_decoded_items([decoded])
                 if len(ffmpeg_vectors) != 1:
                     raise ValueError(
                         f"{self.model.upper()} FFmpeg fallback did not return one vector"
                     )
                 results[index] = ffmpeg_vectors[0]
                 ffmpeg_track_ids.add(item.candidate.target.track_id)
+            except EmbeddingCancelledError:
+                raise
             except Exception as ffmpeg_error:
                 results[index] = RuntimeError(
                     f"full TorchCodec decode failed: {item.decoded.error}; "

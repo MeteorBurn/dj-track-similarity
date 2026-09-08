@@ -59,6 +59,7 @@ from ..analysis_models import (
 )
 from .queue import AnalysisStageQueue
 from ..audio.loader import load_decoded_audio
+from ..embedding.contracts import EmbeddingCancelledError
 from ..job_runtime import JobStore, chunks
 from ..logging_config import (
     exception_summary,
@@ -450,6 +451,8 @@ class AnalysisJobManager:
         try:
             payload = self._payload(job_id)
             return self._execute_job(job_id)
+        except EmbeddingCancelledError:
+            return self._finish_cancelled(job_id)
         except BaseException as error:
             if self.get(job_id).state in {"queued", "running"}:
                 self._fail_stage(
@@ -634,6 +637,8 @@ class AnalysisJobManager:
                     job_id,
                     result,
                 )
+            if isinstance(runner, EmbeddingModelRunner) and model == "mert":
+                runner.cancelled = lambda: self.get(job_id).cancel_requested
             lifecycle.runners[model] = runner
             lifecycle.handles[model] = handle
 
@@ -809,42 +814,37 @@ class AnalysisJobManager:
                 f"ML staged pipeline starting: {len(batch)} tracks",
             )
             
-            try:
-                results = analyze_and_store_staged_ml(
-                    repository=self.db,
-                    candidates=batch,
-                    model_runners=lifecycle.runners,
-                    targets_by_track=targets_by_track,
-                    config=config,
-                    decode_audio=self._decode_audio,
-                    cancelled=lambda: self.get(job_id).cancel_requested,
-                    track_result_callback=lambda result: self._record_staged_ml_result(
-                        job_id, result
-                    ),
-                    progress_callback=lambda phase, done, total: self._ml_staged_progress(
-                        job_id, phase, done, total
-                    ),
-                    set_current_path=lambda path: self._update(
-                        job_id, current_path=path
-                    ),
-                    mark_track_processed=lambda candidate: self._mark_track_processed(
-                        job_id, candidate
-                    ),
-                )
-                
-                self._append_event(
-                    job_id,
-                    "info",
-                    f"ML staged pipeline completed: {len(results)} tracks processed",
-                )
-                
-                # ML staged handles its own track processing
-                return True
-                
-            except RuntimeError as error:
-                if "cancelled" in str(error).lower():
-                    return True
-                raise
+            results = analyze_and_store_staged_ml(
+                repository=self.db,
+                candidates=batch,
+                model_runners=lifecycle.runners,
+                targets_by_track=targets_by_track,
+                config=config,
+                decode_audio=self._decode_audio,
+                cancelled=lambda: self.get(job_id).cancel_requested,
+                track_result_callback=lambda result: self._record_staged_ml_result(
+                    job_id, result
+                ),
+                progress_callback=lambda phase, done, total: self._ml_staged_progress(
+                    job_id, phase, done, total
+                ),
+                set_current_path=lambda path: self._update(
+                    job_id, current_path=path
+                ),
+                mark_track_processed=lambda candidate: self._mark_track_processed(
+                    job_id, candidate
+                ),
+            )
+
+            self._append_event(
+                job_id,
+                "info",
+                f"ML staged pipeline completed: {len(results)} tracks processed",
+            )
+
+            # ML staged handles its own track processing
+            return True
+
         # ML Direct Mode path (current)
         else:
             items = decode_analysis_batch(
@@ -977,6 +977,8 @@ class AnalysisJobManager:
                 runner.analyze_batch(self.db, items),
                 items,
             )
+        except EmbeddingCancelledError:
+            raise
         except Exception as error:
             if model == "sonara":
                 self._fail_stage(
@@ -1008,12 +1010,16 @@ class AnalysisJobManager:
                 model=model,
             )
             for item in items:
+                if model == "mert" and self.get(job_id).cancel_requested:
+                    raise EmbeddingCancelledError("MERT analysis cancelled")
                 try:
                     item_results = _validated_runner_results(
                         runner.analyze_batch(self.db, [item]),
                         [item],
                     )
                     item_error = item_results[0]
+                except EmbeddingCancelledError:
+                    raise
                 except Exception as item_exception:
                     item_error = item_exception
                 if item_error is None:
@@ -1087,12 +1093,19 @@ class AnalysisJobManager:
         job_id: str,
         result: MLStagedResult,
     ) -> None:
-        """Record ML staged result (called incrementally per track)."""
-        if result.error is None:
-            # Success - track was processed by all models
-            # Note: ML staged doesn't track per-model success, only overall
-            pass
-        # Note: mark_track_processed is called by ML staged pipeline itself
+        """Record each requested model before the pipeline completes the track."""
+        models = self._payload(job_id).targets_by_track[result.target.track_id]
+        for model in models:
+            if model in result.model_errors:
+                error = result.model_errors[model]
+            elif not result.track_complete:
+                continue
+            else:
+                error = result.error or RuntimeError(f"{model} did not return a staged result")
+            if error is None:
+                self._record_model_success(job_id, model, result.candidate)
+            else:
+                self._record_model_failure(job_id, model, result.candidate, error)
 
     def _ml_staged_progress(
         self,
@@ -1405,4 +1418,7 @@ def _validated_runner_results(
         for result in normalized
     ):
         raise TypeError("analysis runner results must contain only exceptions or None")
+    for result in normalized:
+        if isinstance(result, EmbeddingCancelledError):
+            raise result
     return normalized

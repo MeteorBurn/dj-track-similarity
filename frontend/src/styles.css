@@ -2675,6 +2675,11 @@ h2 {
   padding: 1px 7px;
 }
 
+.add-prompt-candidates-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .playlist-export-disclosure {
   border-top: 1px solid var(--border-muted);
   flex: 0 0 auto;
@@ -4447,9 +4452,10 @@ h2 {
   border-color: var(--accent);
 }
 
-.text-search-filter-grid {
+.search-workflow-section .text-search-filter-grid {
   margin: 0;
-  grid-template-columns: repeat(2, minmax(92px, 160px));
+  grid-template-columns: repeat(2, minmax(0, 200px));
+  justify-content: space-between;
 }
 
 .text-search-filter-grid select,

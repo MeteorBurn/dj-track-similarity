@@ -1,7 +1,7 @@
 import { TextExecutionDetails } from "./TextExecutionDetails";
 import type { TextSearchExecution } from "./api";
 import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useState } from "react";
-import { Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
+import { Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Plus, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
 import { TextSearchTab } from "./TextSearchTab";
 import {
@@ -14,6 +14,7 @@ import {
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { EmbeddingSearchTab } from "./EmbeddingSearchTab";
 import { playlistPage } from "./playlistView";
+import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import {
   genericSearchResultIsCurrent,
@@ -110,6 +111,36 @@ function searchResultOriginLabel(origin: GenericSearchTab) {
 
 const classifierEmptyStateMessage = "No promoted classifier profiles found. Promote profiles from Rhythm Lab or place model.json + model.joblib under models/classifiers/<profile>/.";
 
+function PromptCandidatesAddButton({ results, playlist, busy, modelLabel, onAdd }: {
+  results: SearchResult[];
+  playlist: Track[];
+  busy: boolean;
+  modelLabel: string;
+  onAdd: (tracks: Track[], modelLabel: string) => void;
+}) {
+  const tracks = results.map(({ track }) => track);
+  const additions = appendVisibleTracksToPlaylist(playlist, tracks).length - playlist.length;
+  const title = busy
+    ? "Дождитесь завершения текущей операции"
+    : !tracks.length
+      ? "Нет кандидатов для добавления в сет"
+      : !additions
+        ? "Все показанные кандидаты уже в сете"
+        : `Добавить кандидатов ${modelLabel} в сет: ${additions} новых из ${tracks.length} показанных`;
+  return (
+    <button
+      className="icon-button intent-add add-prompt-candidates-button"
+      title={title}
+      aria-label={`Добавить кандидатов ${modelLabel} в сет`}
+      disabled={busy || additions === 0}
+      onClick={() => onAdd(tracks, modelLabel)}
+      type="button"
+    >
+      <Plus size={16} />
+    </button>
+  );
+}
+
 export function SearchPlaylistPanel({
   seedTracks,
   onActivity,
@@ -168,6 +199,7 @@ export function SearchPlaylistPanel({
   addSeed,
   toggleLiked,
   togglePlaylist,
+  onAddPromptCandidates,
   playingTrackId,
   previewTrackId,
   setPreview,
@@ -253,6 +285,7 @@ export function SearchPlaylistPanel({
   addSeed: (track: Track) => void;
   toggleLiked: (track: Track) => Promise<Track | null>;
   togglePlaylist: (track: Track) => void;
+  onAddPromptCandidates: (tracks: Track[], modelLabel: string) => void;
   playingTrackId: number | null;
   previewTrackId: number | null;
   setPreview: (track: Track) => void;
@@ -711,6 +744,15 @@ export function SearchPlaylistPanel({
                   <div className="generic-search-result-provenance" role="status">
                     {column.label} results
                     <span>{column.results.length}</span>
+                    {genericSearchResultOrigin === "text" ? (
+                      <PromptCandidatesAddButton
+                        results={column.results}
+                        playlist={playlist}
+                        busy={busy || column.status !== "success"}
+                        modelLabel={column.label}
+                        onAdd={onAddPromptCandidates}
+                      />
+                    ) : null}
                   </div>
                   {column.execution ? <TextExecutionDetails execution={column.execution} /> : null}
                   {column.status === "pending" ? <div role="status">{column.label}: поиск…</div> : null}
@@ -756,6 +798,15 @@ export function SearchPlaylistPanel({
             <div className="generic-search-result-provenance" role="status">
               {searchResultOriginLabel(genericSearchResultOrigin)} results
               <span>{results.length}</span>
+              {genericSearchResultOrigin === "text" ? (
+                <PromptCandidatesAddButton
+                  results={results}
+                  playlist={playlist}
+                  busy={busy}
+                  modelLabel={textEmbeddingFamily === "clap" ? "CLAP" : "MuQ-MuLan"}
+                  onAdd={onAddPromptCandidates}
+                />
+              ) : null}
             </div>
             <div className="results-list">
               {results.length ? results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }, index) => (

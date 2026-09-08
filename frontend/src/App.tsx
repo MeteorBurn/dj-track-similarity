@@ -674,6 +674,23 @@ export function App() {
     setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
+  function addPromptCandidatesToPlaylist(tracks: Track[], modelLabel: string) {
+    if (
+      busy || genericSearchPending
+      || genericSearchResultState?.origin !== "text"
+      || genericSearchResultState.requestKey !== genericSearchInputKey
+    ) return;
+    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
+    const added = nextPlaylist.length - playlist.length;
+    if (!added) {
+      setNotice({ kind: "idle", text: "Все показанные кандидаты уже в сете" });
+      return;
+    }
+    setPlaylist(nextPlaylist);
+    appendActivity("ok", "Кандидаты PROMPT добавлены в сет", `${modelLabel} · ${added} новых · показано ${tracks.length}`);
+    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
+  }
+
   async function handleAnalyzeClassifier(classifier: PromotedClassifier) {
     if (librarySummary.sonara < 1) {
       const message = "Сначала выполните SONARA-анализ хотя бы одного трека";
@@ -1533,6 +1550,7 @@ export function App() {
           addSeed={addSeed}
           toggleLiked={handleToggleTrackLiked}
           togglePlaylist={togglePlaylist}
+          onAddPromptCandidates={addPromptCandidatesToPlaylist}
           playingTrackId={playingTrackId}
           previewTrackId={preview?.track_id ?? null}
           setPreview={togglePreview}

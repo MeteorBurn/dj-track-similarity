@@ -482,7 +482,7 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     }
     for runner in runners:
         assert getattr(runner.adapter, "_model") is None
-        if runner.model != "mulan":
+        if runner.model not in {"mulan", "clap"}:
             assert runner.adapter.inference_batch_size == 7
         for output in runner.active_outputs:
             if output.output_kind == "embedding":

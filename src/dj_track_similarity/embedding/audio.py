@@ -5,8 +5,6 @@ import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
     from torch import Tensor
 from ..audio.loader import DecodedAudio
@@ -28,18 +26,11 @@ def _prepare_windows(
 ) -> tuple[list[list[int]], list, float]:
     """Decode-side windowing for adapters that select fixed waveform excerpts.
 
-    ``pad`` is the one thing these models genuinely disagree about, and each
-    choice is theirs to make: MERT feeds a short track as a single
-    variable-length window, MuQ zero-pads it out to the window,
-    and CLAP repeat-pads because that is what LAION-CLAP does. Everything
-    around it — resampling, the interior 10–90% selection, the per-track index
-    bookkeeping — was one loop written three times.
-
-    ``pad="zero"`` yields tensors because the MuQ family stacks them on the
-    device; the other two yield numpy, which is what their processors take.
+    MERT keeps a short track as a variable-length numpy window. MuQ zero-pads
+    its windows and stacks the resulting tensors on the inference device.
     """
 
-    if pad not in {"none", "zero", "repeat"}:
+    if pad not in {"none", "zero"}:
         raise ValueError(f"unsupported window padding: {pad!r}")
     window_size = max(1, int(target_rate * window_seconds))
     track_windows: list[list[int]] = []
@@ -76,13 +67,6 @@ def _prepare_windows(
                 all_windows.append(
                     _pad_or_trim_audio_tensor(window, window_size, torch)
                 )
-            elif pad == "repeat":
-                all_windows.append(
-                    _repeatpad_or_trim_audio_window(
-                        window.cpu().numpy(),
-                        window_size,
-                    )
-                )
             else:
                 all_windows.append(window.cpu().numpy())
         track_windows.append(window_indices)
@@ -95,20 +79,6 @@ def _pad_or_trim_audio_tensor(audio: Tensor, target_samples: int, torch) -> Tens
     if window.numel() < target_samples:
         return torch.nn.functional.pad(window, (0, target_samples - window.numel()))
     return window
-
-def _repeatpad_or_trim_audio_window(audio: np.ndarray, target_samples: int) -> np.ndarray:
-    window = np.asarray(audio, dtype=np.float32).reshape(-1)
-    if window.shape[0] > target_samples:
-        return window[:target_samples]
-    if window.shape[0] == target_samples:
-        return window
-    if window.shape[0] == 0:
-        return np.zeros(target_samples, dtype=np.float32)
-    repeat_count = int(target_samples / window.shape[0])
-    repeated = np.tile(window, repeat_count)
-    if repeated.shape[0] < target_samples:
-        repeated = np.pad(repeated, (0, target_samples - repeated.shape[0]))
-    return repeated[:target_samples].astype(np.float32, copy=False)
 
 def _resample_to(waveform, *, source_rate: int, target_rate: int, torchaudio):
     """Resample through the kernel cached for this rate pair."""

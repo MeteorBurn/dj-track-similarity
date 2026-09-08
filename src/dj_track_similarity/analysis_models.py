@@ -45,7 +45,7 @@ MAEST_ADAPTER_REVISION = "maest-adapter-v2"
 MERT_ADAPTER_REVISION = "mert-adapter-v1"
 MUQ_ADAPTER_REVISION = "muq-adapter-v1"
 MULAN_ADAPTER_REVISION = "mulan-adapter-v2"
-CLAP_ADAPTER_REVISION = "clap-adapter-v2"
+CLAP_ADAPTER_REVISION = "clap-adapter-v3"
 
 MAEST_MODEL_VERSION = "v0.0.0-beta"
 MERT_MODEL_REVISION = "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5"
@@ -157,7 +157,7 @@ MAEST_PREPROCESSING = "shared-mono/maest-16khz-30s-three-windows-v1"
 MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows-v1"
 MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-interior-windows-v1"
 MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track-v2"
-CLAP_PREPROCESSING = "shared-mono/clap-48khz-10s-repeatpad-v1"
+CLAP_PREPROCESSING = "shared-mono/clap-48khz-native-full-signal-v2"
 
 MAEST_EMBEDDING_DIM = 768
 MERT_EMBEDDING_DIM = 768
@@ -272,17 +272,17 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
     },
     ("clap", "embedding"): {
         "sample_rate_hz": 48_000,
-        "window_seconds": 10.0,
-        "max_windows": 5,
-        "pooling": "clap-audio+per-window-l2+window-mean+l2",
+        "clip_seconds": 10.0,
+        "audio_input": "full-track",
+        "pooling": "clap-audio-latent+l2",
         "amodel": "HTSAT-base",
         "tmodel": "roberta",
         "enable_fusion": False,
         "channel_downmix": "torchcodec-num-channels-1",
         "decoder": "shared-torchcodec-0.16",
         "resampler": "torchaudio",
-        "window_selection": "10%-90%-interior-evenly-spaced-rounded",
-        "short_audio": "repeat-whole-window-then-right-zero-pad",
+        "audio_truncation": "upstream-random-10s-crop",
+        "short_audio": "upstream-repeatpad",
         "input_quantization": "laion-clap-float32-int16-float32",
         "text_model_class": "RobertaModel",
         "text_tokenizer_class": "RobertaTokenizer",
@@ -375,8 +375,11 @@ _REQUIRED_PARAMETER_KEYS = {
         {
             "adapter_revision",
             "sample_rate_hz",
-            "window_seconds",
-            "max_windows",
+            "clip_seconds",
+            "audio_input",
+            "audio_truncation",
+            "short_audio",
+            "input_quantization",
             "pooling",
             "amodel",
             "tmodel",

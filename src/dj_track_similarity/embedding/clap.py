@@ -21,17 +21,13 @@ from ..analysis_models import (
     CLAP_TEXT_SNAPSHOT_SHA256,
 )
 from ..audio.loader import DecodedAudio
-from .audio import _prepare_windows
+from .audio import _resample_to
 from .loading import (
     _download_verified_hf_checkpoint,
     _download_verified_hf_snapshot,
     _local_only_from_pretrained_proxy,
 )
-from .numerics import (
-    _array_output_to_numpy,
-    _normalize_rows,
-    _normalized_embedding_rows,
-)
+from .numerics import _normalized_embedding_rows
 from ..runtime import select_torch_device
 
 _CLAP_CONSTRUCTION_LOCK = threading.RLock()
@@ -49,10 +45,11 @@ class ClapEmbeddingAdapter:
     preprocessing = CLAP_PREPROCESSING
     dim = 512
     target_rate = 48_000
+    clip_seconds = 10.0
     amodel = "HTSAT-base"
     tmodel = "roberta"
     enable_fusion = False
-    pooling = "clap-audio+per-window-l2+window-mean+l2"
+    pooling = "clap-audio-latent+l2"
     encoding = "float32-le"
     normalization = "l2"
     text_model_name = CLAP_TEXT_MODEL_NAME
@@ -67,15 +64,9 @@ class ClapEmbeddingAdapter:
     def __init__(
         self,
         device: str | None = None,
-        window_seconds: float = 10.0,
-        max_windows: int = 5,
-        inference_batch_size: int = 8,
     ) -> None:
         self.requested_device = device or "auto"
         self.device_name = None if self.requested_device == "auto" else self.requested_device
-        self.window_seconds = window_seconds
-        self.max_windows = max_windows
-        self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
@@ -87,8 +78,8 @@ class ClapEmbeddingAdapter:
         return {
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
-            "window_seconds": self.window_seconds,
-            "max_windows": self.max_windows,
+            "clip_seconds": self.clip_seconds,
+            "audio_input": "full-track",
             "pooling": self.pooling,
             "amodel": self.amodel,
             "tmodel": self.tmodel,
@@ -96,8 +87,8 @@ class ClapEmbeddingAdapter:
             "channel_downmix": "torchcodec-num-channels-1",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
-            "window_selection": "10%-90%-interior-evenly-spaced-rounded",
-            "short_audio": "repeat-whole-window-then-right-zero-pad",
+            "audio_truncation": "upstream-random-10s-crop",
+            "short_audio": "upstream-repeatpad",
             "input_quantization": "laion-clap-float32-int16-float32",
             "text_model_class": "RobertaModel",
             "text_tokenizer_class": "RobertaTokenizer",
@@ -121,53 +112,61 @@ class ClapEmbeddingAdapter:
 
     def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
         self._load_model()
-        return self._embed_decoded_items(
-            decoded_items,
-            target_rate=self.target_rate,
-        )
+        return self._embed_decoded_items(decoded_items)
 
     def _embed_decoded_items(
         self,
         decoded_items: list[DecodedAudio],
-        *,
-        target_rate: int,
     ) -> list[np.ndarray]:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
-        track_windows, all_windows, prepare_seconds = _prepare_windows(
-            decoded_items,
-            target_rate=target_rate,
-            window_seconds=self.window_seconds,
-            max_windows=self.max_windows,
-            pad="repeat",
-            torch=torch,
-            torchaudio=torchaudio,
-            model_label="CLAP",
-        )
+        vectors: list[np.ndarray] = []
+        prepare_seconds = 0.0
+        inference_seconds = 0.0
+        for decoded in decoded_items:
+            prepare_started = time.perf_counter()
+            waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
+            if waveform.numel() == 0:
+                raise ValueError(f"No audio samples could be extracted: {decoded.path}")
+            if decoded.sample_rate != self.target_rate:
+                if torchaudio is None:
+                    raise RuntimeError(
+                        "CLAP shared-audio analysis requires "
+                        f"torchaudio resampling: {decoded.path}"
+                    )
+                waveform = _resample_to(
+                    waveform,
+                    source_rate=decoded.sample_rate,
+                    target_rate=self.target_rate,
+                    torchaudio=torchaudio,
+                )
+            audio_data = waveform.to(dtype=torch.float32).cpu().numpy()
+            prepare_seconds += time.perf_counter() - prepare_started
 
-        pooled_windows: list[np.ndarray] = []
-        inference_started = time.perf_counter()
-        for start in range(0, len(all_windows), self.inference_batch_size):
-            batch = np.stack(all_windows[start : start + self.inference_batch_size]).astype(np.float32)
+            inference_started = time.perf_counter()
             with torch.inference_mode():
-                features = self._model.get_audio_embedding_from_data(x=batch, use_tensor=False)
-            pooled_windows.extend(_normalize_rows(_array_output_to_numpy(features)))
-        inference_seconds = time.perf_counter() - inference_started
+                # The official API owns quantization, one random crop for long
+                # audio, and repeat-padding for short audio.
+                features = self._model.get_audio_embedding_from_data(
+                    x=audio_data,
+                    use_tensor=False,
+                )
+            vectors.extend(
+                _normalized_embedding_rows(
+                    features,
+                    expected_rows=1,
+                    expected_dim=self.dim,
+                    model_label="CLAP audio",
+                )
+            )
+            inference_seconds += time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
-            "windows": len(all_windows),
+            "windows": len(decoded_items),
         }
-
-        vectors: list[np.ndarray] = []
-        for indices in track_windows:
-            vector = np.mean(np.vstack([pooled_windows[index] for index in indices]), axis=0).astype(np.float32)
-            norm = np.linalg.norm(vector)
-            if norm == 0:
-                raise ValueError("Model produced a zero vector")
-            vectors.append(vector / norm)
         return vectors
 
     def embed_text(self, text: str) -> np.ndarray:

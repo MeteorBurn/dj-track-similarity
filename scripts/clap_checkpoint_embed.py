@@ -133,10 +133,10 @@ def decode_track(path: str) -> DecodedAudio | None:
 
 
 def stored_vectors(db_path: Path, track_ids: list[int]) -> dict[int, FloatArray]:
-    """Read the production checkpoint's vectors straight out of the library.
+    """Read the saved CLAP vectors straight out of the library.
 
-    Recomputing them reproduces the stored blobs exactly, so the incumbent arm
-    is built by reading rather than by burning an hour of GPU on a known answer.
+    Saved vectors can predate the current preprocessing. Reading them does not
+    establish that they match a fresh run of the current adapter.
     """
 
     with sqlite3.connect(_read_only_uri(db_path), uri=True) as connection:
@@ -185,7 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         default="audio",
         help=(
             "audio: decode and embed. stored: copy the library's existing"
-            " vectors, which only answers for the production checkpoint."
+            " vectors for the production checkpoint; their preprocessing may"
+            " predate the current adapter."
         ),
     )
     parser.add_argument(
@@ -201,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         "--batch-size",
         type=int,
         default=16,
-        help="Tracks decoded and embedded per forward pass.",
+        help="Tracks decoded per batch; CLAP processes each track separately.",
     )
     parser.add_argument(
         "--limit",

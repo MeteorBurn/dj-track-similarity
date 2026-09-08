@@ -571,50 +571,74 @@ def test_pad_or_trim_audio_tensor_returns_fixed_length_float32() -> None:
     assert _pad_or_trim_audio_tensor(torch.tensor([1, 2]), 2, torch).dtype == torch.float32
 
 
-def test_clap_repeatpad_or_trim_audio_window_matches_laion_short_audio_fill() -> None:
-    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1.0, 2.0]), 5).tolist() == [1.0, 2.0, 1.0, 2.0, 0.0]
-    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1.0, 2.0]), 4).tolist() == [1.0, 2.0, 1.0, 2.0]
-    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1.0, 2.0, 3.0]), 2).tolist() == [1.0, 2.0]
-    assert embedding_audio._repeatpad_or_trim_audio_window(np.array([1, 2], dtype=np.int16), 2).dtype == np.float32
-
-
 class FakeClapAudioModel:
     def __init__(self) -> None:
-        self.batch_shapes: list[tuple[int, ...]] = []
+        self.audio_calls: list[np.ndarray] = []
+        self.output = np.asarray([[3.0, 4.0] + [0.0] * 510], dtype=np.float32)
 
     def get_audio_embedding_from_data(self, x, use_tensor=False):
-        self.batch_shapes.append(tuple(x.shape))
-        return np.asarray([[1.0, 0.0, 0.0] for _ in range(x.shape[0])], dtype=np.float32)
+        assert use_tensor is False
+        self.audio_calls.append(x.copy())
+        return self.output
 
 
 class SharedAudioClapAdapter(ClapEmbeddingAdapter):
     def __init__(self) -> None:
-        super().__init__(device="cpu", window_seconds=1.0, max_windows=1, inference_batch_size=4)
+        super().__init__(device="cpu")
         self.fake_model = FakeClapAudioModel()
+        self.fake_torchaudio = None
 
     def _load_model(self) -> None:
         self._torch = torch
-        self._torchaudio = None
+        self._torchaudio = self.fake_torchaudio
         self.device = "cpu"
         self._model = self.fake_model
 
 
-def test_clap_embed_decoded_batch_uses_shared_audio_without_loading_paths() -> None:
+def test_clap_passes_each_full_resampled_track_to_native_audio_api(monkeypatch) -> None:
     adapter = SharedAudioClapAdapter()
+    resample_calls = []
+
+    class FakeResampler:
+        def __init__(self, source_rate, target_rate):
+            assert (source_rate, target_rate) == (24_000, 48_000)
+
+        def __call__(self, waveform):
+            resample_calls.append(waveform.clone())
+            return waveform.repeat_interleave(2, dim=-1)
+
+    adapter.fake_torchaudio = types.SimpleNamespace(
+        transforms=types.SimpleNamespace(Resample=FakeResampler),
+    )
+    monkeypatch.setattr(embedding_audio, "_RESAMPLERS", {})
+    long_audio = torch.linspace(-1.2, 1.2, 1_278_000, dtype=torch.float64)
+    short_audio = torch.linspace(0.0, 0.5, 48_001, dtype=torch.float32)
     decoded = [
-        DecodedAudio(path="a.wav", audio=torch.ones(48_000), sample_rate=48_000, detail="shared"),
-        DecodedAudio(path="b.wav", audio=torch.ones(48_000), sample_rate=48_000, detail="shared"),
+        DecodedAudio(path="long.wav", audio=long_audio, sample_rate=24_000, detail="shared"),
+        DecodedAudio(path="short.wav", audio=short_audio, sample_rate=48_000, detail="shared"),
     ]
 
     vectors = adapter.embed_decoded_batch(decoded)
 
-    assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
-    assert adapter.fake_model.batch_shapes == [(2, 48000)]
+    assert len(resample_calls) == 1
+    torch.testing.assert_close(resample_calls[0], long_audio.float().unsqueeze(0))
+    assert len(adapter.fake_model.audio_calls) == len(vectors) == 2
+    np.testing.assert_array_equal(
+        adapter.fake_model.audio_calls[0],
+        long_audio.float().repeat_interleave(2).unsqueeze(0).numpy(),
+    )
+    np.testing.assert_array_equal(adapter.fake_model.audio_calls[1], short_audio.unsqueeze(0).numpy())
+    for waveform in adapter.fake_model.audio_calls:
+        assert waveform.dtype == np.float32
+    for vector in vectors:
+        assert vector.shape == (512,)
+        assert vector.dtype == np.float32
+        assert np.linalg.norm(vector) == pytest.approx(1.0)
+        np.testing.assert_allclose(vector[:2], [0.6, 0.8])
+        assert np.count_nonzero(vector[2:]) == 0
 
 
-def test_clap_consumes_shared_torchcodec_tensor_without_numpy_round_trip(
-    monkeypatch,
-) -> None:
+def test_clap_rejects_native_audio_output_with_wrong_shape() -> None:
     adapter = SharedAudioClapAdapter()
     decoded = [
         DecodedAudio(
@@ -624,17 +648,10 @@ def test_clap_consumes_shared_torchcodec_tensor_without_numpy_round_trip(
             detail="shared",
         )
     ]
-    monkeypatch.setattr(
-        torch,
-        "from_numpy",
-        lambda _audio: (_ for _ in ()).throw(
-            AssertionError("TorchCodec tensors must not round-trip through NumPy")
-        ),
-    )
-
-    vectors = adapter.embed_decoded_batch(decoded)
-
-    assert vectors[0].tolist() == [1.0, 0.0, 0.0]
+    for shape in ((1, 3), (2, 512)):
+        adapter.fake_model.output = np.ones(shape, dtype=np.float32)
+        with pytest.raises(ValueError):
+            adapter.embed_decoded_batch(decoded)
 
 
 class FakeMuqAudioModel:

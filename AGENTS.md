@@ -265,10 +265,11 @@ workers must preserve others' edits. Honor the active harness's delegation rules
   the suite is allowed to pin.
 - Inspect `git status --short` and the relevant existing diff before editing.
   Preserve unrelated work. Create branches, commits, or PRs and push only when
-  requested. For authorized Git delivery, use `main`: fetch before committing,
-  compare ancestry with `origin/main`, and account for parallel worktrees.
-  New branches start from `origin/main` (default prefix `codex/`).
-  `dev` is frozen as of 2026-09-04; do not push to it or branch from it.
+  requested. As of 2026-09-08, `dev` is the primary working branch until the
+  user decides otherwise. For authorized Git delivery, use `dev`: fetch before
+  committing, compare ancestry with `origin/dev`, and account for parallel
+  worktrees. New branches start from `origin/dev` (default prefix `codex/`).
+  Update `main` only on a separate explicit user request.
 - Inspect `git status` and the scoped diff before delivery. Do not stage local
   databases, audio, logs, reports, model artifacts, or generated output.
 - Executable sources and tests beat prose when they disagree.

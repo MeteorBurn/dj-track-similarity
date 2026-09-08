@@ -9,17 +9,18 @@ are relative to this file. These guides are read by task, not imported as a batc
 ## MODEL LAYER OWNERSHIP
 
 - State the model layer before changing shared files.
-- For MAEST integration changes and reviews, use
-  [maest_infer_contract.json](../../models/contracts/maest_infer_contract.json) as the
-  single active native-inference contract. Ground contract updates in the
-  `maest-infer` source identified there; verify the installed package when
-  assessing runtime behavior. Keep `MAEST_MODEL_NAME` in `analysis_models.py`
-  aligned with the contract's `model.arch`. Use native `predict_labels()` for
-  genre activation and block averaging; obtain embeddings from the same pass.
+- For MAEST integration changes and reviews, use `models/maest/contract.json`
+  as the active native-inference reference. It is machine-local, like the rest
+  of the untracked model store, and sits next to the staged `maest-infer`
+  source it describes; ground contract updates in that source and verify the
+  installed package when assessing runtime behavior. Keep `MAEST_MODEL_NAME`
+  in `analysis_models.py` aligned with the variant the contract marks
+  `default_application_model`. Use native `predict_labels()` for genre
+  activation and block averaging; obtain embeddings from the same pass.
   Decoder/device choices, top-k, track-level embedding pooling and L2
-  normalization are caller policies,
-  separate from native model outputs. Files in `models/contracts/backup/`
-  are historical references, not additional requirements.
+  normalization are caller policies, separate from native model outputs.
+  Every family keeps its own `models/<family>/contract.json`; none of these
+  files is read at runtime.
 - `embedding/registry.py` owns the single `adapter_factories()` map and typed
   `create_embedding_adapter()` factory; `embedding/contracts.py` defines the
   capabilities used by callers. Use the factory for shared analysis/text API

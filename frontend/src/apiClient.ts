@@ -89,8 +89,8 @@ export type TextSearchPayload = {
   /** Each selected label's own bank, so the server can report which of them a
    * hit belongs to. The merged bank alone cannot say. */
   preset_banks?: { key: string; positive_queries: string[] }[];
-  /** Pull the query toward the tracks kept for those labels, away from the
-   * rejected ones. Off unless asked for. */
+  /** Apply stored feedback for this exact query and model. The PROMPT UI
+   * requests this automatically in single-model and A/B searches. */
   use_feedback?: boolean;
 };
 

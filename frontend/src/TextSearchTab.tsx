@@ -15,33 +15,18 @@ import {
  * Both banks grow with their content between a floor and a ceiling, so the
  * shorter one gets the shorter field instead of a fixed box that fits neither.
  *
- * The floors are generous on purpose: a selection of four labels already merges
- * sixteen positive lines, and reading a bank through a three-row slot meant
- * scrolling inside a textarea to see what the search would actually send.
  */
-/**
- * Approved tracks a label needs before the query moves at all.
- *
- * Mirrors FEEDBACK_MINIMUM_TRACKS in src/dj_track_similarity/search.py, which
- * is what the server actually applies; the tab only says so before the search.
- */
-export const feedbackMinimumTracks = 3;
-
 function bankRows(text: string, min: number, max: number) {
   return Math.min(max, Math.max(min, text.split(/\r?\n/).length));
 }
 
 export function TextSearchTab({
   textQuery,
-  onTextQueryChange,
   textNegativeQuery,
-  onTextNegativeQueryChange,
   textUseNegativePrompt,
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
-  textUseFeedback,
-  onTextUseFeedbackChange,
   textCompareModels,
   onTextCompareModelsChange,
   selectedPresetKeys,
@@ -50,7 +35,6 @@ export function TextSearchTab({
   promptAxes,
   promptPresets,
   negativeWeight,
-  negativeWeightOverride, onNegativeWeightOverrideChange, bankMode, onResetPromptBank,
   limit,
   onLimitChange,
   textPromptHelp,
@@ -62,16 +46,11 @@ export function TextSearchTab({
   handleTextSearch
 }: {
   textQuery: string;
-  onTextQueryChange: (value: string) => void;
   textNegativeQuery: string;
-  onTextNegativeQueryChange: (value: string) => void;
   textUseNegativePrompt: boolean;
   onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
-  /** Verdicts standing behind each label so far, per model. */
-  textUseFeedback: boolean;
-  onTextUseFeedbackChange: (value: boolean) => void;
   textCompareModels: boolean;
   onTextCompareModelsChange: (value: boolean) => void;
   selectedPresetKeys: string[];
@@ -80,10 +59,6 @@ export function TextSearchTab({
   promptAxes: TextPromptAxis[];
   promptPresets: TextPromptPreset[];
   negativeWeight: number | null;
-  negativeWeightOverride: number | null;
-  onNegativeWeightOverrideChange: (value: number | null) => void;
-  bankMode: "preset" | "custom";
-  onResetPromptBank: () => void;
   limit: number;
   onLimitChange: (value: number) => void;
   textPromptHelp: string;
@@ -96,8 +71,7 @@ export function TextSearchTab({
   handleTextSearch: () => void;
 }) {
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
-  // Sixteen axes and 240 labels do not fit a window at once, and scrolling to a
-  // remembered label is slower than typing three letters of it.
+  // Filtering keeps a growing label bank easy to navigate.
   const [labelFilter, setLabelFilter] = useState("");
   // The label under the pointer or the keyboard focus, previewed under the
   // list. A tooltip could not hold a whole prompt bank.
@@ -111,8 +85,9 @@ export function TextSearchTab({
     [selectedPresetKeys]
   );
   const previewPreset = useMemo(
-    () => (previewPresetKey ? presetByKey(previewPresetKey) : undefined),
-    [previewPresetKey]
+    () => (previewPresetKey ? presetByKey(previewPresetKey) : undefined)
+      ?? selectedPresets[selectedPresets.length - 1],
+    [previewPresetKey, selectedPresets]
   );
   const previewPositive = useMemo(
     () => (previewPreset ? resolvePromptVariants(previewPreset.positive, promptModel) : []),
@@ -132,9 +107,7 @@ export function TextSearchTab({
   );
   const promptLineCount = textQuery.split(/\r?\n/).filter((line) => line.trim()).length;
   const negativeLineCount = textNegativeQuery.split(/\r?\n/).filter((line) => line.trim()).length;
-  // A preset carries the weight measured for it; a hand-written bank falls back
-  // to the server default. The benchmark set these numbers, so the tab reports
-  // the weight rather than offering it up for guessing.
+  // Display the model-specific composed weight used by the request builder.
   const appliedNegativeWeight = negativeWeight ?? defaultNegativeWeight;
   // The picker is one scrolling panel: a category is a divider, an axis is a
   // block under it, and the labels live inside the block. Filtering narrows the
@@ -171,36 +144,40 @@ export function TextSearchTab({
     function closePresetMenuOnOutsideClick(event: PointerEvent) {
       const target = event.target;
       if (target instanceof Node && !presetMenuRef.current?.contains(target)) {
-        setPresetMenuOpen(false);
+        closePresetMenu();
       }
     }
     document.addEventListener("pointerdown", closePresetMenuOnOutsideClick);
     return () => document.removeEventListener("pointerdown", closePresetMenuOnOutsideClick);
   }, [presetMenuOpen]);
 
+  function closePresetMenu() {
+    setPresetMenuOpen(false);
+    setPreviewPresetKey(null);
+  }
+
   // Escape closes the picker and hands focus back to the control that owns it,
   // so the keyboard never gets stranded inside an open menu.
   function closePresetMenuOnEscape(event: { key: string; stopPropagation: () => void }) {
     if (event.key !== "Escape" || !presetMenuOpen) return;
     event.stopPropagation();
-    setPresetMenuOpen(false);
+    closePresetMenu();
     presetButtonRef.current?.focus();
   }
 
   return (
     <div className="search-tab-panel">
       <div className="text-search-box text-prompt-box">
-        {/* The picker leads the panel: picking presets is the short path to a
-            working bank, and writing one by hand is the long one. */}
+        {/* Selected labels are the only source of the model's prompt bank. */}
         <div className="text-preset-picker" ref={presetMenuRef} onKeyDown={closePresetMenuOnEscape}>
           <button
             className={`text-preset-button ${presetMenuOpen ? "active" : ""}`}
             ref={presetButtonRef}
-            title="Выбрать метки. Несколько меток складываются в один банк."
+            title="Выбрать метки: не больше одной на каждой оси. Новая метка заменяет выбранную на той же оси."
             aria-label="Выбрать prompt preset"
             aria-expanded={presetMenuOpen}
             aria-haspopup="true"
-            onClick={() => setPresetMenuOpen((current) => !current)}
+            onClick={() => presetMenuOpen ? closePresetMenu() : setPresetMenuOpen(true)}
             type="button"
           >
             <ListFilter size={16} />
@@ -216,7 +193,8 @@ export function TextSearchTab({
                 <button
                   className="text-preset-chip"
                   key={preset.key}
-                  title={`${preset.hint} Нажмите, чтобы убрать метку из банка.`}
+                  title={preset.hint}
+                  aria-label={`Убрать метку ${axisByKey(preset.axis)?.label ?? preset.axis}: ${preset.label}`}
                   onClick={() => onTogglePreset(preset.key)}
                   type="button"
                 >
@@ -254,7 +232,7 @@ export function TextSearchTab({
                   title="Закрыть выбор меток"
                   aria-label="Закрыть выбор меток"
                   onClick={() => {
-                    setPresetMenuOpen(false);
+                    closePresetMenu();
                     presetButtonRef.current?.focus();
                   }}
                   type="button"
@@ -298,6 +276,7 @@ export function TextSearchTab({
                                   title={preset.hint}
                                   onClick={() => onTogglePreset(preset.key)}
                                   onFocus={() => setPreviewPresetKey(preset.key)}
+                                  onBlur={() => setPreviewPresetKey(null)}
                                   onMouseEnter={() => setPreviewPresetKey(preset.key)}
                                   type="button"
                                 >
@@ -349,7 +328,7 @@ export function TextSearchTab({
                           </ul>
                         ) : (
                           <p className="text-preset-preview-empty">
-                            Вес 0 — у этой метки нет конкурирующего класса, который стоило бы вычитать.
+                            У этой метки нет негативных промптов для {textModelLabel}.
                           </p>
                         )}
                       </div>
@@ -364,25 +343,10 @@ export function TextSearchTab({
             </div>
           ) : null}
         </div>
-        {/* Which model ranks a label best is not declared anywhere yet: it is
-            decided by running both against the same bank and keeping what the
-            ear kept. Until that comparison has run, the tab says so instead of
-            pointing at a model it cannot justify. */}
-        {selectedPresets.length ? (
-          <div className="text-model-advice">
-            <div className="text-evidence-row">
-              <span className="text-evidence-key">Модель</span>
-              <span className="text-evidence-value">
-                Сейчас {textModelLabel}. Ни у одной метки нет замера, который указывал бы на модель —
-                прогоняй обе и сравнивай на слух. Смешивать их нельзя: rank fusion проверен и отклонён.
-              </span>
-            </div>
-          </div>
-        ) : null}
-        <div className="text-prompt-hint">
-          {bankMode === "preset" ? "Банк выбранных меток" : "Свой текст для обеих моделей"}
-          <button type="button" onClick={onResetPromptBank} disabled={!selectedPresetKeys.length}>Вернуть банк меток</button>
-        </div>
+        {!presetMenuOpen && selectedPresets.map((preset) => (
+          <div className="text-preset-preview-hint" key={preset.key}>{preset.hint}</div>
+        ))}
+        <div className="text-prompt-hint">Банк выбранных меток · {textModelLabel}</div>
         <label className="text-prompt-field" title={textPromptHelp}>
           <span className="text-field-head">
             Prompt bank
@@ -397,17 +361,15 @@ export function TextSearchTab({
             className="text-prompt-input"
             rows={bankRows(textQuery, 8, 18)}
             value={textQuery}
-            onChange={(event) => onTextQueryChange(event.target.value)}
-            placeholder={"breakbeat.\nsyncopated drums, off-grid rhythm, shuffled hits."}
+            readOnly
+            placeholder="Выберите метку, чтобы увидеть банк промптов."
             title={textPromptHelp}
           />
         </label>
         <div className="text-prompt-hint">
-          Каждая строка — отдельный промпт, банк усредняется. Несколько коротких формулировок
-          устойчивее одной длинной.
+          Каждая строка — отдельный промпт. Их эмбеддинги усредняются внутри выбранной модели.
         </div>
-        {/* The toggle heads its own section, so switching negatives off takes the
-            field and the weight with it instead of leaving two dead controls. */}
+        {/* Switching negatives off leaves the selected labels unchanged. */}
         <div className="text-negative-section">
           <button
             className={`text-negative-toggle ${textUseNegativePrompt ? "active" : ""}`}
@@ -423,28 +385,22 @@ export function TextSearchTab({
             <span className="text-negative-toggle-label">Negatives</span>
             <span className="text-negative-toggle-state">
               {textUseNegativePrompt
-                ? `строк: ${negativeLineCount} · вес ${appliedNegativeWeight.toFixed(2)}`
+                ? negativeLineCount
+                  ? `строк: ${negativeLineCount} · вес ${appliedNegativeWeight.toFixed(2)}`
+                  : "строк: 0"
                 : "выключены"}
             </span>
           </button>
           {textUseNegativePrompt ? (
-            <>
-              <textarea
-                className="text-negative-input"
-                aria-label="Hard-negative банк"
-                rows={bankRows(textNegativeQuery, 5, 12)}
-                value={textNegativeQuery}
-                onChange={(event) => onTextNegativeQueryChange(event.target.value)}
-                placeholder={"four-on-the-floor, house, techno.\nvocal pop song."}
-                title="Hard-negative банк: по одному конкурирующему классу в строке. Метки заполняют это поле сами."
-              />
-              <label className="text-negative-hint">Вес negatives для обеих моделей
-                <input type="number" min={0} max={2} step={0.05}
-                  value={negativeWeightOverride ?? ""} placeholder={appliedNegativeWeight.toFixed(2)}
-                  onChange={(event) => onNegativeWeightOverrideChange(event.target.value === "" ? null : Number(event.target.value))} />
-                <button type="button" onClick={() => onNegativeWeightOverrideChange(null)}>Вес из банка</button>
-              </label>
-            </>
+            <textarea
+              className="text-negative-input"
+              aria-label="Hard-negative банк"
+              rows={bankRows(textNegativeQuery, 5, 12)}
+              value={textNegativeQuery}
+              readOnly
+              placeholder="У выбранных меток нет негативных промптов."
+              title="Негативные промпты выбранных меток. Вес определяется автоматически для каждой модели."
+            />
           ) : negativeLineCount ? (
             <div className="text-negative-parked">
               Негативы выключены. Сохранено строк: {negativeLineCount} — вернутся вместе с тумблером.
@@ -462,7 +418,7 @@ export function TextSearchTab({
         className={`text-compare-toggle ${textCompareModels ? "active" : ""}`}
         role="switch"
         aria-checked={textCompareModels}
-        title="Искать обеими моделями и показать две выдачи рядом. Каждая получает свой вариант банка — тот, что отгружается при её выборе. Правка банка руками уходит в обе колонки как есть."
+        title="Искать обеими моделями и показать две выдачи рядом. Каждая получает свой вариант банка и автоматически учитывает оценки этого запроса."
         onClick={() => onTextCompareModelsChange(!textCompareModels)}
         type="button"
       >
@@ -472,34 +428,6 @@ export function TextSearchTab({
         <span className="text-compare-label">A/B</span>
         <span className="text-compare-state">
           {textCompareModels ? "MuQ-MuLan и CLAP" : "одна модель"}
-        </span>
-      </button>
-      {/* Rocchio relevance feedback: the query is pulled toward what was kept
-          for these labels and away from what was not. It needs three approved
-          tracks before it moves anything, and it is unavailable during A/B —
-          the offsets live in each model's own space, so a comparison running
-          under them would measure the clicks rather than the models. */}
-      <button
-        className={`text-compare-toggle text-feedback-toggle ${textUseFeedback && !textCompareModels ? "active" : ""}`}
-        role="switch"
-        aria-checked={textUseFeedback && !textCompareModels}
-        disabled={textCompareModels}
-        title={
-          textCompareModels
-            ? "Недоступно в A/B: поправка у каждой модели своя, и сравнение мерило бы твои оценки, а не модели."
-            : `Подтянуть выдачу к трекам, одобренным для этого точного запроса. Нужно от ${feedbackMinimumTracks} одобренных; пока их меньше, поиск идёт по одним словам.`
-        }
-        onClick={() => onTextUseFeedbackChange(!textUseFeedback)}
-        type="button"
-      >
-        <span className="text-compare-checkbox" aria-hidden="true">
-          {textUseFeedback && !textCompareModels ? <Check size={13} strokeWidth={2.4} /> : null}
-        </span>
-        <span className="text-compare-label">Мои оценки</span>
-        <span className="text-compare-state">
-          {textCompareModels
-            ? "выключено в A/B"
-            : "история этого запроса"}
         </span>
       </button>
       <div className="search-filter-grid text-search-filter-grid text-group-labels">

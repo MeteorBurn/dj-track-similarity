@@ -222,7 +222,7 @@ def register_search_routes(
                 ).to_dict()
                 query_key = query_context_key(context)
                 history = None
-                feedback_enabled = request.use_feedback and request.comparison_mode == "single" and capability == "ready"
+                feedback_enabled = request.use_feedback and capability == "ready"
                 if feedback_enabled:
                     history = database.list_text_query_feedback_tracks(query_key)
                     plan = replace(plan, feedback_track_ids={key: history[key] for key in ("relevant", "irrelevant")})
@@ -240,8 +240,6 @@ def register_search_routes(
             }
             if capability != "ready":
                 feedback["reason"] = "schema_unavailable"
-            elif request.comparison_mode == "product_ab":
-                feedback["reason"] = "disabled_for_product_ab"
             elif feedback_enabled:
                 feedback.update(searcher.text_feedback_status)
                 usable_ids = set(searcher.text_feedback_track_ids["relevant"]) | set(searcher.text_feedback_track_ids["irrelevant"])

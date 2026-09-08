@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Track, type TextSearchExecution } from "./api";
-import { composePromptBanks, modelAdvice } from "./textPromptPresets";
+import { composePromptBanks, presetByKey } from "./textPromptPresets";
 import { buildTextSearchArms, settleTextSearchArm, type TextFamily, type TextSearchArm } from "./textSearchExecution";
 import type { SearchRequestLifecycle, SearchNotice } from "./useSearchRequests";
 import type { SearchFiltersState } from "./SearchPlaylistPanel";
@@ -9,21 +9,16 @@ import type { useActivityLog } from "./useActivityLog";
 type Verdicts = Partial<Record<TextFamily, Record<string, 1 | -1>>>;
 type Options = {
   databasePath: string | null; databaseCatalogUuid: string | null;
-  textQuery: string; setTextQuery: (value: string) => void;
   embeddingCounts?: Record<TextFamily, number>;
   filters: SearchFiltersState; analysisDevice: "auto" | "cpu" | "cuda";
   setNotice: (notice: SearchNotice) => void;
   appendActivity: ReturnType<typeof useActivityLog>["appendActivity"];
 };
 
-export function useTextSearch({ databasePath, databaseCatalogUuid, textQuery, setTextQuery,
+export function useTextSearch({ databasePath, databaseCatalogUuid,
   filters, analysisDevice, setNotice, appendActivity, embeddingCounts }: Options) {
   const [selectedPresetKeys, setSelectedPresetKeys] = useState<string[]>([]);
-  const [bankMode, setBankMode] = useState<"preset" | "custom">("custom");
-  const [negativeWeightOverride, setNegativeWeightOverride] = useState<number | null>(null);
   const [textCompareModels, setTextCompareModels] = useState(false);
-  const [textUseFeedback, setTextUseFeedback] = useState(false);
-  const [textNegativeQuery, setNegativeQuery] = useState("");
   const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(true);
   const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<TextFamily>("mulan");
   const [textModelLoadingLabel, setTextModelLoadingLabel] = useState<string | null>(null);
@@ -38,8 +33,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid, textQuery, se
   const executionRef = useRef(executions);
   executionRef.current = executions;
   const generation = useRef(0);
-  const inputKey = JSON.stringify([databasePath, databaseCatalogUuid, textQuery, textNegativeQuery,
-    selectedPresetKeys, bankMode, negativeWeightOverride, textCompareModels, textUseFeedback,
+  const inputKey = JSON.stringify([databasePath, databaseCatalogUuid, selectedPresetKeys, textCompareModels,
     textUseNegativePrompt, textEmbeddingFamily, filters.limit, analysisDevice]);
   const currentInput = useRef(inputKey);
   // Invalidate synchronously at render, before any old async completion can publish.
@@ -61,35 +55,29 @@ export function useTextSearch({ databasePath, databaseCatalogUuid, textQuery, se
     revisions.current = {}; pending.current.clear(); touched.current.clear();
   }
 
-  const promptNegativeWeight = negativeWeightOverride ?? composePromptBanks(selectedPresetKeys, textEmbeddingFamily).negativeWeight;
-  function applyPromptPresets(keys: string[], model: TextFamily = textEmbeddingFamily) {
-    const banks = composePromptBanks(keys, model);
-    setSelectedPresetKeys(keys); setTextEmbeddingFamily(model); setBankMode(keys.length ? "preset" : "custom");
-    setTextQuery(banks.positiveText); setNegativeQuery(banks.negativeText); setNegativeWeightOverride(null);
-  }
+  const banks = composePromptBanks(selectedPresetKeys, textEmbeddingFamily);
+  const textQuery = banks.positiveText;
+  const textNegativeQuery = banks.negativeText;
+  const promptNegativeWeight = banks.negativeWeight;
+  function clearPromptPresets() { setSelectedPresetKeys([]); }
   function togglePromptPreset(key: string) {
-    const keys = selectedPresetKeys.includes(key) ? selectedPresetKeys.filter((item) => item !== key) : [...selectedPresetKeys, key];
-    const advice = modelAdvice(keys);
-    applyPromptPresets(keys, advice.kind === "single" ? advice.model : textEmbeddingFamily);
+    const preset = presetByKey(key);
+    if (!preset) return;
+    setSelectedPresetKeys((current) => current.includes(key)
+      ? current.filter((item) => item !== key)
+      : [...current.filter((item) => presetByKey(item)?.axis !== preset.axis), key]);
   }
   function changeTextEmbeddingFamily(model: TextFamily) {
     setTextEmbeddingFamily(model);
-    if (bankMode === "preset") {
-      const banks = composePromptBanks(selectedPresetKeys, model);
-      setTextQuery(banks.positiveText); setNegativeQuery(banks.negativeText);
-    }
   }
-  function changeTextQuery(value: string) { setBankMode("custom"); setTextQuery(value); }
-  function setTextNegativeQuery(value: string) { setBankMode("custom"); setNegativeQuery(value); }
 
   async function handleTextSearch(requests: SearchRequestLifecycle) {
-    if (!textQuery.trim()) { setNotice({ kind: "error", text: "Введите текстовый запрос" }); return; }
+    if (!textQuery.trim()) { setNotice({ kind: "error", text: "Выберите метку для поиска" }); return; }
     const runGeneration = ++generation.current;
     const ticket = requests.beginGenericSearchRequest();
     const isCurrent = () => generation.current === runGeneration && requests.genericSearchRequestIsCurrent(ticket);
-    let arms = buildTextSearchArms({ family: textEmbeddingFamily, compare: textCompareModels, bankMode,
-      keys: selectedPresetKeys, positive: textQuery, negative: textNegativeQuery, useNegative: textUseNegativePrompt,
-      weightOverride: negativeWeightOverride, useFeedback: textUseFeedback, limit: filters.limit,
+    let arms = buildTextSearchArms({ family: textEmbeddingFamily, compare: textCompareModels,
+      keys: selectedPresetKeys, useNegative: textUseNegativePrompt, limit: filters.limit,
       device: analysisDevice, comparisonId: crypto.randomUUID() });
     setTextComparison(textCompareModels ? arms : null); setExecutions({}); setTextFeedbackVerdicts({});
     revisions.current = {}; touched.current.clear(); pending.current.clear(); setFeedbackPending({}); setFeedbackReady({});
@@ -178,10 +166,9 @@ export function useTextSearch({ databasePath, databaseCatalogUuid, textQuery, se
       }
     }
   }
-  return { selectedPresetKeys, bankMode, negativeWeightOverride, setNegativeWeightOverride,
+  return { selectedPresetKeys,
     textFeedbackContext: executions[textEmbeddingFamily] ?? null, executions, feedbackPending, feedbackReady,
     textFeedbackVerdicts, textCompareModels, setTextCompareModels, textModelLoadingLabel, textComparison,
-    textUseFeedback, setTextUseFeedback, promptNegativeWeight, textNegativeQuery,
-    setTextNegativeQuery, changeTextQuery, textUseNegativePrompt, setTextUseNegativePrompt, textEmbeddingFamily,
-    cancelTextSearch, applyPromptPresets, togglePromptPreset, changeTextEmbeddingFamily, handleTextSearch, handleTextResultFeedback };
+    textQuery, textNegativeQuery, promptNegativeWeight, textUseNegativePrompt, setTextUseNegativePrompt, textEmbeddingFamily,
+    cancelTextSearch, clearPromptPresets, togglePromptPreset, changeTextEmbeddingFamily, handleTextSearch, handleTextResultFeedback };
 }

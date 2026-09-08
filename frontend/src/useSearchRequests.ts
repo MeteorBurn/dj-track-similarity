@@ -36,15 +36,9 @@ type SearchRequestsOptions = {
   seedTracks: Track[];
   seeds: number[];
   filters: SearchFiltersState;
-  textQuery: string;
-  textNegativeQuery: string;
   textUseNegativePrompt: boolean;
   selectedPresetKeys: string[];
-  promptNegativeWeight: number | null;
   textCompareModels: boolean;
-  textUseFeedback: boolean;
-  bankMode: "preset" | "custom";
-  negativeWeightOverride: number | null;
   analysisDevice: "auto" | "cpu" | "cuda";
   textEmbeddingFamily: "clap" | "mulan";
   seedEmbeddingFamily: SeedEmbeddingFamily;
@@ -60,12 +54,9 @@ export function useSearchRequests({
   seedTracks,
   seeds,
   filters,
-  textQuery,
-  textNegativeQuery,
   textUseNegativePrompt,
   selectedPresetKeys,
-  promptNegativeWeight,
-  textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
+  textCompareModels,
   analysisDevice,
   textEmbeddingFamily,
   seedEmbeddingFamily,
@@ -89,22 +80,17 @@ export function useSearchRequests({
         track_uuid: track.track_uuid,
       })),
       filters,
-      text_query: textQuery,
-      text_negative_query: textNegativeQuery,
       text_use_negative_prompt: textUseNegativePrompt,
       prompt_preset_keys: selectedPresetKeys,
-      prompt_negative_weight: promptNegativeWeight,
-      textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
+      textCompareModels,
       analysis_device: analysisDevice,
       text_embedding_family: textEmbeddingFamily,
       seed_embedding_family: seedEmbeddingFamily,
     }),
     [
       analysisDevice,
-      textNegativeQuery,
       selectedPresetKeys,
-      promptNegativeWeight,
-      textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
+      textCompareModels,
       textUseNegativePrompt,
       textEmbeddingFamily,
       seedEmbeddingFamily,
@@ -112,7 +98,6 @@ export function useSearchRequests({
       databasePath,
       filters,
       seedTracks,
-      textQuery,
     ]
   );
   const genericSearchInputKeyRef = useRef(genericSearchInputKey);

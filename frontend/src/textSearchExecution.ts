@@ -14,20 +14,19 @@ export type TextSearchArm = {
 };
 
 export function buildTextSearchArms(input: {
-  family: TextFamily; compare: boolean; bankMode: "preset" | "custom";
-  keys: string[]; positive: string; negative: string; useNegative: boolean;
-  weightOverride: number | null; useFeedback: boolean; limit: number;
+  family: TextFamily; compare: boolean;
+  keys: string[]; useNegative: boolean; limit: number;
   device: "auto" | "cpu" | "cuda"; comparisonId: string;
 }): TextSearchArm[] {
   const families: TextFamily[] = input.compare ? ["mulan", "clap"] : [input.family];
   return families.map((family) => {
     const composed = composePromptBanks(input.keys, family);
     const queries = promptQueriesFromText(
-      input.bankMode === "preset" ? composed.positiveText : input.positive,
-      input.bankMode === "preset" ? composed.negativeText : input.negative,
+      composed.positiveText,
+      composed.negativeText,
       input.useNegative,
     );
-    const weight = input.weightOverride ?? composed.negativeWeight;
+    const weight = composed.negativeWeight;
     return {
       family, label: family === "clap" ? "CLAP" : "MuQ-MuLan", status: "pending", results: [],
       payload: {
@@ -38,9 +37,9 @@ export function buildTextSearchArms(input: {
           const preset = presetByKey(key);
           return preset ? [{ key, positive_queries: [...resolvePromptVariants(preset.positive, family)] }] : [];
         }),
-        input_mode: input.bankMode, comparison_mode: input.compare ? "product_ab" : "single",
+        input_mode: "preset", comparison_mode: input.compare ? "product_ab" : "single",
         ...(input.compare ? { comparison_id: input.comparisonId } : {}),
-        use_feedback: input.useFeedback && !input.compare,
+        use_feedback: true,
         limit: input.limit, device: input.device,
       },
     };

@@ -41,8 +41,15 @@ function harness(api) {
     return module.exports;
   }
   const { useTextSearch } = load("./useTextSearch");
-  const options = { databasePath: "synthetic.sqlite", databaseCatalogUuid: "catalog", textQuery: "breakbeat.",
-    setTextQuery: (value) => { options.textQuery = value; }, filters: { limit: 10 }, analysisDevice: "cpu",
+  const { textPromptPresets } = load("./textPromptPresets");
+  textPromptPresets.splice(0, textPromptPresets.length, ...["rhythm/first", "rhythm/second", "bass/first"].map((key) => ({
+    key, axis: key.split("/")[0],
+    positive: { shared: [`${key} shared`], clap: [`${key} clap`], mulan: [`${key} mulan`] },
+    negative: { shared: [`${key} negative`], clap: [`${key} clap negative`] },
+    negativeWeight: { clap: 0.7, mulan: 0.3 },
+  })));
+  const options = { databasePath: "synthetic.sqlite", databaseCatalogUuid: "catalog",
+    filters: { limit: 10 }, analysisDevice: "cpu",
     setNotice: () => {}, appendActivity: () => {} };
   const commits = []; let token = 0;
   const requests = {
@@ -58,10 +65,10 @@ function response(run = "run", capability = "absent") {
   return { results: [{ track: { track_uuid: "track" }, score: 0.3 }], execution: { run_id: run, query_key: "query", feedback_capability: capability } };
 }
 
-test("A/B preserves successful arm when sibling fails and snapshots a shared override", async () => {
+test("A/B keeps each model's bank and automatic weight while preserving a successful arm on failure", async () => {
   const first = deferred(), second = deferred(); const calls = [];
   const h = harness({ textSearch: (payload) => { calls.push(payload); return calls.length === 1 ? first.promise : second.promise; } });
-  let ui = h.render(); ui.applyPromptPresets(["rhythm/breakbeat"]); ui.setTextCompareModels(true); ui.setNegativeWeightOverride(0.75);
+  let ui = h.render(); ui.togglePromptPreset("rhythm/first"); ui.setTextCompareModels(true);
   ui = h.render(); const running = ui.handleTextSearch(h.requests);
   first.resolve(response()); await flush();
   ui = h.render();
@@ -71,30 +78,64 @@ test("A/B preserves successful arm when sibling fails and snapshots a shared ove
   ui = h.render();
   assert.equal(ui.textComparison[1].status, "error");
   assert.equal(h.commits.at(-1).results.length, 1);
-  assert.equal(calls[0].negative_weight, 0.75); assert.equal(calls[1].negative_weight, 0.75);
-  assert.equal(calls.every((p) => p.use_feedback === false), true);
-  ui.applyPromptPresets(["rhythm/breakbeat"]); ui = h.render();
-  assert.equal(ui.negativeWeightOverride, null);
+  const { buildTextSearchArms } = h.load("./textSearchExecution");
+  for (const family of ["clap", "mulan"]) {
+    const payload = calls.find((call) => call.analysis_family === family);
+    assert.deepEqual([...payload.positive_queries], [`rhythm/first ${family}`]);
+    assert.deepEqual([...payload.negative_queries], [family === "clap" ? "rhythm/first clap negative" : "rhythm/first negative"]);
+    assert.equal(payload.negative_weight, family === "clap" ? 0.7 : 0.3);
+    assert.equal(payload.input_mode, "preset");
+    assert.equal(payload.use_feedback, true);
+    assert.equal(payload.comparison_mode, "product_ab");
+    assert.deepEqual([...payload.preset_banks.map((bank) => bank.key)], ["rhythm/first"]);
+    assert.deepEqual([...payload.preset_banks[0].positive_queries], [...payload.positive_queries]);
+    const single = buildTextSearchArms({ family, compare: false, keys: ["rhythm/first"],
+      useNegative: false, limit: 10, device: "cpu", comparisonId: "unused" })[0].payload;
+    assert.deepEqual([...single.positive_queries], [...payload.positive_queries]);
+    assert.deepEqual([...single.negative_queries], []);
+    assert.equal(Object.hasOwn(single, "negative_weight"), false);
+    assert.equal(single.use_feedback, true);
+    assert.equal(single.input_mode, "preset");
+    assert.equal(single.comparison_mode, "single");
+  }
+  assert.ok(calls[0].comparison_id);
+  assert.equal(calls[0].comparison_id, calls[1].comparison_id);
 });
 
-test("cancel and input changes prevent old completions from publishing", async () => {
-  const first = deferred(), second = deferred(); let n = 0;
-  const h = harness({ textSearch: () => ++n === 1 ? first.promise : second.promise });
-  let ui = h.render(); const old = ui.handleTextSearch(h.requests);
+test("cancel and per-axis selection changes prevent stale search results from publishing", async () => {
+  const first = deferred(), second = deferred(), third = deferred(); const calls = [];
+  const responses = [first, second, third];
+  const h = harness({ textSearch: (payload) => { calls.push(payload); return responses[calls.length - 1].promise; } });
+  let ui = h.render();
+  await ui.handleTextSearch(h.requests); assert.equal(calls.length, 0);
+  ui.togglePromptPreset("rhythm/first"); ui = h.render();
+  const old = ui.handleTextSearch(h.requests);
   ui.cancelTextSearch(); ui = h.render();
   assert.equal(ui.textModelLoadingLabel, null);
-  ui.changeTextQuery("piano."); ui = h.render(); const newer = ui.handleTextSearch(h.requests);
   first.resolve(response("old")); await old;
   assert.equal(h.commits.filter((c) => c.results.length).length, 0);
-  second.resolve(response("new")); await newer;
+  const stale = ui.handleTextSearch(h.requests);
+  ui.togglePromptPreset("bass/first"); ui = h.render();
+  ui.togglePromptPreset("rhythm/second"); ui = h.render();
+  assert.deepEqual([...ui.selectedPresetKeys].sort(), ["bass/first", "rhythm/second"]);
+  second.resolve(response("stale")); await stale;
+  assert.equal(h.commits.filter((c) => c.results.length).length, 0);
+  const newer = ui.handleTextSearch(h.requests);
+  assert.deepEqual([...calls[2].preset_banks.map((bank) => bank.key)].sort(), ["bass/first", "rhythm/second"]);
+  third.resolve(response("new")); await newer;
   ui = h.render(); assert.equal(ui.textFeedbackContext.run_id, "new");
+  ui.togglePromptPreset("rhythm/second"); ui = h.render();
+  assert.deepEqual([...ui.selectedPresetKeys], ["bass/first"]);
+  ui.clearPromptPresets(); ui = h.render();
+  assert.deepEqual([...ui.selectedPresetKeys], []);
 });
 
 test("feedback waits for revisions, withdraws the known verdict and serializes clicks", async () => {
   const lookup = deferred(), mutation = deferred(); const calls = [];
   const h = harness({ textSearch: async () => response("run", "ready"), textSearchFeedbackLookup: () => lookup.promise,
     textSearchFeedback: (payload) => { calls.push(payload); return mutation.promise; } });
-  let ui = h.render(); await ui.handleTextSearch(h.requests); ui = h.render();
+  let ui = h.render(); ui.togglePromptPreset("rhythm/first"); ui = h.render();
+  await ui.handleTextSearch(h.requests); ui = h.render();
   await ui.handleTextResultFeedback({ track_uuid: "track" }, 1, "mulan"); assert.equal(calls.length, 0);
   lookup.resolve({ query_key: "query", verdicts: { track: { verdict: 1, revision: 4 } } }); await flush(); ui = h.render();
   const updating = ui.handleTextResultFeedback({ track_uuid: "track" }, 1, "mulan");

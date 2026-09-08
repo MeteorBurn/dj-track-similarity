@@ -147,8 +147,6 @@ export function App() {
     databaseKey: databaseCatalogUuid
   });
   const {
-    textQuery,
-    setTextQuery,
     outputDir,
     setOutputDir,
     seeds,
@@ -240,21 +238,19 @@ export function App() {
   const {
     selectedPresetKeys,
     textFeedbackContext,
-    executions, feedbackPending, feedbackReady, bankMode, negativeWeightOverride, setNegativeWeightOverride, changeTextQuery,
+    executions, feedbackPending, feedbackReady,
     textFeedbackVerdicts,
     textCompareModels,
     setTextCompareModels,
     textModelLoadingLabel,
     textComparison,
-    textUseFeedback,
-    setTextUseFeedback,
+    textQuery,
     promptNegativeWeight,
     textNegativeQuery,
-    setTextNegativeQuery,
     textUseNegativePrompt,
     setTextUseNegativePrompt,
     textEmbeddingFamily,
-    applyPromptPresets,
+    clearPromptPresets,
     togglePromptPreset,
     changeTextEmbeddingFamily,
     handleTextSearch,
@@ -264,8 +260,6 @@ export function App() {
     embeddingCounts: { clap: librarySummary.clap, mulan: librarySummary.mulan },
     databasePath,
     databaseCatalogUuid,
-    textQuery,
-    setTextQuery,
     filters,
     analysisDevice,
     setNotice,
@@ -277,12 +271,9 @@ export function App() {
     seedTracks,
     seeds,
     filters,
-    textQuery,
-    textNegativeQuery,
     textUseNegativePrompt,
     selectedPresetKeys,
-    promptNegativeWeight,
-    textCompareModels, textUseFeedback, bankMode, negativeWeightOverride,
+    textCompareModels,
     analysisDevice,
     textEmbeddingFamily,
     seedEmbeddingFamily,
@@ -1455,30 +1446,22 @@ export function App() {
           seedTracks={seedTracks}
           onActivity={appendActivity}
           textQuery={textQuery}
-          onTextQueryChange={changeTextQuery}
           textNegativeQuery={textNegativeQuery}
-          onTextNegativeQueryChange={setTextNegativeQuery}
           textUseNegativePrompt={textUseNegativePrompt}
           onTextUseNegativePromptChange={setTextUseNegativePrompt}
           textEmbeddingFamily={textEmbeddingFamily}
           onTextEmbeddingFamilyChange={changeTextEmbeddingFamily}
           seedEmbeddingFamily={seedEmbeddingFamily}
           onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
-          textUseFeedback={textUseFeedback}
-          onTextUseFeedbackChange={setTextUseFeedback}
           textCompareModels={textCompareModels}
           textModelLoadingLabel={textModelLoadingLabel}
           onTextCompareModelsChange={setTextCompareModels}
           selectedPresetKeys={selectedPresetKeys}
           onTogglePreset={togglePromptPreset}
-          onClearPresets={() => applyPromptPresets([])}
+          onClearPresets={clearPromptPresets}
           promptAxes={textPromptAxes}
           promptPresets={textPromptPresets}
           promptNegativeWeight={promptNegativeWeight}
-          negativeWeightOverride={negativeWeightOverride}
-          onNegativeWeightOverrideChange={setNegativeWeightOverride}
-          bankMode={bankMode}
-          onResetPromptBank={() => applyPromptPresets(selectedPresetKeys)}
           textExecution={textFeedbackContext}
           databaseIdentity={databaseCatalogUuid}
           busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}

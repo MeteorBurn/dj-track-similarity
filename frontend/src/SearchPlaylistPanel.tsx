@@ -114,15 +114,11 @@ export function SearchPlaylistPanel({
   seedTracks,
   onActivity,
   textQuery,
-  onTextQueryChange,
   textNegativeQuery,
-  onTextNegativeQueryChange,
   textUseNegativePrompt,
   onTextUseNegativePromptChange,
   textEmbeddingFamily,
   onTextEmbeddingFamilyChange,
-  textUseFeedback,
-  onTextUseFeedbackChange,
   textCompareModels,
   textModelLoadingLabel,
   onTextCompareModelsChange,
@@ -134,7 +130,7 @@ export function SearchPlaylistPanel({
   promptAxes,
   promptPresets,
   promptNegativeWeight,
-  negativeWeightOverride, onNegativeWeightOverrideChange, bankMode, onResetPromptBank, textExecution,
+  textExecution,
   databaseIdentity,
   busy,
   filters,
@@ -184,15 +180,11 @@ export function SearchPlaylistPanel({
   seedTracks: Track[];
   onActivity: ReturnType<typeof useActivityLog>["appendActivity"];
   textQuery: string;
-  onTextQueryChange: (value: string) => void;
   textNegativeQuery: string;
-  onTextNegativeQueryChange: (value: string) => void;
   textUseNegativePrompt: boolean;
   onTextUseNegativePromptChange: (value: boolean) => void;
   textEmbeddingFamily: Extract<EmbeddingSource, "clap" | "mulan">;
   onTextEmbeddingFamilyChange: (value: Extract<EmbeddingSource, "clap" | "mulan">) => void;
-  textUseFeedback: boolean;
-  onTextUseFeedbackChange: (value: boolean) => void;
   textCompareModels: boolean;
   textModelLoadingLabel: string | null;
   onTextCompareModelsChange: (value: boolean) => void;
@@ -204,10 +196,6 @@ export function SearchPlaylistPanel({
   promptAxes: TextPromptAxis[];
   promptPresets: TextPromptPreset[];
   promptNegativeWeight: number | null;
-  negativeWeightOverride: number | null;
-  onNegativeWeightOverrideChange: (value: number | null) => void;
-  bankMode: "preset" | "custom";
-  onResetPromptBank: () => void;
   textExecution: TextSearchExecution | null;
   databaseIdentity: string | null;
   busy: boolean;
@@ -563,15 +551,11 @@ export function SearchPlaylistPanel({
           <div id="search-panel-text" className="search-tab-panel-wrapper" role="tabpanel" aria-labelledby="search-tab-text">
           <TextSearchTab
             textQuery={textQuery}
-            onTextQueryChange={onTextQueryChange}
             textNegativeQuery={textNegativeQuery}
-            onTextNegativeQueryChange={onTextNegativeQueryChange}
             textUseNegativePrompt={textUseNegativePrompt}
             onTextUseNegativePromptChange={onTextUseNegativePromptChange}
             textEmbeddingFamily={textEmbeddingFamily}
             onTextEmbeddingFamilyChange={onTextEmbeddingFamilyChange}
-            textUseFeedback={textUseFeedback}
-            onTextUseFeedbackChange={onTextUseFeedbackChange}
             textCompareModels={textCompareModels}
             textModelLoadingLabel={textModelLoadingLabel}
             onTextCompareModelsChange={onTextCompareModelsChange}
@@ -581,10 +565,6 @@ export function SearchPlaylistPanel({
             promptAxes={promptAxes}
             promptPresets={promptPresets}
             negativeWeight={promptNegativeWeight}
-            negativeWeightOverride={negativeWeightOverride}
-            onNegativeWeightOverrideChange={onNegativeWeightOverrideChange}
-            bankMode={bankMode}
-            onResetPromptBank={onResetPromptBank}
             limit={filters.limit}
             onLimitChange={(value) => setFilters({ ...filters, limit: value })}
             textPromptHelp={helpText.textPrompt}

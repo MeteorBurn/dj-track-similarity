@@ -562,7 +562,8 @@ def test_text_search_feedback_lookup_restores_exact_query_only(monkeypatch, tmp_
     repeated = _search(client, limit=5, comparison_mode="product_ab", comparison_id="comparison", use_feedback=True)
     assert repeated["execution"]["run_id"] != run["execution"]["run_id"]
     assert repeated["execution"]["query_key"] == run["execution"]["query_key"]
-    assert repeated["execution"]["feedback"]["reason"] == "disabled_for_product_ab"
+    assert repeated["execution"]["feedback"]["reason"] == "insufficient_relevant"
+    assert repeated["execution"]["feedback"]["usable_relevant_count"] == 1
     lookup = client.post("/api/search/text/feedback/lookup", json={"run_id": repeated["execution"]["run_id"], "track_uuids": [uuid]})
     assert lookup.json() == {"query_key": run["execution"]["query_key"], "verdicts": {uuid: {"verdict": 1, "revision": 1}}}
     changed = _search(client, positive_queries=["dark rolling techno"])
@@ -625,14 +626,29 @@ def test_feedback_rejects_unissued_expired_and_other_database_runs(monkeypatch, 
         assert connection.execute("SELECT COUNT(*) FROM text_search_feedback").fetchone()[0] == 0
 
 
-def test_text_search_pulls_exact_query_toward_kept_tracks(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("analysis_family", "comparison_mode"),
+    [("clap", "single"), ("clap", "product_ab"), ("mulan", "product_ab")],
+)
+def test_text_search_pulls_exact_query_toward_kept_tracks(
+    monkeypatch, tmp_path, analysis_family, comparison_mode
+):
     from dj_track_similarity.search.engine import FEEDBACK_MINIMUM_TRACKS
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    kept = [_track_with_embedding(db, f"kept{i}.wav", [0.5, 0.866, 0.0], "clap") for i in range(FEEDBACK_MINIMUM_TRACKS)]
-    distractor = _track_with_embedding(db, "distractor.wav", [0.55, 0.0, 0.835], "clap")
+    kept_vector = [0.5, 0.866, 0.0] if analysis_family == "clap" else [0.866, 0.5, 0.0]
+    distractor_vector = [0.55, 0.0, 0.835] if analysis_family == "clap" else [0.0, 0.55, 0.835]
+    kept = [_track_with_embedding(db, f"kept{i}.wav", kept_vector, analysis_family) for i in range(FEEDBACK_MINIMUM_TRACKS)]
+    distractor = _track_with_embedding(db, "distractor.wav", distractor_vector, analysis_family)
     monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(embedding_mulan, "MuqMulanEmbeddingAdapter", FakeMulanAdapter)
     client = TestClient(create_app(db.path))
-    plain = _search(client)
+    request = {
+        "analysis_family": analysis_family,
+        "comparison_mode": comparison_mode,
+        "input_mode": "preset",
+        "preset_banks": [{"key": "rhythm/breakbeat", "positive_queries": ["broken drums."]}],
+    }
+    plain = _search(client, **request)
     assert plain["results"][0]["track"]["track_id"] == distractor
     judged = []
     for row in plain["results"]:
@@ -640,23 +656,28 @@ def test_text_search_pulls_exact_query_toward_kept_tracks(monkeypatch, tmp_path)
             uuid = row["track"]["track_uuid"]
             assert _judge(client, plain, uuid).status_code == 200
             judged.append(uuid)
-    warm = _search(client, use_feedback=True)
+    warm = _search(client, use_feedback=True, **request)
     assert warm["execution"]["feedback"]["applied"]
     assert warm["results"][0]["track"]["track_id"] in kept
-    assert _search(client)["results"] == plain["results"]
-    other = _search(client, use_feedback=True, input_mode="preset")
+    assert _search(client, **request)["results"] == plain["results"]
+    other = _search(client, use_feedback=True, **(request | {
+        "positive_queries": ["syncopated percussion."],
+        "preset_banks": [{"key": "rhythm/breakbeat", "positive_queries": ["syncopated percussion."]}],
+    }))
+    assert other["execution"]["query_key"] != warm["execution"]["query_key"]
     assert not other["execution"]["feedback"]["applied"]
     assert _judge(client, warm, judged[0], 0, 1).status_code == 200
-    withdrawn = _search(client, use_feedback=True)
+    withdrawn = _search(client, use_feedback=True, **request)
     assert not withdrawn["execution"]["feedback"]["applied"]
     assert withdrawn["execution"]["feedback"]["history_revision"] != warm["execution"]["feedback"]["history_revision"]
 
 
-def test_old_library_search_is_cold_and_does_not_create_feedback_schema(monkeypatch, tmp_path):
+@pytest.mark.parametrize("comparison_mode", ["single", "product_ab"])
+def test_old_library_search_is_cold_and_does_not_create_feedback_schema(monkeypatch, tmp_path, comparison_mode):
     db, client, _app = _feedback_client(monkeypatch, tmp_path)
     with db.connect() as connection:
         connection.execute("DROP TABLE text_search_feedback")
-    run = _search(client, use_feedback=True)
+    run = _search(client, use_feedback=True, comparison_mode=comparison_mode)
     assert run["execution"]["feedback"]["reason"] == "schema_unavailable"
     uuid = run["results"][0]["track"]["track_uuid"]
     assert _judge(client, run, uuid).status_code == 409

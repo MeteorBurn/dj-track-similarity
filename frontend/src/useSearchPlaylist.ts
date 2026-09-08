@@ -12,7 +12,6 @@ type ActivityAppender = (level: ActivityEvent["level"], message: string, detail?
 export type PreviewTarget = { track_id: number };
 
 export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppender } = {}) {
-  const [textQuery, setTextQuery] = useState("");
   const [outputDir, setOutputDir] = useState("");
   const [seeds, setSeeds] = useState<number[]>([]);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -92,8 +91,6 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   }
 
   return {
-    textQuery,
-    setTextQuery,
     outputDir,
     setOutputDir,
     seeds,

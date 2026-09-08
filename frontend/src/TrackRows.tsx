@@ -51,7 +51,11 @@ export function TrackList({
             </button>
             <div className="track-title-cell">
               <strong>{displayTrack(track)}</strong>
+              <span className="library-track-meta">{track.album || track.artist || "—"}</span>
             </div>
+            <span className="library-track-bpm">{track.tag_bpm ?? "—"}</span>
+            <span className="library-track-key">{track.tag_key || "—"}</span>
+            <span className="library-track-duration">{track.audio_duration_seconds != null ? formatPlaybackTime(track.audio_duration_seconds) : "—"}</span>
             {trackPreviewSelected ? (
               <PlaybackSeekControl
                 track={track}

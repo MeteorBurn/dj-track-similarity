@@ -266,15 +266,18 @@ export function TextSearchTab({
                 </button>
               </div>
               {overlapNotice}
+              <div className="preset-search-field">
+              <Search size={17} aria-hidden="true" />
               <input
                 className="text-preset-filter"
                 type="search"
                 value={labelFilter}
-                placeholder="Фильтр по метке"
+                placeholder="Найти метку или описание…"
                 aria-label="Фильтр меток"
                 title="Сужает список по названию метки и её описанию. Пустые оси скрываются."
                 onChange={(event) => setLabelFilter(event.target.value)}
               />
+              </div>
               <div className="text-preset-scroll" onMouseLeave={() => setPreviewPresetKey(null)}>
                 {groups.map((group) => (
                   <section className="text-preset-category" key={group.category.key}>

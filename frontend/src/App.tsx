@@ -3,7 +3,8 @@ import { useTextSearch } from "./useTextSearch";
 import { useJobState } from "./useJobState";
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
+import { AudioLines, Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
+import { PlayerDock } from "./PlayerDock";
 import {
   AnalysisModel,
   api,
@@ -1323,10 +1324,17 @@ export function App() {
         <div>
           <h1>
             <a href="/docs/" target="_blank" rel="noreferrer" title="Открыть HTML документацию" onClick={openDocumentationWindow}>
+              <AudioLines className="brand-wave" size={34} aria-hidden="true" />
               DJ Track Similarity
             </a>
           </h1>
         </div>
+        <nav className="workbench-nav" aria-label="Рабочая область">
+          <button type="button" aria-pressed={!setupCollapsed && !libraryCollapsed} onClick={() => { setSetupCollapsed(false); setLibraryCollapsed(false); }}>DISCOVER</button>
+          <button type="button" aria-pressed={!setupCollapsed && libraryCollapsed} onClick={() => { setSetupCollapsed(false); setLibraryCollapsed(true); }}>ANALYZE</button>
+          <button type="button" aria-pressed={setupCollapsed && !libraryCollapsed} onClick={() => { setSetupCollapsed(true); setLibraryCollapsed(false); }}>LIBRARY</button>
+          <button type="button" aria-pressed={setupCollapsed && libraryCollapsed} onClick={() => { setSetupCollapsed(true); setLibraryCollapsed(true); }}>SEARCH</button>
+        </nav>
         <div className="topbar-actions">
           <button
             className="icon-button theme-toggle-button"
@@ -1561,6 +1569,7 @@ export function App() {
           handleExport={(format) => void handleExport(format)}
         />
       </section>
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} onToggle={togglePreview} onSeek={seekPreview} />
       {preview ? (
         <audio
           ref={previewAudioRef}

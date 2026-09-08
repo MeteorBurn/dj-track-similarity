@@ -161,7 +161,9 @@ export function TrackPanel({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="path, title, artist, genre"
+          type="search"
+          aria-label="Поиск по библиотеке"
+          placeholder="Трек, артист, альбом или жанр…"
           title={librarySearchHelp}
           disabled={!databaseSelected}
         />

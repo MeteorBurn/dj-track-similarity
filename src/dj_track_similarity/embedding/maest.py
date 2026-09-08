@@ -5,7 +5,7 @@ import threading
 import time
 from collections import defaultdict
 from collections.abc import Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -68,12 +68,14 @@ class MaestEmbeddingAdapter:
         self,
         device: str | None = None,
         top_k: int = 3,
+        inference_batch_size: int = 16,
     ) -> None:
         self.requested_device = device or "auto"
         self.device_name = (
             None if self.requested_device == "auto" else self.requested_device
         )
         self.top_k = max(1, int(top_k))
+        self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._inference_lock = threading.RLock()
         self._model = None
@@ -88,6 +90,7 @@ class MaestEmbeddingAdapter:
             "sample_rate_hz": self.target_rate,
             "audio_input": "full-track",
             "top_k": self.top_k,
+            "inference_batch_size": self.inference_batch_size,
             "pooling": self.pooling,
             "channel_downmix": "torchcodec-num-channels-1",
             "decoder": "shared-torchcodec-0.16",
@@ -153,6 +156,7 @@ class MaestEmbeddingAdapter:
                     head_outputs.append((args[0], output))
 
                 with ExitStack() as hooks:
+                    hooks.enter_context(_maest_feature_batches(self._model, self.inference_batch_size, torch))
                     head_handle = self._model.head.register_forward_hook(capture_head)
                     hooks.callback(head_handle.remove)
                     if include_mel_spectrogram:
@@ -270,6 +274,32 @@ class MaestEmbeddingAdapter:
         if self.device:
             return self.device
         return select_torch_device(self._torch, self.requested_device)
+
+@contextmanager
+def _maest_feature_batches(model, batch_size: int, torch):
+    """Bound native mel-block inference while preserving predict_labels/head pooling."""
+
+    original = model.forward_features
+    missing = object()
+    original_binding = vars(model).get("forward_features", missing)
+
+    def forward_features(blocks, **kwargs):
+        if len(blocks) <= batch_size:
+            return original(blocks, **kwargs)
+        chunks = [original(batch, **kwargs) for batch in blocks.split(batch_size)]
+        if any(not isinstance(chunk, tuple) or len(chunk) != 2 for chunk in chunks):
+            raise ValueError("MAEST native features must contain CLS and distillation tokens")
+        return tuple(torch.cat([chunk[index] for chunk in chunks], dim=0) for index in (0, 1))
+
+    model.forward_features = forward_features
+    try:
+        yield
+    finally:
+        if original_binding is missing:
+            del model.forward_features
+        else:
+            model.forward_features = original_binding
+
 
 def _ensure_verified_maest_checkpoint(
     torch_module,

@@ -11,6 +11,10 @@ if TYPE_CHECKING:
     from .maest import MaestAnalysisResult
 
 
+class EmbeddingCancelledError(RuntimeError):
+    """Embedding work stopped before a complete result could be written."""
+
+
 class EmbeddingIdentity(Protocol):
     @property
     def model_name(self) -> str: ...

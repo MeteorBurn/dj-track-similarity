@@ -76,11 +76,13 @@ class MuqMulanEmbeddingAdapter:
     def __init__(
         self,
         device: str | None = None,
+        inference_batch_size: int = 16,
     ) -> None:
         self.requested_device = device or "auto"
         self.device_name = (
             None if self.requested_device == "auto" else self.requested_device
         )
+        self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
@@ -93,6 +95,7 @@ class MuqMulanEmbeddingAdapter:
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "clip_seconds": self.clip_seconds,
+            "inference_batch_size": self.inference_batch_size,
             "audio_input": "full-track",
             "pooling": self.pooling,
             "dtype": self.dtype,
@@ -101,7 +104,7 @@ class MuqMulanEmbeddingAdapter:
             "resampler": "torchaudio",
             "clip_selection": "upstream-consecutive-nonoverlapping",
             "tail_padding": "upstream-append-track-start-once",
-            "parallel_processing": False,
+            "clip_batching": "native-audio-latents-bounded-by-inference-batch-size",
             "device_precision": "float32-eval-no-autocast-no-compile",
             "model_revision": self.model_revision,
             "checkpoint_filename": self.checkpoint_filename,
@@ -172,7 +175,6 @@ class MuqMulanEmbeddingAdapter:
         prepare_seconds = 0.0
         inference_seconds = 0.0
         clip_count = 0
-        clip_samples = int(self.target_rate * self.clip_seconds)
         for decoded in decoded_items:
             prepare_started = time.perf_counter()
             waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
@@ -194,14 +196,22 @@ class MuqMulanEmbeddingAdapter:
                 device=self._device(),
                 dtype=torch.float32,
             )
-            clip_count += (int(waveform.shape[-1]) + clip_samples - 1) // clip_samples
             prepare_seconds += time.perf_counter() - prepare_started
 
             inference_started = time.perf_counter()
             with torch.inference_mode():
-                # The official forward owns consecutive clips, tail wrapping,
-                # and the mean of every clip's normalized latent.
-                output = self._model(wavs=waveform, parallel_processing=False)
+                # Preserve the native clips (including tail wrapping) and
+                # per-clip normalization; only bound the audio tower batches.
+                clips = self._model._get_all_clips(waveform[0])
+                clip_count += len(clips)
+                clip_latents = []
+                for clip_batch in clips.split(self.inference_batch_size):
+                    latents = self._model.mulan_module.get_audio_latents(clip_batch)
+                    if tuple(latents.shape) != (len(clip_batch), self.dim):
+                        raise ValueError("MuQ-MuLan must return one latent per native clip")
+                    clip_latents.append(latents)
+                output = torch.cat(clip_latents, dim=0).mean(dim=0, keepdim=True)
+                del clips, clip_batch, latents, clip_latents
             vectors.extend(
                 _normalized_embedding_rows(
                     output,

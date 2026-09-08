@@ -64,9 +64,11 @@ class ClapEmbeddingAdapter:
     def __init__(
         self,
         device: str | None = None,
+        inference_batch_size: int = 16,
     ) -> None:
         self.requested_device = device or "auto"
         self.device_name = None if self.requested_device == "auto" else self.requested_device
+        self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._model = None
         self._torch = None
@@ -79,6 +81,7 @@ class ClapEmbeddingAdapter:
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "clip_seconds": self.clip_seconds,
+            "inference_batch_size": self.inference_batch_size,
             "audio_input": "full-track",
             "pooling": self.pooling,
             "amodel": self.amodel,
@@ -122,8 +125,30 @@ class ClapEmbeddingAdapter:
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
         vectors: list[np.ndarray] = []
+        audio_batch: list[np.ndarray] = []
         prepare_seconds = 0.0
         inference_seconds = 0.0
+
+        def flush_batch() -> None:
+            nonlocal inference_seconds
+            if not audio_batch:
+                return
+            inference_started = time.perf_counter()
+            with torch.inference_mode():
+                # The native loop handles each full waveform independently,
+                # then stacks its fixed-length quantized/cropped/padded inputs.
+                features = self._model.get_audio_embedding_from_data(x=audio_batch, use_tensor=False)
+            vectors.extend(
+                _normalized_embedding_rows(
+                    features,
+                    expected_rows=len(audio_batch),
+                    expected_dim=self.dim,
+                    model_label="CLAP audio",
+                )
+            )
+            inference_seconds += time.perf_counter() - inference_started
+            audio_batch.clear()
+
         for decoded in decoded_items:
             prepare_started = time.perf_counter()
             waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
@@ -141,26 +166,11 @@ class ClapEmbeddingAdapter:
                     target_rate=self.target_rate,
                     torchaudio=torchaudio,
                 )
-            audio_data = waveform.to(dtype=torch.float32).cpu().numpy()
+            audio_batch.append(waveform.squeeze(0).to(dtype=torch.float32).cpu().numpy())
             prepare_seconds += time.perf_counter() - prepare_started
-
-            inference_started = time.perf_counter()
-            with torch.inference_mode():
-                # The official API owns quantization, one random crop for long
-                # audio, and repeat-padding for short audio.
-                features = self._model.get_audio_embedding_from_data(
-                    x=audio_data,
-                    use_tensor=False,
-                )
-            vectors.extend(
-                _normalized_embedding_rows(
-                    features,
-                    expected_rows=1,
-                    expected_dim=self.dim,
-                    model_label="CLAP audio",
-                )
-            )
-            inference_seconds += time.perf_counter() - inference_started
+            if len(audio_batch) == self.inference_batch_size:
+                flush_batch()
+        flush_batch()
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
             "inference_seconds": inference_seconds,

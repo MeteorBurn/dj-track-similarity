@@ -83,15 +83,16 @@ def create_embedding_adapter(
     if family == "maest":
         if top_k is None:
             raise TypeError("MAEST construction requires top_k")
+        if inference_batch_size is None:
+            return factories["maest"](device=device, top_k=top_k)
         return factories["maest"](
             device=device,
             top_k=top_k,
+            inference_batch_size=inference_batch_size,
         )
     if family == "mert" or family == "muq" or family == "mulan" or family == "clap":
         if top_k is not None:
             raise TypeError("top_k is only supported for MAEST")
-        if family == "mulan" or family == "clap":
-            return factories[family](device=device)
         factory = factories[family]
         if inference_batch_size is None:
             return factory(device=device)

@@ -645,9 +645,9 @@ Start here:
 
 ## 🧪 Development checks
 
-`main` is the integration branch. Start new work from `origin/main`; `dev` is a
-frozen snapshot from 2026-09-04 and takes no new commits. Project instructions
-and verification rules live in [AGENTS.md](AGENTS.md).
+Project instructions, the current working-branch policy, and verification
+routing live in [AGENTS.md](AGENTS.md). Check that policy and the live Git state
+before starting work; branch policy is maintained there rather than duplicated here.
 
 Use the smallest check that covers the changed behavior. Reuse passing checks
 until related code, configuration or dependencies change. The root Pytest
@@ -700,6 +700,6 @@ setup from the repository root:
 
 The script registers the local plugin for available Codex and Claude Code CLIs
 and generates the Codex agent launchers. Edit shared agent and skill Markdown
-in `.djts/`; see [AGENT LAYER](AGENTS.md#agent-layer) for regeneration, plugin
+in `.djts/`; see [AGENT LAYER](docs/agent-guides/agent-layer.md#agent-layer) for regeneration, plugin
 updates, and verification of the installed copy. An open session can retain its
 previous capabilities until restarted.

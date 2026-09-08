@@ -18,16 +18,21 @@ def _download_verified_hf_checkpoint(
     revision: str,
     expected_sha256: str,
 ) -> VerifiedAssetBinding:
-    """Resolve and privately bind one exact Hub file for deserialization."""
+    """Bind an exact cached file without contacting the Hub."""
 
-    checkpoint_path = str(
-        download(
+    try:
+        checkpoint_path = download(
             repo_id=repo_id,
             filename=filename,
             revision=revision,
-            local_files_only=False,
+            local_files_only=True,
         )
-    )
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            f"Local model file is missing: {repo_id}@{revision}/{filename}. "
+            "Automatic model downloads are disabled; restore the pinned file "
+            "in the local model cache."
+        ) from error
     path = Path(checkpoint_path)
     _verify_checkpoint_sha256(
         path,
@@ -85,16 +90,22 @@ def _download_verified_hf_snapshot(
     checkpoint_filename: str,
     expected_checkpoint_sha256: str,
 ) -> VerifiedAssetBinding:
-    """Resolve and privately bind every runtime-loaded snapshot asset."""
+    """Bind cached snapshot assets without remote metadata or downloads."""
 
-    snapshot_path = Path(
-        download(
+    try:
+        snapshot_path = Path(download(
             repo_id=repo_id,
             revision=revision,
             allow_patterns=list(required_files),
-            local_files_only=False,
-        )
-    )
+            local_files_only=True,
+        ))
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            f"Local model snapshot is missing: {repo_id}@{revision}; "
+            f"required files={list(required_files)}. "
+            "Automatic model downloads are disabled; restore the pinned files "
+            "in the local model cache."
+        ) from error
     missing = [
         file_name
         for file_name in required_files
@@ -103,7 +114,8 @@ def _download_verified_hf_snapshot(
     if missing:
         raise RuntimeError(
             "Pinned model snapshot is incomplete for "
-            f"{repo_id}@{revision}; missing={missing}"
+            f"{repo_id}@{revision}; missing={missing}. "
+            "Automatic model downloads are disabled."
         )
     expected_by_name = dict(expected_sha256)
     if tuple(expected_by_name) != required_files:
@@ -136,7 +148,8 @@ def _verify_checkpoint_sha256(
     checkpoint_path = Path(path)
     if not checkpoint_path.is_file():
         raise RuntimeError(
-            f"Pinned checkpoint is unavailable after download: {description} ({checkpoint_path})"
+            f"Local checkpoint is unavailable: {description} ({checkpoint_path}). "
+            "Automatic model downloads are disabled."
         )
     digest = hashlib.sha256()
     with checkpoint_path.open("rb") as checkpoint:

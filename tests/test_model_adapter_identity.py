@@ -185,7 +185,7 @@ def test_checkpoint_verification_rejects_wrong_bytes(tmp_path) -> None:
         )
 
 
-def test_hf_checkpoint_download_creates_immutable_verified_binding(
+def test_local_checkpoint_resolution_creates_immutable_verified_binding(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -219,12 +219,28 @@ def test_hf_checkpoint_download_creates_immutable_verified_binding(
             binding.path.write_bytes(b"different deserializer input")
         assert binding.path.read_bytes() == b"checkpoint"
     assert calls["download"][:2] == ("owner/model", "model.bin")
-    assert calls["download"][3] is False
+    assert calls["download"][3] is True
     assert calls["verify"] == (
         checkpoint,
         expected,
         f"owner/model@{'a' * 40}/model.bin",
     )
+
+    def missing_file(**kwargs):
+        assert kwargs["local_files_only"] is True
+        raise FileNotFoundError("not cached")
+
+    calls.clear()
+    with pytest.raises(RuntimeError, match="Automatic model downloads are disabled") as error:
+        embedding_loading._download_verified_hf_checkpoint(
+            missing_file,
+            repo_id="owner/model",
+            filename="model.bin",
+            revision="a" * 40,
+            expected_sha256=expected,
+        )
+    assert "owner/model@" in str(error.value) and "model.bin" in str(error.value)
+    assert not calls
 
 
 def test_mert_loader_deserializes_only_verified_local_snapshot(
@@ -302,6 +318,27 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     adapter.checkpoint_sha256 = dict(adapter.snapshot_sha256)[
         adapter.checkpoint_filename
     ]
+    def missing_snapshot(**kwargs):
+        assert kwargs["local_files_only"] is True
+        raise FileNotFoundError("not cached")
+
+    hf_module.snapshot_download = missing_snapshot
+    with pytest.raises(RuntimeError, match="Automatic model downloads are disabled") as error:
+        adapter._load_model()
+    assert adapter.model_revision in str(error.value)
+    assert adapter.checkpoint_filename in str(error.value)
+    assert not models and not processors
+    assert adapter._model is None and adapter._processor is None
+
+    hf_module.snapshot_download = download
+    missing_asset = snapshot / adapter.snapshot_files[0]
+    missing_asset.unlink()
+    with pytest.raises(RuntimeError, match="snapshot is incomplete") as error:
+        adapter._load_model()
+    assert missing_asset.name in str(error.value)
+    assert not models and not processors
+    assert adapter._model is None and adapter._processor is None
+    missing_asset.write_bytes(missing_asset.name.encode())
     with pytest.raises(RuntimeError, match="MERT final preparation failed"):
         adapter._load_model()
     assert len(models) == len(processors) == 1
@@ -318,7 +355,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
-    assert calls["download"][3] is False
+    assert calls["download"][3] is True
     processor_path, processor_kwargs = calls["processor"]
     model_path, model_kwargs = calls["model"]
     assert processor_path == model_path
@@ -410,7 +447,7 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
 
     assert calls["download"][0] == adapter.model_name
     assert calls["download"][2] == list(adapter.snapshot_files)
-    assert calls["download"][3] is False
+    assert calls["download"][3] is True
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
     assert not Path(model_path).exists()
@@ -418,7 +455,7 @@ def test_muq_loader_deserializes_only_verified_local_snapshot(
     assert calls["float"] is True
 
 
-def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserialization(
+def test_mulan_loader_deserializes_only_verified_local_towers(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -428,6 +465,7 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
     snapshot.mkdir()
     for file_name in MuqMulanEmbeddingAdapter.snapshot_files:
         (snapshot / file_name).write_bytes(file_name.encode())
+    (snapshot / "config.json").write_text('{"mulan": {"dim_latent": 512}}', encoding="utf-8")
     text_snapshot = tmp_path / "xlm-roberta-snapshot"
     text_snapshot.mkdir()
     for file_name in MuqMulanEmbeddingAdapter.text_snapshot_files:
@@ -489,6 +527,11 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
         def __init__(self) -> None:
             self.mulan_module = FakeMuLan()
 
+        def load_state_dict(self, state, *, strict):
+            assert state == {"weight": "local safetensors"}
+            assert strict is True
+            calls["model"] = (str(Path(calls["safetensors_path"]).parent), {"strict": strict})
+
         def float(self):
             return self
 
@@ -500,8 +543,11 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
 
     class FakeMuQMuLan:
         @staticmethod
-        def from_pretrained(model_path, **kwargs):
-            calls["model"] = (model_path, kwargs)
+        def from_pretrained(*args, **kwargs):
+            pytest.fail("MuLan must not use the Hub model-loading mixin")
+
+        def __new__(cls, *, config):
+            assert config == {"mulan": {"dim_latent": 512}}
             text_module.XLMRobertaModel.from_pretrained(
                 MuqMulanEmbeddingAdapter.text_model_name,
             )
@@ -515,6 +561,16 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
             models.append(model)
             return model
 
+    safetensors_module = types.ModuleType("safetensors.torch")
+
+    def load_file(path, *, device):
+        assert device == "cpu"
+        assert Path(path).read_bytes() == b"model.safetensors"
+        calls["safetensors_path"] = str(path)
+        return {"weight": "local safetensors"}
+
+    safetensors_module.load_file = load_file
+    monkeypatch.setitem(sys.modules, "safetensors.torch", safetensors_module)
     hf_module = types.ModuleType("huggingface_hub")
 
     def download(*, repo_id, revision, allow_patterns, local_files_only):
@@ -544,7 +600,7 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
 
     adapter = MuqMulanEmbeddingAdapter(device="cpu")
     adapter.snapshot_sha256 = tuple(
-        (file_name, hashlib.sha256(file_name.encode()).hexdigest())
+        (file_name, hashlib.sha256((snapshot / file_name).read_bytes()).hexdigest())
         for file_name in adapter.snapshot_files
     )
     adapter.checkpoint_sha256 = dict(adapter.snapshot_sha256)[
@@ -587,25 +643,25 @@ def test_mulan_loader_fetches_a_missing_pinned_snapshot_before_local_deserializa
             adapter.model_name,
             adapter.model_revision,
             list(adapter.snapshot_files),
-            False,
+            True,
         ),
         (
             adapter.text_model_name,
             adapter.text_model_revision,
             list(adapter.text_snapshot_files),
-            False,
+            True,
         ),
         (
             adapter.audio_model_name,
             adapter.audio_model_revision,
             list(adapter.audio_snapshot_files),
-            False,
+            True,
         ),
     ] * 2
     model_path, model_kwargs = calls["model"]
     assert model_path != str(snapshot)
     assert not Path(model_path).exists()
-    assert model_kwargs == {"local_files_only": True}
+    assert model_kwargs == {"strict": True}
     tokenizer_path, tokenizer_kwargs = calls["tokenizer_load"]
     encoder_path, encoder_kwargs = calls["encoder_load"]
     assert tokenizer_path == encoder_path
@@ -713,8 +769,8 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     )
     assert calls["text_download"][0] == adapter.text_model_name
     assert calls["text_download"][2] == list(adapter.text_snapshot_files)
-    assert calls["download"][3] is False
-    assert calls["text_download"][3] is False
+    assert calls["download"][3] is True
+    assert calls["text_download"][3] is True
     assert calls["module"] == (
         False,
         "HTSAT-base",
@@ -728,10 +784,26 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
 
 def test_maest_loader_verifies_checkpoint_before_public_discogs_path(
     monkeypatch,
+    tmp_path,
 ) -> None:
     calls: dict[str, object] = {}
     order: list[str] = []
     models = []
+    checkpoint = tmp_path / "maest.ckpt"
+    checkpoint.write_bytes(b"maest weights")
+
+    def forbidden_download(*args, **kwargs):
+        pytest.fail("MAEST attempted URL-based checkpoint resolution")
+
+    loader_module = types.ModuleType("maest_infer.helpers.vit_helpers")
+    loader_module.load_state_dict_from_url = forbidden_download
+
+    def load_local(path, **kwargs):
+        assert Path(path) != checkpoint
+        assert Path(path).read_bytes() == b"maest weights"
+        assert kwargs == {"map_location": "cpu", "weights_only": True}
+        calls["local_checkpoint"] = path
+        return {"weight": "loaded locally"}
 
     class FakeMel:
         def __init__(self, model):
@@ -764,28 +836,37 @@ def test_maest_loader_verifies_checkpoint_before_public_discogs_path(
         assert order[-1] == "verify"
         order.append("load")
         calls["get_maest"] = kwargs
+        assert loader_module.load_state_dict_from_url(
+            MaestEmbeddingAdapter.checkpoint_url,
+            map_location="cpu", progress=False, check_hash=False,
+        ) == {"weight": "loaded locally"}
         model = FakeModel()
         models.append(model)
         return model
 
     torch_module = types.ModuleType("torch")
+    torch_module.load = load_local
     torchaudio_module = types.ModuleType("torchaudio")
     maest_module = types.ModuleType("maest_infer")
     maest_module.get_maest = get_maest
     monkeypatch.setitem(sys.modules, "torch", torch_module)
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "maest_infer", maest_module)
+    monkeypatch.setitem(sys.modules, "maest_infer.helpers.vit_helpers", loader_module)
     monkeypatch.setattr(
         embedding_maest,
         "_ensure_verified_maest_checkpoint",
-        lambda *args, **kwargs: order.append("verify"),
+        lambda *args, **kwargs: (order.append("verify"), checkpoint)[1],
     )
 
     adapter = MaestEmbeddingAdapter(device="cpu")
+    adapter.checkpoint_sha256 = hashlib.sha256(b"maest weights").hexdigest()
     with pytest.raises(RuntimeError, match="MAEST mel preparation failed"):
         adapter._load_model()
     assert len(models) == 1
     assert adapter._model is None
+    assert loader_module.load_state_dict_from_url is forbidden_download
+    assert not Path(calls["local_checkpoint"]).exists()
 
     _retry_loader_concurrently(adapter, monkeypatch)
     assert len(models) == 2
@@ -795,13 +876,11 @@ def test_maest_loader_verifies_checkpoint_before_public_discogs_path(
     assert calls["get_maest"] == {"arch": adapter.model_name}
     assert calls["device"] == "cpu"
     assert calls["eval"] is True
+    assert loader_module.load_state_dict_from_url is forbidden_download
+    assert not Path(calls["local_checkpoint"]).exists()
 
 
-def test_maest_checkpoint_is_downloaded_and_verified_before_use(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    calls: dict[str, object] = {}
+def test_maest_checkpoint_must_exist_locally_before_use(tmp_path) -> None:
     checkpoint_bytes = b"checkpoint"
     expected_sha256 = hashlib.sha256(checkpoint_bytes).hexdigest()
 
@@ -811,28 +890,24 @@ def test_maest_checkpoint_is_downloaded_and_verified_before_use(
             return str(tmp_path)
 
         @staticmethod
-        def download_url_to_file(url, destination, *, hash_prefix, progress):
-            calls["download"] = (url, destination, hash_prefix, progress)
-            Path(destination).write_bytes(checkpoint_bytes)
+        def download_url_to_file(*args, **kwargs):
+            pytest.fail("MAEST attempted a network download")
 
     fake_torch = types.SimpleNamespace(hub=FakeHub())
-    checkpoint = embedding_maest._ensure_verified_maest_checkpoint(
-        fake_torch,
+    expected_path = tmp_path / "checkpoints" / MaestEmbeddingAdapter.checkpoint_filename
+    kwargs = dict(
         checkpoint_url=MaestEmbeddingAdapter.checkpoint_url,
         checkpoint_filename=MaestEmbeddingAdapter.checkpoint_filename,
         expected_sha256=expected_sha256,
     )
+    with pytest.raises(RuntimeError, match="Automatic model downloads are disabled") as error:
+        embedding_maest._ensure_verified_maest_checkpoint(fake_torch, **kwargs)
+    assert str(expected_path) in str(error.value)
+    assert not expected_path.parent.exists()
+    expected_path.parent.mkdir()
+    expected_path.write_bytes(checkpoint_bytes)
+    assert embedding_maest._ensure_verified_maest_checkpoint(fake_torch, **kwargs) == expected_path
 
-    expected_path = (
-        tmp_path / "checkpoints" / MaestEmbeddingAdapter.checkpoint_filename
-    )
-    assert checkpoint == expected_path
-    assert calls["download"] == (
-        MaestEmbeddingAdapter.checkpoint_url,
-        str(expected_path),
-        expected_sha256,
-        True,
-    )
 
 
 def test_maest_cached_checkpoint_hash_is_checked_before_use(tmp_path) -> None:

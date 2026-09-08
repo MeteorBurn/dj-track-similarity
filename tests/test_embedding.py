@@ -2,8 +2,11 @@
 
 import logging
 import hashlib
+import os
 from pathlib import Path
+import subprocess
 import sys
+import textwrap
 import types
 
 import numpy as np
@@ -25,7 +28,6 @@ from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.embedding.maest import _move_maest_runtime_modules
 from dj_track_similarity.embedding.numerics import _array_output_to_numpy
 from dj_track_similarity.embedding.audio import _pad_or_trim_audio_tensor
-from dj_track_similarity.embedding.registry import adapter_factories
 from dj_track_similarity.logging_config import configure_logging
 from dj_track_similarity.maest_windows import MaestWindowContext
 
@@ -38,25 +40,113 @@ def _text_embedding_rows(rows: int) -> np.ndarray:
     return matrix
 
 
-def test_clap_adapter_uses_immutable_music_checkpoint_identity() -> None:
-    assert ClapEmbeddingAdapter.embedding_key == "clap"
-    assert ClapEmbeddingAdapter.checkpoint_repo == "lukewys/laion_clap"
-    assert (
-        ClapEmbeddingAdapter.checkpoint_filename
-        == "music_audioset_epoch_15_esc_90.14.pt"
+def test_clap_first_import_needs_no_training_tokenizers_or_network(tmp_path) -> None:
+    script = textwrap.dedent("""
+        from contextlib import nullcontext
+        import importlib
+        from pathlib import Path
+        import socket
+        import sys
+        from types import SimpleNamespace
+
+        attempts = []
+
+        def forbidden_network(*args, **kwargs):
+            attempts.append("network")
+            raise AssertionError("CLAP import attempted network access")
+
+        socket.socket.connect = forbidden_network
+        socket.create_connection = forbidden_network
+        socket.getaddrinfo = forbidden_network
+
+        import transformers
+        import dj_track_similarity.embedding.clap as clap
+
+        assert "laion_clap" not in sys.modules
+        tokenizer_types = {
+            name: getattr(transformers, name)
+            for name in ("BertTokenizer", "RobertaTokenizer", "BartTokenizer")
+        }
+
+        def forbidden_pretrained(cls, *args, **kwargs):
+            attempts.append(cls.__name__)
+            raise AssertionError("CLAP import attempted a pretrained asset load")
+
+        transformers.PreTrainedTokenizerBase.from_pretrained = classmethod(forbidden_pretrained)
+        transformers.PreTrainedModel.from_pretrained = classmethod(forbidden_pretrained)
+        binding = SimpleNamespace(path=Path.cwd())
+        clap._download_verified_hf_checkpoint = lambda *a, **kw: nullcontext(binding)
+        clap._download_verified_hf_snapshot = lambda *a, **kw: nullcontext(binding)
+        constructed = []
+
+        class ModelStub:
+            def load_ckpt(self, path, verbose):
+                self.loaded = True
+
+        def construct(module_type, **kwargs):
+            assert module_type is sys.modules["laion_clap.hook"].CLAP_Module
+            model = ModelStub()
+            constructed.append(model)
+            return model
+
+        clap._construct_clap_module_with_pinned_text_model = construct
+        real_import = importlib.import_module
+        first_import = True
+
+        def fail_after_first_import(name, *args, **kwargs):
+            global first_import
+            module = real_import(name, *args, **kwargs)
+            if name == "laion_clap" and first_import:
+                first_import = False
+                raise RuntimeError("injected CLAP import failure")
+            return module
+
+        importlib.import_module = fail_after_first_import
+        adapter = clap.ClapEmbeddingAdapter(device="cpu")
+        try:
+            adapter.preflight()
+        except RuntimeError as error:
+            assert str(error) == "injected CLAP import failure", str(error)
+        else:
+            raise AssertionError("Import failure was not propagated")
+        assert adapter._model is None
+        assert not constructed
+        for name, original in tokenizer_types.items():
+            assert getattr(transformers, name) is original
+            assert getattr(sys.modules["laion_clap.training.data"], name) is original
+        assert sys.modules["laion_clap.hook"].RobertaTokenizer is tokenizer_types["RobertaTokenizer"]
+
+        adapter.preflight()
+        assert len(constructed) == 1
+        assert adapter._model is constructed[0]
+        assert adapter._model.loaded
+        assert attempts == [], attempts
+        assert not any(Path("hf-cache").rglob("*"))
+        print("CLAP cold import and failure restoration passed")
+    """)
+    environment = os.environ.copy()
+    for name in (
+        "HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE",
+        "HF_ASSETS_CACHE", "HF_DATASETS_CACHE",
+    ):
+        environment[name] = str(tmp_path / "hf-cache")
+    for name in ("TEMP", "TMP", "XDG_CACHE_HOME", "TORCH_HOME", "NUMBA_CACHE_DIR", "MPLCONFIGDIR"):
+        environment[name] = str(tmp_path / "runtime-cache")
+    (tmp_path / "runtime-cache").mkdir()
+    environment["HF_HUB_OFFLINE"] = "0"
+    environment["TRANSFORMERS_OFFLINE"] = "0"
+    environment["DJ_TRACK_SIMILARITY_LOG"] = str(tmp_path / "app.log")
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
     )
-    assert (
-        ClapEmbeddingAdapter.model_name
-        == "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
-    )
-    assert (
-        ClapEmbeddingAdapter.model_revision
-        == "b3708341862f581175dba5c356a4ebf74a9b6651"
-    )
-    assert (
-        ClapEmbeddingAdapter.checkpoint_sha256
-        == "fae3e9c087f2909c28a09dc31c8dfcdacbc42ba44c70e972b58c1bd1caf6dedd"
-    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "CLAP cold import and failure restoration passed" in result.stdout
 
 
 def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
@@ -65,15 +155,44 @@ def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
     assert MuqEmbeddingAdapter.target_rate == 24_000
 
 
-def test_mulan_adapter_uses_the_official_joint_audio_text_checkpoint() -> None:
-    adapter = adapter_factories()["mulan"](device="cpu")
+def test_mulan_local_safetensors_uses_strict_weight_norm_compatibility(tmp_path) -> None:
+    from safetensors.torch import save_file
+    from dj_track_similarity.embedding.mulan import _load_local_mulan_checkpoint
 
-    assert adapter.embedding_key == "mulan"
-    assert adapter.model_name == "OpenMuQ/MuQ-MuLan-large"
-    assert adapter.target_rate == 24_000
-    assert adapter.window_seconds == 10.0
-    assert adapter.dim == 512
-    assert adapter.normalization == "l2"
+    class TinyMuLan(torch.nn.Module):
+        def __init__(self, *, config):
+            super().__init__()
+            assert config == {"channels": 2}
+            self.conv = torch.nn.utils.parametrizations.weight_norm(
+                torch.nn.Conv1d(2, 2, 3), dim=2,
+            )
+
+        @classmethod
+        def from_pretrained(cls, *_args, **_kwargs):
+            pytest.fail("MuLan checkpoint loading reached the Hub mixin")
+
+    expected = {
+        name: torch.full_like(value, 0.125)
+        for name, value in TinyMuLan(config={"channels": 2}).state_dict().items()
+    }
+    legacy_state = {
+        name.replace("parametrizations.weight.original0", "weight_g")
+            .replace("parametrizations.weight.original1", "weight_v"): value
+        for name, value in expected.items()
+    }
+    (tmp_path / "config.json").write_text('{"channels": 2}', encoding="utf-8")
+    checkpoint = tmp_path / "model.safetensors"
+    save_file(legacy_state, str(checkpoint))
+    restored = _load_local_mulan_checkpoint(TinyMuLan, tmp_path)
+    assert not restored.training
+    assert restored.state_dict().keys() == expected.keys()
+    for name, value in restored.state_dict().items():
+        assert torch.equal(value, expected[name]), name
+
+    del legacy_state["conv.bias"]
+    save_file(legacy_state, str(checkpoint))
+    with pytest.raises(RuntimeError, match="conv.bias"):
+        _load_local_mulan_checkpoint(TinyMuLan, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -267,7 +386,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
             "lukewys/laion_clap",
             "music_audioset_epoch_15_esc_90.14.pt",
             "b3708341862f581175dba5c356a4ebf74a9b6651",
-            False,
+            True,
         )
     ] * 2
     assert calls["verify"] == (
@@ -283,7 +402,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
         "roberta-base",
         "e2da8e2f811d1448a5b465c236feacd80ffbac7b",
         list(adapter.text_snapshot_files),
-        False,
+        True,
     )
     assert calls["module"] == (
         False,

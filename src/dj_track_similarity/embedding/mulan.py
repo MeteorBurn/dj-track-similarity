@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import threading
 import time
 from collections.abc import Sequence
@@ -336,16 +337,31 @@ def _construct_muq_mulan_with_pinned_towers(
             description="MuQ-MuLan audio tower",
         )
         try:
-            model = mulan_module_type.from_pretrained(
-                str(snapshot_path),
-                local_files_only=True,
-            )
+            model = _load_local_mulan_checkpoint(mulan_module_type, snapshot_path)
             _materialize_mulan_text_tokenizer(model)
             return model
         finally:
             text_module.AutoTokenizer = original_tokenizer_loader
             text_module.XLMRobertaModel = original_model_loader
             muq_module.MuQ = original_audio_loader
+
+def _load_local_mulan_checkpoint(model_type, snapshot_path: Path):
+    """Load verified files through PyTorch's weight-norm compatibility hooks.
+
+    Older safetensors.load_model versions compare raw key names before those
+    hooks run, rejecting this checkpoint's legacy positional-convolution keys.
+    PyTorch performs the conversion and then strictly validates the full state.
+    """
+
+    from safetensors.torch import load_file
+
+    with (snapshot_path / "config.json").open(encoding="utf-8") as config_file:
+        config = json.load(config_file)
+    model = model_type(config=config)
+    state_dict = load_file(str(snapshot_path / "model.safetensors"), device="cpu")
+    model.load_state_dict(state_dict, strict=True)
+    return model.eval()
+
 
 def _materialize_mulan_text_tokenizer(model: object) -> None:
     """Load the lazy tokenizer while the verified loaders are still bound."""

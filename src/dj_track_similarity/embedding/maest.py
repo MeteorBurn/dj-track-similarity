@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import threading
 import time
 from collections import defaultdict
@@ -30,6 +31,10 @@ from ..maest_windows import (
     select_maest_window_starts,
 )
 from ..runtime import select_torch_device
+from ..verified_assets import bind_verified_file
+
+
+_MAEST_CONSTRUCTION_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -270,13 +275,25 @@ class MaestEmbeddingAdapter:
             self._torch = torch
             self._torchaudio = torchaudio
             self.device = self._device()
-            _ensure_verified_maest_checkpoint(
+            checkpoint = _ensure_verified_maest_checkpoint(
                 torch,
                 checkpoint_url=self.checkpoint_url,
                 checkpoint_filename=self.checkpoint_filename,
                 expected_sha256=self.checkpoint_sha256,
             )
-            model = get_maest(arch=self.model_name).to(self.device).eval()
+            with bind_verified_file(
+                checkpoint,
+                expected_sha256=self.checkpoint_sha256,
+                description=self.checkpoint_filename,
+            ) as verified:
+                model = _construct_maest_with_local_checkpoint(
+                    get_maest,
+                    torch_module=torch,
+                    arch=self.model_name,
+                    checkpoint_path=verified.path,
+                    checkpoint_url=self.checkpoint_url,
+                )
+            model = model.to(self.device).eval()
             _move_maest_runtime_modules(model, self.device)
             self._model = model
 
@@ -293,17 +310,14 @@ def _ensure_verified_maest_checkpoint(
     checkpoint_filename: str,
     expected_sha256: str,
 ) -> Path:
-    """Populate and verify the torch-hub cache before maest-infer loads it."""
+    """Verify an existing local checkpoint; never populate the cache online."""
 
     checkpoint_dir = Path(torch_module.hub.get_dir()) / "checkpoints"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = checkpoint_dir / checkpoint_filename
-    if not checkpoint_path.exists():
-        torch_module.hub.download_url_to_file(
-            checkpoint_url,
-            str(checkpoint_path),
-            hash_prefix=expected_sha256,
-            progress=True,
+    if not checkpoint_path.is_file():
+        raise RuntimeError(
+            f"Local MAEST checkpoint is missing: {checkpoint_path}. "
+            "Automatic model downloads are disabled."
         )
     _verify_checkpoint_sha256(
         checkpoint_path,
@@ -311,6 +325,34 @@ def _ensure_verified_maest_checkpoint(
         description=checkpoint_url,
     )
     return checkpoint_path
+
+def _construct_maest_with_local_checkpoint(
+    get_maest,
+    *,
+    torch_module,
+    arch: str,
+    checkpoint_path: Path,
+    checkpoint_url: str,
+):
+    """Retain MAEST's checkpoint filters while replacing its URL resolver."""
+
+    with _MAEST_CONSTRUCTION_LOCK:
+        loaders = importlib.import_module("maest_infer.helpers.vit_helpers")
+        original_loader = loaders.load_state_dict_from_url
+
+        def load_local(url, *, map_location, progress, check_hash):
+            if url != checkpoint_url or map_location != "cpu":
+                raise RuntimeError(f"Unexpected MAEST checkpoint request: {url}")
+            return torch_module.load(
+                str(checkpoint_path), map_location="cpu", weights_only=True,
+            )
+
+        loaders.load_state_dict_from_url = load_local
+        try:
+            return get_maest(arch=arch)
+        finally:
+            loaders.load_state_dict_from_url = original_loader
+
 
 def _move_maest_runtime_modules(model: object, device: str) -> None:
     init_melspectrogram = getattr(model, "init_melspectrogram", None)

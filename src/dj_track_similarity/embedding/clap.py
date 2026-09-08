@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import sys
 import threading
 import time
 from collections.abc import Sequence
@@ -198,9 +199,7 @@ class ClapEmbeddingAdapter:
                 return
             import torch
             import torchaudio
-            import laion_clap
             from huggingface_hub import hf_hub_download, snapshot_download
-            from transformers import RobertaModel, RobertaTokenizer
 
             self._torch = torch
             self._torchaudio = torchaudio
@@ -226,16 +225,20 @@ class ClapEmbeddingAdapter:
                         expected_checkpoint_sha256=self.text_checkpoint_sha256,
                     )
                 )
-                model = _construct_clap_module_with_pinned_text_model(
-                    laion_clap.CLAP_Module,
-                    tokenizer_loader=RobertaTokenizer,
-                    model_loader=RobertaModel,
-                    snapshot_path=verified_text_snapshot.path,
-                    enable_fusion=self.enable_fusion,
-                    amodel=self.amodel,
-                    tmodel=self.tmodel,
-                    device=torch.device(self.device),
-                )
+                with _CLAP_CONSTRUCTION_LOCK:
+                    from transformers import RobertaModel, RobertaTokenizer
+
+                    laion_clap = _import_clap_inference_module()
+                    model = _construct_clap_module_with_pinned_text_model(
+                        laion_clap.CLAP_Module,
+                        tokenizer_loader=RobertaTokenizer,
+                        model_loader=RobertaModel,
+                        snapshot_path=verified_text_snapshot.path,
+                        enable_fusion=self.enable_fusion,
+                        amodel=self.amodel,
+                        tmodel=self.tmodel,
+                        device=torch.device(self.device),
+                    )
                 model.load_ckpt(str(verified_checkpoint.path), verbose=False)
             self._model = model
 
@@ -244,6 +247,53 @@ class ClapEmbeddingAdapter:
         if self.device:
             return self.device
         return select_torch_device(self._torch, self.requested_device)
+
+class _UnusedClapTrainingTokenizer:
+    """Keep laion-clap's unused training helpers from loading model assets."""
+
+    @classmethod
+    def from_pretrained(cls, *_args, **_kwargs):
+        return cls()
+
+    def __call__(self, *_args, **_kwargs):
+        raise RuntimeError(
+            "CLAP training tokenization is unavailable in the embedding runtime"
+        )
+
+
+def _import_clap_inference_module():
+    """Import waveform helpers without eagerly loading training tokenizers.
+
+    laion-clap imports its training data module for audio preprocessing. That
+    module also constructs BERT, RoBERTa and BART tokenizers at import time;
+    none is used by CLAP_Module inference. Its actual RoBERTa tokenizer is
+    constructed separately with the verified snapshot bindings below.
+    """
+
+    with _CLAP_CONSTRUCTION_LOCK:
+        if "laion_clap" in sys.modules:
+            return importlib.import_module("laion_clap")
+        import transformers
+
+        original_loaders = {
+            name: getattr(transformers, name)
+            for name in ("BertTokenizer", "RobertaTokenizer", "BartTokenizer")
+        }
+        try:
+            for name in original_loaders:
+                setattr(transformers, name, _UnusedClapTrainingTokenizer)
+            return importlib.import_module("laion_clap")
+        finally:
+            for name, loader in original_loaders.items():
+                setattr(transformers, name, loader)
+            for module_name in ("laion_clap.training.data", "laion_clap.hook"):
+                module = sys.modules.get(module_name)
+                if module is None:
+                    continue
+                for name, loader in original_loaders.items():
+                    if getattr(module, name, None) is _UnusedClapTrainingTokenizer:
+                        setattr(module, name, loader)
+
 
 def _construct_clap_module_with_pinned_text_model(
     clap_module_type,

@@ -27,7 +27,7 @@ from ..analysis_models import (
 from ..audio.loader import DecodedAudio
 from .audio import _resample_to
 from .loading import (
-    _download_verified_hf_snapshot,
+    _bind_verified_local_snapshot,
     _local_only_from_pretrained_proxy,
 )
 from .muq import _MUQ_CONSTRUCTION_LOCK, _silence_muq_weight_norm_deprecation
@@ -237,7 +237,6 @@ class MuqMulanEmbeddingAdapter:
                 return
             import torch
             import torchaudio
-            from huggingface_hub import snapshot_download
             from muq import MuQMuLan
 
             _silence_muq_weight_norm_deprecation()
@@ -245,8 +244,8 @@ class MuqMulanEmbeddingAdapter:
             self._torchaudio = torchaudio
             with ExitStack() as assets:
                 verified = assets.enter_context(
-                    _download_verified_hf_snapshot(
-                        snapshot_download,
+                    _bind_verified_local_snapshot(
+                        model_directory="mulan",
                         repo_id=self.model_name,
                         revision=self.model_revision,
                         required_files=self.snapshot_files,
@@ -256,8 +255,8 @@ class MuqMulanEmbeddingAdapter:
                     )
                 )
                 verified_text_snapshot = assets.enter_context(
-                    _download_verified_hf_snapshot(
-                        snapshot_download,
+                    _bind_verified_local_snapshot(
+                        model_directory="mulan-text",
                         repo_id=self.text_model_name,
                         revision=self.text_model_revision,
                         required_files=self.text_snapshot_files,
@@ -267,8 +266,8 @@ class MuqMulanEmbeddingAdapter:
                     )
                 )
                 verified_audio_snapshot = assets.enter_context(
-                    _download_verified_hf_snapshot(
-                        snapshot_download,
+                    _bind_verified_local_snapshot(
+                        model_directory="muq",
                         repo_id=self.audio_model_name,
                         revision=self.audio_model_revision,
                         required_files=self.audio_snapshot_files,

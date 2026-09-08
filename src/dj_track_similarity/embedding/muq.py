@@ -16,7 +16,7 @@ from ..analysis_models import (
 )
 from ..audio.loader import DecodedAudio
 from .audio import _prepare_windows
-from .loading import _download_verified_hf_snapshot
+from .loading import _bind_verified_local_snapshot
 from .numerics import _average_l2_window_embeddings, _normalize_rows
 from ..runtime import select_torch_device
 
@@ -141,14 +141,13 @@ class MuqEmbeddingAdapter:
                 return
             import torch
             import torchaudio
-            from huggingface_hub import snapshot_download
             import muq
 
             _silence_muq_weight_norm_deprecation()
             self._torch = torch
             self._torchaudio = torchaudio
-            binding = _download_verified_hf_snapshot(
-                snapshot_download,
+            binding = _bind_verified_local_snapshot(
+                model_directory="muq",
                 repo_id=self.model_name,
                 revision=self.model_revision,
                 required_files=self.snapshot_files,

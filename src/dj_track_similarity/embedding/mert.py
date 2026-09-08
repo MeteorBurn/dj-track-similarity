@@ -18,7 +18,7 @@ from ..analysis_models import (
 from ..audio.loader import DecodedAudio
 from .audio import _resample_to
 from .contracts import EmbeddingCancelledError
-from .loading import _download_verified_hf_snapshot
+from .loading import _bind_verified_local_snapshot
 from ..runtime import select_torch_device
 
 if TYPE_CHECKING:
@@ -230,13 +230,12 @@ class MertEmbeddingAdapter:
                 return
             import torch
             import torchaudio
-            from huggingface_hub import snapshot_download
             from transformers import AutoModel, Wav2Vec2FeatureExtractor
 
             self._torch = torch
             self._torchaudio = torchaudio
-            binding = _download_verified_hf_snapshot(
-                snapshot_download,
+            binding = _bind_verified_local_snapshot(
+                model_directory="mert",
                 repo_id=self.model_name,
                 revision=self.model_revision,
                 required_files=self.snapshot_files,

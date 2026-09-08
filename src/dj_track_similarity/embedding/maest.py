@@ -23,7 +23,7 @@ from ..analysis_models import (
 )
 from ..audio.loader import DecodedAudio
 from .audio import _resample_to
-from .loading import _verify_checkpoint_sha256
+from .loading import _local_model_path, _verify_checkpoint_sha256
 from ..genres import rank_genres
 from ..runtime import select_torch_device
 from ..verified_assets import bind_verified_file
@@ -248,7 +248,6 @@ class MaestEmbeddingAdapter:
             self._torchaudio = torchaudio
             self.device = self._device()
             checkpoint = _ensure_verified_maest_checkpoint(
-                torch,
                 checkpoint_url=self.checkpoint_url,
                 checkpoint_filename=self.checkpoint_filename,
                 expected_sha256=self.checkpoint_sha256,
@@ -263,7 +262,6 @@ class MaestEmbeddingAdapter:
                     torch_module=torch,
                     arch=self.model_name,
                     checkpoint_path=verified.path,
-                    checkpoint_url=self.checkpoint_url,
                 )
             model = model.to(self.device).eval()
             _move_maest_runtime_modules(model, self.device)
@@ -302,16 +300,14 @@ def _maest_feature_batches(model, batch_size: int, torch):
 
 
 def _ensure_verified_maest_checkpoint(
-    torch_module,
     *,
     checkpoint_url: str,
     checkpoint_filename: str,
     expected_sha256: str,
 ) -> Path:
-    """Verify an existing local checkpoint; never populate the cache online."""
+    """Verify the checkpoint in the repository's local model store."""
 
-    checkpoint_dir = Path(torch_module.hub.get_dir()) / "checkpoints"
-    checkpoint_path = checkpoint_dir / checkpoint_filename
+    checkpoint_path = _local_model_path("maest", checkpoint_filename)
     if not checkpoint_path.is_file():
         raise RuntimeError(
             f"Local MAEST checkpoint is missing: {checkpoint_path}. "
@@ -330,26 +326,23 @@ def _construct_maest_with_local_checkpoint(
     torch_module,
     arch: str,
     checkpoint_path: Path,
-    checkpoint_url: str,
 ):
-    """Retain MAEST's checkpoint filters while replacing its URL resolver."""
+    """Apply MAEST's native checkpoint adaptation without its cache resolver."""
 
     with _MAEST_CONSTRUCTION_LOCK:
-        loaders = importlib.import_module("maest_infer.helpers.vit_helpers")
-        original_loader = loaders.load_state_dict_from_url
-
-        def load_local(url, *, map_location, progress, check_hash):
-            if url != checkpoint_url or map_location != "cpu":
-                raise RuntimeError(f"Unexpected MAEST checkpoint request: {url}")
-            return torch_module.load(
-                str(checkpoint_path), map_location="cpu", weights_only=True,
-            )
-
-        loaders.load_state_dict_from_url = load_local
-        try:
-            return get_maest(arch=arch)
-        finally:
-            loaders.load_state_dict_from_url = original_loader
+        loaders = importlib.import_module("maest_infer.loading")
+        model = get_maest(arch=arch, pretrained=False)
+        state_dict = torch_module.load(
+            str(checkpoint_path), map_location="cpu", weights_only=True,
+        )
+        state_dict = loaders.checkpoint_filter_fn(state_dict, model)
+        first_conv = model.pretrained_cfg["first_conv"]
+        weight_name = f"{first_conv}.weight"
+        state_dict[weight_name] = loaders.adapt_input_conv(
+            1, state_dict[weight_name],
+        )
+        model.load_state_dict(state_dict, strict=True)
+        return model
 
 
 def _move_maest_runtime_modules(model: object, device: str) -> None:

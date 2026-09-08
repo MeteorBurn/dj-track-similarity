@@ -10,30 +10,39 @@ from ..verified_assets import (
 )
 
 
-def _download_verified_hf_checkpoint(
-    download,
+_MODELS_ROOT = Path(__file__).resolve().parents[3] / "models"
+
+
+def _local_model_path(model_directory: str, filename: str | None = None) -> Path:
+    """Resolve assets exclusively inside this checkout's model store."""
+
+    root = _MODELS_ROOT.resolve()
+    path = root / model_directory
+    if filename is not None:
+        path /= filename
+    path = path.resolve()
+    if path == root or not path.is_relative_to(root):
+        raise RuntimeError(f"Model asset path is outside the local model store: {path}")
+    return path
+
+
+def _bind_verified_local_checkpoint(
     *,
+    model_directory: str,
     repo_id: str,
     filename: str,
     revision: str,
     expected_sha256: str,
 ) -> VerifiedAssetBinding:
-    """Bind an exact cached file without contacting the Hub."""
+    """Bind a pinned checkpoint from models/, without consulting Hub caches."""
 
-    try:
-        checkpoint_path = download(
-            repo_id=repo_id,
-            filename=filename,
-            revision=revision,
-            local_files_only=True,
-        )
-    except FileNotFoundError as error:
+    path = _local_model_path(model_directory, filename)
+    if not path.is_file():
         raise RuntimeError(
-            f"Local model file is missing: {repo_id}@{revision}/{filename}. "
+            f"Local model file is missing: {path} ({repo_id}@{revision}). "
             "Automatic model downloads are disabled; restore the pinned file "
-            "in the local model cache."
-        ) from error
-    path = Path(checkpoint_path)
+            f"in models/{model_directory}/."
+        )
     _verify_checkpoint_sha256(
         path,
         expected_sha256=expected_sha256,
@@ -80,9 +89,9 @@ def _local_only_from_pretrained_proxy(
 
     return LocalOnlyLoader
 
-def _download_verified_hf_snapshot(
-    download,
+def _bind_verified_local_snapshot(
     *,
+    model_directory: str,
     repo_id: str,
     revision: str,
     required_files: tuple[str, ...],
@@ -90,31 +99,18 @@ def _download_verified_hf_snapshot(
     checkpoint_filename: str,
     expected_checkpoint_sha256: str,
 ) -> VerifiedAssetBinding:
-    """Bind cached snapshot assets without remote metadata or downloads."""
+    """Bind the pinned files in models/, without remote or cache resolution."""
 
-    try:
-        snapshot_path = Path(download(
-            repo_id=repo_id,
-            revision=revision,
-            allow_patterns=list(required_files),
-            local_files_only=True,
-        ))
-    except FileNotFoundError as error:
-        raise RuntimeError(
-            f"Local model snapshot is missing: {repo_id}@{revision}; "
-            f"required files={list(required_files)}. "
-            "Automatic model downloads are disabled; restore the pinned files "
-            "in the local model cache."
-        ) from error
+    snapshot_path = _local_model_path(model_directory)
     missing = [
         file_name
         for file_name in required_files
-        if not (snapshot_path / file_name).is_file()
+        if not _local_model_path(model_directory, file_name).is_file()
     ]
     if missing:
         raise RuntimeError(
             "Pinned model snapshot is incomplete for "
-            f"{repo_id}@{revision}; missing={missing}. "
+            f"{repo_id}@{revision} at {snapshot_path}; missing={missing}. "
             "Automatic model downloads are disabled."
         )
     expected_by_name = dict(expected_sha256)

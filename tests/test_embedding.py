@@ -44,12 +44,14 @@ def test_clap_first_import_needs_no_training_tokenizers_or_network(tmp_path) -> 
     script = textwrap.dedent("""
         from contextlib import nullcontext
         import importlib
+        import os
         from pathlib import Path
         import socket
         import sys
         from types import SimpleNamespace
 
         attempts = []
+        original_numba_cache = os.environ.get("NUMBA_CACHE_DIR")
 
         def forbidden_network(*args, **kwargs):
             attempts.append("network")
@@ -75,8 +77,8 @@ def test_clap_first_import_needs_no_training_tokenizers_or_network(tmp_path) -> 
         transformers.PreTrainedTokenizerBase.from_pretrained = classmethod(forbidden_pretrained)
         transformers.PreTrainedModel.from_pretrained = classmethod(forbidden_pretrained)
         binding = SimpleNamespace(path=Path.cwd())
-        clap._download_verified_hf_checkpoint = lambda *a, **kw: nullcontext(binding)
-        clap._download_verified_hf_snapshot = lambda *a, **kw: nullcontext(binding)
+        clap._bind_verified_local_checkpoint = lambda *a, **kw: nullcontext(binding)
+        clap._bind_verified_local_snapshot = lambda *a, **kw: nullcontext(binding)
         constructed = []
 
         class ModelStub:
@@ -110,6 +112,7 @@ def test_clap_first_import_needs_no_training_tokenizers_or_network(tmp_path) -> 
         else:
             raise AssertionError("Import failure was not propagated")
         assert adapter._model is None
+        assert os.environ.get("NUMBA_CACHE_DIR") == original_numba_cache
         assert not constructed
         for name, original in tokenizer_types.items():
             assert getattr(transformers, name) is original
@@ -120,6 +123,7 @@ def test_clap_first_import_needs_no_training_tokenizers_or_network(tmp_path) -> 
         assert len(constructed) == 1
         assert adapter._model is constructed[0]
         assert adapter._model.loaded
+        assert os.environ.get("NUMBA_CACHE_DIR") == original_numba_cache
         assert attempts == [], attempts
         assert not any(Path("hf-cache").rglob("*"))
         print("CLAP cold import and failure restoration passed")
@@ -136,17 +140,20 @@ def test_clap_first_import_needs_no_training_tokenizers_or_network(tmp_path) -> 
     environment["HF_HUB_OFFLINE"] = "0"
     environment["TRANSFORMERS_OFFLINE"] = "0"
     environment["DJ_TRACK_SIMILARITY_LOG"] = str(tmp_path / "app.log")
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=tmp_path,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=90,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "CLAP cold import and failure restoration passed" in result.stdout
+    for cache_configured in (True, False):
+        if not cache_configured:
+            environment.pop("NUMBA_CACHE_DIR")
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "CLAP cold import and failure restoration passed" in result.stdout
 
 
 def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
@@ -224,9 +231,11 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
 ) -> None:
     calls: dict[str, object] = {}
     models = []
-    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint = tmp_path / "models" / "clap" / ClapEmbeddingAdapter.checkpoint_filename
+    checkpoint.parent.mkdir(parents=True)
+    monkeypatch.setattr(embedding_loading, "_MODELS_ROOT", tmp_path / "models")
     checkpoint.write_bytes(b"stub checkpoint")
-    text_snapshot = tmp_path / "roberta-snapshot"
+    text_snapshot = tmp_path / "models" / "clap-text"
     text_snapshot.mkdir()
     for file_name in ClapEmbeddingAdapter.text_snapshot_files:
         (text_snapshot / file_name).write_bytes(file_name.encode())
@@ -252,24 +261,11 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
 
-    def fake_hf_hub_download(*, repo_id, filename, revision, local_files_only):
-        calls.setdefault("downloads", []).append(
-            (repo_id, filename, revision, local_files_only)
-        )
-        return str(checkpoint)
+    def forbidden_resolution(*args, **kwargs):
+        pytest.fail("CLAP attempted Hub/cache resolution")
 
-    hf_module.hf_hub_download = fake_hf_hub_download
-
-    def fake_snapshot_download(*, repo_id, revision, allow_patterns, local_files_only):
-        calls["text_download"] = (
-            repo_id,
-            revision,
-            allow_patterns,
-            local_files_only,
-        )
-        return str(text_snapshot)
-
-    hf_module.snapshot_download = fake_snapshot_download
+    hf_module.hf_hub_download = forbidden_resolution
+    hf_module.snapshot_download = forbidden_resolution
 
     class ExactTokenizerLoader:
         @staticmethod
@@ -349,7 +345,10 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
     monkeypatch.setitem(sys.modules, "laion_clap.hook", hook_module)
     monkeypatch.setitem(sys.modules, "clap_module.model", clap_model_module)
+    original_verify = embedding_loading._verify_checkpoint_sha256
+
     def verify(path, *, expected_sha256, description):
+        original_verify(path, expected_sha256=expected_sha256, description=description)
         calls["verify"] = (path, expected_sha256, description)
 
     monkeypatch.setattr(embedding_loading, "_verify_checkpoint_sha256", verify)
@@ -381,14 +380,6 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     assert models[0] is not models[1]
     assert adapter._model is models[1]
 
-    assert calls["downloads"] == [
-        (
-            "lukewys/laion_clap",
-            "music_audioset_epoch_15_esc_90.14.pt",
-            "b3708341862f581175dba5c356a4ebf74a9b6651",
-            True,
-        )
-    ] * 2
     assert calls["verify"] == (
         text_snapshot / adapter.text_checkpoint_filename,
         adapter.text_checkpoint_sha256,
@@ -397,12 +388,6 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
             "e2da8e2f811d1448a5b465c236feacd80ffbac7b/"
             "model.safetensors"
         ),
-    )
-    assert calls["text_download"] == (
-        "roberta-base",
-        "e2da8e2f811d1448a5b465c236feacd80ffbac7b",
-        list(adapter.text_snapshot_files),
-        True,
     )
     assert calls["module"] == (
         False,
@@ -430,9 +415,11 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
     monkeypatch, tmp_path
 ) -> None:
     log_path = tmp_path / "app.log"
-    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint = tmp_path / "models" / "clap" / ClapEmbeddingAdapter.checkpoint_filename
+    checkpoint.parent.mkdir(parents=True)
+    monkeypatch.setattr(embedding_loading, "_MODELS_ROOT", tmp_path / "models")
     checkpoint.write_bytes(b"stub checkpoint")
-    text_snapshot = tmp_path / "roberta-snapshot"
+    text_snapshot = tmp_path / "models" / "clap-text"
     text_snapshot.mkdir()
     for file_name in ClapEmbeddingAdapter.text_snapshot_files:
         (text_snapshot / file_name).write_bytes(file_name.encode())
@@ -459,12 +446,11 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
 
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
-    hf_module.hf_hub_download = (
-        lambda *, repo_id, filename, revision, local_files_only: str(checkpoint)
-    )
-    hf_module.snapshot_download = (
-        lambda *, repo_id, revision, allow_patterns, local_files_only: str(text_snapshot)
-    )
+    def forbidden_resolution(*args, **kwargs):
+        pytest.fail("CLAP attempted Hub/cache resolution")
+
+    hf_module.hf_hub_download = forbidden_resolution
+    hf_module.snapshot_download = forbidden_resolution
     transformers_module = types.ModuleType("transformers")
     transformers_module.RobertaModel = object()
     transformers_module.RobertaTokenizer = object()
@@ -489,11 +475,6 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
-    monkeypatch.setattr(
-        embedding_loading,
-        "_verify_checkpoint_sha256",
-        lambda *_args, **_kwargs: None,
-    )
     monkeypatch.setattr(
         embedding_clap,
         "_construct_clap_module_with_pinned_text_model",

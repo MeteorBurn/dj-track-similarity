@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 import threading
 import time
@@ -23,8 +24,8 @@ from ..analysis_models import (
 from ..audio.loader import DecodedAudio
 from .audio import _resample_to
 from .loading import (
-    _download_verified_hf_checkpoint,
-    _download_verified_hf_snapshot,
+    _bind_verified_local_checkpoint,
+    _bind_verified_local_snapshot,
     _local_only_from_pretrained_proxy,
 )
 from .numerics import _normalized_embedding_rows
@@ -208,15 +209,14 @@ class ClapEmbeddingAdapter:
                 return
             import torch
             import torchaudio
-            from huggingface_hub import hf_hub_download, snapshot_download
 
             self._torch = torch
             self._torchaudio = torchaudio
             self.device = self._device()
             with ExitStack() as assets:
                 verified_checkpoint = assets.enter_context(
-                    _download_verified_hf_checkpoint(
-                        hf_hub_download,
+                    _bind_verified_local_checkpoint(
+                        model_directory="clap",
                         repo_id=self.checkpoint_repo,
                         filename=self.checkpoint_filename,
                         revision=self.model_revision,
@@ -224,8 +224,8 @@ class ClapEmbeddingAdapter:
                     )
                 )
                 verified_text_snapshot = assets.enter_context(
-                    _download_verified_hf_snapshot(
-                        snapshot_download,
+                    _bind_verified_local_snapshot(
+                        model_directory="clap-text",
                         repo_id=self.text_model_name,
                         revision=self.text_model_revision,
                         required_files=self.text_snapshot_files,
@@ -288,11 +288,16 @@ def _import_clap_inference_module():
             name: getattr(transformers, name)
             for name in ("BertTokenizer", "RobertaTokenizer", "BartTokenizer")
         }
+        original_numba_cache_dir = os.environ.get("NUMBA_CACHE_DIR")
         try:
             for name in original_loaders:
                 setattr(transformers, name, _UnusedClapTrainingTokenizer)
             return importlib.import_module("laion_clap")
         finally:
+            if original_numba_cache_dir is None:
+                os.environ.pop("NUMBA_CACHE_DIR", None)
+            else:
+                os.environ["NUMBA_CACHE_DIR"] = original_numba_cache_dir
             for name, loader in original_loaders.items():
                 setattr(transformers, name, loader)
             for module_name in ("laion_clap.training.data", "laion_clap.hook"):

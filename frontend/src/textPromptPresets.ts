@@ -31,45 +31,23 @@ export type TextPromptAxis = {
 };
 
 export const textPromptCategories: TextPromptCategory[] = [
-  { key: "prompts", label: "Метки" }
+  { key: "movement", label: "Ритм и движение" },
+  { key: "sound", label: "Характер звучания" },
+  { key: "emotion", label: "Настроение" }
 ];
 
 export const textPromptAxes: TextPromptAxis[] = [
-  { key: "rhythm", label: "Rhythm", category: "prompts", hint: "Рисунок ударных и расположение акцентов." },
-  { key: "groove", label: "Groove", category: "prompts", hint: "Свинг, микротайминг и ощущение движения." },
-  { key: "bass", label: "Bass", category: "prompts", hint: "Характер и движение низких частот." },
-  { key: "texture", label: "Texture", category: "prompts", hint: "Поверхность и плотность звучания." },
-  { key: "mood", label: "Mood", category: "prompts", hint: "Эмоциональный характер звучания." }
+  { key: "rhythm", label: "Rhythm", category: "movement", hint: "Рисунок ударных и расположение акцентов." },
+  { key: "groove", label: "Groove", category: "movement", hint: "Свинг, микротайминг и ощущение движения." },
+  { key: "percussion", label: "Percussion", category: "movement", hint: "Тембр и артикуляция перкуссионных звуков." },
+  { key: "bass", label: "Bass", category: "sound", hint: "Характер и движение низких частот." },
+  { key: "instruments", label: "Instruments", category: "sound", hint: "Узнаваемые тембры акустических и электрических инструментов, в том числе в сэмплах." },
+  { key: "texture", label: "Texture", category: "sound", hint: "Поверхность и плотность звучания." },
+  { key: "mood", label: "Mood", category: "emotion", hint: "Эмоциональный характер звучания." }
 ];
 
 // Add each label after its model-specific banks have been prepared for listening.
 export const textPromptPresets: TextPromptPreset[] = [
-  {
-    key: "rhythm/breakbeat",
-    axis: "rhythm",
-    label: "Breakbeat",
-    hint: "Ломаный рисунок ударных с синкопированными акцентами.",
-    positive: {
-      shared: [],
-      clap: [
-        "The track has a breakbeat drum pattern.",
-        "A track with a broken drum rhythm.",
-        "This track features breakbeat, syncopation, backbeats.",
-        "A track with drum breaks, offbeat accents, percussion.",
-        "This track features a broken rhythm with syncopated kick and snare hits.",
-        "The track repeats a drum break whose irregular kicks interlock with snare backbeats."
-      ],
-      mulan: [
-        "Breakbeat rhythm.",
-        "A breakbeat track.",
-        "breakbeat, syncopation, backbeat",
-        "drum breaks, offbeat, percussion",
-        "The drums repeat a break with irregular kicks and snare backbeats.",
-        "The kick and snare interlock in a repeating broken pattern."
-      ]
-    },
-    negativeWeight: 0
-  },
   {
     key: "rhythm/four-on-the-floor",
     axis: "rhythm",
@@ -92,6 +70,32 @@ export const textPromptPresets: TextPromptPreset[] = [
         "four-on-the-floor, steady kick, on-beat",
         "A kick drum lands on all four beats of each bar.",
         "The kick repeats once per quarter note throughout the four-beat pattern."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "rhythm/breakbeat",
+    axis: "rhythm",
+    label: "Breakbeat",
+    hint: "Ломаный рисунок ударных с синкопированными акцентами.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track has a breakbeat drum pattern.",
+        "A track with a broken drum rhythm.",
+        "This track features breakbeat, syncopation, backbeats.",
+        "A track with drum breaks, offbeat accents, percussion.",
+        "This track features a broken rhythm with syncopated kick and snare hits.",
+        "The track repeats a drum break whose irregular kicks interlock with snare backbeats."
+      ],
+      mulan: [
+        "Breakbeat rhythm.",
+        "A breakbeat track.",
+        "breakbeat, syncopation, backbeat",
+        "drum breaks, offbeat, percussion",
+        "The drums repeat a break with irregular kicks and snare backbeats.",
+        "The kick and snare interlock in a repeating broken pattern."
       ]
     },
     negativeWeight: 0
@@ -175,32 +179,6 @@ export const textPromptPresets: TextPromptPreset[] = [
     negativeWeight: 0
   },
   {
-    key: "groove/swing",
-    axis: "groove",
-    label: "Swing",
-    hint: "Чередование длинных и коротких подразделений доли.",
-    positive: {
-      shared: [],
-      clap: [
-        "The track has a swung groove.",
-        "A track with a swing feel.",
-        "This track features swing, long-short timing, uneven subdivisions.",
-        "A track with swung timing, delayed offbeats.",
-        "This track alternates long and short subdivisions for a swing feel.",
-        "The track delays the offbeat within each pair of swung subdivisions."
-      ],
-      mulan: [
-        "Swung groove.",
-        "A track with swing.",
-        "swing, long-short, uneven subdivisions",
-        "swung timing, delayed offbeats",
-        "Paired subdivisions alternate between longer and shorter intervals.",
-        "The offbeat lands later within each pair to create a swing feel."
-      ]
-    },
-    negativeWeight: 0
-  },
-  {
     key: "groove/straight",
     axis: "groove",
     label: "Straight",
@@ -222,6 +200,32 @@ export const textPromptPresets: TextPromptPreset[] = [
         "straight timing, equal spacing",
         "The pulse divides into intervals of the same duration.",
         "Rhythmic subdivisions have equal spacing within each beat."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "groove/swing",
+    axis: "groove",
+    label: "Swing",
+    hint: "Чередование длинных и коротких подразделений доли.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track has a swung groove.",
+        "A track with a swing feel.",
+        "This track features swing, long-short timing, uneven subdivisions.",
+        "A track with swung timing, delayed offbeats.",
+        "This track alternates long and short subdivisions for a swing feel.",
+        "The track delays the offbeat within each pair of swung subdivisions."
+      ],
+      mulan: [
+        "Swung groove.",
+        "A track with swing.",
+        "swing, long-short, uneven subdivisions",
+        "swung timing, delayed offbeats",
+        "Paired subdivisions alternate between longer and shorter intervals.",
+        "The offbeat lands later within each pair to create a swing feel."
       ]
     },
     negativeWeight: 0
@@ -305,9 +309,269 @@ export const textPromptPresets: TextPromptPreset[] = [
     negativeWeight: 0
   },
   {
+    key: "percussion/wooden",
+    axis: "percussion",
+    label: "Wooden",
+    hint: "Деревянный стук и щелчки клавес, кастаньет и вудблоков.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features wooden percussion sounds.",
+        "A track with woody knocks and clicks.",
+        "This track features wooden percussion, claves, castanets, woodblocks.",
+        "A track with woody clicks, hollow knocks, wooden percussion tones.",
+        "The track's percussion has the hollow knocking tone of struck woodblocks.",
+        "The track uses crisp wooden clicks and short woody knocks as percussion sounds."
+      ],
+      mulan: [
+        "Wooden percussion.",
+        "Woody knocks and clicks.",
+        "wooden percussion, claves, castanets, woodblocks",
+        "woody clicks, hollow knocks, wooden tones",
+        "Struck woodblocks give the percussion a hollow wooden knocking tone.",
+        "Crisp wooden clicks and short woody knocks shape the percussion sound."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "percussion/shakers",
+    axis: "percussion",
+    label: "Shakers",
+    hint: "Шейкеры и маракасы: перекатывающийся, шуршащий звук от встряхивания.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features shaker percussion.",
+        "A track with shaken percussion rattles.",
+        "This track features shakers, maracas, shaken percussion.",
+        "A track with shaker sounds, swishing rattles, maraca tones.",
+        "The track's percussion includes the rolling rattle of loose material inside a shaken instrument.",
+        "Recognizable shaker sounds form a swishing, rattling percussion part in the track."
+      ],
+      mulan: [
+        "Shaker percussion.",
+        "A track with rattling shakers.",
+        "shakers, maracas, shaken percussion",
+        "shaker sounds, swishing rattles, maraca tones",
+        "Loose material rattles inside a shaken percussion instrument.",
+        "Shaker rattles are audible as a percussion part in the music."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "percussion/machine",
+    axis: "percussion",
+    label: "Machine",
+    hint: "Синтетические тембры драм-машин и электронные ударные звуки.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features drum-machine percussion.",
+        "A track with synthesized percussion sounds.",
+        "This track features drum machines, electronic drums, synthesized hits.",
+        "A track with synthetic percussion, electronic drum tones.",
+        "The track uses electronically generated percussion sounds with a synthetic character.",
+        "The track's percussion is voiced with the distinctive tones of a drum machine."
+      ],
+      mulan: [
+        "Drum-machine percussion.",
+        "Synthesized percussion sounds.",
+        "drum machine, electronic drums, synthesized hits",
+        "synthetic percussion, electronic drum tones",
+        "The percussion uses electronically generated sounds with a synthetic character.",
+        "Distinctive drum-machine tones shape the sound of the percussion."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "percussion/micro",
+    axis: "percussion",
+    label: "Micro",
+    hint: "Мелкие короткие щелчки, тики и точечные перкуссионные удары.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features tiny percussive clicks.",
+        "A track with micro-percussion details.",
+        "This track features percussive clicks, ticks, tiny taps.",
+        "A track with micro-percussion, short transients, pinpoint hits.",
+        "The track uses small clicks and short taps as distinct percussion sounds.",
+        "The track's individual percussion hits have a tiny, sharply defined character."
+      ],
+      mulan: [
+        "Micro-percussion.",
+        "Tiny percussive clicks and taps.",
+        "percussive clicks, ticks, tiny taps",
+        "micro-percussion, short transients, pinpoint hits",
+        "Small clicks and short taps form distinct percussion details.",
+        "Individual percussion sounds have brief attacks and a tiny, sharply defined character."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "percussion/tribal",
+    axis: "percussion",
+    label: "Tribal",
+    hint: "Ансамбль ручных барабанов: резонанс мембран, удары ладонями и пальцами.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features tribal-style hand-drum percussion.",
+        "A track with an ensemble of resonant hand drums.",
+        "This track features hand drums, drumhead resonance, palm slaps.",
+        "A track with tribal percussion, finger taps, drumhead tones.",
+        "The track's hand-drum ensemble combines rounded drumhead resonance with palm and finger strikes.",
+        "The track's percussion carries resonant drumhead tones and the distinct slap of hands on drums."
+      ],
+      mulan: [
+        "Tribal-style hand-drum percussion.",
+        "An ensemble of resonant hand drums.",
+        "hand drums, drumhead resonance, palm slaps",
+        "tribal percussion, finger taps, drumhead tones",
+        "An ensemble of hand drums combines rounded drumhead resonance with palm and finger strikes.",
+        "Resonant drumhead tones and the slap of hands on drums define the percussion sound."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "instruments/guitar",
+    axis: "instruments",
+    label: "Guitar",
+    hint: "Акустическая, классическая или электрогитара: аккорды, риффы и мелодии.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features guitar.",
+        "A track with a recognizable guitar part.",
+        "This track features guitar, acoustic guitar, electric guitar.",
+        "A track with guitar chords, guitar riffs, guitar melodies.",
+        "Recognizable guitar tones can be heard within the track.",
+        "The music includes strummed guitar chords, picked notes, or a guitar melody."
+      ],
+      mulan: [
+        "Guitar instrumentation.",
+        "A track featuring guitar.",
+        "guitar, acoustic guitar, electric guitar",
+        "guitar chords, guitar riffs, guitar melodies",
+        "A guitar part is audible within the music.",
+        "The arrangement features acoustic or electric guitar tones."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "instruments/piano",
+    axis: "instruments",
+    label: "Piano",
+    hint: "Рояль, пианино или электрическое пиано: узнаваемые фортепианные партии.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features piano.",
+        "A track with acoustic or electric piano.",
+        "This track features piano, grand piano, upright piano.",
+        "A track with electric piano, piano chords, piano melodies.",
+        "Recognizable piano notes or chords are audible within the track.",
+        "The arrangement includes a melody or accompaniment with a piano timbre."
+      ],
+      mulan: [
+        "Piano instrumentation.",
+        "A track featuring piano.",
+        "piano, grand piano, upright piano",
+        "electric piano, piano chords, piano melodies",
+        "A recognizable piano part is audible within the music.",
+        "Acoustic or electric piano tones provide melody or accompaniment."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "instruments/strings",
+    axis: "instruments",
+    label: "Strings",
+    hint: "Скрипка, альт, виолончель или контрабас; сольные партии и струнные секции, смычок и пиццикато.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features orchestral strings.",
+        "A track with violin, viola, or cello.",
+        "This track features orchestral strings, violin, viola.",
+        "A track with cello, double bass, string ensemble.",
+        "A solo orchestral string instrument or a string section is audible in the track.",
+        "The arrangement uses bowed or pizzicato orchestral-string timbres."
+      ],
+      mulan: [
+        "Orchestral string instrumentation.",
+        "A track featuring violin, viola, or cello.",
+        "orchestral strings, violin, viola",
+        "cello, double bass, string ensemble",
+        "The music features a solo orchestral string part or a string section.",
+        "Bowed or pizzicato orchestral-string tones are audible in the arrangement."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "instruments/brass",
+    axis: "instruments",
+    label: "Brass",
+    hint: "Медные духовые: труба, тромбон или валторна, по отдельности или в секции.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features brass instruments.",
+        "A track with a recognizable brass part.",
+        "This track features brass, trumpet, trombone.",
+        "A track with brass tones, French horn, brass section.",
+        "Trumpet, trombone, or horn tones can be heard within the track.",
+        "A brass instrument or brass ensemble contributes melody or accompaniment."
+      ],
+      mulan: [
+        "Brass instrumentation.",
+        "A track featuring brass instruments.",
+        "brass, trumpet, trombone",
+        "brass tones, french horn, brass section",
+        "A recognizable brass part is audible within the music.",
+        "The arrangement includes a solo brass instrument or a brass ensemble."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "instruments/woodwinds",
+    axis: "instruments",
+    label: "Woodwinds",
+    hint: "Деревянные духовые: саксофон, флейта или кларнет, сольные партии и ансамбли.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track features woodwind instruments.",
+        "A track with a recognizable woodwind part.",
+        "This track features woodwinds, saxophone, clarinet.",
+        "A track with woodwind tones, flute, reed instruments.",
+        "A saxophone, flute, or clarinet part is audible within the track.",
+        "The arrangement includes a woodwind soloist or a woodwind ensemble."
+      ],
+      mulan: [
+        "Woodwind instrumentation.",
+        "A track featuring woodwind instruments.",
+        "woodwinds, saxophone, clarinet",
+        "woodwind tones, flute, reed instruments",
+        "Recognizable saxophone, flute, or clarinet tones occur in the music.",
+        "A solo woodwind part or a woodwind ensemble is audible in the arrangement."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
     key: "bass/808",
     axis: "bass",
-    label: "808",
+    label: "808-Bass",
     hint: "Глубокие резонирующие басовые ноты с характерным затухающим хвостом.",
     positive: {
       shared: [],
@@ -437,7 +701,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/clean",
     axis: "texture",
-    label: "Clean / Hi-fi",
+    label: "Clean",
     hint: "Чистое, детальное звучание с высокой разборчивостью.",
     positive: {
       shared: [],
@@ -463,7 +727,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/noisy",
     axis: "texture",
-    label: "Noisy / Hissy",
+    label: "Noisy",
     hint: "Слышимый непрерывный шумовой слой с шипящей фактурой.",
     positive: {
       shared: [],
@@ -489,7 +753,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/distorted",
     axis: "texture",
-    label: "Distorted / Saturated",
+    label: "Saturated",
     hint: "Слышимое искажение тембра с шероховатым краем звучания.",
     positive: {
       shared: [],
@@ -515,7 +779,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/granular",
     axis: "texture",
-    label: "Granular / Grainy",
+    label: "Granular",
     hint: "Перекрывающиеся звуковые зёрна, образующие подвижные облака микрофрагментов.",
     positive: {
       shared: [],
@@ -541,7 +805,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/glitchy",
     axis: "texture",
-    label: "Glitchy / Stuttery",
+    label: "Glitchy",
     hint: "Короткие обрывы и заикания, дробящие звук на фрагменты.",
     positive: {
       shared: [],
@@ -567,7 +831,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/organic",
     axis: "texture",
-    label: "Organic / Natural",
+    label: "Organic",
     hint: "Естественная фактура с небольшими нерегулярными изменениями тембра.",
     positive: {
       shared: [],
@@ -593,7 +857,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/metallic",
     axis: "texture",
-    label: "Metallic / Ringing",
+    label: "Metallic",
     hint: "Металлический звон и характерные резонирующие призвуки.",
     positive: {
       shared: [],
@@ -619,7 +883,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/dry",
     axis: "texture",
-    label: "Dry / Direct",
+    label: "Dry",
     hint: "Прямой звук с едва слышимым реверберационным послезвучием.",
     positive: {
       shared: [],
@@ -645,7 +909,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/reverberant",
     axis: "texture",
-    label: "Reverberant / Diffuse",
+    label: "Reverberant",
     hint: "Выраженное рассеянное послезвучие с тянущимися реверберационными хвостами.",
     positive: {
       shared: [],
@@ -671,7 +935,7 @@ export const textPromptPresets: TextPromptPreset[] = [
   {
     key: "texture/sparse",
     axis: "texture",
-    label: "Sparse / Uncluttered",
+    label: "Sparse",
     hint: "Разреженная фактура с небольшим числом одновременно звучащих слоёв.",
     positive: {
       shared: [],
@@ -823,6 +1087,136 @@ export const textPromptPresets: TextPromptPreset[] = [
       ]
     },
     negativeWeight: 0
+  },
+  {
+    key: "mood/dreamy",
+    axis: "mood",
+    label: "Dreamy",
+    hint: "Мечтательность, грёзы и погружение в воображение.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track has a dreamy mood.",
+        "A dreamlike track.",
+        "This track evokes daydreams, reverie, imagination.",
+        "This track feels dreamlike, fanciful, otherworldly.",
+        "This track invites the mind to wander through imagined scenes.",
+        "The track conveys the feeling of being immersed in a daydream."
+      ],
+      mulan: [
+        "Dreamy mood.",
+        "A dreamlike track.",
+        "dreamy, dreamlike, fanciful",
+        "daydreams, reverie, imagination",
+        "The music evokes a wandering imagination and vivid daydreams.",
+        "A feeling of being absorbed in an imagined world."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "mood/mysterious",
+    axis: "mood",
+    label: "Mysterious",
+    hint: "Загадочность, интрига и любопытство к неизвестному.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track has a mysterious mood.",
+        "An enigmatic track.",
+        "This track evokes mystery, intrigue, curiosity.",
+        "This track feels enigmatic, cryptic, intriguing.",
+        "This track suggests a hidden story waiting to be discovered.",
+        "The track awakens curiosity about something elusive and unknown."
+      ],
+      mulan: [
+        "Mysterious mood.",
+        "An enigmatic track.",
+        "mysterious, enigmatic, intriguing",
+        "mystery, curiosity, intrigue",
+        "The music suggests a hidden story waiting to be discovered.",
+        "An elusive atmosphere invites curiosity about the unknown."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "mood/playful",
+    axis: "mood",
+    label: "Playful",
+    hint: "Игривость, озорство и добродушный юмор.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track has a playful mood.",
+        "A mischievous track.",
+        "This track evokes playfulness, mischief, amusement.",
+        "This track feels whimsical, cheeky, humorous.",
+        "This track conveys a teasing attitude and a sense of fun.",
+        "The track expresses good-humored mischief and innocent amusement."
+      ],
+      mulan: [
+        "Playful mood.",
+        "A mischievous track.",
+        "playful, whimsical, cheeky",
+        "mischief, amusement, humor",
+        "The music conveys a teasing attitude and a sense of fun.",
+        "A mood of good-humored mischief and innocent amusement."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "mood/introspective",
+    axis: "mood",
+    label: "Introspective",
+    hint: "Обращённость внутрь себя, самоанализ и размышления о собственных чувствах.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track has an introspective mood.",
+        "A contemplative track.",
+        "This track evokes introspection, contemplation, self-reflection.",
+        "This track feels reflective, inward-looking, thoughtful.",
+        "This track invites reflection on personal thoughts and feelings.",
+        "The track conveys a sense of looking inward and examining one's inner life."
+      ],
+      mulan: [
+        "Introspective mood.",
+        "A contemplative track.",
+        "introspective, contemplative, reflective",
+        "self-reflection, inner thoughts, contemplation",
+        "The music invites reflection on personal thoughts and feelings.",
+        "An inward-looking mood encourages awareness of one's inner life."
+      ]
+    },
+    negativeWeight: 0
+  },
+  {
+    key: "mood/dark",
+    axis: "mood",
+    label: "Dark",
+    hint: "Зловещее настроение, ощущение угрозы и дурного предчувствия.",
+    positive: {
+      shared: [],
+      clap: [
+        "The track has a dark mood.",
+        "An ominous track.",
+        "This track evokes menace, dread, foreboding.",
+        "This track feels ominous, sinister, threatening.",
+        "This track conveys a sense of impending danger.",
+        "The track suggests a sinister presence and a looming threat."
+      ],
+      mulan: [
+        "Dark mood.",
+        "An ominous track.",
+        "ominous, sinister, foreboding",
+        "menace, dread, threat",
+        "The music conveys a sense of impending danger.",
+        "A sinister atmosphere suggests a looming threat."
+      ]
+    },
+    negativeWeight: 0
   }
 ];
 
@@ -835,6 +1229,23 @@ export function presetByKey(key: string): TextPromptPreset | undefined {
 
 export function axisByKey(key: string): TextPromptAxis | undefined {
   return textPromptAxes.find((axis) => axis.key === key);
+}
+
+type TextPromptOverlap = {
+  keys: [string, string];
+  description: string;
+};
+
+// Shared meanings in the vocabulary, not measured conflicts between models.
+const textPromptOverlaps: TextPromptOverlap[] = [
+  {
+    keys: ["rhythm/shuffle", "groove/swing"],
+    description: "Обе метки описывают чередование длинных и коротких подразделений доли. Shuffle уточняет триольный рисунок ударных, Swing — общее ощущение тайминга."
+  }
+];
+
+export function selectedPromptOverlaps(keys: string[]): TextPromptOverlap[] {
+  return textPromptOverlaps.filter((overlap) => overlap.keys.every((key) => keys.includes(key)));
 }
 
 export function resolvePromptVariants(

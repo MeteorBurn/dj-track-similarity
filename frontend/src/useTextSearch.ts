@@ -19,7 +19,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
   filters, analysisDevice, setNotice, appendActivity, embeddingCounts }: Options) {
   const [selectedPresetKeys, setSelectedPresetKeys] = useState<string[]>([]);
   const [textCompareModels, setTextCompareModels] = useState(false);
-  const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(true);
+  const [textUseNegativePrompt, setTextUseNegativePrompt] = useState(false);
   const [textEmbeddingFamily, setTextEmbeddingFamily] = useState<TextFamily>("mulan");
   const [textModelLoadingLabel, setTextModelLoadingLabel] = useState<string | null>(null);
   const [textComparison, setTextComparison] = useState<TextSearchArm[] | null>(null);

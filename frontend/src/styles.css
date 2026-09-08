@@ -20,6 +20,15 @@
   --preset-selected-bg: #e7f3ed;
   --preset-selected-border: #9ccfbd;
   --preset-selected-text: #176c5a;
+  --preset-percussion-bg: #f9e9dd;
+  --preset-percussion-border: #c99064;
+  --preset-percussion-text: #864519;
+  --preset-instruments-bg: #ddf3f2;
+  --preset-instruments-border: #78bbb9;
+  --preset-instruments-text: #176968;
+  --preset-texture-bg: #eee8f7;
+  --preset-texture-border: #b3a0ce;
+  --preset-texture-text: #68458e;
   --modifier-accent: #8b5ca7;
   --button-bg: #f8f9f4;
   --button-border: #c9cec2;
@@ -134,6 +143,15 @@
   --preset-selected-bg: #0b2f24;
   --preset-selected-border: #2f7d5f;
   --preset-selected-text: #86efac;
+  --preset-percussion-bg: #38261d;
+  --preset-percussion-border: #a66e4c;
+  --preset-percussion-text: #efbd93;
+  --preset-instruments-bg: #123437;
+  --preset-instruments-border: #3d8e94;
+  --preset-instruments-text: #91dce0;
+  --preset-texture-bg: #2b233c;
+  --preset-texture-border: #8170a4;
+  --preset-texture-text: #d2bff0;
   --modifier-accent: #c4b5fd;
   --button-bg: #0d1320;
   --button-border: #263448;
@@ -3860,6 +3878,27 @@ h2 {
 
 /* Prompt preset picker. The bank it fills is shared by CLAP and MuQ-MuLan, so
    nothing under this prefix is named after one model. */
+.text-preset-overlap {
+  background: var(--warning-soft-bg);
+  border: 1px solid var(--warning-soft-border);
+  border-radius: 8px;
+  color: var(--warning-text);
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  font-size: 11px;
+  gap: 4px;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.text-preset-overlap ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 16px;
+}
+
 .text-preset-menu {
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -3965,7 +4004,7 @@ h2 {
   /* Takes the height the header, filter and preview leave, and scrolls inside
      it: sixteen axes never fit a menu at once. */
   flex: 1 1 auto;
-  gap: 14px;
+  gap: 20px;
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
@@ -3975,19 +4014,19 @@ h2 {
 .text-preset-category {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 12px;
 }
 
 /* Sticky, so a long category still says which one you are inside. */
 .text-preset-category-title {
   background: var(--surface);
   border-bottom: 1px solid var(--border-soft);
-  color: var(--text-muted);
-  font-size: 10.5px;
+  color: var(--text-strong);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   margin: 0;
-  padding: 2px 0 4px;
+  padding: 4px 0 7px;
   position: sticky;
   text-transform: uppercase;
   top: 0;
@@ -3997,7 +4036,51 @@ h2 {
 .text-preset-axis-block {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
+}
+
+/* Axis identity follows a selected label from the picker into its chip. */
+.text-preset-axis-block,
+.text-preset-chip {
+  --preset-axis-bg: var(--preset-selected-bg);
+  --preset-axis-border: var(--preset-selected-border);
+  --preset-axis-text: var(--preset-selected-text);
+}
+
+.text-preset-picker [data-axis="rhythm"] {
+  --preset-axis-bg: var(--blue-bg-active);
+  --preset-axis-border: var(--blue-border-active);
+  --preset-axis-text: var(--blue-text-active);
+}
+
+.text-preset-picker [data-axis="percussion"] {
+  --preset-axis-bg: var(--preset-percussion-bg);
+  --preset-axis-border: var(--preset-percussion-border);
+  --preset-axis-text: var(--preset-percussion-text);
+}
+
+.text-preset-picker [data-axis="instruments"] {
+  --preset-axis-bg: var(--preset-instruments-bg);
+  --preset-axis-border: var(--preset-instruments-border);
+  --preset-axis-text: var(--preset-instruments-text);
+}
+
+.text-preset-picker [data-axis="bass"] {
+  --preset-axis-bg: var(--warning-soft-bg);
+  --preset-axis-border: var(--warning-soft-border);
+  --preset-axis-text: var(--warning-text);
+}
+
+.text-preset-picker [data-axis="texture"] {
+  --preset-axis-bg: var(--preset-texture-bg);
+  --preset-axis-border: var(--preset-texture-border);
+  --preset-axis-text: var(--preset-texture-text);
+}
+
+.text-preset-picker [data-axis="mood"] {
+  --preset-axis-bg: var(--pink-bg-active);
+  --preset-axis-border: var(--pink-border-active);
+  --preset-axis-text: var(--pink-text-active);
 }
 
 .text-preset-axis-head {
@@ -4007,7 +4090,7 @@ h2 {
 }
 
 .text-preset-axis-name {
-  color: var(--text-strong);
+  color: var(--preset-axis-text);
   font-size: 12px;
   font-weight: 600;
 }
@@ -4047,14 +4130,15 @@ h2 {
 
 .text-search-box .text-preset-label:hover:not(:disabled) {
   background: var(--surface);
-  border-color: var(--border-strong);
-  color: var(--text-strong);
+  border-color: var(--preset-axis-border);
+  color: var(--preset-axis-text);
 }
 
-.text-search-box .text-preset-label.active {
-  background: var(--preset-selected-bg);
-  border-color: var(--preset-selected-border);
-  color: var(--preset-selected-text);
+.text-search-box .text-preset-label.active,
+.text-search-box .text-preset-label.active:hover:not(:disabled) {
+  background: var(--preset-axis-bg);
+  border-color: var(--preset-axis-border);
+  color: var(--preset-axis-text);
 }
 
 /* What a label has actually been judged to be, worn on the label itself. It
@@ -4100,6 +4184,21 @@ h2 {
   height: 230px;
   overflow-y: auto;
   padding-top: 8px;
+}
+
+/* Keep room for choosing labels when the notice occupies the menu header.
+   The preview gives up height first and retains its own scrollable content. */
+.text-preset-menu:has(> .text-preset-overlap) {
+  max-height: min(940px, calc(100vh - 260px));
+}
+
+.text-preset-menu:has(> .text-preset-overlap) .text-preset-scroll {
+  flex: 1 0 140px;
+}
+
+.text-preset-menu:has(> .text-preset-overlap) .text-preset-preview {
+  flex: 0 1 230px;
+  min-height: 0;
 }
 
 /* The description is what the label means, so it leads the preview in the
@@ -4187,15 +4286,13 @@ h2 {
   gap: 6px;
 }
 
-/* The chips are what the picker produced, so they wear its blue - one step
-   stronger than the button, so the selection reads louder than the control
-   that made it. */
+/* Selected chips retain the color of their axis in the picker. */
 .text-preset-chip {
   align-items: center;
-  background: var(--blue-bg-active);
-  border: 1px solid var(--blue-border-active);
+  background: var(--preset-axis-bg);
+  border: 1px solid var(--preset-axis-border);
   border-radius: 999px;
-  color: var(--blue-text-active);
+  color: var(--preset-axis-text);
   cursor: pointer;
   display: inline-flex;
   font-size: 11.5px;

@@ -317,7 +317,7 @@ workers must preserve others' edits. Honor the active harness's delegation rules
 - Browser search tabs are rank-only: use `Limit`, preserve descending scores,
   and do not add a minimum-similarity threshold. API/CLI thresholds and Audio
   Dedup content gates are separate workflows.
-- Delegate text-search/model-choice work with `clap-query-workflow`. Reliability claims
+- Delegate text-search/model-choice work with `text-music-search`. Reliability claims
   require a committed `scripts/text_prompt_benchmark.py` table.
 
 ## SAFETY INVARIANTS

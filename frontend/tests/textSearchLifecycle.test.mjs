@@ -69,6 +69,7 @@ test("A/B keeps each model's bank and automatic weight while preserving a succes
   const first = deferred(), second = deferred(); const calls = [];
   const h = harness({ textSearch: (payload) => { calls.push(payload); return calls.length === 1 ? first.promise : second.promise; } });
   let ui = h.render(); ui.togglePromptPreset("rhythm/first"); ui.setTextCompareModels(true);
+  ui.setTextUseNegativePrompt(true);
   ui = h.render(); const running = ui.handleTextSearch(h.requests);
   first.resolve(response()); await flush();
   ui = h.render();

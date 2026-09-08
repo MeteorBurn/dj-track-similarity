@@ -8,6 +8,7 @@ import {
   presetByKey,
   resolveNegativeWeight,
   resolvePromptVariants,
+  selectedPromptOverlaps,
   textPromptCategories
 } from "./textPromptPresets";
 
@@ -84,6 +85,28 @@ export function TextSearchTab({
     () => selectedPresetKeys.map((key) => presetByKey(key)).filter(Boolean) as TextPromptPreset[],
     [selectedPresetKeys]
   );
+  const overlaps = selectedPromptOverlaps(selectedPresetKeys);
+  const overlapNotice = overlaps.length ? (
+    <div className="text-preset-overlap" role="status">
+      <strong>Возможное пересечение лейблов</strong>
+      <ul>
+        {overlaps.map((overlap) => (
+          <li key={overlap.keys.join("|")}>
+            <strong>
+              {overlap.keys.map((key) => {
+                const preset = presetByKey(key);
+                return preset
+                  ? `${axisByKey(preset.axis)?.label ?? preset.axis}: ${preset.label}`
+                  : key;
+              }).join(" + ")}
+            </strong>
+            {" — "}{overlap.description}
+          </li>
+        ))}
+      </ul>
+      <span>Выбор можно оставить.</span>
+    </div>
+  ) : null;
   const previewPreset = useMemo(
     () => (previewPresetKey ? presetByKey(previewPresetKey) : undefined)
       ?? selectedPresets[selectedPresets.length - 1],
@@ -192,6 +215,7 @@ export function TextSearchTab({
               {selectedPresets.map((preset) => (
                 <button
                   className="text-preset-chip"
+                  data-axis={preset.axis}
                   key={preset.key}
                   title={preset.hint}
                   aria-label={`Убрать метку ${axisByKey(preset.axis)?.label ?? preset.axis}: ${preset.label}`}
@@ -217,6 +241,7 @@ export function TextSearchTab({
               </button>
             </div>
           ) : null}
+          {!presetMenuOpen ? overlapNotice : null}
           {presetMenuOpen ? (
             <div className="text-preset-menu" role="group" aria-label="Prompt presets">
               <div className="text-preset-menu-header">
@@ -240,6 +265,7 @@ export function TextSearchTab({
                   <X size={13} strokeWidth={2.4} />
                 </button>
               </div>
+              {overlapNotice}
               <input
                 className="text-preset-filter"
                 type="search"
@@ -258,7 +284,7 @@ export function TextSearchTab({
                         selectedPresetKeys.includes(preset.key)
                       ).length;
                       return (
-                        <div className="text-preset-axis-block" key={axis.key}>
+                        <div className="text-preset-axis-block" data-axis={axis.key} key={axis.key}>
                           <div className="text-preset-axis-head" title={axis.hint}>
                             <span className="text-preset-axis-name">{axis.label}</span>
                             <span className="text-preset-axis-count">
@@ -436,8 +462,8 @@ export function TextSearchTab({
             value={textEmbeddingFamily}
             onChange={(event) => onTextEmbeddingFamilyChange(event.target.value as Extract<EmbeddingSource, "clap" | "mulan">)}
           >
-            <option value="mulan">MuQ-MuLan</option>
             <option value="clap">CLAP</option>
+            <option value="mulan">MuQ-MuLan</option>
           </select>
         </label>
         <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>

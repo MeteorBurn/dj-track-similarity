@@ -1,0 +1,7 @@
+interface:
+  display_name: "Text Music Search"
+  short_description: "Curate prompts and compare text-to-music search"
+  default_prompt: "Use $text-music-search to create or refine English prompt banks, search my confirmed music library with CLAP or MuQ-MuLan, and evaluate results with their execution context."
+
+policy:
+  allow_implicit_invocation: true

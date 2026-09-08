@@ -5,21 +5,15 @@ This script is designed for LAION-CLAP music workflows. It uses deterministic
 10-second windows instead of relying on file-level random truncation for long
 tracks when enable_fusion=False.
 
-Example:
-    python scripts/score_prompt_bank.py \
-        --prompt-bank assets/prompt_bank.starter.json \
-        --ckpt <path-to-laion-clap-music-checkpoint.pt> \
-        --audio track1.wav track2.mp3 \
-        --alpha 0.35 \
-        --out scores.json
-
-Dependencies:
-    pip install laion-clap librosa torch numpy
+Run with the project's root .venv interpreter and explicit existing bank,
+checkpoint and audio paths. Dependencies are managed by the project's uv
+workflow. This CLAP experiment is separate from production library retrieval.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import sys
@@ -29,15 +23,16 @@ from typing import Any
 np: Any = None
 
 
-def require_dependencies():
+def require_dependencies() -> tuple[Any, Any, Any, Any]:
     try:
         import numpy as _np  # type: ignore
         import librosa  # type: ignore
         import laion_clap  # type: ignore
         import torch  # type: ignore
-    except Exception as exc:  # noqa: BLE001
+    except (ImportError, OSError) as exc:
         raise SystemExit(
-            "Missing dependency. Install with: pip install laion-clap librosa torch numpy\n"
+            "Cannot load the CLAP experiment dependencies. Use the repository's root .venv "
+            "created by uv; follow AGENTS.md for the locked sync, retained extras and local SONARA wheel.\n"
             f"Original import error: {exc}"
         ) from exc
     return _np, librosa, laion_clap, torch
@@ -70,7 +65,60 @@ def l2norm(x: np.ndarray, axis: int = -1, eps: float = 1e-12) -> np.ndarray:
 
 
 def load_prompt_bank(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Reuse the sibling validator when invoked directly or loaded from a plugin cache."""
+
+    validator_path = Path(__file__).with_name("validate_prompt_bank.py")
+    spec = importlib.util.spec_from_file_location("text_music_search_bank_validator", validator_path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"Cannot load the prompt-bank validator from {validator_path}")
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    bank = validator.load_json(path)
+    if validator.validate_bank(bank, advisory=False):
+        raise SystemExit(f"Invalid prompt bank: {path}")
+    return bank
+
+
+def require_input_file(path: Path) -> None:
+    try:
+        if not path.resolve(strict=True).is_file():
+            raise ValueError("expected an existing file")
+    except (OSError, RuntimeError, ValueError) as error:
+        raise SystemExit(f"Invalid input file {path}: {error}") from error
+
+
+def validate_output_path(output: Path | None, inputs: list[Path]) -> None:
+    """Refuse paths that could overwrite an input, including symlinks and hardlinks."""
+
+    if output is None:
+        return
+    try:
+        resolved = output.resolve(strict=False)
+        if not resolved.parent.is_dir():
+            raise ValueError("output parent directory must exist")
+        if output.exists() and not output.is_file():
+            raise ValueError("output must be a file")
+        for source in inputs:
+            if resolved == source.resolve(strict=True) or (output.exists() and output.samefile(source)):
+                raise ValueError(f"output must not overwrite input {source}")
+    except (OSError, RuntimeError, ValueError) as error:
+        raise SystemExit(f"Invalid --out {output}: {error}") from error
+
+
+def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
+    """Reject invalid arguments before importing dependencies or loading model weights."""
+
+    if not math.isfinite(args.alpha) or args.alpha < 0:
+        raise SystemExit("--alpha must be finite and non-negative")
+    for option, seconds in (("--window-seconds", args.window_seconds), ("--hop-seconds", args.hop_seconds)):
+        samples = 48_000 * seconds
+        if not math.isfinite(seconds) or seconds <= 0 or not math.isfinite(samples) or round(samples) < 1:
+            raise SystemExit(f"{option} must be finite, positive and round to at least one sample at 48000 Hz")
+    inputs = [args.prompt_bank, args.ckpt, *args.audio]
+    for path in inputs:
+        require_input_file(path)
+    validate_output_path(args.out, inputs)
+    return load_prompt_bank(args.prompt_bank)
 
 
 def embed_prompt_ensemble(model: Any, prompts: list[str]) -> np.ndarray:
@@ -225,7 +273,7 @@ def score_audio(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Score explicit audio files with the standalone CLAP window experiment.")
     parser.add_argument("--prompt-bank", type=Path, required=True)
     parser.add_argument("--ckpt", type=Path, required=True, help="Path to .pt checkpoint")
     parser.add_argument("--audio", type=Path, nargs="+", required=True)
@@ -237,14 +285,14 @@ def main() -> int:
     parser.add_argument("--hop-seconds", type=float, default=5.0)
     args = parser.parse_args()
 
+    bank = validate_inputs(args)
+
     global np
     np, librosa, laion_clap, torch = require_dependencies()
 
     device = args.device
     if device is None:
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
-    bank = load_prompt_bank(args.prompt_bank)
 
     model = laion_clap.CLAP_Module(enable_fusion=False, amodel=args.amodel, device=device)
     load_checkpoint_weights_only(model, torch, args.ckpt)
@@ -280,6 +328,7 @@ def main() -> int:
 
     text = json.dumps(output, ensure_ascii=False, indent=2)
     if args.out:
+        validate_output_path(args.out, [args.prompt_bank, args.ckpt, *args.audio])
         args.out.write_text(text, encoding="utf-8")
         print(f"Wrote {args.out}")
     else:

@@ -94,6 +94,16 @@ def _resample_to(waveform, *, source_rate: int, target_rate: int, torchaudio):
     return resampler(waveform)
 
 def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max_windows: int, torch):
+    """Spread up to *max_windows* interior windows without stacking duplicates.
+
+    The interior span a track offers shrinks as the window grows: at a 30 s
+    window a 35 s track leaves no room to move at all, and evenly spacing five
+    starts across that span yields five identical slices — five forwards for
+    one window of information. Requesting one window per half-window of travel
+    keeps distinct starts distinct and leaves long tracks, where *max_windows*
+    binds first, exactly as before.
+    """
+
     window_size = max(1, int(sample_rate * window_seconds))
     total = int(waveform.shape[-1])
     if total <= window_size:
@@ -101,8 +111,12 @@ def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max
     usable_start = int(total * 0.1)
     usable_end = int(total * 0.9)
     usable = max(window_size, usable_end - usable_start)
-    if max_windows <= 1:
-        starts = [usable_start + max(0, (usable - window_size) // 2)]
-    else:
-        starts = torch.linspace(usable_start, max(usable_start, usable_end - window_size), steps=max_windows).round().to(torch.int64).tolist()
+    last_start = max(usable_start, usable_end - window_size)
+    travel = last_start - usable_start
+    affordable = 1 + travel // max(1, window_size // 2)
+    count = max(1, min(int(max_windows), int(affordable)))
+    if count <= 1:
+        return [waveform[start : start + window_size] for start in
+                [usable_start + max(0, (usable - window_size) // 2)]]
+    starts = torch.linspace(usable_start, last_start, steps=count).round().to(torch.int64).tolist()
     return [waveform[start : start + window_size] for start in starts]

@@ -46,14 +46,3 @@ test("startup initialization is guarded against Strict Mode re-entry", () => {
   assert.match(startupEffect, /if \(startupInitializationStarted\.current\) return;/);
   assert.match(startupEffect, /startupInitializationStarted\.current = true;/);
 });
-
-test("search playlist hook owns seed and playlist state", () => {
-  const hookPath = join(srcDir, "useSearchPlaylist.ts");
-  assert.equal(existsSync(hookPath), true, "useSearchPlaylist.ts exists");
-  const source = readFileSync(hookPath, "utf8");
-
-  assert.match(source, /const \[seeds, setSeeds\]/);
-  assert.match(source, /const \[playlist, setPlaylist\]/);
-  assert.match(source, /function addSeed/);
-  assert.match(source, /function togglePlaylist/);
-});

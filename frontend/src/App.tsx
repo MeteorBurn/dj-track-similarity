@@ -164,7 +164,7 @@ export function App() {
     markPreviewPaused,
     metadataTrack,
     setMetadataTrack,
-    setSeedTrackMap,
+    setSeedTracks,
     seedSet,
     playlistSet,
     seedTracks,
@@ -1261,10 +1261,7 @@ export function App() {
       setResults((current) => current.map((item) => (
         sameTrackIdentity(item.track, updated) ? { ...item, track: updated } : item
       )));
-      setSeedTrackMap((current) => (
-        current[updated.track_id] && sameTrackIdentity(current[updated.track_id], updated)
-          ? { ...current, [updated.track_id]: updated } : current
-      ));
+      setSeedTracks((current) => current.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
       return updated;
     } catch (error) {

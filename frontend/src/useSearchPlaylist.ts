@@ -13,31 +13,26 @@ export type PreviewTarget = { track_id: number };
 
 export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppender } = {}) {
   const [outputDir, setOutputDir] = useState("");
-  const [seeds, setSeeds] = useState<number[]>([]);
+  const [seedTracks, setSeedTracks] = useState<Track[]>([]);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [playlist, setPlaylist] = useState<Track[]>([]);
   const [playlistName, setPlaylistName] = useState("seamless-set");
   const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
   const [metadataTrack, setMetadataTrack] = useState<TrackDetail | null>(null);
-  const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
 
+  const seeds = useMemo(() => seedTracks.map((track) => track.track_id), [seedTracks]);
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
   const playlistSet = useMemo(() => new Set(playlist.map((track) => track.track_id)), [playlist]);
-  const seedTracks = useMemo(() => seeds.map((id) => seedTrackMap[id]).filter(Boolean) as Track[], [seeds, seedTrackMap]);
 
   function addSeed(track: Track) {
-    setSeedTrackMap((current) => ({ ...current, [track.track_id]: track }));
-    setSeeds((current) => (current.includes(track.track_id) ? current : [...current, track.track_id]));
+    setSeedTracks((current) => current.some((item) => item.track_id === track.track_id)
+      ? current.map((item) => item.track_id === track.track_id ? track : item)
+      : [...current, track]);
   }
 
   function removeSeed(trackId: number) {
-    setSeedTrackMap((current) => {
-      const next = { ...current };
-      delete next[trackId];
-      return next;
-    });
-    setSeeds((current) => current.filter((id) => id !== trackId));
+    setSeedTracks((current) => current.filter((track) => track.track_id !== trackId));
   }
 
   function addToPlaylist(track: Track) {
@@ -81,13 +76,12 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   }
 
   function resetSearchPlaylistState() {
-    setSeeds([]);
+    setSeedTracks([]);
     setResults([]);
     setPlaylist([]);
     setPreview(null);
     setPlayingTrackId(null);
     setMetadataTrack(null);
-    setSeedTrackMap({});
   }
 
   return {
@@ -107,7 +101,7 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
     markPreviewPaused,
     metadataTrack,
     setMetadataTrack,
-    setSeedTrackMap,
+    setSeedTracks,
     seedSet,
     playlistSet,
     seedTracks,

@@ -277,11 +277,11 @@ class StandardStreamLogMirror:
         return False
 
 
-def _unmirrored_console_stream():
-    stream = sys.stdout
+def _unmirrored_console_stream(stream_name: str = "stdout"):
+    stream = getattr(sys, stream_name)
     while isinstance(stream, StandardStreamLogMirror):
         stream = stream.raw_stream
-    return stream if stream is not None else sys.__stdout__
+    return stream if stream is not None else getattr(sys, f"__{stream_name}__")
 
 
 class ConsoleAccessHandler(logging.StreamHandler):
@@ -297,11 +297,13 @@ class ConsoleAccessHandler(logging.StreamHandler):
 
 
 def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
-    """Console logging for the server's own loggers.
+    """Keep server log records at their original level in the console and file.
 
     The project logger is left out on purpose: ``dictConfig`` would replace the file
     handler installed by :func:`configure_logging` with a second handler on the same
     file, and every project record would reach the log twice.
+    Server records reach that handler through the root logger; console output
+    bypasses the stream mirror to avoid an additional INFO copy.
     """
 
     normalized_level = logging.getLevelName(parse_log_level(level))
@@ -324,7 +326,7 @@ def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
             "default": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
-                "stream": "ext://sys.stderr",
+                "stream": _unmirrored_console_stream("stderr"),
             },
             "access": {
                 "()": f"{__name__}.ConsoleAccessHandler",
@@ -332,10 +334,10 @@ def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
             },
         },
         "loggers": {
-            "uvicorn": {"handlers": ["default"], "level": normalized_level, "propagate": False},
-            "uvicorn.error": {"handlers": ["default"], "level": normalized_level, "propagate": False},
+            "uvicorn": {"handlers": ["default"], "level": normalized_level, "propagate": True},
+            "uvicorn.error": {"handlers": [], "level": normalized_level, "propagate": True},
             "uvicorn.access": {"handlers": ["access"], "level": normalized_level, "propagate": False},
-            "rhythm_lab": {"handlers": ["default"], "level": normalized_level, "propagate": False},
+            "rhythm_lab": {"handlers": ["default"], "level": normalized_level, "propagate": True},
         },
     }
     return config

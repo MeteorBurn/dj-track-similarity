@@ -59,7 +59,7 @@ def test_uvicorn_log_config_wraps_console_date_time_and_level_in_brackets():
     assert config["formatters"]["access"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
     assert config["loggers"]["uvicorn"]["level"] == "WARNING"
     assert config["loggers"]["uvicorn.access"]["level"] == "WARNING"
-    assert config["loggers"]["rhythm_lab"] == {"handlers": ["default"], "level": "WARNING", "propagate": False}
+    assert config["loggers"]["rhythm_lab"]["level"] == "WARNING"
 
 
 def test_serve_logging_writes_every_record_to_the_file_once(tmp_path):
@@ -72,6 +72,8 @@ def test_serve_logging_writes_every_record_to_the_file_once(tmp_path):
 
     logging.warning("third-party root record")
     logging.getLogger("dj_track_similarity.test").info("project serve record")
+    logging.getLogger("uvicorn.error").info("backend started")
+    logging.getLogger("uvicorn.access").info("routine API polling")
     print("third-party progress 42%", file=sys.stderr)
     sys.stderr.flush()
     for handler in logging.getLogger("dj_track_similarity").handlers:
@@ -81,6 +83,22 @@ def test_serve_logging_writes_every_record_to_the_file_once(tmp_path):
     assert contents.count("project serve record") == 1
     assert contents.count("third-party root record") == 1
     assert contents.count("third-party progress 42%") == 1
+    assert contents.count("backend started") == 1
+    assert "routine API polling" not in contents
+
+    configure_logging(log_path, level=logging.WARNING)
+    logging.config.dictConfig(logging_config.uvicorn_log_config("warning"))
+    logging_config.install_standard_stream_logging(logging.WARNING)
+    logging.getLogger("uvicorn.error").error("backend port is occupied")
+    logging.getLogger("rhythm_lab").error("dependent server failed")
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
+
+    contents = log_path.read_text(encoding="utf-8")
+    assert contents.count("backend port is occupied") == 1
+    assert "[ERROR] uvicorn.error backend port is occupied" in contents
+    assert contents.count("dependent server failed") == 1
+    assert "[ERROR] rhythm_lab dependent server failed" in contents
 
 
 def test_asyncio_transport_reset_is_logged_without_default_traceback(caplog):

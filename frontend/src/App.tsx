@@ -1308,8 +1308,8 @@ export function App() {
       <main className="app-shell shutdown-complete-screen">
         <section className="shutdown-complete-card" role="status">
           <Power size={30} />
-          <h1>Серверы остановлены</h1>
-          <p>Если браузер не закрыл вкладку автоматически, её можно закрыть вручную.</p>
+          <h1>Остановка сервера запрошена</h1>
+          <p>Перед повторным запуском дождитесь завершения работы сервера в консоли. Если вкладка не закрылась автоматически, её можно закрыть вручную.</p>
         </section>
       </main>
     );

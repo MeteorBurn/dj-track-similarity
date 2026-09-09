@@ -92,7 +92,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
           if (embeddingCounts && embeddingCounts[arm.family] === 0) throw new Error(`${arm.label}: нет сохранённых embeddings, требуется анализ.`);
           const response = await api.textSearch(arm.payload, { signal: ticket.controller.signal });
           if (!isCurrent()) return;
-          arms = settleTextSearchArm(arms, runGeneration, { generation: runGeneration, family: arm.family, response });
+          arms = settleTextSearchArm(arms, { family: arm.family, response });
           setExecutions((previous) => ({ ...previous, [arm.family]: response.execution }));
           if (response.execution.feedback_capability === "ready" && response.results.length) {
             const runId = response.execution.run_id;
@@ -117,7 +117,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
           }
         } catch (error) {
           if (!isCurrent()) return;
-          arms = settleTextSearchArm(arms, runGeneration, { generation: runGeneration, family: arm.family,
+          arms = settleTextSearchArm(arms, { family: arm.family,
             error: error instanceof Error ? error.message : String(error) });
         }
         if (!isCurrent()) return;

@@ -103,7 +103,6 @@ class MuqEmbeddingAdapter:
             target_rate=self.target_rate,
             window_seconds=self.window_seconds,
             max_windows=self.max_windows,
-            pad="zero",
             torch=torch,
             torchaudio=torchaudio,
             model_label="MuQ",

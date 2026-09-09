@@ -130,11 +130,6 @@ def resolve_classifier_artifact_paths(
             model_path=selected_model,
             metadata_path=Path(metadata_path),
         )
-    if selected_model.name != "model.joblib":
-        return ClassifierArtifactPaths(
-            model_path=selected_model,
-            metadata_path=selected_model.with_name("model.json"),
-        )
 
     return ClassifierArtifactPaths(
         model_path=selected_model,

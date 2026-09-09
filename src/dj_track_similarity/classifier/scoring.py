@@ -73,24 +73,7 @@ def promoted_classifiers(
     classifiers: list[dict[str, object]] = []
     for artifact_dir in artifact_dirs:
         selected_model_path = artifact_dir / "model.joblib"
-        try:
-            resolved = resolve_classifier_artifact_paths(selected_model_path)
-        except ValueError as error:
-            summary = ClassifierManifestSummary(
-                classifier_key=artifact_dir.name.replace("-", "_"),
-                metadata_path=artifact_dir / "model.json",
-                model_path=selected_model_path,
-                status="invalid",
-                errors=(str(error),),
-                artifact_prefix=artifact_dir.name,
-            )
-            classifiers.append(
-                _promoted_classifier_payload(
-                    summary,
-                    model_path_exists=False,
-                )
-            )
-            continue
+        resolved = resolve_classifier_artifact_paths(selected_model_path)
         model_path = resolved.model_path
         metadata_path = resolved.metadata_path
         classifier_key = _classifier_key_from_metadata_or_slug(

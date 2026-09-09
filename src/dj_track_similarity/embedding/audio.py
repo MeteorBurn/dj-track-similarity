@@ -19,19 +19,12 @@ def _prepare_windows(
     target_rate: int,
     window_seconds: float,
     max_windows: int,
-    pad: str,
     torch,
     torchaudio,
     model_label: str,
 ) -> tuple[list[list[int]], list, float]:
-    """Decode-side windowing for adapters that select fixed waveform excerpts.
+    """Prepare zero-padded waveform windows for MuQ inference."""
 
-    MERT keeps a short track as a variable-length numpy window. MuQ zero-pads
-    its windows and stacks the resulting tensors on the inference device.
-    """
-
-    if pad not in {"none", "zero"}:
-        raise ValueError(f"unsupported window padding: {pad!r}")
     window_size = max(1, int(target_rate * window_seconds))
     track_windows: list[list[int]] = []
     all_windows: list = []
@@ -63,12 +56,7 @@ def _prepare_windows(
         window_indices: list[int] = []
         for window in windows:
             window_indices.append(len(all_windows))
-            if pad == "zero":
-                all_windows.append(
-                    _pad_or_trim_audio_tensor(window, window_size, torch)
-                )
-            else:
-                all_windows.append(window.cpu().numpy())
+            all_windows.append(_pad_or_trim_audio_tensor(window, window_size, torch))
         track_windows.append(window_indices)
     return track_windows, all_windows, time.perf_counter() - prepare_started
 

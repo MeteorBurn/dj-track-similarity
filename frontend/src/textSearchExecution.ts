@@ -47,10 +47,9 @@ export function buildTextSearchArms(input: {
 }
 
 export function settleTextSearchArm(
-  arms: TextSearchArm[], generation: number,
-  completion: { generation: number; family: TextFamily; response?: { results: SearchResult[]; execution: TextSearchExecution }; error?: string },
+  arms: TextSearchArm[],
+  completion: { family: TextFamily; response?: { results: SearchResult[]; execution: TextSearchExecution }; error?: string },
 ): TextSearchArm[] {
-  if (generation !== completion.generation) return arms;
   return arms.map((arm) => arm.family !== completion.family ? arm : completion.response
     ? { ...arm, status: "success", ...completion.response }
     : { ...arm, status: "error", error: completion.error, results: [] });

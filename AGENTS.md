@@ -19,18 +19,18 @@ guides or the entire README at session start. Reuse already-read, unchanged
 guidance. If a required guide is unavailable, report it and keep the dependent
 work unverified rather than inventing its instructions.
 
-| Task | Read before acting |
-|---|---|
-| Run project commands; change environment, dependencies, audio runtime or server launch | [Environment and commands](docs/agent-guides/environment.md) |
-| Locate unfamiliar code; edit source structure, shared contracts or workspace artifacts | [Architecture and routing](docs/agent-guides/architecture.md) |
-| Edit or review models, inference, jobs, caches, search/ranking, classifier signals or their UI contracts | [Model layer](docs/agent-guides/model-layer.md) |
-| Inspect, validate, query or maintain real SQLite data | [SQLite Toolkit](docs/agent-guides/sqlite-toolkit.md) |
-| Select implementation checks; change tests, runners, dependencies or persistence | [Verification](docs/agent-guides/verification.md) |
-| Edit agents, skills, plugins, hooks or generated launchers; delegate project roles | [Agent layer](docs/agent-guides/agent-layer.md) |
-| Research external facts, APIs, upstream behavior or model literature | [Web research](docs/agent-guides/web-research.md) |
-| Broad source discovery or Graphify navigation | [Graphify](docs/agent-guides/graphify.md) |
-| UI layout, components, interaction or styling | [DESIGN.md](DESIGN.md); use existing tokens, no raw component colors; non-submit buttons use `type="button"` |
-| Need product/setup orientation | Relevant sections of [README.md](README.md) |
+| Task                                                                                                     | Read before acting                                                                                           |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Run project commands; change environment, dependencies, audio runtime or server launch                   | [Environment and commands](docs/agent-guides/environment.md)                                                 |
+| Locate unfamiliar code; edit source structure, shared contracts or workspace artifacts                   | [Architecture and routing](docs/agent-guides/architecture.md)                                                |
+| Edit or review models, inference, jobs, caches, search/ranking, classifier signals or their UI contracts | [Model layer](docs/agent-guides/model-layer.md)                                                              |
+| Inspect, validate, query or maintain real SQLite data                                                    | [SQLite Toolkit](docs/agent-guides/sqlite-toolkit.md)                                                        |
+| Select implementation checks; change tests, runners, dependencies or persistence                         | [Verification](docs/agent-guides/verification.md)                                                            |
+| Edit agents, skills, plugins, hooks or generated launchers; delegate project roles                       | [Agent layer](docs/agent-guides/agent-layer.md)                                                              |
+| Research external facts, APIs, upstream behavior or model literature                                     | [Web research](docs/agent-guides/web-research.md)                                                            |
+| Broad source discovery or Graphify navigation                                                            | [Graphify](docs/agent-guides/graphify.md)                                                                    |
+| UI layout, components, interaction or styling                                                            | [DESIGN.md](DESIGN.md); use existing tokens, no raw component colors; non-submit buttons use `type="button"` |
+| Need product/setup orientation                                                                           | Relevant sections of [README.md](README.md)                                                                  |
 
 ## EXECUTION AND SCOPE
 
@@ -58,6 +58,14 @@ work unverified rather than inventing its instructions.
 - Start project servers only through `run_server.cmd` in a visible interactive
   window, after checking existing listeners/processes and the selected database.
   Do not launch hidden direct `dj-sim`, Uvicorn or Vite processes.
+
+## Strict Simplicity & Anti-Bloat Guidelines
+
+- **Zero Overengineering**: Implement the simplest working solution that meets the requirements. Do not introduce speculative abstractions, design patterns (factories, strategies, adapters), or generic wrappers unless explicitly requested or reused across 3+ distinct call sites.
+- **YAGNI (You Aren't Gonna Need It)**: Do not write code, hooks, or configuration toggles for hypothetical future features.
+- **Minimal Diffs**: Keep changes surgical and concise. Avoid unnecessary refactoring of adjacent code or cosmetic reformatting that inflates the PR size.
+- **No Dependency Bloat**: Prefer the standard library and existing dependencies. Do not add external packages or tools without explicit prior confirmation.
+- **Dead Code Cleanup**: When modifying an existing pipeline or endpoint, delete deprecated helpers and unreachable branches rather than leaving comments or fallback shims.
 
 ## OPERATING MODEL
 

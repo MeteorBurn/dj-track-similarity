@@ -59,6 +59,7 @@ configuration and source instead of duplicating model lists, paths, or threshold
 | `performance-optimizer` | Bottleneck localization, profiling, benchmarks, measured improvement |
 | `test-reviewer` | Test value, fixtures, suite health, failure triage |
 | `code-refactor-master` | Behavior-preserving splits, moves, deduplication, reference updates |
+| `codebase-pruner-expert` | Evidence-backed dead-code audits and scoped removal, preserving live behavior and persisted contracts |
 
 Delegate work across these ownership boundaries and integrate it into one answer.
 Give each worker a bounded scope, relevant instructions, and dirty-state context;

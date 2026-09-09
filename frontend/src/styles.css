@@ -3097,7 +3097,7 @@ h2 {
 .generic-search-compare .compare-columns {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(720px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 720px), 1fr));
   min-height: 0;
 }
 
@@ -5981,4 +5981,75 @@ button.dedup-play-button {
 @media (max-width: 600px) {
   .track-panel .search-input { gap: 7px; }
   .track-panel .search-input input { font-size: 11px; }
+}
+
+/* A phone gives the title a full line; actions must not consume its width. */
+@media (max-width: 720px) {
+  .workspace .search-panel, .workspace .track-panel:not(.collapsed) {
+    max-height: none;
+    min-width: 0;
+    overflow: visible;
+  }
+  .search-panel .generic-search-results, .search-panel .compare-column {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+  .search-panel .results-list, .track-panel .track-list {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    max-height: 65dvh;
+    overflow: auto;
+  }
+  .search-panel .reference-compare-grid {
+    grid-template-columns: minmax(0, 1fr);
+    max-height: none;
+    overflow: visible;
+  }
+  .results-list .result-row,
+  .results-list .result-row.has-row-index,
+  .results-list .result-row.has-feedback,
+  .results-list .result-row.has-row-index.has-feedback,
+  .track-list .track-row {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px 4px;
+    padding: 10px 6px;
+  }
+  .results-list .result-row > .row-index, .track-list .track-row > .row-index {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: start;
+    font-size: 11px;
+  }
+  .results-list .result-row > .track-title-cell, .track-list .track-row > .track-title-cell {
+    grid-row: 1;
+    grid-column: 2 / -1;
+  }
+  .results-list .result-row .track-title-cell strong, .track-list .track-row .track-title-cell strong {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .results-list .result-row > .icon-button, .track-list .track-row > .icon-button {
+    grid-row: 2;
+    grid-column: auto;
+    width: 36px;
+    height: 36px;
+    justify-self: center;
+  }
+  .results-list .result-row.has-feedback > .result-feedback-button.intent-relevant { grid-row: 3; grid-column: 5; }
+  .results-list .result-row.has-feedback > .result-feedback-button.intent-irrelevant { grid-row: 3; grid-column: 6; }
+  .results-list .result-row > .similarity-score { display: block; grid-row: 3; grid-column: 1 / 3; text-align: left; }
+  .results-list .result-row > .track-row-playback, .track-list .track-row > .track-row-playback {
+    grid-row: 4;
+    grid-column: 1 / -1;
+  }
+  .track-list .library-track-bpm, .track-list .library-track-key, .track-list .library-track-duration { display: none; }
+  .playlist-list .playlist-row { grid-template-columns: 22px 34px minmax(0, 1fr) 34px 34px; gap: 4px; }
+  .playlist-row .track-title-cell strong { white-space: normal; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 720px) {
+  .library-pagination-controls { flex-wrap: wrap; min-width: 0; max-width: 100%; }
 }

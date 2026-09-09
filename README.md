@@ -123,7 +123,7 @@ The current application already supports the practical parts of that vision:
 The Python backend and CLI create one selected library database. The optional adjacent
 `*.evaluation.sqlite` file is created only when an Evaluation workflow writes data. Normal startup
 does not rewrite an incompatible legacy layout. After stopping every database user, migrate a former
-Core/Artifacts pair explicitly with `dj-sim migrate-database --db ./data/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`; it creates a timestamped backup, verifies the staged one-file database,
+Core/Artifacts pair explicitly with `uv run --no-sync dj-sim migrate-database --db ./database/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`; it creates a timestamped backup, verifies the staged one-file database,
 and does not start analysis or reanalysis.
 
 The React frontend consumes the current database, track, analysis, search, Current Set, CLASS, LAB,
@@ -302,13 +302,13 @@ they score. Missing requested values are skipped rather than imputed as `0.0`. W
 changes, retrain and promote the affected classifier, then rerun its scoring when you choose. Rhythm
 Lab labels and feedback remain available for that retraining loop.
 
-Manual commands are available when you want the CLI workflow:
+Launch Rhythm Lab from the main app. For training and promotion from PowerShell, use the root
+environment installed below. Replace `live_instrumentation` with your existing profile key:
 
 ```powershell
-python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
+& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
+& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
+uv run --no-sync dj-sim analyze-classifier live_instrumentation --db ./database/library.sqlite
 ```
 
 The default Rhythm Lab state is the single stable database at
@@ -320,8 +320,8 @@ See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Tra
 ## 🚀 Quick start
 
 Verified local development is Windows-first. Run these PowerShell examples from the repository
-root. Examples using `python` or `dj-sim` assume the project environment is active; otherwise prefix
-them with `uv run --no-sync` to use the installed environment without changing its extras.
+root. Commands use `uv run --no-sync` or the explicit root `.venv` interpreter, so manual
+activation is unnecessary. Install the relevant extras before running optional tools.
 
 ### What you need
 
@@ -417,16 +417,17 @@ which is usually enough to see what to correct in step 2.
 
 ### First run
 
-Create a database and scan a music folder:
+After installation, replace `D:/Music` with your music folder and scan it into a new library.
+Keeping the database under `database/` also makes it discoverable by the interactive launcher:
 
 ```powershell
-uv run --no-sync dj-sim scan D:/Music --db ./data/library.sqlite
+uv run --no-sync dj-sim scan D:/Music --db ./database/library.sqlite
 ```
 
 Open that same library with the Windows launcher:
 
 ```powershell
-.\run_server.cmd local --db .\data\library.sqlite
+.\run_server.cmd local --db .\database\library.sqlite
 ```
 
 Keep the launcher window visible so you can see output and stop the servers. To select a different
@@ -494,12 +495,34 @@ supported environments select TorchCodec `0.16.0`. The manifests and lockfile de
 environment, not a permanent ban on updates. When dependencies change, update them together and run
 focused compatibility checks.
 
-Run a small first pass:
+### Prepare local model assets
+
+Installing the `ml` extra installs Python packages, not model weights. The adapters load pinned
+assets only from this checkout's `models/` directory and verify their SHA-256 hashes. Automatic
+downloads and fallback to shared Hub caches are disabled. A fresh clone needs the
+matching assets before ML analysis or text search can load a model.
+
+| Family | Required directories under `models/` | File and hash definitions |
+| --- | --- | --- |
+| MAEST | `maest/` | [MAEST adapter](src/dj_track_similarity/embedding/maest.py) |
+| MERT | `mert/` | [MERT adapter](src/dj_track_similarity/embedding/mert.py) |
+| MuQ | `muq/` | [MuQ adapter](src/dj_track_similarity/embedding/muq.py) |
+| MuQ-MuLan | `mulan/`, `mulan-text/`, `muq/` | [MuQ-MuLan adapter](src/dj_track_similarity/embedding/mulan.py) |
+| CLAP | `clap/`, `clap-text/` | [CLAP adapter](src/dj_track_similarity/embedding/clap.py) |
+
+Use the exact files and revisions declared by the relevant adapter. A missing file or a hash
+mismatch prevents loading. Restore the matching local asset before retrying. SONARA uses its
+installed native package instead of these ML checkpoints. Shared assets used by MuQ-MuLan do
+not make its saved embeddings interchangeable with MuQ embeddings.
+
+### Run analysis
+
+With the selected dependencies and assets available, run a small first pass:
 
 ```powershell
-dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
-dj-sim analyze --models maest,mert,muq,mulan,clap --limit 25 --db ./data/library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml --db ./data/library.sqlite
+uv run --no-sync dj-sim analyze --models sonara --limit 25 --db ./database/library.sqlite
+uv run --no-sync dj-sim analyze --models maest,mert,muq,mulan,clap --limit 25 --db ./database/library.sqlite
+uv run --no-sync dj-sim analyze-pipeline --stages sonara,ml --db ./database/library.sqlite
 ```
 
 Normal SONARA reruns select a track when its current Core, dedicated embedding, or fingerprint row
@@ -519,8 +542,8 @@ Useful options from the current CLI and API are:
 - `--diagnostics` to write decoder and batch timing details to the file log
 
 Every analysis job loads its selected models before it decodes a track, and reports that as a warm-up
-phase in the job status and in the browser process box. Weights download on first use rather than at
-install time, so the first job for a family waits here instead of mid-run. Loaded analysis models
+phase in the job status and in the browser process box. Warm-up verifies and loads the local assets;
+a missing or invalid asset fails the job before track decoding begins. Loaded analysis models
 can be reused while their library stays selected. Switching databases or shutting down drains
 accepted work before releasing those models. Text search has a separate cache that survives a
 database switch and releases idle models. See
@@ -588,10 +611,10 @@ signals for review, not objective musical truth or automatic performance decisio
 Common maintenance commands:
 
 ```powershell
-python tools/audio-doctor/audio_doctor_cli.py --db ./data/library.sqlite
-python tools/audio-dedup/audio_dedup_cli.py --db ./data/library.sqlite --root D:/Music --preset safe
-python scripts/optimize_database.py --db ./data/library.sqlite
-python scripts/optimize_database.py --db tools/rhythm-lab/database/rhythm_lab.sqlite
+& .\.venv\Scripts\python.exe tools/audio-doctor/audio_doctor_cli.py --db ./database/library.sqlite
+& .\.venv\Scripts\python.exe tools/audio-dedup/audio_dedup_cli.py --db ./database/library.sqlite --root D:/Music --preset safe
+& .\.venv\Scripts\python.exe scripts/optimize_database.py --db ./database/library.sqlite
+& .\.venv\Scripts\python.exe scripts/optimize_database.py --db tools/rhythm-lab/database/rhythm_lab.sqlite
 ```
 
 ## 🛡️ Safety model
@@ -647,7 +670,7 @@ Start here:
 
 Project instructions, the current working-branch policy, and verification
 routing live in [AGENTS.md](AGENTS.md). Check that policy and the live Git state
-before starting work; branch policy is maintained there rather than duplicated here.
+before starting work. Branch policy is maintained there rather than duplicated here.
 
 Use the smallest check that covers the changed behavior. Reuse passing checks
 until related code, configuration or dependencies change. The root Pytest
@@ -655,11 +678,11 @@ configuration collects only `tests/`. Run each script or tool suite explicitly.
 The examples below cover the main backend and the audio tools, followed by Rhythm Lab.
 
 ```powershell
-python -m pytest tests/test_sonara_features.py
-python -m pytest tools/audio-doctor/tests
-python -m pytest tools/audio-dedup/tests
-python -m pytest tools/audio-online/tests
-python -m pytest tools/rhythm-lab/tests/test_rhythm_lab.py
+& .\.venv\Scripts\python.exe -m pytest tests/test_sonara_features.py
+& .\.venv\Scripts\python.exe -m pytest tools/audio-doctor/tests
+& .\.venv\Scripts\python.exe -m pytest tools/audio-dedup/tests
+& .\.venv\Scripts\python.exe -m pytest tools/audio-online/tests
+& .\.venv\Scripts\python.exe -m pytest tools/rhythm-lab/tests/test_rhythm_lab.py
 ```
 
 For Audio Online workbook-bridge changes, also run

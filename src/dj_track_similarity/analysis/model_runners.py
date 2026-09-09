@@ -556,7 +556,6 @@ def default_model_runners(
     raise ValueError(f"No analysis runner configured for: {model}")
 
 
-_default_model_runners: RunnerFactory = default_model_runners
 
 
 def _adapter_identity(adapter: EmbeddingIdentity) -> dict[str, str]:

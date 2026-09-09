@@ -1996,26 +1996,6 @@ def _probabilities_from_json(payload: object) -> dict[str, float]:
     return result
 
 
-def _count_sonara_features(
-    connection: sqlite3.Connection,
-) -> int:
-    rows = connection.execute(
-        """
-        SELECT s.mfcc_mean_blob, s.chroma_mean_blob,
-               s.spectral_contrast_mean_blob
-        FROM sonara_features AS s
-        JOIN tracks AS t
-          ON t.track_id = s.track_id
-        WHERE t.missing_since IS NULL
-        """
-    ).fetchall()
-    return sum(
-        1
-        for row in rows
-        if _float_tuple(row[0], 13) is not None
-        and _float_tuple(row[1], 12) is not None
-        and _float_tuple(row[2], 7) is not None
-    )
 
 
 def _float_tuple(payload: object, dim: int) -> tuple[float, ...] | None:

@@ -21,16 +21,6 @@ class AnalysisCoverage:
     mulan: bool = False
     clap: bool = False
 
-    def as_dict(self) -> dict[str, bool]:
-        return {
-            "sonara_core": self.sonara_core,
-            "maest_analysis": self.maest_analysis,
-            "maest_embedding": self.maest_embedding,
-            "mert": self.mert,
-            "muq": self.muq,
-            "mulan": self.mulan,
-            "clap": self.clap,
-        }
 
 
 @dataclass(frozen=True)
@@ -255,19 +245,3 @@ class LibrarySummary:
     # analysis job has claimed one yet.
     sonara_bpm_min: float | None = None
     sonara_bpm_max: float | None = None
-
-    def as_dict(self) -> dict[str, float | int | None]:
-        return {
-            "tracks": self.tracks,
-            "sonara": self.sonara,
-            "maest_analysis": self.maest_analysis,
-            "maest_embedding": self.maest_embedding,
-            "mert": self.mert,
-            "muq": self.muq,
-            "mulan": self.mulan,
-            "clap": self.clap,
-            "liked": self.liked,
-            "classifiers": self.classifiers,
-            "sonara_bpm_min": self.sonara_bpm_min,
-            "sonara_bpm_max": self.sonara_bpm_max,
-        }

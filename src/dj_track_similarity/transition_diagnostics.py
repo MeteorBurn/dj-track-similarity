@@ -146,17 +146,6 @@ class TransitionDiagnostics:
     components_v1: dict[str, float | None] | None = None
 
 
-def structure_transition_score(
-    seed_track: TransitionTrack,
-    candidate_track: TransitionTrack,
-) -> float | None:
-    """Return compatibility from current typed structure fields."""
-
-    risk, _warning = _structure_transition_risk(
-        seed_track,
-        candidate_track,
-    )
-    return None if risk is None else _clamp(1.0 - risk)
 
 
 def structure_transition_fit_from_values(

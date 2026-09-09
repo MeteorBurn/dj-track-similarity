@@ -13,21 +13,6 @@ from . import models as models_module
 from . import values as values_module
 
 
-def _candidate_pair_ids(
-    tracks: list[models_module.TrackRecord],
-    config: models_module.PresetConfig,
-    source_config: models_module.SourceConfig,
-    *,
-    fingerprint_sketches: Iterable[FingerprintSketch] = (),
-) -> list[tuple[int, int]]:
-    return sorted(
-        _candidate_pair_sources(
-            tracks,
-            config,
-            source_config,
-            fingerprint_sketches=fingerprint_sketches,
-        )
-    )
 
 
 def _candidate_pair_sources(

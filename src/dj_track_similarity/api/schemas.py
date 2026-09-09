@@ -51,8 +51,6 @@ EvaluationPairReasonTag = Literal[
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
 TrackId = Annotated[int, Field(ge=1)]
-ClassifierPreference = Annotated[float, Field(ge=-1.0, le=1.0)]
-ClassifierRiskWeight = Annotated[float, Field(ge=0.0, le=1.0)]
 
 
 class ScanRequest(BaseModel):

@@ -1926,9 +1926,6 @@ def _artifact_metrics_path(path: Path) -> Path:
     return path.with_suffix(".metrics.json")
 
 
-def _metrics_are_calibrated(metrics: dict[str, object]) -> bool:
-    calibration = metrics.get("production_calibration")
-    return isinstance(calibration, dict) and calibration.get("status") == "calibrated"
 
 
 def _metric_summary(metrics: dict[str, object]) -> dict[str, object]:

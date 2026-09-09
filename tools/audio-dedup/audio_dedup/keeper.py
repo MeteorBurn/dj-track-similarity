@@ -184,8 +184,6 @@ def keeper_keys(
     def format_preference(track: models_module.TrackRecord) -> int:
         return 0 if ambiguous_codec else format_rank(track.path)
 
-    def show_full_band(track: models_module.TrackRecord) -> str:
-        return "full band" if full_band(track) else "suspected transcode"
 
     def show_bandwidth(track: models_module.TrackRecord) -> str:
         result = verdicts.get(track.track_id)

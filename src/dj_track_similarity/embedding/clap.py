@@ -28,7 +28,7 @@ from .loading import (
     _bind_verified_local_snapshot,
     _local_only_from_pretrained_proxy,
 )
-from .numerics import _normalized_embedding_rows
+from .numerics import _average_l2_window_embeddings, _normalized_embedding_rows
 from ..runtime import select_torch_device
 
 _CLAP_CONSTRUCTION_LOCK = threading.RLock()
@@ -50,7 +50,7 @@ class ClapEmbeddingAdapter:
     amodel = "HTSAT-base"
     tmodel = "roberta"
     enable_fusion = False
-    pooling = "clap-audio-latent+l2"
+    pooling = "clap-audio-latent+per-window-l2+window-mean+l2"
     encoding = "float32-le"
     normalization = "l2"
     text_model_name = CLAP_TEXT_MODEL_NAME
@@ -91,7 +91,7 @@ class ClapEmbeddingAdapter:
             "channel_downmix": "torchcodec-num-channels-1",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
-            "audio_truncation": "upstream-random-10s-crop",
+            "audio_truncation": "adapter-consecutive-10s-windows-end-aligned-tail",
             "short_audio": "upstream-repeatpad",
             "input_quantization": "laion-clap-float32-int16-float32",
             "text_model_class": "RobertaModel",
@@ -125,7 +125,9 @@ class ClapEmbeddingAdapter:
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
-        vectors: list[np.ndarray] = []
+        window_size = max(1, int(self.target_rate * self.clip_seconds))
+        window_vectors: list[np.ndarray] = []
+        track_windows: list[list[int]] = []
         audio_batch: list[np.ndarray] = []
         prepare_seconds = 0.0
         inference_seconds = 0.0
@@ -136,10 +138,10 @@ class ClapEmbeddingAdapter:
                 return
             inference_started = time.perf_counter()
             with torch.inference_mode():
-                # The native loop handles each full waveform independently,
-                # then stacks its fixed-length quantized/cropped/padded inputs.
+                # Every window is at most one native clip long, so the upstream
+                # loop quantizes and repeat-pads each one without random cropping.
                 features = self._model.get_audio_embedding_from_data(x=audio_batch, use_tensor=False)
-            vectors.extend(
+            window_vectors.extend(
                 _normalized_embedding_rows(
                     features,
                     expected_rows=len(audio_batch),
@@ -167,18 +169,24 @@ class ClapEmbeddingAdapter:
                     target_rate=self.target_rate,
                     torchaudio=torchaudio,
                 )
-            audio_batch.append(waveform.squeeze(0).to(dtype=torch.float32).cpu().numpy())
+            samples = waveform.squeeze(0).to(dtype=torch.float32).cpu().numpy()
+            bounds = _consecutive_window_bounds(int(samples.shape[0]), window_size)
             prepare_seconds += time.perf_counter() - prepare_started
-            if len(audio_batch) == self.inference_batch_size:
-                flush_batch()
+            window_indices: list[int] = []
+            for start, end in bounds:
+                window_indices.append(len(window_vectors) + len(audio_batch))
+                audio_batch.append(samples[start:end])
+                if len(audio_batch) == self.inference_batch_size:
+                    flush_batch()
+            track_windows.append(window_indices)
         flush_batch()
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
-            "windows": len(decoded_items),
+            "windows": len(window_vectors),
         }
-        return vectors
+        return _average_l2_window_embeddings(window_vectors, track_windows)
 
     def embed_text(self, text: str) -> np.ndarray:
         return self.embed_texts([text])[0]
@@ -256,6 +264,23 @@ class ClapEmbeddingAdapter:
         if self.device:
             return self.device
         return select_torch_device(self._torch, self.requested_device)
+
+def _consecutive_window_bounds(total_samples: int, window_size: int) -> list[tuple[int, int]]:
+    """Cover a track with fixed windows; a tail shorter than one window is end-aligned.
+
+    laion-clap crops at random only when a waveform is longer than its native
+    clip, so every window handed to it must be at most ``window_size`` long.
+    A track shorter than one window is passed whole and repeat-padded upstream.
+    """
+
+    if total_samples <= window_size:
+        return [(0, total_samples)]
+    full_windows = total_samples // window_size
+    bounds = [(index * window_size, (index + 1) * window_size) for index in range(full_windows)]
+    if full_windows * window_size < total_samples:
+        bounds.append((total_samples - window_size, total_samples))
+    return bounds
+
 
 class _UnusedClapTrainingTokenizer:
     """Keep laion-clap's unused training helpers from loading model assets."""

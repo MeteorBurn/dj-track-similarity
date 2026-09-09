@@ -581,7 +581,7 @@ class SharedAudioClapAdapter(ClapEmbeddingAdapter):
         self._model = self.fake_model
 
 
-def test_clap_passes_each_full_resampled_track_to_native_audio_api(monkeypatch) -> None:
+def test_clap_covers_each_track_with_deterministic_consecutive_windows(monkeypatch) -> None:
     resample_calls = []
 
     class FakeResampler:
@@ -601,27 +601,65 @@ def test_clap_passes_each_full_resampled_track_to_native_audio_api(monkeypatch) 
         DecodedAudio(path="last.wav", audio=torch.ones(48_007), sample_rate=48_000, detail="shared"),
     ]
     expected_audio = [long_audio.float().repeat_interleave(2).numpy(), short_audio.numpy(), decoded[-1].audio.numpy()]
-    for batch_size in (1, 2, 3):
+    long_bounds = [
+        (0, 480_000),
+        (480_000, 960_000),
+        (960_000, 1_440_000),
+        (1_440_000, 1_920_000),
+        (1_920_000, 2_400_000),
+        (2_076_000, 2_556_000),
+    ]
+    expected_track_windows = [
+        [expected_audio[0][start:end] for start, end in long_bounds],
+        [expected_audio[1]],
+        [expected_audio[2]],
+    ]
+    expected_windows = [window for windows in expected_track_windows for window in windows]
+    expected_vectors = []
+    for windows in expected_track_windows:
+        rows = np.zeros((len(windows), 512), dtype=np.float64)
+        rows[:, 0] = [float(window[0]) + 3.0 for window in windows]
+        rows[:, 1] = 4.0
+        normalized_rows = rows / np.linalg.norm(rows, axis=1, keepdims=True)
+        mean = normalized_rows.mean(axis=0)
+        expected_vectors.append(mean / np.linalg.norm(mean))
+
+    for batch_size in (1, 2, 3, 8):
         adapter = SharedAudioClapAdapter()
         adapter.inference_batch_size = batch_size
         adapter.fake_torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResampler))
-        resample_calls.clear()
-        vectors = adapter.embed_decoded_batch(decoded)
+        expected_batch_sizes = [min(batch_size, 8 - start) for start in range(0, 8, batch_size)]
+        first_vectors = None
+        for _ in range(2):
+            resample_calls.clear()
+            adapter.fake_model.audio_calls.clear()
+            vectors = adapter.embed_decoded_batch(decoded)
 
-        assert len(resample_calls) == 1
-        torch.testing.assert_close(resample_calls[0], long_audio.float().unsqueeze(0))
-        calls = adapter.fake_model.audio_calls
-        assert [len(call) for call in calls] == ([1, 1, 1] if batch_size == 1 else [2, 1] if batch_size == 2 else [3])
-        actual_audio = [waveform for call in calls for waveform in call]
-        for waveform, expected, vector in zip(actual_audio, expected_audio, vectors, strict=True):
-            np.testing.assert_array_equal(waveform, expected)
-            assert waveform.dtype == np.float32
-            assert vector.shape == (512,)
-            assert vector.dtype == np.float32
-            assert np.linalg.norm(vector) == pytest.approx(1.0)
-            expected_head = np.array([expected[0] + 3.0, 4.0], dtype=np.float32)
-            np.testing.assert_allclose(vector[:2], expected_head / np.linalg.norm(expected_head))
-            assert np.count_nonzero(vector[2:]) == 0
+            assert len(resample_calls) == 1
+            assert resample_calls[0].dtype == torch.float32
+            torch.testing.assert_close(resample_calls[0], long_audio.float().unsqueeze(0))
+            calls = adapter.fake_model.audio_calls
+            assert [len(call) for call in calls] == expected_batch_sizes
+            actual_windows = [waveform for call in calls for waveform in call]
+            assert len(actual_windows) == 8
+            for window, expected in zip(actual_windows, expected_windows, strict=True):
+                # Staying within one native clip keeps upstream random cropping off.
+                assert len(window) <= 480_000
+                assert window.dtype == np.float32
+                np.testing.assert_array_equal(window, expected)
+            for vector, expected in zip(vectors, expected_vectors, strict=True):
+                assert vector.shape == (512,)
+                assert vector.dtype == np.float32
+                assert np.linalg.norm(vector) == pytest.approx(1.0)
+                np.testing.assert_allclose(vector, expected, rtol=1e-6, atol=1e-7)
+                assert np.count_nonzero(vector[2:]) == 0
+            assert adapter.last_batch_timing["windows"] == 8
+            assert adapter.last_batch_timing["tracks"] == 3
+            if first_vectors is None:
+                first_vectors = vectors
+            else:
+                for vector, first in zip(vectors, first_vectors, strict=True):
+                    assert vector.tobytes() == first.tobytes()
 
 
 def test_clap_rejects_native_audio_output_with_wrong_shape() -> None:

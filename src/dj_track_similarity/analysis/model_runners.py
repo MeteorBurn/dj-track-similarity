@@ -52,6 +52,7 @@ from .sonara_results import prepare_sonara_write
 
 if TYPE_CHECKING:
     from ..track_models import TrackFileState
+    from ..embedding.clap import ClapEmbeddingAdapter
     from ..embedding.maest import MaestAnalysisResult
     from ..embedding.mert import MertEmbeddingAdapter
 
@@ -438,18 +439,26 @@ class EmbeddingModelRunner:
         return _merge_write_results(prepared, writes, write_results)
 
     def _check_cancelled(self) -> None:
-        if self.model == "mert" and self.cancelled is not None and self.cancelled():
-            raise EmbeddingCancelledError("MERT analysis cancelled")
+        if self.model in {"mert", "clap"} and self.cancelled is not None and self.cancelled():
+            raise EmbeddingCancelledError(f"{self.model.upper()} analysis cancelled")
 
     def _embed_decoded_items(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
         self._check_cancelled()
-        if self.model == "mert":
-            vectors = cast("MertEmbeddingAdapter", self.adapter).embed_decoded_batch(
-                decoded_items, cancelled=self.cancelled,
-            )
-            if len(vectors) != len(decoded_items):
-                raise ValueError("MERT batch result count does not match track count")
-            return vectors
+        if self.model in {"mert", "clap"}:
+            try:
+                vectors = cast(
+                    "ClapEmbeddingAdapter | MertEmbeddingAdapter", self.adapter,
+                ).embed_decoded_batch(decoded_items, cancelled=self.cancelled)
+                if len(vectors) != len(decoded_items):
+                    raise ValueError(
+                        f"{self.model.upper()} batch result count does not match track count"
+                    )
+                return vectors
+            except EmbeddingCancelledError:
+                raise
+            except Exception:
+                self._check_cancelled()
+                raise
         return self.adapter.embed_decoded_batch(decoded_items)
 
     def _mert_vectors(self, items: list[AnalysisBatchItem]) -> list[np.ndarray | Exception]:

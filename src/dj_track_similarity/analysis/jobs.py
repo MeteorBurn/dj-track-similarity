@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
@@ -637,8 +638,6 @@ class AnalysisJobManager:
                     job_id,
                     result,
                 )
-            if isinstance(runner, EmbeddingModelRunner) and model == "mert":
-                runner.cancelled = lambda: self.get(job_id).cancel_requested
             lifecycle.runners[model] = runner
             lifecycle.handles[model] = handle
 
@@ -814,27 +813,36 @@ class AnalysisJobManager:
                 f"ML staged pipeline starting: {len(batch)} tracks",
             )
             
-            results = analyze_and_store_staged_ml(
-                repository=self.db,
-                candidates=batch,
-                model_runners=lifecycle.runners,
-                targets_by_track=targets_by_track,
-                config=config,
-                decode_audio=self._decode_audio,
-                cancelled=lambda: self.get(job_id).cancel_requested,
-                track_result_callback=lambda result: self._record_staged_ml_result(
-                    job_id, result
-                ),
-                progress_callback=lambda phase, done, total: self._ml_staged_progress(
-                    job_id, phase, done, total
-                ),
-                set_current_path=lambda path: self._update(
-                    job_id, current_path=path
-                ),
-                mark_track_processed=lambda candidate: self._mark_track_processed(
-                    job_id, candidate
-                ),
-            )
+            with ExitStack() as runner_locks:
+                for model in ANALYSIS_MODEL_ORDER:
+                    handle = lifecycle.handles.get(model)
+                    if handle is None:
+                        continue
+                    runner_locks.enter_context(handle.lock)
+                    runner = handle.runner
+                    if isinstance(runner, EmbeddingModelRunner) and model in {"mert", "clap"}:
+                        runner.cancelled = lambda: self.get(job_id).cancel_requested
+                results = analyze_and_store_staged_ml(
+                    repository=self.db,
+                    candidates=batch,
+                    model_runners=lifecycle.runners,
+                    targets_by_track=targets_by_track,
+                    config=config,
+                    decode_audio=self._decode_audio,
+                    cancelled=lambda: self.get(job_id).cancel_requested,
+                    track_result_callback=lambda result: self._record_staged_ml_result(
+                        job_id, result
+                    ),
+                    progress_callback=lambda phase, done, total: self._ml_staged_progress(
+                        job_id, phase, done, total
+                    ),
+                    set_current_path=lambda path: self._update(
+                        job_id, current_path=path
+                    ),
+                    mark_track_processed=lambda candidate: self._mark_track_processed(
+                        job_id, candidate
+                    ),
+                )
 
             self._append_event(
                 job_id,
@@ -875,6 +883,8 @@ class AnalysisJobManager:
                 device=runner.device,
             )
             with lifecycle.handles[model].lock:
+                if isinstance(runner, EmbeddingModelRunner) and model in {"mert", "clap"}:
+                    runner.cancelled = lambda: self.get(job_id).cancel_requested
                 if not self._run_model_batch(
                     job_id,
                     model,
@@ -1010,8 +1020,8 @@ class AnalysisJobManager:
                 model=model,
             )
             for item in items:
-                if model == "mert" and self.get(job_id).cancel_requested:
-                    raise EmbeddingCancelledError("MERT analysis cancelled")
+                if model in {"mert", "clap"} and self.get(job_id).cancel_requested:
+                    raise EmbeddingCancelledError(f"{model.upper()} analysis cancelled")
                 try:
                     item_results = _validated_runner_results(
                         runner.analyze_batch(self.db, [item]),

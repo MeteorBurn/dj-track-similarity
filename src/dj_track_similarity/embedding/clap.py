@@ -5,7 +5,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -23,6 +23,7 @@ from ..analysis_models import (
 )
 from ..audio.loader import DecodedAudio
 from .audio import _resample_to
+from .contracts import EmbeddingCancelledError
 from .loading import (
     _bind_verified_local_checkpoint,
     _bind_verified_local_snapshot,
@@ -114,14 +115,23 @@ class ClapEmbeddingAdapter:
 
         self._load_model()
 
-    def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
+    def embed_decoded_batch(
+        self,
+        decoded_items: list[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[np.ndarray]:
+        _check_cancelled(cancelled)
         self._load_model()
-        return self._embed_decoded_items(decoded_items)
+        return self._embed_decoded_items(decoded_items, cancelled=cancelled)
 
     def _embed_decoded_items(
         self,
         decoded_items: list[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
     ) -> list[np.ndarray]:
+        _check_cancelled(cancelled)
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and self._model is not None
@@ -136,11 +146,13 @@ class ClapEmbeddingAdapter:
             nonlocal inference_seconds
             if not audio_batch:
                 return
+            _check_cancelled(cancelled)
             inference_started = time.perf_counter()
             with torch.inference_mode():
                 # Every window is at most one native clip long, so the upstream
                 # loop quantizes and repeat-pads each one without random cropping.
                 features = self._model.get_audio_embedding_from_data(x=audio_batch, use_tensor=False)
+            _check_cancelled(cancelled)
             window_vectors.extend(
                 _normalized_embedding_rows(
                     features,
@@ -153,6 +165,7 @@ class ClapEmbeddingAdapter:
             audio_batch.clear()
 
         for decoded in decoded_items:
+            _check_cancelled(cancelled)
             prepare_started = time.perf_counter()
             waveform = decoded.audio.to(dtype=torch.float32).unsqueeze(0)
             if waveform.numel() == 0:
@@ -174,19 +187,23 @@ class ClapEmbeddingAdapter:
             prepare_seconds += time.perf_counter() - prepare_started
             window_indices: list[int] = []
             for start, end in bounds:
+                _check_cancelled(cancelled)
                 window_indices.append(len(window_vectors) + len(audio_batch))
                 audio_batch.append(samples[start:end])
                 if len(audio_batch) == self.inference_batch_size:
                     flush_batch()
             track_windows.append(window_indices)
         flush_batch()
+        _check_cancelled(cancelled)
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
             "inference_seconds": inference_seconds,
             "tracks": len(decoded_items),
             "windows": len(window_vectors),
         }
-        return _average_l2_window_embeddings(window_vectors, track_windows)
+        vectors = _average_l2_window_embeddings(window_vectors, track_windows)
+        _check_cancelled(cancelled)
+        return vectors
 
     def embed_text(self, text: str) -> np.ndarray:
         return self.embed_texts([text])[0]
@@ -280,6 +297,11 @@ def _consecutive_window_bounds(total_samples: int, window_size: int) -> list[tup
     if full_windows * window_size < total_samples:
         bounds.append((total_samples - window_size, total_samples))
     return bounds
+
+
+def _check_cancelled(cancelled: Callable[[], bool] | None) -> None:
+    if cancelled is not None and cancelled():
+        raise EmbeddingCancelledError("CLAP embedding cancelled")
 
 
 class _UnusedClapTrainingTokenizer:

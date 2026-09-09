@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .sonara_staging import SonaraStagingConfig
@@ -145,6 +145,21 @@ def build_analysis_job_config(
     if normalized_sonara_mode == "staged" and sonara_staging_config is None:
         raise ValueError("Staged SONARA mode requires staging settings")
     bpm_min, bpm_max = normalize_sonara_bpm_range(sonara_bpm_min, sonara_bpm_max)
+    effective_inference_batch_size = _int_in_range(
+        inference_batch_size,
+        name="inference_batch_size",
+        minimum=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
+        maximum=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+    )
+    if ml_staging_config is not None:
+        effective_inference_batch_size = min(
+            effective_inference_batch_size,
+            ml_staging_config.inference_batch_size,
+        )
+        ml_staging_config = replace(
+            ml_staging_config,
+            inference_batch_size=effective_inference_batch_size,
+        )
     return AnalysisJobConfig(
         models=normalized_models,
         require_current_sonara=bool(
@@ -161,12 +176,7 @@ def build_analysis_job_config(
             minimum=MIN_ANALYSIS_TRACK_BATCH_SIZE,
             maximum=MAX_ANALYSIS_TRACK_BATCH_SIZE,
         ),
-        inference_batch_size=_int_in_range(
-            inference_batch_size,
-            name="inference_batch_size",
-            minimum=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
-            maximum=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
-        ),
+        inference_batch_size=effective_inference_batch_size,
         sonara_batch_size=_int_in_range(
             sonara_batch_size,
             name="sonara_batch_size",

@@ -624,16 +624,19 @@ def test_clap_covers_each_track_with_deterministic_consecutive_windows(monkeypat
         mean = normalized_rows.mean(axis=0)
         expected_vectors.append(mean / np.linalg.norm(mean))
 
+    reference_vectors = None
     for batch_size in (1, 2, 3, 8):
         adapter = SharedAudioClapAdapter()
         adapter.inference_batch_size = batch_size
         adapter.fake_torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResampler))
         expected_batch_sizes = [min(batch_size, 8 - start) for start in range(0, 8, batch_size)]
-        first_vectors = None
-        for _ in range(2):
+        for cancelled in (None, lambda: False):
             resample_calls.clear()
             adapter.fake_model.audio_calls.clear()
-            vectors = adapter.embed_decoded_batch(decoded)
+            if cancelled is None:
+                vectors = adapter.embed_decoded_batch(decoded)
+            else:
+                vectors = adapter.embed_decoded_batch(decoded, cancelled=cancelled)
 
             assert len(resample_calls) == 1
             assert resample_calls[0].dtype == torch.float32
@@ -655,11 +658,32 @@ def test_clap_covers_each_track_with_deterministic_consecutive_windows(monkeypat
                 assert np.count_nonzero(vector[2:]) == 0
             assert adapter.last_batch_timing["windows"] == 8
             assert adapter.last_batch_timing["tracks"] == 3
-            if first_vectors is None:
-                first_vectors = vectors
+            if reference_vectors is None:
+                reference_vectors = vectors
             else:
-                for vector, first in zip(vectors, first_vectors, strict=True):
+                for vector, first in zip(vectors, reference_vectors, strict=True):
                     assert vector.tobytes() == first.tobytes()
+
+        individual_vectors = [adapter.embed_decoded_batch([item])[0] for item in decoded]
+        for vector, first in zip(individual_vectors, reference_vectors, strict=True):
+            assert vector.tobytes() == first.tobytes()
+
+    adapter = SharedAudioClapAdapter()
+    monkeypatch.setattr(adapter, "_load_model", lambda: pytest.fail("Cancelled CLAP work loaded the model"))
+    with pytest.raises(EmbeddingCancelledError):
+        adapter.embed_decoded_batch(decoded, cancelled=lambda: True)
+    assert not adapter.fake_model.audio_calls
+
+    for batch_size, stop_after in ((2, 1), (2, 4), (8, 1)):
+        adapter = SharedAudioClapAdapter()
+        adapter.inference_batch_size = batch_size
+        adapter.fake_torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResampler))
+        with pytest.raises(EmbeddingCancelledError):
+            adapter.embed_decoded_batch(
+                decoded,
+                cancelled=lambda: len(adapter.fake_model.audio_calls) >= stop_after,
+            )
+        assert len(adapter.fake_model.audio_calls) == stop_after
 
 
 def test_clap_rejects_native_audio_output_with_wrong_shape() -> None:

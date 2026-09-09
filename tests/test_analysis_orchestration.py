@@ -36,6 +36,7 @@ from dj_track_similarity.audio.loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.embeddings import read_valid_embeddings
 from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
+from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.maest import MaestAnalysisResult
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
@@ -525,8 +526,117 @@ def test_finished_job_releases_track_data_but_retains_status_and_configuration(
     assert manager.run_job(job_id).state == status.state
     manager.close()
 
+    clap_cancel_points = (
+        ("inference", "retry", "recovery", "before_write")
+        if mode == "staged" else (cancel_at,)
+    )
+    for clap_cancel_at in clap_cancel_points:
+        _assert_clap_job_cancellation(tmp_path, monkeypatch, mode, clap_cancel_at)
 
-def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight() -> None:
+
+def _assert_clap_job_cancellation(tmp_path, monkeypatch, mode, cancel_at) -> None:
+    torch = pytest.importorskip("torch")
+    root = tmp_path / f"clap-{cancel_at}"
+    root.mkdir()
+    output = _clap_output()
+    repository = _FakeRepository([])
+    for track_id in range(1, 5):
+        path = root / f"{track_id}.wav"
+        path.write_text(str(track_id))
+        repository.candidates.append(replace(_candidate(track_id, (output,)), file_path=str(path)))
+    writes: list[EmbeddingWrite] = []
+    fallback_calls: list[int] = []
+    native_calls_at_cancel = None
+
+    def save_embedding_results(selected):
+        writes.extend(selected)
+        return tuple(
+            AnalysisWriteResult(target=write.target, written_outputs=(output,))
+            for write in selected
+        )
+
+    repository.save_embedding_results = save_embedding_results
+
+    def decoded_track(path):
+        track_id = int(Path(path).read_text())
+        # Track 3 needs more than one native batch. Cancelling its first batch
+        # must discard its partial window pool and prevent the following batch.
+        length = 3 * 480_000 if track_id == 3 else 48_000
+        return DecodedAudio(
+            path=str(path), audio=torch.full((length,), float(track_id)),
+            sample_rate=48_000, detail="synthetic",
+        )
+
+    def decode_audio(path):
+        if cancel_at == "recovery" and int(Path(path).read_text()) >= 3:
+            raise RuntimeError("synthetic full decode failure")
+        return decoded_track(path)
+
+    def fallback_audio(path):
+        fallback_calls.append(int(Path(path).read_text()))
+        return decoded_track(path)
+
+    monkeypatch.setattr(runner_module, "load_decoded_audio_with_ffmpeg", fallback_audio)
+    adapter = _WindowedClapAdapter()
+
+    def cancel_job():
+        nonlocal native_calls_at_cancel
+        manager.cancel(job_id)
+        if native_calls_at_cancel is None:
+            native_calls_at_cancel = tuple(adapter.native_calls)
+
+    def before_native(windows):
+        if cancel_at in {"inference", "retry", "recovery"} and any(row[0] == 3 for row in windows):
+            cancel_job()
+            if cancel_at == "retry":
+                # A generic native failure concurrent with cancellation must
+                # not enter per-track retry or FFmpeg recovery.
+                raise ValueError("native failure after cancellation")
+
+    adapter.before_native = before_native
+    if cancel_at == "before_write":
+        embed_decoded_batch = adapter.embed_decoded_batch
+
+        def cancel_after_embedding(decoded_items, **kwargs):
+            vectors = embed_decoded_batch(decoded_items, **kwargs)
+            if any(item.audio[0] == 3 for item in decoded_items):
+                cancel_job()
+            return vectors
+
+        monkeypatch.setattr(adapter, "embed_decoded_batch", cancel_after_embedding)
+
+    runner = EmbeddingModelRunner("clap", device="cpu", inference_batch_size=2, adapter=adapter)
+    manager = AnalysisJobManager(repository, model_runners={"clap": runner}, decode_audio=decode_audio)
+    staging_config = (
+        MLStagingConfig(
+            root=root / "staging", copy_workers=1, decode_workers=1,
+            stage_size=2, inference_batch_size=2,
+        )
+        if mode == "staged" else None
+    )
+    job_id = manager.create_job(
+        models=["clap"], device="cpu", track_batch_size=2,
+        inference_batch_size=2, ml_staging_config=staging_config,
+    )
+    try:
+        status = manager.run_job(job_id)
+        assert status.state == ("cancelled" if cancel_at else "completed")
+        assert status.failed == 0 and status.errors == []
+        assert sorted(write.target.track_id for write in writes) == ([1, 2] if cancel_at else [1, 2, 3, 4])
+        assert status.analyzed == len(writes)
+        assert fallback_calls == ([3] if cancel_at == "recovery" else [])
+        if cancel_at:
+            assert native_calls_at_cancel is not None
+            assert tuple(adapter.native_calls) == native_calls_at_cancel
+        if cancel_at in {"inference", "retry", "recovery"}:
+            assert sum(any(row[0] == 3 for row in call) for call in adapter.native_calls) == 1
+    finally:
+        manager.close()
+
+
+def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     output = _mert_output()
     repository = _FakeRepository([])
     created: list[_FakeRunner] = []
@@ -558,24 +668,215 @@ def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight() -> N
     with pytest.raises(RuntimeError, match="closed"):
         manager.run_job(first.job_id)
 
+    for mode in ("direct", "staged"):
+        _assert_cached_clap_cancellation_is_job_scoped(tmp_path, monkeypatch, mode)
 
-def test_ml_runtime_runner_is_not_reused_across_runtime_settings() -> None:
-    output = _mert_output()
+
+def _assert_cached_clap_cancellation_is_job_scoped(tmp_path, monkeypatch, mode) -> None:
+    torch = pytest.importorskip("torch")
+    root = tmp_path / mode
+    root.mkdir()
+    path = root / "1.wav"
+    path.write_text("synthetic")
+    output = _clap_output()
+    repository = _FakeRepository([replace(_candidate(1, (output,)), file_path=str(path))])
+    created: list[_WindowedClapAdapter] = []
+    writes: list[EmbeddingWrite] = []
+    native_entered = threading.Event()
+    release_native = threading.Event()
+    second_warming = threading.Event()
+    errors: list[BaseException] = []
+
+    def before_native(_windows):
+        native_entered.set()
+        assert release_native.wait(10), "native inference was not released"
+
+    def factory(model, device, batch_size, _top_k):
+        adapter = _WindowedClapAdapter(batch_size)
+        adapter.before_native = before_native
+        created.append(adapter)
+        return EmbeddingModelRunner(model, device=device, inference_batch_size=batch_size, adapter=adapter)
+
+    def save_embedding_results(selected):
+        writes.extend(selected)
+        return tuple(AnalysisWriteResult(target=write.target, written_outputs=(output,)) for write in selected)
+
+    repository.save_embedding_results = save_embedding_results
+    manager = AnalysisJobManager(
+        repository, runner_factory=factory,
+        decode_audio=lambda source: DecodedAudio(
+            path=str(source), audio=torch.ones(48_000), sample_rate=48_000, detail="synthetic",
+        ),
+    )
+    staging = (
+        MLStagingConfig(
+            root=root / "staging", copy_workers=1, decode_workers=1,
+            stage_size=1, inference_batch_size=2,
+        )
+        if mode == "staged" else None
+    )
+    first_id = manager.create_job(models=["clap"], device="cpu", inference_batch_size=2, ml_staging_config=staging)
+    second_id = manager.create_job(models=["clap"], device="cpu", inference_batch_size=2)
+    warm_up = manager._warm_up_models
+
+    def observe_warm_up(job_id, models, lifecycle):
+        if job_id == second_id:
+            # Preparation has selected the shared runner; actual warm-up may
+            # now wait on the handle held by the first job's native inference.
+            second_warming.set()
+        return warm_up(job_id, models, lifecycle)
+
+    monkeypatch.setattr(manager, "_warm_up_models", observe_warm_up)
+
+    def run(job_id):
+        try:
+            manager.run_job(job_id)
+        except BaseException as error:
+            errors.append(error)
+
+    first_thread = threading.Thread(target=run, args=(first_id,), daemon=True)
+    second_thread = threading.Thread(target=run, args=(second_id,), daemon=True)
+    try:
+        first_thread.start()
+        assert native_entered.wait(10), "first job did not reach native inference"
+        second_thread.start()
+        assert second_warming.wait(10), "second job did not reach shared runner warm-up"
+        manager.cancel(second_id)
+        release_native.set()
+        first_thread.join(10)
+        second_thread.join(10)
+        assert not first_thread.is_alive() and not second_thread.is_alive()
+        assert errors == []
+        first = manager.get(first_id)
+        second = manager.get(second_id)
+        assert (first.state, first.cancel_requested) == ("completed", False)
+        assert (second.state, second.cancel_requested) == ("cancelled", True)
+        assert first.analyzed == 1 and second.analyzed == 0
+        assert [write.target.track_id for write in writes] == [1]
+        expected = np.zeros(512, dtype=np.float32)
+        expected[:3] = [4, 5, 0.1]
+        expected /= np.linalg.norm(expected)
+        np.testing.assert_allclose(writes[0].output.vector, expected, rtol=1e-6, atol=1e-7)
+        assert len(created) == 1 and created[0].preflight_calls == 1
+        assert len(created[0].native_calls) == 1
+    finally:
+        release_native.set()
+        for thread in (first_thread, second_thread):
+            if thread.ident is not None:
+                thread.join(10)
+        if not first_thread.is_alive() and not second_thread.is_alive():
+            manager.close()
+
+
+class _WindowedClapAdapter(ClapEmbeddingAdapter):
+    """Exercise production windowing while replacing only native inference."""
+
+    def __init__(self, inference_batch_size: int = 2) -> None:
+        super().__init__(device="cpu", inference_batch_size=inference_batch_size)
+        self.preflight_calls = 0
+        self.native_calls: list[tuple[tuple[float, float, int], ...]] = []
+        self.before_native: Callable | None = None
+
+    def preflight(self) -> None:
+        self.preflight_calls += 1
+        self._load_model()
+
+    def _load_model(self) -> None:
+        self._torch = pytest.importorskip("torch")
+        self._model = self
+        self.device = "cpu"
+
+    def get_audio_embedding_from_data(self, x, use_tensor=False):
+        assert not use_tensor
+        self.native_calls.append(tuple((float(row[0]), float(row[-1]), len(row)) for row in x))
+        if self.before_native is not None:
+            self.before_native(x)
+        rows = np.zeros((len(x), 512), dtype=np.float32)
+        rows[:, 0] = [row[0] + 3.0 for row in x]
+        rows[:, 1] = [row[-1] + 4.0 for row in x]
+        rows[:, 2] = [len(row) / 480_000 for row in x]
+        return rows
+
+
+def test_ml_runtime_runner_is_not_reused_across_runtime_settings(tmp_path: Path) -> None:
+    torch = pytest.importorskip("torch")
+    output = _clap_output()
     repository = _FakeRepository([])
-    created: list[_FakeRunner] = []
+    created: dict[int, _WindowedClapAdapter] = {}
+    writes: dict[int, np.ndarray] = {}
+    audio_by_track = {
+        1: torch.linspace(0.1, 0.9, 1_200_000),
+        2: torch.linspace(-0.7, -0.2, 48_001, dtype=torch.float64),
+    }
+    expected = {}
+    for track_id, audio in audio_by_track.items():
+        path = tmp_path / f"{track_id}.wav"
+        path.write_text(str(track_id))
+        repository.candidates.append(replace(_candidate(track_id, (output,)), file_path=str(path)))
+        bounds = [(0, 480_000), (480_000, 960_000), (720_000, 1_200_000)] if track_id == 1 else [(0, 48_001)]
+        rows = np.asarray([
+            [float(audio[start].float()) + 3.0, float(audio[end - 1].float()) + 4.0, (end - start) / 480_000]
+            for start, end in bounds
+        ], dtype=np.float64)
+        rows /= np.linalg.norm(rows, axis=1, keepdims=True)
+        pooled = rows.mean(axis=0)
+        expected[track_id] = pooled / np.linalg.norm(pooled)
 
-    def factory(model: str, _device: str, _batch_size: int, _top_k: int) -> _FakeRunner:
-        runner = _FakeRunner(model, (output,))
-        created.append(runner)
-        return runner
+    def save_embedding_results(selected):
+        for write in selected:
+            assert write.output.family == "clap"
+            writes[write.target.track_id] = write.output.vector.copy()
+        return tuple(AnalysisWriteResult(target=write.target, written_outputs=(output,)) for write in selected)
 
-    manager = AnalysisJobManager(repository, runner_factory=factory)
+    repository.save_embedding_results = save_embedding_results
 
-    manager.run_sync(models=["mert"], device="cpu", inference_batch_size=8)
-    manager.run_sync(models=["mert"], device="cpu", inference_batch_size=16)
+    def decode_audio(path):
+        track_id = int(Path(path).read_text())
+        return DecodedAudio(path=str(path), audio=audio_by_track[track_id].clone(), sample_rate=48_000, detail="synthetic")
 
-    assert len(created) == 2
-    assert [runner.preflight_calls for runner in created] == [1, 1]
+    def factory(model: str, device: str, batch_size: int, _top_k: int) -> EmbeddingModelRunner:
+        assert model == "clap" and device == "cpu"
+        assert batch_size not in created
+        adapter = _WindowedClapAdapter(batch_size)
+        created[batch_size] = adapter
+        return EmbeddingModelRunner(model, device=device, inference_batch_size=batch_size, adapter=adapter)
+
+    manager = AnalysisJobManager(repository, runner_factory=factory, decode_audio=decode_audio)
+    reference: dict[int, np.ndarray] = {}
+    try:
+        for general_limit, staged_limit in ((3, None), (16, 1), (1, 16), (1, None), (3, None), (8, 2)):
+            effective = general_limit if staged_limit is None else min(general_limit, staged_limit)
+            staging = None if staged_limit is None else MLStagingConfig(
+                root=tmp_path / "staging", copy_workers=1, decode_workers=1,
+                stage_size=2, inference_batch_size=staged_limit,
+            )
+            writes.clear()
+            for adapter in created.values():
+                adapter.native_calls.clear()
+            status = manager.run_sync(
+                models=["clap"], device="cpu", track_batch_size=2,
+                inference_batch_size=general_limit, ml_staging_config=staging,
+            )
+            assert status.state == "completed" and status.failed == 0
+            assert status.analyzed == status.processed == 2
+            calls = [call for adapter in created.values() for call in adapter.native_calls]
+            assert max(map(len, calls)) <= effective
+            assert sum(map(len, calls)) == 4
+            assert status.inference_batch_size == effective
+            assert set(writes) == {1, 2}
+            for track_id, vector in writes.items():
+                assert vector.shape == (512,) and vector.dtype == np.float32
+                np.testing.assert_allclose(vector[:3], expected[track_id], rtol=1e-6, atol=1e-7)
+                assert not np.count_nonzero(vector[3:])
+                assert np.linalg.norm(vector) == pytest.approx(1.0)
+                if track_id in reference:
+                    np.testing.assert_array_equal(vector, reference[track_id])
+                else:
+                    reference[track_id] = vector.copy()
+        assert set(created) == {1, 2, 3}
+        assert all(adapter.preflight_calls == 1 for adapter in created.values())
+    finally:
+        manager.close()
 
 
 def test_model_preflight_failure_preserves_prior_active_output() -> None:

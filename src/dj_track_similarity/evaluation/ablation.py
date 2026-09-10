@@ -26,7 +26,7 @@ from .judged import (
 )
 from .reports import RELEVANCE_THRESHOLD
 from .recorded_sessions import load_current_evaluation_sessions
-from .score_profiles import LABEL_POLICY, ScoreProfile, rank_candidates_with_profile, score_profile_to_dict
+from .score_profiles import DEFAULT_RRF_K, LABEL_POLICY, ScoreProfile, rank_candidates_with_profile, score_profile_to_dict
 from ..scalars import (
     coerced_positive_int,
     finite_float_or_none,
@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
 
 
-DEFAULT_RRF_K = 60
 DEFAULT_K_VALUES = (5, 10, 20)
 CLASSIFIER_SIGNAL = "classifiers"
 CLASSIFIER_BREAKDOWN_PREFIX = "classifier_"

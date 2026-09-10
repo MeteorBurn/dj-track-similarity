@@ -29,7 +29,9 @@ from .metrics import (
 from .judged import build_judged_label_gate, matching_label as matched_judged_label, session_feedback_source as judged_session_feedback_source
 from .reports import RELEVANCE_THRESHOLD
 from .recorded_sessions import load_current_evaluation_sessions
+from .candidates import CandidateSourceContribution
 from .score_profiles import DEFAULT_K_VALUES, DEFAULT_RRF_K, LABEL_POLICY, ScoreProfile, score_profile_to_dict, validate_score_profile
+from .weighted_candidates import weighted_rrf_score
 from .track_views import load_transition_tracks_for_ids
 from ..scalars import (
     finite_number,
@@ -251,7 +253,14 @@ def _raw_candidate(
     if not sources:
         return None
     candidate_track_id = parsed_positive_int(event.get("track_id"), "candidate_track_id")
-    raw_rrf_score = _weighted_rrf_score(sources, profile, rrf_k)
+    raw_rrf_score = weighted_rrf_score(
+        {
+            source: CandidateSourceContribution(rank=int(contribution["rank"]), score=float(contribution["score"]))
+            for source, contribution in sources.items()
+        },
+        profile.weights,
+        rrf_k,
+    )
     if raw_rrf_score <= 0.0:
         return None
     transition_risk, risk_source = _event_transition_risk(db, event, seed_track_ids[0], candidate_track_id, len(sources), max_source_count, risk_version, track_cache)
@@ -608,21 +617,6 @@ def _source_contribution(value: object) -> dict[str, float | int] | None:
         return None
     score = _optional_float(value.get("score"))
     return {"rank": rank, "score": 0.0 if score is None else score}
-
-
-def _weighted_rrf_score(sources: Mapping[str, Mapping[str, float | int]], profile: ScoreProfile, rrf_k: int) -> float:
-    score = 0.0
-    for source in profile.sources:
-        contribution = sources.get(source)
-        if contribution is None:
-            continue
-        rank = _optional_positive_int(contribution.get("rank"))
-        if rank is None:
-            continue
-        score += float(profile.weights[source]) * (1.0 / (rrf_k + rank))
-    if not math.isfinite(score):
-        raise ValueError("weighted RRF produced a non-finite score")
-    return score
 
 
 def _best_source_rank(sources: Mapping[str, Mapping[str, float | int]]) -> int:

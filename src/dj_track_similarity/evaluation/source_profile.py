@@ -16,6 +16,7 @@ from .candidates import (
 from .calibration import score_quantiles
 from .seed_sampling import export_seed_sample
 from ..scalars import parsed_positive_int
+from .score_profiles import DEFAULT_RRF_K
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -23,7 +24,6 @@ if TYPE_CHECKING:
 
 DEFAULT_PROFILE_SOURCES = ("mert", "maest", "muq", "sonara", "clap")
 DEFAULT_PROFILE_TOP_K = (10,)
-DEFAULT_RRF_K = 60
 WEIGHT_KIND = "unsupervised_internal_profile"
 PROFILE_KIND = "unsupervised_source_profile"
 LIMITATIONS = (

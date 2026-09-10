@@ -28,6 +28,7 @@ from ..scalars import (
     non_negative_int,
     positive_int_or_none,
 )
+from .score_profiles import DEFAULT_RRF_K
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -37,7 +38,6 @@ DEFAULT_PROFILE_NAME = "weighted_candidates_judged_v1"
 DEFAULT_OBJECTIVE = "balanced"
 DEFAULT_SPLIT_BY = "seed"
 DEFAULT_MIN_JUDGED_PAIRS = CANDIDATE_PROFILE_JUDGED_PAIRS
-DEFAULT_RRF_K = 60
 DEFAULT_K_VALUES = (10,)
 DEFAULT_GRID_STEP = 0.25
 DEFAULT_BOOTSTRAP_SAMPLES = 30

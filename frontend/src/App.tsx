@@ -990,8 +990,6 @@ export function App() {
               decode_workers: mlSettings.staged.workers,
               stage_size: mlSettings.staged.stageSize,
               inference_batch_size: analysisInferenceBatchSize,
-              preflight_copy_enabled: true,
-              preflight_copy_count: 64,
             },
             models: mlModels,
             device: analysisDevice,

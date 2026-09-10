@@ -256,9 +256,7 @@ A pipeline request carries a separate settings block per stage:
       "copy_workers": 4,
       "decode_workers": 8,
       "stage_size": 64,
-      "inference_batch_size": 16,
-      "preflight_copy_enabled": true,
-      "preflight_copy_count": 64
+      "inference_batch_size": 16
     }
   }
 }
@@ -276,9 +274,8 @@ paths to native analysis while retaining the original track identity.
 
 ML settings: `mode` defaults to `direct`, and the `staged` block accepts `copy_workers` `1..16`
 (default `4`), `decode_workers` `1..32` (default `8`), `stage_size` `1..512` (default `64`),
-`inference_batch_size` `1..128` (default `16`), `preflight_copy_enabled` (default `true`), and
-`preflight_copy_count` `1..512` (default `64`). The browser exposes the folder, Workers, and
-StageSize only.
+and `inference_batch_size` `1..128` (default `16`). The browser exposes the folder, Workers,
+and StageSize only.
 
 Following a failed full TorchCodec decode, the requested ML family makes its own in-process PyAV
 recovery decode with the shared FFmpeg libraries, keeping the valid frames around any malformed

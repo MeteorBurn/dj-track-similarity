@@ -546,8 +546,6 @@ export type MLStagedSettings = {
   decode_workers: number;
   stage_size: number;
   inference_batch_size: number;
-  preflight_copy_enabled: boolean;
-  preflight_copy_count: number;
 };
 
 export type MlPipelineSettings = {

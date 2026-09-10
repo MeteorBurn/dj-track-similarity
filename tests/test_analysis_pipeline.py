@@ -99,8 +99,6 @@ def test_pipeline_forwards_staged_ml_configuration_to_child_job(tmp_path) -> Non
         decode_workers=4,
         stage_size=64,
         inference_batch_size=16,
-        preflight_copy_enabled=True,
-        preflight_copy_count=64,
     )
     job_id = manager.create_job(
         stages=["ml"],

@@ -259,8 +259,6 @@ class MLStagedSettings(BaseModel):
         ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
         le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     )
-    preflight_copy_enabled: bool = True
-    preflight_copy_count: int = Field(default=64, ge=1, le=512)
 
 
 class MlPipelineSettings(BaseModel):

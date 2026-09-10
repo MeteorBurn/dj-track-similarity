@@ -1101,7 +1101,6 @@ class AnalysisJobManager:
                 "copy": "Copy",
                 "copy_queued": "Copy queued",
                 "decode": "Decode",
-                "preflight_copy": "Preflight copy",
             }.get(phase, phase)
             
             # For inference phases (inference:model_name), extract model

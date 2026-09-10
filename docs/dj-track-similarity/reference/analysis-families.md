@@ -106,8 +106,8 @@ Both SONARA and the ML families have a Direct Mode and a Staged Mode.
 | CLI | `dj-sim analyze --sonara-batch-size` | not available | `dj-sim analyze` defaults | `dj-sim analyze --ml-staged --ml-staging-path` |
 
 Staged Mode applies to the GPU families as well as to SONARA. The ML staged block adds
-`copy_workers`, `decode_workers`, `stage_size`, `inference_batch_size`, `preflight_copy_enabled`,
-and `preflight_copy_count`. The browser exposes the folder, Workers, and StageSize from that set.
+`copy_workers`, `decode_workers`, `stage_size`, and `inference_batch_size`. The browser exposes
+the folder, Workers, and StageSize from that set.
 
 Neither card exposes its Mode selector inline any more. SONARA's Mode selector, staging folder, and
 batch controls live in the **SONARA analysis settings** dialog, opened from a button on the SONARA

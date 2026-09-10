@@ -214,8 +214,6 @@ def register_analysis_routes(
                         decode_workers=request.ml.staged.decode_workers,
                         stage_size=request.ml.staged.stage_size,
                         inference_batch_size=request.ml.staged.inference_batch_size,
-                        preflight_copy_enabled=request.ml.staged.preflight_copy_enabled,
-                        preflight_copy_count=request.ml.staged.preflight_copy_count,
                     )
                 
                 ml_config = build_analysis_job_config(

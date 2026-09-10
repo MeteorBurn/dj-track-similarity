@@ -245,8 +245,6 @@ def test_api_pipeline_builds_staged_ml_settings(
                     "decode_workers": 5,
                     "stage_size": 40,
                     "inference_batch_size": 4,
-                    "preflight_copy_enabled": True,
-                    "preflight_copy_count": 12,
                 },
             },
         },
@@ -262,8 +260,6 @@ def test_api_pipeline_builds_staged_ml_settings(
     assert staging.decode_workers == 5
     assert staging.stage_size == 40
     assert staging.inference_batch_size == 4
-    assert staging.preflight_copy_enabled is True
-    assert staging.preflight_copy_count == 12
 
 
 def test_api_pipeline_rejects_unknown_ml_staged_setting(
@@ -286,8 +282,6 @@ def test_api_pipeline_rejects_unknown_ml_staged_setting(
                     "decode_workers": 4,
                     "stage_size": 64,
                     "inference_batch_size": 16,
-                    "preflight_copy_enabled": True,
-                    "preflight_copy_count": 64,
                     "unexpected": True,
                 },
             },

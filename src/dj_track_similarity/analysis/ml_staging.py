@@ -34,7 +34,6 @@ class MLStagingConfig:
     2. decode_workers: Parallel TorchCodec decoders (GPU bottleneck relief)
     3. No rayon_threads: ML models use torch/CUDA parallelism
     4. No max_native_batch_size: Each model has its own inference_batch_size
-    5. preflight_copy: Copy during model loading (ML-specific optimization)
     """
 
     root: Path
@@ -42,10 +41,6 @@ class MLStagingConfig:
     copy_workers: int = 4  # HDD sequential optimization (lower than SONARA's 8)
     decode_workers: int = 8  # NEW: Parallel TorchCodec decoders
     inference_batch_size: int = 16  # Per-model GPU batch size
-
-    # ML-specific: preflight overlap optimization
-    preflight_copy_enabled: bool = True
-    preflight_copy_count: int = 64  # Copy this many during model loading
 
     def __post_init__(self) -> None:
         root = Path(self.root)
@@ -56,7 +51,6 @@ class MLStagingConfig:
             ("copy_workers", self.copy_workers),
             ("decode_workers", self.decode_workers),
             ("inference_batch_size", self.inference_batch_size),
-            ("preflight_copy_count", self.preflight_copy_count),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")

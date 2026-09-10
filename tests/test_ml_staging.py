@@ -27,13 +27,10 @@ def test_ml_staging_config_validation() -> None:
         decode_workers=2,
         stage_size=50,
         inference_batch_size=8,
-        preflight_copy_enabled=True,
-        preflight_copy_count=32,
     )
     assert config.copy_workers == 2
     assert config.decode_workers == 2
     assert config.stage_size == 50
-    assert config.preflight_copy_count == 32
 
     # Zero workers should fail
     with pytest.raises(ValueError, match="copy_workers must be a positive integer"):

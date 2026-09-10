@@ -15,6 +15,7 @@ from .candidates import (
 )
 from .calibration import score_quantiles
 from .seed_sampling import export_seed_sample
+from ..scalars import parsed_positive_int
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -56,7 +57,7 @@ def build_source_profile(
     request = SourceProfileRequest(
         seed_track_ids=clean_seed_track_ids,
         sources=_clean_sources(sources),
-        per_source=_parsed_positive_int(per_source, "per_source"),
+        per_source=parsed_positive_int(per_source, "per_source"),
         top_k_values=_clean_top_k_values(top_k_values),
         random_seed=_int_value(random_seed, "random_seed"),
     )
@@ -123,7 +124,7 @@ def _seed_track_ids(
         return _positive_unique_ints(seed_track_ids, "seed_track_id")
     sample = export_seed_sample(
         db,
-        count=_parsed_positive_int(sample_count, "sample_count"),
+        count=parsed_positive_int(sample_count, "sample_count"),
         random_seed=_int_value(random_seed, "random_seed"),
         require_complete_analysis=False,
     )
@@ -134,7 +135,7 @@ def _clean_profile_request(request: SourceProfileRequest) -> SourceProfileReques
     return SourceProfileRequest(
         seed_track_ids=_positive_unique_ints(request.seed_track_ids, "seed_track_id"),
         sources=_clean_sources(request.sources),
-        per_source=_parsed_positive_int(request.per_source, "per_source"),
+        per_source=parsed_positive_int(request.per_source, "per_source"),
         top_k_values=_clean_top_k_values(request.top_k_values),
         random_seed=_int_value(request.random_seed, "random_seed"),
     )
@@ -519,29 +520,17 @@ def _clean_sources(sources: Sequence[str] | None) -> tuple[str, ...]:
 
 def _clean_top_k_values(top_k_values: Sequence[int] | None) -> tuple[int, ...]:
     values = top_k_values or DEFAULT_PROFILE_TOP_K
-    clean_values = tuple(dict.fromkeys(sorted(_parsed_positive_int(value, "top_k") for value in values)))
+    clean_values = tuple(dict.fromkeys(sorted(parsed_positive_int(value, "top_k") for value in values)))
     if not clean_values:
         raise ValueError("At least one positive --top-k value is required")
     return clean_values
 
 
 def _positive_unique_ints(values: Sequence[object], field_name: str) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(_parsed_positive_int(value, field_name) for value in values))
+    clean_values = tuple(dict.fromkeys(parsed_positive_int(value, field_name) for value in values))
     if not clean_values:
         raise ValueError(f"At least one --{field_name.replace('_', '-')} value is required")
     return clean_values
-
-
-def _parsed_positive_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(str(value).strip())
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
 
 
 def _int_value(value: object, field_name: str) -> int:

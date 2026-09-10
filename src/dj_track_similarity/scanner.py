@@ -37,6 +37,7 @@ from .track_models import (
     ScanStats,
     TrackMutation,
 )
+from .scalars import positive_int_or_none
 
 
 SUPPORTED_AUDIO_EXTENSIONS = {
@@ -462,16 +463,16 @@ def _metadata_from_mutagen(
     duration = _positive_float_or_none(getattr(info, "length", None))
     if duration is not None:
         metadata["duration"] = duration
-    sample_rate = _positive_int_or_none(getattr(info, "sample_rate", None))
+    sample_rate = positive_int_or_none(getattr(info, "sample_rate", None))
     if sample_rate is not None:
         metadata["sample_rate_hz"] = sample_rate
-    channel_count = _positive_int_or_none(getattr(info, "channels", None))
+    channel_count = positive_int_or_none(getattr(info, "channels", None))
     if channel_count is not None:
         metadata["channel_count"] = channel_count
-    bit_rate = _positive_int_or_none(getattr(info, "bitrate", None))
+    bit_rate = positive_int_or_none(getattr(info, "bitrate", None))
     if bit_rate is not None:
         metadata["bit_rate_bps"] = bit_rate
-    bit_depth = _positive_int_or_none(
+    bit_depth = positive_int_or_none(
         getattr(info, "bits_per_sample", None)
         or getattr(info, "sample_size", None)
     )
@@ -504,10 +505,10 @@ def scanned_file_from_metadata(
         file_size_bytes=int(file_size_bytes),
         file_modified_ns=int(file_modified_ns),
         audio_format=_string_or_none(metadata.get("audio_format")),
-        sample_rate_hz=_positive_int_or_none(metadata.get("sample_rate_hz")),
-        channel_count=_positive_int_or_none(metadata.get("channel_count")),
-        bit_rate_bps=_positive_int_or_none(metadata.get("bit_rate_bps")),
-        bit_depth=_positive_int_or_none(metadata.get("bit_depth")),
+        sample_rate_hz=positive_int_or_none(metadata.get("sample_rate_hz")),
+        channel_count=positive_int_or_none(metadata.get("channel_count")),
+        bit_rate_bps=positive_int_or_none(metadata.get("bit_rate_bps")),
+        bit_depth=positive_int_or_none(metadata.get("bit_depth")),
         audio_duration_seconds=_positive_float_or_none(
             metadata.get("duration")
         ),
@@ -585,16 +586,6 @@ def _positive_float_or_none(value: object) -> float | None:
     if not math.isfinite(number) or number <= 0:
         return None
     return number
-
-
-def _positive_int_or_none(value: object) -> int | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
 
 
 def _year_or_none(value: object) -> int | None:

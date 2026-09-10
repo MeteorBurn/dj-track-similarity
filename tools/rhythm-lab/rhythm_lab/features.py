@@ -262,7 +262,7 @@ def _sonara_features(
     values: list[float] = []
     for field in scalar_fields:
         value = getattr(features, _SONARA_ATTRIBUTES[field])
-        number = _finite_float(value)
+        number = _finite_float_or_none(value)
         if number is None:
             return None
         values.append(number)
@@ -270,7 +270,7 @@ def _sonara_features(
         vector = getattr(features, field)
         if len(vector) != length:
             return None
-        converted = [_finite_float(value) for value in vector]
+        converted = [_finite_float_or_none(value) for value in vector]
         if any(value is None for value in converted):
             return None
         values.extend(float(value) for value in converted if value is not None)
@@ -401,7 +401,7 @@ def _sonara_feature_names(scalar_fields: tuple[str, ...]) -> list[str]:
     return list(SONARA_FEATURE_NAMES)
 
 
-def _finite_float(value: object) -> float | None:
+def _finite_float_or_none(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     try:

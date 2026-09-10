@@ -19,6 +19,7 @@ from .track_resolution import (
     canonical_camelot,
     key_name_to_camelot,
 )
+from .scalars import finite_float_or_none
 
 
 TRANSITION_RISK_V1 = "v1"
@@ -162,11 +163,11 @@ def structure_transition_fit_from_values(
     """
 
     scores: list[float] = []
-    seed_duration = _finite_float(seed_values.get("analyzed_duration_seconds"))
+    seed_duration = finite_float_or_none(seed_values.get("analyzed_duration_seconds"))
     if seed_duration is None:
-        seed_duration = _finite_float(seed_duration_seconds)
-    seed_outro_start = _finite_float(seed_values.get("outro_start_seconds"))
-    candidate_intro_end = _finite_float(candidate_values.get("intro_end_seconds"))
+        seed_duration = finite_float_or_none(seed_duration_seconds)
+    seed_outro_start = finite_float_or_none(seed_values.get("outro_start_seconds"))
+    candidate_intro_end = finite_float_or_none(candidate_values.get("intro_end_seconds"))
     if (
         seed_outro_start is not None
         and seed_duration is not None
@@ -176,8 +177,8 @@ def structure_transition_fit_from_values(
         intro_length = max(0.0, candidate_intro_end)
         scores.append(_clamp(min(outro_length, intro_length) / 16.0))
 
-    seed_energy_level = _finite_float(seed_values.get("energy_level"))
-    candidate_energy_level = _finite_float(candidate_values.get("energy_level"))
+    seed_energy_level = finite_float_or_none(seed_values.get("energy_level"))
+    candidate_energy_level = finite_float_or_none(candidate_values.get("energy_level"))
     if seed_energy_level is not None and candidate_energy_level is not None:
         scores.append(
             _clamp(1.0 - abs(candidate_energy_level - seed_energy_level) / 10.0)
@@ -514,7 +515,7 @@ def _feature_values(
                 "energy_curve_min",
                 "energy_curve_max",
             )
-            if (value := _finite_float(track.sonara.values.get(name))) is not None
+            if (value := finite_float_or_none(track.sonara.values.get(name))) is not None
         )
     column = _FEATURE_COLUMNS.get(field)
     if column is None:
@@ -522,9 +523,9 @@ def _feature_values(
     value = track.sonara.values.get(column)
     if isinstance(value, (tuple, list)):
         return tuple(
-            number for item in value if (number := _finite_float(item)) is not None
+            number for item in value if (number := finite_float_or_none(item)) is not None
         )
-    number = _finite_float(value)
+    number = finite_float_or_none(value)
     return (number,) if number is not None else ()
 
 
@@ -611,7 +612,7 @@ def _energy_curve_summary_values(values: Mapping[str, object]) -> tuple[float, .
             "energy_curve_min",
             "energy_curve_max",
         )
-        if (value := _finite_float(values.get(name)))
+        if (value := finite_float_or_none(values.get(name)))
     )
 
 
@@ -632,7 +633,7 @@ def _confidence_missingness_risk(
 
 def _track_bpm(track: TransitionTrack) -> float | None:
     detected = _sonara_number(track, "detected_bpm")
-    return detected if detected is not None else _finite_float(track.summary.tag_bpm)
+    return detected if detected is not None else finite_float_or_none(track.summary.tag_bpm)
 
 
 def _track_energy(track: TransitionTrack) -> float | None:
@@ -644,7 +645,7 @@ def _track_duration(track: TransitionTrack) -> float | None:
     return (
         analyzed
         if analyzed is not None
-        else _finite_float(track.summary.audio_duration_seconds)
+        else finite_float_or_none(track.summary.audio_duration_seconds)
     )
 
 
@@ -706,7 +707,7 @@ def _classifier_scores(
 def _sonara_number(track: TransitionTrack, field: str) -> float | None:
     if track.sonara is None:
         return None
-    return _finite_float(track.sonara.values.get(field))
+    return finite_float_or_none(track.sonara.values.get(field))
 
 
 def _sonara_text(track: TransitionTrack, field: str) -> str | None:
@@ -718,16 +719,6 @@ def _sonara_text(track: TransitionTrack, field: str) -> str | None:
 def _contains_keyword(value: object, keywords: Sequence[str]) -> bool:
     text = str(value).casefold()
     return any(keyword in text for keyword in keywords)
-
-
-def _finite_float(value: object) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _text(value: object) -> str | None:

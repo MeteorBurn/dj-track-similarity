@@ -20,6 +20,14 @@ from .judged import (
 from .metrics import bad_suggestion_rate_at_k, ndcg_at_k, precision_at_k
 from .recorded_sessions import load_current_evaluation_sessions
 from .reports import RELEVANCE_THRESHOLD
+from ..scalars import (
+    coerced_positive_int,
+    coerced_text,
+    finite_float_or_none,
+    non_negative_finite_float,
+    non_negative_int,
+    positive_int_or_none,
+)
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -257,17 +265,17 @@ def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, An
     risk_weights = _report_risk_weights(report)
     guardrails = _required_mapping(report.get("guardrails"), "guardrails")
     payload = {
-        "profile_name": _coerced_text(report.get("profile_name"), "profile_name"),
+        "profile_name": coerced_text(report.get("profile_name"), "profile_name"),
         "source": SOURCE,
         "profile_source": SAVED_PROFILE_SOURCE,
-        "label_status": _coerced_text(report.get("label_status"), "label_status"),
-        "created_at": _coerced_text(report.get("created_at"), "created_at"),
+        "label_status": coerced_text(report.get("label_status"), "label_status"),
+        "created_at": coerced_text(report.get("created_at"), "created_at"),
         "saved_at": _utc_timestamp(),
         "objective": _objective(str(report.get("objective", DEFAULT_OBJECTIVE))),
         "split_by": _split_by(str(report.get("split_by", DEFAULT_SPLIT_BY))),
-        "judged_pairs": _non_negative_int(report.get("judged_pairs"), "judged_pairs"),
-        "judged_seeds": _non_negative_int(report.get("judged_seeds"), "judged_seeds"),
-        "rrf_k": _coerced_positive_int(report.get("rrf_k"), "rrf_k"),
+        "judged_pairs": non_negative_int(report.get("judged_pairs"), "judged_pairs"),
+        "judged_seeds": non_negative_int(report.get("judged_seeds"), "judged_seeds"),
+        "rrf_k": coerced_positive_int(report.get("rrf_k"), "rrf_k"),
         "k_values": list(_clean_k_values(_required_sequence(report.get("k_values"), "k_values"))),
         "train_metrics": dict(_required_mapping(report.get("train_metrics"), "train_metrics")),
         "validation_metrics": dict(_required_mapping(report.get("validation_metrics"), "validation_metrics")),
@@ -280,8 +288,8 @@ def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, An
         "can_apply_as_default": True,
         "guardrails": {
             "split_by": "seed_track_id",
-            "min_judged_pairs": _coerced_positive_int(guardrails.get("min_judged_pairs"), "guardrails.min_judged_pairs"),
-            "effective_min_judged_pairs": _coerced_positive_int(
+            "min_judged_pairs": coerced_positive_int(guardrails.get("min_judged_pairs"), "guardrails.min_judged_pairs"),
+            "effective_min_judged_pairs": coerced_positive_int(
                 guardrails.get("effective_min_judged_pairs"),
                 "guardrails.effective_min_judged_pairs",
             ),
@@ -289,8 +297,8 @@ def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, An
             "validation_ndcg_improved": True,
             "bootstrap_stability_passed": True,
         },
-        "decision": _coerced_text(report.get("decision"), "decision"),
-        "default_update_policy": _coerced_text(report.get("default_update_policy"), "default_update_policy"),
+        "decision": coerced_text(report.get("decision"), "decision"),
+        "default_update_policy": coerced_text(report.get("default_update_policy"), "default_update_policy"),
     }
     _validate_saved_score_profile_payload(payload)
     return payload
@@ -318,7 +326,7 @@ def _report_weights(report: Mapping[str, Any]) -> dict[str, float]:
     raw_weights = _required_mapping(report.get("weights"), "weights")
     sources = _source_list(report.get("sources"))
     weights = {
-        str(source).strip().lower(): _non_negative_finite_float(weight, f"weights.{source}")
+        str(source).strip().lower(): non_negative_finite_float(weight, f"weights.{source}")
         for source, weight in raw_weights.items()
     }
     if set(weights) != set(sources):
@@ -330,7 +338,7 @@ def _report_weights(report: Mapping[str, Any]) -> dict[str, float]:
 def _report_risk_weights(report: Mapping[str, Any]) -> dict[str, float]:
     raw_risk_weights = _required_mapping(report.get("risk_weights"), "risk_weights")
     risk_weights = {
-        _coerced_text(name, "risk weight name"): _non_negative_finite_float(weight, f"risk_weights.{name}")
+        coerced_text(name, "risk weight name"): non_negative_finite_float(weight, f"risk_weights.{name}")
         for name, weight in raw_risk_weights.items()
     }
     if not risk_weights:
@@ -355,8 +363,8 @@ def _validate_saved_score_profile_payload(payload: Mapping[str, Any]) -> None:
     validation_metrics = _required_mapping(payload.get("validation_metrics"), "validation_metrics")
     baseline_metrics = _required_mapping(payload.get("baseline_validation_metrics"), "baseline_validation_metrics")
     metric_cutoff = GUARDRAIL_METRIC_CUTOFF
-    _non_negative_finite_float(validation_metrics.get(f"ndcg_at_{metric_cutoff}"), f"validation_metrics.ndcg_at_{metric_cutoff}")
-    _non_negative_finite_float(baseline_metrics.get(f"ndcg_at_{metric_cutoff}"), f"baseline_validation_metrics.ndcg_at_{metric_cutoff}")
+    non_negative_finite_float(validation_metrics.get(f"ndcg_at_{metric_cutoff}"), f"validation_metrics.ndcg_at_{metric_cutoff}")
+    non_negative_finite_float(baseline_metrics.get(f"ndcg_at_{metric_cutoff}"), f"baseline_validation_metrics.ndcg_at_{metric_cutoff}")
 
 
 def _required_mapping(value: object, field_name: str) -> Mapping[str, Any]:
@@ -394,19 +402,19 @@ def _optimizer_request(
     grid_step: float,
     bootstrap_samples: int,
 ) -> OptimizerRequest:
-    clean_min_judged_pairs = _coerced_positive_int(min_judged_pairs, "min_judged_pairs")
+    clean_min_judged_pairs = coerced_positive_int(min_judged_pairs, "min_judged_pairs")
     clean_k_values = _clean_k_values(k_values)
     return OptimizerRequest(
-        profile_name=_coerced_text(profile_name, "profile_name"),
+        profile_name=coerced_text(profile_name, "profile_name"),
         objective=_objective(objective),
         split_by=_split_by(split_by),
         min_judged_pairs=clean_min_judged_pairs,
         effective_min_judged_pairs=max(clean_min_judged_pairs, CANDIDATE_PROFILE_JUDGED_PAIRS),
-        rrf_k=_coerced_positive_int(rrf_k, "rrf_k"),
+        rrf_k=coerced_positive_int(rrf_k, "rrf_k"),
         k_values=clean_k_values,
         random_seed=_int_value(random_seed, "random_seed"),
         grid_step=_grid_step(grid_step),
-        bootstrap_samples=_non_negative_int(bootstrap_samples, "bootstrap_samples"),
+        bootstrap_samples=non_negative_int(bootstrap_samples, "bootstrap_samples"),
     )
 
 
@@ -426,15 +434,15 @@ def _matched_optimizer_examples(
             source_contributions = _source_contributions(event.get("score_breakdown"))
             if not source_contributions:
                 continue
-            candidate_track_id = _coerced_positive_int(event.get("track_id"), "candidate_track_id")
+            candidate_track_id = coerced_positive_int(event.get("track_id"), "candidate_track_id")
             labels = matching_labels(seed_track_ids, candidate_track_id, feedback_source, feedback_map)
             for label in labels:
                 key = (int(label["seed_track_id"]), int(label["candidate_track_id"]), str(label["source"]))
                 examples_by_key.setdefault(
                     key,
                     OptimizerExample(
-                        session_id=_coerced_positive_int(session.get("id"), "session_id"),
-                        event_id=_coerced_positive_int(event.get("id"), "event_id"),
+                        session_id=coerced_positive_int(session.get("id"), "session_id"),
+                        event_id=coerced_positive_int(event.get("id"), "event_id"),
                         seed_track_id=int(label["seed_track_id"]),
                         candidate_track_id=int(label["candidate_track_id"]),
                         rating=_rating(label.get("rating")),
@@ -558,7 +566,7 @@ def _example_score(
         weighted_score += weight * (1.0 / (rrf_k + rank))
         present_weight += weight
     normalized_score = weighted_score / present_weight if present_weight > 0.0 else 0.0
-    transition_risk_weight = _non_negative_finite_float(risk_weights.get("transition_risk", 0.0), "risk_weights.transition_risk")
+    transition_risk_weight = non_negative_finite_float(risk_weights.get("transition_risk", 0.0), "risk_weights.transition_risk")
     return normalized_score - transition_risk_weight * example.transition_risk
 
 
@@ -765,12 +773,12 @@ def _source_payload(score_breakdown: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def _parse_source_contribution(payload: object) -> SourceContribution | None:
     if isinstance(payload, Mapping):
-        rank = _optional_positive_int(payload.get("rank"))
-        score = _optional_finite_float(payload.get("score"))
+        rank = positive_int_or_none(payload.get("rank"))
+        score = finite_float_or_none(payload.get("score"))
         if rank is None and score is None:
             return None
         return SourceContribution(rank=rank, score=score)
-    score = _optional_finite_float(payload)
+    score = finite_float_or_none(payload)
     if score is None:
         return None
     return SourceContribution(rank=None, score=score)
@@ -779,7 +787,7 @@ def _parse_source_contribution(payload: object) -> SourceContribution | None:
 def _transition_risk(score_breakdown: object) -> float:
     if not isinstance(score_breakdown, Mapping):
         return 0.0
-    value = _optional_finite_float(score_breakdown.get("transition_risk"))
+    value = finite_float_or_none(score_breakdown.get("transition_risk"))
     if value is None or value < 0.0:
         return 0.0
     return value
@@ -841,7 +849,7 @@ def _assert_normalized_weights(weights: Mapping[str, float]) -> None:
     if not any(weight > 0.0 for weight in weights.values()):
         raise ValueError("At least one source weight must be positive")
     for source, weight in weights.items():
-        _non_negative_finite_float(weight, f"weights.{source}")
+        non_negative_finite_float(weight, f"weights.{source}")
     if not math.isclose(sum(weights.values()), 1.0, rel_tol=0.0, abs_tol=1e-9):
         raise ValueError("Source weights must sum to 1.0")
 
@@ -914,7 +922,7 @@ def _split_report(split: SeedSplit) -> dict[str, Any]:
 
 
 def _clean_k_values(k_values: Sequence[int]) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(sorted(_coerced_positive_int(k, "k") for k in k_values)))
+    clean_values = tuple(dict.fromkeys(sorted(coerced_positive_int(k, "k") for k in k_values)))
     if not clean_values:
         return (GUARDRAIL_METRIC_CUTOFF,)
     if GUARDRAIL_METRIC_CUTOFF in clean_values:
@@ -937,43 +945,10 @@ def _split_by(value: str) -> str:
 
 
 def _grid_step(value: float) -> float:
-    number = _non_negative_finite_float(value, "grid_step")
+    number = non_negative_finite_float(value, "grid_step")
     if number <= 0.0 or number > 1.0:
         raise ValueError("grid_step must be greater than 0 and no more than 1")
     return number
-
-
-def _coerced_text(value: object, field_name: str) -> str:
-    if value is None:
-        raise ValueError(f"{field_name} must not be empty")
-    text = str(value).strip()
-    if not text:
-        raise ValueError(f"{field_name} must not be empty")
-    return text
-
-
-def _coerced_positive_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
-
-
-def _non_negative_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a non-negative integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a non-negative integer") from error
-    if clean_value < 0:
-        raise ValueError(f"{field_name} must be a non-negative integer")
-    return clean_value
 
 
 def _int_value(value: object, field_name: str) -> int:
@@ -983,42 +958,6 @@ def _int_value(value: object, field_name: str) -> int:
         return int(value)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{field_name} must be an integer") from error
-
-
-def _optional_positive_int(value: object) -> int | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError):
-        return None
-    if clean_value <= 0:
-        return None
-    return clean_value
-
-
-def _optional_finite_float(value: object) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(number):
-        return None
-    return number
-
-
-def _non_negative_finite_float(value: object, field_name: str) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a finite non-negative number")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a finite non-negative number") from error
-    if not math.isfinite(number) or number < 0.0:
-        raise ValueError(f"{field_name} must be a finite non-negative number")
-    return number
 
 
 def _rating(value: object) -> int:

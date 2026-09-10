@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ..track_models import TrackIdentity
+from ..scalars import positive_int_or_none
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -92,8 +93,8 @@ def _current_session(
             if _snapshot_matches(seed, identities)
         ),
         key=lambda seed: (
-            _positive_int_or_none(seed.get("position")) or 0,
-            _positive_int_or_none(seed.get("track_id")) or 0,
+            positive_int_or_none(seed.get("position")) or 0,
+            positive_int_or_none(seed.get("track_id")) or 0,
         ),
     )
     if len(seeds) != len(raw_seeds):
@@ -107,8 +108,8 @@ def _current_session(
             and _event_provenance_matches(event, catalog_uuid=db.catalog_uuid)
         ),
         key=lambda event: (
-            _positive_int_or_none(event.get("rank")) or 0,
-            _positive_int_or_none(event.get("id")) or 0,
+            positive_int_or_none(event.get("rank")) or 0,
+            positive_int_or_none(event.get("id")) or 0,
         ),
     )
     result = dict(session)
@@ -151,7 +152,7 @@ def _recorded_seed_snapshots_match(
     if len(expected) != len(persisted) or not expected:
         return False
     expected_by_id = {
-        _positive_int_or_none(snapshot.get("track_id")): snapshot
+        positive_int_or_none(snapshot.get("track_id")): snapshot
         for snapshot in expected
     }
     if None in expected_by_id or len(expected_by_id) != len(expected):
@@ -159,7 +160,7 @@ def _recorded_seed_snapshots_match(
     return all(
         (
             expected_snapshot := expected_by_id.get(
-                _positive_int_or_none(snapshot.get("track_id"))
+                positive_int_or_none(snapshot.get("track_id"))
             )
         )
         is not None
@@ -180,8 +181,8 @@ def _persisted_snapshot_matches(
 ) -> bool:
     return (
         expected.get("catalog_uuid") == catalog_uuid
-        and _positive_int_or_none(expected.get("track_id"))
-        == _positive_int_or_none(persisted.get("track_id"))
+        and positive_int_or_none(expected.get("track_id"))
+        == positive_int_or_none(persisted.get("track_id"))
         and _required_text_or_none(expected.get("track_uuid"))
         == _required_text_or_none(persisted.get("track_uuid"))
     )
@@ -191,7 +192,7 @@ def _snapshot_matches(
     snapshot: Mapping[str, Any],
     identities: Mapping[int, TrackIdentity],
 ) -> bool:
-    track_id = _positive_int_or_none(snapshot.get("track_id"))
+    track_id = positive_int_or_none(snapshot.get("track_id"))
     track_uuid = _required_text_or_none(snapshot.get("track_uuid"))
     if (
         track_id is None
@@ -214,7 +215,7 @@ def _recorded_track_ids(
             *_mapping_sequence(session.get("seeds")),
             *_mapping_sequence(session.get("events")),
         ):
-            track_id = _positive_int_or_none(row.get("track_id"))
+            track_id = positive_int_or_none(row.get("track_id"))
             if track_id is not None:
                 track_ids.append(track_id)
     return tuple(dict.fromkeys(track_ids))
@@ -237,16 +238,6 @@ def _mapping_sequence(value: object) -> tuple[Mapping[str, Any], ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return ()
     return tuple(item for item in value if isinstance(item, Mapping))
-
-
-def _positive_int_or_none(value: object) -> int | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
 
 
 def _required_text_or_none(value: object) -> str | None:

@@ -30,6 +30,7 @@ from .vector_index import (
     VectorSearchBackend,
     VectorSearchHit,
 )
+from ..scalars import finite_number
 
 
 FloatArray = NDArray[np.float32]
@@ -95,16 +96,16 @@ class SearchFilters:
 
     def __post_init__(self) -> None:
         if self.min_similarity is not None:
-            _finite_number(
+            finite_number(
                 self.min_similarity,
                 "min_similarity",
             )
-        if self.epsilon is not None and _finite_number(
+        if self.epsilon is not None and finite_number(
             self.epsilon,
             "epsilon",
         ) < 0.0:
             raise ValueError("epsilon must be non-negative")
-        noise = _finite_number(self.noise, "noise")
+        noise = finite_number(self.noise, "noise")
         if not 0.0 <= noise <= 1.0:
             raise ValueError("noise must be between 0 and 1")
 
@@ -892,7 +893,7 @@ def _contrast_vector_scores(
         )[:, -2:].mean(axis=1)
     else:
         negative_scores = np.zeros_like(positive_scores)
-    bounded_weight = _finite_number(
+    bounded_weight = finite_number(
         negative_weight,
         "negative_weight",
     )
@@ -1124,16 +1125,3 @@ def _target_ids(
 ) -> list[int]:
     return [target.track_id for target in targets]
 
-
-def _finite_number(value: object, field_name: str) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a finite number")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            f"{field_name} must be a finite number"
-        ) from error
-    if not math.isfinite(number):
-        raise ValueError(f"{field_name} must be a finite number")
-    return number

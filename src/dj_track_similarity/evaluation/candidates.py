@@ -17,6 +17,7 @@ from ..track_resolution import resolve_track_camelot, resolve_track_energy, reso
 from ..transition_diagnostics import TransitionTrack
 from .csv_io import CsvRow, write_csv_rows
 from .track_views import load_transition_tracks_for_targets
+from ..scalars import coerced_positive_int
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -278,7 +279,7 @@ def _parse_export_request(
 ) -> CandidateExportRequest:
     clean_seed_track_ids = _positive_unique_ints(seed_track_ids, "seed_track_id")
     clean_sources = _clean_sources(sources)
-    clean_per_source = _coerced_positive_int(per_source, "per_source")
+    clean_per_source = coerced_positive_int(per_source, "per_source")
     clean_random_seed = _int_value(random_seed, "random_seed")
     return CandidateExportRequest(
         seed_track_ids=clean_seed_track_ids,
@@ -459,22 +460,10 @@ def _clean_sources(sources: Sequence[str] | None) -> tuple[str, ...]:
 
 
 def _positive_unique_ints(values: Sequence[int], field_name: str) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(_coerced_positive_int(value, field_name) for value in values))
+    clean_values = tuple(dict.fromkeys(coerced_positive_int(value, field_name) for value in values))
     if not clean_values:
         raise ValueError(f"At least one --{field_name.replace('_', '-')} value is required")
     return clean_values
-
-
-def _coerced_positive_int(value: int, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
 
 
 def _int_value(value: int, field_name: str) -> int:

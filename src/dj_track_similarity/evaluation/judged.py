@@ -4,6 +4,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from ..scalars import non_negative_int
 
 DEFAULT_FEEDBACK_SOURCE = "manual"
 JUDGED_MODE = "judged_validation"
@@ -121,7 +122,7 @@ def session_seed_track_ids(session: Mapping[str, Any]) -> tuple[int, ...]:
 
 
 def judged_label_status(judged_pairs: int) -> str:
-    clean_judged_pairs = _non_negative_int(judged_pairs, "judged_pairs")
+    clean_judged_pairs = non_negative_int(judged_pairs, "judged_pairs")
     if clean_judged_pairs < INSUFFICIENT_JUDGED_PAIRS:
         return "insufficient_data"
     if clean_judged_pairs < CANDIDATE_PROFILE_JUDGED_PAIRS:
@@ -191,14 +192,3 @@ def _labels_by_rating(labels: Sequence[MatchedJudgedLabel]) -> dict[str, int]:
     counts = Counter(label.rating for label in labels)
     return {str(rating): counts.get(rating, 0) for rating in range(4)}
 
-
-def _non_negative_int(value: int, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a non-negative integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a non-negative integer") from error
-    if clean_value < 0:
-        raise ValueError(f"{field_name} must be a non-negative integer")
-    return clean_value

@@ -10,6 +10,12 @@ import sqlite3
 from typing import Any
 
 from ..track_models import TrackIdentity
+from ..scalars import (
+    coerced_positive_int,
+    coerced_text,
+    finite_number,
+    non_negative_int,
+)
 
 
 class EvaluationRepository:
@@ -31,15 +37,6 @@ class EvaluationRepository:
         raise NotImplementedError(
             "LibraryDatabase must provide connect_evaluation(create=...)"
         )
-
-    def open_evaluation_storage(self) -> None:
-        """Explicitly create/open and validate the optional Evaluation sidecar."""
-
-        with self._write_lock:
-            connection = self.connect_evaluation(create=True)
-            if connection is None:
-                raise RuntimeError("Failed to open the Evaluation database")
-            connection.close()
 
     def list_search_sessions_with_events(self) -> list[dict[str, Any]]:
         connection = self.connect_evaluation(create=False)
@@ -153,7 +150,7 @@ class EvaluationRepository:
         ):
             raise RuntimeError("Track identity is stale; refresh the current catalog")
         clean_sources = tuple(dict.fromkeys(
-            _coerced_text(source, "Pair feedback source") for source in sources
+            coerced_text(source, "Pair feedback source") for source in sources
         ))
         if not selected or not clean_sources:
             return {}
@@ -307,7 +304,7 @@ class EvaluationRepository:
     ) -> int:
         """Append an explicit score profile to optional Evaluation storage."""
 
-        clean_name = _coerced_text(profile_name, "Evaluation profile name")
+        clean_name = coerced_text(profile_name, "Evaluation profile name")
         profile_json = _json_text(_json_object(profile, "Evaluation profile"))
         with self._write_lock:
             connection = _required_evaluation_connection(self, create=True)
@@ -329,7 +326,7 @@ class EvaluationRepository:
     ) -> dict[str, Any] | None:
         """Read the newest saved profile with an exact user-provided name."""
 
-        clean_name = _coerced_text(profile_name, "Evaluation profile name")
+        clean_name = coerced_text(profile_name, "Evaluation profile name")
         connection = self.connect_evaluation(create=False)
         if connection is None:
             return None
@@ -362,7 +359,7 @@ class EvaluationRepository:
         seed_track_ids: Sequence[int],
         request: Mapping[str, Any],
     ) -> int:
-        clean_mode = _coerced_text(mode, "Search session mode")
+        clean_mode = coerced_text(mode, "Search session mode")
         clean_seed_track_ids = _positive_unique_ints(
             seed_track_ids,
             "Seed track id",
@@ -419,10 +416,10 @@ class EvaluationRepository:
         total_score: float,
         score_breakdown: Mapping[str, Any],
     ) -> int:
-        clean_session_id = _coerced_positive_int(session_id, "Search session id")
-        clean_track_id = _coerced_positive_int(track_id, "Search result track id")
-        clean_rank = _non_negative_int(rank, "Search result rank")
-        clean_total_score = _finite_float(
+        clean_session_id = coerced_positive_int(session_id, "Search session id")
+        clean_track_id = coerced_positive_int(track_id, "Search result track id")
+        clean_rank = non_negative_int(rank, "Search result rank")
+        clean_total_score = finite_number(
             total_score,
             "Search result total score",
         )
@@ -513,7 +510,7 @@ class EvaluationRepository:
             )
         clean_rating = _rating(rating)
         reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
-        clean_source = _coerced_text(source, "Pair feedback source")
+        clean_source = coerced_text(source, "Pair feedback source")
         timestamp = _utc_timestamp()
         with (
             self._write_lock,
@@ -612,13 +609,13 @@ class EvaluationRepository:
             seed_track_ids,
             "Seed track id",
         )
-        clean_candidate_track_id = _coerced_positive_int(
+        clean_candidate_track_id = coerced_positive_int(
             candidate_track_id,
             "Candidate track id",
         )
         clean_rating = _rating(rating)
         reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
-        clean_source = _coerced_text(source, "Pair feedback source")
+        clean_source = coerced_text(source, "Pair feedback source")
         timestamp = _utc_timestamp()
         with (
             self._write_lock,
@@ -697,17 +694,17 @@ class EvaluationRepository:
         notes: str | None = None,
         source: str = "manual",
     ) -> int:
-        clean_outgoing_track_id = _coerced_positive_int(
+        clean_outgoing_track_id = coerced_positive_int(
             outgoing_track_id,
             "Outgoing track id",
         )
-        clean_incoming_track_id = _coerced_positive_int(
+        clean_incoming_track_id = coerced_positive_int(
             incoming_track_id,
             "Incoming track id",
         )
         clean_rating = _rating(rating)
         risk_tags_json = _json_text(_clean_tags(risk_tags, "Risk tag"))
-        clean_source = _coerced_text(source, "Transition feedback source")
+        clean_source = coerced_text(source, "Transition feedback source")
         timestamp = _utc_timestamp()
         with (
             self._write_lock,
@@ -746,11 +743,11 @@ class EvaluationRepository:
         config: Mapping[str, Any],
         metrics: Mapping[str, Any],
     ) -> int:
-        clean_profile_name = _coerced_text(
+        clean_profile_name = coerced_text(
             profile_name,
             "Calibration profile name",
         )
-        clean_search_mode = _coerced_text(
+        clean_search_mode = coerced_text(
             search_mode,
             "Calibration search mode",
         )
@@ -913,63 +910,18 @@ def _json_object(value: object, field_name: str) -> dict[str, Any]:
     return dict(value)
 
 
-def _coerced_text(value: object, field_name: str) -> str:
-    if value is None:
-        raise ValueError(f"{field_name} must not be empty")
-    text = str(value).strip()
-    if not text:
-        raise ValueError(f"{field_name} must not be empty")
-    return text
-
-
-def _coerced_positive_int(value: int, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
-
-
 def _positive_unique_ints(
     values: Sequence[int],
     field_name: str,
 ) -> tuple[int, ...]:
     clean_values = tuple(
-        dict.fromkeys(_coerced_positive_int(value, field_name) for value in values)
+        dict.fromkeys(coerced_positive_int(value, field_name) for value in values)
     )
     if not clean_values:
         raise ValueError(
             f"{field_name} list must contain at least one value"
         )
     return clean_values
-
-
-def _non_negative_int(value: int, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a non-negative integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            f"{field_name} must be a non-negative integer"
-        ) from error
-    if clean_value < 0:
-        raise ValueError(f"{field_name} must be a non-negative integer")
-    return clean_value
-
-
-def _finite_float(value: float, field_name: str) -> float:
-    try:
-        clean_value = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be finite") from error
-    if not math.isfinite(clean_value):
-        raise ValueError(f"{field_name} must be finite")
-    return clean_value
 
 
 def _rating(value: int) -> int:

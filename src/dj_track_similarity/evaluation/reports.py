@@ -23,7 +23,12 @@ from .metrics import (
     reject_rate_at_k,
     strong_match_rate_at_k,
 )
-from .judged import build_judged_label_gate, matching_label as matched_judged_label, report_status_for_judged_gate
+from .judged import (
+    build_judged_label_gate,
+    matching_label as matched_judged_label,
+    report_status_for_judged_gate,
+    session_feedback_source as judged_session_feedback_source,
+)
 from .recorded_sessions import load_current_evaluation_sessions
 
 DEFAULT_K_VALUES = (5, 10, 20)
@@ -78,7 +83,7 @@ def _session_report(
     k_values: Sequence[int],
 ) -> dict[str, Any]:
     seed_track_ids = [int(track_id) for track_id in session["seed_track_ids"]]
-    source = _session_feedback_source(session)
+    source = judged_session_feedback_source(session, default=None)
     judged_events = [_judged_event(event, seed_track_ids, source, feedback_map) for event in session["events"]]
     judged_events = [event for event in judged_events if event is not None]
     relevances = [int(event["rating"]) for event in judged_events]
@@ -106,7 +111,7 @@ def _judged_event(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> dict[str, Any] | None:
     candidate_track_id = int(event["track_id"])
-    label = _matching_label(seed_track_ids, candidate_track_id, source, feedback_map)
+    label = matched_judged_label(seed_track_ids, candidate_track_id, source, feedback_map)
     if label is None:
         return None
     return {
@@ -128,9 +133,9 @@ def _explanation_tag_comparisons(
     comparisons: list[dict[str, Any]] = []
     for session in sessions:
         seed_track_ids = [int(track_id) for track_id in session["seed_track_ids"]]
-        source = _session_feedback_source(session)
+        source = judged_session_feedback_source(session, default=None)
         for event in session["events"]:
-            label = _matching_label(seed_track_ids, int(event["track_id"]), source, feedback_map)
+            label = matched_judged_label(seed_track_ids, int(event["track_id"]), source, feedback_map)
             if label is None:
                 continue
             comparisons.append(
@@ -141,15 +146,6 @@ def _explanation_tag_comparisons(
                 },
             )
     return comparisons
-
-
-def _matching_label(
-    seed_track_ids: Sequence[int],
-    candidate_track_id: int,
-    source: str | None,
-    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    return matched_judged_label(seed_track_ids, candidate_track_id, source, feedback_map)
 
 
 def _total_relevant_for_session(
@@ -253,17 +249,6 @@ def _empty_aggregate(k_values: Sequence[int]) -> dict[str, float | int]:
 
 def _ratings_from_session(session: Mapping[str, Any]) -> list[int]:
     return [int(event["rating"]) for event in session["judged_events"]]
-
-
-def _session_feedback_source(session: Mapping[str, Any]) -> str | None:
-    request = session.get("request")
-    if not isinstance(request, Mapping):
-        return None
-    source = request.get("feedback_source") or request.get("label_source") or request.get("source")
-    if source is None:
-        return None
-    text = str(source).strip()
-    return text or None
 
 
 def _all_labels_by_rating(feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]]) -> dict[str, int]:

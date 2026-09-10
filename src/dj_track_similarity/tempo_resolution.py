@@ -8,6 +8,7 @@ import math
 from .analysis_models import SonaraFeatureRow
 from .library_models import TrackSummary
 from .track_models import TrackIdentity
+from .scalars import finite_float_or_none
 
 
 LOW_BPM_CONFIDENCE = 0.45
@@ -167,14 +168,14 @@ def _candidate_bpms(value: object) -> tuple[float, ...]:
 
 
 def _valid_bpm(value: object) -> float | None:
-    bpm = _finite_float(value)
+    bpm = finite_float_or_none(value)
     if bpm is None or not 20.0 <= bpm <= 300.0:
         return None
     return float(bpm)
 
 
 def _unit_interval_or_none(value: object) -> float | None:
-    number = _finite_float(value)
+    number = finite_float_or_none(value)
     if number is None:
         return None
     return _clamp01(float(number))
@@ -289,12 +290,3 @@ def resolve_tempo_evidence_from_values(
         source=source,
     )
 
-
-def _finite_float(value: object) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None

@@ -13,6 +13,11 @@ from .judged import (
 )
 from .metrics import explanation_tag_agreement_at_k
 from .recorded_sessions import load_current_evaluation_sessions
+from ..scalars import (
+    coerced_positive_int,
+    finite_number,
+    positive_int_or_none,
+)
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -63,7 +68,7 @@ def log_loss(predicted_probabilities: Sequence[float], labels: Sequence[int], ep
 
 
 def reliability_bins(predicted_probabilities: Sequence[float], labels: Sequence[int], bins: int = DEFAULT_BINS) -> list[dict[str, float | int | None]]:
-    clean_bins = _coerced_positive_int(bins, "bins")
+    clean_bins = coerced_positive_int(bins, "bins")
     samples = _probability_samples(predicted_probabilities, labels)
     buckets: list[list[tuple[float, int]]] = [[] for _ in range(clean_bins)]
     for probability, label in samples:
@@ -73,7 +78,7 @@ def reliability_bins(predicted_probabilities: Sequence[float], labels: Sequence[
 
 
 def expected_calibration_error(predicted_probabilities: Sequence[float], labels: Sequence[int], bins: int = DEFAULT_BINS) -> float:
-    clean_bins = _coerced_positive_int(bins, "bins")
+    clean_bins = coerced_positive_int(bins, "bins")
     samples = _probability_samples(predicted_probabilities, labels)
     total = len(samples)
     buckets: list[list[tuple[float, int]]] = [[] for _ in range(clean_bins)]
@@ -98,7 +103,7 @@ def score_quantiles(
     scores: Sequence[float],
     quantiles: Sequence[float] = (0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0),
 ) -> list[dict[str, float]]:
-    clean_scores = sorted(_finite_float(score, "score") for score in scores)
+    clean_scores = sorted(finite_number(score, "score") for score in scores)
     if not clean_scores:
         return []
     clean_quantiles = tuple(_probability(quantile, "quantile") for quantile in quantiles)
@@ -116,10 +121,10 @@ def build_calibration_report(
     judged_only: bool = False,
 ) -> dict[str, Any]:
     clean_score_mode = _score_mode(score_mode)
-    clean_bins = _coerced_positive_int(bins, "bins")
-    clean_min_samples = _coerced_positive_int(min_samples, "min_samples")
+    clean_bins = coerced_positive_int(bins, "bins")
+    clean_min_samples = coerced_positive_int(min_samples, "min_samples")
     clean_accepted_threshold = _rating_threshold(accepted_threshold)
-    clean_rrf_k = _coerced_positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = coerced_positive_int(rrf_k, "rrf_k")
     sessions = load_current_evaluation_sessions(db)
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=judged_only)
@@ -295,7 +300,7 @@ def _event_total_score_samples(
     has_out_of_range_score = False
     for session in sessions:
         for event in session["events"]:
-            total_score = _finite_float(event["total_score"], "total_score")
+            total_score = finite_number(event["total_score"], "total_score")
             sample = _event_sample(session, event, total_score, feedback_map, accepted_threshold)
             if sample is not None:
                 if total_score < 0.0 or total_score > 1.0:
@@ -314,26 +319,22 @@ def _event_sample(
 ) -> CalibrationSample | None:
     seed_track_ids = tuple(int(track_id) for track_id in session["seed_track_ids"])
     candidate_track_id = int(event["track_id"])
-    label = _matching_label(seed_track_ids, candidate_track_id, _session_feedback_source(session), feedback_map)
+    label = matched_judged_label(
+        seed_track_ids,
+        candidate_track_id,
+        judged_session_feedback_source(session, default=None),
+        feedback_map,
+    )
     if label is None:
         return None
     rating = int(label["rating"])
     return CalibrationSample(
         session_id=int(session["id"]),
         candidate_track_id=candidate_track_id,
-        score=_finite_float(score, "score"),
+        score=finite_number(score, "score"),
         rating=rating,
         label=int(rating >= accepted_threshold),
     )
-
-
-def _matching_label(
-    seed_track_ids: Sequence[int],
-    candidate_track_id: int,
-    preferred_source: str | None,
-    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
 
 
 def _minmax_rank_scores(ranked_candidates: Sequence[Any]) -> dict[int, float]:
@@ -442,14 +443,10 @@ def _report_notes(status: str, *, sample_count: int, min_samples: int, judged_ga
 def _event_sort_key(event: Mapping[str, Any]) -> tuple[int, int]:
     score_breakdown = event.get("score_breakdown")
     if isinstance(score_breakdown, Mapping):
-        blind_rank = _optional_positive_int(score_breakdown.get("blind_rank"))
+        blind_rank = positive_int_or_none(score_breakdown.get("blind_rank"))
         if blind_rank is not None:
             return blind_rank, int(event["id"])
     return int(event["rank"]), int(event["id"])
-
-
-def _session_feedback_source(session: Mapping[str, Any]) -> str | None:
-    return judged_session_feedback_source(session, default=None)
 
 
 def _score_mode(value: str) -> str:
@@ -485,48 +482,14 @@ def _binary_label(value: int) -> int:
 
 
 def _probability(value: float, field_name: str) -> float:
-    probability = _finite_float(value, field_name)
+    probability = finite_number(value, field_name)
     if probability < 0.0 or probability > 1.0:
         raise ValueError(f"{field_name} must be in [0, 1]")
     return probability
 
 
-def _finite_float(value: float, field_name: str) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be finite") from error
-    if not math.isfinite(number):
-        raise ValueError(f"{field_name} must be finite")
-    return number
-
-
-def _coerced_positive_int(value: int, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
-
-
-def _optional_positive_int(value: object) -> int | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError):
-        return None
-    if clean_value <= 0:
-        return None
-    return clean_value
-
-
 def _clean_eps(value: float) -> float:
-    eps = _finite_float(value, "eps")
+    eps = finite_number(value, "eps")
     if eps <= 0.0 or eps >= 0.5:
         raise ValueError("eps must be greater than 0 and less than 0.5")
     return eps

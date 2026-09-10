@@ -20,6 +20,10 @@ from typing import Literal
 import numpy as np
 
 from .db.ddl import ClassifierScoreRecord, SonaraRow
+from .scalars import (
+    finite_number,
+    positive_int,
+)
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
@@ -197,194 +201,12 @@ def current_embedding_spec(family: str) -> EmbeddingFamilySpec:
         ) from error
 
 
-_ML_CANONICAL_RUNTIME_PARAMETERS: dict[
-    tuple[str, str], Mapping[str, object]
-] = {
-    ("maest", "analysis"): {
-        "sample_rate_hz": 16_000,
-        "audio_input": "full-track",
-        "channel_downmix": "torchcodec-num-channels-1",
-        "decoder": "shared-torchcodec-0.16",
-        "resampler": "torchaudio",
-        "block_selection": "upstream-mel-contiguous-blocks",
-        "tail_handling": "upstream-trim-incomplete-mel-block",
-        "short_audio": "upstream-variable-length-mel",
-        "model_input": "1d-raw-waveform-melspectrogram-input-false",
-        "score_activation": "sigmoid-logits",
-        "score_pooling": "upstream-sigmoid-then-block-mean-then-top-k",
-    },
-    ("maest", "embedding"): {
-        "sample_rate_hz": 16_000,
-        "audio_input": "full-track",
-        "pooling": "native-distilled-token-mean+storage-block-mean+l2",
-        "channel_downmix": "torchcodec-num-channels-1",
-        "decoder": "shared-torchcodec-0.16",
-        "resampler": "torchaudio",
-        "block_selection": "upstream-mel-contiguous-blocks",
-        "tail_handling": "upstream-trim-incomplete-mel-block",
-        "short_audio": "upstream-variable-length-mel",
-        "model_input": "1d-raw-waveform-melspectrogram-input-false",
-        "score_activation": "sigmoid-logits",
-        "score_pooling": "upstream-sigmoid-then-block-mean-then-top-k",
-    },
-    ("mert", "embedding"): {
-        "sample_rate_hz": 24_000,
-        "window_seconds": 5.0,
-        "hidden_layers": (9, 10, 11, 12),
-        "pooling": "masked-time-mean+last-4-layer-mean+sample-weighted-window-mean+l2",
-        "channel_downmix": "torchcodec-num-channels-1",
-        "decoder": "shared-torchcodec-0.16",
-        "window_selection": "consecutive-full-coverage-no-overlap",
-        "short_audio": "single-unpadded-window-minimum-400-samples",
-        "tail_policy": "at-least-400-samples-separate-otherwise-merge-into-last-window",
-        "processor_normalization": "wav2vec2-do-normalize",
-        "processor_padding": "none-equal-length-batches-with-attention-mask",
-    },
-    ("muq", "embedding"): {
-        "sample_rate_hz": 24_000,
-        "window_seconds": 10.0,
-        "max_windows": 5,
-        "pooling": "last-hidden-time-mean+per-window-l2+window-mean+l2",
-        "channel_downmix": "torchcodec-num-channels-1",
-        "decoder": "shared-torchcodec-0.16",
-        "resampler": "torchaudio",
-        "window_selection": "10%-90%-interior-evenly-spaced-rounded",
-        "short_audio": "right-zero-pad-to-window",
-    },
-    ("mulan", "embedding"): {
-        "sample_rate_hz": 24_000,
-        "clip_seconds": 10.0,
-        "audio_input": "full-track",
-        "pooling": "mulan-audio-latent+per-clip-l2+all-clips-mean+l2",
-        "channel_downmix": "torchcodec-num-channels-1",
-        "decoder": "shared-torchcodec-0.16",
-        "resampler": "torchaudio",
-        "clip_selection": "upstream-consecutive-nonoverlapping",
-        "tail_padding": "upstream-append-track-start-once",
-        "clip_batching": "native-audio-latents-bounded-by-inference-batch-size",
-    },
-    ("clap", "embedding"): {
-        "sample_rate_hz": 48_000,
-        "clip_seconds": 10.0,
-        "audio_input": "full-track",
-        "pooling": "clap-audio-latent+per-window-l2+window-mean+l2",
-        "amodel": "HTSAT-base",
-        "tmodel": "roberta",
-        "enable_fusion": False,
-        "channel_downmix": "torchcodec-num-channels-1",
-        "decoder": "shared-torchcodec-0.16",
-        "resampler": "torchaudio",
-        "audio_truncation": "adapter-consecutive-10s-windows-end-aligned-tail",
-        "short_audio": "upstream-repeatpad",
-        "input_quantization": "laion-clap-float32-int16-float32",
-        "text_model_class": "RobertaModel",
-        "text_tokenizer_class": "RobertaTokenizer",
-        "text_loader_policy": "verified-private-snapshot-local-files-only",
-    },
-}
-
 _EMBEDDING_DIM_BY_FAMILY = {
     family: spec.dimension
     for family, spec in CURRENT_EMBEDDING_SPECS.items()
 }
-_REQUIRED_PARAMETER_KEYS = {
-    ("maest", "analysis"): frozenset(
-        {
-            "adapter_revision",
-            "sample_rate_hz",
-            "audio_input",
-            "top_k",
-            "dtype",
-            "device_precision",
-            "checkpoint_release",
-            "checkpoint_filename",
-        }
-    ),
-    ("maest", "embedding"): frozenset(
-        {
-            "adapter_revision",
-            "sample_rate_hz",
-            "audio_input",
-            "pooling",
-            "dtype",
-            "device_precision",
-            "checkpoint_release",
-            "checkpoint_filename",
-        }
-    ),
-    ("mert", "embedding"): frozenset(
-        {
-            "adapter_revision",
-            "sample_rate_hz",
-            "window_seconds",
-            "hidden_layers",
-            "pooling",
-            "dtype",
-            "device_precision",
-            "model_revision",
-            "remote_code_revision",
-            "checkpoint_filename",
-            "snapshot_files",
-            "snapshot_sha256",
-        }
-    ),
-    ("muq", "embedding"): frozenset(
-        {
-            "adapter_revision",
-            "sample_rate_hz",
-            "window_seconds",
-            "max_windows",
-            "pooling",
-            "dtype",
-            "device_precision",
-            "model_revision",
-            "checkpoint_filename",
-            "snapshot_files",
-            "snapshot_sha256",
-        }
-    ),
-    ("mulan", "embedding"): frozenset(
-        {
-            "adapter_revision",
-            "sample_rate_hz",
-            "clip_seconds",
-            "audio_input",
-            "clip_selection",
-            "tail_padding",
-            "clip_batching",
-            "pooling",
-            "dtype",
-            "device_precision",
-            "model_revision",
-            "checkpoint_filename",
-            "snapshot_files",
-            "snapshot_sha256",
-        }
-    ),
-    ("clap", "embedding"): frozenset(
-        {
-            "adapter_revision",
-            "sample_rate_hz",
-            "clip_seconds",
-            "audio_input",
-            "audio_truncation",
-            "short_audio",
-            "input_quantization",
-            "pooling",
-            "amodel",
-            "tmodel",
-            "enable_fusion",
-            "dtype",
-            "device_precision",
-            "model_revision",
-            "checkpoint_filename",
-            "text_model_name",
-            "text_model_revision",
-            "text_snapshot_files",
-            "text_snapshot_sha256",
-        }
-    ),
-}
+
+
 class StaleAnalysisTargetError(RuntimeError):
     """Raised when a write target no longer names the current track content."""
 
@@ -404,26 +226,6 @@ def _canonical_text(value: object, field_name: str) -> str:
     return text
 
 
-def _positive_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return value
-
-
-def _finite_number(value: object, field_name: str) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a finite number")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a finite number") from error
-    if not math.isfinite(number):
-        raise ValueError(f"{field_name} must be a finite number")
-    return number
-
-
-
-
 @dataclass(frozen=True)
 class AnalysisTarget:
     catalog_uuid: str
@@ -439,7 +241,7 @@ class AnalysisTarget:
         object.__setattr__(
             self,
             "track_id",
-            _positive_int(self.track_id, "track_id"),
+            positive_int(self.track_id, "track_id"),
         )
         object.__setattr__(
             self,
@@ -642,7 +444,7 @@ class MaestGenreScore:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "label", _required_text(self.label, "label"))
-        score = _finite_number(self.score, "score")
+        score = finite_number(self.score, "score")
         if not 0.0 <= score <= 1.0:
             raise ValueError("score must be between 0 and 1")
         object.__setattr__(self, "score", score)

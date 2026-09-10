@@ -12,6 +12,7 @@ from ..transition_diagnostics import TransitionTrack
 from .candidates import ALLOWED_CANDIDATE_SOURCES, DEFAULT_CANDIDATE_SOURCES
 from .csv_io import CsvRow, write_csv_rows
 from .track_views import load_all_transition_tracks
+from ..scalars import coerced_positive_int
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -105,7 +106,7 @@ def export_seed_sample(
     require_complete_analysis: bool = True,
     required_sources: Sequence[str] | None = None,
 ) -> SeedSampleResult:
-    clean_count = _coerced_positive_int(count, "count")
+    clean_count = coerced_positive_int(count, "count")
     clean_random_seed = _int_value(random_seed, "random_seed")
     eligible_tracks = load_seed_sample_eligible_tracks(
         db,
@@ -155,7 +156,7 @@ def sample_seed_tracks(
     count: int,
     random_seed: int,
 ) -> tuple[tuple[SeedSampleTrack, ...], str]:
-    clean_count = _coerced_positive_int(count, "count")
+    clean_count = coerced_positive_int(count, "count")
     if not tracks:
         return (), "random"
 
@@ -359,18 +360,6 @@ def _energy_bucket(energy: float | None) -> str:
     if clean_energy < 0.66:
         return "energy_mid"
     return "energy_high"
-
-
-def _coerced_positive_int(value: int, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
 
 
 def _int_value(value: int, field_name: str) -> int:

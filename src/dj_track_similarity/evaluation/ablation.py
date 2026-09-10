@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 import json
-import math
 from typing import TYPE_CHECKING, Any
 
 from .candidates import ALLOWED_CANDIDATE_SOURCES, DEFAULT_FEEDBACK_SOURCE
@@ -28,6 +27,10 @@ from .judged import (
 from .reports import RELEVANCE_THRESHOLD
 from .recorded_sessions import load_current_evaluation_sessions
 from .score_profiles import LABEL_POLICY, ScoreProfile, rank_candidates_with_profile, score_profile_to_dict
+from ..scalars import (
+    coerced_positive_int,
+    finite_float_or_none,
+)
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -100,7 +103,7 @@ def build_source_ablation_report(
     judged_only: bool = False,
 ) -> dict[str, Any]:
     clean_k_values = _clean_k_values(k_values)
-    clean_rrf_k = _coerced_positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = coerced_positive_int(rrf_k, "rrf_k")
     clean_score_profile = _clean_score_profile(score_profile)
     raw_sessions = load_current_evaluation_sessions(db)
     sessions = _candidate_pool_sessions(raw_sessions)
@@ -221,11 +224,11 @@ def _source_payload(score_breakdown: Mapping[str, Any]) -> Mapping[str, Any]:
 def _parse_source_contribution(payload: object) -> SourceContribution | None:
     if isinstance(payload, Mapping):
         rank = _optional_positive_rank(payload.get("rank"))
-        score = _optional_finite_float(payload.get("score"))
+        score = finite_float_or_none(payload.get("score"))
         if rank is None and score is None:
             return None
         return SourceContribution(rank=rank, score=score)
-    score = _optional_finite_float(payload)
+    score = finite_float_or_none(payload)
     if score is None:
         return None
     return SourceContribution(rank=None, score=score)
@@ -253,7 +256,7 @@ def _classifier_support_contributions(classifier_support: object) -> tuple[float
         contribution
         for details in classifier_support.values()
         if isinstance(details, Mapping)
-        if (contribution := _optional_finite_float(details.get("score_contribution"))) is not None
+        if (contribution := finite_float_or_none(details.get("score_contribution"))) is not None
     )
 
 
@@ -264,7 +267,7 @@ def _classifier_breakdown_contributions(score_breakdown: object) -> tuple[float,
         contribution
         for key, details in score_breakdown.items()
         if _is_classifier_breakdown_key(key) and isinstance(details, Mapping)
-        if (contribution := _optional_finite_float(details.get("contribution"))) is not None
+        if (contribution := finite_float_or_none(details.get("contribution"))) is not None
     )
 
 
@@ -452,7 +455,7 @@ def _session_variant(
     judged_candidate_track_ids: list[int] = []
     unjudged_candidate_track_ids: list[int] = []
     for candidate in ranked_candidates:
-        label = _matching_label(session.seed_track_ids, candidate.candidate_track_id, session.feedback_source, feedback_map)
+        label = matched_judged_label(session.seed_track_ids, candidate.candidate_track_id, session.feedback_source, feedback_map)
         if label is None:
             unjudged_candidate_track_ids.append(candidate.candidate_track_id)
             if not judged_only:
@@ -470,15 +473,6 @@ def _session_variant(
         unjudged_candidate_track_ids=tuple(unjudged_candidate_track_ids),
         classifier_adjusted=classifier_adjusted,
     )
-
-
-def _matching_label(
-    seed_track_ids: Sequence[int],
-    candidate_track_id: int,
-    preferred_source: str,
-    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
 
 
 def _variant_names(session_variants: Mapping[int, Mapping[str, SessionVariant]]) -> tuple[str, ...]:
@@ -726,22 +720,10 @@ def _session_feedback_source(session: Mapping[str, Any]) -> str:
 
 
 def _clean_k_values(k_values: Sequence[int]) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(sorted(_coerced_positive_int(k, "k") for k in k_values)))
+    clean_values = tuple(dict.fromkeys(sorted(coerced_positive_int(k, "k") for k in k_values)))
     if not clean_values:
         raise ValueError("At least one positive --k value is required")
     return clean_values
-
-
-def _coerced_positive_int(value: int, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
 
 
 def _optional_positive_rank(value: object) -> int | None:
@@ -754,18 +736,6 @@ def _optional_positive_rank(value: object) -> int | None:
     if rank <= 0:
         return None
     return rank
-
-
-def _optional_finite_float(value: object) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(number):
-        return None
-    return number
 
 
 def _mean(values: Iterable[float]) -> float:

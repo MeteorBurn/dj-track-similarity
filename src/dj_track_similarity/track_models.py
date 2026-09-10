@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, TypedDict
+from .scalars import positive_int
 
 
 TrackMutationAction = Literal["added", "updated", "unchanged"]
@@ -22,12 +23,6 @@ def _canonical_text(value: object, field_name: str) -> str:
     if text != value:
         raise ValueError(f"{field_name} must not contain surrounding whitespace")
     return text
-
-
-def _positive_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return value
 
 
 @dataclass(frozen=True)
@@ -72,7 +67,7 @@ class TrackIdentity:
 
     def __post_init__(self) -> None:
         _canonical_text(self.catalog_uuid, "catalog_uuid")
-        _positive_int(self.track_id, "track_id")
+        positive_int(self.track_id, "track_id")
         _canonical_text(self.track_uuid, "track_uuid")
 
 
@@ -90,7 +85,7 @@ class TrackFileState:
 
     def __post_init__(self) -> None:
         _canonical_text(self.catalog_uuid, "catalog_uuid")
-        _positive_int(self.track_id, "track_id")
+        positive_int(self.track_id, "track_id")
         _canonical_text(self.track_uuid, "track_uuid")
         _required_text(self.file_path, "file_path")
         if (

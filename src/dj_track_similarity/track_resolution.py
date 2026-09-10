@@ -7,6 +7,7 @@ from .analysis_models import SonaraFeatureRow
 from .library_models import TrackSummary
 from .tempo_resolution import resolve_tempo_evidence
 from .track_models import TrackIdentity
+from .scalars import finite_float_or_none
 
 
 def resolve_track_bpm(
@@ -37,7 +38,7 @@ def resolve_track_energy(
     """Resolve energy only from an identity-validated SONARA Core row."""
 
     values = _validated_sonara_values(identity, track, sonara)
-    return _finite_float(values.get("energy_score"))
+    return finite_float_or_none(values.get("energy_score"))
 
 
 def resolve_track_camelot(
@@ -82,7 +83,7 @@ def resolve_track_key_confidence(
         and key_name_to_camelot(sonara_key) is None
     ):
         return None
-    confidence = _finite_float(values.get("key_confidence"))
+    confidence = finite_float_or_none(values.get("key_confidence"))
     if confidence is None:
         return None
     return max(0.0, min(1.0, confidence))
@@ -203,16 +204,6 @@ def _validated_sonara_values(
     ):
         raise ValueError("SONARA row identity does not match the current track summary")
     return dict(sonara.values)
-
-
-def _finite_float(value: object) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _text(value: object) -> str | None:

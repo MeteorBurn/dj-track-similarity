@@ -25,6 +25,10 @@ from .candidates import (
 )
 from .csv_io import CsvRow, write_csv_rows
 from .score_profiles import DEFAULT_RRF_K, ScoreProfile, score_profile_to_dict, validate_score_profile
+from ..scalars import (
+    non_negative_finite_float,
+    parsed_positive_int,
+)
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -236,7 +240,7 @@ def write_weighted_candidate_pool_csv(path: str | Path, rows: Sequence[WeightedC
 
 
 def limit_weighted_candidate_rows_per_seed(rows: Sequence[WeightedCandidateRow], limit_per_seed: int) -> tuple[WeightedCandidateRow, ...]:
-    clean_limit = _parsed_positive_int(limit_per_seed, "limit_per_seed")
+    clean_limit = parsed_positive_int(limit_per_seed, "limit_per_seed")
     counts_by_seed: dict[int, int] = {}
     capped_rows: list[WeightedCandidateRow] = []
     for row in rows:
@@ -265,10 +269,10 @@ def _parse_weighted_candidate_request(
     return WeightedCandidatePoolRequest(
         seed_track_ids=_positive_unique_ints(seed_track_ids, "seed_track_id"),
         sources=clean_sources,
-        per_source=_parsed_positive_int(per_source, "per_source"),
+        per_source=parsed_positive_int(per_source, "per_source"),
         random_seed=_int_value(random_seed, "random_seed"),
         record_session=bool(record_session),
-        rrf_k=_parsed_positive_int(rrf_k, "rrf_k"),
+        rrf_k=parsed_positive_int(rrf_k, "rrf_k"),
         transition_risk_weight=_risk_weight(transition_risk_weight, "transition_risk_weight"),
     )
 
@@ -313,7 +317,7 @@ def _scored_candidates_for_seed(
     request: WeightedCandidatePoolRequest,
 ) -> tuple[_ScoredCandidate, ...]:
     raw_scores = {
-        row.candidate_track_id: _weighted_rrf_score(row.source_contributions, profile, request.rrf_k)
+        row.candidate_track_id: weighted_rrf_score(row.source_contributions, profile.weights, request.rrf_k)
         for row in rows
     }
     eligible_rows = tuple(
@@ -448,7 +452,7 @@ def _record_weighted_candidate_sessions(
 
 
 def _score_breakdown(row: WeightedCandidateRow, profile: ScoreProfile, rrf_k: int) -> dict[str, Any]:
-    components = _weighted_rrf_components(row.source_contributions, profile, rrf_k)
+    components = weighted_rrf_components(row.source_contributions, profile.weights, rrf_k)
     return {
         "score_kind": "weighted_rrf",
         "profile_rank": row.profile_rank,
@@ -472,13 +476,6 @@ def _score_breakdown(row: WeightedCandidateRow, profile: ScoreProfile, rrf_k: in
     }
 
 
-def _weighted_rrf_score(contributions: Mapping[str, CandidateSourceContribution], profile: ScoreProfile, rrf_k: int) -> float:
-    score = weighted_rrf_score(contributions, profile.weights, rrf_k)
-    if not math.isfinite(score):
-        raise ValueError("weighted RRF produced a non-finite score")
-    return score
-
-
 def weighted_rrf_score(contributions: Mapping[str, CandidateSourceContribution], weights: Mapping[str, float], rrf_k: int) -> float:
     score = sum(float(component["contribution"]) for component in weighted_rrf_components(contributions, weights, rrf_k).values())
     if not math.isfinite(score):
@@ -491,28 +488,20 @@ def weighted_rrf_components(
     weights: Mapping[str, float],
     rrf_k: int,
 ) -> dict[str, dict[str, float | int]]:
-    clean_rrf_k = _parsed_positive_int(rrf_k, "rrf_k")
+    clean_rrf_k = parsed_positive_int(rrf_k, "rrf_k")
     components: dict[str, dict[str, float | int]] = {}
     for source, weight in sorted(weights.items()):
         contribution = contributions.get(source)
         if contribution is None:
             continue
-        rank = _parsed_positive_int(contribution.rank, f"{source}.rank")
-        clean_weight = _non_negative_finite_float(weight, f"weights.{source}")
+        rank = parsed_positive_int(contribution.rank, f"{source}.rank")
+        clean_weight = non_negative_finite_float(weight, f"weights.{source}")
         components[source] = {
             "rank": rank,
             "weight": clean_weight,
             "contribution": clean_weight * (1.0 / (clean_rrf_k + rank)),
         }
     return dict(sorted(components.items()))
-
-
-def _weighted_rrf_components(
-    contributions: Mapping[str, CandidateSourceContribution],
-    profile: ScoreProfile,
-    rrf_k: int,
-) -> dict[str, dict[str, float | int]]:
-    return weighted_rrf_components(contributions, profile.weights, rrf_k)
 
 
 def _require_sources_match_profile(profile: ScoreProfile, sources: Sequence[str]) -> None:
@@ -569,22 +558,10 @@ def _clean_sources(sources: Sequence[str]) -> tuple[str, ...]:
 
 
 def _positive_unique_ints(values: Sequence[int], field_name: str) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(_parsed_positive_int(value, field_name) for value in values))
+    clean_values = tuple(dict.fromkeys(parsed_positive_int(value, field_name) for value in values))
     if not clean_values:
         raise ValueError(f"At least one --{field_name.replace('_', '-')} value is required")
     return clean_values
-
-
-def _parsed_positive_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a positive integer")
-    try:
-        clean_value = int(str(value).strip())
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a positive integer") from error
-    if clean_value <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return clean_value
 
 
 def _int_value(value: object, field_name: str) -> int:
@@ -596,20 +573,8 @@ def _int_value(value: object, field_name: str) -> int:
         raise ValueError(f"{field_name} must be an integer") from error
 
 
-def _non_negative_finite_float(value: object, field_name: str) -> float:
-    if isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a finite non-negative number")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a finite non-negative number") from error
-    if not math.isfinite(number) or number < 0:
-        raise ValueError(f"{field_name} must be a finite non-negative number")
-    return number
-
-
 def _risk_weight(value: object, field_name: str) -> float:
-    number = _non_negative_finite_float(value, field_name)
+    number = non_negative_finite_float(value, field_name)
     if number > 1.0:
         raise ValueError(f"{field_name} must be between 0 and 1")
     return number

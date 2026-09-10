@@ -100,7 +100,6 @@ mix SONARA with ML models.
 | `--top-k INTEGER` | `1..10` | `3` | MAEST labels stored per track. |
 | `--track-batch-size INTEGER` | `1..64` | `8` | Decoded tracks held per ML job batch. |
 | `--inference-batch-size INTEGER` | `1..128` | `16` | ML forward-pass batch size. |
-| `--diagnostics` | flag | off | Write decoder and batch timing diagnostics to the file log. |
 | `--sonara-batch-size INTEGER` | `1..16` | `8` | Native SONARA file batch size, independent from ML batching. |
 | `--sonara-bpm-min FLOAT` | `20.0..400.0` | `70.0` | Lower bound of the SONARA BPM analysis range. |
 | `--sonara-bpm-max FLOAT` | `20.0..400.0` | `180.0` | Upper bound of the SONARA BPM analysis range. It must be at least twice the lower bound. |

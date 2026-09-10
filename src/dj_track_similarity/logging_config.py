@@ -16,7 +16,6 @@ from pathlib import Path
 LOG_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG"
 LOG_LEVEL_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_LEVEL"
 LOG_TRACK_EVENTS_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS"
-ANALYSIS_DIAGNOSTICS_ENV_VAR = "DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS"
 DEFAULT_LOG_PATH = Path("logs") / "dj-track-similarity.log"
 FILE_HANDLER_NAME = "dj_track_similarity_file"
 PROJECT_LOGGER_NAME = "dj_track_similarity"
@@ -27,7 +26,6 @@ FILE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
 CONSOLE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(message)s"
 LOG_START_DATE_PATTERN = re.compile(rb"(?m)^\[(\d{4}-\d{2}-\d{2})\]")
 _LOG_TRACK_EVENTS: bool | None = None
-_ANALYSIS_DIAGNOSTICS: bool | None = None
 _ASYNCIO_HANDLER_MARKER = "_dj_track_similarity_asyncio_exception_logging"
 _STREAM_MIRROR_MARKER = "_dj_track_similarity_stream_mirror"
 _STREAM_LOGGING_STATE = threading.local()
@@ -436,18 +434,6 @@ def track_event_logging_enabled() -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def set_analysis_diagnostics_enabled(enabled: bool | None) -> None:
-    global _ANALYSIS_DIAGNOSTICS
-    _ANALYSIS_DIAGNOSTICS = None if enabled is None else bool(enabled)
-
-
-def analysis_diagnostics_enabled() -> bool:
-    if _ANALYSIS_DIAGNOSTICS is not None:
-        return _ANALYSIS_DIAGNOSTICS
-    value = os.environ.get(ANALYSIS_DIAGNOSTICS_ENV_VAR)
-    if value is None:
-        return False
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def log_job_event(

@@ -115,7 +115,6 @@ dj-sim analyze --models maest,mert,muq,mulan,clap --device auto --top-k 3 --trac
 - `--sonara-batch-size` is `1..16` paths per native SONARA batch. The default is `8`.
 - `--sonara-bpm-min` and `--sonara-bpm-max` set the library range on the first run. Defaults are `70` and `180`.
 - `--ml-staged` with `--ml-staging-path` enables ML Staged Mode. Its tuning flags are `--ml-copy-workers` (`1..16`, default `4`), `--ml-decode-workers` (`1..32`, default `8`), and `--ml-stage-size` (`1..512`, default `64`). A missing or non-existent staging path exits with code 1.
-- `--diagnostics` writes decoder fallback and batch timing details to the file log.
 
 MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. MuQ-MuLan uses the same optional dependencies and the official `OpenMuQ/MuQ-MuLan-large` weights. Both receive mono 24 kHz `float32` audio in 10-second windows. MuQ-MuLan writes its own L2-normalized 512D rows to `mulan_embeddings`. It does not transform MuQ rows. CPU and CUDA are supported, with CUDA recommended for full libraries.
 

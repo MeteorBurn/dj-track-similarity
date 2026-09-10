@@ -32,7 +32,6 @@ from ..analysis.pipeline import AnalysisPipelineManager
 from ..analysis.queue import AnalysisStageQueue
 from ..analysis.sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from ..classifier.scoring import analyze_classifier as run_classifier_analysis
-from ..logging_config import set_analysis_diagnostics_enabled
 from .common import _db
 from .progress import _run_cli_job_with_progress
 
@@ -70,7 +69,6 @@ def analyze(
         max=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
         help="MERT/CLAP/MAEST model inference batch size.",
     ),
-    diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
     sonara_batch_size: int = typer.Option(
         DEFAULT_SONARA_BATCH_SIZE,
         "--sonara-batch-size",
@@ -98,8 +96,6 @@ def analyze(
     ml_decode_workers: int = typer.Option(8, "--ml-decode-workers", min=1, max=32, help="ML staged: parallel TorchCodec decoders."),
     ml_stage_size: int = typer.Option(64, "--ml-stage-size", min=1, max=512, help="ML staged: max files in staging directory."),
 ) -> None:
-    set_analysis_diagnostics_enabled(diagnostics)
-
     # Validate and build ML staging config if enabled
     ml_staging_config = None
     if ml_staged:

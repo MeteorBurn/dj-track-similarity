@@ -13,7 +13,6 @@ Nine variables affect the Python side. None of them is required for a default lo
 | `DJ_TRACK_SIMILARITY_LOG` | `logging_config.py` | Override the active log file path. Default: `logs/dj-track-similarity.log`. |
 | `DJ_TRACK_SIMILARITY_LOG_LEVEL` | `logging_config.py` | Override the file-log level. `dj-sim serve --log-level` sets the same thing per run. |
 | `DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS` | `logging_config.py` | Include successful per-track events in the file log, matching `dj-sim serve --log-track-events`. |
-| `DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS` | `logging_config.py` | Write decoder and batch timing diagnostics, matching `dj-sim analyze --diagnostics`. |
 | `DJ_TRACK_SIMILARITY_LAUNCHER_HOST` | `scripts/run_server_launcher.py` | Bind address the launcher passes to `dj-sim serve`. Missing host or port exits `2`. |
 | `DJ_TRACK_SIMILARITY_LAUNCHER_PORT` | `scripts/run_server_launcher.py` | Bind port the launcher passes to `dj-sim serve`. |
 | `DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE` | `scripts/run_server_launcher.py` | Database path the launcher appends as `--db` when the prompt supplied one. |

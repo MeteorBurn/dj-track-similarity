@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import cast
 
 from .config import (
@@ -227,21 +227,8 @@ class AnalysisPipelineManager:
 
     @staticmethod
     def _copy_status(status: AnalysisPipelineStatus) -> AnalysisPipelineStatus:
-        return AnalysisPipelineStatus(
-            job_id=status.job_id,
-            state=status.state,
+        return replace(
+            status,
             order=list(status.order),
-            stages={
-                key: PipelineStageStatus(
-                    name=value.name,
-                    state=value.state,
-                    child_job_id=value.child_job_id,
-                    error=value.error,
-                )
-                for key, value in status.stages.items()
-            },
-            current_stage=status.current_stage,
-            started_at=status.started_at,
-            finished_at=status.finished_at,
-            cancel_requested=status.cancel_requested,
+            stages={key: replace(value) for key, value in status.stages.items()},
         )

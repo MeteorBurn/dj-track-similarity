@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -432,41 +432,14 @@ class ClassifierJobManager:
 
     @staticmethod
     def _copy_status(status: ClassifierJobStatus) -> ClassifierJobStatus:
-        return ClassifierJobStatus(
-            job_id=status.job_id,
-            state=status.state,
-            adapter_name=status.adapter_name,
-            required_families=tuple(status.required_families),
+        return replace(
+            status,
             classifier_keys=list(status.classifier_keys),
-            current_model=status.current_model,
             model_progress={
-                key: AnalysisModelProgress(
-                    total=value.total,
-                    processed=value.processed,
-                    analyzed=value.analyzed,
-                    failed=value.failed,
-                    skipped=value.skipped,
-                )
-                for key, value in status.model_progress.items()
+                key: replace(value) for key, value in status.model_progress.items()
             },
             readiness={key: dict(value) for key, value in status.readiness.items()},
             blockers={key: list(value) for key, value in status.blockers.items()},
-            model_name=status.model_name,
-            device=status.device,
-            device_requested=status.device_requested,
-            total=status.total,
-            processed=status.processed,
-            analyzed=status.analyzed,
-            skipped=status.skipped,
-            failed=status.failed,
-            not_ready=status.not_ready,
-            current_path=status.current_path,
-            started_at=status.started_at,
-            finished_at=status.finished_at,
-            avg_seconds_per_track=status.avg_seconds_per_track,
             errors=list(status.errors),
             events=list(status.events),
-            cancel_requested=status.cancel_requested,
-            workers=status.workers,
-            batch_size=status.batch_size,
         )

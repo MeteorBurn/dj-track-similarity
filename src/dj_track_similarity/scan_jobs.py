@@ -12,7 +12,7 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     wait,
 )
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import islice
 from pathlib import Path
 from typing import Callable, Collection, Iterable, Iterator, cast
@@ -864,27 +864,7 @@ class ScanJobManager:
 
     @staticmethod
     def _copy_status(status: ScanJobStatus) -> ScanJobStatus:
-        return ScanJobStatus(
-            job_id=status.job_id,
-            state=status.state,
-            root=status.root,
-            total=status.total,
-            processed=status.processed,
-            added=status.added,
-            updated=status.updated,
-            unchanged=status.unchanged,
-            skipped=status.skipped,
-            failed=status.failed,
-            current_path=status.current_path,
-            started_at=status.started_at,
-            finished_at=status.finished_at,
-            avg_seconds_per_track=status.avg_seconds_per_track,
-            events=list(status.events),
-            cancel_requested=status.cancel_requested,
-            workers=status.workers,
-            limit=status.limit,
-        )
-
+        return replace(status, events=list(status.events))
 
 def _selected_extensions(extensions: Collection[str] | None) -> set[str]:
     if extensions is None:

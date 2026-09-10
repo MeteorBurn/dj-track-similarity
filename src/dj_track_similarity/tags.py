@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -217,24 +217,7 @@ class GenreTagJobManager:
 
     @staticmethod
     def _copy_status(status: GenreTagJobStatus) -> GenreTagJobStatus:
-        copy = GenreTagJobStatus(
-            job_id=status.job_id,
-            state=status.state,
-            total=status.total,
-            processed=status.processed,
-            applied=status.applied,
-            skipped=status.skipped,
-            failed=status.failed,
-            current_path=status.current_path,
-            started_at=status.started_at,
-            finished_at=status.finished_at,
-            avg_seconds_per_track=status.avg_seconds_per_track,
-            errors=list(status.errors),
-            events=list(status.events),
-            cancel_requested=status.cancel_requested,
-        )
-        return copy
-
+        return replace(status, errors=list(status.errors), events=list(status.events))
 
 def apply_genre_tags_to_tracks(
     repository: _GenreTagRepository,

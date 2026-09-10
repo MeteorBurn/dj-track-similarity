@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from .config import (
@@ -177,44 +177,13 @@ def mark_track_processed(
 
 
 def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
-    return AnalysisJobStatus(
-        job_id=status.job_id,
-        state=status.state,
-        phase=status.phase,
-        adapter_name=status.adapter_name,
+    return replace(
+        status,
         models=list(status.models),
-        current_model=status.current_model,
         model_progress={
-            model: AnalysisModelProgress(
-                total=progress.total,
-                processed=progress.processed,
-                analyzed=progress.analyzed,
-                failed=progress.failed,
-                skipped=progress.skipped,
-            )
+            model: replace(progress)
             for model, progress in status.model_progress.items()
         },
-        model_name=status.model_name,
-        device=status.device,
-        device_requested=status.device_requested,
-        total=status.total,
-        processed=status.processed,
-        analyzed=status.analyzed,
-        failed=status.failed,
-        skipped=status.skipped,
-        current_path=status.current_path,
-        started_at=status.started_at,
-        finished_at=status.finished_at,
-        avg_seconds_per_track=status.avg_seconds_per_track,
         errors=list(status.errors),
         events=list(status.events),
-        cancel_requested=status.cancel_requested,
-        workers=status.workers,
-        track_batch_size=status.track_batch_size,
-        inference_batch_size=status.inference_batch_size,
-        sonara_batch_size=status.sonara_batch_size,
-        sonara_mode=status.sonara_mode,
-        sonara_bpm_min=status.sonara_bpm_min,
-        sonara_bpm_max=status.sonara_bpm_max,
-        top_k=status.top_k,
     )

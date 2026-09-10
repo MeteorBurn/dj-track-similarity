@@ -19,8 +19,8 @@ from dj_track_similarity.analysis.sonara_staging import (
     StagedSonaraResult,
     analyze_and_store_staged_sonara,
     analyze_staged_sonara_group,
-    cleanup_orphaned_sonara_staging,
 )
+from dj_track_similarity.analysis.staging import cleanup_orphaned_staging
 from dj_track_similarity.analysis.sonara_runtime import SONARA_SAMPLE_RATE
 
 
@@ -375,14 +375,14 @@ def test_orphan_cleanup_preserves_live_job_directories(tmp_path: Path) -> None:
     (orphan / ".owner").write_text("99999999", encoding="ascii")
     (live / ".owner").write_text("4242", encoding="ascii")
 
-    import dj_track_similarity.analysis.sonara_staging as staging_module
+    import dj_track_similarity.analysis.staging as staging_module
 
-    original_exists = staging_module._process_exists
-    staging_module._process_exists = lambda pid: pid == 4242
+    original_exists = staging_module.process_exists
+    staging_module.process_exists = lambda pid: pid == 4242
     try:
-        cleanup_orphaned_sonara_staging(staging_root)
+        cleanup_orphaned_staging(staging_root, prefix="sonara-stage-")
     finally:
-        staging_module._process_exists = original_exists
+        staging_module.process_exists = original_exists
 
     assert not orphan.exists()
     assert live.exists()
@@ -398,7 +398,7 @@ def test_orphan_cleanup_removes_empty_markerless_stage_directory(
     unowned_files.mkdir()
     (unowned_files / "keep.wav").write_bytes(b"not owned by a staging session")
 
-    cleanup_orphaned_sonara_staging(staging_root)
+    cleanup_orphaned_staging(staging_root, prefix="sonara-stage-")
 
     assert not empty_residue.exists()
     assert unowned_files.exists()

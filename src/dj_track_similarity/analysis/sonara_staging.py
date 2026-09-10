@@ -23,10 +23,13 @@ from .sonara_runtime import (
     SONARA_VOCALNESS_MODEL_SELECTOR,
     sonara_requested_features,
 )
+from .staging import (
+    DEFERRED_STAGING_CLEANUP_WINERRORS,
+    cleanup_orphaned_staging,
+)
 
 
 LOGGER = logging.getLogger(__name__)
-_DEFERRED_STAGING_CLEANUP_WINERRORS = frozenset({32, 64})
 
 
 @dataclass(frozen=True)
@@ -94,7 +97,7 @@ class SonaraStagingSession:
         self._created = False
 
     def __enter__(self) -> SonaraStagingSession:
-        cleanup_orphaned_sonara_staging(self.config.root)
+        cleanup_orphaned_staging(self.config.root, prefix="sonara-stage-")
         self.path.mkdir(parents=True, exist_ok=False)
         (self.path / ".owner").write_text(str(os.getpid()), encoding="ascii")
         self._created = True
@@ -131,7 +134,7 @@ class SonaraStagingSession:
         try:
             staged.path.unlink(missing_ok=True)
         except OSError as error:
-            if getattr(error, "winerror", None) not in _DEFERRED_STAGING_CLEANUP_WINERRORS:
+            if getattr(error, "winerror", None) not in DEFERRED_STAGING_CLEANUP_WINERRORS:
                 raise
             LOGGER.warning(
                 "SONARA staged copy cleanup deferred path=%s error=%s",
@@ -143,37 +146,6 @@ class SonaraStagingSession:
         if self._created:
             shutil.rmtree(self.path, ignore_errors=True)
             self._created = False
-
-
-def cleanup_orphaned_sonara_staging(root: Path) -> None:
-    """Remove only job directories whose recorded owner process is gone."""
-
-    if not root.exists():
-        return
-    for path in root.glob("sonara-stage-*"):
-        if not path.is_dir():
-            continue
-        try:
-            owner = int((path / ".owner").read_text(encoding="ascii").strip())
-        except (OSError, ValueError):
-            try:
-                path.rmdir()
-            except OSError:
-                pass
-            continue
-        if _process_exists(owner):
-            continue
-        shutil.rmtree(path, ignore_errors=True)
-
-
-def _process_exists(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 def analyze_and_store_staged_sonara(

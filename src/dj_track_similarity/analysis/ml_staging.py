@@ -19,10 +19,13 @@ from .job_batch import AnalysisBatchItem, DecodeFailure
 from ..analysis_models import AnalysisCandidate, AnalysisTarget
 from ..audio.loader import DecodedAudio, load_decoded_audio_with_ffmpeg
 from ..embedding.contracts import EmbeddingCancelledError
+from .staging import (
+    DEFERRED_STAGING_CLEANUP_WINERRORS,
+    cleanup_orphaned_staging,
+)
 
 
 LOGGER = logging.getLogger(__name__)
-_DEFERRED_STAGING_CLEANUP_WINERRORS = frozenset({32, 64})
 
 
 @dataclass(frozen=True)
@@ -102,12 +105,10 @@ class MLStagedResult:
 
 
 class MLStagingSession:
-    """Manage staged copies for one ML analysis job.
+    """Own staged copies for one ML analysis job and remove them deterministically.
 
-    DIFFERENCES FROM SONARA:
-    1. No ProcessPool integration (models run in main process)
-    2. Decode tracking separate from copy tracking
-    3. Preflight copy support for model loading overlap
+    Unlike the SONARA session, decode and inference run in this process, so the
+    session tracks decode timing separately from copy timing.
     """
 
     def __init__(self, config: MLStagingConfig) -> None:
@@ -116,7 +117,7 @@ class MLStagingSession:
         self._created = False
 
     def __enter__(self) -> MLStagingSession:
-        cleanup_orphaned_ml_staging(self.config.root)
+        cleanup_orphaned_staging(self.config.root, prefix="ml-stage-")
         self.path.mkdir(parents=True, exist_ok=False)
         (self.path / ".owner").write_text(str(os.getpid()), encoding="ascii")
         self._created = True
@@ -127,10 +128,7 @@ class MLStagingSession:
         self.cleanup()
 
     def stage_file(self, candidate: AnalysisCandidate) -> MLStagedCandidate:
-        """Copy source file to staging directory.
-
-        OPTIMIZATION: Uses same copy strategy as SONARA (pre-allocation, large buffers).
-        """
+        """Copy the source file into the staging directory."""
         if not self._created:
             raise RuntimeError("ML staging session is not active")
         source_path = Path(candidate.file_path)
@@ -150,7 +148,12 @@ class MLStagingSession:
 
     @staticmethod
     def _copy(source_path: Path, destination: Path) -> None:
-        """Optimized file copy - identical to SONARA strategy."""
+        """Pre-allocate, then copy in 1 MB chunks.
+
+        SONARA stages with ``shutil.copyfile``; this path reads whole albums off
+        one spinning disk before the GPU needs them, so it trades a larger
+        buffer and one pre-allocation against fragmentation and seek time.
+        """
         stat = source_path.stat()
         buffer_size = 1024 * 1024  # 1MB chunks for HDD sequential read
 
@@ -177,7 +180,7 @@ class MLStagingSession:
         try:
             staged.staged_path.unlink(missing_ok=True)
         except OSError as error:
-            if getattr(error, "winerror", None) not in _DEFERRED_STAGING_CLEANUP_WINERRORS:
+            if getattr(error, "winerror", None) not in DEFERRED_STAGING_CLEANUP_WINERRORS:
                 raise
             LOGGER.warning(
                 "ML staged copy cleanup deferred path=%s error=%s",
@@ -194,38 +197,6 @@ class MLStagingSession:
             except Exception as error:
                 LOGGER.warning("ML staging cleanup error: %s", error)
             self._created = False
-
-
-def cleanup_orphaned_ml_staging(root: Path) -> None:
-    """Remove ML staging directories whose owner process is gone."""
-    if not root.exists():
-        return
-    for path in root.glob("ml-stage-*"):
-        if not path.is_dir():
-            continue
-        try:
-            owner = int((path / ".owner").read_text(encoding="ascii").strip())
-        except (OSError, ValueError):
-            try:
-                path.rmdir()
-            except OSError:
-                pass
-            continue
-        if _process_exists(owner):
-            continue
-        LOGGER.info("Removing orphaned ML staging directory: %s (owner PID %d)", path, owner)
-        shutil.rmtree(path, ignore_errors=True)
-
-
-def _process_exists(pid: int) -> bool:
-    """Check if process is running."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 def analyze_and_store_staged_ml(

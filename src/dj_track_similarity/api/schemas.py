@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from ..analysis.config import (
     ANALYSIS_DEVICE_PATTERN,
@@ -51,6 +59,17 @@ EvaluationPairReasonTag = Literal[
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
 TrackId = Annotated[int, Field(ge=1)]
+
+
+def _reject_duplicates(values: list[Any], info: ValidationInfo) -> list[Any]:
+    """Reject repeated entries, naming the field the request used."""
+
+    if len(set(values)) != len(values):
+        raise ValueError(f"{info.field_name} must be unique")
+    return values
+
+
+_unique = AfterValidator(_reject_duplicates)
 
 
 class ScanRequest(BaseModel):
@@ -293,30 +312,18 @@ class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     analysis_family: Literal["maest", "mert", "muq", "mulan", "clap"] = "mert"
-    seed_track_ids: list[TrackId] = Field(min_length=1, max_length=5)
+    seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1, max_length=5)
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     epsilon: float | None = Field(default=None, ge=0.0)
     noise: float = Field(default=0.0, ge=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def reject_duplicate_seed_track_ids(self) -> "SearchRequest":
-        if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
-            raise ValueError("seed_track_ids must be unique")
-        return self
 
 
 class EmbeddingRandomTrackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     analysis_family: Literal["maest", "mert", "muq", "mulan", "clap"] = "mert"
-    exclude_track_ids: list[TrackId] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def reject_duplicate_exclusions(self) -> "EmbeddingRandomTrackRequest":
-        if len(set(self.exclude_track_ids)) != len(self.exclude_track_ids):
-            raise ValueError("exclude_track_ids must be unique")
-        return self
+    exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
 
 
 class SonaraMixerWeights(BaseModel):
@@ -342,7 +349,7 @@ class SonaraModifiers(BaseModel):
 class SonaraSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    seed_track_ids: list[TrackId] = Field(min_length=1, max_length=5)
+    seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1, max_length=5)
     limit: int = Field(default=10, ge=1, le=500)
     mode: str = Field(
         default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$"
@@ -351,23 +358,11 @@ class SonaraSearchRequest(BaseModel):
     mixer_weights: SonaraMixerWeights | None = None
     modifiers: SonaraModifiers | None = None
 
-    @model_validator(mode="after")
-    def reject_duplicate_seed_track_ids(self) -> "SonaraSearchRequest":
-        if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
-            raise ValueError("seed_track_ids must be unique")
-        return self
-
 
 class SonaraRandomTrackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    exclude_track_ids: list[TrackId] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def reject_duplicate_exclusions(self) -> "SonaraRandomTrackRequest":
-        if len(set(self.exclude_track_ids)) != len(self.exclude_track_ids):
-            raise ValueError("exclude_track_ids must be unique")
-        return self
+    exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
 
 
 class TextPresetBank(BaseModel):
@@ -549,18 +544,12 @@ class ReferenceCompareRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     seed_track_id: EvaluationTrackId
-    models: list[ReferenceCompareModel] = Field(
+    models: Annotated[list[ReferenceCompareModel], _unique] = Field(
         default_factory=lambda: ["clap", "mert", "muq", "mulan", "maest", "sonara"],
         min_length=1,
         max_length=6,
     )
     limit: int = Field(default=10, ge=1, le=100)
-
-    @model_validator(mode="after")
-    def reject_duplicate_models(self) -> "ReferenceCompareRequest":
-        if len(set(self.models)) != len(self.models):
-            raise ValueError("models must be unique")
-        return self
 
 
 class ReferenceCompareVerdictRequest(BaseModel):
@@ -618,18 +607,12 @@ class EvaluationPairFeedbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: int | None = Field(default=None, ge=1)
-    seed_track_ids: list[EvaluationTrackId] = Field(min_length=1, max_length=5)
+    seed_track_ids: Annotated[list[EvaluationTrackId], _unique] = Field(min_length=1, max_length=5)
     candidate_track_id: int = Field(ge=1)
     rating: int = Field(ge=0, le=3)
     reason_tags: list[EvaluationPairReasonTag] = Field(default_factory=list)
     notes: str | None = None
     source: str = Field(default="manual", min_length=1)
-
-    @model_validator(mode="after")
-    def reject_duplicate_seed_track_ids(self) -> "EvaluationPairFeedbackRequest":
-        if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
-            raise ValueError("seed_track_ids must be unique")
-        return self
 
 
 class EvaluationTransitionFeedbackRequest(BaseModel):

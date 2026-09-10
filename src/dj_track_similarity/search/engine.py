@@ -27,7 +27,6 @@ from .arguments import (
 from .vector_index import (
     ExactVectorSearchBackend,
     VectorIndexUnavailable,
-    VectorSearchBackend,
     VectorSearchHit,
 )
 from ..scalars import finite_number
@@ -133,7 +132,7 @@ class SimilaritySearch:
         analysis_family: EmbeddingFamily,
         *,
         analysis_output: AnalysisOutput,
-        vector_backend: VectorSearchBackend | None = None,
+        vector_backend: ExactVectorSearchBackend | None = None,
     ) -> None:
         family = str(analysis_family).strip().lower()
         if family not in _EMBEDDING_FAMILIES:

@@ -17,14 +17,26 @@ function loadApiModule(fetchImpl) {
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
   }).outputText;
+  const errorsModule = { exports: {} };
+  vm.runInNewContext(
+    ts.transpileModule(readFileSync(join(srcDir, "errors.ts"), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+    }).outputText,
+    { module: errorsModule, exports: errorsModule.exports, Error, String }
+  );
+  const requireModule = (name) => {
+    if (name === "./errors") return errorsModule.exports;
+    throw new Error(`Unexpected require: ${name}`);
+  };
   const clientModule = { exports: {} };
-  vm.runInNewContext(clientCompiled, { module: clientModule, exports: clientModule.exports, fetch: fetchImpl, URLSearchParams, Error, JSON, encodeURIComponent });
+  vm.runInNewContext(clientCompiled, { module: clientModule, exports: clientModule.exports, require: requireModule, fetch: fetchImpl, URLSearchParams, Error, JSON, encodeURIComponent });
   const module = { exports: {} };
   vm.runInNewContext(compiled, {
     module,
     exports: module.exports,
     require: (path) => {
       if (path === "./apiClient") return clientModule.exports;
+      if (path === "./errors") return errorsModule.exports;
       throw new Error(`Unexpected require: ${path}`);
     },
     fetch: fetchImpl,
@@ -152,6 +164,16 @@ function panelHarness() {
   vm.runInNewContext(ts.transpileModule(readFileSync(join(srcDir, "searchSurfaceState.ts"), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { module: searchSurface, exports: searchSurface.exports });
+  const panelErrors = (() => {
+    const m = { exports: {} };
+    vm.runInNewContext(
+      ts.transpileModule(readFileSync(join(srcDir, "errors.ts"), "utf8"), {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }).outputText,
+      { module: m, exports: m.exports, Error, String },
+    );
+    return m.exports;
+  })();
   const dependencies = {
     react: hooks,
     "react/jsx-runtime": { jsx: element, jsxs: element },
@@ -160,6 +182,7 @@ function panelHarness() {
     "./TrackRows": { ResultRow: () => null },
     "./trackDisplay": { displayTrack: (track) => track.title },
     "./searchSurfaceState": searchSurface.exports,
+    "./errors": panelErrors,
   };
   const module = { exports: {} };
   const compiled = ts.transpileModule(readFileSync(join(srcDir, "ReferenceComparePanel.tsx"), "utf8"), {

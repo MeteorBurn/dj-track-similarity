@@ -5,6 +5,7 @@ import { buildTextSearchArms, settleTextSearchArm, type TextFamily, type TextSea
 import type { SearchRequestLifecycle, SearchNotice } from "./useSearchRequests";
 import type { SearchFiltersState } from "./SearchPlaylistPanel";
 import type { useActivityLog } from "./useActivityLog";
+import { errorText } from "./errors";
 
 type Verdicts = Partial<Record<TextFamily, Record<string, 1 | -1>>>;
 type Options = {
@@ -118,7 +119,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
         } catch (error) {
           if (!isCurrent()) return;
           arms = settleTextSearchArm(arms, { family: arm.family,
-            error: error instanceof Error ? error.message : String(error) });
+            error: errorText(error) });
         }
         if (!isCurrent()) return;
         setTextComparison(textCompareModels ? [...arms] : null);
@@ -154,7 +155,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
       });
     } catch (error) {
       if (generation.current !== runGeneration) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: `${message}. Повторите поиск, чтобы обновить контекст оценок.` });
       appendActivity("error", "Оценка запроса не записана", message);
       // A stale revision or expired context must be refreshed by a new search.

@@ -20,6 +20,7 @@ import { basename } from "./trackDisplay";
 import type { SearchNotice } from "./useSearchRequests";
 import type { useActivityLog } from "./useActivityLog";
 import type { useLibraryState } from "./useLibraryState";
+import { errorText } from "./errors";
 
 type JobStateOptions = {
   classifiers: PromotedClassifier[];
@@ -58,7 +59,7 @@ export function useJobState({
   const databaseOptimizationRunning = Boolean(databaseOptimizationJob && ["queued", "running"].includes(databaseOptimizationJob.state));
 
   const reportPollError = (error: unknown) => {
-    setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+    setNotice({ kind: "error", text: errorText(error) });
   };
 
   useJobPolling(scanJob, 1200, (job) => api.scanJob(job.job_id!), (job) => {

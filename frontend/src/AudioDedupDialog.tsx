@@ -25,6 +25,7 @@ import {
 import { useAudioDedup } from "./useAudioDedup";
 import type { AudioDedupFilters } from "./useAudioDedup";
 import { useConfirmation } from "./useConfirmation";
+import { errorText } from "./errors";
 
 export function AudioDedupDialog({
   open,
@@ -84,7 +85,7 @@ export function AudioDedupDialog({
       const selected = await api.chooseFolder();
       if (selected.path) setRoot(selected.path);
     } catch (error) {
-      dedup.setError(error instanceof Error ? error.message : String(error));
+      dedup.setError(errorText(error));
     }
   }
 

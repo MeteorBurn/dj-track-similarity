@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { ApiError } from "./apiClient";
+import { errorText } from "./errors";
 import type {
   AudioDedupDeleteResult,
   AudioDedupDeletionMode,
@@ -35,10 +36,6 @@ export const emptyAudioDedupFilters: AudioDedupFilters = {
   fakeBitrateOnly: false,
   pathContains: ""
 };
-
-function errorText(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function isMissingReport(error: unknown) {
   return error instanceof ApiError && error.status === 404;

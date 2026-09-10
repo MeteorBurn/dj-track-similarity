@@ -29,6 +29,7 @@ import {
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 import type { useActivityLog } from "./useActivityLog";
+import { errorText } from "./errors";
 
 const playlistPageSize = 20;
 
@@ -390,7 +391,7 @@ export function SearchPlaylistPanel({
     try {
       await handleEmbeddingSearch(analysisFamily);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setEmbeddingSearchErrors((current) => ({ ...current, [analysisFamily]: message }));
     } finally {
       setEmbeddingSearchPending((current) => ({ ...current, [analysisFamily]: false }));

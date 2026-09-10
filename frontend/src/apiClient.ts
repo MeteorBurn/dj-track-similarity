@@ -43,6 +43,7 @@ import type {
   TrackIdentity,
   TrackPage
 } from "./api";
+import { isAbortError } from "./errors";
 
 type TrackQueryParams = {
   query?: string;
@@ -151,10 +152,6 @@ async function requestOnce<T>(path: string, options?: RequestInit): Promise<T> {
     );
   }
   return response.json() as Promise<T>;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
 }
 
 // A pooled connection can be closed between two polls, so the next request

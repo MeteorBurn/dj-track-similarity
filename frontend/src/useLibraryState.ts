@@ -26,6 +26,7 @@ import {
   type LibrarySearchMode,
   type LibrarySortDirection
 } from "./libraryView";
+import { errorText, isAbortError } from "./errors";
 
 export const emptyLibrarySummary: LibrarySummary = {
   tracks: 0,
@@ -52,9 +53,6 @@ function activeClassifierMinScores(scores: Record<string, number>) {
   return Object.fromEntries(Object.entries(scores).filter(([, value]) => value > 0));
 }
 
-function isAbortError(error: unknown) {
-  return error instanceof Error && error.name === "AbortError";
-}
 
 export function useLibraryState({
   databaseSelected,
@@ -202,7 +200,7 @@ export function useLibraryState({
     const summaryPromise = options.refreshSummary
       ? refreshLibrarySummary(selected, requestDatabaseKey).catch((error: unknown) => {
           if (databaseKeyRef.current === requestDatabaseKey) {
-            setLibraryError(error instanceof Error ? error.message : String(error));
+            setLibraryError(errorText(error));
           }
           return null;
         })
@@ -230,7 +228,7 @@ export function useLibraryState({
       await summaryPromise;
     } catch (error) {
       if (requestIsCurrent() && !isAbortError(error)) {
-        setLibraryError(error instanceof Error ? error.message : String(error));
+        setLibraryError(errorText(error));
       }
     } finally {
       if (requestIsCurrent()) {

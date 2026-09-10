@@ -14,6 +14,7 @@ import { ResultRow } from "./TrackRows";
 import { seedEmbeddingFamilyPresentation } from "./searchSurfaceState";
 import { displayTrack } from "./trackDisplay";
 import type { useActivityLog } from "./useActivityLog";
+import { errorText } from "./errors";
 
 type ReferenceComparePanelProps = {
   seedTracks: TrackSummary[];
@@ -193,7 +194,7 @@ export function ReferenceComparePanel({
       onActivity?.("ok", "LAB comparison completed", `${outcome} ${((Date.now() - request.startedAt) / 1000).toFixed(1)} s.`);
     } catch (caught) {
       if (!isCurrent()) return;
-      const message = caught instanceof Error ? caught.message : String(caught);
+      const message = errorText(caught);
       setError(message);
       setStatus("");
       onActivity?.("error", "LAB comparison failed", message);
@@ -241,7 +242,7 @@ export function ReferenceComparePanel({
       setSavedVerdicts((current) => ({ ...current, [key]: verdict }));
     } catch (caught) {
       if (!isCurrent()) return;
-      const message = caught instanceof Error ? caught.message : String(caught);
+      const message = errorText(caught);
       setVerdictErrors((current) => ({ ...current, [key]: `Save not confirmed: ${message}` }));
       onActivity?.("error", "LAB verdict save unconfirmed", `${displayTrack(result.track)}: ${message}`);
     } finally {

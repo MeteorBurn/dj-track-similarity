@@ -34,9 +34,21 @@ function compileModule(name, requireImpl = () => ({})) {
   return module.exports;
 }
 
+const errorsModule = (() => {
+  const m = { exports: {} };
+  vm.runInNewContext(
+    ts.transpileModule(readFileSync(new URL("../src/errors.ts", import.meta.url), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+    { module: m, exports: m.exports, Error, String },
+  );
+  return m.exports;
+})();
+
 const trackDisplay = compileModule("trackDisplay.ts");
 const syncopatedRhythm = compileModule("syncopatedRhythm.ts", (name) => {
   if (name === "./maestGenres") return { formatMaestGenreLabel: (value) => value };
+  if (name === "./errors") return errorsModule;
   throw new Error(`Unexpected require: ${name}`);
 });
 const sonaraAnalysisSettings = compileModule("sonaraAnalysisSettings.ts");
@@ -56,6 +68,7 @@ const metadataDialog = compileModule("TrackMetadataDialog.tsx", (name) => {
   if (name === "./sonaraAnalysisSettings") return sonaraAnalysisSettings;
   if (name === "./trackDisplay") return trackDisplay;
   if (name === "./apiClient") return { api: { revealTrackFile: async () => ({}) } };
+  if (name === "./errors") return errorsModule;
   throw new Error(`Unexpected require: ${name}`);
 });
 
@@ -84,6 +97,7 @@ const metadataDialogUi = compileModule("TrackMetadataDialog.tsx", (name) => {
   if (name === "./sonaraAnalysisSettings") return sonaraAnalysisSettings;
   if (name === "./trackDisplay") return trackDisplay;
   if (name === "./apiClient") return { api: { revealTrackFile: async () => ({}) } };
+  if (name === "./errors") return errorsModule;
   throw new Error(`Unexpected require: ${name}`);
 });
 
@@ -103,6 +117,7 @@ const referenceCompare = compileModule("ReferenceComparePanel.tsx", (name) => {
   if (name === "./TrackRows") return { ResultRow: () => null };
   if (name === "./trackDisplay") return { displayTrack: () => "Track" };
   if (name === "./searchSurfaceState") return compileModule("searchSurfaceState.ts");
+  if (name === "./errors") return errorsModule;
   throw new Error(`Unexpected require: ${name}`);
 });
 

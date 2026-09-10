@@ -10,6 +10,7 @@ import {
 import { displayTrack } from "./trackDisplay";
 import type { SearchFiltersState } from "./SearchPlaylistPanel";
 import type { useActivityLog } from "./useActivityLog";
+import { errorText, isAbortError } from "./errors";
 
 export type SearchNotice = { kind: "ok" | "error" | "idle"; text: string };
 type GenericSearchResultState = {
@@ -188,7 +189,7 @@ export function useSearchRequests({
       }
     } catch (error) {
       if (!genericSearchRequestIsCurrent(ticket) || isAbortError(error)) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "SONARA search недоступен", message);
     } finally {
@@ -209,7 +210,7 @@ export function useSearchRequests({
       appendActivity("ok", "Добавлен случайный SONARA seed", selected);
       setNotice({ kind: "ok", text: `Добавлен seed: ${selected}` });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось добавить случайный SONARA seed", message);
     } finally {
@@ -232,7 +233,7 @@ export function useSearchRequests({
       appendActivity("ok", `Добавлен случайный ${label} seed`, selected);
       setNotice({ kind: "ok", text: `Добавлен seed: ${selected}` });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", `Не удалось добавить случайный ${label} seed`, message);
     } finally {
@@ -267,7 +268,7 @@ export function useSearchRequests({
       }
     } catch (error) {
       if (!genericSearchRequestIsCurrent(ticket) || isAbortError(error)) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", `${label} search недоступен`, message);
       throw error;
@@ -294,6 +295,3 @@ export function useSearchRequests({
   };
 }
 
-function isAbortError(error: unknown) {
-  return error instanceof Error && error.name === "AbortError";
-}

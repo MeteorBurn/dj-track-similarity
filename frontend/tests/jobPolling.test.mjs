@@ -69,6 +69,7 @@ function harness() {
         analysisJobRequest: (job) => api.analysisJob(job.job_id),
         formatMegabytes: String, optimizationPhaseLabel: () => "running", scanSummary: () => "summary",
       };
+      if (name === "./errors") return errorsModule;
       throw new Error(name);
     },
   });
@@ -103,6 +104,17 @@ function harness() {
 
 const kinds = ["Scan", "Analysis", "GenreTag", "DatabaseValidation", "DatabaseOptimization", "AnalysisPipeline"];
 const job = (id, state = "running") => ({ job_id: id, state, files: [], stages: {}, errors: 0 });
+
+const errorsModule = (() => {
+  const m = { exports: {} };
+  vm.runInNewContext(
+    ts.transpileModule(readFileSync(new URL("../src/errors.ts", import.meta.url), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+    { module: m, exports: m.exports, Error, String },
+  );
+  return m.exports;
+})();
 
 test("job polls serialize slow requests, ignore replaced/unmounted replies, and stop after terminal replies", async () => {
   for (const kind of kinds) {

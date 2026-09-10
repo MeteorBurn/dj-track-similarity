@@ -23,10 +23,22 @@ function loadApiModule(fetchImpl) {
       target: ts.ScriptTarget.ES2022
     }
   }).outputText;
+  const errorsModule = { exports: {} };
+  vm.runInNewContext(
+    ts.transpileModule(readFileSync(join(srcDir, "errors.ts"), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+    }).outputText,
+    { module: errorsModule, exports: errorsModule.exports, Error, String }
+  );
+  const requireModule = (name) => {
+    if (name === "./errors") return errorsModule.exports;
+    throw new Error(`Unexpected require: ${name}`);
+  };
   const clientModule = { exports: {} };
   vm.runInNewContext(clientCompiled, {
     module: clientModule,
     exports: clientModule.exports,
+    require: requireModule,
     fetch: fetchImpl,
     URLSearchParams,
     Error,

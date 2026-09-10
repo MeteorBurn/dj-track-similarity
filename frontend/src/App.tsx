@@ -38,6 +38,7 @@ import type { ProcessLogKind } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import { MLAnalysisSettingsDialog } from "./MLAnalysisSettingsDialog";
 import { writePreviewPosition } from "./previewPosition";
+import { errorText, isAbortError } from "./errors";
 import { ScanImportDialog } from "./ScanImportDialog";
 import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
 import {
@@ -467,7 +468,7 @@ export function App() {
       adoptClassifierProfiles(promotedClassifiers);
       await loadLatestJobs(promotedClassifiers);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось прочитать текущую базу", message);
     } finally {
@@ -512,7 +513,7 @@ export function App() {
 
   function refreshClassifierProfilesInBackground() {
     void refreshClassifierProfiles().catch((error) => {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       appendActivity("warn", "Не удалось обновить CLASS profiles", message);
     });
   }
@@ -549,7 +550,7 @@ export function App() {
       setNotice({ kind: "ok", text: text || "Готово" });
       return value;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Ошибка", message);
     } finally {
@@ -632,7 +633,7 @@ export function App() {
       ) {
         return;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось загрузить теги трека", message);
     } finally {
@@ -769,7 +770,7 @@ export function App() {
           : { kind: "ok", text: detail },
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Ошибка загрузки треков", message);
     } finally {
@@ -807,7 +808,7 @@ export function App() {
       appendActivity("ok", "Папка выбрана", value.path);
       return value.path;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось выбрать папку", message);
       return null;
@@ -876,7 +877,7 @@ export function App() {
       appendActivity("ok", "База выбрана", value.path);
       setNotice({ kind: "ok", text: value.path });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось переключить базу", message);
     } finally {
@@ -1187,7 +1188,7 @@ export function App() {
         closeWindow: () => window.close(),
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Ошибка", message);
     } finally {
@@ -1264,7 +1265,7 @@ export function App() {
       return updated;
     } catch (error) {
       if (databaseCatalogUuidRef.current !== track.catalog_uuid) return null;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось изменить лайк", message);
       return null;
@@ -1293,7 +1294,7 @@ export function App() {
       appendActivity("ok", status, result.source ? `source ${result.source.database_path}` : result.url);
     } catch (error) {
       pendingWindow?.close();
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось запустить Rhythm Lab", message);
     } finally {
@@ -1676,6 +1677,3 @@ export function App() {
   );
 }
 
-function isAbortError(error: unknown) {
-  return error instanceof Error && error.name === "AbortError";
-}

@@ -38,7 +38,7 @@ from pathlib import Path
 
 from .connection import connect_database_read_only
 from .schema import SQLITE_BUSY_TIMEOUT_SECONDS, validate_library_schema
-from .storage import storage_database_paths
+from .storage import evaluation_database_path
 
 
 _SQLITE_HEADER = b"SQLite format 3\x00"
@@ -289,7 +289,7 @@ def _database_files(path: Path, database_kind: str) -> tuple[tuple[str, Path], .
         return (("sqlite", path),)
 
     selected: list[tuple[str, Path]] = [("library", path)]
-    evaluation_path = storage_database_paths(path).evaluation
+    evaluation_path = evaluation_database_path(path)
     if evaluation_path.exists():
         _require_sqlite_file(evaluation_path, "Evaluation database")
         selected.append(("evaluation", evaluation_path))

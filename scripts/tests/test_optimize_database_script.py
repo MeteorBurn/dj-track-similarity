@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db.storage import storage_database_paths
+from dj_track_similarity.db.storage import evaluation_database_path
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -44,7 +44,7 @@ def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
     evaluation = db.connect_evaluation(create=True)
     assert evaluation is not None
     evaluation.close()
-    evaluation_path = storage_database_paths(db_path).evaluation
+    evaluation_path = evaluation_database_path(db_path)
 
     summary = module.optimize_database(db_path)
 

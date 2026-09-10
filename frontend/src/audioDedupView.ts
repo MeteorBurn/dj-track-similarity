@@ -291,10 +291,6 @@ export function selectedTrackIds(selection: DedupSelection, groupId: number): nu
   return selection[groupId] ?? [];
 }
 
-export function isFileSelected(selection: DedupSelection, groupId: number, trackId: number) {
-  return selectedTrackIds(selection, groupId).includes(trackId);
-}
-
 export function setGroupSelection(
   selection: DedupSelection,
   groupId: number,
@@ -316,10 +312,6 @@ export function toggleFileSelection(
     ? current.filter((item) => item !== trackId)
     : [...current, trackId];
   return setGroupSelection(selection, groupId, next);
-}
-
-export function selectionFileCount(selection: DedupSelection) {
-  return Object.values(selection).reduce((total, ids) => total + ids.length, 0);
 }
 
 export function selectionGroupCount(selection: DedupSelection) {

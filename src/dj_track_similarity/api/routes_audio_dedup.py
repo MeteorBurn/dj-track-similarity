@@ -165,16 +165,6 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
             "rhythm_lab_deleted_rows": result.rhythm_lab_deleted_rows,
         }
 
-    _ = start_audio_dedup
-    _ = latest_audio_dedup
-    _ = audio_dedup_job
-    _ = cancel_audio_dedup
-    _ = audio_dedup_reports
-    _ = audio_dedup_report
-    _ = audio_dedup_report_groups
-    _ = audio_dedup_report_xlsx
-    _ = delete_audio_dedup_duplicates
-
 
 def _validated_selection(payload: dict, request: AudioDedupDeleteRequest) -> list[int]:
     """Flatten the reviewer's per-group choices, rejecting ids of another group.

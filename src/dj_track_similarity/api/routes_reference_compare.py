@@ -100,6 +100,3 @@ def register_reference_compare_routes(app: FastAPI, state: AppDatabaseState) -> 
             raise HTTPException(status_code=409, detail=str(error)) from error
         except (ValueError, sqlite3.IntegrityError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-
-    _ = reference_compare
-    _ = reference_compare_verdict

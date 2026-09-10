@@ -51,7 +51,6 @@ class MuqEmbeddingAdapter:
         inference_batch_size: int = 8,
     ) -> None:
         self.requested_device = device or "auto"
-        self.device_name = None if self.requested_device == "auto" else self.requested_device
         self.window_seconds = window_seconds
         self.max_windows = max_windows
         self.inference_batch_size = max(1, int(inference_batch_size))

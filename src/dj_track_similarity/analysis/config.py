@@ -134,13 +134,8 @@ def build_analysis_job_config(
     sonara_bpm_max: float = DEFAULT_SONARA_BPM_MAX,
     sonara_staging_config: SonaraStagingConfig | None = None,
     ml_staging_config: MLStagingConfig | None = None,
-    allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
-    normalized_models = (
-        ()
-        if allow_empty_models and models is not None and not models
-        else normalize_analysis_models(models)
-    )
+    normalized_models = normalize_analysis_models(models)
     normalized_sonara_mode = normalize_sonara_mode(sonara_mode)
     if normalized_sonara_mode == "staged" and sonara_staging_config is None:
         raise ValueError("Staged SONARA mode requires staging settings")

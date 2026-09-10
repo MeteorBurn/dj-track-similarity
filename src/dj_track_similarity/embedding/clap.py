@@ -69,7 +69,6 @@ class ClapEmbeddingAdapter:
         inference_batch_size: int = 16,
     ) -> None:
         self.requested_device = device or "auto"
-        self.device_name = None if self.requested_device == "auto" else self.requested_device
         self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._model = None

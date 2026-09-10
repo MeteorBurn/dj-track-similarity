@@ -15,7 +15,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from dj_track_similarity.db.connection import connect_database_read_only  # noqa: E402
 from dj_track_similarity.db.schema import validate_library_schema  # noqa: E402
-from dj_track_similarity.db.storage import storage_database_paths  # noqa: E402
+from dj_track_similarity.db.storage import evaluation_database_path  # noqa: E402
 
 
 class QAError(RuntimeError):
@@ -72,7 +72,7 @@ def _run_qa(
     evaluation_db_path: Path | None,
 ) -> int:
     library_path = _resolved(db_path)
-    default_evaluation_path = storage_database_paths(library_path).evaluation
+    default_evaluation_path = evaluation_database_path(library_path)
     evaluation_path = (
         _resolved(evaluation_db_path)
         if evaluation_db_path is not None

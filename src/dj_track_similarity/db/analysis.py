@@ -59,11 +59,7 @@ from .classifier_storage import (
 )
 from .search_fts import upsert_track_search_fts
 from .tracks import utc_now_text
-from ..maest_analysis_validation import (
-    has_maest_syncopated_rhythm,
-    parse_maest_genres_json,
-    validate_maest_analysis_row,
-)
+from ..maest_analysis_validation import validate_maest_analysis_row
 from .sonara_core_validation import (
     SONARA_CORE_COLUMNS,
     SONARA_CORE_VECTOR_DIMS,
@@ -498,41 +494,6 @@ class AnalysisRepository:
                 f"for analysis_family {family!r}"
             )
         return AnalysisOutput(family, kind)
-
-    def recompute_maest_syncopated_rhythm(self) -> int:
-        """Explicitly repair MAEST syncopated-rhythm flags from stored genres."""
-
-        with self._write_lock:
-            with closing(self.connect()) as core_connection:
-                try:
-                    core_connection.execute("BEGIN IMMEDIATE")
-                    rows = core_connection.execute(
-                        "SELECT track_id, syncopated_rhythm, genres_json FROM maest_genres"
-                    ).fetchall()
-                    updates = [
-                        (expected, int(row["track_id"]))
-                        for row in rows
-                        if (
-                            expected := int(
-                                has_maest_syncopated_rhythm(
-                                    label
-                                    for label, _score in parse_maest_genres_json(
-                                        row["genres_json"]
-                                    )
-                                )
-                            )
-                        )
-                        != row["syncopated_rhythm"]
-                    ]
-                    core_connection.executemany(
-                        "UPDATE maest_genres SET syncopated_rhythm = ? WHERE track_id = ?",
-                        updates,
-                    )
-                    core_connection.commit()
-                except BaseException:
-                    core_connection.rollback()
-                    raise
-        return len(updates)
 
     def register_analysis_outputs(
         self,

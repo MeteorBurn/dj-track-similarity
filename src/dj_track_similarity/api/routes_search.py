@@ -7,9 +7,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 import time
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
-from numpy.typing import NDArray
 
 from ..analysis_models import AnalysisTarget
 from ..analysis.model_runners import (
@@ -53,8 +51,6 @@ from ..search.sonara import (
     SonaraSimilaritySearch,
 )
 from ..search.vector_index import VectorIndexUnavailable
-
-FloatArray = NDArray[np.float32]
 
 # One short prompt is enough to force the deserialization and the first forward
 # pass; nothing is kept, so the wording carries no meaning of its own.

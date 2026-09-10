@@ -10,10 +10,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterable
 
-
-_BATCH_SIZE = 500
 
 
 def _file_genres_text(value: object) -> str:
@@ -142,19 +139,6 @@ def upsert_track_search_fts(
     )
 
 
-def _track_id_batches(
-    connection: sqlite3.Connection,
-) -> Iterable[list[int]]:
-    track_ids = [
-        int(row[0])
-        for row in connection.execute(
-            "SELECT track_id FROM tracks ORDER BY track_id"
-        )
-    ]
-    for start in range(0, len(track_ids), _BATCH_SIZE):
-        yield track_ids[start : start + _BATCH_SIZE]
-
-
 def rebuild_track_search_fts(connection: sqlite3.Connection) -> int:
     """Rebuild the human-text FTS index atomically.
 
@@ -167,9 +151,14 @@ def rebuild_track_search_fts(connection: sqlite3.Connection) -> int:
         connection.execute("BEGIN IMMEDIATE")
     try:
         connection.execute("DELETE FROM track_search_fts")
-        for batch in _track_id_batches(connection):
-            for track_id in batch:
-                upsert_track_search_fts(connection, track_id)
+        track_ids = [
+            int(row[0])
+            for row in connection.execute(
+                "SELECT track_id FROM tracks ORDER BY track_id"
+            )
+        ]
+        for track_id in track_ids:
+            upsert_track_search_fts(connection, track_id)
         count = int(
             connection.execute(
                 "SELECT COUNT(*) FROM track_search_fts"

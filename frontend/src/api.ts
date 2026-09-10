@@ -1,18 +1,6 @@
 export type EmbeddingSource = "mert" | "maest" | "muq" | "mulan" | "clap";
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type AnalysisPipelineStage = "sonara" | "ml" | "classifiers";
-export type SonaraStatusOutput = {
-  output_kind: "core" | "embedding" | "fingerprint";
-  present_count: number;
-  missing_count: number;
-};
-
-export type SonaraStatus = {
-  catalog_uuid: string;
-  total_tracks: number;
-  outputs: SonaraStatusOutput[];
-};
-
 export type AnalysisCoverage = {
   sonara_core: boolean;
   maest_analysis: boolean;
@@ -264,17 +252,6 @@ export type TrackPage = {
   total: number;
   limit: number;
   offset: number;
-};
-
-export type GenreTagApplyResult = {
-  catalog_uuid: string;
-  track_id: number;
-  track_uuid: string;
-  file_path: string;
-  tags: Record<string, string>;
-  status: "applied" | "skipped" | "failed";
-  message: string;
-  error?: string | null;
 };
 
 export type LibrarySummary = {

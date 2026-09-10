@@ -32,7 +32,7 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
     current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase  # noqa: E402
-from dj_track_similarity.db.storage import storage_database_paths  # noqa: E402
+from dj_track_similarity.db.storage import evaluation_database_path  # noqa: E402
 from dj_track_similarity.search.engine import SimilaritySearch  # noqa: E402
 from dj_track_similarity.track_models import FileTags, ScannedFile  # noqa: E402
 from dj_track_similarity.search.vector_index import (  # noqa: E402
@@ -416,10 +416,9 @@ def _kept_database_path(path: Path, track_count: int, *, multiple_counts: bool) 
 
 
 def _prepare_kept_database_path(path: Path) -> None:
-    storage_paths = storage_database_paths(path)
     existing = [
         candidate
-        for candidate in (path, storage_paths.evaluation)
+        for candidate in (path, evaluation_database_path(path))
         if candidate.exists()
     ]
     if existing:

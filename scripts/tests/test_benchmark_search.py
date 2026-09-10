@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from dj_track_similarity.db.storage import storage_database_paths
+from dj_track_similarity.db.storage import evaluation_database_path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "benchmark_search.py"
@@ -69,12 +69,11 @@ def test_benchmark_search_keep_db_preserves_current_bundle(tmp_path: Path) -> No
 
     report = json.loads(output_path.read_text(encoding="utf-8"))
     run = report["runs"][0]
-    storage_paths = storage_database_paths(keep_db_path)
 
     assert run["kept_db"] is True
     assert Path(run["db_path"]) == keep_db_path.resolve(strict=False)
     assert keep_db_path.exists()
-    assert storage_paths.evaluation.exists() is False
+    assert evaluation_database_path(keep_db_path).exists() is False
     with sqlite3.connect(keep_db_path) as library:
         assert library.execute("SELECT COUNT(*) FROM tracks").fetchone()[0] == 20
         assert library.execute(

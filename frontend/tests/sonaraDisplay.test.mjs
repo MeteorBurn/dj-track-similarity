@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const dialogPath = fileURLToPath(new URL("../src/TrackMetadataDialog.tsx", import.meta.url));
-const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
 
 test("metadata dialog accepts only the current detail response", () => {
   const source = readFileSync(dialogPath, "utf8");
@@ -37,13 +36,6 @@ test("SONARA metadata shows feature groups only", () => {
   assert.doesNotMatch(source, /SONARA · Timeline|SONARA · Embedding|SONARA · Fingerprint/);
   assert.doesNotMatch(source, /optional_outputs/);
   assert.doesNotMatch(source, /Representations|representation_fields/);
-});
-
-test("API exposes all current SONARA output statuses", () => {
-  const source = readFileSync(apiPath, "utf8");
-
-  assert.match(source, /output_kind: "core" \| "embedding" \| "fingerprint";/);
-  assert.doesNotMatch(source, /timeline|sonara_embedding/);
 });
 
 test("metadata has no timeline loader or manifest", () => {

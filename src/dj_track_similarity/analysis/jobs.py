@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from .maest_export import MaestMelExport
@@ -76,25 +76,6 @@ from .sonara_features import (
 LOGGER = logging.getLogger(__name__)
 
 
-__all__ = [
-    "AnalysisBatchItem",
-    "AnalysisJobManager",
-    "AnalysisJobStatus",
-    "AnalysisLogEvent",
-    "AnalysisModelProgress",
-    "AnalysisModelRunner",
-    "AnalysisTrackError",
-    "AnalysisTrackOutcome",
-    "DecodeAudio",
-    "EmbeddingModelRunner",
-    "MaestModelRunner",
-    "RunnerFactory",
-    "SonaraOutputStatus",
-    "SonaraStatus",
-    "SonaraModelRunner",
-]
-
-
 @dataclass
 class _AnalysisPayload:
     config: AnalysisJobConfig
@@ -134,16 +115,6 @@ class _RunnerPreflightError(RuntimeError):
     def __init__(self, model: str, error: Exception) -> None:
         super().__init__(f"{model} preflight failed: {exception_summary(error)}")
         self.model = model
-
-
-class _LibrarySummary(Protocol):
-    tracks: int
-
-
-class _SonaraStatusRepository(AnalysisWriteRepository, Protocol):
-    catalog_uuid: str
-
-    def library_summary(self) -> _LibrarySummary: ...
 
 
 @dataclass(frozen=True)
@@ -348,7 +319,7 @@ class AnalysisJobManager:
     def sonara_status(self) -> SonaraStatus:
         """Return SONARA output coverage for the current catalog."""
 
-        repository = cast(_SonaraStatusRepository, self.db)
+        repository = self.db
         outputs = analysis_outputs_for_sonara_runtime()
         total_tracks = int(repository.library_summary().tracks)
         missing_counts = {output.key: 0 for output in outputs}

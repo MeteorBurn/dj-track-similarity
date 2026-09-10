@@ -18,7 +18,7 @@ from .db.connection import (
 from .db.evaluation import EvaluationRepository
 from .db.evaluation_sidecar import connect_evaluation_sidecar
 from .db.library_queries import LibraryQueryRepository
-from .db.storage import storage_database_paths
+from .db.storage import evaluation_database_path
 from .db.text_feedback import TextFeedbackRepository
 from .db.tracks import TrackRepository
 
@@ -66,8 +66,7 @@ class LibraryDatabase(
 
     def __init__(self, path: str | Path) -> None:
         self.path = resolve_database_path(path)
-        storage_paths = storage_database_paths(self.path)
-        self.evaluation_path = storage_paths.evaluation
+        self.evaluation_path = evaluation_database_path(self.path)
         self._write_lock = write_lock_for_path(self.path)
         self.catalog_uuid = self._ensure_schema()
 

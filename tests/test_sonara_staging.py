@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -20,7 +23,7 @@ from dj_track_similarity.analysis.sonara_staging import (
     analyze_and_store_staged_sonara,
     analyze_staged_sonara_group,
 )
-from dj_track_similarity.analysis.staging import cleanup_orphaned_staging
+from dj_track_similarity.analysis.staging import cleanup_orphaned_staging, process_exists
 from dj_track_similarity.analysis.sonara_runtime import SONARA_SAMPLE_RATE
 
 
@@ -386,6 +389,22 @@ def test_orphan_cleanup_preserves_live_job_directories(tmp_path: Path) -> None:
 
     assert not orphan.exists()
     assert live.exists()
+
+
+def test_process_exists_reports_a_finished_process_as_gone() -> None:
+    """The orphan sweep is only as good as its liveness check.
+
+    ``os.kill(pid, 0)`` answers True on Windows for a process that has already
+    exited, which left every orphaned staging directory in place. Assert the
+    check itself: the sweep tests above stub it, so nothing else exercises it.
+    """
+
+    finished = subprocess.Popen([sys.executable, "-c", "pass"])
+    finished.wait()
+
+    assert process_exists(os.getpid()) is True
+    assert process_exists(finished.pid) is False
+    assert process_exists(99999999) is False
 
 
 def test_orphan_cleanup_removes_empty_markerless_stage_directory(

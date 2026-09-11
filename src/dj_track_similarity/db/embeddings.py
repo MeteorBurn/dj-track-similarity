@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..analysis_models import EmbeddingFamilySpec, current_embedding_spec
+from .ddl import FLOAT32_LE, FLOAT32_LE_BYTES
 from .schema import validate_library_schema
 
 
@@ -167,7 +168,7 @@ def validate_embedding_row_metadata(
     stored_bytes = _positive_int_or_none(values["embedding_bytes"])
     if stored_bytes is None:
         return False, "invalid embedding_bytes"
-    if stored_bytes != dim * 4:
+    if stored_bytes != dim * FLOAT32_LE_BYTES:
         return False, "blob length mismatch"
     return True, None
 
@@ -205,9 +206,9 @@ def validate_embedding_row_payload(
     blob = values["embedding_blob"]
     if not isinstance(blob, (bytes, bytearray, memoryview)):
         return False, "embedding_blob is not bytes"
-    if len(blob) != dim * 4:
+    if len(blob) != dim * FLOAT32_LE_BYTES:
         return False, "blob length mismatch"
-    vector = np.frombuffer(blob, dtype="<f4")
+    vector = np.frombuffer(blob, dtype=FLOAT32_LE)
     if vector.shape != (dim,):
         return False, "embedding shape mismatch"
     if not check_values:
@@ -303,13 +304,13 @@ def read_valid_embeddings(
             json.dumps(pairs, separators=(",", ":")),
             spec.dimension,
             spec.normalization,
-            spec.dimension * 4,
+            spec.dimension * FLOAT32_LE_BYTES,
         ),
     ).fetchall()
     vectors: dict[int, np.ndarray] = {}
     accepted_ids = [int(row["track_id"]) for row in rows]
     accepted_vectors = [
-        np.frombuffer(row["embedding_blob"], dtype="<f4") for row in rows
+        np.frombuffer(row["embedding_blob"], dtype=FLOAT32_LE) for row in rows
     ]
     if not accepted_ids:
         return vectors
@@ -358,7 +359,7 @@ def write_valid_embedding_in_transaction(
     )
     if not identity_valid:
         raise RuntimeError(f"stale embedding write rejected: {identity_reason}")
-    vector = np.asarray(embedding, dtype="<f4")
+    vector = np.asarray(embedding, dtype=FLOAT32_LE)
     if vector.ndim != 1 or vector.shape != (spec.dimension,):
         raise ValueError(
             f"embedding shape {vector.shape} does not match "

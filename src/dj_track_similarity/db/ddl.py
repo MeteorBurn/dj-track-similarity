@@ -31,6 +31,22 @@ from dataclasses import dataclass
 from typing import Optional
 
 # ---------------------------------------------------------------------------
+# Stored vector encoding
+# ---------------------------------------------------------------------------
+
+#: How a vector lies inside a BLOB column: the "float32-le" named throughout
+#: the table list above. It describes bytes that are already written, so this
+#: is not a setting -- changing it does not reformat anything, it makes every
+#: reader misread every row in every existing library.
+FLOAT32_LE = "<f4"
+
+#: Bytes per value under FLOAT32_LE, for the length checks that guard a BLOB
+#: before it is decoded. The CHECK constraints below spell the same 4 inline:
+#: DDL text cannot interpolate, and those constraints are part of the stored
+#: schema that validate_library_schema compares against.
+FLOAT32_LE_BYTES = 4
+
+# ---------------------------------------------------------------------------
 # DDL strings — one per table, in FK-safe emission order
 # ---------------------------------------------------------------------------
 

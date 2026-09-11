@@ -20,7 +20,7 @@ from ..analysis_models import (
 from .analysis_candidates import (
     table_for_output,
 )
-from .ddl import ClassifierScoreRecord
+from .ddl import FLOAT32_LE, ClassifierScoreRecord
 from .sonara_core_validation import (
     SONARA_CORE_COLUMNS,
 )
@@ -92,7 +92,7 @@ def _classifier_feature_vector_from_row(
     outputs_by_family: Mapping[str, AnalysisOutput],
 ) -> np.ndarray:
     embedding_vectors = {
-        family: np.frombuffer(row[f"{family}_embedding_blob"], dtype="<f4")
+        family: np.frombuffer(row[f"{family}_embedding_blob"], dtype=FLOAT32_LE)
         for family, output in outputs_by_family.items()
         if output.output_kind == "embedding"
     }
@@ -112,10 +112,10 @@ def _classifier_feature_vector_from_row(
             if index is None:
                 values.append(float(raw))
             else:
-                values.append(float(np.frombuffer(raw, dtype="<f4")[index]))
+                values.append(float(np.frombuffer(raw, dtype=FLOAT32_LE)[index]))
         else:
             values.append(float(embedding_vectors[family][int(key)]))
-    return _readonly_copy(np.asarray(values, dtype="<f4"))
+    return _readonly_copy(np.asarray(values, dtype=FLOAT32_LE))
 
 
 def _classifier_work_item_from_row(
@@ -293,7 +293,7 @@ def _validate_classifier_score(
 
 
 def _readonly_copy(vector: np.ndarray) -> np.ndarray:
-    copied = np.ascontiguousarray(vector, dtype="<f4").copy()
+    copied = np.ascontiguousarray(vector, dtype=FLOAT32_LE).copy()
     copied.setflags(write=False)
     return copied
 

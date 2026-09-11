@@ -15,7 +15,7 @@ from ..analysis_models import (
     SONARA_EMBEDDING_DIM,
     SonaraWrite,
 )
-from ..db.ddl import SonaraRow
+from ..db.ddl import FLOAT32_LE, SonaraRow
 from .sonara_runtime import SONARA_UNIT_INTERVAL_EPSILON
 
 _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS = frozenset(
@@ -452,6 +452,9 @@ def _optional_float32_curve(
         )
         for index, child in enumerate(raw_curve)
     ]
+    # Not FLOAT32_LE: the curve itself is never stored. Only REAL scalars
+    # derived from it below are, so this rounding is a precision choice
+    # that must not follow a change to the BLOB encoding.
     curve = np.asarray(clamped, dtype="<f4")
     return curve
 
@@ -462,12 +465,12 @@ def _float32_vector(value: object, *, dim: int, field_name: str) -> np.ndarray:
     raw_vector = np.asarray(value)
     if raw_vector.dtype.kind not in "iuf":
         raise ValueError(f"{field_name} must contain only numbers")
-    vector = np.asarray(raw_vector, dtype="<f4")
+    vector = np.asarray(raw_vector, dtype=FLOAT32_LE)
     if vector.ndim != 1 or vector.shape != (dim,):
         raise ValueError(f"{field_name} must contain exactly {dim} float32 values")
     if not bool(np.all(np.isfinite(vector))):
         raise ValueError(f"{field_name} contains non-finite values")
-    return np.ascontiguousarray(vector, dtype="<f4")
+    return np.ascontiguousarray(vector, dtype=FLOAT32_LE)
 
 
 def _float32_blob(value: object, dim: int, field_name: str) -> bytes:

@@ -60,6 +60,7 @@ from .classifier_storage import (
 from .search_fts import upsert_track_search_fts
 from .tracks import utc_now_text
 from ..maest_analysis_validation import validate_maest_analysis_row
+from .ddl import FLOAT32_LE
 from .sonara_core_validation import (
     SONARA_CORE_COLUMNS,
     SONARA_CORE_VECTOR_DIMS,
@@ -285,7 +286,7 @@ def _readonly(vector: np.ndarray) -> np.ndarray:
     if (
         isinstance(vector, np.ndarray)
         and not vector.flags.writeable
-        and vector.dtype == np.dtype("<f4")
+        and vector.dtype == np.dtype(FLOAT32_LE)
         and vector.flags.c_contiguous
     ):
         return vector
@@ -902,7 +903,7 @@ class AnalysisRepository:
                         if dim is not None:
                             vector = np.frombuffer(
                                 value,
-                                dtype="<f4",
+                                dtype=FLOAT32_LE,
                             )
                             values[column] = tuple(float(item) for item in vector)
                         else:

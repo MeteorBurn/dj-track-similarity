@@ -11,7 +11,7 @@ from typing import TypeAlias
 
 import numpy as np
 
-from .ddl import SonaraRow
+from .ddl import FLOAT32_LE, FLOAT32_LE_BYTES, SonaraRow
 
 
 SonaraCoreRow: TypeAlias = SonaraRow | Mapping[str, object] | sqlite3.Row
@@ -356,11 +356,11 @@ def _validate_vectors(values: Mapping[str, object]) -> None:
         if not isinstance(value, (bytes, bytearray, memoryview)):
             raise ValueError(f"{field_name} must be a float32-le BLOB")
         payload = bytes(value)
-        if len(payload) != dim * 4:
+        if len(payload) != dim * FLOAT32_LE_BYTES:
             raise ValueError(
                 f"{field_name} must contain exactly {dim} float32-le values"
             )
-        vector = np.frombuffer(payload, dtype="<f4")
+        vector = np.frombuffer(payload, dtype=FLOAT32_LE)
         if vector.shape != (dim,):
             raise ValueError(
                 f"{field_name} must contain exactly {dim} float32-le values"

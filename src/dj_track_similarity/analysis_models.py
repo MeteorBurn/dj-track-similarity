@@ -19,7 +19,12 @@ from typing import Literal
 
 import numpy as np
 
-from .db.ddl import ClassifierScoreRecord, SonaraRow
+from .db.ddl import (
+    FLOAT32_LE,
+    FLOAT32_LE_BYTES,
+    ClassifierScoreRecord,
+    SonaraRow,
+)
 from .scalars import (
     finite_number,
     positive_int,
@@ -307,9 +312,9 @@ class AnalysisCandidate:
 
 
 def _validate_short_float_blob(blob: bytes, *, dim: int, field_name: str) -> None:
-    if not isinstance(blob, bytes) or len(blob) != dim * 4:
+    if not isinstance(blob, bytes) or len(blob) != dim * FLOAT32_LE_BYTES:
         raise ValueError(f"{field_name} must contain exactly {dim} float32-le values")
-    vector = np.frombuffer(blob, dtype="<f4")
+    vector = np.frombuffer(blob, dtype=FLOAT32_LE)
     if vector.shape != (dim,) or not bool(np.all(np.isfinite(vector))):
         raise ValueError(f"{field_name} must contain only finite float32-le values")
 
@@ -321,7 +326,7 @@ def _readonly_float32_vector(
 ) -> np.ndarray:
     spec = current_embedding_spec(family)
     expected_dim = spec.dimension
-    vector = np.asarray(value, dtype="<f4")
+    vector = np.asarray(value, dtype=FLOAT32_LE)
     if vector.ndim != 1 or vector.shape != (expected_dim,):
         raise ValueError(
             f"embedding shape {vector.shape} does not match "
@@ -338,7 +343,7 @@ def _readonly_float32_vector(
             atol=1e-5,
         ):
             raise ValueError("l2 embedding must be unit-normalized")
-    result = np.ascontiguousarray(vector, dtype="<f4").copy()
+    result = np.ascontiguousarray(vector, dtype=FLOAT32_LE).copy()
     result.setflags(write=False)
     return result
 

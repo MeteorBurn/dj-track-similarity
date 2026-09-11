@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import sqlite3
 from typing import Any
 
@@ -29,6 +28,7 @@ from ..evaluation.score_profiles import (
 from ..evaluation.seed_sampling import export_seed_sample
 from ..evaluation.source_profile import build_source_profile
 from ..evaluation.weighted_candidates import build_weighted_candidate_pool, limit_weighted_candidate_rows_per_seed
+from ..timestamps import utc_timestamp_seconds
 
 
 def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
@@ -249,7 +249,7 @@ def _inline_score_profile_payload(weights: dict[str, float], name: str | None) -
         "weight_kind": WEIGHT_KIND,
         "sources": sources,
         "weights": weights,
-        "created_at": _utc_timestamp(),
+        "created_at": utc_timestamp_seconds(),
         "source_report_summary": {
             "status": "inline_weights",
             "profile_kind": PROFILE_KIND,
@@ -275,7 +275,3 @@ def _evaluation_schema_error(error: Exception) -> HTTPException:
         status_code=409,
         detail=f"Evaluation API requires the current SQLite structure. {error}",
     )
-
-
-def _utc_timestamp() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

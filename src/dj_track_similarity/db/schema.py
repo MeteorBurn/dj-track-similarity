@@ -5,14 +5,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Iterable
-from datetime import datetime, timezone
+
+from ..timestamps import utc_timestamp
 
 
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
-
-
-def _utc_timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def insert_library(
@@ -32,7 +29,7 @@ def insert_library(
     clean_roots = _roots_json(roots)
     if connection.execute("SELECT COUNT(*) FROM library").fetchone()[0] != 0:
         raise RuntimeError("library is already initialized")
-    timestamp = created_at or _utc_timestamp()
+    timestamp = created_at or utc_timestamp()
     connection.execute(
         """
         INSERT INTO library(

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
@@ -28,6 +27,7 @@ from ..scalars import (
     non_negative_finite_float,
     parsed_positive_int,
 )
+from ..timestamps import utc_timestamp_seconds
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -85,7 +85,7 @@ def build_score_profile_from_source_report(report: Mapping[str, Any], name: str)
         weight_kind=WEIGHT_KIND,
         sources=_source_list(report.get("sources")),
         weights=_weights(recommended_weights.get("weights")),
-        created_at=_utc_timestamp(),
+        created_at=utc_timestamp_seconds(),
         source_report_summary=_source_report_summary(report),
         limitations=list(DEFAULT_LIMITATIONS),
         version=SCORE_PROFILE_VERSION,
@@ -545,7 +545,3 @@ def _mean(values: Iterable[float]) -> float:
     if not items:
         return 0.0
     return sum(float(value) for value in items) / len(items)
-
-
-def _utc_timestamp() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

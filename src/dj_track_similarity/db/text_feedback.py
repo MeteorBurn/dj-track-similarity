@@ -12,7 +12,8 @@ from typing import Any
 
 from .connection import connect_database_read_only
 from .ddl import TEXT_SEARCH_FEEDBACK_DDL
-from .schema import _utc_timestamp, validate_library_schema
+from .schema import validate_library_schema
+from ..timestamps import utc_timestamp
 
 
 class TextFeedbackSchemaError(RuntimeError):
@@ -95,7 +96,7 @@ class TextFeedbackRepository:
             "mode", "comparison_id", "eligible_count", "eligibility_digest", "feedback",
             "code_revision", "device", "limit",
         ) if key in run})
-        timestamp = _utc_timestamp()
+        timestamp = utc_timestamp()
         with self._write_lock, closing(self.connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             _require_ready(connection)

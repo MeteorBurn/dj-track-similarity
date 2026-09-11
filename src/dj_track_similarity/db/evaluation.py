@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 import math
 from numbers import Integral, Real
@@ -16,6 +15,7 @@ from ..scalars import (
     finite_number,
     non_negative_int,
 )
+from ..timestamps import utc_timestamp
 
 
 class EvaluationRepository:
@@ -316,7 +316,7 @@ class EvaluationRepository:
                     )
                     VALUES (?, ?, ?)
                     """,
-                    (clean_name, profile_json, _utc_timestamp()),
+                    (clean_name, profile_json, utc_timestamp()),
                 )
                 return int(cursor.lastrowid)
 
@@ -365,7 +365,7 @@ class EvaluationRepository:
             "Seed track id",
         )
         request_json = _json_text(dict(request))
-        timestamp = _utc_timestamp()
+        timestamp = utc_timestamp()
         with self._write_lock:
             with closing(self.connect()) as core_connection:
                 snapshots = _load_track_snapshots(
@@ -424,7 +424,7 @@ class EvaluationRepository:
             "Search result total score",
         )
         score_breakdown_json = _json_text(dict(score_breakdown))
-        timestamp = _utc_timestamp()
+        timestamp = utc_timestamp()
         with self._write_lock:
             with closing(self.connect()) as core_connection:
                 snapshot = _load_track_snapshots(
@@ -511,7 +511,7 @@ class EvaluationRepository:
         clean_rating = _rating(rating)
         reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
         clean_source = coerced_text(source, "Pair feedback source")
-        timestamp = _utc_timestamp()
+        timestamp = utc_timestamp()
         with (
             self._write_lock,
             closing(self.connect()) as connection,
@@ -616,7 +616,7 @@ class EvaluationRepository:
         clean_rating = _rating(rating)
         reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
         clean_source = coerced_text(source, "Pair feedback source")
-        timestamp = _utc_timestamp()
+        timestamp = utc_timestamp()
         with (
             self._write_lock,
             closing(self.connect()) as connection,
@@ -705,7 +705,7 @@ class EvaluationRepository:
         clean_rating = _rating(rating)
         risk_tags_json = _json_text(_clean_tags(risk_tags, "Risk tag"))
         clean_source = coerced_text(source, "Transition feedback source")
-        timestamp = _utc_timestamp()
+        timestamp = utc_timestamp()
         with (
             self._write_lock,
             closing(self.connect()) as connection,
@@ -753,7 +753,7 @@ class EvaluationRepository:
         )
         config_json = _json_text(dict(config))
         metrics_json = _json_text(dict(metrics))
-        timestamp = _utc_timestamp()
+        timestamp = utc_timestamp()
         with self._write_lock:
             connection = _required_evaluation_connection(self, create=True)
             with closing(connection), connection:
@@ -944,7 +944,3 @@ def _clean_tags(tags: Sequence[str], field_name: str) -> list[str]:
             f"{field_name} list must be a sequence of strings, not a string"
         )
     return [text for tag in tags if (text := str(tag).strip())]
-
-
-def _utc_timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import math
 import random
@@ -29,6 +28,7 @@ from ..scalars import (
     positive_int_or_none,
 )
 from .score_profiles import DEFAULT_RRF_K
+from ..timestamps import utc_timestamp_seconds
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -270,7 +270,7 @@ def build_saved_score_profile_payload(report: Mapping[str, Any]) -> dict[str, An
         "profile_source": SAVED_PROFILE_SOURCE,
         "label_status": coerced_text(report.get("label_status"), "label_status"),
         "created_at": coerced_text(report.get("created_at"), "created_at"),
-        "saved_at": _utc_timestamp(),
+        "saved_at": utc_timestamp_seconds(),
         "objective": _objective(str(report.get("objective", DEFAULT_OBJECTIVE))),
         "split_by": _split_by(str(report.get("split_by", DEFAULT_SPLIT_BY))),
         "judged_pairs": non_negative_int(report.get("judged_pairs"), "judged_pairs"),
@@ -713,7 +713,7 @@ def _base_report(
     return {
         "profile_name": request.profile_name,
         "source": SOURCE,
-        "created_at": _utc_timestamp(),
+        "created_at": utc_timestamp_seconds(),
         "objective": request.objective,
         "split_by": request.split_by,
         "label_status": judged_gate["label_status"],
@@ -977,7 +977,3 @@ def _mean(values: Iterable[float]) -> float:
     if not items:
         return 0.0
     return sum(float(value) for value in items) / len(items)
-
-
-def _utc_timestamp() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

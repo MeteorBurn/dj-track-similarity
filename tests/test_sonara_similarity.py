@@ -1338,7 +1338,7 @@ def test_sonara_feature_rows_refresh_after_typed_core_write(tmp_path: Path) -> N
     assert refreshed_rows[0].values["energy_score"] == 0.9
 
 
-def test_sonara_feature_rows_handle_full_library_and_chunked_queries(
+def test_sonara_feature_rows_handle_full_library_and_large_selections(
     monkeypatch,
     tmp_path: Path,
 ) -> None:

@@ -54,7 +54,6 @@ _EMBEDDING_TABLES = (
 _UTC_MICROSECOND_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z"
 )
-_SQLITE_IN_CHUNK_SIZE = 800
 
 
 def utc_now_text() -> str:
@@ -310,11 +309,6 @@ def _validated_track_ids(track_ids: Sequence[int]) -> tuple[int, ...]:
     return tuple(ordered)
 
 
-def _chunks(values: Sequence[int], size: int = _SQLITE_IN_CHUNK_SIZE) -> Iterable[tuple[int, ...]]:
-    for start in range(0, len(values), size):
-        yield tuple(values[start : start + size])
-
-
 class TrackRepository:
     """Track repository mixed into :class:`LibraryDatabase`.
 
@@ -387,19 +381,20 @@ class TrackRepository:
         with closing(self.connect()) as connection:
             connection.execute("BEGIN")
             try:
-                for chunk in _chunks(ordered_ids):
-                    placeholders = ",".join("?" for _ in chunk)
-                    where_missing = "" if include_missing else "AND missing_since IS NULL"
-                    rows = connection.execute(
-                        f"""
-                        SELECT track_id, track_uuid
-                        FROM tracks
-                        WHERE track_id IN ({placeholders})
-                          {where_missing}
-                        """,
-                        chunk,
-                    ).fetchall()
-                    rows_by_id.update({int(row[0]): row for row in rows})
+                where_missing = "" if include_missing else "AND missing_since IS NULL"
+                rows = connection.execute(
+                    f"""
+                    SELECT track_id, track_uuid
+                    FROM tracks
+                    WHERE track_id IN (
+                          SELECT CAST(value AS INTEGER)
+                          FROM json_each(?)
+                      )
+                      {where_missing}
+                    """,
+                    (json.dumps(list(ordered_ids), separators=(",", ":")),),
+                ).fetchall()
+                rows_by_id.update({int(row[0]): row for row in rows})
             finally:
                 if connection.in_transaction:
                     connection.rollback()
@@ -432,23 +427,24 @@ class TrackRepository:
         with closing(self.connect()) as connection:
             connection.execute("BEGIN")
             try:
-                for chunk in _chunks(ordered_ids):
-                    placeholders = ",".join("?" for _ in chunk)
-                    rows = connection.execute(
-                        f"""
-                        SELECT
-                            track_id,
-                            track_uuid,
-                            file_path,
-                            file_size_bytes,
-                            file_modified_ns,
-                            missing_since
-                        FROM tracks
-                        WHERE track_id IN ({placeholders})
-                        """,
-                        chunk,
-                    ).fetchall()
-                    rows_by_id.update({int(row[0]): row for row in rows})
+                rows = connection.execute(
+                    """
+                    SELECT
+                        track_id,
+                        track_uuid,
+                        file_path,
+                        file_size_bytes,
+                        file_modified_ns,
+                        missing_since
+                    FROM tracks
+                    WHERE track_id IN (
+                          SELECT CAST(value AS INTEGER)
+                          FROM json_each(?)
+                      )
+                    """,
+                    (json.dumps(list(ordered_ids), separators=(",", ":")),),
+                ).fetchall()
+                rows_by_id.update({int(row[0]): row for row in rows})
             finally:
                 if connection.in_transaction:
                     connection.rollback()

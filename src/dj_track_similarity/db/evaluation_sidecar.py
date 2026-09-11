@@ -7,6 +7,7 @@ created in the current shape, while an existing file is left untouched.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Collection
 from contextlib import closing
@@ -78,7 +79,6 @@ CREATE INDEX idx_calibration_profile_created
     ON calibration_runs(profile_name, search_mode, created_at, calibration_run_id);
 """
 
-_DELETE_CHUNK_SIZE = 800
 _ALL_DDL = (
     _DDL_EVALUATION_PROFILES,
     _DDL_SEARCH_SESSIONS,
@@ -150,16 +150,15 @@ def delete_evaluation_track_rows(
     selected = sorted({int(track_id) for track_id in track_ids})
     if not selected:
         return 0
+    selected_json = json.dumps(selected, separators=(",", ":"))
     deleted = 0
     for table in _EVALUATION_TRACK_TABLES:
-        for index in range(0, len(selected), _DELETE_CHUNK_SIZE):
-            chunk = selected[index : index + _DELETE_CHUNK_SIZE]
-            placeholders = ",".join("?" for _ in chunk)
-            cursor = connection.execute(
-                f"DELETE FROM {table} WHERE track_id IN ({placeholders})",
-                chunk,
-            )
-            deleted += int(cursor.rowcount or 0)
+        cursor = connection.execute(
+            f"DELETE FROM {table} WHERE track_id IN ("
+            "SELECT CAST(value AS INTEGER) FROM json_each(?))",
+            (selected_json,),
+        )
+        deleted += int(cursor.rowcount or 0)
     return deleted
 
 

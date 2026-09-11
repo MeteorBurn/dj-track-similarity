@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sqlite3
 from collections.abc import Mapping, Sequence
@@ -139,17 +140,15 @@ class TextFeedbackRepository:
         with closing(connect_database_read_only(self.path)) as connection:
             validate_library_schema(connection, expected_catalog_uuid=self.catalog_uuid)
             _require_ready(connection)
-            for start in range(0, len(track_uuids), 500):
-                chunk = track_uuids[start:start + 500]
-                placeholders = ",".join("?" for _ in chunk)
-                rows = connection.execute(
-                    "SELECT t.track_uuid, f.verdict, f.revision FROM text_search_feedback f "
-                    "JOIN tracks t ON t.track_id=f.track_id WHERE f.query_key=? "
-                    f"AND t.track_uuid IN ({placeholders}) AND t.missing_since IS NULL",
-                    (query_key, *chunk),
-                ).fetchall()
-                for row in rows:
-                    result[row[0]] = {"verdict": row[1], "revision": row[2]}
+            rows = connection.execute(
+                "SELECT t.track_uuid, f.verdict, f.revision FROM text_search_feedback f "
+                "JOIN tracks t ON t.track_id=f.track_id WHERE f.query_key=? "
+                "AND t.track_uuid IN (SELECT value FROM json_each(?)) "
+                "AND t.missing_since IS NULL",
+                (query_key, json.dumps(list(track_uuids), separators=(",", ":"))),
+            ).fetchall()
+            for row in rows:
+                result[row[0]] = {"verdict": row[1], "revision": row[2]}
         return result
 
     def list_text_query_feedback_tracks(self, query_key: str) -> dict[str, Any]:

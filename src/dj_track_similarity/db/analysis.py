@@ -67,9 +67,6 @@ from .sonara_core_validation import (
 )
 
 
-_SQLITE_IN_CHUNK_SIZE = 800
-
-
 _CURRENT_SONARA_TARGETS_SQL = """
     FROM sonara_features AS sonara
     JOIN tracks
@@ -873,23 +870,18 @@ class AnalysisRepository:
                         """
                     ).fetchall()
                 else:
-                    rows = []
-                    selected_ids = tuple(selected_by_id)
-                    for start in range(0, len(selected_ids), _SQLITE_IN_CHUNK_SIZE):
-                        chunk = selected_ids[start : start + _SQLITE_IN_CHUNK_SIZE]
-                        placeholders = ", ".join("?" for _ in chunk)
-                        rows.extend(
-                            core_connection.execute(
-                                f"""
-                                SELECT {", ".join(SONARA_CORE_COLUMNS)}
-                                FROM sonara_features
-                                WHERE track_id IN ({placeholders})
-                                ORDER BY track_id
-                                """,
-                                chunk,
-                            ).fetchall()
-                        )
-                    rows.sort(key=lambda row: int(row["track_id"]))
+                    rows = core_connection.execute(
+                        f"""
+                        SELECT {", ".join(SONARA_CORE_COLUMNS)}
+                        FROM sonara_features
+                        WHERE track_id IN (
+                              SELECT CAST(value AS INTEGER)
+                              FROM json_each(?)
+                          )
+                        ORDER BY track_id
+                        """,
+                        (json.dumps(list(selected_by_id), separators=(",", ":")),),
+                    ).fetchall()
                 result: list[SonaraFeatureRow] = []
                 for row in rows:
                     target = selected_by_id.get(int(row["track_id"]))

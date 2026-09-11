@@ -792,12 +792,7 @@ function formatSignedNumber(value: number, decimalPlaces: number) {
 
 function formatDuration(seconds: number | null) {
   if (seconds == null || !Number.isFinite(seconds)) return "-";
-  const rounded = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(rounded / 3600);
-  const minutes = Math.floor((rounded % 3600) / 60);
-  const rest = (rounded % 60).toString().padStart(2, "0");
-  if (hours > 0) return `${hours}:${minutes.toString().padStart(2, "0")}:${rest}`;
-  return `${minutes}:${rest}`;
+  return formatClockPosition(seconds, 0);
 }
 
 function formatAudioLength(seconds: number | null) {

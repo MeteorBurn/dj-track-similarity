@@ -444,7 +444,7 @@ def test_mulan_loader_deserializes_only_verified_local_towers(
     for file_name in MuqMulanEmbeddingAdapter.snapshot_files:
         (snapshot / file_name).write_bytes(file_name.encode())
     (snapshot / "config.json").write_text('{"mulan": {"dim_latent": 512}}', encoding="utf-8")
-    text_snapshot = tmp_path / "models" / "mulan-text"
+    text_snapshot = tmp_path / "models" / "mulan" / "text"
     text_snapshot.mkdir()
     for file_name in MuqMulanEmbeddingAdapter.text_snapshot_files:
         (text_snapshot / file_name).write_bytes(file_name.encode())
@@ -627,7 +627,7 @@ def test_clap_loader_uses_verified_checkpoint_and_text_assets(
     checkpoint = tmp_path / "models" / "clap" / ClapEmbeddingAdapter.checkpoint_filename
     checkpoint.parent.mkdir()
     checkpoint.write_bytes(b"checkpoint")
-    text_snapshot = tmp_path / "models" / "clap-text"
+    text_snapshot = tmp_path / "models" / "clap" / "text"
     text_snapshot.mkdir()
     for file_name in ClapEmbeddingAdapter.text_snapshot_files:
         (text_snapshot / file_name).write_bytes(file_name.encode())

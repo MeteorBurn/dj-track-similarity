@@ -235,7 +235,7 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     checkpoint.parent.mkdir(parents=True)
     monkeypatch.setattr(embedding_loading, "_MODELS_ROOT", tmp_path / "models")
     checkpoint.write_bytes(b"stub checkpoint")
-    text_snapshot = tmp_path / "models" / "clap-text"
+    text_snapshot = tmp_path / "models" / "clap" / "text"
     text_snapshot.mkdir()
     for file_name in ClapEmbeddingAdapter.text_snapshot_files:
         (text_snapshot / file_name).write_bytes(file_name.encode())
@@ -419,7 +419,7 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
     checkpoint.parent.mkdir(parents=True)
     monkeypatch.setattr(embedding_loading, "_MODELS_ROOT", tmp_path / "models")
     checkpoint.write_bytes(b"stub checkpoint")
-    text_snapshot = tmp_path / "models" / "clap-text"
+    text_snapshot = tmp_path / "models" / "clap" / "text"
     text_snapshot.mkdir()
     for file_name in ClapEmbeddingAdapter.text_snapshot_files:
         (text_snapshot / file_name).write_bytes(file_name.encode())

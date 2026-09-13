@@ -249,7 +249,7 @@ class ClapEmbeddingAdapter:
                 )
                 verified_text_snapshot = assets.enter_context(
                     _bind_verified_local_snapshot(
-                        model_directory="clap-text",
+                        model_directory="clap/text",
                         repo_id=self.text_model_name,
                         revision=self.text_model_revision,
                         required_files=self.text_snapshot_files,

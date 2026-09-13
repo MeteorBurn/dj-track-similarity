@@ -163,7 +163,7 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
 
 MAEST_PREPROCESSING = "shared-mono/maest-16khz-native-full-track-v2"
 MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows-v1"
-MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-interior-windows-v1"
+MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-consecutive-windows-v1"
 MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track-v2"
 CLAP_PREPROCESSING = "shared-mono/clap-48khz-native-full-signal-v2"
 

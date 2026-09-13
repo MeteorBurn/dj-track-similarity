@@ -18,12 +18,11 @@ def _prepare_windows(
     *,
     target_rate: int,
     window_seconds: float,
-    max_windows: int,
     torch,
     torchaudio,
     model_label: str,
 ) -> tuple[list[list[int]], list, float]:
-    """Prepare zero-padded waveform windows for MuQ inference."""
+    """Prepare full-track MuQ windows, padding only tracks shorter than one window."""
 
     window_size = max(1, int(target_rate * window_seconds))
     track_windows: list[list[int]] = []
@@ -48,8 +47,6 @@ def _prepare_windows(
             waveform,
             target_rate,
             window_seconds,
-            max_windows,
-            torch,
         )
         if not windows:
             raise ValueError(f"No audio windows could be extracted: {decoded.path}")
@@ -81,30 +78,17 @@ def _resample_to(waveform, *, source_rate: int, target_rate: int, torchaudio):
                 _RESAMPLERS[key] = resampler
     return resampler(waveform)
 
-def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max_windows: int, torch):
-    """Spread up to *max_windows* interior windows without stacking duplicates.
-
-    The interior span a track offers shrinks as the window grows: at a 30 s
-    window a 35 s track leaves no room to move at all, and evenly spacing five
-    starts across that span yields five identical slices — five forwards for
-    one window of information. Requesting one window per half-window of travel
-    keeps distinct starts distinct and leaves long tracks, where *max_windows*
-    binds first, exactly as before.
-    """
+def _select_windows_torch(waveform, sample_rate: int, window_seconds: float):
+    """Cover the track with consecutive windows and an end-aligned final window."""
 
     window_size = max(1, int(sample_rate * window_seconds))
     total = int(waveform.shape[-1])
     if total <= window_size:
         return [waveform]
-    usable_start = int(total * 0.1)
-    usable_end = int(total * 0.9)
-    usable = max(window_size, usable_end - usable_start)
-    last_start = max(usable_start, usable_end - window_size)
-    travel = last_start - usable_start
-    affordable = 1 + travel // max(1, window_size // 2)
-    count = max(1, min(int(max_windows), int(affordable)))
-    if count <= 1:
-        return [waveform[start : start + window_size] for start in
-                [usable_start + max(0, (usable - window_size) // 2)]]
-    starts = torch.linspace(usable_start, last_start, steps=count).round().to(torch.int64).tolist()
-    return [waveform[start : start + window_size] for start in starts]
+    windows = [
+        waveform[start : start + window_size]
+        for start in range(0, total - window_size + 1, window_size)
+    ]
+    if total % window_size:
+        windows.append(waveform[-window_size:])
+    return windows

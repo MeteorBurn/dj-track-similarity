@@ -47,12 +47,10 @@ class MuqEmbeddingAdapter:
         self,
         device: str | None = None,
         window_seconds: float = 10.0,
-        max_windows: int = 5,
         inference_batch_size: int = 8,
     ) -> None:
         self.requested_device = device or "auto"
         self.window_seconds = window_seconds
-        self.max_windows = max_windows
         self.inference_batch_size = max(1, int(inference_batch_size))
         self._load_lock = threading.RLock()
         self._model = None
@@ -66,13 +64,12 @@ class MuqEmbeddingAdapter:
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "window_seconds": self.window_seconds,
-            "max_windows": self.max_windows,
             "pooling": self.pooling,
             "dtype": self.dtype,
             "channel_downmix": "torchcodec-num-channels-1",
             "decoder": "shared-torchcodec-0.16",
             "resampler": "torchaudio",
-            "window_selection": "10%-90%-interior-evenly-spaced-rounded",
+            "window_selection": "consecutive-full-coverage-end-aligned-tail",
             "short_audio": "right-zero-pad-to-window",
             "device_precision": "float32-eval-no-autocast-no-compile",
             "model_revision": self.model_revision,
@@ -101,7 +98,6 @@ class MuqEmbeddingAdapter:
             decoded_items,
             target_rate=self.target_rate,
             window_seconds=self.window_seconds,
-            max_windows=self.max_windows,
             torch=torch,
             torchaudio=torchaudio,
             model_label="MuQ",

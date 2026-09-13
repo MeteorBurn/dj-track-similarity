@@ -706,20 +706,23 @@ class FakeMuqAudioModel:
     def __init__(self) -> None:
         self.batch_shapes: list[tuple[int, ...]] = []
         self.batch_dtypes: list[torch.dtype] = []
+        self.audio_calls: list[torch.Tensor] = []
 
     def __call__(self, wavs, *, output_hidden_states=True):
         assert output_hidden_states is True
         self.batch_shapes.append(tuple(wavs.shape))
         self.batch_dtypes.append(wavs.dtype)
+        self.audio_calls.append(wavs.detach().cpu().clone())
         hidden = torch.zeros((wavs.shape[0], 2, 3), dtype=torch.float32, device=wavs.device)
         for index in range(wavs.shape[0]):
-            hidden[index, :, (int(wavs[index, 0].item()) - 1) % hidden.shape[-1]] = 1.0
+            first = int(wavs[index, 0].item())
+            hidden[index, :, (first - 1) % hidden.shape[-1]] = 1.0 + abs(first) % 7
         return types.SimpleNamespace(last_hidden_state=hidden)
 
 
 class SharedAudioMuqAdapter(MuqEmbeddingAdapter):
     def __init__(self, torchaudio_module=None) -> None:
-        super().__init__(device="cpu", window_seconds=1.0, max_windows=1, inference_batch_size=4)
+        super().__init__(device="cpu", window_seconds=1.0, inference_batch_size=4)
         self.fake_model = FakeMuqAudioModel()
         self.fake_torchaudio = torchaudio_module
 
@@ -730,19 +733,54 @@ class SharedAudioMuqAdapter(MuqEmbeddingAdapter):
         self._model = self.fake_model
 
 
-def test_muq_embed_decoded_batch_uses_shared_audio_without_loading_paths() -> None:
+def test_muq_covers_each_track_with_consecutive_windows_and_preserves_pooling() -> None:
+    sample_rate = 24_000
+    window_size = sample_rate * 10
+    long_audio = torch.arange(sample_rate * 301, dtype=torch.float64) / sample_rate + 1
+    exact_audio = torch.arange(window_size * 2, dtype=torch.float32) / sample_rate + 100
+    short_audio = torch.full((sample_rate // 2,), 2.0)
     decoded = [
-        DecodedAudio(path="a.wav", audio=torch.ones(24_000), sample_rate=24_000, detail="shared"),
-        DecodedAudio(path="b.wav", audio=torch.full((24_000,), 2.0), sample_rate=24_000, detail="shared"),
+        DecodedAudio(path="long.wav", audio=long_audio, sample_rate=sample_rate, detail="shared"),
+        DecodedAudio(path="exact.wav", audio=exact_audio, sample_rate=sample_rate, detail="shared"),
+        DecodedAudio(path="short.wav", audio=short_audio, sample_rate=sample_rate, detail="shared"),
     ]
+    expected_track_windows = [
+        [long_audio[start : start + window_size].float() for start in range(0, sample_rate * 300, window_size)]
+        + [long_audio[-window_size:].float()],
+        [exact_audio[:window_size], exact_audio[window_size:]],
+        [torch.cat((short_audio, torch.zeros(window_size - short_audio.numel())))],
+    ]
+    expected_windows = [window for windows in expected_track_windows for window in windows]
+    expected_vectors = []
+    for windows in expected_track_windows:
+        # Each synthetic model output is a scaled basis vector: window L2
+        # normalization must remove that scale before track-level averaging.
+        counts = np.bincount([(int(window[0]) - 1) % 3 for window in windows], minlength=3).astype(np.float32)
+        expected_vectors.append(counts / np.linalg.norm(counts))
 
-    for batch_size in (1, 2, 4):
+    reference_vectors = None
+    for batch_size in (1, 8, 64):
         adapter = SharedAudioMuqAdapter()
+        adapter.window_seconds = 10.0
         adapter.inference_batch_size = batch_size
         vectors = adapter.embed_decoded_batch(decoded)
-        assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
-        assert adapter.fake_model.batch_shapes == ([(1, 24000), (1, 24000)] if batch_size == 1 else [(2, 24000)])
+        actual_windows = [window for batch in adapter.fake_model.audio_calls for window in batch]
+        assert len(actual_windows) == 34
+        for actual, expected in zip(actual_windows, expected_windows, strict=True):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        assert adapter.fake_model.batch_shapes == [
+            (min(batch_size, 34 - start), window_size) for start in range(0, 34, batch_size)
+        ]
         assert all(dtype == torch.float32 for dtype in adapter.fake_model.batch_dtypes)
+        for actual, expected in zip(vectors, expected_vectors, strict=True):
+            assert actual.dtype == np.float32
+            assert np.linalg.norm(actual) == pytest.approx(1.0)
+            np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-7)
+        if reference_vectors is None:
+            reference_vectors = vectors
+        else:
+            for actual, reference in zip(vectors, reference_vectors, strict=True):
+                np.testing.assert_array_equal(actual, reference)
 
 
 def test_muq_consumes_shared_torchcodec_tensor_without_numpy_round_trip(

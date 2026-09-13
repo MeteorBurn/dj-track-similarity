@@ -1,0 +1,98 @@
+{
+  "inputs": {
+    "waveform": {
+      "argument": "waveform",
+      "type": "torch.Tensor",
+      "shape": [
+        "samples"
+      ],
+      "dtype": "float32 for FP32 inference",
+      "sample_rate_hz": 16000,
+      "channels": 1,
+      "constraints": "Nonempty finite mono waveform; caller decodes and resamples. This contract uses the full-track raw-waveform path, with default distilled_type=mean."
+    }
+  },
+  "outputs": {
+    "forward": {
+      "container": "tuple(logits, block_embeddings)",
+      "logits": {
+        "type": "torch.Tensor",
+        "shape": [
+          "blocks",
+          "classes"
+        ],
+        "dtype": "float32 under FP32 inference",
+        "semantics": "Independent class logits, not probabilities."
+      },
+      "block_embeddings": {
+        "type": "torch.Tensor",
+        "shape": [
+          "blocks",
+          768
+        ],
+        "dtype": "float32 under FP32 inference",
+        "pooling": "Mean of final CLS and distillation tokens per block.",
+        "l2_normalized": false,
+        "track_pooling": "none"
+      }
+    },
+    "predict_labels": {
+      "container": "tuple(scores, labels)",
+      "scores": {
+        "type": "numpy.ndarray on CPU",
+        "shape": [
+          "classes"
+        ],
+        "dtype": "float32 under FP32 inference",
+        "activation_and_pooling": "sigmoid(logits), then arithmetic mean over blocks",
+        "semantics": "Independent multilabel activations; do not sum to one."
+      },
+      "labels": {
+        "type": "ordered sequence[str]",
+        "length": "classes",
+        "alignment": "scores[i] corresponds to labels[i]",
+        "selection": "400-class models use discogs_400labels; 519-class models use discogs_519labels, selected by native num_classes."
+      },
+      "returns_embeddings": false,
+      "native_top_k": "none"
+    },
+    "classes_by_variant": {
+      "discogs-maest-30s-pw-129e": 400,
+      "discogs-maest-30s-pw-129e-519l": 519
+    },
+    "adapter_embedding": {
+      "type": "numpy.ndarray",
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "normalization": "l2"
+    }
+  },
+  "settings": {
+    "inference": {
+      "mode": "eval",
+      "dtype": "float32",
+      "melspectrogram_input": false,
+      "distilled_type": "mean"
+    },
+    "initialization": "Initialize the mel spectrogram, then move model and waveform to the same device.",
+    "preprocessing_and_segmentation": {
+      "native_frontend": "96-bin mel spectrogram over the full waveform.",
+      "block_unit": "mel frames",
+      "block_size": 1875,
+      "long_audio": "Keep floor(mel_frames / 1875) complete contiguous blocks; drop incomplete tail.",
+      "short_audio": "One variable-length block without padding; very short waveforms can fail STFT or patch extraction."
+    },
+    "native_model_variants": [
+      "discogs-maest-30s-pw-129e",
+      "discogs-maest-30s-pw-129e-519l"
+    ],
+    "adapter": {
+      "model": "discogs-maest-30s-pw-129e-519l",
+      "top_k_default": 3,
+      "embedding_pooling": "Mean native block embeddings, then final L2 normalization.",
+      "genre_selection": "Apply top-k after native sigmoid and mean over blocks; capture block embeddings from the same native pass."
+    }
+  }
+}

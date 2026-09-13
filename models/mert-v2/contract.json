@@ -1,0 +1,120 @@
+{
+  "inputs": {
+    "input_values": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "samples"
+      ],
+      "dtype": "floating point; float32 recommended",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "minimum_samples": 1025,
+      "finite_values_only": true,
+      "amplitude_standardization": false,
+      "preprocessing": "Decode, mix to mono and resample before inference. Preserve waveform amplitude."
+    },
+    "attention_mask": {
+      "optional": true,
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "samples"
+      ],
+      "values": [
+        0,
+        1
+      ],
+      "padding_side": "right",
+      "semantics": "Prefix of ones for valid samples followed by zeros for padding. Without a mask, every supplied sample is processed."
+    }
+  },
+  "outputs": {
+    "container": "MERT2ModelOutput when return_dict=true; tuple otherwise",
+    "last_hidden_state": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "frames",
+        1024
+      ],
+      "l2_normalized": false
+    },
+    "hidden_states": {
+      "enabled_by": "output_hidden_states=true",
+      "type": "tuple[torch.Tensor, ...]",
+      "count": 24,
+      "element_shape": [
+        "batch",
+        "frames",
+        1024
+      ],
+      "indexing": "Index 0 is Conformer block 1; index 23 is block 24. No additional input embedding state."
+    },
+    "feature_attention_mask": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "frames"
+      ],
+      "dtype": "bool",
+      "semantics": "True for valid output frames; false for right padding."
+    },
+    "frame_rate_hz": 25.0,
+    "valid_frame_count": "valid_waveform_samples // 960",
+    "batch_padding": "Different valid waveform lengths are encoded separately. Output sequences are right padded to the longest valid frame count.",
+    "native_recording_pooling": null,
+    "native_labels_or_probabilities": null
+  },
+  "settings": {
+    "inference": {
+      "mode": "eval",
+      "dtype": "float32",
+      "attn_implementation": "sdpa",
+      "output_hidden_states": true,
+      "return_dict": true
+    },
+    "context": {
+      "variant": "fs",
+      "context_seconds": 360.0,
+      "maximum_duration_enforced": false,
+      "automatic_cropping": false,
+      "automatic_windowing": false
+    },
+    "processor": {
+      "do_normalize": false,
+      "padding_value": 0.0,
+      "padding_side": "right",
+      "return_attention_mask": true
+    },
+    "frontend": {
+      "n_fft": 2048,
+      "win_length": 2048,
+      "hop_length": 240,
+      "num_mel_bins": 128,
+      "inputs_to_logits_ratio": 960,
+      "normalization": "Checkpoint-specific mel_mean and mel_std after power log-mel conversion.",
+      "dtype": "float32; frontend computation runs outside autocast"
+    },
+    "encoder": {
+      "hidden_size": 1024,
+      "intermediate_size": 4096,
+      "num_hidden_layers": 24,
+      "num_attention_heads": 16,
+      "conv_depthwise_kernel_size": 31,
+      "rotary_embedding_base": 10000,
+      "layer_norm_eps": 1e-05,
+      "subsampling_channels": [
+        128,
+        512,
+        1024
+      ],
+      "subsampling_depths": [
+        3,
+        4,
+        5
+      ],
+      "subsampling_layer_norm_eps": 1e-06
+    }
+  }
+}

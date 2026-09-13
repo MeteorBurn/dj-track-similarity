@@ -1,0 +1,95 @@
+{
+  "inputs": {
+    "audio": {
+      "entry_point": "get_audio_embedding_from_data(x, use_tensor=False)",
+      "type": "numpy.ndarray when use_tensor=False; torch.Tensor when use_tensor=True",
+      "shape": [
+        "batch",
+        "samples"
+      ],
+      "dtype": "float32 waveform for FP32 inference",
+      "sample_rate_hz": 48000,
+      "channels": 1,
+      "caller_owns": "Decoding, resampling and supplying nonempty finite audio.",
+      "quantization": "use_tensor=False clips to [-1,1], converts float32 to int16 and back; use_tensor=True skips this quantization."
+    },
+    "text": {
+      "entry_point": "get_text_embedding(x, tokenizer=None, use_tensor=False)",
+      "type": "list[str]",
+      "shape": [
+        "text_batch"
+      ],
+      "tokenizer_output": {
+        "input_ids": {
+          "type": "torch.int64 Tensor",
+          "shape": [
+            "text_batch",
+            77
+          ]
+        },
+        "attention_mask": {
+          "type": "integer Tensor",
+          "shape": [
+            "text_batch",
+            77
+          ],
+          "values": "1 for tokens, 0 for padding"
+        }
+      }
+    }
+  },
+  "outputs": {
+    "audio": {
+      "shape": [
+        "batch",
+        512
+      ]
+    },
+    "text": {
+      "shape": [
+        "text_batch",
+        512
+      ]
+    },
+    "type": "CPU numpy.ndarray when use_tensor=False; torch.Tensor on the model device when use_tensor=True",
+    "dtype": "float32 under FP32 inference",
+    "normalization": "Each public embedding method applies L2 normalization.",
+    "text_pooling": "RoBERTa pooler_output (transformed first token) passes through CLAP text projection, then L2 normalization.",
+    "audio_pooling": "HTSAT audio embedding passes through CLAP audio projection, then L2 normalization.",
+    "native_scores": "These methods return embeddings, not probabilities or genre decisions.",
+    "adapter_embedding": {
+      "type": "numpy.ndarray",
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "normalization": "l2"
+    }
+  },
+  "settings": {
+    "inference": {
+      "mode": "eval",
+      "dtype": "float32",
+      "use_tensor": false
+    },
+    "model": {
+      "amodel": "HTSAT-base",
+      "tmodel": "roberta",
+      "enable_fusion": false
+    },
+    "audio_preprocessing": {
+      "clip_samples": 480000,
+      "short_audio": "repeatpad",
+      "long_audio": "rand_trunc when enable_fusion=false"
+    },
+    "tokenizer": {
+      "padding": "max_length",
+      "truncation": true,
+      "max_length": 77
+    },
+    "adapter": {
+      "windowing": "Caller splits each track into consecutive non-overlapping 480000-sample windows and appends a final window aligned to the track end when the remainder is shorter, mirroring the upstream audio_infer window layout. Audio shorter than one window is submitted whole for upstream repeatpad.",
+      "pooling": "Native per-window L2-normalized embeddings, mean over a track's windows, final L2 normalization."
+    }
+  }
+}

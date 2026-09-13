@@ -1,0 +1,128 @@
+{
+  "inputs": {
+    "input_values": {
+      "argument": "input_values",
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "samples"
+      ],
+      "dtype": "float32 for FP32 inference",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "caller_owns": "Decoding, resampling, nonempty/finite validation, padding strategy and device transfer.",
+      "minimum_samples": 400
+    },
+    "attention_mask": {
+      "shape": [
+        "batch",
+        "padded_samples"
+      ],
+      "dtype": "integer Tensor",
+      "values": "1 real sample, 0 right-padding sample",
+      "optional": true
+    }
+  },
+  "outputs": {
+    "container": "BaseModelOutput when return_dict=True; otherwise tuple of present outputs",
+    "last_hidden_state": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "feature_frames",
+        768
+      ],
+      "dtype": "float32 under FP32 inference",
+      "semantics": "Final contextual music-audio features.",
+      "l2_normalized": false
+    },
+    "hidden_states": {
+      "enabled_by": "output_hidden_states=True",
+      "count": 13,
+      "element_shape": [
+        "batch",
+        "feature_frames",
+        768
+      ],
+      "semantics": "Encoder input followed by states from the 12 encoder blocks."
+    },
+    "attentions": {
+      "enabled_by": "output_attentions=True and a supporting backend",
+      "count": 12,
+      "element_shape": [
+        "batch",
+        12,
+        "feature_frames",
+        "feature_frames"
+      ]
+    },
+    "native_track_pooling": "none",
+    "native_similarity_or_genre_scores": "none",
+    "frame_count": "T(N) = floor((N - 400) / 320) + 1 for N >= 400; derived from valid convolutions.",
+    "adapter_embedding": {
+      "type": "numpy.ndarray",
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "normalization": "l2"
+    }
+  },
+  "settings": {
+    "inference": {
+      "mode": "eval",
+      "dtype": "float32",
+      "output_hidden_states": true,
+      "output_attentions": false,
+      "return_dict": true
+    },
+    "processor": {
+      "do_normalize": true,
+      "padding_side": "right",
+      "padding_value": 0,
+      "return_attention_mask": true,
+      "padding_policy": "Caller selects padding; supplied configuration does not require padding all audio to a fixed duration.",
+      "normalization": "Per waveform, subtract the mean and divide by sqrt(population variance + 1e-7); the matching processor owns normalization."
+    },
+    "frontend_and_encoder": {
+      "convolution_kernels": [
+        10,
+        3,
+        3,
+        3,
+        3,
+        2,
+        2
+      ],
+      "convolution_strides": [
+        5,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "attention_mask": "Reduced from sample positions to feature frames before encoder attention.",
+      "transformer_layers": 12,
+      "hidden_size": 768,
+      "num_attention_heads": 12,
+      "stable_layer_norm": false,
+      "native_segmentation": "No fixed-duration clipping, long-track chunking or pooled-track output in forward."
+    },
+    "adapter": {
+      "sampling_rate_hz": 24000,
+      "processor_do_normalize": true,
+      "window_samples": 120000,
+      "window_policy": "Complete-track consecutive windows; a final remainder below 400 samples is joined to the preceding window. Equal-length windows share a batch without padding.",
+      "hidden_layers": [
+        9,
+        10,
+        11,
+        12
+      ],
+      "pooling": "FP32 masked time mean for each selected layer, then mean of those four pooled vectors. Accumulate track sums in CPU float64 weighted by real waveform sample counts; divide by total samples; final L2 normalization.",
+      "precision": "FP32 model; CUDA native BF16 forward autocast when supported. Pooling remains FP32; other devices use FP32 forward."
+    }
+  }
+}

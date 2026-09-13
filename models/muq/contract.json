@@ -1,0 +1,88 @@
+{
+  "inputs": {
+    "x": {
+      "argument": "x",
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "samples"
+      ],
+      "dtype": "float32 for FP32 inference",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "constraints": "Caller supplies nonempty finite mono audio at the expected sample rate; forward does not decode or resample."
+    },
+    "attention_mask": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "samples"
+      ],
+      "values": "1 or True for real samples, 0 or False for padding",
+      "native_handling": "Cast to bool, stride-subsample to the feature-frame count, then truncate before conformer attention. No exact mask-equivalence or padded-batch numerical guarantee is made.",
+      "optional": true
+    }
+  },
+  "outputs": {
+    "container": "transformers.modeling_outputs.BaseModelOutput",
+    "last_hidden_state": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "feature_frames",
+        1024
+      ],
+      "dtype": "float32 under FP32 inference",
+      "semantics": "Contextual audio features taken from hidden_states[-1].",
+      "l2_normalized": false
+    },
+    "hidden_states": {
+      "enabled_by": "output_hidden_states=True (actual function-signature default)",
+      "container": "tuple of hidden-state tensors",
+      "count": 13,
+      "element_shape": [
+        "batch",
+        "feature_frames",
+        1024
+      ],
+      "dtype": "float32 under FP32 inference"
+    },
+    "native_track_pooling": "none",
+    "native_labels_or_probabilities": "none",
+    "frame_rate_hz": 25,
+    "frame_count": "T is the native feature-frame count determined by the input length and frontend; nominal label rate is 25 Hz, not an exact frame-count formula.",
+    "adapter_embedding": {
+      "type": "numpy.ndarray",
+      "shape": [
+        1024
+      ],
+      "dtype": "float32",
+      "normalization": "l2"
+    }
+  },
+  "settings": {
+    "inference": {
+      "mode": "eval",
+      "dtype": "float32",
+      "output_hidden_states": true,
+      "autocast": false
+    },
+    "frontend_and_encoder": {
+      "features": [
+        "melspec_2048"
+      ],
+      "hop_length": 240,
+      "n_mels": 128,
+      "conv_dim": 512,
+      "encoder_dim": 1024,
+      "encoder_depth": 12,
+      "is_flash": false
+    },
+    "adapter": {
+      "window_seconds": 10.0,
+      "window_selection": "Consecutive full-track windows with a final window aligned to the track end.",
+      "short_audio": "Right-zero-pad to one window.",
+      "pooling": "Mean final hidden state over time; L2-normalize each window vector; mean window vectors; final L2 normalization."
+    }
+  }
+}

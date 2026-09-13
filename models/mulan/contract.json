@@ -1,0 +1,129 @@
+{
+  "inputs": {
+    "selection": "Exactly one of wavs or texts must be supplied; both/neither raises AssertionError.",
+    "wavs": {
+      "argument": "wavs",
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "samples"
+      ],
+      "dtype": "float32 for FP32 inference",
+      "sample_rate_hz": 24000,
+      "channels": 1,
+      "constraints": "Caller supplies nonempty finite mono waveforms on the model device."
+    },
+    "texts": {
+      "argument": "texts",
+      "type": "list[str]",
+      "shape": [
+        "text_batch"
+      ],
+      "tokenizer_output": {
+        "input_ids": {
+          "type": "torch.int64 Tensor",
+          "shape": [
+            "text_batch",
+            "padded_token_count"
+          ]
+        },
+        "attention_mask": {
+          "type": "integer Tensor",
+          "shape": [
+            "text_batch",
+            "padded_token_count"
+          ],
+          "values": "1 for tokens, 0 for padding"
+        }
+      }
+    }
+  },
+  "outputs": {
+    "audio": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        512
+      ],
+      "dtype": "float32 under FP32 inference",
+      "native_pooling": "Each clip latent is L2-normalized by get_audio_latents; arithmetic mean across every clip per waveform.",
+      "final_l2_normalized": false
+    },
+    "text": {
+      "type": "torch.Tensor",
+      "shape": [
+        "text_batch",
+        512
+      ],
+      "dtype": "float32 under FP32 inference",
+      "native_pooling": "XLM-R token states pass through the additional text transformer, arithmetic mean over its complete token axis, then latent projection and L2 normalization. Native mean includes padded positions.",
+      "l2_normalized": true
+    },
+    "similarity": {
+      "entry_point": "calc_similarity(audio_latents, text_latents)",
+      "batched_shape": [
+        "audio_batch",
+        "text_batch"
+      ],
+      "semantics": "Dot product with no softmax, calibration, or additional normalization. Vector/vector produces a scalar; matrix/vector produces one score per row. Audio clip means need not be unit vectors."
+    },
+    "adapter_audio_embedding": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32 numpy.ndarray",
+      "normalization": "l2"
+    },
+    "adapter_text_embedding": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32 numpy.ndarray",
+      "normalization": "l2"
+    }
+  },
+  "settings": {
+    "inference": {
+      "mode": "eval",
+      "dtype": "float32",
+      "parallel_processing": false
+    },
+    "audio_segmentation": {
+      "clip_samples": 240000,
+      "clip_seconds": 10,
+      "native_policy": "Consecutive complete clips. Append the start of the waveform once to any final remainder; there is no repeated extension loop. A very short track can therefore remain shorter than 240000 samples.",
+      "empty_audio": "No native clips; stacking an empty list fails."
+    },
+    "text_tokenization": {
+      "padding": "longest",
+      "truncation": false,
+      "max_length": null,
+      "position_capacity": "Ordinary XLM-R sequences support at most 512 non-padding positions including special tokens. The additional transformer max_seq_len=1024 does not extend this capacity."
+    },
+    "latent_dimension": 512,
+    "audio_transformer": {
+      "dim": 768,
+      "tf_depth": 0,
+      "heads": 8,
+      "dim_head": 64,
+      "attn_dropout": 0,
+      "ff_dropout": 0,
+      "ff_mult": 4
+    },
+    "text_transformer": {
+      "dim": 768,
+      "tf_depth": 8,
+      "max_seq_len": 1024,
+      "dim_head": 64,
+      "heads": 8,
+      "attn_dropout": 0,
+      "ff_dropout": 0,
+      "ff_mult": 4
+    },
+    "adapter": {
+      "audio_pooling": "Preserve native clips and normalized clip latents; mean all clips; final L2 normalization added by the adapter.",
+      "text_batching": "One prompt per forward pass.",
+      "text_normalization": "L2 after validation."
+    }
+  }
+}

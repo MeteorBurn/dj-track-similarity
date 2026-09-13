@@ -1,0 +1,118 @@
+{
+  "inputs": {
+    "tokenizer": {
+      "type": "str or list[str]"
+    },
+    "encoder": {
+      "input_ids": {
+        "type": "torch.int64 Tensor",
+        "shape": [
+          "batch",
+          "tokens"
+        ],
+        "value_range": [
+          0,
+          50264
+        ]
+      },
+      "attention_mask": {
+        "type": "integer or boolean Tensor",
+        "shape": [
+          "batch",
+          "tokens"
+        ],
+        "values": "1/True for attended tokens, 0/False for padding"
+      },
+      "token_type_ids": {
+        "optional": true,
+        "shape": [
+          "batch",
+          "tokens"
+        ],
+        "dtype": "torch.int64",
+        "values": "Only 0 for this type_vocab_size=1 configuration; normally omitted."
+      },
+      "inputs_embeds": {
+        "optional_alternative_to_input_ids": true,
+        "shape": [
+          "batch",
+          "tokens",
+          768
+        ],
+        "dtype": "floating point matching model runtime"
+      },
+      "position_capacity": "max_position_embeddings=514, pad_token_id=1; ordinary single-sequence encoding supports up to 512 non-padding positions including special tokens. Padding/truncation must respect position capacity."
+    }
+  },
+  "outputs": {
+    "container": "BaseModelOutputWithPoolingAndCrossAttentions for return_dict=True; tuple form is available",
+    "last_hidden_state": {
+      "type": "torch.Tensor",
+      "shape": [
+        "batch",
+        "tokens",
+        768
+      ],
+      "dtype": "float32 under FP32 inference",
+      "pooling": "none",
+      "l2_normalized": false
+    },
+    "pooler_output": {
+      "type": "torch.Tensor or None when pooling layer disabled",
+      "shape": [
+        "batch",
+        768
+      ],
+      "dtype": "float32 under FP32 inference",
+      "operation": "First-token hidden state through a dense layer and tanh.",
+      "l2_normalized": false
+    },
+    "hidden_states": {
+      "optional": true,
+      "enabled_by": "output_hidden_states=True",
+      "count": 13,
+      "element_shape": [
+        "batch",
+        "tokens",
+        768
+      ]
+    },
+    "attentions": {
+      "optional": true,
+      "enabled_by": "output_attentions=True and a supporting attention backend",
+      "count": 12,
+      "element_shape": [
+        "batch",
+        12,
+        "tokens",
+        "tokens"
+      ]
+    },
+    "no_joint_embedding_head": "The base text model does not produce a 512D CLAP or MuLan embedding, calibrated similarity, or genre tags."
+  },
+  "settings": {
+    "inference": {
+      "mode": "eval",
+      "dtype": "float32",
+      "return_dict": true,
+      "output_hidden_states": false,
+      "output_attentions": false
+    },
+    "encoder": {
+      "hidden_size": 768,
+      "num_hidden_layers": 12,
+      "num_attention_heads": 12,
+      "intermediate_size": 3072,
+      "vocab_size": 50265,
+      "max_position_embeddings": 514,
+      "pad_token_id": 1,
+      "type_vocab_size": 1
+    },
+    "consumer_tokenization": {
+      "padding": "max_length",
+      "truncation": true,
+      "max_length": 77
+    },
+    "consumer_pooling": "CLAP uses length-77 padded/truncated tokens, the RoBERTa pooler and its own learned projection, then L2 normalization to 512D."
+  }
+}

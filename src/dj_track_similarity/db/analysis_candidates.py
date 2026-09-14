@@ -12,6 +12,7 @@ from ..analysis_models import (
     FingerprintOutput,
 )
 from .embeddings import EmbeddingTrackIdentity
+from .mert_v2_layers import require_mert_v2_layers
 from ..maest_analysis_validation import MAEST_ANALYSIS_COLUMNS, validate_maest_analysis_row
 from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_row
 
@@ -146,11 +147,25 @@ def ready_target_keys_by_output(
                     "unsupported analysis output "
                     f"{output.analysis_family}/{output.output_kind}"
                 )
-            rows = _valid_embedding_rows(
-                connection,
-                table=table,
-                current_tracks=current_tracks,
-            )
+            if output.analysis_family == "mert_v2":
+                require_mert_v2_layers(connection)
+                rows = tuple(
+                    (int(row[0]), str(row[1]))
+                    for row in connection.execute(
+                        "SELECT track_id, track_uuid FROM mert_v2_embeddings "
+                        "WHERE dim = 1024 AND normalization = 'l2' "
+                        "GROUP BY track_id, track_uuid, analyzed_at HAVING COUNT(*) = 24"
+                    )
+                    if (expected := current_tracks.get(int(row[0]))) is not None
+                    and str(row[1]) == expected.track_uuid
+                )
+            else:
+                rows = _valid_embedding_rows(
+                    connection,
+                    table=table,
+                    current_tracks=current_tracks,
+                )
+
         else:
             raise ValueError(
                 "unsupported analysis output "

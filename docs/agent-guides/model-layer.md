@@ -23,6 +23,13 @@ are relative to this file. These guides are read by task, not imported as a batc
   normalization are caller policies, separate from native model outputs.
   Every family keeps its own `models/<family>/contract.json`; none of these
   files is read at runtime.
+- `mert_v2_embeddings` alone stores 24 separate layer vectors per track in one
+  table: key `(track_id, layer)`, layers 1–24, each 1024D float32, L2-normalized.
+  Other neural embedding tables store one vector per `track_id`. Reads/joins
+  select a layer (default 24); counters count tracks. Full-analysis readiness
+  requires all 24 layers with the current track UUID and one `analyzed_at`.
+  Replace/reset the complete layer set atomically; do not split tables or
+  average layers in storage.
 - `embedding/registry.py` owns the single `adapter_factories()` map and typed
   `create_embedding_adapter()` factory; `embedding/contracts.py` defines the
   capabilities used by callers. Use the factory for shared analysis/text API

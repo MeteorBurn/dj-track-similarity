@@ -626,7 +626,9 @@ class LibraryQueryRepository:
                 maest_analysis=count_rows(connection, "maest_genres"),
                 maest_embedding=count_rows(connection, "maest_embeddings"),
                 mert=count_rows(connection, "mert_embeddings"),
-                mert_v2=count_rows(connection, "mert_v2_embeddings"),
+                mert_v2=int(connection.execute(
+                    "SELECT COUNT(DISTINCT track_id) FROM mert_v2_embeddings"
+                ).fetchone()[0]),
                 muq=count_rows(connection, "muq_embeddings"),
                 mulan=count_rows(connection, "mulan_embeddings"),
                 clap=count_rows(connection, "clap_embeddings"),

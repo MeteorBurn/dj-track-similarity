@@ -51,6 +51,21 @@ def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(
         far.track_id,
     ]
     assert [result.score for result in results] == pytest.approx([1.0, 0.0])
+    for target in (*seeds, bridge, far):
+        final_vector = db.load_analysis_vectors(output, targets=(target,))[0].vector
+        layer_vector = _query(output, [1.0, 0.0] if target == bridge else [0.0, 1.0])
+        saved = db.save_embedding_results((EmbeddingWrite(target=target, output=EmbeddingOutput(
+            family="mert_v2", vector=final_vector, analyzed_at=_NOW,
+            layer_vectors=tuple(layer_vector if layer == 12 else final_vector for layer in range(1, 25)),
+        )),))
+        assert saved[0].ok
+    layer_search = SimilaritySearch(db, "mert_v2", analysis_output=output, mert_v2_layer=12)
+    layer_results = layer_search.search(layer_search.resolve_targets([target.track_id for target in seeds]), limit=20)
+    assert [result.target for result in layer_results] == [far, bridge]
+    assert [result.score for result in layer_results] == pytest.approx([1.0, 0.0])
+    for invalid in (0, 25, True):
+        with pytest.raises(ValueError, match="layer"):
+            SimilaritySearch(db, "mert_v2", analysis_output=output, mert_v2_layer=invalid)
 
 
 def test_mulan_search_uses_only_mulan_embedding_space(tmp_path: Path) -> None:

@@ -66,7 +66,10 @@ def _classifier_input_query_parts(
                 f"{output.analysis_family}/{output.output_kind}"
             )
         alias = f"classifier_{family}"
-        joins.append(f"JOIN {table} AS {alias} ON {alias}.track_id = tracks.track_id")
+        layer_filter = f" AND {alias}.layer = 24" if family == "mert_v2" else ""
+        joins.append(
+            f"JOIN {table} AS {alias} ON {alias}.track_id = tracks.track_id{layer_filter}"
+        )
         if output.key == ("sonara", "core"):
             select_columns.extend(
                 f"{alias}.{column} AS sonara_{column}"

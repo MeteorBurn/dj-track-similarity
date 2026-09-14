@@ -12,6 +12,7 @@ import numpy as np
 from ..analysis_models import EmbeddingFamilySpec, current_embedding_spec
 from .ddl import FLOAT32_LE, FLOAT32_LE_BYTES
 from .schema import validate_library_schema
+from .mert_v2_layers import require_mert_v2_layers, validate_mert_v2_layer
 
 
 _EMBEDDING_TABLES: Mapping[str, str] = {
@@ -265,6 +266,7 @@ def read_valid_embeddings(
     identities: Mapping[int, str],
     catalog_uuid: str,
     connection: sqlite3.Connection,
+    mert_v2_layer: int = 24,
 ) -> dict[int, np.ndarray]:
     """Read every valid embedding for *identities* in one statement.
 
@@ -274,13 +276,21 @@ def read_valid_embeddings(
     track, so a full-library load costs one query rather than three per track.
     """
 
+    validate_mert_v2_layer(family, mert_v2_layer)
     table = _EMBEDDING_TABLES.get(family)
     if table is None:
         raise ValueError(f"unsupported embedding family: {family!r}")
+    if family == "mert_v2":
+        require_mert_v2_layers(connection)
     if not identities:
         return {}
     spec = current_embedding_spec(family)
     pairs = _validated_identity_pairs(identities, catalog_uuid)
+    layer_filter = ""
+    layer_parameters: tuple[int, ...] = ()
+    if family == "mert_v2":
+        layer_filter = "AND embeddings.layer = ?"
+        layer_parameters = (mert_v2_layer,)
 
     # Every structural test — identity match, dimension, normalization and
     # blob length — is a predicate SQLite can apply while it reads. Doing it
@@ -300,12 +310,14 @@ def read_valid_embeddings(
         WHERE embeddings.dim = ?
           AND embeddings.normalization = ?
           AND length(embeddings.embedding_blob) = ?
+          {layer_filter}
         """,
         (
             json.dumps(pairs, separators=(",", ":")),
             spec.dimension,
             spec.normalization,
             spec.dimension * FLOAT32_LE_BYTES,
+            *layer_parameters,
         ),
     ).fetchall()
     vectors: dict[int, np.ndarray] = {}
@@ -342,9 +354,11 @@ def write_valid_embedding_in_transaction(
     family: str,
     embedding: Sequence[float] | np.ndarray,
     analyzed_at: str,
+    mert_v2_layer: int = 24,
 ) -> None:
     """Validate and UPSERT one embedding in a caller-owned transaction."""
 
+    validate_mert_v2_layer(family, mert_v2_layer)
     if not connection.in_transaction:
         raise RuntimeError("embedding writes require an active library transaction")
     table = _EMBEDDING_TABLES.get(family)
@@ -372,13 +386,23 @@ def write_valid_embedding_in_transaction(
         raise ValueError("l2 embedding must be unit-normalized")
     if not isinstance(analyzed_at, str) or not analyzed_at.strip():
         raise ValueError("analyzed_at must be a non-empty string")
+    layer_column = ""
+    layer_placeholder = ""
+    conflict_key = "track_id"
+    layer_parameters: tuple[int, ...] = ()
+    if family == "mert_v2":
+        require_mert_v2_layers(connection)
+        layer_column = ", layer"
+        layer_placeholder = ", ?"
+        conflict_key = "track_id, layer"
+        layer_parameters = (mert_v2_layer,)
     connection.execute(
         f"""
         INSERT INTO {table}(
-            track_id, track_uuid,
+            track_id, track_uuid{layer_column},
             dim, normalization, embedding_blob, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(track_id) DO UPDATE SET
+        ) VALUES (?, ?{layer_placeholder}, ?, ?, ?, ?)
+        ON CONFLICT({conflict_key}) DO UPDATE SET
             track_uuid = excluded.track_uuid,
             dim = excluded.dim,
             normalization = excluded.normalization,
@@ -388,6 +412,7 @@ def write_valid_embedding_in_transaction(
         (
             track.track_id,
             track.track_uuid,
+            *layer_parameters,
             spec.dimension,
             spec.normalization,
             vector.tobytes(order="C"),

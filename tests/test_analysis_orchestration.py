@@ -880,31 +880,31 @@ def test_ml_runtime_runner_is_not_reused_across_runtime_settings(tmp_path: Path)
 
 
 def test_model_preflight_failure_preserves_prior_active_output() -> None:
-    old_output = _mert_output()
-    new_output = AnalysisOutput("mert", "embedding")
-    repository = _FakeRepository(
-        [],
-        active_by_key={old_output.key: old_output},
-    )
-    runner = _FakeRunner(
-        "mert",
-        (new_output,),
-        preflight_error=RuntimeError("checkpoint SHA-256 mismatch"),
-    )
+    for model in ("mert", "mert_v2"):
+        old_output = AnalysisOutput(model, "embedding")
+        new_output = AnalysisOutput(model, "embedding")
+        repository = _FakeRepository([], active_by_key={old_output.key: old_output})
+        runner = _FakeRunner(
+            model, (new_output,), preflight_error=RuntimeError("checkpoint SHA-256 mismatch"),
+        )
 
-    status = AnalysisJobManager(
-        repository,
-        model_runners={"mert": runner},
-    ).run_sync(models=["mert"], device="cpu")
+        def require_layers():
+            raise RuntimeError("MERT-v2 layer schema is absent")
 
-    assert status.state == "failed"
-    assert repository.events == []
-    assert (
-        repository.active_analysis_output("mert", "embedding")
-        is old_output
-    )
-    assert "preflight failed" in status.events[-1].message
-    assert "checkpoint SHA-256 mismatch" in status.events[-1].message
+        repository.require_mert_v2_layer_storage = require_layers
+        status = AnalysisJobManager(
+            repository, model_runners={model: runner},
+        ).run_sync(models=[model], device="cpu")
+
+        assert status.state == "failed"
+        assert repository.events == []
+        assert repository.active_analysis_output(model, "embedding") is old_output
+        assert "preflight failed" in status.events[-1].message
+        if model == "mert_v2":
+            assert "layer schema is absent" in status.events[-1].message
+            assert runner.preflight_calls == 0
+        else:
+            assert "checkpoint SHA-256 mismatch" in status.events[-1].message
 
 
 def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
@@ -1183,11 +1183,12 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     runner = default_model_runners("mert_v2", "cpu", 2, 3)
     vector = np.zeros(1024, dtype=np.float32)
     vector[0] = 1.0
+    layers = tuple(np.eye(1, 1024, layer, dtype=np.float32)[0] for layer in range(1, 24)) + (vector,)
     monkeypatch.setattr(runner.adapter, "preflight", lambda: None)
     monkeypatch.setattr(
         runner.adapter,
-        "embed_decoded_batch",
-        lambda items, **_kwargs: [vector.copy() for _item in items],
+        "embed_decoded_layers_batch",
+        lambda items, **_kwargs: [layers for _item in items],
     )
 
     status = AnalysisJobManager(
@@ -1207,6 +1208,11 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     assert vector is not None
     assert vector.shape == (1024,)
     assert vector[0] == pytest.approx(1.0)
+    for layer in range(1, 25):
+        rows = database.load_analysis_vectors(runner.active_outputs[0], mert_v2_layer=layer)
+        assert len(rows) == 1
+        assert rows[0].target.track_uuid == mutation.identity.track_uuid
+        np.testing.assert_array_equal(rows[0].vector, layers[layer - 1])
     assert _stored_embedding(database, mutation.identity, family="mert") is None
 
 

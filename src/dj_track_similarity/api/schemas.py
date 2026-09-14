@@ -310,6 +310,7 @@ class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     analysis_family: Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"] = "mert"
+    mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1)
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -321,6 +322,7 @@ class EmbeddingRandomTrackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     analysis_family: Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"] = "mert"
+    mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
 
 
@@ -329,6 +331,7 @@ class EmbeddingMapRequest(BaseModel):
 
     catalog_uuid: str = Field(min_length=1)
     analysis_family: Literal["mert_v2"] = "mert_v2"
+    mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
     cluster_count: int = Field(default=8, ge=1, le=32)
 
 
@@ -969,9 +972,20 @@ class EmbeddingMapPointResponse(_ResponseModel):
 class EmbeddingMapResponse(_ResponseModel):
     catalog_uuid: str
     analysis_family: Literal["mert_v2"]
+    mert_v2_layer: int = Field(ge=1, le=24)
     eligible_count: int
     requested_cluster_count: int
     cluster_count: int
     projection: EmbeddingMapProjectionResponse
     clusters: list[EmbeddingMapClusterResponse]
     points: list[EmbeddingMapPointResponse]
+
+
+class MertV2LayerCountResponse(_ResponseModel):
+    layer: int = Field(ge=1, le=24)
+    track_count: int = Field(ge=0)
+
+
+class MertV2LayersResponse(_ResponseModel):
+    catalog_uuid: str
+    layers: list[MertV2LayerCountResponse]

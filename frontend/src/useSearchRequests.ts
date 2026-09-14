@@ -43,6 +43,7 @@ type SearchRequestsOptions = {
   analysisDevice: "auto" | "cpu" | "cuda";
   textEmbeddingFamily: "clap" | "mulan";
   seedSearchModel: SeedSearchModel;
+  mertV2Layer?: number;
   setResults: (results: SearchResult[]) => void;
   addSeed: (track: Track) => void;
   setNotice: (notice: SearchNotice) => void;
@@ -61,6 +62,7 @@ export function useSearchRequests({
   analysisDevice,
   textEmbeddingFamily,
   seedSearchModel,
+  mertV2Layer = 24,
   setResults,
   addSeed,
   setNotice,
@@ -69,7 +71,7 @@ export function useSearchRequests({
   const genericSearchRequestGuard = useRef(createRequestTokenGuard());
   const genericSearchAbortController = useRef<AbortController | null>(null);
   const randomTrackAbortController = useRef<AbortController | null>(null);
-  const randomTrackDatabaseKey = JSON.stringify([databasePath, databaseCatalogUuid]);
+  const randomTrackDatabaseKey = JSON.stringify([databasePath, databaseCatalogUuid, seedSearchModel, seedSearchModel === "mert_v2" ? mertV2Layer : null]);
   const randomTrackDatabaseKeyRef = useRef(randomTrackDatabaseKey);
   randomTrackDatabaseKeyRef.current = randomTrackDatabaseKey;
   const [genericSearchPending, setGenericSearchPending] = useState(false);
@@ -91,6 +93,7 @@ export function useSearchRequests({
       analysis_device: analysisDevice,
       text_embedding_family: textEmbeddingFamily,
       seed_search_model: seedSearchModel,
+      mert_v2_layer: seedSearchModel === "mert_v2" ? mertV2Layer : null,
     }),
     [
       analysisDevice,
@@ -99,6 +102,7 @@ export function useSearchRequests({
       textUseNegativePrompt,
       textEmbeddingFamily,
       seedSearchModel,
+      mertV2Layer,
       databaseCatalogUuid,
       databasePath,
       filters,
@@ -263,6 +267,7 @@ export function useSearchRequests({
     try {
       const track = await api.randomEmbeddingTrack({
         analysis_family: seedSearchModel,
+        ...(seedSearchModel === "mert_v2" ? { mert_v2_layer: mertV2Layer } : {}),
         exclude_track_ids: seeds,
       }, {
         signal: controller.signal,
@@ -302,6 +307,7 @@ export function useSearchRequests({
     try {
       const value = await api.search({
         analysis_family: analysisFamily,
+        ...(analysisFamily === "mert_v2" ? { mert_v2_layer: mertV2Layer } : {}),
         seed_track_ids: seeds,
         limit: filters.limit,
         epsilon: null,

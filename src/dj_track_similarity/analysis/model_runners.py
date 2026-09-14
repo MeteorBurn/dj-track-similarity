@@ -59,7 +59,10 @@ if TYPE_CHECKING:
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+_EmbeddingResult = np.ndarray | tuple[np.ndarray, ...]
 class AnalysisWriteRepository(Protocol):
+    def require_mert_v2_layer_storage(self) -> None: ...
+
     def require_maest_export_source(self, target: AnalysisTarget | int) -> TrackFileState: ...
 
     def current_sonara_track_count(self) -> int: ...
@@ -412,6 +415,8 @@ class EmbeddingModelRunner:
         items: Sequence[AnalysisBatchItem],
     ) -> Sequence[Exception | None]:
         self._check_cancelled()
+        if self.model == "mert_v2":
+            repository.require_mert_v2_layer_storage()
         self.last_ffmpeg_fallback_track_ids = frozenset()
         vectors = self._embedding_vectors(items)
         prepared: list[EmbeddingWrite | Exception] = []
@@ -424,8 +429,9 @@ class EmbeddingModelRunner:
                         target=item.candidate.target,
                         output=EmbeddingOutput(
                             family=self.model,
-                            vector=vector,
+                            vector=vector[-1] if isinstance(vector, tuple) else vector,
                             analyzed_at=utc_timestamp(),
+                            layer_vectors=vector if isinstance(vector, tuple) else None,
                         ),
                     )
                 )
@@ -443,13 +449,19 @@ class EmbeddingModelRunner:
         if self.model in {"mert", "mert_v2", "clap"} and self.cancelled is not None and self.cancelled():
             raise EmbeddingCancelledError(f"{self.model.upper()} analysis cancelled")
 
-    def _embed_decoded_items(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
+    def _embed_decoded_items(self, decoded_items: list[DecodedAudio]) -> list[_EmbeddingResult]:
         self._check_cancelled()
         if self.model in {"mert", "mert_v2", "clap"}:
             try:
-                vectors = cast(
-                    "ClapEmbeddingAdapter | MertEmbeddingAdapter | MertV2EmbeddingAdapter", self.adapter,
-                ).embed_decoded_batch(decoded_items, cancelled=self.cancelled)
+                vectors: list[_EmbeddingResult]
+                if self.model == "mert_v2":
+                    vectors = list(cast("MertV2EmbeddingAdapter", self.adapter).embed_decoded_layers_batch(
+                        decoded_items, cancelled=self.cancelled,
+                    ))
+                else:
+                    vectors = list(cast(
+                        "ClapEmbeddingAdapter | MertEmbeddingAdapter", self.adapter,
+                    ).embed_decoded_batch(decoded_items, cancelled=self.cancelled))
                 if len(vectors) != len(decoded_items):
                     raise ValueError(
                         f"{self.model.upper()} batch result count does not match track count"
@@ -460,9 +472,9 @@ class EmbeddingModelRunner:
             except Exception:
                 self._check_cancelled()
                 raise
-        return self.adapter.embed_decoded_batch(decoded_items)
+        return list(self.adapter.embed_decoded_batch(decoded_items))
 
-    def _mert_vectors(self, items: list[AnalysisBatchItem]) -> list[np.ndarray | Exception]:
+    def _mert_vectors(self, items: list[AnalysisBatchItem]) -> list[_EmbeddingResult | Exception]:
         try:
             return list(self._embed_decoded_items(_decoded_items(items)))
         except EmbeddingCancelledError:
@@ -472,7 +484,7 @@ class EmbeddingModelRunner:
                 return [error]
 
         # A bad track must not discard its neighbours in staged or direct mode.
-        vectors: list[np.ndarray | Exception] = []
+        vectors: list[_EmbeddingResult | Exception] = []
         for item in items:
             try:
                 vectors.extend(self._embed_decoded_items(_decoded_items([item])))
@@ -485,8 +497,8 @@ class EmbeddingModelRunner:
     def _embedding_vectors(
         self,
         items: Sequence[AnalysisBatchItem],
-    ) -> list[np.ndarray | Exception]:
-        results: list[np.ndarray | Exception | None] = [None] * len(items)
+    ) -> list[_EmbeddingResult | Exception]:
+        results: list[_EmbeddingResult | Exception | None] = [None] * len(items)
         direct_indexes = [
             index
             for index, item in enumerate(items)

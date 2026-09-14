@@ -382,6 +382,7 @@ class EmbeddingOutput:
     family: str
     vector: Sequence[float] | np.ndarray
     analyzed_at: str
+    layer_vectors: tuple[np.ndarray, ...] | None = None
 
     def __post_init__(self) -> None:
         family = _required_text(self.family, "family").lower()
@@ -398,6 +399,16 @@ class EmbeddingOutput:
             "vector",
             _readonly_float32_vector(self.vector, family=family),
         )
+        if self.layer_vectors is not None:
+            if family != "mert_v2" or len(self.layer_vectors) != 24:
+                raise ValueError("layer_vectors requires all 24 MERT-v2 layers in order")
+            layers = tuple(
+                _readonly_float32_vector(vector, family=family)
+                for vector in self.layer_vectors
+            )
+            if not np.array_equal(layers[-1], self.vector):
+                raise ValueError("MERT-v2 layer 24 must equal the primary embedding")
+            object.__setattr__(self, "layer_vectors", layers)
 
 
 @dataclass(frozen=True, slots=True)

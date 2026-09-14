@@ -1162,7 +1162,7 @@ class TrackRepository:
                     derived_counts = {
                         table: int(
                             connection.execute(
-                                f"SELECT COUNT(*) FROM {table}"
+                                f"SELECT COUNT({'DISTINCT track_id' if table == 'mert_v2_embeddings' else '*'}) FROM {table}"
                             ).fetchone()[0]
                         )
                         for table in _DERIVED_TRACK_TABLES
@@ -1279,7 +1279,8 @@ class TrackRepository:
                         derived_rows_deleted = sum(
                             int(
                                 connection.execute(
-                                    f"SELECT COUNT(*) FROM {table} WHERE track_id = ?",
+                                    f"SELECT COUNT({'DISTINCT track_id' if table == 'mert_v2_embeddings' else '*'}) "
+                                    f"FROM {table} WHERE track_id = ?",
                                     (expected.track_id,),
                                 ).fetchone()[0]
                             )

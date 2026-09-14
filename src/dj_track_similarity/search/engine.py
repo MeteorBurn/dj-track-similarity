@@ -68,6 +68,7 @@ class AnalysisSearchRepository(Protocol):
         output: AnalysisOutput,
         *,
         targets: Sequence[AnalysisTarget] | None = None,
+        mert_v2_layer: int = 24,
     ) -> tuple[AnalysisVectorRow, ...]:
         ...
 
@@ -76,6 +77,7 @@ class AnalysisSearchRepository(Protocol):
         output: AnalysisOutput,
         *,
         exclude_track_ids: Sequence[int] = (),
+        mert_v2_layer: int = 24,
     ) -> AnalysisTarget | None:
         ...
 
@@ -133,6 +135,7 @@ class SimilaritySearch:
         *,
         analysis_output: AnalysisOutput,
         vector_backend: ExactVectorSearchBackend | None = None,
+        mert_v2_layer: int = 24,
     ) -> None:
         family = str(analysis_family).strip().lower()
         if family not in _EMBEDDING_FAMILIES:
@@ -142,6 +145,11 @@ class SimilaritySearch:
                 f"expected one of: {valid}"
             )
         self.repository = repository
+        if isinstance(mert_v2_layer, bool) or not isinstance(mert_v2_layer, int) or not 1 <= mert_v2_layer <= 24:
+            raise ValueError("MERT-v2 layer must be an integer from 1 to 24")
+        if family != "mert_v2" and mert_v2_layer != 24:
+            raise ValueError("Layer selection is only supported for MERT-v2")
+        self._layer_options = {"mert_v2_layer": mert_v2_layer} if mert_v2_layer != 24 else {}
         self.analysis_family: EmbeddingFamily = family  # type: ignore[assignment]
         if analysis_output.key != (family, "embedding"):
             raise ValueError(
@@ -236,6 +244,7 @@ class SimilaritySearch:
         target = self.repository.random_embedding_target(
             output,
             exclude_track_ids=tuple(sorted(excluded)),
+            **self._layer_options,
         )
         if target is None:
             raise VectorIndexUnavailable(
@@ -489,7 +498,7 @@ class SimilaritySearch:
         cached = self._full_rows
         if cached is not None and cached[0] == output:
             return cached[1]
-        rows = self.repository.load_analysis_vectors(output, targets=None)
+        rows = self.repository.load_analysis_vectors(output, targets=None, **self._layer_options)
         _validate_rows(
             rows,
             output=output,
@@ -514,6 +523,7 @@ class SimilaritySearch:
                 seed_rows = self.repository.load_analysis_vectors(
                     output,
                     targets=seeds,
+                    **self._layer_options,
                 )
                 _validate_rows(
                     seed_rows,
@@ -524,6 +534,7 @@ class SimilaritySearch:
         rows = self.repository.load_analysis_vectors(
             output,
             targets=merge_targets(seeds, candidate_targets),
+            **self._layer_options,
         )
         _validate_rows(
             rows,

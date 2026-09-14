@@ -300,6 +300,7 @@ def _valid_embedding_rows(
             current_embedding_spec(output.analysis_family)
         except ValueError:
             return {}
+    layer_filter = "AND layer = 24" if output.analysis_family == "mert_v2" else ""
     embedding_fields = (
         ", dim, normalization, length(embedding_blob) AS embedding_bytes"
         if embedding
@@ -314,6 +315,7 @@ def _valid_embedding_rows(
             FROM json_each(?) requested
             CROSS JOIN {table} stored
             WHERE stored.track_id = CAST(requested.value AS INTEGER)
+            {layer_filter}
             """,
             (_json_ids(identities),),
         )
@@ -328,6 +330,7 @@ def _valid_embedding_rows(
                   SELECT CAST(value AS INTEGER)
                   FROM json_each(?)
               )
+            {layer_filter}
             """,
             (_json_ids(identities),),
         )

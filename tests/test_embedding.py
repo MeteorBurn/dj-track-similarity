@@ -1083,7 +1083,7 @@ def test_mert_embed_decoded_batch_uses_feature_vector_attention_mask() -> None:
         assert adapter.fake_model.forward_calls == 1
 
 
-def test_mert_v2_full_coverage_pools_valid_last_layer_frames(monkeypatch) -> None:
+def test_mert_v2_full_coverage_pools_all_valid_layer_frames(monkeypatch) -> None:
     chunk_samples = 9600
     monkeypatch.setattr(embedding_mert_v2, "_CHUNK_SAMPLES", chunk_samples)
     monkeypatch.setattr(embedding_audio, "_RESAMPLERS", {})
@@ -1107,7 +1107,7 @@ def test_mert_v2_full_coverage_pools_valid_last_layer_frames(monkeypatch) -> Non
         def forward(self, input_values, attention_mask, *, output_hidden_states, return_dict):
             assert torch.is_inference_mode_enabled()
             assert input_values.dtype == torch.float32
-            assert output_hidden_states is False and return_dict is True
+            assert output_hidden_states is True and return_dict is True
             assert torch.all(attention_mask == 1)
             self.calls.append(input_values.clone())
             frames = input_values.shape[1] // 960
@@ -1118,11 +1118,22 @@ def test_mert_v2_full_coverage_pools_valid_last_layer_frames(monkeypatch) -> Non
             mask = torch.zeros(hidden.shape[:2], dtype=torch.bool)
             if not self.empty_mask:
                 mask[:, :frames] = True
+            states = [hidden.clone() for _ in range(23)] + [hidden]
+            for layer, state in enumerate(states[:-1], 1):
+                state[:, :frames, 2] = (24 - layer) / 24
             if self.invalid_output == "nonfinite":
-                hidden[:, 0, 0] = torch.nan
+                states[0][:, 0, 0] = torch.nan
             elif self.invalid_output == "zero":
-                hidden[:, :frames, :] = 0
-            return types.SimpleNamespace(last_hidden_state=hidden, feature_attention_mask=mask)
+                states[0][:, :frames, :] = 0
+            elif self.invalid_output == "missing_layer":
+                states.pop(0)
+            elif self.invalid_output == "wrong_layer_shape":
+                states[0] = states[0][:, :, :768]
+            return types.SimpleNamespace(
+                last_hidden_state=hidden,
+                hidden_states=tuple(states),
+                feature_attention_mask=mask,
+            )
 
     def make_adapter():
         adapter = MertV2EmbeddingAdapter(device="cpu", inference_batch_size=2)
@@ -1154,7 +1165,8 @@ def test_mert_v2_full_coverage_pools_valid_last_layer_frames(monkeypatch) -> Non
         [short_audio],
     ]
     adapter, model = make_adapter()
-    vectors = adapter.embed_decoded_batch(decoded)
+    layer_vectors = adapter.embed_decoded_layers_batch(decoded)
+    vectors = [layers[-1] for layers in layer_vectors]
     assert len(vectors) == len(decoded)
     assert len(resample_calls) == 1
     torch.testing.assert_close(resample_calls[0], resample_audio.float().unsqueeze(0), rtol=0, atol=0)
@@ -1164,15 +1176,22 @@ def test_mert_v2_full_coverage_pools_valid_last_layer_frames(monkeypatch) -> Non
     assert len(observed_chunks) == len(expected_flat)
     for actual, expected in zip(observed_chunks, expected_flat, strict=True):
         torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-    for vector, chunks in zip(vectors, expected_chunks, strict=True):
+    for layers, chunks in zip(layer_vectors, expected_chunks, strict=True):
         counts = [chunk.numel() // 960 for chunk in chunks]
-        expected = np.zeros(1024, dtype=np.float64)
-        expected[0] = np.average([chunk.double().mean().item() for chunk in chunks], weights=counts)
-        expected[1] = 1.0
-        expected /= np.linalg.norm(expected)
-        assert vector.dtype == np.float32
-        np.testing.assert_allclose(vector, expected, rtol=1e-5, atol=1e-6)
-        assert np.linalg.norm(vector) == pytest.approx(1.0)
+        assert len(layers) == 24
+        for layer, vector in enumerate(layers, 1):
+            expected = np.zeros(1024, dtype=np.float64)
+            expected[0] = np.average([chunk.double().mean().item() for chunk in chunks], weights=counts)
+            expected[1] = 1.0
+            expected[2] = (24 - layer) / 24
+            expected /= np.linalg.norm(expected)
+            assert vector.dtype == np.float32
+            np.testing.assert_allclose(vector, expected, rtol=1e-5, atol=1e-6)
+            assert np.linalg.norm(vector) == pytest.approx(1.0)
+
+    legacy_adapter, _ = make_adapter()
+    legacy_vector = legacy_adapter.embed_decoded_batch([decoded[-1]])[0]
+    np.testing.assert_array_equal(legacy_vector, vectors[-1])
 
     for audio in (torch.empty(0), torch.ones(1024), torch.full((1025,), torch.nan)):
         invalid = DecodedAudio(path="invalid.wav", audio=audio, sample_rate=24_000, detail="shared")
@@ -1182,7 +1201,7 @@ def test_mert_v2_full_coverage_pools_valid_last_layer_frames(monkeypatch) -> Non
     with pytest.raises(ValueError, match="no valid frames"):
         adapter.embed_decoded_batch([decoded[-1]])
     model.empty_mask = False
-    for model.invalid_output in ("nonfinite", "zero"):
+    for model.invalid_output in ("nonfinite", "zero", "missing_layer", "wrong_layer_shape"):
         with pytest.raises(ValueError):
             adapter.embed_decoded_batch([decoded[-1]])
 

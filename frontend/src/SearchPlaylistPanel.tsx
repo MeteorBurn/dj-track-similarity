@@ -14,6 +14,7 @@ import {
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
 import { MertV2ExplorePanel } from "./MertV2ExplorePanel";
+import type { MertV2LayerState } from "./useMertV2Layers";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import {
@@ -102,6 +103,7 @@ function PromptCandidatesAddButton({ results, playlist, busy, modelLabel, onAdd 
 }
 
 export function SearchPlaylistPanel({
+  mertV2Layers,
   activeSearchTab,
   catalogUuid,
   collapsed,
@@ -168,6 +170,7 @@ export function SearchPlaylistPanel({
   onSeekPreview,
   setMetadataTrack
 }: {
+  mertV2Layers: MertV2LayerState;
   activeSearchTab: PrimarySearchTab;
   catalogUuid: string | null;
   collapsed: boolean;
@@ -275,7 +278,7 @@ export function SearchPlaylistPanel({
   useEffect(() => {
     setEmbeddingSearchErrors({});
     setEmbeddingSearchPending({});
-  }, [databaseIdentity]);
+  }, [databaseIdentity, mertV2Layers.layer]);
 
   function handlePrimaryTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const target = tabAfterKey(primarySearchTabs, activeSearchTab, event.key);
@@ -381,6 +384,7 @@ export function SearchPlaylistPanel({
         {activeSearchTab === "map" && (
           <div id="search-panel-map" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-map">
             <MertV2ExplorePanel key={databaseIdentity} databaseIdentity={databaseIdentity} catalogUuid={catalogUuid}
+              layerState={mertV2Layers}
               busy={busy} seedSet={seedSet} playlistSet={playlistSet} playingTrackId={playingTrackId} previewTrackId={previewTrackId}
               onSeed={addSeed} onToggleLiked={toggleLiked} onTogglePlaylist={togglePlaylist} onAddTracks={onAddMapTracks}
               onPreview={setPreview} onSeekPreview={onSeekPreview} onDetails={setMetadataTrack} />
@@ -408,9 +412,10 @@ export function SearchPlaylistPanel({
         {activeSearchTab === "similarity" && (
           <div id="search-panel-similarity" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-similarity">
             <SimilaritySearchTab
+              layerState={mertV2Layers}
               model={seedSearchModel}
               onModelChange={selectSeedSearchModel}
-              currentAnalysisCount={seedSearchModel === "sonara" ? sonaraCount : embeddingCounts[seedSearchModel]}
+              currentAnalysisCount={seedSearchModel === "sonara" ? sonaraCount : seedSearchModel === "mert_v2" ? mertV2Layers.trackCount : embeddingCounts[seedSearchModel]}
               busy={busy || !seeds.length}
               randomTrackBusy={busy}
               pending={seedSearchModel !== "sonara" && Boolean(embeddingSearchPending[seedSearchModel])}
@@ -639,7 +644,7 @@ export function SearchPlaylistPanel({
           <div className="generic-search-results">
             {genericSearchResultOrigin === "text" && textExecution ? <TextExecutionDetails execution={textExecution} /> : null}
             <div className="generic-search-result-provenance" role="status">
-              {searchResultOriginLabel(genericSearchResultOrigin)} results
+              {searchResultOriginLabel(genericSearchResultOrigin)}{genericSearchResultOrigin === "mert_v2" ? ` L${mertV2Layers.layer}` : ""} results
               <span>{results.length}</span>
               {genericSearchResultOrigin === "text" ? (
                 <PromptCandidatesAddButton

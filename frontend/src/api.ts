@@ -53,11 +53,18 @@ export type EmbeddingMapRequest = {
   catalog_uuid: string;
   analysis_family: "mert_v2";
   cluster_count: number;
+  mert_v2_layer?: number;
+};
+
+export type MertV2LayersResponse = {
+  catalog_uuid: string;
+  layers: { layer: number; track_count: number }[];
 };
 
 export type EmbeddingMapResponse = {
   catalog_uuid: string;
   analysis_family: "mert_v2";
+  mert_v2_layer: number;
   eligible_count: number;
   requested_cluster_count: number;
   cluster_count: number;
@@ -228,6 +235,7 @@ export type SearchResult = {
 
 export type EmbeddingSearchPayload = {
   analysis_family: EmbeddingSource;
+  mert_v2_layer?: number;
   seed_track_ids: number[];
   limit: number;
   min_similarity?: number | null;
@@ -237,6 +245,7 @@ export type EmbeddingSearchPayload = {
 
 export type EmbeddingRandomTrackPayload = {
   analysis_family: EmbeddingSource;
+  mert_v2_layer?: number;
   exclude_track_ids: number[];
 };
 

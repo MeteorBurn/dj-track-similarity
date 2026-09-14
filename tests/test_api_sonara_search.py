@@ -110,6 +110,23 @@ def test_generic_search_endpoint_returns_mert_result_shape(
             assert payload[0]["track"]["track_id"] == candidate.track_id
             assert payload[0]["score"] == pytest.approx(0.9 / np.hypot(0.9, 0.1))
             assert payload[0]["score_breakdown"] is None
+            layer_request = {"analysis_family": family, "seed_track_ids": [seed.track_id for seed in seeds], "mert_v2_layer": 12}
+            assert client.post("/api/search", json=layer_request).status_code == 400
+            if family == "mert_v2":
+                for target in (*seeds, candidate):
+                    final = db.load_analysis_vectors(output, targets=(target,))[0].vector
+                    layer = np.zeros_like(final)
+                    layer[1 if target == candidate else 0] = 1.0
+                    saved = db.save_embedding_results((EmbeddingWrite(target=target, output=EmbeddingOutput(
+                        family=family, vector=final, analyzed_at=_NOW,
+                        layer_vectors=tuple(layer if number == 12 else final for number in range(1, 25)),
+                    )),))
+                    assert saved[0].ok
+                selected_layer = client.post("/api/search", json=layer_request)
+                assert selected_layer.status_code == 200
+                assert len(selected_layer.json()) == 1
+                assert selected_layer.json()[0]["track"]["track_id"] == candidate.track_id
+                assert selected_layer.json()[0]["score"] == pytest.approx(0.0)
 
 
 def test_sonara_search_endpoint_accepts_mixer_and_modifiers(
@@ -240,6 +257,19 @@ def test_random_embedding_track_uses_an_unselected_embedded_track(
     payload = response.json()
     assert payload["track_id"] in {target.track_id for target in targets[1:]}
     assert payload["analysis_coverage"]["mert_v2"] is True
+    client = TestClient(create_app(db_path))
+    assert client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "mert_v2_layer": 12}).status_code == 409
+    target = targets[1]
+    vector = db.load_analysis_vectors(output, targets=(target,))[0].vector
+    saved = db.save_embedding_results((EmbeddingWrite(target=target, output=EmbeddingOutput(
+        family="mert_v2", vector=vector, analyzed_at=_NOW, layer_vectors=tuple(vector for _ in range(24)),
+    )),))
+    assert saved[0].ok
+    layer_pick = client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "mert_v2_layer": 12})
+    assert layer_pick.status_code == 200
+    assert layer_pick.json()["track_id"] == target.track_id
+    assert client.post("/api/search/random-track", json={"analysis_family": "mert_v2", "mert_v2_layer": 12,
+                                                       "exclude_track_ids": [target.track_id]}).status_code == 409
 
 
 def test_random_embedding_track_requires_an_available_embedded_track(

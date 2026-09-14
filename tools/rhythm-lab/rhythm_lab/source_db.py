@@ -1292,6 +1292,8 @@ def _ready_embedding_vectors(
         "t.missing_since IS NULL",
         "a.track_uuid = t.track_uuid",
     ]
+    if family == "mert_v2":
+        base_clauses.append("a.layer = 24")
     chunks: list[list[int] | None]
     if track_ids is not None:
         clean_ids = list(dict.fromkeys(_positive_track_id(value) for value in track_ids))
@@ -2043,6 +2045,7 @@ def _feature_counts(connection: sqlite3.Connection) -> dict[str, int]:
             FROM {table} AS data
             JOIN tracks AS t USING(track_id)
             WHERE t.missing_since IS NULL
+              {"AND data.layer = 24" if source == "mert_v2" else ""}
             """
         ).fetchone()
         assert row is not None

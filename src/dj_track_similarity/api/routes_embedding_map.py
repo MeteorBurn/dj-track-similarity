@@ -3,13 +3,26 @@ from __future__ import annotations
 import numpy as np
 from fastapi import FastAPI, HTTPException
 
-from .schemas import EmbeddingMapRequest, EmbeddingMapResponse
+from .schemas import EmbeddingMapRequest, EmbeddingMapResponse, MertV2LayersResponse
 from .state import AppDatabaseState, DatabaseBusy
 from ..analysis_models import current_embedding_spec
 from ..search.embedding_explorer import explore_embeddings
 
 
 def register_embedding_map_routes(app: FastAPI, state: AppDatabaseState) -> None:
+    @app.get("/api/library/mert-v2/layers", response_model=MertV2LayersResponse)
+    def mert_v2_layers() -> dict[str, object]:
+        database, generation = state.capture_db()
+        try:
+            with state.captured_db(database, generation):
+                counts = database.mert_v2_layer_counts()
+                return {
+                    "catalog_uuid": database.catalog_uuid,
+                    "layers": [{"layer": layer, "track_count": counts[layer]} for layer in range(1, 25)],
+                }
+        except (DatabaseBusy, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
     @app.post("/api/library/embedding-map", response_model=EmbeddingMapResponse)
     def embedding_map(request: EmbeddingMapRequest) -> dict[str, object]:
         database, generation = state.capture_db()
@@ -19,7 +32,7 @@ def register_embedding_map_routes(app: FastAPI, state: AppDatabaseState) -> None
             output = database.active_analysis_output(request.analysis_family, "embedding")
             if output is None:
                 raise HTTPException(status_code=409, detail="MERT-v2 embeddings are unavailable")
-            rows = database.load_analysis_vectors(output)
+            rows = database.load_analysis_vectors(output, mert_v2_layer=request.mert_v2_layer)
             track_ids = [row.target.track_id for row in rows]
             matrix = (
                 np.stack([row.vector for row in rows])
@@ -28,7 +41,7 @@ def register_embedding_map_routes(app: FastAPI, state: AppDatabaseState) -> None
             )
             result = explore_embeddings(track_ids, matrix, n_clusters=request.cluster_count)
             with state.captured_db(database, generation):
-                current_rows = database.load_analysis_vectors(output)
+                current_rows = database.load_analysis_vectors(output, mert_v2_layer=request.mert_v2_layer)
                 if (
                     tuple(row.target for row in current_rows) != tuple(row.target for row in rows)
                     or any(not np.array_equal(before.vector, after.vector) for before, after in zip(rows, current_rows))
@@ -41,6 +54,7 @@ def register_embedding_map_routes(app: FastAPI, state: AppDatabaseState) -> None
                 return {
                     "catalog_uuid": database.catalog_uuid,
                     "analysis_family": request.analysis_family,
+                    "mert_v2_layer": request.mert_v2_layer,
                     "eligible_count": len(rows),
                     "requested_cluster_count": request.cluster_count,
                     "cluster_count": len(result.representative_track_ids),

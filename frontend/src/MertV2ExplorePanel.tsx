@@ -4,8 +4,11 @@ import type { Track } from "./api";
 import { TrackList } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 import { useMertV2Explorer } from "./useMertV2Explorer";
+import { MertV2LayerSelect } from "./MertV2LayerSelect";
+import type { MertV2LayerState } from "./useMertV2Layers";
 
 type Props = {
+  layerState: MertV2LayerState;
   databaseIdentity: string | null;
   catalogUuid: string | null;
   busy: boolean;
@@ -31,7 +34,7 @@ function zoomView(view: typeof initialView, factor: number, x = 0.5, y = 0.5) {
 }
 
 export function MertV2ExplorePanel(props: Props) {
-  const map = useMertV2Explorer(props.databaseIdentity, props.catalogUuid);
+  const map = useMertV2Explorer(props.databaseIdentity, props.catalogUuid, props.layerState.layer);
   const [clusterCount, setClusterCount] = useState(8);
   const [group, setGroup] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -43,6 +46,14 @@ export function MertV2ExplorePanel(props: Props) {
   const drag = useRef<{ id: number; x: number; y: number; view: typeof initialView } | null>(null);
   const dragged = useRef(false);
   const clipId = useId();
+  useEffect(() => {
+    setGroup(null);
+    setSelectedId(null);
+    setPage(0);
+    setView(initialView);
+    drag.current = null;
+    setPanning(false);
+  }, [props.layerState.layer]);
   const points = map.data?.points ?? [];
   const hasPoints = points.length > 0;
   useEffect(() => {
@@ -92,18 +103,19 @@ export function MertV2ExplorePanel(props: Props) {
 
   return <div className="mert-map-panel">
     <header className="mert-map-header">
-      <div className="mert-map-heading"><Map size={18} aria-hidden="true" /><div><h3>Карта звучания</h3><small>MERT-v2</small></div></div>
+      <div className="mert-map-heading"><Map size={18} aria-hidden="true" /><div><h3>Карта звучания</h3><small>MERT-v2 L{props.layerState.layer}</small></div></div>
       <div className="mert-map-controls mert-map-build-controls">
         <label>Группы<input type="number" min={1} max={32} value={clusterCount} onChange={event => {
           if (Number.isFinite(event.currentTarget.valueAsNumber)) setClusterCount(Math.max(1, Math.min(32, Math.round(event.currentTarget.valueAsNumber))));
         }} /></label>
-        <button type="button" disabled={props.busy || map.pending || !props.catalogUuid} onClick={() => {
+        <button type="button" disabled={props.busy || map.pending || !props.catalogUuid || !props.layerState.trackCount} onClick={() => {
           selectGroup(null);
           setView(initialView);
           void map.buildMap(clusterCount);
         }}><RefreshCw size={14} aria-hidden="true" />{map.pending ? "Построение…" : map.data ? "Перестроить" : "Построить карту"}</button>
       </div>
     </header>
+    <MertV2LayerSelect state={props.layerState} />
     {map.error ? <p role="alert" className="error">{map.error}</p> : null}
     <section className="mert-map-chart" aria-label="Распределение треков по звучанию">
       {map.data && points.length ? <>

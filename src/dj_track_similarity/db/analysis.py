@@ -47,6 +47,11 @@ from .embeddings import (
     read_valid_embeddings,
     write_valid_embedding_in_transaction,
 )
+from .mert_v2_layers import (
+    mert_v2_layers_capability,
+    require_mert_v2_layers,
+    validate_mert_v2_layer,
+)
 from .classifier_storage import (
     _count_classifier_work,
     _read_classifier_work_rows,
@@ -688,13 +693,24 @@ class AnalysisRepository:
                                 raise ValueError(
                                     "embedding output has no library table"
                                 )
-                            write_valid_embedding_in_transaction(
-                                connection=connection,
-                                track=_embedding_track(write.target),
-                                family=write.output.family,
-                                embedding=write.output.vector,
-                                analyzed_at=write.output.analyzed_at,
-                            )
+                            vectors = ((24, write.output.vector),)
+                            if write.output.family == "mert_v2":
+                                require_mert_v2_layers(connection)
+                                connection.execute(
+                                    "DELETE FROM mert_v2_embeddings WHERE track_id = ?",
+                                    (write.target.track_id,),
+                                )
+                                if write.output.layer_vectors is not None:
+                                    vectors = tuple(enumerate(write.output.layer_vectors, start=1))
+                            for layer, vector in vectors:
+                                write_valid_embedding_in_transaction(
+                                    connection=connection,
+                                    track=_embedding_track(write.target),
+                                    family=write.output.family,
+                                    embedding=vector,
+                                    analyzed_at=write.output.analyzed_at,
+                                    mert_v2_layer=layer,
+                                )
                         except Exception as error:
                             _rollback_savepoint(connection, name)
                             results.append(_error_result(write.target, error))
@@ -719,16 +735,18 @@ class AnalysisRepository:
         output: AnalysisOutput,
         *,
         targets: Sequence[AnalysisTarget] | None = None,
+        mert_v2_layer: int = 24,
     ) -> tuple[AnalysisVectorRow, ...]:
         if output.output_kind != "embedding":
             raise ValueError("vector loading requires an embedding output")
+        validate_mert_v2_layer(output.analysis_family, mert_v2_layer)
         with self._write_lock:
             with closing(self.connect()) as connection:
                 catalog_uuid = _catalog_uuid(connection)
                 normalize_analysis_outputs((output,))
                 table = table_for_output(output)
                 fingerprint: tuple[object, ...] | None = None
-                if targets is None and table is not None:
+                if targets is None and table is not None and mert_v2_layer == 24:
                     fingerprint = _library_vector_fingerprint(
                         connection,
                         table=table,
@@ -751,6 +769,7 @@ class AnalysisRepository:
                     },
                     catalog_uuid=catalog_uuid,
                     connection=connection,
+                    mert_v2_layer=mert_v2_layer,
                 )
                 rows = tuple(
                     AnalysisVectorRow(
@@ -765,11 +784,34 @@ class AnalysisRepository:
                     self._store_library_vectors(output, fingerprint, rows)
                 return rows
 
+    def mert_v2_layers_capability(self) -> str:
+        with closing(self.connect()) as connection:
+            return mert_v2_layers_capability(connection)
+
+    def require_mert_v2_layer_storage(self) -> None:
+        with closing(self.connect()) as connection:
+            require_mert_v2_layers(connection)
+
+    def mert_v2_layer_counts(self) -> dict[int, int]:
+        with closing(self.connect()) as connection:
+            connection.execute("BEGIN")
+            catalog_uuid = _catalog_uuid(connection)
+            selected = _selected_targets(connection, catalog_uuid=catalog_uuid, targets=None)
+            identities = {target.track_id: target.track_uuid for target in selected}
+            return {
+                layer: len(read_valid_embeddings(
+                    family="mert_v2", identities=identities, catalog_uuid=catalog_uuid,
+                    connection=connection, mert_v2_layer=layer,
+                ))
+                for layer in range(1, 25)
+            }
+
     def random_embedding_target(
         self,
         output: AnalysisOutput,
         *,
         exclude_track_ids: Sequence[int] = (),
+        mert_v2_layer: int = 24,
     ) -> AnalysisTarget | None:
         """Pick one current embedded target without reading any vector.
 
@@ -781,6 +823,7 @@ class AnalysisRepository:
 
         if output.output_kind != "embedding":
             raise ValueError("embedding target selection requires an embedding output")
+        validate_mert_v2_layer(output.analysis_family, mert_v2_layer)
         table = table_for_output(output)
         if table is None:
             raise ValueError("embedding output has no library table")
@@ -797,8 +840,13 @@ class AnalysisRepository:
               AND embeddings.normalization = ?
         """
         spec_parameters = (spec.dimension, spec.normalization)
+        if output.analysis_family == "mert_v2":
+            selectable_sql += " AND embeddings.layer = ?"
+            spec_parameters += (mert_v2_layer,)
         with self._write_lock:
             with closing(self.connect()) as connection:
+                if output.analysis_family == "mert_v2":
+                    require_mert_v2_layers(connection)
                 catalog_uuid = _catalog_uuid(connection)
                 normalize_analysis_outputs((output,))
                 available_track_count = int(
@@ -1157,10 +1205,16 @@ class AnalysisRepository:
                             table = table_for_output(output)
                             if table is None:
                                 raise ValueError("unsupported analysis output reset")
+                            deleted_tracks = None
+                            if output.analysis_family == "mert_v2":
+                                require_mert_v2_layers(connection)
+                                deleted_tracks = int(connection.execute(
+                                    "SELECT COUNT(DISTINCT track_id) FROM mert_v2_embeddings"
+                                ).fetchone()[0])
                             cursor = connection.execute(f"DELETE FROM {table}")
-                            embedding_deleted += max(
-                                0,
-                                int(cursor.rowcount),
+                            embedding_deleted += (
+                                deleted_tracks if deleted_tracks is not None
+                                else max(0, int(cursor.rowcount))
                             )
                     classifier_deleted = 0
                     _bump_write_generation(connection)

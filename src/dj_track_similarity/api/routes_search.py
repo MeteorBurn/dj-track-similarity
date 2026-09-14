@@ -108,6 +108,7 @@ def register_search_routes(
                 database,
                 request.analysis_family,
                 analysis_output=analysis_output,
+                mert_v2_layer=request.mert_v2_layer,
             )
             results = searcher.search(
                 searcher.resolve_targets(request.seed_track_ids),
@@ -137,6 +138,7 @@ def register_search_routes(
                 database,
                 request.analysis_family,
                 analysis_output=analysis_output,
+                mert_v2_layer=request.mert_v2_layer,
             )
             target = searcher.random_target(
                 exclude_track_ids=request.exclude_track_ids,

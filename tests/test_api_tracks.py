@@ -93,15 +93,18 @@ def test_embedding_map_returns_current_stored_vector_groups(monkeypatch, tmp_pat
         identities.append(identity)
         vector = np.zeros(1024, dtype=np.float32)
         vector[index % 2] = 1.0
+        layer_vector = np.zeros(1024, dtype=np.float32)
+        layer_vector[2] = 1.0
         saved = database.save_embedding_results((EmbeddingWrite(
             target=AnalysisTarget(identity.catalog_uuid, identity.track_id, identity.track_uuid),
-            output=EmbeddingOutput(family="mert_v2", vector=vector, analyzed_at="2026-09-14T00:00:00Z"),
+            output=EmbeddingOutput(family="mert_v2", vector=vector, analyzed_at="2026-09-14T00:00:00Z",
+                                   layer_vectors=tuple(layer_vector if layer == 12 else vector for layer in range(1, 25))),
         ),))
         assert saved[0].ok
     database.mark_missing(identities[4].track_id)
     with closing(database.connect()) as connection, connection:
         connection.execute("UPDATE mert_v2_embeddings SET track_uuid = 'stale' WHERE track_id = ?", (identities[5].track_id,))
-        connection.execute("UPDATE mert_v2_embeddings SET embedding_blob = ? WHERE track_id = ?", (np.full(1024, np.nan, dtype=np.float32).tobytes(), identities[6].track_id))
+        connection.execute("UPDATE mert_v2_embeddings SET embedding_blob = ? WHERE track_id = ? AND layer = 24", (np.full(1024, np.nan, dtype=np.float32).tobytes(), identities[6].track_id))
 
     with _client(monkeypatch, db_path) as client:
         request = {"catalog_uuid": database.catalog_uuid, "cluster_count": 2}
@@ -110,6 +113,7 @@ def test_embedding_map_returns_current_stored_vector_groups(monkeypatch, tmp_pat
         payload = response.json()
         assert payload["catalog_uuid"] == database.catalog_uuid
         assert payload["analysis_family"] == "mert_v2"
+        assert payload["mert_v2_layer"] == 24
         assert payload["eligible_count"] == 4
         assert payload["requested_cluster_count"] == payload["cluster_count"] == 2
         assert payload["projection"]["method"] == "pca"
@@ -120,8 +124,18 @@ def test_embedding_map_returns_current_stored_vector_groups(monkeypatch, tmp_pat
             members = [point for point in payload["points"] if point["cluster"] == cluster["id"]]
             assert cluster["count"] == len(members)
             assert cluster["representative_track_id"] in {point["track"]["track_id"] for point in members}
+        layers = client.get("/api/library/mert-v2/layers")
+        assert layers.status_code == 200
+        assert layers.json() == {"catalog_uuid": database.catalog_uuid, "layers": [
+            {"layer": layer, "track_count": 4 if layer == 24 else 5} for layer in range(1, 25)
+        ]}
+        layer_map = client.post("/api/library/embedding-map", json={**request, "mert_v2_layer": 12})
+        assert layer_map.status_code == 200
+        assert layer_map.json()["mert_v2_layer"] == 12
+        assert layer_map.json()["eligible_count"] == 5
+        assert layer_map.json()["cluster_count"] == 1
         assert client.post("/api/library/embedding-map", json={**request, "catalog_uuid": "other"}).status_code == 409
-        for invalid in ({"cluster_count": 0}, {"analysis_family": "mert"}, {"layer": 12}):
+        for invalid in ({"cluster_count": 0}, {"analysis_family": "mert"}, {"layer": 12}, {"mert_v2_layer": 0}, {"mert_v2_layer": 25}, {"mert_v2_layer": True}):
             assert client.post("/api/library/embedding-map", json={**request, **invalid}).status_code == 422
         for identity in identities[:4]:
             database.mark_missing(identity.track_id)

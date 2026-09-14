@@ -580,9 +580,18 @@ def test_source_feature_states_distinguish_current_and_missing(
     assert track.analysis_coverage.mert is False
     assert track.feature_status["mert_v2"].status == "current"
 
+    layers = tuple(np.eye(1, 1024, index, dtype=np.float32)[0] for index in range(24))
+    write = EmbeddingWrite(
+        AnalysisTarget(repository.catalog_uuid, track.track_id, track.track_uuid),
+        EmbeddingOutput("mert_v2", layers[-1], NOW, layers),
+    )
+    assert repository.save_embedding_results((write,))[0].ok
+    np.testing.assert_array_equal(source.load_embedding_matrix("mert_v2").matrix[0], layers[-1])
+    assert source.feature_inventory()[0]["mert_v2"] == 1
+
     with repository.connect() as connection:
         connection.execute(
-            "UPDATE mert_v2_embeddings SET track_uuid = ? WHERE track_id = ?",
+            "UPDATE mert_v2_embeddings SET track_uuid = ? WHERE track_id = ? AND layer = 24",
             (str(uuid.uuid4()), track.track_id),
         )
     rejected = source.load_embedding_matrix("mert_v2")

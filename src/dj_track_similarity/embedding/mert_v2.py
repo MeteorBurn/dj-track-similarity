@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 _CHUNK_SAMPLES = 360 * 24_000
 _MINIMUM_SAMPLES = 1025
+_LAYER_COUNT = 24
 
 
 class MertV2EmbeddingAdapter:
@@ -83,7 +84,9 @@ class MertV2EmbeddingAdapter:
             "tail_policy": "shift-previous-boundary-to-retain-at-least-1025-samples",
             "processor_normalization": "none-preserve-waveform-amplitude",
             "processor_padding": "none-equal-length-batches-with-attention-mask",
-            "hidden_state_extraction": "last-conformer-block-native-feature-attention-mask",
+            "hidden_state_extraction": "all-24-conformer-blocks-native-feature-attention-mask",
+            "layer_pooling": "masked-time-mean+valid-frame-weighted-chunk-mean+per-layer-l2",
+            "embedding_layers": list(range(1, _LAYER_COUNT + 1)),
             "track_accumulation": "cpu-float64-weighted-by-valid-output-frames",
             "dtype": "float32",
             "device_precision": "cuda-native-bfloat16-forward-autocast-otherwise-float32",
@@ -104,12 +107,24 @@ class MertV2EmbeddingAdapter:
         *,
         cancelled: Callable[[], bool] | None = None,
     ) -> list[np.ndarray]:
+        return [
+            layers[-1]
+            for layers in self.embed_decoded_layers_batch(decoded_items, cancelled=cancelled)
+        ]
+
+    def embed_decoded_layers_batch(
+        self,
+        decoded_items: list[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[tuple[np.ndarray, ...]]:
+        """Return L1..L24 track vectors from one forward pass per audio chunk."""
         _check_cancelled(cancelled)
         self._load_model()
         torch = self._torch
         assert torch is not None and self._model is not None and self._processor is not None
         _check_cancelled(cancelled)
-        track_sums = np.zeros((len(decoded_items), self.dim), dtype=np.float64)
+        track_sums = np.zeros((len(decoded_items), _LAYER_COUNT, self.dim), dtype=np.float64)
         track_frames = np.zeros(len(decoded_items), dtype=np.int64)
         chunk_batch: list[np.ndarray] = []
         chunk_owners: list[int] = []
@@ -125,7 +140,7 @@ class MertV2EmbeddingAdapter:
             pooled, frame_counts = self._pool_chunk_batch(chunk_batch, cancelled=cancelled)
             inference_seconds += time.perf_counter() - started
             _check_cancelled(cancelled)
-            if pooled.shape != (len(chunk_batch), self.dim) or not np.isfinite(pooled).all():
+            if pooled.shape != (len(chunk_batch), _LAYER_COUNT, self.dim) or not np.isfinite(pooled).all():
                 raise ValueError("MERT-v2 produced invalid chunk embeddings")
             for vector, frames, owner in zip(pooled, frame_counts, chunk_owners, strict=True):
                 track_sums[owner] += vector.astype(np.float64) * frames
@@ -176,10 +191,10 @@ class MertV2EmbeddingAdapter:
             if frames <= 0:
                 raise ValueError(f"MERT-v2 produced no valid frames: {decoded.path}")
             vector = total / frames
-            norm = np.linalg.norm(vector)
-            if not np.isfinite(norm) or norm == 0:
+            norms = np.linalg.norm(vector, axis=1, keepdims=True)
+            if not np.isfinite(norms).all() or np.any(norms == 0):
                 raise ValueError(f"MERT-v2 produced a zero or nonfinite vector: {decoded.path}")
-            vectors.append((vector / norm).astype(np.float32))
+            vectors.append(tuple((vector / norms).astype(np.float32)))
         _check_cancelled(cancelled)
         return vectors
 
@@ -198,19 +213,26 @@ class MertV2EmbeddingAdapter:
             device_type = inputs["input_values"].device.type
             use_bfloat16 = device_type == "cuda" and torch.cuda.is_bf16_supported(including_emulation=False)
             with torch.autocast(device_type=device_type, dtype=torch.bfloat16, enabled=use_bfloat16):
-                outputs = self._model(**inputs, output_hidden_states=False, return_dict=True)
+                outputs = self._model(**inputs, output_hidden_states=True, return_dict=True)
             _check_cancelled(cancelled)
-            hidden = outputs.last_hidden_state.float()
+            states = outputs.hidden_states
             mask = outputs.feature_attention_mask
-            if hidden.ndim != 3 or hidden.shape[2] != self.dim or mask is None:
-                raise ValueError("MERT-v2 returned invalid hidden states or a missing feature mask")
-            if mask.dtype != torch.bool or tuple(mask.shape) != tuple(hidden.shape[:2]):
-                raise ValueError("MERT-v2 feature mask does not match hidden states")
+            if not isinstance(states, (tuple, list)) or len(states) != _LAYER_COUNT:
+                raise ValueError("MERT-v2 must return exactly 24 hidden-state layers")
+            if mask is None or mask.dtype != torch.bool or mask.ndim != 2:
+                raise ValueError("MERT-v2 returned an invalid feature mask")
             frame_counts = mask.sum(dim=1)
             if (frame_counts <= 0).any().item():
                 raise ValueError("MERT-v2 feature mask contains no valid frames")
-            pooled = hidden.masked_fill(~mask.unsqueeze(-1), 0).sum(dim=1) / frame_counts.unsqueeze(-1)
-            return pooled.detach().cpu().numpy().astype(np.float32), frame_counts.cpu().numpy()
+            layers = []
+            for hidden in states:
+                _check_cancelled(cancelled)
+                if hidden.ndim != 3 or hidden.shape[2] != self.dim or tuple(hidden.shape[:2]) != tuple(mask.shape):
+                    raise ValueError("MERT-v2 feature mask does not match hidden states")
+                pooled = hidden.masked_fill(~mask.unsqueeze(-1), 0).sum(dim=1, dtype=torch.float32)
+                pooled = pooled / frame_counts.unsqueeze(-1)
+                layers.append(pooled.detach().cpu().numpy())
+            return np.stack(layers, axis=1), frame_counts.cpu().numpy()
 
     def _load_model(self) -> None:
         if self._model is not None:

@@ -12,6 +12,8 @@ import pytest
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
+    EmbeddingOutput,
+    EmbeddingWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.analysis_candidates import collect_analysis_candidates
@@ -79,6 +81,25 @@ def test_new_library_database_bootstraps_one_sqlite_file(tmp_path: Path) -> None
         assert json.loads(str(library[2])) == []
         connection.execute("SELECT * FROM sonara_features LIMIT 0")
         connection.execute("SELECT * FROM maest_embeddings LIMIT 0")
+
+    with closing(database.connect()) as connection, connection:
+        connection.execute("DROP TABLE mert_v2_embeddings")
+        connection.execute(
+            "CREATE TABLE mert_v2_embeddings (track_id INTEGER PRIMARY KEY, "
+            "track_uuid TEXT, dim INTEGER, normalization TEXT, embedding_blob BLOB, "
+            "analyzed_at TEXT)"
+        )
+        old_schema = connection.execute(
+            "SELECT name, sql FROM sqlite_schema ORDER BY name"
+        ).fetchall()
+    reopened = LibraryDatabase(database_path)
+    assert reopened.mert_v2_layers_capability() == "incompatible"
+    with pytest.raises(RuntimeError, match="incompatible"):
+        reopened.load_analysis_vectors(AnalysisOutput("mert_v2", "embedding"))
+    with closing(reopened.connect()) as connection:
+        assert connection.execute(
+            "SELECT name, sql FROM sqlite_schema ORDER BY name"
+        ).fetchall() == old_schema
 
 
 def test_library_records_each_scanned_root_once(tmp_path: Path) -> None:
@@ -187,15 +208,85 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
     }
     with closing(database.connect()) as connection:
         row = connection.execute(
-            "SELECT dim, normalization, length(embedding_blob) FROM mert_v2_embeddings"
+            "SELECT layer, dim, normalization, length(embedding_blob) FROM mert_v2_embeddings"
         ).fetchone()
-        assert tuple(row) == (1024, "l2", 4096)
+        assert tuple(row) == (24, 1024, "l2", 4096)
+        assert [row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'mert_v2%'")
+        ] == ["mert_v2_embeddings"]
+        assert {row[1]: row[5] for row in connection.execute(
+            "PRAGMA table_info(mert_v2_embeddings)") if row[5]
+        } == {"track_id": 1, "layer": 2}
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+    output = AnalysisOutput("mert_v2", "embedding")
+    assert database.mert_v2_layer_counts() == {**dict.fromkeys(range(1, 24), 0), 24: 1}
+    layers = tuple(np.eye(1, 1024, layer, dtype=np.float32)[0] for layer in range(23))
+    layers = (*layers, vectors["mert_v2"])
+    write = EmbeddingWrite(
+        AnalysisTarget(target.catalog_uuid, track_id, target.track_uuid),
+        EmbeddingOutput("mert_v2", layers[-1], "2026-08-13T00:00:00.000000Z", layers),
+    )
+    assert database.save_embedding_results((write,))[0].ok
+    assert database.mert_v2_layer_counts() == dict.fromkeys(range(1, 25), 1)
+    for layer in range(1, 25):
+        rows = database.load_analysis_vectors(output, mert_v2_layer=layer)
+        np.testing.assert_array_equal(rows[0].vector, layers[layer - 1])
+        assert database.random_embedding_target(output, mert_v2_layer=layer) == write.target
+    assert len(database.load_analysis_vectors(output)) == 1
+    detail = database.get_track_detail(track_id)
+    assert sum(row.analysis_family == "mert_v2" for row in detail.embeddings) == 1
+    with closing(database.connect()) as connection:
+        assert [(row[0], row[1]) for row in connection.execute(
+            "SELECT layer, embedding_blob FROM mert_v2_embeddings ORDER BY layer"
+        )] == [(layer, vector.tobytes()) for layer, vector in enumerate(layers, start=1)]
+    with pytest.raises(ValueError, match="24 MERT-v2"):
+        EmbeddingOutput("mert_v2", layers[-1], "now", layers[:-1])
+    with pytest.raises(ValueError, match="layer 24 must equal the primary embedding"):
+        EmbeddingOutput("mert_v2", layers[0], "now", layers)
+    with pytest.raises(ValueError, match="from 1 to 24"):
+        database.load_analysis_vectors(output, mert_v2_layer=0)
+    with pytest.raises(ValueError, match="only supported for MERT-v2"):
+        database.load_analysis_vectors(AnalysisOutput("mert", "embedding"), mert_v2_layer=12)
+    with closing(database.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE mert_v2_embeddings SET track_uuid='stale' WHERE layer=12"
+        )
+    assert database.load_analysis_vectors(output, mert_v2_layer=12) == ()
+    assert database.save_embedding_results((write,))[0].ok
+    with closing(database.connect()) as connection, connection:
+        connection.execute(
+            "CREATE TRIGGER fail_layer BEFORE INSERT ON mert_v2_embeddings "
+            "WHEN NEW.layer=13 BEGIN SELECT RAISE(ABORT, 'test rollback'); END"
+        )
+    replacement = EmbeddingWrite(
+        write.target, EmbeddingOutput("mert_v2", layers[0], "new", (layers[0],) * 24),
+    )
+    assert not database.save_embedding_results((replacement,))[0].ok
+    for layer in (1, 13, 24):
+        np.testing.assert_array_equal(
+            database.load_analysis_vectors(output, mert_v2_layer=layer)[0].vector,
+            layers[layer - 1],
+        )
+    with closing(database.connect()) as connection, connection:
+        connection.execute("DROP TRIGGER fail_layer")
+
+    final_only = EmbeddingWrite(
+        write.target, EmbeddingOutput("mert_v2", layers[0], "final-only"),
+    )
+    assert database.save_embedding_results((final_only,))[0].ok
+    assert database.mert_v2_layer_counts() == {**dict.fromkeys(range(1, 24), 0), 24: 1}
+    np.testing.assert_array_equal(database.load_analysis_vectors(output)[0].vector, layers[0])
+    with closing(database.connect()) as connection:
+        assert connection.execute("SELECT layer FROM mert_v2_embeddings").fetchall()[0][0] == 24
+        assert connection.execute("SELECT COUNT(*) FROM mert_v2_embeddings").fetchone()[0] == 1
+    assert database.save_embedding_results((write,))[0].ok
 
     reset = database.reset_analysis_outputs((AnalysisOutput("mert_v2", "embedding"),))
     assert reset.embedding_rows_deleted == 1
     assert database.load_analysis_vectors(AnalysisOutput("mert_v2", "embedding")) == ()
+    assert database.mert_v2_layer_counts() == dict.fromkeys(range(1, 25), 0)
     np.testing.assert_array_equal(
         _read_embedding(database, track=target, family="mert"), vectors["mert"],
     )
@@ -203,6 +294,7 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
         database, track=target, family="mert_v2", vector=vectors["mert_v2"],
         analyzed_at="2026-08-12T00:00:00.000000Z",
     )
+    assert database.save_embedding_results((write,))[0].ok
     cleared = database.clear_library()
     assert cleared["tracks_deleted"] == 1
     assert cleared["embedding_rows_deleted"] == 2
@@ -331,7 +423,29 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
             assert len(candidates) == 1
             assert candidates[0].missing_outputs == (outputs[1],)
         else:
+            assert len(candidates) == 1
+            assert candidates[0].missing_outputs == (outputs[1],)
+            result = database.save_embedding_results((EmbeddingWrite(
+                AnalysisTarget(target.catalog_uuid, target.track_id, target.track_uuid),
+                EmbeddingOutput("mert_v2", vector, "now", (vector,) * 24),
+            ),))
+            assert result[0].ok
+            candidates = database.list_analysis_candidates(outputs)
             assert candidates == []
+            for layer in (13, 24):
+                with closing(database.connect()) as connection, connection:
+                    connection.execute(
+                        "UPDATE mert_v2_embeddings SET analyzed_at='old' WHERE layer=?",
+                        (layer,),
+                    )
+                candidates = database.list_analysis_candidates(outputs)
+                assert len(candidates) == 1
+                assert candidates[0].missing_outputs == (outputs[1],)
+                with closing(database.connect()) as connection, connection:
+                    connection.execute(
+                        "UPDATE mert_v2_embeddings SET analyzed_at='now' WHERE layer=?",
+                        (layer,),
+                    )
 
 
 def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> None:
@@ -367,6 +481,12 @@ def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> Non
             vector=vector,
             analyzed_at="2026-08-12T00:00:00.000000Z",
         )
+
+    result = database.save_embedding_results((EmbeddingWrite(
+        AnalysisTarget(target.catalog_uuid, target.track_id, target.track_uuid),
+        EmbeddingOutput("mert_v2", vector, "now", (vector,) * 24),
+    ),))
+    assert result[0].ok
 
     with closing(database.connect()) as connection:
         def authorizer(
@@ -416,20 +536,24 @@ def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:
         for family, dimension in (("mert", 768), ("mert_v2", 1024)):
             vector = np.zeros(dimension, dtype="<f4")
             vector[0] = 2.0
-            connection.execute(
+            layer_column = ", layer" if family == "mert_v2" else ""
+            layer_value = ", ?" if family == "mert_v2" else ""
+            values = (
+                track_id,
+                "track-summary",
+                dimension,
+                "l2",
+                vector.tobytes(),
+                "2026-08-12T00:00:00.000000Z",
+            )
+            connection.executemany(
                 f"""
                 INSERT INTO {family}_embeddings(
-                    track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at{layer_column}
+                ) VALUES (?, ?, ?, ?, ?, ?{layer_value})
                 """,
-                (
-                    track_id,
-                    "track-summary",
-                    dimension,
-                    "l2",
-                    vector.tobytes(),
-                    "2026-08-12T00:00:00.000000Z",
-                ),
+                [(*values, layer) for layer in range(1, 25)]
+                if family == "mert_v2" else [values],
             )
 
     summary = database.library_summary()

@@ -10,7 +10,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function harness(api) {
+function harness(api, hook = "useMertV2Explorer") {
   const slots = []; let cursor = 0; let effects = [];
   const react = {
     useState(initial) {
@@ -28,7 +28,7 @@ function harness(api) {
     },
   };
   const module = { exports: {} };
-  const compiled = ts.transpileModule(readFileSync(new URL("../src/useMertV2Explorer.ts", import.meta.url), "utf8"), {
+  const compiled = ts.transpileModule(readFileSync(new URL(`../src/${hook}.ts`, import.meta.url), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   vm.runInNewContext(compiled, { module, exports: module.exports, AbortController,
@@ -37,9 +37,9 @@ function harness(api) {
     },
   });
   return {
-    render(identity = "db-a", catalog = "a") {
+    render(identity = "db-a", catalog = "a", layerOrRefresh = 24) {
       cursor = 0;
-      const value = module.exports.useMertV2Explorer(identity, catalog);
+      const value = module.exports[hook](identity, catalog, layerOrRefresh);
       const pending = effects; effects = []; pending.forEach(fn => fn());
       return value;
     },
@@ -47,8 +47,8 @@ function harness(api) {
   };
 }
 
-function response(catalog = "a", uuid = "track-a") {
-  return { catalog_uuid: catalog, analysis_family: "mert_v2", eligible_count: 1,
+function response(catalog = "a", uuid = "track-a", layer = 24) {
+  return { catalog_uuid: catalog, analysis_family: "mert_v2", mert_v2_layer: layer, eligible_count: 1,
     requested_cluster_count: 8, cluster_count: 1,
     projection: { method: "pca", explained_variance_ratio: [1, 0] },
     clusters: [{ id: 0, count: 1, representative_track_id: 1 }],
@@ -61,7 +61,7 @@ test("map requests bind catalog, replace stale work, and preserve track identity
   const h = harness({ embeddingMap(payload, options) { const task = deferred(); calls.push({ payload, options, ...task }); return task.promise; } });
   let ui = h.render();
   const first = ui.buildMap(8);
-  assert.equal(JSON.stringify(calls[0].payload), JSON.stringify({ catalog_uuid: "a", analysis_family: "mert_v2", cluster_count: 8 }));
+  assert.equal(JSON.stringify(calls[0].payload), JSON.stringify({ catalog_uuid: "a", analysis_family: "mert_v2", cluster_count: 8, mert_v2_layer: 24 }));
   calls[0].resolve(response()); await first;
   ui = h.render();
   const original = ui.data.points[0].track;
@@ -100,8 +100,46 @@ test("map requests bind catalog, replace stale work, and preserve track identity
   ui = h.render("db-b", "b");
   assert.equal(ui.pending, false);
   assert.equal(ui.error, "Unavailable");
+  const switchingLayer = ui.buildMap(8);
+  const staleLayerCall = calls.at(-1);
+  ui = h.render("db-b", "b", 12);
+  assert.equal(staleLayerCall.options.signal.aborted, true);
+  staleLayerCall.resolve(response("b")); await switchingLayer;
+  ui = h.render("db-b", "b", 12);
+  assert.equal(ui.data, null);
+  const newLayer = ui.buildMap(8);
+  assert.equal(calls.at(-1).payload.mert_v2_layer, 12);
+  calls.at(-1).resolve(response("b", "layer-12", 12)); await newLayer;
+  ui = h.render("db-b", "b", 12);
+  assert.equal(ui.data.mert_v2_layer, 12);
   const unmounting = ui.buildMap(8);
   h.unmount();
-  assert.equal(calls[6].options.signal.aborted, true);
-  calls[6].resolve(response("b")); await unmounting;
+  assert.equal(calls.at(-1).options.signal.aborted, true);
+  calls.at(-1).resolve(response("b", "layer-12", 12)); await unmounting;
+
+  const coverageCalls = [];
+  const coverage = harness({ mertV2Layers(options) { const task = deferred(); coverageCalls.push({ options, ...task }); return task.promise; } }, "useMertV2Layers");
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const counts = catalog_uuid => ({ catalog_uuid, layers: Array.from({ length: 24 }, (_, i) => ({ layer: i + 1, track_count: [12, 24].includes(i + 1) ? 10 : 0 })) });
+  let picker = coverage.render();
+  coverageCalls[0].resolve(counts("a")); await flush();
+  picker = coverage.render();
+  picker.selectLayer(1); picker = coverage.render();
+  assert.equal(picker.layer, 24);
+  picker.selectLayer(12); picker = coverage.render();
+  assert.equal(picker.layer, 12);
+  assert.equal(picker.trackCount, 10);
+  coverage.render("db-a", "a", "refreshed-summary");
+  const outdatedCoverage = coverageCalls.at(-1);
+  picker = coverage.render("db-b", "b", "refreshed-summary");
+  assert.equal(picker.layer, 24);
+  assert.equal(picker.layers, null);
+  assert.equal(outdatedCoverage.options.signal.aborted, true);
+  outdatedCoverage.resolve(counts("a")); await flush();
+  picker = coverage.render("db-b", "b", "refreshed-summary");
+  assert.equal(picker.layers, null);
+  coverageCalls.at(-1).resolve(counts("b")); await flush();
+  picker = coverage.render("db-b", "b", "refreshed-summary");
+  assert.equal(picker.layers.length, 24);
+  coverage.unmount();
 });

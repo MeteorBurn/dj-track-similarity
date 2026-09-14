@@ -716,6 +716,8 @@ class AnalysisJobManager:
             self._update(job_id, current_model=model, model_name=runner.model_name)
             model_started = time.time()
             try:
+                if model == "mert_v2":
+                    self.db.require_mert_v2_layer_storage()
                 with handle.lock:
                     if handle.preflight_complete:
                         loaded = False

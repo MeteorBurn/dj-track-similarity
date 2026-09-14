@@ -6053,6 +6053,18 @@ button.dedup-play-button {
   min-width: 0;
   font-size: 12px;
 }
+.mert-v2-layer-select { display: grid; gap: 4px; min-width: 0; max-width: 100%; margin-bottom: 8px; }
+.mert-v2-layer-select label { display: grid; gap: 4px; min-width: 0; font-size: 12px; }
+.mert-v2-layer-select select {
+  width: 100%;
+  min-width: 0;
+  height: var(--workbench-control-height);
+  min-height: var(--workbench-control-height);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+.mert-v2-layer-select small { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.mert-v2-layer-select .error { color: var(--danger-text); }
 .mert-map-header, .mert-map-member-header {
   display: flex;
   align-items: center;

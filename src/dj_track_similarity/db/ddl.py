@@ -257,15 +257,20 @@ CREATE TABLE mert_embeddings (
 CREATE INDEX idx_mert_embeddings_track_uuid ON mert_embeddings(track_uuid);
 """
 
-_DDL_MERT_V2_EMBEDDINGS = """
+MERT_V2_EMBEDDINGS_DDL = """
 CREATE TABLE mert_v2_embeddings (
-    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
-    track_uuid         TEXT    NOT NULL,
-    dim                INTEGER NOT NULL CHECK(dim > 0),
-    normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
-    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
-    analyzed_at        TEXT    NOT NULL
+    track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
+    layer INTEGER NOT NULL CHECK(layer BETWEEN 1 AND 24),
+    track_uuid TEXT NOT NULL,
+    dim INTEGER NOT NULL CHECK(dim = 1024),
+    normalization TEXT NOT NULL CHECK(normalization = 'l2'),
+    embedding_blob BLOB NOT NULL CHECK(length(embedding_blob) = dim * 4),
+    analyzed_at TEXT NOT NULL,
+    PRIMARY KEY(track_id, layer)
 );
+"""
+
+_DDL_MERT_V2_EMBEDDINGS = MERT_V2_EMBEDDINGS_DDL + """
 CREATE INDEX idx_mert_v2_embeddings_track_uuid ON mert_v2_embeddings(track_uuid);
 """
 

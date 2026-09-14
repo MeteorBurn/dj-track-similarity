@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { api, type EmbeddingMapResponse, type Track } from "./api";
 import { errorText, isAbortError } from "./errors";
 
-export function useMertV2Explorer(databaseIdentity: string | null, catalogUuid: string | null) {
-  const identity = JSON.stringify([databaseIdentity, catalogUuid]);
+export function useMertV2Explorer(databaseIdentity: string | null, catalogUuid: string | null, layer = 24) {
+  const identity = JSON.stringify([databaseIdentity, catalogUuid, layer]);
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const request = useRef<AbortController | null>(null);
@@ -42,10 +42,11 @@ export function useMertV2Explorer(databaseIdentity: string | null, catalogUuid: 
         catalog_uuid: catalogUuid,
         analysis_family: "mert_v2",
         cluster_count: clusterCount,
+        mert_v2_layer: layer,
       }, { signal: controller.signal });
       if (!current()) return;
-      if (response.catalog_uuid !== catalogUuid || response.points.some(point => point.track.catalog_uuid !== catalogUuid)) {
-        throw new Error("The map belongs to a different catalog. Build it again for the selected database.");
+      if (response.catalog_uuid !== catalogUuid || response.mert_v2_layer !== layer || response.points.some(point => point.track.catalog_uuid !== catalogUuid)) {
+        throw new Error("The map belongs to a different catalog or layer. Build it again for the selected database.");
       }
       setResult({ identity, data: response });
     } catch (cause) {

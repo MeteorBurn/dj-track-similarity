@@ -225,9 +225,11 @@ export function TextSearchTab({
                   {/* Labels repeat across axes, so a chip names the axis it came
                       from rather than leaving the bank ambiguous. */}
                   <span className="text-preset-chip-axis">
-                    {axisByKey(preset.axis)?.label ?? preset.axis}
+                    <span className="text-preset-chip-label">
+                      [{axisByKey(preset.axis)?.label ?? preset.axis}] {preset.label}
+                    </span>
+                    <span className="text-preset-preview-hint">- {preset.hint}</span>
                   </span>
-                  {preset.label}
                   <X size={12} strokeWidth={2.6} />
                 </button>
               ))}
@@ -372,9 +374,6 @@ export function TextSearchTab({
             </div>
           ) : null}
         </div>
-        {!presetMenuOpen && selectedPresets.map((preset) => (
-          <div className="text-preset-preview-hint" data-axis={preset.axis} key={preset.key}>{preset.hint}</div>
-        ))}
         <div className="text-prompt-hint">Банк выбранных меток · {textModelLabel}</div>
         <label className="text-prompt-field" title={textPromptHelp}>
           <span className="text-field-head">

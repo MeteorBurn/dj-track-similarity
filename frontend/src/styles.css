@@ -4308,6 +4308,7 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 /* Selected chips retain the color of their axis in the picker. */
@@ -4323,6 +4324,8 @@ h2 {
   gap: 5px;
   height: auto;
   line-height: 1.2;
+  max-width: 100%;
+  min-width: 0;
   padding: 3px 8px;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
@@ -4331,17 +4334,36 @@ h2 {
    came from rather than leaving the bank ambiguous. Brackets set it apart from
    the label without a second box inside the pill: [Rhythm] Halftime. */
 .text-preset-chip-axis {
+  align-items: baseline;
+  display: inline-flex;
   font-size: 11px;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.text-preset-chip-label {
+  font-size: 12px;
   font-weight: 700;
-  opacity: 0.9;
 }
 
-.text-preset-chip-axis::before {
-  content: "[";
+.text-preset-chip-label,
+.text-preset-chip > svg {
+  flex-shrink: 0;
 }
 
-.text-preset-chip-axis::after {
-  content: "]";
+.text-preset-chip-axis .text-preset-preview-hint {
+  background: none;
+  border: 0;
+  color: inherit;
+  flex: 0 1 auto;
+  font-size: 10.5px;
+  font-weight: 400;
+  min-width: 0;
+  opacity: 0.8;
+  overflow: hidden;
+  padding: 0;
+  text-overflow: ellipsis;
 }
 
 /* Clicking a chip drops the preset, so hovering one reads as removal. */

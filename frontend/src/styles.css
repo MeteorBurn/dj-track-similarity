@@ -23,12 +23,15 @@
   --preset-rhythm-bg: #ffe5e7;
   --preset-rhythm-border: #cc5360;
   --preset-rhythm-text: #b51f2b;
+  --preset-groove-bg: #e5edff;
+  --preset-groove-border: #005cfe;
+  --preset-groove-text: #005cfe;
   --preset-percussion-bg: #e0f5e7;
   --preset-percussion-border: #409f62;
   --preset-percussion-text: #147638;
-  --preset-instruments-bg: #ddf3f2;
-  --preset-instruments-border: #78bbb9;
-  --preset-instruments-text: #176968;
+  --preset-instruments-bg: #fff0e5;
+  --preset-instruments-border: #d4a17e;
+  --preset-instruments-text: #8a5436;
   --preset-texture-bg: #eee8f7;
   --preset-texture-border: #b3a0ce;
   --preset-texture-text: #68458e;
@@ -82,6 +85,8 @@
   --danger-soft-text: #9a3d25;
   --danger-text-hover: #8f3518;
   --danger-deep-text: #8a2e19;
+  --danger-deep-bg: #c62828;
+  --danger-deep-hover: #ad1f1f;
   --notice-error-bg: #fff0e0;
   --notice-error-border: #d29b62;
   --notice-ok-bg: #e4f4e8;
@@ -152,12 +157,15 @@
   --preset-rhythm-bg: #361719;
   --preset-rhythm-border: #b84646;
   --preset-rhythm-text: #ff7373;
+  --preset-groove-bg: #0b2d70;
+  --preset-groove-border: #147cff;
+  --preset-groove-text: #3fa4ff;
   --preset-percussion-bg: #102f1b;
   --preset-percussion-border: #369653;
   --preset-percussion-text: #62d98a;
-  --preset-instruments-bg: #123437;
-  --preset-instruments-border: #3d8e94;
-  --preset-instruments-text: #91dce0;
+  --preset-instruments-bg: #33251f;
+  --preset-instruments-border: #a9795b;
+  --preset-instruments-text: #e8b995;
   --preset-texture-bg: #2b233c;
   --preset-texture-border: #8170a4;
   --preset-texture-text: #d2bff0;
@@ -2370,14 +2378,15 @@ h2 {
 }
 
 .server-shutdown-button {
-  background: var(--danger-bg);
-  border-color: var(--danger-border);
-  color: var(--danger-text);
+  background: var(--danger-deep-bg);
+  border-color: var(--danger-deep-bg);
+  color: var(--inverse-text);
 }
 
 .server-shutdown-button:hover:not(:disabled) {
-  border-color: var(--danger-border-hover);
-  color: var(--danger-text-hover);
+  background: var(--danger-deep-hover);
+  border-color: var(--danger-deep-hover);
+  color: var(--inverse-text);
 }
 
 .process-box {
@@ -3089,8 +3098,16 @@ h2 {
 .generic-search-compare .compare-column {
   display: flex;
   flex-direction: column;
+  gap: 8px;
   min-height: 0;
   min-width: 0;
+}
+
+.generic-search-compare .compare-column > [role="status"],
+.generic-search-compare .compare-column > .text-prompt-hint {
+  font-size: 10px;
+  line-height: 1.4;
+  margin: 0;
 }
 
 /* The model owns its column, so its name is a heading rather than a note. */
@@ -3591,6 +3608,7 @@ h2 {
 /* The picker is the panel's primary action and leads it, so the trigger is a
    full-width button rather than the pill it wore inside the old toolbar. */
 .text-preset-picker {
+  --preset-trigger-height: 40px;
   display: grid;
   gap: 8px;
   min-width: 0;
@@ -3617,7 +3635,7 @@ h2 {
 /* Taller than the 37px every other button in the box gets, because this one
    opens the shortest path to a working bank. */
 .text-search-box .text-preset-button {
-  height: 40px;
+  height: var(--preset-trigger-height);
 }
 
 .text-search-box .text-preset-button:hover:not(:disabled),
@@ -3657,6 +3675,7 @@ h2 {
   align-items: center;
   display: flex;
   gap: 6px;
+  margin-bottom: 6px;
 }
 
 .text-field-count {
@@ -3817,7 +3836,8 @@ h2 {
   padding: 12px;
   position: absolute;
   right: 0;
-  top: calc(100% + 6px);
+  /* Selected chips grow below the trigger without moving the open menu. */
+  top: calc(var(--preset-trigger-height) + 6px);
   width: min(560px, calc(100vw - 24px));
   z-index: 30;
 }
@@ -3876,27 +3896,10 @@ h2 {
 
 /* One scrolling panel: a category is a divider, an axis is a block under it,
    and the labels live inside the block. Nothing switches; everything is there. */
-.text-preset-filter {
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  flex: 0 0 auto;
-  font-size: 12px;
-  min-height: 30px;
-  padding: 5px 10px;
-  width: 100%;
-}
-
-.text-preset-filter:focus {
-  border-color: var(--border-strong);
-  outline: none;
-}
-
 .text-preset-scroll {
   display: flex;
   flex-direction: column;
-  /* Takes the height the header, filter and preview leave, and scrolls inside
+  /* Takes the height the header and preview leave, and scrolls inside
      it: sixteen axes never fit a menu at once. */
   flex: 1 1 auto;
   gap: 20px;
@@ -3950,9 +3953,9 @@ h2 {
 }
 
 .text-prompt-box [data-axis="groove"] {
-  --preset-axis-bg: var(--warning-soft-bg);
-  --preset-axis-border: var(--warning-soft-border);
-  --preset-axis-text: var(--warning-text);
+  --preset-axis-bg: var(--preset-groove-bg);
+  --preset-axis-border: var(--preset-groove-border);
+  --preset-axis-text: var(--preset-groove-text);
 }
 
 .text-prompt-box [data-axis="percussion"] {
@@ -4057,13 +4060,6 @@ h2 {
 .text-preset-label.active .text-preset-tally {
   color: inherit;
   opacity: 0.75;
-}
-
-.text-preset-empty {
-  color: var(--text-faint);
-  font-size: 12px;
-  margin: 0;
-  padding: 8px 0;
 }
 
 /* The prompt bank behind the focused label. It sits below the options and
@@ -5769,9 +5765,6 @@ button.dedup-play-button {
   --preset-percussion-bg: #102f1b;
   --preset-percussion-border: #369653;
   --preset-percussion-text: #62d98a;
-  --preset-instruments-bg: #102d28;
-  --preset-instruments-border: #398b72;
-  --preset-instruments-text: #8edac0;
   --blue-bg-active: #092c3b;
   --blue-border-active: #168fb1;
   --blue-text-active: #78daee;
@@ -5862,8 +5855,6 @@ button.dedup-play-button {
 .text-preset-menu-title { color: var(--text-strong); font-weight: 600; font-size: 12px; }
 .text-preset-menu-count { background: var(--surface-muted); border-color: var(--border-soft); color: var(--text-muted); }
 .text-search-box .text-preset-menu-close { width: 26px; height: 26px; border-radius: 5px; }
-.text-preset-filter { min-height: 34px; border-radius: var(--workbench-radius); background: var(--surface-muted); }
-.text-preset-filter:focus { border-color: var(--accent-border); outline: 1px solid var(--accent-border); outline-offset: 0; }
 .text-preset-scroll { gap: 22px; scrollbar-width: thin; scrollbar-color: var(--border-strong) var(--surface); }
 .text-preset-category { gap: 14px; }
 .text-preset-category-title { color: var(--text-muted); font-weight: 600; padding: 7px 0; }
@@ -5917,8 +5908,8 @@ button.dedup-play-button {
   .text-preset-menu:has(> .text-preset-overlap) .text-preset-preview { flex-basis: 100px; }
 }
 
-/* Search fields share one quiet frame and one focus indicator. */
-.track-panel .search-input, .preset-search-field {
+/* Library search uses one quiet frame and one focus indicator. */
+.track-panel .search-input {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -5929,15 +5920,15 @@ button.dedup-play-button {
   border: 1px solid var(--border);
   border-radius: var(--workbench-radius);
 }
-.track-panel .search-input:focus-within, .preset-search-field:focus-within {
+.track-panel .search-input:focus-within {
   border-color: var(--accent-border);
 }
-.track-panel .search-input > svg, .preset-search-field > svg {
+.track-panel .search-input > svg {
   flex: 0 0 auto;
   color: var(--text-muted);
 }
-.track-panel .search-input:focus-within > svg, .preset-search-field:focus-within > svg { color: var(--accent); }
-.track-panel .search-input input, .preset-search-field .text-preset-filter {
+.track-panel .search-input:focus-within > svg { color: var(--accent); }
+.track-panel .search-input input {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
@@ -5950,7 +5941,7 @@ button.dedup-play-button {
   font-size: 12px;
   color: var(--text-strong);
 }
-.track-panel .search-input input::placeholder, .preset-search-field input::placeholder { color: var(--text-muted); opacity: 1; }
+.track-panel .search-input input::placeholder { color: var(--text-muted); opacity: 1; }
 .track-panel .library-search-mode-toggle { height: 28px; border: 0; border-radius: 4px; gap: 2px; }
 .track-panel .library-search-mode-toggle button { border: 0; border-radius: 4px; padding: 0 7px; font-size: 10px; }
 .track-panel .library-search-mode-toggle button.active { background: var(--accent-soft-bg); color: var(--accent); }

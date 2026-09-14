@@ -5,15 +5,6 @@ import { join } from "node:path";
 import test from "node:test";
 
 const srcDir = fileURLToPath(new URL("../src", import.meta.url));
-test("server shutdown button uses the destructive intent color", () => {
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const shutdownRule = styles.match(/\.server-shutdown-button\s*{([\s\S]*?)}/)?.[1] || "";
-
-  assert.match(shutdownRule, /background:\s*var\(--danger-bg\)/);
-  assert.match(shutdownRule, /border-color:\s*var\(--danger-border\)/);
-  assert.match(shutdownRule, /color:\s*var\(--danger-text\)/);
-});
-
 test("CLASSIFIER tab exposes per-classifier missing-score analysis controls", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");

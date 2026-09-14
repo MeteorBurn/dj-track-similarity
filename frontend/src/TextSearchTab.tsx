@@ -72,8 +72,6 @@ export function TextSearchTab({
   handleTextSearch: () => void;
 }) {
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
-  // Filtering keeps a growing label bank easy to navigate.
-  const [labelFilter, setLabelFilter] = useState("");
   // The label under the pointer or the keyboard focus, previewed under the
   // list. A tooltip could not hold a whole prompt bank.
   const [previewPresetKey, setPreviewPresetKey] = useState<string | null>(null);
@@ -133,14 +131,8 @@ export function TextSearchTab({
   // Display the model-specific composed weight used by the request builder.
   const appliedNegativeWeight = negativeWeight ?? defaultNegativeWeight;
   // The picker is one scrolling panel: a category is a divider, an axis is a
-  // block under it, and the labels live inside the block. Filtering narrows the
-  // labels and drops whatever axis and category is left holding none.
+  // block under it, and the labels live inside the block.
   const groups = useMemo(() => {
-    const needle = labelFilter.trim().toLowerCase();
-    const matches = (preset: TextPromptPreset) =>
-      !needle
-      || preset.label.toLowerCase().includes(needle)
-      || preset.hint.toLowerCase().includes(needle);
     return textPromptCategories
       .map((category) => ({
         category,
@@ -149,18 +141,13 @@ export function TextSearchTab({
           .map((axis) => ({
             axis,
             presets: promptPresets.filter(
-              (preset) => preset.axis === axis.key && matches(preset)
+              (preset) => preset.axis === axis.key
             )
           }))
           .filter((entry) => entry.presets.length > 0)
       }))
       .filter((group) => group.axes.length > 0);
-  }, [promptAxes, promptPresets, labelFilter]);
-
-  const visibleCount = useMemo(
-    () => groups.reduce((total, group) => total + group.axes.reduce((n, e) => n + e.presets.length, 0), 0),
-    [groups]
-  );
+  }, [promptAxes, promptPresets]);
 
   useEffect(() => {
     if (!presetMenuOpen) return;
@@ -268,18 +255,6 @@ export function TextSearchTab({
                 </button>
               </div>
               {overlapNotice}
-              <div className="preset-search-field">
-              <Search size={17} aria-hidden="true" />
-              <input
-                className="text-preset-filter"
-                type="search"
-                value={labelFilter}
-                placeholder="Найти метку или описание…"
-                aria-label="Фильтр меток"
-                title="Сужает список по названию метки и её описанию. Пустые оси скрываются."
-                onChange={(event) => setLabelFilter(event.target.value)}
-              />
-              </div>
               <div className="text-preset-scroll" onMouseLeave={() => setPreviewPresetKey(null)}>
                 {groups.map((group) => (
                   <section className="text-preset-category" key={group.category.key}>
@@ -324,9 +299,6 @@ export function TextSearchTab({
                     })}
                   </section>
                 ))}
-                {visibleCount === 0 ? (
-                  <p className="text-preset-empty">Под фильтр «{labelFilter}» не подходит ни одна метка.</p>
-                ) : null}
               </div>
               {/* The bank is what a label actually does, and it is far too long
                   for a tooltip, so it gets read as two columns right here. */}

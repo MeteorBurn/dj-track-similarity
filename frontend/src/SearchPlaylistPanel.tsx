@@ -13,6 +13,7 @@ import {
 } from "./classifierCompatibility";
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
+import { MertV2ExplorePanel } from "./MertV2ExplorePanel";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import {
@@ -58,7 +59,8 @@ const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: s
   similarity: { label: "SIMILARITY", title: "Seed similarity search (SONARA, MAEST, MERT, MuQ, MuQ-MuLan)" },
   text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
   class: { label: "CLASSIFIER", title: "Classifier controls" },
-  lab: { label: "LAB", title: "Reference Compare model groups" }
+  lab: { label: "LAB", title: "Reference Compare model groups" },
+  map: { label: "MAP", title: "Карта коллекции и группы MERT-v2" }
 };
 
 function searchResultOriginLabel(origin: GenericSearchTab) {
@@ -100,6 +102,8 @@ function PromptCandidatesAddButton({ results, playlist, busy, modelLabel, onAdd 
 }
 
 export function SearchPlaylistPanel({
+  activeSearchTab,
+  catalogUuid,
   collapsed,
   onToggleCollapsed,
   seedTracks,
@@ -147,6 +151,7 @@ export function SearchPlaylistPanel({
   onResetClassifier,
   classifierJob,
   removeSeed,
+  clearSeeds,
   handleTextSearch,
   handleSonaraSearch,
   handleAddRandomSonaraTrack,
@@ -156,12 +161,15 @@ export function SearchPlaylistPanel({
   toggleLiked,
   togglePlaylist,
   onAddPromptCandidates,
+  onAddMapTracks,
   playingTrackId,
   previewTrackId,
   setPreview,
   onSeekPreview,
   setMetadataTrack
 }: {
+  activeSearchTab: PrimarySearchTab;
+  catalogUuid: string | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   seedTracks: Track[];
@@ -228,6 +236,7 @@ export function SearchPlaylistPanel({
   onResetClassifier: (classifier: PromotedClassifier) => void;
   classifierJob: AnalysisJobStatus | null;
   removeSeed: (trackId: number) => void;
+  clearSeeds: () => void;
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleAddRandomSonaraTrack: () => void;
@@ -237,13 +246,13 @@ export function SearchPlaylistPanel({
   toggleLiked: (track: Track) => Promise<Track | null>;
   togglePlaylist: (track: Track) => void;
   onAddPromptCandidates: (tracks: Track[], modelLabel: string) => void;
+  onAddMapTracks: (tracks: Track[]) => void;
   playingTrackId: number | null;
   previewTrackId: number | null;
   setPreview: (track: Track) => void;
   onSeekPreview: (track: Track, seconds: number) => void;
   setMetadataTrack: (track: Track) => void;
 }) {
-  const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("similarity");
   const [embeddingSearchPending, setEmbeddingSearchPending] = useState<Partial<Record<EmbeddingSource, boolean>>>({});
   const [embeddingSearchErrors, setEmbeddingSearchErrors] = useState<Partial<Record<EmbeddingSource, string>>>({});
   const showGenericSearchResults = genericSearchResultIsCurrent(
@@ -278,7 +287,6 @@ export function SearchPlaylistPanel({
 
   function selectPrimarySearchTab(target: PrimarySearchTab) {
     if (target === activeSearchTab) return;
-    setActiveSearchTab(target);
     onPrimarySearchTabChange(target);
   }
 
@@ -331,6 +339,10 @@ export function SearchPlaylistPanel({
             <ChevronsLeft size={17} />
           </button>
         </div>
+        {seedTracks.length ? <div className="seed-controls">
+          <span>Seeds · {seedTracks.length}</span>
+          <button type="button" onClick={clearSeeds} title="Убрать все seed-треки; сет останется без изменений">Очистить seed</button>
+        </div> : null}
         <div className="seed-strip">
           {seedTracks.map((track) => (
             <button
@@ -366,6 +378,14 @@ export function SearchPlaylistPanel({
             </button>
           ))}
         </div>
+        {activeSearchTab === "map" && (
+          <div id="search-panel-map" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-map">
+            <MertV2ExplorePanel key={databaseIdentity} databaseIdentity={databaseIdentity} catalogUuid={catalogUuid}
+              busy={busy} seedSet={seedSet} playlistSet={playlistSet} playingTrackId={playingTrackId} previewTrackId={previewTrackId}
+              onSeed={addSeed} onToggleLiked={toggleLiked} onTogglePlaylist={togglePlaylist} onAddTracks={onAddMapTracks}
+              onPreview={setPreview} onSeekPreview={onSeekPreview} onDetails={setMetadataTrack} />
+          </div>
+        )}
         {activeSearchTab === "lab" && (
           <div id="search-panel-lab" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-lab">
             <ReferenceComparePanel

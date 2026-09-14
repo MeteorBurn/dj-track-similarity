@@ -10,13 +10,14 @@ from typing import Any
 from ..analysis_models import current_embedding_spec
 
 
-CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap", "muq", "mulan")
+CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap", "muq", "mulan", "mert_v2")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _OUTPUT_KIND_BY_FEATURE_SOURCE = {
     "sonara": "core",
     "mert": "embedding",
+    "mert_v2": "embedding",
     "maest": "embedding",
     "clap": "embedding",
     "muq": "embedding",
@@ -413,7 +414,7 @@ def _feature_sources(
             errors.append(
                 f"model.json feature_names contains unsupported feature "
                 f"{feature_name!r}; expected "
-                "<sonara|mert|maest|clap|muq>:<key>"
+                f"<{'|'.join(CLASSIFIER_SUPPORTED_INPUTS)}>:<key>"
             )
             continue
         if source not in sources:

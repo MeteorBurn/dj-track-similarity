@@ -33,7 +33,7 @@ from ..timestamps import utc_timestamp
 
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_SUPPORTED_FEATURE_FAMILIES = ("sonara", "mert", "maest", "clap", "muq", "mulan")
+_SUPPORTED_FEATURE_FAMILIES = ("sonara", "mert", "maest", "clap", "muq", "mulan", "mert_v2")
 CLASSIFIER_SCORE_BATCH_SIZE = 200
 
 

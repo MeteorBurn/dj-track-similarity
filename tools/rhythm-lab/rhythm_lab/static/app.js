@@ -42,6 +42,7 @@ const DEFAULT_TRAINING_FEATURE_SET = "sonara+mert+maest+clap+muq+mulan";
 const TRAINING_RECIPE_OPTIONS = [
   { value: DEFAULT_TRAINING_FEATURE_SET, label: "Combined" },
   { value: "sonara", label: "Sonara" },
+  { value: "mert_v2", label: "MERT-v2" },
 ];
 
 let profiles = [];

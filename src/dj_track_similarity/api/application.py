@@ -14,6 +14,7 @@ from .routes_analysis import register_analysis_routes
 from .routes_audio_dedup import register_audio_dedup_routes
 from .routes_database import register_database_routes
 from .routes_evaluation import register_evaluation_routes
+from .routes_embedding_map import register_embedding_map_routes
 from .routes_library import register_library_routes
 from .routes_reference_compare import register_reference_compare_routes
 from .routes_rhythm_lab import register_rhythm_lab_routes
@@ -143,6 +144,7 @@ def create_app(
     )
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_evaluation_routes(app, state)
+    register_embedding_map_routes(app, state)
     register_reference_compare_routes(app, state)
     text_adapters = TextEmbeddingAdapterCache(_text_embedding_adapter)
 

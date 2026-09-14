@@ -17,6 +17,8 @@ import type {
   DatabaseSelection,
   DatabaseValidationJobStatus,
   EmbeddingRandomTrackPayload,
+  EmbeddingMapRequest,
+  EmbeddingMapResponse,
   EmbeddingSearchPayload,
   GenreTagJobStatus,
   LibrarySummary,
@@ -338,6 +340,12 @@ const analysisApi = {
 };
 
 const searchApi = {
+  embeddingMap: (payload: EmbeddingMapRequest, options?: { signal?: AbortSignal }) =>
+    request<EmbeddingMapResponse>("/api/library/embedding-map", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      signal: options?.signal,
+    }),
   search: (payload: EmbeddingSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search", {
       method: "POST",

@@ -1,5 +1,5 @@
-export type EmbeddingSource = "mert" | "maest" | "muq" | "mulan" | "clap";
-export type AnalysisModel = "sonara" | "mert_v2" | EmbeddingSource;
+export type EmbeddingSource = "mert" | "mert_v2" | "maest" | "muq" | "mulan" | "clap";
+export type AnalysisModel = "sonara" | EmbeddingSource;
 export type AnalysisPipelineStage = "sonara" | "ml" | "classifiers";
 export type AnalysisCoverage = {
   sonara_core: boolean;
@@ -47,6 +47,23 @@ export type Track = {
 export type TrackMutationIdentity = {
   catalog_uuid: string;
   track_uuid: string;
+};
+
+export type EmbeddingMapRequest = {
+  catalog_uuid: string;
+  analysis_family: "mert_v2";
+  cluster_count: number;
+};
+
+export type EmbeddingMapResponse = {
+  catalog_uuid: string;
+  analysis_family: "mert_v2";
+  eligible_count: number;
+  requested_cluster_count: number;
+  cluster_count: number;
+  projection: { method: "pca"; explained_variance_ratio: [number, number] };
+  clusters: { id: number; count: number; representative_track_id: number }[];
+  points: { track: Track; x: number; y: number; cluster: number }[];
 };
 
 export type MaestMelExportRequest = TrackMutationIdentity & {

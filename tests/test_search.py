@@ -17,6 +17,7 @@ from dj_track_similarity.analysis_models import (
     EmbeddingOutput,
     EmbeddingWrite,
     MERT_EMBEDDING_DIM,
+    MERT_V2_EMBEDDING_DIM,
     MULAN_EMBEDDING_DIM,
 )
 from dj_track_similarity.database import LibraryDatabase
@@ -31,23 +32,25 @@ _NOW = "2026-07-24T12:00:00.000000Z"
 def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(
     tmp_path: Path,
 ) -> None:
-    db, output = _library(tmp_path, "mert")
-    seed_a = _add_track(db, tmp_path, output, "seed-a.wav", [1.0, 0.0, 0.0])
-    seed_b = _add_track(db, tmp_path, output, "seed-b.wav", [0.0, 1.0, 0.0])
+    db, output = _library(tmp_path, "mert_v2")
+    seeds = tuple(
+        _add_track(db, tmp_path, output, f"seed-{index}.wav", [1.0, 0.0, 0.0] if index < 3 else [0.0, 1.0, 0.0])
+        for index in range(6)
+    )
     bridge = _add_track(db, tmp_path, output, "bridge.wav", [0.7, 0.7, 0.0])
     far = _add_track(db, tmp_path, output, "far.wav", [0.0, 0.0, 1.0])
 
     results = SimilaritySearch(
         db,
-        "mert",
+        "mert_v2",
         analysis_output=output,
-    ).search((seed_a, seed_b), limit=5)
+    ).search(seeds, limit=20)
 
     assert [result.target.track_id for result in results] == [
         bridge.track_id,
         far.track_id,
     ]
-    assert results[0].score > results[1].score
+    assert [result.score for result in results] == pytest.approx([1.0, 0.0])
 
 
 def test_mulan_search_uses_only_mulan_embedding_space(tmp_path: Path) -> None:
@@ -461,6 +464,7 @@ def _query(output: AnalysisOutput, values: list[float]) -> np.ndarray:
     dimensions = {
         "clap": CLAP_EMBEDDING_DIM,
         "mert": MERT_EMBEDDING_DIM,
+        "mert_v2": MERT_V2_EMBEDDING_DIM,
         "mulan": MULAN_EMBEDDING_DIM,
     }
     vector = np.zeros(dimensions[output.analysis_family], dtype=np.float32)
@@ -469,6 +473,6 @@ def _query(output: AnalysisOutput, values: list[float]) -> np.ndarray:
 
 
 def _output(family: str) -> AnalysisOutput:
-    if family not in {"mert", "mulan", "clap"}:
+    if family not in {"mert", "mert_v2", "mulan", "clap"}:
         raise ValueError(f"Unsupported fixture family: {family}")
     return current_embedding_analysis_output(family)

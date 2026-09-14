@@ -418,11 +418,11 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = AnalysisOutput("mert_v2", "embedding")
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert_v2")
 
     source = SourceDatabase(repository.path)
     tracks = source.list_tracks()
@@ -443,7 +443,7 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
         scoped.set_label(track, "yes" if index < 2 else "no")
     scoped.save_prediction(
         tracks[0],
-        feature_set="mert",
+        feature_set="mert_v2",
         model_artifact="focused.joblib",
         label="yes",
         confidence=0.8,
@@ -500,21 +500,21 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
     features = build_labeled_feature_matrix(
         repository.path,
         lab_path,
-        "mert",
+        "mert_v2",
         classifier_key="focused",
     )
     assert {track.track_uuid for track in features.tracks} == {
         track.track_uuid for track in tracks
     }
-    assert features.matrix.shape == (4, 768)
-    assert features.feature_names == [f"mert:{index}" for index in range(768)]
-    assert features.source_dimensions == {"mert": 768}
+    assert features.matrix.shape == (4, 1024)
+    assert features.feature_names == [f"mert_v2:{index}" for index in range(1024)]
+    assert features.source_dimensions == {"mert_v2": 1024}
 
     result = train_feature_set(
         features.matrix,
         features.labels,
         feature_names=features.feature_names,
-        feature_set="mert",
+        feature_set="mert_v2",
         artifact_dir=artifact_dir,
         label_order=["yes", "no"],
         positive_label="yes",
@@ -563,6 +563,32 @@ def test_source_feature_states_distinguish_current_and_missing(
     assert states["muq"].status == "missing"
     assert "stored current-track" in str(states["muq"].reason)
     assert states["clap"].status == "missing"
+    assert states["mert_v2"].status == "missing"
+
+    mert_v2 = AnalysisOutput("mert_v2", "embedding")
+    repository.register_analysis_outputs((mert_v2,))
+    _insert_track(repository, mert_v2, index=1)
+    source = SourceDatabase(repository.path)
+    assert source.feature_states()["mert_v2"].status == "current"
+    matrix = source.load_embedding_matrix("mert_v2")
+    assert matrix.matrix.shape == (1, 1024)
+    assert matrix.normalization == "l2"
+    assert matrix.matrix[0, 1] == 1.0
+    assert matrix.not_ready_track_ids == (1,)
+    track = matrix.tracks[0]
+    assert track.analysis_coverage.mert_v2 is True
+    assert track.analysis_coverage.mert is False
+    assert track.feature_status["mert_v2"].status == "current"
+
+    with repository.connect() as connection:
+        connection.execute(
+            "UPDATE mert_v2_embeddings SET track_uuid = ? WHERE track_id = ?",
+            (str(uuid.uuid4()), track.track_id),
+        )
+    rejected = source.load_embedding_matrix("mert_v2")
+    assert rejected.matrix.shape == (0, 1024)
+    assert rejected.not_ready_track_ids == (1, track.track_id)
+    assert source.get_track(track.track_id).feature_status["mert_v2"].status == "missing"
 
 
 def test_source_feature_inventory_is_cached_until_storage_changes(
@@ -922,12 +948,14 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert set(first["feature_status"]) == {
             "sonara",
             "mert",
+            "mert_v2",
             "maest",
             "clap",
             "muq",
             "mulan",
         }
         assert first["feature_status"]["mert"]["status"] == "current"
+        assert first["feature_status"]["mert_v2"]["status"] == "missing"
         assert first["feature_status"]["muq"]["status"] == "current"
         assert first["feature_status"]["mulan"]["status"] == "current"
 
@@ -1376,11 +1404,11 @@ def test_prediction_refresh_uses_requested_feature_recipe(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = AnalysisOutput("mert_v2", "embedding")
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert_v2")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)
@@ -1398,11 +1426,11 @@ def test_prediction_refresh_uses_requested_feature_recipe(
     with TestClient(app) as client:
         response = client.post(
             "/api/profiles/focused/predictions/refresh",
-            json={"feature_set": "mert"},
+            json={"feature_set": "mert_v2"},
         )
 
     assert response.status_code == 200, response.text
-    assert response.json()["feature_set"] == "mert"
+    assert response.json()["feature_set"] == "mert_v2"
     assert response.json()["artifact"] == str(artifact)
     assert response.json()["predicted"] == 4
 

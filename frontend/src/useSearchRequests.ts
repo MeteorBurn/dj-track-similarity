@@ -289,7 +289,7 @@ export function useSearchRequests({
   }
   async function handleEmbeddingSearch(analysisFamily: EmbeddingSource) {
     if (!seeds.length) {
-      const error = new Error("Выберите от 1 до 5 уникальных seed-треков");
+      const error = new Error("Выберите хотя бы один seed-трек");
       setNotice({ kind: "error", text: error.message });
       throw error;
     }

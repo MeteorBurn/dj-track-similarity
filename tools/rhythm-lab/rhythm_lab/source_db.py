@@ -27,16 +27,17 @@ from dj_track_similarity.library_models import (
 )
 
 
-EmbeddingFamily: TypeAlias = Literal["maest", "mert", "muq", "mulan", "clap"]
-AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert", "muq", "mulan", "clap"]
+EmbeddingFamily: TypeAlias = Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"]
+AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"]
 OutputKind: TypeAlias = Literal["core", "analysis", "embedding"]
-FeatureSource: TypeAlias = Literal["sonara", "mert", "maest", "clap", "muq", "mulan"]
+FeatureSource: TypeAlias = Literal["sonara", "mert", "mert_v2", "maest", "clap", "muq", "mulan"]
 FeatureStateStatus: TypeAlias = Literal["current", "missing"]
 
 _EMBEDDING_TABLES: Mapping[EmbeddingFamily, str] = MappingProxyType(
     {
         "maest": "maest_embeddings",
         "mert": "mert_embeddings",
+        "mert_v2": "mert_v2_embeddings",
         "muq": "muq_embeddings",
         "mulan": "mulan_embeddings",
         "clap": "clap_embeddings",
@@ -85,6 +86,7 @@ SONARA_CORE_OUTPUT = SourceOutput("sonara", "core")
 MAEST_ANALYSIS_OUTPUT = SourceOutput("maest", "analysis")
 MAEST_EMBEDDING_OUTPUT = SourceOutput("maest", "embedding")
 MERT_EMBEDDING_OUTPUT = SourceOutput("mert", "embedding")
+MERT_V2_EMBEDDING_OUTPUT = SourceOutput("mert_v2", "embedding")
 MUQ_EMBEDDING_OUTPUT = SourceOutput("muq", "embedding")
 MULAN_EMBEDDING_OUTPUT = SourceOutput("mulan", "embedding")
 CLAP_EMBEDDING_OUTPUT = SourceOutput("clap", "embedding")
@@ -93,6 +95,7 @@ EMBEDDING_OUTPUTS: Mapping[EmbeddingFamily, SourceOutput] = MappingProxyType(
     {
         "maest": MAEST_EMBEDDING_OUTPUT,
         "mert": MERT_EMBEDDING_OUTPUT,
+        "mert_v2": MERT_V2_EMBEDDING_OUTPUT,
         "muq": MUQ_EMBEDDING_OUTPUT,
         "mulan": MULAN_EMBEDDING_OUTPUT,
         "clap": CLAP_EMBEDDING_OUTPUT,
@@ -103,6 +106,7 @@ SOURCE_OUTPUTS = (
     MAEST_ANALYSIS_OUTPUT,
     MAEST_EMBEDDING_OUTPUT,
     MERT_EMBEDDING_OUTPUT,
+    MERT_V2_EMBEDDING_OUTPUT,
     MUQ_EMBEDDING_OUTPUT,
     MULAN_EMBEDDING_OUTPUT,
     CLAP_EMBEDDING_OUTPUT,
@@ -111,6 +115,7 @@ FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
     {
         "sonara": SONARA_CORE_OUTPUT,
         "mert": MERT_EMBEDDING_OUTPUT,
+        "mert_v2": MERT_V2_EMBEDDING_OUTPUT,
         "maest": MAEST_EMBEDDING_OUTPUT,
         "clap": CLAP_EMBEDDING_OUTPUT,
         "muq": MUQ_EMBEDDING_OUTPUT,
@@ -121,6 +126,7 @@ _FEATURE_TABLES: Mapping[FeatureSource, str] = MappingProxyType(
     {
         "sonara": "sonara_features",
         "mert": "mert_embeddings",
+        "mert_v2": "mert_v2_embeddings",
         "maest": "maest_embeddings",
         "clap": "clap_embeddings",
         "muq": "muq_embeddings",
@@ -1079,6 +1085,7 @@ def _source_track_from_row(
         maest_analysis=maest is not None,
         maest_embedding=track_id in ready_embeddings.get("maest", set()),
         mert=track_id in ready_embeddings.get("mert", set()),
+        mert_v2=track_id in ready_embeddings.get("mert_v2", set()),
         muq=track_id in ready_embeddings.get("muq", set()),
         mulan=track_id in ready_embeddings.get("mulan", set()),
         clap=track_id in ready_embeddings.get("clap", set()),
@@ -1810,6 +1817,7 @@ def _track_feature_states(
     coverage_by_source = {
         "sonara": coverage.sonara_core,
         "mert": coverage.mert,
+        "mert_v2": coverage.mert_v2,
         "maest": coverage.maest_embedding,
         "clap": coverage.clap,
         "muq": coverage.muq,
@@ -1870,6 +1878,7 @@ def _feature_status_payload(
                 for source, ready in {
                     "sonara": coverage.sonara_core,
                     "mert": coverage.mert,
+                    "mert_v2": coverage.mert_v2,
                     "maest": coverage.maest_embedding,
                     "clap": coverage.clap,
                     "muq": coverage.muq,

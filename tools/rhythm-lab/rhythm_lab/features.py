@@ -19,9 +19,9 @@ from .lab_db import RhythmLabDatabase, TrackIdentity, track_identity
 from .source_db import SourceDatabase, SourceTrack
 
 
-EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap", "muq", "mulan")
-BASE_FEATURE_SOURCES = ("sonara", *EMBEDDING_FEATURE_SOURCES)
-SUPPORTED_FEATURE_SOURCES = BASE_FEATURE_SOURCES
+EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap", "muq", "mulan", "mert_v2")
+BASE_FEATURE_SOURCES = ("sonara", "mert", "maest", "clap", "muq", "mulan")
+SUPPORTED_FEATURE_SOURCES = ("sonara", *EMBEDDING_FEATURE_SOURCES)
 MODERN_FULL_FEATURE_SET = "sonara+mert+maest+clap+muq+mulan"
 DEFAULT_TRAINING_FEATURE_SET = MODERN_FULL_FEATURE_SET
 FEATURE_RECIPE_OPTIONS = (
@@ -32,6 +32,7 @@ FEATURE_RECIPE_OPTIONS = (
         for sources in combinations(BASE_FEATURE_SOURCES, size)
         if "+".join(sources) != DEFAULT_TRAINING_FEATURE_SET
     ),
+    "mert_v2",
 )
 ABLATION_FEATURE_SETS = FEATURE_RECIPE_OPTIONS
 _SONARA_CORE_SCALAR_FIELDS = (
@@ -336,7 +337,7 @@ def feature_sources(feature_set: str) -> tuple[str, ...]:
     )
     if duplicates:
         raise ValueError(f"Duplicate feature source: {', '.join(duplicates)}")
-    return tuple(source for source in BASE_FEATURE_SOURCES if source in raw)
+    return tuple(source for source in SUPPORTED_FEATURE_SOURCES if source in raw)
 
 
 def feature_recipe_readiness(

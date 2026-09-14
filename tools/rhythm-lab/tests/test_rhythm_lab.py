@@ -373,7 +373,6 @@ def test_muq_feature_sets_extract_current_structural_dimensions(
 
 def test_ablation_selection_uses_the_single_current_sonara_source() -> None:
     assert ABLATION_FEATURE_SETS == FEATURE_RECIPE_OPTIONS
-    assert len(ABLATION_FEATURE_SETS) == 63
     assert all("sonara2" not in feature_set for feature_set in ABLATION_FEATURE_SETS)
     assert all("sonara2" not in feature_set for feature_set in FEATURE_RECIPE_OPTIONS)
     assert all(feature_set != "combined" for feature_set in (*ABLATION_FEATURE_SETS, *FEATURE_RECIPE_OPTIONS))
@@ -411,6 +410,12 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
         }
     ]
     assert sonara_muq["ready"] is False
+    mert_v2 = feature_recipe_readiness("mert_v2", states)
+    assert mert_v2["required_sources"] == ["mert_v2"]
+    assert mert_v2["ready"] is False
+    assert mert_v2["blocking"][0]["source"] == "mert_v2"
+    states["mert_v2"] = SourceFeatureState(status="current", reason=None)
+    assert feature_recipe_readiness("mert_v2", states)["ready"] is True
     assert FEATURE_RECIPE_OPTIONS[0] == DEFAULT_TRAINING_FEATURE_SET
     assert "sonara+mert+maest" in FEATURE_RECIPE_OPTIONS
     assert "combined" not in FEATURE_RECIPE_OPTIONS

@@ -1,5 +1,5 @@
-export type PrimarySearchTab = "similarity" | "text" | "class" | "lab";
-export type SeedEmbeddingFamily = "maest" | "mert" | "muq" | "mulan" | "clap";
+export type PrimarySearchTab = "similarity" | "text" | "class" | "lab" | "map";
+export type SeedEmbeddingFamily = "maest" | "mert" | "mert_v2" | "muq" | "mulan" | "clap";
 export type SeedSearchModel = "sonara" | SeedEmbeddingFamily;
 export type GenericSearchTab = "text" | SeedSearchModel;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
@@ -8,10 +8,11 @@ export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "lab",
   "similarity",
   "text",
-  "class"
+  "class",
+  "map"
 ];
 
-export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert", "muq", "mulan", "clap"];
+export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert", "mert_v2", "muq", "mulan", "clap"];
 export const seedSearchModels: readonly SeedSearchModel[] = ["sonara", ...seedEmbeddingFamilies];
 
 export const seedSearchModelPresentation: Record<SeedSearchModel, { label: string; title: string; description: string }> = {
@@ -29,6 +30,11 @@ export const seedSearchModelPresentation: Record<SeedSearchModel, { label: strin
     label: "MERT",
     title: "MERT seed embedding search",
     description: "Сравнивает общее звучание по музыкальным признакам, которые нейросеть извлекает из аудио."
+  },
+  mert_v2: {
+    label: "MERT-v2",
+    title: "MERT-v2 seed embedding search",
+    description: "Сравнивает треки по сохранённым признакам MERT-v2. Несколько seed задают общее направление поиска."
   },
   muq: {
     label: "MuQ",

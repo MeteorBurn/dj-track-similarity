@@ -84,28 +84,32 @@ def test_generic_search_endpoint_returns_mert_result_shape(
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    output = _mert_output()
-    db.register_analysis_outputs((output,))
-    seed = _add_embedding_track(db, tmp_path, output, "seed.wav", [1.0, 0.0])
-    candidate = _add_embedding_track(db, tmp_path, output, "candidate.wav", [0.9, 0.1])
+    with TestClient(create_app(db_path)) as client:
+        for family, seed_count in (("mert", 1), ("mert_v2", 6)):
+            output = current_embedding_analysis_output(family)
+            seeds = [
+                _add_embedding_track(db, tmp_path, output, f"{family}-seed-{index}.wav", [1.0, 0.0])
+                for index in range(seed_count)
+            ]
+            candidate = _add_embedding_track(db, tmp_path, output, f"{family}-candidate.wav", [0.9, 0.1])
+            response = client.post(
+                "/api/search",
+                json={
+                    "analysis_family": family,
+                    "seed_track_ids": [seed.track_id for seed in seeds],
+                    "limit": 20,
+                    "min_similarity": 0.0,
+                    "epsilon": 0.0,
+                    "noise": 0.0,
+                },
+            )
 
-    response = TestClient(create_app(db_path)).post(
-        "/api/search",
-        json={
-            "seed_track_ids": [seed.track_id],
-            "limit": 1,
-            "min_similarity": 0.0,
-            "epsilon": 0.0,
-            "noise": 0.0,
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert len(payload) == 1
-    assert payload[0]["track"]["track_id"] == candidate.track_id
-    assert payload[0]["score"] > 0.0
-    assert payload[0]["score_breakdown"] is None
+            assert response.status_code == 200
+            payload = response.json()
+            assert len(payload) == 1
+            assert payload[0]["track"]["track_id"] == candidate.track_id
+            assert payload[0]["score"] == pytest.approx(0.9 / np.hypot(0.9, 0.1))
+            assert payload[0]["score_breakdown"] is None
 
 
 def test_sonara_search_endpoint_accepts_mixer_and_modifiers(
@@ -218,7 +222,7 @@ def test_random_embedding_track_uses_an_unselected_embedded_track(
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    output = _mert_output()
+    output = current_embedding_analysis_output("mert_v2")
     db.register_analysis_outputs((output,))
     targets = [
         _add_embedding_track(db, tmp_path, output, "one.wav", [1.0, 0.0]),
@@ -229,13 +233,13 @@ def test_random_embedding_track_uses_an_unselected_embedded_track(
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/random-track",
-        json={"analysis_family": "mert", "exclude_track_ids": [targets[0].track_id]},
+        json={"analysis_family": "mert_v2", "exclude_track_ids": [targets[0].track_id]},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["track_id"] in {target.track_id for target in targets[1:]}
-    assert payload["analysis_coverage"]["mert"] is True
+    assert payload["analysis_coverage"]["mert_v2"] is True
 
 
 def test_random_embedding_track_requires_an_available_embedded_track(

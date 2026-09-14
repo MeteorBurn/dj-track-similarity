@@ -64,39 +64,40 @@ def test_manifest_derives_input_families_from_ordered_feature_names(
     assert summary.to_api_dict()["required_inputs"] == ["mert", "clap"]
 
 
-def test_muq_manifest_checks_current_embedding_dimension(
+def test_embedding_manifest_checks_current_embedding_dimension(
     tmp_path: Path,
 ) -> None:
-    names = ["muq:0", "muq:1023", "mert:1"]
-    model_path, manifest_path = _write_manifest(
-        tmp_path,
-        _manifest_payload(feature_names=names),
-    )
+    for family in ("muq", "mert_v2"):
+        names = [f"{family}:0", f"{family}:1023", "mert:1"]
+        model_path, manifest_path = _write_manifest(
+            tmp_path / family,
+            _manifest_payload(feature_names=names),
+        )
 
-    summary = load_classifier_manifest_summary(
-        model_path,
-        expected_classifier_key="test_classifier",
-        metadata_path=manifest_path,
-    )
+        summary = load_classifier_manifest_summary(
+            model_path,
+            expected_classifier_key="test_classifier",
+            metadata_path=manifest_path,
+        )
 
-    assert summary.status == "valid", summary.errors
-    assert summary.required_inputs == ("muq", "mert")
+        assert summary.status == "valid", summary.errors
+        assert summary.required_inputs == (family, "mert")
 
-    invalid_model, invalid_manifest = _write_manifest(
-        tmp_path / "invalid-index",
-        _manifest_payload(feature_names=["muq:1024"]),
-    )
-    invalid_summary = load_classifier_manifest_summary(
-        invalid_model,
-        expected_classifier_key="test_classifier",
-        metadata_path=invalid_manifest,
-    )
+        invalid_model, invalid_manifest = _write_manifest(
+            tmp_path / family / "invalid-index",
+            _manifest_payload(feature_names=[f"{family}:1024"]),
+        )
+        invalid_summary = load_classifier_manifest_summary(
+            invalid_model,
+            expected_classifier_key="test_classifier",
+            metadata_path=invalid_manifest,
+        )
 
-    assert invalid_summary.status == "invalid"
-    assert any(
-        "outside the current muq dimension 1024" in error
-        for error in invalid_summary.errors
-    )
+        assert invalid_summary.status == "invalid"
+        assert any(
+            f"outside the current {family} dimension 1024" in error
+            for error in invalid_summary.errors
+        )
 
 
 def test_mulan_manifest_checks_current_embedding_dimension(

@@ -309,8 +309,8 @@ class AnalysisResetRequest(BaseModel):
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["maest", "mert", "muq", "mulan", "clap"] = "mert"
-    seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1, max_length=5)
+    analysis_family: Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"] = "mert"
+    seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1)
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     epsilon: float | None = Field(default=None, ge=0.0)
@@ -320,8 +320,16 @@ class SearchRequest(BaseModel):
 class EmbeddingRandomTrackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["maest", "mert", "muq", "mulan", "clap"] = "mert"
+    analysis_family: Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"] = "mert"
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
+
+
+class EmbeddingMapRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_uuid: str = Field(min_length=1)
+    analysis_family: Literal["mert_v2"] = "mert_v2"
+    cluster_count: int = Field(default=8, ge=1, le=32)
 
 
 class SonaraMixerWeights(BaseModel):
@@ -938,3 +946,32 @@ class SimilaritySearchResultResponse(_ResponseModel):
     score_breakdown: dict[str, float] | None = None
     # Per-label contribution, present only when the request named the banks.
     preset_scores: dict[str, float] | None = None
+
+
+class EmbeddingMapProjectionResponse(_ResponseModel):
+    method: Literal["pca"]
+    explained_variance_ratio: tuple[float, float]
+
+
+class EmbeddingMapClusterResponse(_ResponseModel):
+    id: int
+    count: int
+    representative_track_id: int
+
+
+class EmbeddingMapPointResponse(_ResponseModel):
+    track: TrackSummaryResponse
+    x: float
+    y: float
+    cluster: int
+
+
+class EmbeddingMapResponse(_ResponseModel):
+    catalog_uuid: str
+    analysis_family: Literal["mert_v2"]
+    eligible_count: int
+    requested_cluster_count: int
+    cluster_count: int
+    projection: EmbeddingMapProjectionResponse
+    clusters: list[EmbeddingMapClusterResponse]
+    points: list[EmbeddingMapPointResponse]

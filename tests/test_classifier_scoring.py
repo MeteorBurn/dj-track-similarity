@@ -60,10 +60,6 @@ def _mert_output() -> AnalysisOutput:
     return AnalysisOutput("mert", "embedding")
 
 
-def _muq_output() -> AnalysisOutput:
-    return AnalysisOutput("muq", "embedding")
-
-
 def _artifact_hash(data: bytes = _ARTIFACT_BYTES) -> str:
     return f"sha256:{hashlib.sha256(data).hexdigest()}"
 
@@ -360,42 +356,43 @@ def test_artifact_validation_preserves_existing_scores_on_failure(
     assert len(_score_rows(db, "other_classifier")) == 1
 
 
-def test_production_scoring_loads_current_muq_embedding(
+def test_production_scoring_loads_current_embeddings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _muq_output()
-    db.register_analysis_outputs((output,))
-    target = _insert_track(db)
-    _write_sonara_core(db, target)
-    _write_embedding(db, target, output)
-    names = ("muq:0",)
-    model_path = _write_artifact(
-        tmp_path / "muq-artifact",
-        feature_set="muq-features",
-        feature_names=list(names),
-        feature_count=len(names),
-    )
-    _install_fake_joblib(
-        monkeypatch,
-        payload={
-            "model": _ProbabilityModel((0.25, 0.75), feature_count=1),
-        },
-    )
+    for family in ("muq", "mert_v2"):
+        db = LibraryDatabase(tmp_path / f"{family}.sqlite")
+        output = AnalysisOutput(family, "embedding")
+        db.register_analysis_outputs((output,))
+        target = _insert_track(db)
+        _write_sonara_core(db, target)
+        _write_embedding(db, target, output)
+        names = (f"{family}:0",)
+        model_path = _write_artifact(
+            tmp_path / f"{family}-artifact",
+            feature_set=f"{family}-features",
+            feature_names=list(names),
+            feature_count=len(names),
+        )
+        _install_fake_joblib(
+            monkeypatch,
+            payload={
+                "model": _ProbabilityModel((0.25, 0.75), feature_count=1),
+            },
+        )
 
-    result = analyze_classifier(
-        db,
-        classifier="test_classifier",
-        model_path=model_path,
-    )
+        result = analyze_classifier(
+            db,
+            classifier="test_classifier",
+            model_path=model_path,
+        )
 
-    assert result["scored"] == 1
-    assert result["skipped"] == 0
-    stored = _score_rows(db, "test_classifier")
-    assert stored[0][1] == '["muq:0"]'
-    assert stored[0][2] == "positive"
-    assert stored[0][4] == pytest.approx(0.75)
+        assert result["scored"] == 1
+        assert result["skipped"] == 0
+        stored = _score_rows(db, "test_classifier")
+        assert stored[0][1] == json.dumps(list(names))
+        assert stored[0][2] == "positive"
+        assert stored[0][4] == pytest.approx(0.75)
 
 
 def test_requirements_reject_out_of_range_feature(

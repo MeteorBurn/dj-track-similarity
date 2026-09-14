@@ -36,11 +36,17 @@ test("seed results share SIMILARITY while preserving source and request identity
   const {
     genericSearchResultIsCurrent,
     searchTabForResultOrigin,
+    isSeedEmbeddingFamily,
   } = loadSearchSurfaceState();
 
   assert.equal(searchTabForResultOrigin("sonara"), "similarity");
   assert.equal(searchTabForResultOrigin("maest"), "similarity");
   assert.equal(searchTabForResultOrigin("mulan"), "similarity");
+  assert.equal(isSeedEmbeddingFamily("mert_v2"), true);
+  assert.equal(searchTabForResultOrigin("mert_v2"), "similarity");
+  assert.equal(genericSearchResultIsCurrent("similarity", "mert_v2", "key", "key"), true);
+  assert.equal(genericSearchResultIsCurrent("similarity", "mert_v2", "old-catalog", "key"), false);
+  assert.equal(genericSearchResultIsCurrent("map", "mert_v2", "key", "key"), false);
   assert.equal(searchTabForResultOrigin("text"), "text");
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "key", "key"), true);
   assert.equal(genericSearchResultIsCurrent("text", "muq", "key", "key"), false);

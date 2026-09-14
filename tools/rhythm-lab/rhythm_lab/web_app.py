@@ -28,6 +28,7 @@ from .features import (
     DEFAULT_TRAINING_FEATURE_SET,
     FEATURE_RECIPE_OPTIONS,
     SONARA_FEATURE_NAMES,
+    SUPPORTED_FEATURE_SOURCES,
     build_labeled_feature_matrix_from_sources,
     feature_recipe_readiness,
     feature_sources,
@@ -540,6 +541,7 @@ def create_app(
             ),
             "sonara": 0,
             "mert": 0,
+            "mert_v2": 0,
             "maest": 0,
             "clap": 0,
             "muq": 0,
@@ -549,7 +551,7 @@ def create_app(
                     "status": "missing",
                     "reason": "Source database is not selected.",
                 }
-                for source_name in ("sonara", "mert", "maest", "clap", "muq", "mulan")
+                for source_name in SUPPORTED_FEATURE_SOURCES
             },
             "liked": 0,
             "source": source_state.current(),
@@ -1619,7 +1621,7 @@ def _training_readiness(
                 "status": "missing",
                 "reason": "Source database is not selected.",
             }
-            for source_name in ("sonara", "mert", "maest", "clap", "muq", "mulan")
+            for source_name in SUPPORTED_FEATURE_SOURCES
         }
     recipe = feature_recipe_readiness(feature_set, source_states)
     usable_counts = dict(counts)

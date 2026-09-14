@@ -9,13 +9,19 @@ from dataclasses import fields
 from pathlib import Path
 
 import av
+import numpy as np
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from dj_track_similarity.api import application as api_module
 from dj_track_similarity.api import media_preview as media_preview_module
+from dj_track_similarity.api import routes_embedding_map as embedding_map_module
+from dj_track_similarity.api.state import AppDatabaseState
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
+    EmbeddingOutput,
+    EmbeddingWrite,
     MaestGenreScore,
     MaestWrite,
     SonaraWrite,
@@ -76,6 +82,88 @@ def _liked_payload(identity: TrackIdentity, liked: bool) -> dict[str, object]:
         "track_uuid": identity.track_uuid,
         "liked": liked,
     }
+
+
+def test_embedding_map_returns_current_stored_vector_groups(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "map.sqlite"
+    database = LibraryDatabase(db_path)
+    identities = []
+    for index in range(7):
+        identity = _add_track(database, tmp_path / f"map-{index}.wav", artist="Map", title=str(index))
+        identities.append(identity)
+        vector = np.zeros(1024, dtype=np.float32)
+        vector[index % 2] = 1.0
+        saved = database.save_embedding_results((EmbeddingWrite(
+            target=AnalysisTarget(identity.catalog_uuid, identity.track_id, identity.track_uuid),
+            output=EmbeddingOutput(family="mert_v2", vector=vector, analyzed_at="2026-09-14T00:00:00Z"),
+        ),))
+        assert saved[0].ok
+    database.mark_missing(identities[4].track_id)
+    with closing(database.connect()) as connection, connection:
+        connection.execute("UPDATE mert_v2_embeddings SET track_uuid = 'stale' WHERE track_id = ?", (identities[5].track_id,))
+        connection.execute("UPDATE mert_v2_embeddings SET embedding_blob = ? WHERE track_id = ?", (np.full(1024, np.nan, dtype=np.float32).tobytes(), identities[6].track_id))
+
+    with _client(monkeypatch, db_path) as client:
+        request = {"catalog_uuid": database.catalog_uuid, "cluster_count": 2}
+        response = client.post("/api/library/embedding-map", json=request)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["catalog_uuid"] == database.catalog_uuid
+        assert payload["analysis_family"] == "mert_v2"
+        assert payload["eligible_count"] == 4
+        assert payload["requested_cluster_count"] == payload["cluster_count"] == 2
+        assert payload["projection"]["method"] == "pca"
+        assert sum(payload["projection"]["explained_variance_ratio"]) == pytest.approx(1.0)
+        assert {point["track"]["track_uuid"] for point in payload["points"]} == {identity.track_uuid for identity in identities[:4]}
+        assert all(np.isfinite([point["x"], point["y"]]).all() for point in payload["points"])
+        for cluster in payload["clusters"]:
+            members = [point for point in payload["points"] if point["cluster"] == cluster["id"]]
+            assert cluster["count"] == len(members)
+            assert cluster["representative_track_id"] in {point["track"]["track_id"] for point in members}
+        assert client.post("/api/library/embedding-map", json={**request, "catalog_uuid": "other"}).status_code == 409
+        for invalid in ({"cluster_count": 0}, {"analysis_family": "mert"}, {"layer": 12}):
+            assert client.post("/api/library/embedding-map", json={**request, **invalid}).status_code == 422
+        for identity in identities[:4]:
+            database.mark_missing(identity.track_id)
+        empty = client.post("/api/library/embedding-map", json=request)
+        assert empty.status_code == 200
+        assert empty.json()["eligible_count"] == empty.json()["cluster_count"] == 0
+        assert empty.json()["points"] == empty.json()["clusters"] == []
+
+
+def test_embedding_map_rejects_database_and_identity_changes(monkeypatch, tmp_path: Path) -> None:
+    explore = embedding_map_module.explore_embeddings
+    for change in ("database", "identity"):
+        database = LibraryDatabase(tmp_path / f"{change}.sqlite")
+        identity = _add_track(database, tmp_path / f"{change}.wav", artist="Map", title=change)
+        vector = np.zeros(1024, dtype=np.float32)
+        vector[0] = 1.0
+        saved = database.save_embedding_results((EmbeddingWrite(
+            target=AnalysisTarget(identity.catalog_uuid, identity.track_id, identity.track_uuid),
+            output=EmbeddingOutput(family="mert_v2", vector=vector, analyzed_at="2026-09-14T00:00:00Z"),
+        ),))
+        assert saved[0].ok
+        state = AppDatabaseState(database.path)
+        app = FastAPI()
+        embedding_map_module.register_embedding_map_routes(app, state)
+
+        def change_while_computing(track_ids, matrix, *, n_clusters):
+            result = explore(track_ids, matrix, n_clusters=n_clusters)
+            if change == "database":
+                state.switch(tmp_path / "replacement.sqlite")
+            else:
+                with closing(database.connect()) as connection, connection:
+                    connection.execute("UPDATE tracks SET track_uuid = 'replacement' WHERE track_id = ?", (identity.track_id,))
+            return result
+
+        monkeypatch.setattr(embedding_map_module, "explore_embeddings", change_while_computing)
+        try:
+            with TestClient(app) as client:
+                response = client.post("/api/library/embedding-map", json={"catalog_uuid": database.catalog_uuid})
+                assert response.status_code == 409
+                assert "detail" in response.json()
+        finally:
+            state.close()
 
 
 def test_tracks_endpoint_returns_paginated_typed_current_summaries(

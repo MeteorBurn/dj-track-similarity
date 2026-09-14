@@ -172,6 +172,7 @@ export function App() {
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
   const [seedSearchModel, setSeedSearchModel] = useState<SeedSearchModel>("sonara");
+  const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("similarity");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
   const [sonaraSettingsDialogOpen, setSonaraSettingsDialogOpen] = useState(false);
@@ -544,6 +545,7 @@ export function App() {
   }
 
   function handlePrimarySearchTabChange(tab: PrimarySearchTab) {
+    setActiveSearchTab(tab);
     cancelGenericSearchRequest();
     cancelTextSearch();
     if (tab === "class" && databasePath) {
@@ -653,6 +655,15 @@ export function App() {
     }
     setPlaylist(nextPlaylist);
     appendActivity("ok", "Кандидаты PROMPT добавлены в сет", `${modelLabel} · ${added} новых · показано ${tracks.length}`);
+    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
+  }
+
+  function addMapTracksToPlaylist(tracks: Track[]) {
+    if (busy || tracks.some(track => track.catalog_uuid !== databaseCatalogUuidRef.current)) return;
+    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
+    const added = nextPlaylist.length - playlist.length;
+    setPlaylist(nextPlaylist);
+    appendActivity("ok", "Группа MERT-v2 добавлена в сет", `${added} новых · в группе ${tracks.length}`);
     setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
@@ -1434,6 +1445,8 @@ export function App() {
         />
 
         <SearchPlaylistPanel
+          activeSearchTab={activeSearchTab}
+          catalogUuid={databaseCatalogUuid}
           collapsed={searchCollapsed}
           onToggleCollapsed={() => togglePanel("search")}
           seedTracks={seedTracks}
@@ -1456,7 +1469,7 @@ export function App() {
           promptPresets={textPromptPresets}
           promptNegativeWeight={promptNegativeWeight}
           textExecution={textFeedbackContext}
-          databaseIdentity={databaseCatalogUuid}
+          databaseIdentity={databasePath && databaseCatalogUuid ? JSON.stringify([databasePath, databaseCatalogUuid]) : null}
           busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}
           filters={filters}
           setFilters={setFilters}
@@ -1496,6 +1509,7 @@ export function App() {
           sonaraCount={librarySummary.sonara}
           embeddingCounts={{
             mert: librarySummary.mert,
+            mert_v2: librarySummary.mert_v2,
             maest: librarySummary.maest_embedding,
             muq: librarySummary.muq,
             mulan: librarySummary.mulan,
@@ -1514,6 +1528,7 @@ export function App() {
           })}
           classifierJob={classifiers.some((classifier) => classifier.classifier_key === analysisJob?.adapter_name) ? analysisJob : null}
           removeSeed={removeSeed}
+          clearSeeds={() => setSeedTracks([])}
           handleTextSearch={() => void handleTextSearch(searchRequests)}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleAddRandomSonaraTrack={() => void handleAddRandomSonaraTrack()}
@@ -1523,6 +1538,7 @@ export function App() {
           toggleLiked={handleToggleTrackLiked}
           togglePlaylist={togglePlaylist}
           onAddPromptCandidates={addPromptCandidatesToPlaylist}
+          onAddMapTracks={addMapTracksToPlaylist}
           playingTrackId={playingTrackId}
           previewTrackId={preview?.track_id ?? null}
           setPreview={togglePreview}

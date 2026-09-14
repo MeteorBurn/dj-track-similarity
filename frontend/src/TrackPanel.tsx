@@ -243,7 +243,7 @@ export function TrackPanel({
             title={likedTracksFilterTitle(likedOnly, likedTrackCount)}
             aria-label="Показать список лайкнутых треков"
             aria-pressed={likedOnly}
-            disabled={busy || (!likedOnly && likedTrackCount === 0)}
+            disabled={!databaseSelected || (!likedOnly && likedTrackCount === 0)}
             onClick={onToggleLikedOnly}
             type="button"
           >

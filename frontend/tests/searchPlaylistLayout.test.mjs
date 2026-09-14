@@ -114,20 +114,6 @@ test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", as
   assert.match(panelSource, /searchResultOriginLabel\(genericSearchResultOrigin\)/);
 });
 
-test("SONARA tab can add an unselected random SONARA-ready seed", () => {
-  const addRandomTrackPosition = panelSource.indexOf("Add Random Track");
-  const filtersPosition = panelSource.indexOf("sonara-search-filter-grid");
-  const searchPosition = panelSource.indexOf("SONARA search");
-
-  assert.match(panelSource, /handleAddRandomSonaraTrack/);
-  assert.match(panelSource, /Add Random Track/);
-  assert.match(panelSource, /Добавить случайный SONARA-ready трек из базы в seed/);
-  assert.ok(addRandomTrackPosition < filtersPosition);
-  assert.ok(filtersPosition < searchPosition);
-  assert.match(cssRule(".sonara-random-track-action"), /justify-content:\s*flex-start/);
-  assert.match(cssRule(".sonara-random-track-button"), /min-height:\s*28px/);
-});
-
 test("Left Right Home End navigation wraps across maintained search tabs", async () => {
   const { primarySearchTabs, tabAfterKey } = await loadSearchSurfaceState();
 

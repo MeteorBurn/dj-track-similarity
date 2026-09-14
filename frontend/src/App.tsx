@@ -258,6 +258,7 @@ export function App() {
     handleTextSearch,
     cancelTextSearch,
     handleTextResultFeedback,
+    updateTextSearchTrackLiked,
   } = useTextSearch({
     embeddingCounts: { clap: librarySummary.clap, mulan: librarySummary.mulan },
     databasePath,
@@ -291,6 +292,7 @@ export function App() {
     genericSearchResultState,
     genericSearchInputKey,
     cancelGenericSearchRequest,
+    cancelRandomTrackRequest,
     handleSonaraSearch,
     handleAddRandomSonaraTrack,
     handleAddRandomEmbeddingTrack,
@@ -521,6 +523,7 @@ export function App() {
   function resetDatabaseScopedState() {
     databaseCatalogUuidRef.current = null;
     cancelGenericSearchRequest();
+    cancelRandomTrackRequest();
     cancelTextSearch();
     cancelTrackDetailRequest();
     resetLibraryState();
@@ -1256,6 +1259,7 @@ export function App() {
         || !sameTrackIdentity(track, updated)
       ) return null;
       updateTrackLiked(updated);
+      updateTextSearchTrackLiked(updated);
       setPlaylist((current) => current.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
       setResults((current) => current.map((item) => (
         sameTrackIdentity(item.track, updated) ? { ...item, track: updated } : item

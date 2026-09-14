@@ -6,6 +6,7 @@ import type { SearchRequestLifecycle, SearchNotice } from "./useSearchRequests";
 import type { SearchFiltersState } from "./SearchPlaylistPanel";
 import type { useActivityLog } from "./useActivityLog";
 import { errorText } from "./errors";
+import { sameTrackIdentity } from "./trackDisplay";
 
 type Verdicts = Partial<Record<TextFamily, Record<string, 1 | -1>>>;
 type Options = {
@@ -31,6 +32,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
   const revisions = useRef<Record<string, number>>({});
   const pending = useRef(new Set<string>());
   const touched = useRef(new Set<string>());
+  const likedTrackUpdates = useRef(new Map<string, Track>());
   const executionRef = useRef(executions);
   executionRef.current = executions;
   const generation = useRef(0);
@@ -46,6 +48,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
     setTextComparison(null); setExecutions({}); setTextFeedbackVerdicts({});
     setTextModelLoadingLabel(null); setFeedbackPending({}); setFeedbackReady({});
     revisions.current = {}; pending.current.clear(); touched.current.clear();
+    likedTrackUpdates.current.clear();
   }, [inputKey]);
   useEffect(() => () => { generation.current += 1; }, []);
   function cancelTextSearch() {
@@ -54,6 +57,24 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
     setTextModelLoadingLabel(null); setTextComparison(null); setExecutions({});
     setTextFeedbackVerdicts({}); setFeedbackPending({}); setFeedbackReady({});
     revisions.current = {}; pending.current.clear(); touched.current.clear();
+    likedTrackUpdates.current.clear();
+  }
+
+  function applyTrackLikes(arms: TextSearchArm[]) {
+    return arms.map((arm) => ({
+      ...arm,
+      results: arm.results.map((result) => {
+        const updated = likedTrackUpdates.current.get(result.track.track_uuid);
+        return updated && sameTrackIdentity(result.track, updated)
+          ? { ...result, track: { ...result.track, liked: updated.liked } }
+          : result;
+      }),
+    }));
+  }
+
+  function updateTextSearchTrackLiked(updated: Track) {
+    likedTrackUpdates.current.set(updated.track_uuid, updated);
+    setTextComparison((current) => current && applyTrackLikes(current));
   }
 
   const banks = composePromptBanks(selectedPresetKeys, textEmbeddingFamily);
@@ -75,6 +96,7 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
   async function handleTextSearch(requests: SearchRequestLifecycle) {
     if (!textQuery.trim()) { setNotice({ kind: "error", text: "Выберите метку для поиска" }); return; }
     const runGeneration = ++generation.current;
+    likedTrackUpdates.current.clear();
     const ticket = requests.beginGenericSearchRequest();
     const isCurrent = () => generation.current === runGeneration && requests.genericSearchRequestIsCurrent(ticket);
     let arms = buildTextSearchArms({ family: textEmbeddingFamily, compare: textCompareModels,
@@ -122,6 +144,8 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
             error: errorText(error) });
         }
         if (!isCurrent()) return;
+        // A like can finish while the next model is still loading.
+        arms = applyTrackLikes(arms);
         setTextComparison(textCompareModels ? [...arms] : null);
         requests.commitGenericSearchResults(ticket, "text", arms.find((item) => item.status === "success")?.results ?? []);
       }
@@ -171,5 +195,6 @@ export function useTextSearch({ databasePath, databaseCatalogUuid,
     textFeedbackContext: executions[textEmbeddingFamily] ?? null, executions, feedbackPending, feedbackReady,
     textFeedbackVerdicts, textCompareModels, setTextCompareModels, textModelLoadingLabel, textComparison,
     textQuery, textNegativeQuery, promptNegativeWeight, textUseNegativePrompt, setTextUseNegativePrompt, textEmbeddingFamily,
-    cancelTextSearch, clearPromptPresets, togglePromptPreset, changeTextEmbeddingFamily, handleTextSearch, handleTextResultFeedback };
+    cancelTextSearch, clearPromptPresets, togglePromptPreset, changeTextEmbeddingFamily, handleTextSearch, handleTextResultFeedback,
+    updateTextSearchTrackLiked };
 }

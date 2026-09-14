@@ -68,6 +68,10 @@ export function useSearchRequests({
 }: SearchRequestsOptions) {
   const genericSearchRequestGuard = useRef(createRequestTokenGuard());
   const genericSearchAbortController = useRef<AbortController | null>(null);
+  const randomTrackAbortController = useRef<AbortController | null>(null);
+  const randomTrackDatabaseKey = JSON.stringify([databasePath, databaseCatalogUuid]);
+  const randomTrackDatabaseKeyRef = useRef(randomTrackDatabaseKey);
+  randomTrackDatabaseKeyRef.current = randomTrackDatabaseKey;
   const [genericSearchPending, setGenericSearchPending] = useState(false);
   const [randomSonaraTrackPending, setRandomSonaraTrackPending] = useState(false);
   const [randomEmbeddingTrackPending, setRandomEmbeddingTrackPending] = useState(false);
@@ -113,7 +117,12 @@ export function useSearchRequests({
 
   useEffect(() => () => {
     genericSearchAbortController.current?.abort();
+    randomTrackAbortController.current?.abort();
   }, []);
+
+  useEffect(() => {
+    cancelRandomTrackRequest();
+  }, [randomTrackDatabaseKey]);
 
   function beginGenericSearchRequest(): GuardedRequestTicket {
     genericSearchAbortController.current?.abort();
@@ -165,6 +174,20 @@ export function useSearchRequests({
     genericSearchAbortController.current = null;
     setGenericSearchPending(false);
   }
+
+  function cancelRandomTrackRequest() {
+    randomTrackAbortController.current?.abort();
+    randomTrackAbortController.current = null;
+    setRandomSonaraTrackPending(false);
+    setRandomEmbeddingTrackPending(false);
+  }
+
+  function randomTrackRequestIsCurrent(controller: AbortController, databaseKey: string) {
+    return randomTrackAbortController.current === controller
+      && !controller.signal.aborted
+      && randomTrackDatabaseKeyRef.current === databaseKey;
+  }
+
   async function handleSonaraSearch() {
     if (!seeds.length) {
       setNotice({ kind: "error", text: "Выберите seed-треки" });
@@ -198,28 +221,44 @@ export function useSearchRequests({
   }
 
   async function handleAddRandomSonaraTrack() {
-    if (randomSonaraTrackPending) return;
+    if (randomTrackAbortController.current || !databaseCatalogUuid) return;
+    const controller = new AbortController();
+    const databaseKey = randomTrackDatabaseKey;
+    randomTrackAbortController.current = controller;
     setRandomSonaraTrackPending(true);
     appendActivity("info", "Добавление случайного SONARA seed", `Исключено текущих seed: ${seeds.length}`);
     try {
       const track = await api.randomSonaraTrack({
         exclude_track_ids: seeds,
+      }, {
+        signal: controller.signal,
       });
+      if (!randomTrackRequestIsCurrent(controller, databaseKey)) return;
+      if (track.catalog_uuid !== databaseCatalogUuid) {
+        throw new Error("Random track belongs to a different catalog; refresh the current library and try again.");
+      }
       addSeed(track);
       const selected = displayTrack(track);
       appendActivity("ok", "Добавлен случайный SONARA seed", selected);
       setNotice({ kind: "ok", text: `Добавлен seed: ${selected}` });
     } catch (error) {
+      if (!randomTrackRequestIsCurrent(controller, databaseKey) || isAbortError(error)) return;
       const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось добавить случайный SONARA seed", message);
     } finally {
-      setRandomSonaraTrackPending(false);
+      if (randomTrackRequestIsCurrent(controller, databaseKey)) {
+        randomTrackAbortController.current = null;
+        setRandomSonaraTrackPending(false);
+      }
     }
   }
 
   async function handleAddRandomEmbeddingTrack() {
-    if (randomEmbeddingTrackPending) return;
+    if (randomTrackAbortController.current || !databaseCatalogUuid) return;
+    const controller = new AbortController();
+    const databaseKey = randomTrackDatabaseKey;
+    randomTrackAbortController.current = controller;
     const label = seedEmbeddingFamilyPresentation[seedEmbeddingFamily].label;
     setRandomEmbeddingTrackPending(true);
     appendActivity("info", `Добавление случайного ${label} seed`, `Исключено текущих seed: ${seeds.length}`);
@@ -227,17 +266,27 @@ export function useSearchRequests({
       const track = await api.randomEmbeddingTrack({
         analysis_family: seedEmbeddingFamily,
         exclude_track_ids: seeds,
+      }, {
+        signal: controller.signal,
       });
+      if (!randomTrackRequestIsCurrent(controller, databaseKey)) return;
+      if (track.catalog_uuid !== databaseCatalogUuid) {
+        throw new Error("Random track belongs to a different catalog; refresh the current library and try again.");
+      }
       addSeed(track);
       const selected = displayTrack(track);
       appendActivity("ok", `Добавлен случайный ${label} seed`, selected);
       setNotice({ kind: "ok", text: `Добавлен seed: ${selected}` });
     } catch (error) {
+      if (!randomTrackRequestIsCurrent(controller, databaseKey) || isAbortError(error)) return;
       const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", `Не удалось добавить случайный ${label} seed`, message);
     } finally {
-      setRandomEmbeddingTrackPending(false);
+      if (randomTrackRequestIsCurrent(controller, databaseKey)) {
+        randomTrackAbortController.current = null;
+        setRandomEmbeddingTrackPending(false);
+      }
     }
   }
   async function handleEmbeddingSearch(analysisFamily: EmbeddingSource) {
@@ -288,6 +337,7 @@ export function useSearchRequests({
     commitGenericSearchResults,
     finishGenericSearchRequest,
     cancelGenericSearchRequest,
+    cancelRandomTrackRequest,
     handleSonaraSearch,
     handleAddRandomSonaraTrack,
     handleAddRandomEmbeddingTrack,

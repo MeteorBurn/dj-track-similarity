@@ -93,7 +93,7 @@ function harness() {
     await flush();
     return rerender ? render() : undefined;
   }
-  return { render, choose, likeCalls, startMutation: () => (mutation = deferred()) };
+  return { render, choose, likeCalls, api, startMutation: () => (mutation = deferred()) };
 }
 
 test("like responses only update tracks in the current catalog with matching identity", async () => {
@@ -157,4 +157,98 @@ test("like responses only update tracks in the current catalog with matching ide
   const callCount = h.likeCalls.length;
   assert.equal(await ui.search.toggleLiked(replacement), null);
   assert.equal(h.likeCalls.length, callCount);
+
+  const comparison = harness();
+  const secondArm = deferred();
+  let searches = 0;
+  const searchResponse = { results: [{ track, score: 0.75 }], execution: { run_id: "run", feedback_capability: "absent" } };
+  comparison.api.librarySummary = async () => ({ tracks: 1, sonara: 1, clap: 1, mulan: 1 });
+  comparison.api.textSearch = async () => ++searches === 1 ? searchResponse : secondArm.promise;
+  ui = await comparison.choose("A");
+  ui.search.onTextCompareModelsChange(true);
+  ui.search.onTogglePreset(ui.search.promptPresets[0].key);
+  ui = comparison.render();
+  ui.search.handleTextSearch();
+  await flush();
+  ui = comparison.render();
+  const firstResult = ui.search.textComparison.find((arm) => arm.status === "success").results[0];
+  const firstLike = comparison.startMutation();
+  const likedResult = ui.search.toggleLiked(firstResult.track);
+  firstLike.resolve({ ...track, liked: true });
+  await likedResult;
+  ui = comparison.render();
+  assert.equal(ui.search.textComparison.find((arm) => arm.status === "success").results[0].track.liked, true);
+
+  // The second response was captured before the like, and must not roll it back.
+  secondArm.resolve(searchResponse);
+  await flush();
+  ui = comparison.render();
+  assert.equal(ui.search.results[0].track.liked, true);
+  for (const arm of ui.search.textComparison) {
+    assert.equal(arm.results[0].track.liked, true);
+    assert.equal(arm.results[0].score, 0.75);
+  }
+  const unlike = comparison.startMutation();
+  const unlikedResult = ui.search.toggleLiked(ui.search.textComparison[0].results[0].track);
+  unlike.resolve(track);
+  await unlikedResult;
+  ui = comparison.render();
+  assert.deepEqual(comparison.likeCalls.map((args) => args[1]), [true, false]);
+  for (const arm of ui.search.textComparison) assert.equal(arm.results[0].track.liked, false);
+
+  const otherIdentity = { ...track, track_uuid: "replacement" };
+  const replacedLike = comparison.startMutation();
+  const replacedResult = ui.search.toggleLiked(otherIdentity);
+  replacedLike.resolve({ ...otherIdentity, liked: true });
+  await replacedResult;
+  for (const arm of comparison.render().search.textComparison) assert.equal(arm.results[0].track.liked, false);
+});
+
+test("random seeds ignore obsolete catalog responses without clearing a newer request", async () => {
+  for (const kind of ["Sonara", "Embedding"]) {
+    for (const lateError of [false, true]) {
+      const h = harness();
+      const calls = [];
+      h.api[`random${kind}Track`] = (payload, options) => {
+        const pending = deferred();
+        calls.push({ payload, signal: options?.signal, ...pending });
+        return pending.promise;
+      };
+      const oldTrack = { track_id: 7, catalog_uuid: "A", track_uuid: "a7", file_path: "a.wav" };
+      const currentTrack = { ...oldTrack, catalog_uuid: "B", track_uuid: "b7" };
+      let ui = await h.choose("A");
+      ui.search[`handleAddRandom${kind}Track`]();
+      await h.choose("B", false);
+      assert.equal(calls[0].signal?.aborted, true, "database reset cancels before rerender");
+      if (!lateError) {
+        calls[0].resolve(oldTrack);
+        await flush();
+      }
+      ui = h.render();
+      assert.equal(ui.search.seedTracks.length, 0);
+      ui.search[`handleAddRandom${kind}Track`]();
+      const notice = h.render().notice;
+      if (lateError) {
+        calls[0].reject(new Error("obsolete catalog error"));
+        await flush();
+      }
+      ui = h.render();
+      assert.equal(ui.search.busy, true, "obsolete finally leaves the new request pending");
+      assert.equal(ui.notice, notice);
+      calls[1].resolve(currentTrack);
+      await flush();
+      ui = h.render();
+      assert.deepEqual([...ui.search.seedTracks], [currentTrack]);
+      assert.equal(ui.search.busy, false);
+
+      ui.search.removeSeed(currentTrack.track_id);
+      ui = h.render();
+      ui.search[`handleAddRandom${kind}Track`]();
+      calls[2].resolve(oldTrack);
+      await flush();
+      ui = h.render();
+      assert.equal(ui.search.seedTracks.length, 0, "a current request must still validate the returned catalog");
+      assert.equal(ui.search.busy, false);
+    }
+  }
 });

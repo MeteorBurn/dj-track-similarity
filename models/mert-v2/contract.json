@@ -64,7 +64,16 @@
     "valid_frame_count": "valid_waveform_samples // 960",
     "batch_padding": "Different valid waveform lengths are encoded separately. Output sequences are right padded to the longest valid frame count.",
     "native_recording_pooling": null,
-    "native_labels_or_probabilities": null
+    "native_labels_or_probabilities": null,
+    "application_embedding": {
+      "family": "mert_v2",
+      "shape": [
+        1024
+      ],
+      "dtype": "float32",
+      "l2_normalized": true,
+      "pooling": "Mean of valid last_hidden_state frames per chunk, weighted by valid frame counts across chunks, then one track-level L2 normalization."
+    }
   },
   "settings": {
     "inference": {
@@ -80,6 +89,16 @@
       "maximum_duration_enforced": false,
       "automatic_cropping": false,
       "automatic_windowing": false
+    },
+    "application": {
+      "maximum_chunk_seconds": 360.0,
+      "chunk_selection": "Consecutive full coverage without overlap or padding. Tracks up to 360 seconds use one context.",
+      "short_tail": "When the final tail is shorter than 1025 samples, move the preceding chunk boundary earlier so the final chunk contains 1025 samples. Every supplied sample is retained and no chunk exceeds 360 seconds.",
+      "output_hidden_states": false,
+      "hidden_state_source": "last_hidden_state, the final Conformer block",
+      "default_inference_batch_size": 1,
+      "device_precision": "Float32 weights and mel frontend; native bfloat16 forward autocast on supported CUDA devices, float32 otherwise.",
+      "preprocessing_identity": "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted-v1"
     },
     "processor": {
       "do_normalize": false,

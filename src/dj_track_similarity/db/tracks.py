@@ -40,6 +40,7 @@ _DERIVED_TRACK_TABLES = (
     "classifier_scores",
     "maest_embeddings",
     "mert_embeddings",
+    "mert_v2_embeddings",
     "muq_embeddings",
     "mulan_embeddings",
     "clap_embeddings",
@@ -47,6 +48,7 @@ _DERIVED_TRACK_TABLES = (
 _EMBEDDING_TABLES = (
     "maest_embeddings",
     "mert_embeddings",
+    "mert_v2_embeddings",
     "muq_embeddings",
     "mulan_embeddings",
     "clap_embeddings",

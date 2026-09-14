@@ -35,6 +35,7 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
         "sonara": frozenset({"core", "embedding", "fingerprint"}),
         "maest": frozenset({"analysis", "embedding"}),
         "mert": frozenset({"embedding"}),
+        "mert_v2": frozenset({"embedding"}),
         "muq": frozenset({"embedding"}),
         "mulan": frozenset({"embedding"}),
         "clap": frozenset({"embedding"}),
@@ -43,6 +44,7 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
 
 MAEST_MODEL_NAME = "discogs-maest-30s-pw-129e-519l"
 MERT_MODEL_NAME = "m-a-p/MERT-v1-95M"
+MERT_V2_MODEL_NAME = "m-a-p/MERT-v2-FullSong"
 MUQ_MODEL_NAME = "OpenMuQ/MuQ-large-msd-iter"
 MULAN_MODEL_NAME = "OpenMuQ/MuQ-MuLan-large"
 MULAN_TEXT_MODEL_NAME = "xlm-roberta-base"
@@ -51,12 +53,14 @@ CLAP_TEXT_MODEL_NAME = "roberta-base"
 
 MAEST_ADAPTER_REVISION = "maest-adapter-v2"
 MERT_ADAPTER_REVISION = "mert-adapter-v1"
+MERT_V2_ADAPTER_REVISION = "mert-v2-adapter-v1"
 MUQ_ADAPTER_REVISION = "muq-adapter-v1"
 MULAN_ADAPTER_REVISION = "mulan-adapter-v2"
 CLAP_ADAPTER_REVISION = "clap-adapter-v3"
 
 MAEST_MODEL_VERSION = "v0.0.0-beta"
 MERT_MODEL_REVISION = "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5"
+MERT_V2_MODEL_REVISION = "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42"
 MUQ_MODEL_REVISION = "0562a57814f6f8bbd9fdea0a25921a2fce1a841a"
 MULAN_MODEL_REVISION = "57b8af8e903a6fa28b6ba1d7a1578b4d68fcc918"
 MULAN_TEXT_MODEL_REVISION = "e73636d4f797dec63c3081bb6ed5c7b0bb3f2089"
@@ -68,6 +72,9 @@ MAEST_CHECKPOINT_ID = (
 )
 MERT_CHECKPOINT_ID = (
     "sha256:a2b8b747f72c06e0595aeae41ae5473f4364938c6b39b2c58be38c48e6bd3fcd"
+)
+MERT_V2_CHECKPOINT_ID = (
+    "sha256:e6dd2ab187d6dd62b6521cd7d8f932e237acf0c5757745a7232082e28391350d"
 )
 MUQ_CHECKPOINT_ID = (
     "sha256:273febab2be02872c37d2c37e48a9d6c52c1c9392f3eeeabd498efa281ccb7a6"
@@ -97,6 +104,25 @@ MERT_SNAPSHOT_SHA256 = (
         "cc5a5e4a5d3b1a758a5ed984b2eaa15bb0522d811d44a9eed82bfca4baa0dc8f",
     ),
     ("pytorch_model.bin", MERT_CHECKPOINT_ID.removeprefix("sha256:")),
+)
+MERT_V2_SNAPSHOT_SHA256 = (
+    (
+        "config.json",
+        "f2e194895f58be3ddba327255db129ff0e3bee550cc0ecf08e4d22d79ce3bca3",
+    ),
+    (
+        "configuration_mert2.py",
+        "77b53ec9d7ee31a599d744fb006e812c7eeaf7390deb46e2f460cf8c17b00bd6",
+    ),
+    (
+        "modeling_mert2.py",
+        "b1a3174e5649c4b26b0c90d8626f0adacfbbba111a58ed3bb72ad651945a2f5c",
+    ),
+    (
+        "preprocessor_config.json",
+        "fc7337f113b71062b8efd03f8a43a07aa769ce85c6a53fdc0b3bb90c299fe63f",
+    ),
+    ("model.safetensors", MERT_V2_CHECKPOINT_ID.removeprefix("sha256:")),
 )
 MUQ_SNAPSHOT_SHA256 = (
     (
@@ -163,12 +189,14 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
 
 MAEST_PREPROCESSING = "shared-mono/maest-16khz-native-full-track-v2"
 MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows-v1"
+MERT_V2_PREPROCESSING = "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted-v1"
 MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-consecutive-windows-v1"
 MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track-v2"
 CLAP_PREPROCESSING = "shared-mono/clap-48khz-native-full-signal-v2"
 
 MAEST_EMBEDDING_DIM = 768
 MERT_EMBEDDING_DIM = 768
+MERT_V2_EMBEDDING_DIM = 1024
 MUQ_EMBEDDING_DIM = 1024
 MULAN_EMBEDDING_DIM = 512
 CLAP_EMBEDDING_DIM = 512
@@ -188,6 +216,7 @@ CURRENT_EMBEDDING_SPECS: Mapping[str, EmbeddingFamilySpec] = MappingProxyType(
     {
         "maest": EmbeddingFamilySpec(MAEST_EMBEDDING_DIM, "l2"),
         "mert": EmbeddingFamilySpec(MERT_EMBEDDING_DIM, "l2"),
+        "mert_v2": EmbeddingFamilySpec(MERT_V2_EMBEDDING_DIM, "l2"),
         "muq": EmbeddingFamilySpec(MUQ_EMBEDDING_DIM, "l2"),
         "mulan": EmbeddingFamilySpec(MULAN_EMBEDDING_DIM, "l2"),
         "clap": EmbeddingFamilySpec(CLAP_EMBEDDING_DIM, "l2"),
@@ -502,9 +531,9 @@ class EmbeddingWrite:
     output: EmbeddingOutput
 
     def __post_init__(self) -> None:
-        if self.output.family not in {"mert", "muq", "mulan", "clap"}:
+        if self.output.family not in {"mert", "mert_v2", "muq", "mulan", "clap"}:
             raise ValueError(
-                "standalone embedding writes support only MERT, MuQ, MuQ-MuLan, or CLAP"
+                "standalone embedding writes support only MERT, MERT-v2, MuQ, MuQ-MuLan, or CLAP"
             )
 
 

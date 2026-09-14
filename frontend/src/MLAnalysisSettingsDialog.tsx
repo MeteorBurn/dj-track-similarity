@@ -65,7 +65,7 @@ export function MLAnalysisSettingsDialog({
         <header className="dialog-title ml-settings-title">
           <div className="ml-settings-title-copy">
             <h2 id="ml-settings-title">Настройки анализа ML моделями</h2>
-            <span>Device и режим чтения файлов решают, как MAEST, MERT, MuQ, MuLan и CLAP считают эмбеддинги.</span>
+            <span>Device и режим чтения файлов решают, как MAEST, MERT, MERT-v2, MuQ, MuLan и CLAP считают эмбеддинги.</span>
           </div>
           <button className="icon-button ml-settings-close-button" title="Закрыть" aria-label="Закрыть" disabled={disabled} onClick={onClose} type="button"><X size={16} /></button>
         </header>

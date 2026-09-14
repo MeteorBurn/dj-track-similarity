@@ -7,6 +7,7 @@ import sqlite3
 import sys
 
 import numpy as np
+import pytest
 
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
@@ -142,30 +143,72 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
                 ),
             ).lastrowid
         )
-    vector = np.zeros(768, dtype=np.float32)
-    vector[0] = 1.0
     target = TrackIdentity(
         catalog_uuid=database.catalog_uuid,
         track_id=track_id,
         track_uuid="track-a",
     )
 
+    vectors = {
+        "mert": np.eye(1, 768, dtype=np.float32)[0],
+        "mert_v2": np.eye(1, 1024, 1, dtype=np.float32)[0],
+    }
+    for family, vector in vectors.items():
+        _write_embedding(
+            database,
+            track=target,
+            family=family,
+            vector=vector,
+            analyzed_at="2026-08-12T00:00:00.000000Z",
+        )
+        stored = _read_embedding(database, track=target, family=family)
+        assert stored is not None
+        assert np.array_equal(stored, vector)
+        rows = database.load_analysis_vectors(AnalysisOutput(family, "embedding"))
+        assert len(rows) == 1
+        np.testing.assert_array_equal(rows[0].vector, vector)
+
+    with pytest.raises(ValueError, match="does not match mert_v2 dimension 1024"):
+        _write_embedding(
+            database, track=target, family="mert_v2", vector=vectors["mert"],
+            analyzed_at="2026-08-12T00:00:00.000000Z",
+        )
+    with pytest.raises(RuntimeError, match="stale embedding write rejected: track_uuid mismatch"):
+        _write_embedding(
+            database, track=TrackIdentity(database.catalog_uuid, track_id, "stale"),
+            family="mert_v2", vector=vectors["mert_v2"],
+            analyzed_at="2026-08-12T00:00:00.000000Z",
+        )
+
+    detail = database.get_track_detail(track_id)
+    assert detail.analysis_coverage.mert and detail.analysis_coverage.mert_v2
+    assert {(row.analysis_family, row.dim) for row in detail.embeddings} == {
+        ("mert", 768), ("mert_v2", 1024),
+    }
+    with closing(database.connect()) as connection:
+        row = connection.execute(
+            "SELECT dim, normalization, length(embedding_blob) FROM mert_v2_embeddings"
+        ).fetchone()
+        assert tuple(row) == (1024, "l2", 4096)
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+    reset = database.reset_analysis_outputs((AnalysisOutput("mert_v2", "embedding"),))
+    assert reset.embedding_rows_deleted == 1
+    assert database.load_analysis_vectors(AnalysisOutput("mert_v2", "embedding")) == ()
+    np.testing.assert_array_equal(
+        _read_embedding(database, track=target, family="mert"), vectors["mert"],
+    )
     _write_embedding(
-        database,
-        track=target,
-        family="mert",
-        vector=vector,
+        database, track=target, family="mert_v2", vector=vectors["mert_v2"],
         analyzed_at="2026-08-12T00:00:00.000000Z",
     )
-
-    stored = _read_embedding(database, track=target, family="mert")
-    assert stored is not None
-    assert np.array_equal(stored, vector)
+    cleared = database.clear_library()
+    assert cleared["tracks_deleted"] == 1
+    assert cleared["embedding_rows_deleted"] == 2
     with closing(database.connect()) as connection:
-        assert (
-            connection.execute("SELECT COUNT(*) FROM mert_embeddings").fetchone()[0]
-            == 1
-        )
+        assert connection.execute("SELECT COUNT(*) FROM mert_v2_embeddings").fetchone()[0] == 0
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_sonara_embedding_table_uses_the_fixed_unversioned_48d_format(
@@ -263,9 +306,9 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
             ).lastrowid
         )
     target = TrackIdentity(database.catalog_uuid, track_id, "track-b")
-    output = AnalysisOutput("mert", "embedding")
+    outputs = (AnalysisOutput("mert", "embedding"), AnalysisOutput("mert_v2", "embedding"))
     assert [
-        candidate.target for candidate in database.list_analysis_candidates((output,))
+        candidate.target for candidate in database.list_analysis_candidates(outputs)
     ] == [
         AnalysisTarget(
             catalog_uuid=target.catalog_uuid,
@@ -273,17 +316,22 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
             track_uuid=target.track_uuid,
         )
     ]
-    vector = np.zeros(768, dtype=np.float32)
-    vector[0] = 1.0
-    _write_embedding(
-        database,
-        track=target,
-        family="mert",
-        vector=vector,
-        analyzed_at="2026-08-12T00:00:00.000000Z",
-    )
-
-    assert database.list_analysis_candidates((output,)) == []
+    for index, (family, dimension) in enumerate((("mert", 768), ("mert_v2", 1024))):
+        vector = np.zeros(dimension, dtype=np.float32)
+        vector[0] = 1.0
+        _write_embedding(
+            database,
+            track=target,
+            family=family,
+            vector=vector,
+            analyzed_at="2026-08-12T00:00:00.000000Z",
+        )
+        candidates = database.list_analysis_candidates(outputs)
+        if index == 0:
+            assert len(candidates) == 1
+            assert candidates[0].missing_outputs == (outputs[1],)
+        else:
+            assert candidates == []
 
 
 def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> None:
@@ -309,15 +357,16 @@ def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> Non
             ).lastrowid
         )
     target = TrackIdentity(database.catalog_uuid, track_id, "track-readiness")
-    vector = np.zeros(768, dtype=np.float32)
-    vector[0] = 1.0
-    _write_embedding(
-        database,
-        track=target,
-        family="mert",
-        vector=vector,
-        analyzed_at="2026-08-12T00:00:00.000000Z",
-    )
+    for family, dimension in (("mert", 768), ("mert_v2", 1024)):
+        vector = np.zeros(dimension, dtype=np.float32)
+        vector[0] = 1.0
+        _write_embedding(
+            database,
+            track=target,
+            family=family,
+            vector=vector,
+            analyzed_at="2026-08-12T00:00:00.000000Z",
+        )
 
     with closing(database.connect()) as connection:
         def authorizer(
@@ -335,7 +384,7 @@ def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> Non
         candidates = collect_analysis_candidates(
             connection=connection,
             catalog_uuid=database.catalog_uuid,
-            outputs=(AnalysisOutput("mert", "embedding"),),
+            outputs=(AnalysisOutput("mert", "embedding"), AnalysisOutput("mert_v2", "embedding")),
             limit=None,
         )
 
@@ -344,8 +393,6 @@ def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> Non
 
 def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
-    vector = np.zeros(768, dtype="<f4")
-    vector[0] = 2.0
     with closing(database.connect()) as connection, connection:
         track_id = int(
             connection.execute(
@@ -366,26 +413,30 @@ def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:
                 ),
             ).lastrowid
         )
-        connection.execute(
-            """
-            INSERT INTO mert_embeddings(
-                track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                track_id,
-                "track-summary",
-                768,
-                "l2",
-                vector.tobytes(),
-                "2026-08-12T00:00:00.000000Z",
-            ),
-        )
+        for family, dimension in (("mert", 768), ("mert_v2", 1024)):
+            vector = np.zeros(dimension, dtype="<f4")
+            vector[0] = 2.0
+            connection.execute(
+                f"""
+                INSERT INTO {family}_embeddings(
+                    track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    track_id,
+                    "track-summary",
+                    dimension,
+                    "l2",
+                    vector.tobytes(),
+                    "2026-08-12T00:00:00.000000Z",
+                ),
+            )
 
     summary = database.library_summary()
 
     assert summary.tracks == 1
     assert summary.mert == 1
+    assert summary.mert_v2 == 1
 
 
 def test_rhythm_lab_reads_embeddings_from_the_library_database(

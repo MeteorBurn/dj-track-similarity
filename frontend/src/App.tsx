@@ -18,6 +18,7 @@ import {
   TrackDetail,
 } from "./api";
 import {
+  analysisModelDisplayLabel,
   analysisSelectionOrder,
   analysisStartBlockedByMissingSonara,
   defaultStageSelections,
@@ -347,6 +348,7 @@ export function App() {
     sonara: librarySummary.sonara,
     maest: librarySummary.maest_analysis,
     mert: librarySummary.mert,
+    mert_v2: librarySummary.mert_v2,
     muq: librarySummary.muq,
     mulan: librarySummary.mulan,
     clap: librarySummary.clap
@@ -955,7 +957,7 @@ export function App() {
     }
     if (mlModels.length) {
       settings.push(
-        `ML · ${mlModels.map((model) => model.toUpperCase()).join(", ")} · Device ${analysisDevice.toUpperCase()} · `
+        `ML · ${mlModels.map(analysisModelDisplayLabel).join(", ")} · Device ${analysisDevice.toUpperCase()} · `
         + `Track batch ${analysisTrackBatchSize} · Inference batch ${analysisInferenceBatchSize}`
       );
     }
@@ -1090,7 +1092,7 @@ export function App() {
   }
 
   async function handleResetAnalysis(adapter: ResetAdapter) {
-    const label = adapter.toUpperCase();
+    const label = analysisModelDisplayLabel(adapter);
     appendActivity("warn", `${label} reset запущен`, "Точечная очистка результатов анализа");
     await run(
       () => api.resetAnalysis(adapter),
@@ -1420,8 +1422,8 @@ export function App() {
           scanRootSelected={Boolean(scanImportSettings.root.trim())}
           onStart={() => void handleStageStart()}
           onResetAnalysis={(adapter) => requestConfirmation({
-            title: `Сбросить ${adapter.toUpperCase()}?`,
-            message: `Сбросить результаты ${adapter.toUpperCase()}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,
+            title: `Сбросить ${analysisModelDisplayLabel(adapter)}?`,
+            message: `Сбросить результаты ${analysisModelDisplayLabel(adapter)}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,
             onConfirm: () => handleResetAnalysis(adapter)
           })}
         />

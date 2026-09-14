@@ -791,7 +791,7 @@ class AnalysisJobManager:
                         continue
                     runner_locks.enter_context(handle.lock)
                     runner = handle.runner
-                    if isinstance(runner, EmbeddingModelRunner) and model in {"mert", "clap"}:
+                    if isinstance(runner, EmbeddingModelRunner) and model in {"mert", "mert_v2", "clap"}:
                         runner.cancelled = lambda: self.get(job_id).cancel_requested
                 results = analyze_and_store_staged_ml(
                     repository=self.db,
@@ -854,7 +854,7 @@ class AnalysisJobManager:
                 device=runner.device,
             )
             with lifecycle.handles[model].lock:
-                if isinstance(runner, EmbeddingModelRunner) and model in {"mert", "clap"}:
+                if isinstance(runner, EmbeddingModelRunner) and model in {"mert", "mert_v2", "clap"}:
                     runner.cancelled = lambda: self.get(job_id).cancel_requested
                 if not self._run_model_batch(
                     job_id,
@@ -991,7 +991,7 @@ class AnalysisJobManager:
                 model=model,
             )
             for item in items:
-                if model in {"mert", "clap"} and self.get(job_id).cancel_requested:
+                if model in {"mert", "mert_v2", "clap"} and self.get(job_id).cancel_requested:
                     raise EmbeddingCancelledError(f"{model.upper()} analysis cancelled")
                 try:
                     item_results = _validated_runner_results(

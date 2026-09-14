@@ -7,7 +7,7 @@ from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .sonara_staging import SonaraStagingConfig
 from .ml_staging import MLStagingConfig
 
-ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "mulan", "clap")
+ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "mert_v2", "muq", "mulan", "clap")
 ANALYSIS_MODEL_ORDER = ("sonara", *ML_ANALYSIS_MODEL_ORDER)
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
 ANALYSIS_DEVICE_PATTERN = "^(auto|cpu|cuda)$"

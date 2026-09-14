@@ -1,6 +1,6 @@
 import { ChevronsLeft, ChevronsRight, CopyCheck, Database, FlaskConical, FolderOpen, Minus, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2, Zap } from "lucide-react";
 import { AnalysisModel } from "./api";
-import { mlAnalysisModelOrder, type AnalysisSelection, type StageSelection } from "./analysisSelection";
+import { analysisModelDisplayLabel, mlAnalysisModelOrder, type AnalysisSelection, type StageSelection } from "./analysisSelection";
 
 type LibraryHelpText = {
   databasePath: string;
@@ -19,6 +19,7 @@ const modelDescriptions: Record<AnalysisModel, string> = {
   sonara: "Считает темп, тональность, ритм, динамику, тембр и структуру трека.",
   maest: "Помогает понять жанровый характер трека.",
   mert: "Ищет похожее звучание от выбранного seed-трека.",
+  mert_v2: "Анализирует звучание трека моделью MERT-v2 FullSong.",
   muq: "Сохраняет дополнительный слой аудио-признаков.",
   mulan: "Связывает текстовое описание с отдельными аудио-эмбеддингами.",
   clap: "Связывает текстовое описание с аудио-звучанием."
@@ -131,12 +132,12 @@ export function LibraryPanel({
 
   const modelRow = (model: AnalysisModel) => stageRow({
     stage: model,
-    title: model.toUpperCase(),
+    title: analysisModelDisplayLabel(model),
     description: modelDescriptions[model],
     count: analysisCounts[model] || 0,
     disabled: model !== "sonara" && analysisCounts.sonara < 1,
     action: {
-      title: `Сбросить ${model.toUpperCase()}`,
+      title: `Сбросить ${analysisModelDisplayLabel(model)}`,
       onClick: () => onResetAnalysis(model),
       className: `${model}-reset-button`,
     },

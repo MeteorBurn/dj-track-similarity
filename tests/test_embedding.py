@@ -19,11 +19,13 @@ import dj_track_similarity.embedding.clap as embedding_clap
 import dj_track_similarity.embedding.loading as embedding_loading
 import dj_track_similarity.embedding.numerics as embedding_numerics
 import dj_track_similarity.embedding.audio as embedding_audio
+import dj_track_similarity.embedding.mert_v2 as embedding_mert_v2
 from dj_track_similarity.audio.loader import DecodedAudio
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert import MertEmbeddingAdapter, _iter_mert_windows
+from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.embedding.maest import _move_maest_runtime_modules
@@ -1079,6 +1081,123 @@ def test_mert_embed_decoded_batch_uses_feature_vector_attention_mask() -> None:
         with pytest.raises(EmbeddingCancelledError):
             adapter.embed_decoded_batch(items, cancelled=lambda: adapter.fake_model.forward_calls >= 1)
         assert adapter.fake_model.forward_calls == 1
+
+
+def test_mert_v2_full_coverage_pools_valid_last_layer_frames(monkeypatch) -> None:
+    chunk_samples = 9600
+    monkeypatch.setattr(embedding_mert_v2, "_CHUNK_SAMPLES", chunk_samples)
+    monkeypatch.setattr(embedding_audio, "_RESAMPLERS", {})
+    resample_calls = []
+
+    class FakeResampler:
+        def __init__(self, source_rate, target_rate):
+            assert (source_rate, target_rate) == (12_000, 24_000)
+
+        def __call__(self, waveform):
+            resample_calls.append(waveform.clone())
+            return waveform.repeat_interleave(2, dim=-1)
+
+    class FakeModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+            self.empty_mask = False
+            self.invalid_output = None
+
+        def forward(self, input_values, attention_mask, *, output_hidden_states, return_dict):
+            assert torch.is_inference_mode_enabled()
+            assert input_values.dtype == torch.float32
+            assert output_hidden_states is False and return_dict is True
+            assert torch.all(attention_mask == 1)
+            self.calls.append(input_values.clone())
+            frames = input_values.shape[1] // 960
+            hidden = torch.zeros((len(input_values), frames + 1, 1024))
+            hidden[:, :frames, 0] = input_values.mean(dim=1)[:, None]
+            hidden[:, :frames, 1] = 1.0
+            hidden[:, frames, :] = 100_000.0  # Poison the padded output frame.
+            mask = torch.zeros(hidden.shape[:2], dtype=torch.bool)
+            if not self.empty_mask:
+                mask[:, :frames] = True
+            if self.invalid_output == "nonfinite":
+                hidden[:, 0, 0] = torch.nan
+            elif self.invalid_output == "zero":
+                hidden[:, :frames, :] = 0
+            return types.SimpleNamespace(last_hidden_state=hidden, feature_attention_mask=mask)
+
+    def make_adapter():
+        adapter = MertV2EmbeddingAdapter(device="cpu", inference_batch_size=2)
+        adapter.load_calls = 0
+        model = FakeModel()
+
+        def load():
+            adapter.load_calls += 1
+            adapter._torch = torch
+            adapter._torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResampler))
+            adapter._model = model
+            adapter._processor = FakeMertProcessor()
+            adapter.device = "cpu"
+
+        monkeypatch.setattr(adapter, "_load_model", load)
+        return adapter, model
+
+    long_audio = torch.linspace(-0.5, 0.9, 2 * chunk_samples + 1)
+    resample_audio = torch.linspace(0.2, 0.6, 1700, dtype=torch.float64)
+    short_audio = torch.full((1025,), 0.3)
+    decoded = [
+        DecodedAudio(path="long.wav", audio=long_audio, sample_rate=24_000, detail="shared"),
+        DecodedAudio(path="resampled.wav", audio=resample_audio, sample_rate=12_000, detail="shared"),
+        DecodedAudio(path="short.wav", audio=short_audio, sample_rate=24_000, detail="shared"),
+    ]
+    expected_chunks = [
+        [long_audio[:chunk_samples], long_audio[chunk_samples:-1025], long_audio[-1025:]],
+        [resample_audio.float().repeat_interleave(2)],
+        [short_audio],
+    ]
+    adapter, model = make_adapter()
+    vectors = adapter.embed_decoded_batch(decoded)
+    assert len(vectors) == len(decoded)
+    assert len(resample_calls) == 1
+    torch.testing.assert_close(resample_calls[0], resample_audio.float().unsqueeze(0), rtol=0, atol=0)
+    observed_chunks = [chunk for batch in model.calls for chunk in batch]
+    expected_flat = [chunk for chunks in expected_chunks for chunk in chunks]
+    assert all(1025 <= chunk.numel() <= chunk_samples for chunk in observed_chunks)
+    assert len(observed_chunks) == len(expected_flat)
+    for actual, expected in zip(observed_chunks, expected_flat, strict=True):
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    for vector, chunks in zip(vectors, expected_chunks, strict=True):
+        counts = [chunk.numel() // 960 for chunk in chunks]
+        expected = np.zeros(1024, dtype=np.float64)
+        expected[0] = np.average([chunk.double().mean().item() for chunk in chunks], weights=counts)
+        expected[1] = 1.0
+        expected /= np.linalg.norm(expected)
+        assert vector.dtype == np.float32
+        np.testing.assert_allclose(vector, expected, rtol=1e-5, atol=1e-6)
+        assert np.linalg.norm(vector) == pytest.approx(1.0)
+
+    for audio in (torch.empty(0), torch.ones(1024), torch.full((1025,), torch.nan)):
+        invalid = DecodedAudio(path="invalid.wav", audio=audio, sample_rate=24_000, detail="shared")
+        with pytest.raises(ValueError):
+            adapter.embed_decoded_batch([invalid])
+    model.empty_mask = True
+    with pytest.raises(ValueError, match="no valid frames"):
+        adapter.embed_decoded_batch([decoded[-1]])
+    model.empty_mask = False
+    for model.invalid_output in ("nonfinite", "zero"):
+        with pytest.raises(ValueError):
+            adapter.embed_decoded_batch([decoded[-1]])
+
+    adapter, model = make_adapter()
+    with pytest.raises(EmbeddingCancelledError):
+        adapter.embed_decoded_batch(decoded, cancelled=lambda: True)
+    assert adapter.load_calls == 0 and not model.calls
+    with pytest.raises(EmbeddingCancelledError):
+        adapter.embed_decoded_batch([decoded[0]], cancelled=lambda: bool(model.calls))
+    assert len(model.calls) == 1
+    adapter, model = make_adapter()
+    resample_calls.clear()
+    with pytest.raises(EmbeddingCancelledError):
+        adapter.embed_decoded_batch([decoded[1]], cancelled=lambda: bool(resample_calls))
+    assert len(resample_calls) == 1 and not model.calls
 
 
 def test_mert_windows_cover_every_sample_once_without_padding() -> None:

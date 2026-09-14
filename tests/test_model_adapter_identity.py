@@ -13,6 +13,7 @@ import dj_track_similarity.embedding.maest as embedding_maest
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
 from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 
@@ -112,13 +113,14 @@ def test_adapters_expose_dimensions_and_normalization_before_model_load() -> Non
     adapters = (
         MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
+        MertV2EmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
     )
 
-    assert [adapter.dim for adapter in adapters] == [768, 768, 1024, 512, 512]
-    assert [adapter.normalization for adapter in adapters] == ["l2", "l2", "l2", "l2", "l2"]
+    assert [adapter.dim for adapter in adapters] == [768, 768, 1024, 1024, 512, 512]
+    assert [adapter.normalization for adapter in adapters] == ["l2"] * len(adapters)
     for adapter in adapters:
         assert adapter._model is None
 
@@ -134,6 +136,7 @@ def test_every_adapter_declares_a_pinned_immutable_identity() -> None:
     adapters = (
         MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
+        MertV2EmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
@@ -178,6 +181,7 @@ def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> N
     for adapter in (
         MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
+        MertV2EmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
@@ -189,6 +193,7 @@ def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
     for adapter in (
         MaestEmbeddingAdapter(device="cpu"),
         MertEmbeddingAdapter(device="cpu"),
+        MertV2EmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
@@ -247,16 +252,22 @@ def test_local_checkpoint_resolution_creates_immutable_verified_binding(
     assert cache_checkpoint.read_bytes() == b"checkpoint"
 
 
+@pytest.mark.parametrize(
+    ("adapter_class", "model_directory"),
+    [(MertEmbeddingAdapter, "mert"), (MertV2EmbeddingAdapter, "mert-v2")],
+)
 def test_mert_loader_deserializes_only_verified_local_snapshot(
     monkeypatch,
     tmp_path,
+    adapter_class,
+    model_directory,
 ) -> None:
     calls: dict[str, object] = {}
     models = []
     processors = []
-    snapshot = tmp_path / "models" / "mert"
+    snapshot = tmp_path / "models" / model_directory
     snapshot.mkdir()
-    for file_name in MertEmbeddingAdapter.snapshot_files:
+    for file_name in adapter_class.snapshot_files:
         (snapshot / file_name).write_bytes(file_name.encode())
 
     class FakeModel:
@@ -276,6 +287,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
 
     class FakeProcessor:
         sampling_rate = 24_000
+        do_normalize = False
 
     class FakeFeatureExtractor:
         @staticmethod
@@ -302,7 +314,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "transformers", transformers_module)
 
-    adapter = MertEmbeddingAdapter(device="cpu")
+    adapter = adapter_class(device="cpu")
     adapter.snapshot_sha256 = tuple(
         (
             file_name,
@@ -317,7 +329,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     snapshot.rename(cached_snapshot)
     with pytest.raises(RuntimeError, match="Automatic model downloads are disabled") as error:
         adapter.preflight()
-    assert "mert" in str(error.value)
+    assert model_directory in str(error.value)
     assert not models and not processors
     assert adapter._model is None and adapter._processor is None
     cached_snapshot.rename(snapshot)
@@ -351,11 +363,14 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     assert processor_path != str(snapshot)
     assert not Path(processor_path).exists()
     assert processor_kwargs == {"local_files_only": True}
-    assert model_kwargs == {
+    expected_model_kwargs = {
         "trust_remote_code": True,
         "local_files_only": True,
-        "use_safetensors": False,
+        "use_safetensors": adapter_class is MertV2EmbeddingAdapter,
     }
+    if adapter_class is MertV2EmbeddingAdapter:
+        expected_model_kwargs["attn_implementation"] = "sdpa"
+    assert model_kwargs == expected_model_kwargs
     assert calls["float"] is True
 
 

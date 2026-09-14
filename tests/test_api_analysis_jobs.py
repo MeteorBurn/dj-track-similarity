@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from api_test_support import create_api_client
 import dj_track_similarity.api.application as api
+from dj_track_similarity.analysis.config import ML_ANALYSIS_MODEL_ORDER
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
 from dj_track_similarity.database import LibraryDatabase
@@ -69,7 +70,7 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
         json={
-            "models": ["maest", "mert"],
+            "models": ["maest", "mert", "mert_v2"],
             "limit": 0,
             "device": "cpu",
             "top_k": 4,
@@ -79,11 +80,11 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
     )
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["maest", "mert"]
+    assert response.json()["models"] == ["maest", "mert", "mert_v2"]
     assert "classifier_keys" not in response.json()
     assert calls == [
         {
-            "models": ["maest", "mert"],
+            "models": ["maest", "mert", "mert_v2"],
             "limit": 0,
             "track_batch_size": 5,
             "inference_batch_size": 18,
@@ -163,7 +164,7 @@ def test_api_defaults_audio_job_to_ml_models_only(
     )
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["maest", "mert", "muq", "mulan", "clap"]
+    assert response.json()["models"] == list(ML_ANALYSIS_MODEL_ORDER)
     assert "sonara_outputs" not in calls[0]
 
 
@@ -565,7 +566,7 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
 ) -> None:
     client = _client(monkeypatch, tmp_path)
 
-    reset = client.post("/api/analysis/reset", json={"analysis_family": "mert"})
+    reset = client.post("/api/analysis/reset", json={"analysis_family": "mert_v2"})
     legacy = client.post("/api/analysis/reset", json={"adapter": "mert"})
 
     assert reset.status_code == 200

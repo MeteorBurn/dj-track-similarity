@@ -1,11 +1,12 @@
 export type EmbeddingSource = "mert" | "maest" | "muq" | "mulan" | "clap";
-export type AnalysisModel = "sonara" | EmbeddingSource;
+export type AnalysisModel = "sonara" | "mert_v2" | EmbeddingSource;
 export type AnalysisPipelineStage = "sonara" | "ml" | "classifiers";
 export type AnalysisCoverage = {
   sonara_core: boolean;
   maest_analysis: boolean;
   maest_embedding: boolean;
   mert: boolean;
+  mert_v2: boolean;
   muq: boolean;
   mulan: boolean;
   clap: boolean;
@@ -268,6 +269,7 @@ export type LibrarySummary = {
   maest_analysis: number;
   maest_embedding: number;
   mert: number;
+  mert_v2: number;
   muq: number;
   mulan: number;
   clap: number;

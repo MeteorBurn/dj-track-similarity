@@ -40,6 +40,7 @@ from .sonara_core_validation import (
 _EMBEDDING_TABLES: tuple[tuple[str, str, str], ...] = (
     ("maest", "embedding", "maest_embeddings"),
     ("mert", "embedding", "mert_embeddings"),
+    ("mert_v2", "embedding", "mert_v2_embeddings"),
     ("muq", "embedding", "muq_embeddings"),
     ("mulan", "embedding", "mulan_embeddings"),
     ("clap", "embedding", "clap_embeddings"),
@@ -490,6 +491,7 @@ def _coverage_and_classifiers(
             maest_analysis=track_id in maest_analysis,
             maest_embedding=track_id in embedding_rows[("maest", "embedding")],
             mert=track_id in embedding_rows[("mert", "embedding")],
+            mert_v2=track_id in embedding_rows[("mert_v2", "embedding")],
             muq=track_id in embedding_rows[("muq", "embedding")],
             mulan=track_id in embedding_rows[("mulan", "embedding")],
             clap=track_id in embedding_rows[("clap", "embedding")],

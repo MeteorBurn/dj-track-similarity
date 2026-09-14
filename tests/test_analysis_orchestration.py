@@ -910,12 +910,13 @@ def test_model_preflight_failure_preserves_prior_active_output() -> None:
 def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     runners = [
         default_model_runners(model, "cpu", 7, 11)
-        for model in ("maest", "mert", "muq", "mulan", "clap")
+        for model in ("maest", "mert", "mert_v2", "muq", "mulan", "clap")
     ]
 
     assert [runner.model for runner in runners] == [
         "maest",
         "mert",
+        "mert_v2",
         "muq",
         "mulan",
         "clap",
@@ -926,6 +927,7 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     } == {
         "maest": (("maest", "analysis"), ("maest", "embedding")),
         "mert": (("mert", "embedding"),),
+        "mert_v2": (("mert_v2", "embedding"),),
         "muq": (("muq", "embedding"),),
         "mulan": (("mulan", "embedding"),),
         "clap": (("clap", "embedding"),),
@@ -933,6 +935,7 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     expected_dimensions = {
         "maest": 768,
         "mert": 768,
+        "mert_v2": 1024,
         "muq": 1024,
         "mulan": 512,
         "clap": 512,
@@ -1144,6 +1147,7 @@ def test_mulan_runner_uses_ffmpeg_after_full_decode_failure(
 
 def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
     mutation = database.upsert_scanned_track(
@@ -1176,18 +1180,21 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
                 "2026-07-30T00:00:00.000000Z",
             ),
         )
-    runner = EmbeddingModelRunner(
-        "mert",
-        device="cpu",
-        inference_batch_size=2,
-        adapter=_FakeMertAdapter(),  # type: ignore[arg-type]
+    runner = default_model_runners("mert_v2", "cpu", 2, 3)
+    vector = np.zeros(1024, dtype=np.float32)
+    vector[0] = 1.0
+    monkeypatch.setattr(runner.adapter, "preflight", lambda: None)
+    monkeypatch.setattr(
+        runner.adapter,
+        "embed_decoded_batch",
+        lambda items, **_kwargs: [vector.copy() for _item in items],
     )
 
     status = AnalysisJobManager(
         database,
-        model_runners={"mert": runner},
+        model_runners={"mert_v2": runner},
         decode_audio=lambda path: _decoded(str(path)),
-    ).run_sync(models=["mert"], device="cpu")
+    ).run_sync(models=["mert_v2"], device="cpu")
 
     assert status.state == "completed"
     assert status.total == 1
@@ -1196,10 +1203,11 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
         "[torchcodec] Track analyzed"
     ]
     assert database.list_analysis_candidates(runner.candidate_outputs) == []
-    vector = _stored_embedding(database, mutation.identity, family="mert")
+    vector = _stored_embedding(database, mutation.identity, family="mert_v2")
     assert vector is not None
-    assert vector.shape == (768,)
+    assert vector.shape == (1024,)
     assert vector[0] == pytest.approx(1.0)
+    assert _stored_embedding(database, mutation.identity, family="mert") is None
 
 
 def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(

@@ -303,7 +303,7 @@ class ClassifierResetRequest(BaseModel):
 class AnalysisResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["sonara", "maest", "mert", "muq", "mulan", "clap"]
+    analysis_family: Literal["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"]
 
 
 class SearchRequest(BaseModel):
@@ -708,6 +708,7 @@ class AnalysisCoverageResponse(_ResponseModel):
     maest_analysis: bool
     maest_embedding: bool
     mert: bool
+    mert_v2: bool
     muq: bool
     mulan: bool
     clap: bool
@@ -889,6 +890,7 @@ class LibrarySummaryResponse(_ResponseModel):
     maest_analysis: int
     maest_embedding: int
     mert: int
+    mert_v2: int
     muq: int
     mulan: int
     clap: int

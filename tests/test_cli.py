@@ -15,6 +15,7 @@ import dj_track_similarity.api.application as api
 import dj_track_similarity.cli.application as cli
 import dj_track_similarity.cli.analysis as cli_analysis
 import dj_track_similarity.cli.progress as cli_progress
+from dj_track_similarity.analysis.config import ML_ANALYSIS_MODEL_ORDER
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -288,12 +289,13 @@ def test_analyze_cli_prints_default_ml_progress_and_settings(
     )
 
     assert result.exit_code == 0
-    assert "Starting maest,mert,muq,mulan,clap analysis" in result.output
+    model_names = ",".join(ML_ANALYSIS_MODEL_ORDER)
+    assert f"Starting {model_names} analysis" in result.output
     assert "processed=3/3" in result.output
     assert "tracks/s" in result.output
     assert "eta=" in result.output
     assert "state=completed" in result.output
-    assert "models=maest,mert,muq,mulan,clap" in result.output
+    assert f"models={model_names}" in result.output
     assert "sonara_batch_size" not in result.output
     assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
     assert _FakeAnalysisManager.last_instance.closed

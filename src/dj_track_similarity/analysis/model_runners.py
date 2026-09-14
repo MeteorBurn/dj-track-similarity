@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from ..embedding.clap import ClapEmbeddingAdapter
     from ..embedding.maest import MaestAnalysisResult
     from ..embedding.mert import MertEmbeddingAdapter
+    from ..embedding.mert_v2 import MertV2EmbeddingAdapter
 
 
 _CHECKPOINT_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
@@ -374,7 +375,7 @@ class EmbeddingModelRunner:
         adapter: DecodedAudioEmbeddingAdapter | None = None,
     ) -> None:
         self.model = model
-        if model == "mert" or model == "muq" or model == "mulan" or model == "clap":
+        if model in {"mert", "mert_v2", "muq", "mulan", "clap"}:
             self.adapter = adapter or create_embedding_adapter(
                 model,
                 device=device,
@@ -439,15 +440,15 @@ class EmbeddingModelRunner:
         return _merge_write_results(prepared, writes, write_results)
 
     def _check_cancelled(self) -> None:
-        if self.model in {"mert", "clap"} and self.cancelled is not None and self.cancelled():
+        if self.model in {"mert", "mert_v2", "clap"} and self.cancelled is not None and self.cancelled():
             raise EmbeddingCancelledError(f"{self.model.upper()} analysis cancelled")
 
     def _embed_decoded_items(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
         self._check_cancelled()
-        if self.model in {"mert", "clap"}:
+        if self.model in {"mert", "mert_v2", "clap"}:
             try:
                 vectors = cast(
-                    "ClapEmbeddingAdapter | MertEmbeddingAdapter", self.adapter,
+                    "ClapEmbeddingAdapter | MertEmbeddingAdapter | MertV2EmbeddingAdapter", self.adapter,
                 ).embed_decoded_batch(decoded_items, cancelled=self.cancelled)
                 if len(vectors) != len(decoded_items):
                     raise ValueError(
@@ -495,7 +496,7 @@ class EmbeddingModelRunner:
             direct_items = [items[index] for index in direct_indexes]
             vectors = (
                 self._mert_vectors(direct_items)
-                if self.model == "mert"
+                if self.model in {"mert", "mert_v2"}
                 else self._embed_decoded_items(_decoded_items(direct_items))
             )
             if len(vectors) != len(direct_items):
@@ -547,7 +548,7 @@ def default_model_runners(
             top_k=top_k,
             inference_batch_size=inference_batch_size,
         )
-    if model in {"mert", "muq", "mulan", "clap"}:
+    if model in {"mert", "mert_v2", "muq", "mulan", "clap"}:
         return EmbeddingModelRunner(
             model,
             device=device,

@@ -365,6 +365,7 @@ def _outputs_for_family(
         "sonara": ("core",),
         "maest": ("analysis", "embedding"),
         "mert": ("embedding",),
+        "mert_v2": ("embedding",),
         "muq": ("embedding",),
         "mulan": ("embedding",),
         "clap": ("embedding",),

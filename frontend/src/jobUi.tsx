@@ -1,8 +1,8 @@
 import { AnalysisJobStatus, AnalysisModel, api, DatabaseOptimizationJobStatus, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import { analysisModelDisplayLabel, audioAnalysisModelOrder } from "./analysisSelection";
 import { basename, formatEta } from "./trackDisplay";
 
 const ACTIVE_JOB_STATES = ["queued", "running"] as const;
-const AUDIO_MODELS: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
 const MAX_LOG_EVENTS = 200;
 const MAX_VALIDATION_FAILURES_SHOWN = 10;
 const SECONDS_TO_MS = 1000;
@@ -325,9 +325,9 @@ function analysisRuntimeLabel(job: AnalysisJobStatus) {
     return "SONARA";
   }
   if (job.adapter_name === "multi" || job.models?.length) {
-    const audioModels = job.models?.map((model) => model.toUpperCase()).join(", ");
+    const audioModels = job.models?.map(analysisModelDisplayLabel).join(", ");
     const models = audioModels || "selected models";
-    const current = job.current_model ? `now ${job.current_model.toUpperCase()}` : models;
+    const current = job.current_model ? `now ${analysisModelDisplayLabel(job.current_model)}` : models;
     return `${current} · ${job.device || `${job.device_requested} pending`}`;
   }
   const model = job.model_name || job.adapter_name;
@@ -346,7 +346,7 @@ function AnalysisWarmupStatus({ job }: { job: AnalysisJobStatus }) {
       <progress max={models.length || 1} value={warmed} />
       <div className="process-grid">
         <span>{warmed}/{models.length}</span>
-        {job.current_model ? <span>{job.current_model.toUpperCase()}</span> : null}
+        {job.current_model ? <span>{analysisModelDisplayLabel(job.current_model)}</span> : null}
         <span>{job.device || `${job.device_requested} pending`}</span>
       </div>
       <span className="analysis-muted">Загрузка моделей в память. Декодирование треков еще не начато.</span>
@@ -398,12 +398,12 @@ type ProgressRow = { key: string; label: string; item: ProgressItem };
 
 function ModelProgress({ job }: { job: AnalysisJobStatus }) {
   const progress = job.model_progress;
-  const audioRows: ProgressRow[] = AUDIO_MODELS.flatMap((model) => {
+  const audioRows: ProgressRow[] = audioAnalysisModelOrder.flatMap((model) => {
     const item = progress?.[model];
-    return item ? [{ key: model, label: model.toUpperCase(), item }] : [];
+    return item ? [{ key: model, label: analysisModelDisplayLabel(model), item }] : [];
   });
   const classifierRows: ProgressRow[] = Object.keys(progress || {})
-    .filter((model) => !AUDIO_MODELS.includes(model as AnalysisModel))
+    .filter((model) => !audioAnalysisModelOrder.includes(model as AnalysisModel))
     .flatMap((model) => {
       const item = progress?.[model];
       return item ? [{ key: model, label: model.toUpperCase(), item }] : [];

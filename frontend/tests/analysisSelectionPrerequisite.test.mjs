@@ -21,13 +21,12 @@ async function loadAnalysisSelection() {
 }
 
 test("ML requires existing SONARA unless SONARA is selected", async () => {
-  const { analysisStartBlockedByMissingSonara } = await loadAnalysisSelection();
+  const { analysisStartBlockedByMissingSonara, mlAnalysisModelOrder } = await loadAnalysisSelection();
 
-  assert.equal(analysisStartBlockedByMissingSonara(["mert"], 0), true);
-  assert.equal(
-    analysisStartBlockedByMissingSonara(["sonara", "maest"], 0),
-    false,
-  );
-  assert.equal(analysisStartBlockedByMissingSonara(["mert"], 1), false);
+  for (const model of mlAnalysisModelOrder) {
+    assert.equal(analysisStartBlockedByMissingSonara([model], 0), true);
+    assert.equal(analysisStartBlockedByMissingSonara(["sonara", model], 0), false);
+    assert.equal(analysisStartBlockedByMissingSonara([model], 1), false);
+  }
   assert.equal(analysisStartBlockedByMissingSonara(["sonara"], 0), false);
 });

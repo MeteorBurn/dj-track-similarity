@@ -46,7 +46,7 @@ def _parse_analysis_models(value: str) -> list[str]:
 def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
-    models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated ML models, or SONARA alone: maest,mert,muq,mulan,clap | sonara."),
+    models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated ML models, or SONARA alone: maest,mert,mert_v2,muq,mulan,clap | sonara."),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Embedding device: auto, cpu, or cuda."),
     top_k: int = typer.Option(
         DEFAULT_ANALYSIS_TOP_K,

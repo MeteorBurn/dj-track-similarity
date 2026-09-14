@@ -356,6 +356,7 @@ test("liked mutation serializes the exact optimistic track identity", async () =
       maest_analysis: true,
       maest_embedding: true,
       mert: true,
+      mert_v2: false,
       muq: true,
       clap: true
     },
@@ -371,7 +372,7 @@ test("liked mutation serializes the exact optimistic track identity", async () =
   });
 });
 
-test("MuQ search and resets serialize only current field names", async () => {
+test("MuQ search and analysis resets serialize current family identities", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
@@ -387,6 +388,7 @@ test("MuQ search and resets serialize only current field names", async () => {
     noise: 0
   });
   await api.resetAnalysis("muq");
+  await api.resetAnalysis("mert_v2");
   await api.resetClassifier("voice_presence");
 
   assert.equal(calls[0].path, "/api/search");
@@ -400,8 +402,10 @@ test("MuQ search and resets serialize only current field names", async () => {
   });
   assert.equal(calls[1].path, "/api/analysis/reset");
   assert.deepEqual(JSON.parse(calls[1].options.body), { analysis_family: "muq" });
-  assert.equal(calls[2].path, "/api/classifiers/reset");
-  assert.deepEqual(JSON.parse(calls[2].options.body), {
+  assert.equal(calls[2].path, "/api/analysis/reset");
+  assert.deepEqual(JSON.parse(calls[2].options.body), { analysis_family: "mert_v2" });
+  assert.equal(calls[3].path, "/api/classifiers/reset");
+  assert.deepEqual(JSON.parse(calls[3].options.body), {
     classifier_key: "voice_presence"
   });
 });

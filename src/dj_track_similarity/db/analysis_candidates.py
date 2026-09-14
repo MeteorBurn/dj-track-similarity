@@ -21,6 +21,7 @@ _TABLE_BY_OUTPUT = {
     ("maest", "analysis"): "maest_genres",
     ("maest", "embedding"): "maest_embeddings",
     ("mert", "embedding"): "mert_embeddings",
+    ("mert_v2", "embedding"): "mert_v2_embeddings",
     ("muq", "embedding"): "muq_embeddings",
     ("mulan", "embedding"): "mulan_embeddings",
     ("clap", "embedding"): "clap_embeddings",

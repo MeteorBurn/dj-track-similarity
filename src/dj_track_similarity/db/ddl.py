@@ -257,6 +257,18 @@ CREATE TABLE mert_embeddings (
 CREATE INDEX idx_mert_embeddings_track_uuid ON mert_embeddings(track_uuid);
 """
 
+_DDL_MERT_V2_EMBEDDINGS = """
+CREATE TABLE mert_v2_embeddings (
+    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid         TEXT    NOT NULL,
+    dim                INTEGER NOT NULL CHECK(dim > 0),
+    normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
+    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
+    analyzed_at        TEXT    NOT NULL
+);
+CREATE INDEX idx_mert_v2_embeddings_track_uuid ON mert_v2_embeddings(track_uuid);
+"""
+
 _DDL_MUQ_EMBEDDINGS = """
 CREATE TABLE muq_embeddings (
     track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
@@ -405,6 +417,7 @@ _ALL_DDL: list[str] = [
     _DDL_MAEST_GENRES,
     _DDL_MAEST_EMBEDDINGS,
     _DDL_MERT_EMBEDDINGS,
+    _DDL_MERT_V2_EMBEDDINGS,
     _DDL_MUQ_EMBEDDINGS,
     _DDL_MULAN_EMBEDDINGS,
     _DDL_CLAP_EMBEDDINGS,

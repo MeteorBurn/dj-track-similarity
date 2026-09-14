@@ -15,14 +15,11 @@ def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() 
     assert normalize_analysis_models(["CLAP", "muq", "mert", "clap"]) == ("mert", "muq", "clap")
 
 
-def test_default_ml_models_include_mulan_in_canonical_order() -> None:
-    assert normalize_analysis_models(None) == (
-        "maest",
-        "mert",
-        "muq",
-        "mulan",
-        "clap",
-    )
+def test_default_analysis_models_can_run_together_as_ml() -> None:
+    defaults = normalize_analysis_models(None)
+    assert defaults
+    assert "sonara" not in defaults
+    assert build_analysis_job_config(models=defaults).require_current_sonara
 
 
 def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:

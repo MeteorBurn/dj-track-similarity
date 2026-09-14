@@ -3088,6 +3088,10 @@ h2 {
   gap: 6px;
 }
 
+.seed-strip:not(:empty) {
+  margin-bottom: 14px;
+}
+
 .search-tabs {
   display: grid;
   gap: 6px;
@@ -4349,16 +4353,34 @@ h2 {
   color: var(--text-muted);
 }
 
-.seed-remove-chip {
-  background: var(--warning-soft-bg);
-  border-color: var(--warning-soft-border);
-  border-radius: 999px;
+.seed-strip .seed-remove-chip {
+  background: var(--blue-bg);
+  border-color: var(--blue-border);
+  border-radius: var(--workbench-radius);
+  color: var(--blue-text);
   font-size: 11px;
-  gap: 4px;
+  gap: 6px;
   line-height: 1.15;
   max-width: 100%;
-  min-height: 0;
-  padding: 2px 6px;
+  min-height: 28px;
+  min-width: 0;
+  padding: 5px 8px;
+}
+
+.seed-strip .seed-remove-chip:hover:not(:disabled) {
+  background: var(--blue-bg-hover);
+  border-color: var(--blue-border-hover);
+  color: var(--blue-text-hover);
+}
+
+.seed-strip .seed-remove-chip svg {
+  flex-shrink: 0;
+}
+
+.seed-strip .seed-remove-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .search-filter-grid {
@@ -4371,7 +4393,7 @@ h2 {
 
 .search-workflow-section .similarity-search-controls {
   align-items: end;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(50px, 0.45fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(64px, 0.45fr);
   margin: 0;
   max-width: 420px;
 }
@@ -4423,6 +4445,10 @@ h2 {
   font-size: 12px;
   gap: 4px;
   min-width: 0;
+}
+
+.search-filter-grid .search-limit-control {
+  font-weight: 600;
 }
 
 .search-filter-grid .toggle {
@@ -5846,11 +5872,11 @@ button.dedup-play-button {
     column-gap: 6px;
   }
 
-  .similarity-search-controls :is(select, input, button) {
+  .similarity-search-controls :is(select, button) {
     font-size: var(--font-size-compact-selector);
   }
 
-  .similarity-search-controls :is(select, input) {
+  .similarity-search-controls select {
     padding-inline: 6px;
   }
 }

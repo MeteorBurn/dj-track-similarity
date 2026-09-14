@@ -509,7 +509,7 @@ export function App() {
   function refreshClassifierProfilesInBackground() {
     void refreshClassifierProfiles().catch((error) => {
       const message = errorText(error);
-      appendActivity("warn", "Не удалось обновить CLASS profiles", message);
+      appendActivity("warn", "Не удалось обновить CLASSIFIER profiles", message);
     });
   }
 

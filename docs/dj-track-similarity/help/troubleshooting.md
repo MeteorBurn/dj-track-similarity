@@ -108,7 +108,7 @@ supported install.
 Scoring is incremental. The candidate query skips every track that already holds a row for that
 classifier key, so a job started after a retrain finds zero work and completes.
 
-Reset that classifier's scores first, then run scoring. The CLASS tab pairs a reset button with a
+Reset that classifier's scores first, then run scoring. The CLASSIFIER tab pairs a reset button with a
 play button on each profile for exactly this.
 
 A related trap: resetting SONARA does not delete classifier scores. They survive and go stale

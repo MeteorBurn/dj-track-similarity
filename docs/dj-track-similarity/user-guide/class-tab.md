@@ -1,4 +1,4 @@
-# Classifier scores and the CLASS tab
+# Classifier scores and the CLASSIFIER tab
 
 Use a classifier when you keep making the same personal judgment and ordinary tags do not capture
 it. Examples include a profile you define for vocal-forward versus mostly instrumental tracks, or
@@ -12,7 +12,7 @@ important tracks.
 For a one-off sound idea, use seed or text search instead. A classifier is most useful when the same
 question will return across many sessions.
 
-The `CLASS` tab is the fourth of the four tabs in panel 3, search and listening. Most of its text is
+The `CLASSIFIER` tab is the fourth of the four tabs in panel 3, search and listening. Most of its text is
 English on screen. The full label mapping is in [UI language](../help/ui-language.md).
 
 ## What you get in the main app
@@ -20,9 +20,9 @@ English on screen. The full label mapping is in [UI language](../help/ui-languag
 1. You create and label a profile in Rhythm Lab.
 2. Training produces candidate artifacts that you review and promote.
 3. The main app scores compatible tracks for that promoted profile.
-4. The `CLASS` tab filters the library by the stored score.
+4. The `CLASSIFIER` tab filters the library by the stored score.
 
-The `CLASS` tab is not a search surface. It has no `Limit` and no seed. Its sliders add minimum-score
+The `CLASSIFIER` tab is not a search surface. It has no `Limit` and no seed. Its sliders add minimum-score
 conditions to the library query in panel 2, library and listening, so the filtered result appears in
 the track list rather than in a result column.
 

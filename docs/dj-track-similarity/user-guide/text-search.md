@@ -355,7 +355,7 @@ Do not compare CLAP or MuQ-MuLan text scores directly with:
 
 - MERT seed-search similarity,
 - Audio Dedup `min_similarity`,
-- classifier probabilities from the `CLASS` tab.
+- classifier probabilities from the `CLASSIFIER` tab.
 
 Those are different scoring surfaces. A CLAP text score and a CLAP audio-to-audio score come from
 the same stored table and still answer different questions, because one is `prompt · audio` and the

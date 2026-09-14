@@ -112,7 +112,7 @@ export function SimilaritySearchTab({
           <Shuffle size={15} />
           <span>Add Random Track</span>
         </button>
-        <label title={helpText.limit}>
+        <label className="search-limit-control" title={helpText.limit}>
           Limit
           <input
             type="number"

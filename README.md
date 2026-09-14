@@ -114,7 +114,7 @@ The current application already supports the practical parts of that vision:
 - Search from text prompts with CLAP or MuQ-MuLan after audio embeddings for the selected family exist.
 - Compare text models side by side, save query-specific feedback, and optionally use it to refine later searches.
 - Launch Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
-- Read promoted Rhythm Lab classifier scores for CLASS filtering.
+- Read promoted Rhythm Lab classifier scores for CLASSIFIER filtering.
 - Run optional Evaluation API and CLI workflows for feedback, profiles, calibration, and transition diagnostics.
 - Export the current set as M3U or CSV.
 - Run report-first helper tools for Audio Doctor, Audio Dedup, and database optimization.
@@ -126,7 +126,7 @@ does not rewrite an incompatible legacy layout. After stopping every database us
 Core/Artifacts pair explicitly with `uv run --no-sync dj-sim migrate-database --db ./database/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`; it creates a timestamped backup, verifies the staged one-file database,
 and does not start analysis or reanalysis.
 
-The React frontend consumes the current database, track, analysis, search, Current Set, CLASS, LAB,
+The React frontend consumes the current database, track, analysis, search, Current Set, CLASSIFIER, LAB,
 Rhythm Lab, Audio Dedup, metadata, media, and exact-identity mutation responses. Large-library loading
 uses fixed server-side pages of up to `200` tracks with previous, next, and page-number navigation.
 
@@ -159,7 +159,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
       |                         ^
       +---- SONARA native -------+
       +---- TorchCodec -> ML -----+
-      +---- stored inputs -> classifiers -> CLASS scores
+      +---- stored inputs -> classifiers -> CLASSIFIER scores
 ```
 
 The app keeps evidence sources separate:
@@ -291,7 +291,7 @@ The normal loop is:
 2. Train and review benchmark output for the active profile.
 3. Promote one trained artifact into `models/classifiers/<profile>/`.
 4. Run classifier scoring in the main library database.
-5. Use the promoted scores as CLASS filters.
+5. Use the promoted scores as CLASSIFIER filters.
 
 Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/MuQ/MuQ-MuLan/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
 
@@ -313,7 +313,7 @@ The default Rhythm Lab state is the single stable database at
 `tools/rhythm-lab/database/rhythm_lab.sqlite`. Launching Rhythm Lab from the main app binds that Lab
 database to the currently selected library database.
 
-See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
+See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASSIFIER tab](docs/dj-track-similarity/user-guide/class-tab.md).
 
 ## 🚀 Quick start
 
@@ -585,7 +585,7 @@ In the CLI, omit `--limit` to analyze the whole library.
 ## 🖥️ Frontend status
 
 The React source uses the current backend responses. Its main search tabs are LAB, SIMILARITY,
-PROMPT, and CLASS. The SIMILARITY model selector starts with SONARA, whose search uses a manual
+PROMPT, and CLASSIFIER. The SIMILARITY model selector starts with SONARA, whose search uses a manual
 mixer and nine directional modifiers. It also searches separate MAEST, MERT, MuQ, and MuQ-MuLan
 embedding spaces. Search results provide individual current-set actions, and the shared
 Current Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.

@@ -23,7 +23,7 @@ and a value from one says nothing about a value from another.
 | Audio Dedup `min_similarity` | Audio Dedup embedding mode | content gate over MERT, MAEST, MuQ, and CLAP vectors |
 | `fingerprint_similarity` | Audio Dedup reports | native SONARA acoustic fingerprint agreement, `0` to `1` |
 | Transition risk | Evaluation transition diagnostics | weighted mean of mix-risk components |
-| Classifier probability | CLASS filters | probability of a promoted classifier's positive label |
+| Classifier probability | CLASSIFIER filters | probability of a promoted classifier's positive label |
 
 A threshold tuned on one of these is meaningless on another. The `0.45` fingerprint floor in Audio
 Dedup and the `0.45` low-confidence tempo cutoff in SONARA share a number and nothing else.

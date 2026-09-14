@@ -23,7 +23,7 @@ something.
 | You can describe the sound without naming a track | PROMPT tab, CLAP or MuQ-MuLan | A shortlist matched to an audible description |
 | You have useful candidates to collect | Current Set | An editable working list for preview and export |
 | You want a broad pool for later listening | Filters, seeds, or text search | A crate that you can export as CSV or M3U |
-| You repeatedly judge tracks by a personal idea | Rhythm Lab classifier | A reusable per-track score for CLASS filtering |
+| You repeatedly judge tracks by a personal idea | Rhythm Lab classifier | A reusable per-track score for CLASSIFIER filtering |
 | You want to compare how each model ranks one reference | LAB tab | Six model groups side by side for one seed |
 | You suspect duplicate files | Audio Dedup | A report you review before anything is deleted |
 | You want online metadata for a track list | Audio Online | One XLSX with a column block per provider |

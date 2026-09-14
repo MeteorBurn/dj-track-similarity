@@ -15,7 +15,7 @@ The interface keeps these tokens in English, so the documentation and the screen
 without translation:
 
 - model and family names: `SONARA`, `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`, `CLAP`
-- tab labels: `LAB`, `SIMILARITY`, `PROMPT`, `CLASS`
+- tab labels: `LAB`, `SIMILARITY`, `PROMPT`, `CLASSIFIER`
 - analysis mode buttons: `Direct`, `Staged`
 - numeric field labels: `Limit`, `Mode`, `Model`, `Device`, `Track batch`, `Inference batch`,
   `BatchSize`, `StageSize`, `Processes`, `Threads`, `Workers`
@@ -202,7 +202,7 @@ The library search box uses the English placeholder `path, title, artist, genre`
 
 ## Panel 3, search and listening
 
-The four tabs render in this order: `LAB`, `SIMILARITY`, `PROMPT`, `CLASS`. The internal
+The four tabs render in this order: `LAB`, `SIMILARITY`, `PROMPT`, `CLASSIFIER`. The internal
 key for `PROMPT` is still `text`, so the API path stays `/api/search/text`.
 
 | Russian | English meaning | Where |
@@ -215,7 +215,7 @@ key for `PROMPT` is still `text`, so the API path stays `/api/search/text`.
 | `Найти похожие треки через SONARA по выбранным seed-трекам` | Find similar tracks with SONARA from the chosen seeds | SIMILARITY search button with SONARA selected |
 | `Найти треки через <model> по текстовому описанию звучания.` | Find tracks with that model from a written sound description | PROMPT search button when embeddings exist |
 | `Запустите анализ <model> для библиотеки, затем повторите текстовый поиск.` | Run that model over the library, then search again | PROMPT search button with no stored embeddings |
-| `Удалить рассчитанные данные <profile>` | Delete the calculated data for that profile | CLASS reset button |
+| `Удалить рассчитанные данные <profile>` | Delete the calculated data for that profile | CLASSIFIER reset button |
 
 The SIMILARITY tab uses English labels for `Add Random Track`, `Model`, `Limit`, and the model
 options `SONARA`, `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`. Model descriptions and hover help are Russian.

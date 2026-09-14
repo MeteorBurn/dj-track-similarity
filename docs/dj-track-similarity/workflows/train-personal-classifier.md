@@ -24,12 +24,12 @@ narrow score.
 ## What the finished workflow produces
 
 ```text
-your labels -> trained candidate -> promoted profile -> per-track scores -> CLASS
+your labels -> trained candidate -> promoted profile -> per-track scores -> CLASSIFIER
 ```
 
 The final score is not a tag written into the audio and not an objective truth. It is a reusable
 ranking signal for one profile. The score can filter the library through the
-[CLASS tab](../user-guide/class-tab.md).
+[CLASSIFIER tab](../user-guide/class-tab.md).
 
 Rhythm Lab is the classifier workspace. It uses the main SQLite library as source context and keeps
 labels, predictions, queues, and checkpoints in its own labels database. The only write it makes
@@ -228,7 +228,7 @@ dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
 The payload field is `classifier_key`, singular, and the contract rejects unknown fields. The play
-button on a `CLASS` row does both steps in one press, which is the reason it is labelled
+button on a `CLASSIFIER` row does both steps in one press, which is the reason it is labelled
 `Reset and rescore all <name> classifier results`.
 
 After a SONARA feature revision, dependent main-library scores and Rhythm Lab predictions are

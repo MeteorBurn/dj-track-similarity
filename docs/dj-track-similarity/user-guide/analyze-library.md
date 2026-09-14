@@ -25,7 +25,7 @@ Each row shows a checkbox, the model name in capitals, a Russian one-line descri
 analyzed count, and a trash icon titled **Reset `<MODEL>`**.
 
 Only these six checkboxes, plus DATABASE, form the selection, and exactly one of the three groups is
-checked at a time. Classifier scoring is started from the [CLASS tab](./class-tab.md) or the CLI, and
+checked at a time. Classifier scoring is started from the [CLASSIFIER tab](./class-tab.md) or the CLI, and
 it is not a checkbox here. One **Start** press runs the checked group; for SONARA and ML models that
 means the fixed order SONARA, then ML, which its tooltip states as running the checked models in
 SONARA then ML order.
@@ -184,7 +184,7 @@ Resets affect SQLite data only and do not start a new job. A normal SONARA rerun
 track when any current Core, embedding, or fingerprint row is missing and stores all three rows
 together. Tracks with all three rows remain skipped.
 
-Classifier scores have their own reset in the [CLASS tab](./class-tab.md), scoped to one
+Classifier scores have their own reset in the [CLASSIFIER tab](./class-tab.md), scoped to one
 `classifier_key`. Retrain and promote a classifier only when its ordered feature recipe changed. See
 [Reanalyze SONARA data](../workflows/reanalyze-sonara-split-storage.md).
 

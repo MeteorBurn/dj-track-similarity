@@ -21,7 +21,7 @@ below.
 | Describe a desired sound in words | CLAP or MuQ-MuLan | Text-search candidates |
 | Compare several model views or inspect duplicates | SONARA, MAEST, MERT, MuQ, MuQ-MuLan, CLAP | Feature-complete candidates for the available workflows |
 | Compare another model's neighbors in LAB | MuQ or MuQ-MuLan | A separate result column in Reference Compare |
-| Reuse your own labeled concept | Classifier scoring | Stored scores for CLASS filters |
+| Reuse your own labeled concept | Classifier scoring | Stored scores for CLASSIFIER filters |
 
 For a first experiment, analyze 25 familiar tracks. Try the resulting searches before choosing
 which families deserve a full-library run.
@@ -50,7 +50,7 @@ DATABASE stage card that loads tracks first.
 | MuQ-MuLan | a 512D L2-normalized row in `mulan_embeddings` | seed search, text-to-track retrieval, one of the six separate LAB Reference Compare groups, and classifier input |
 | CLAP | a row in `clap_embeddings` | seed search from the API, text search, LAB Reference Compare, Audio Dedup, classifier input |
 
-Classifier scoring is a separate stage started from the `CLASS` tab or the CLI, not from panel 1.
+Classifier scoring is a separate stage started from the `CLASSIFIER` tab or the CLI, not from panel 1.
 Each promoted manifest defines its exact SONARA and MAEST/MERT/MuQ/MuQ-MuLan/CLAP requirements.
 Tracks missing any required input are excluded from the candidate query before the job total is
 formed, so they are neither counted nor failed.
@@ -298,7 +298,7 @@ untouched and the other algorithms remain.
 | MERT, MuQ, MuQ-MuLan, CLAP | embeddings for that family | everything else |
 
 Resetting SONARA deletes Core rows only. Classifier scores survive, because classifier scoring is a
-separate stage with its own reset in the `CLASS` tab. The SONARA embedding and fingerprint rows
+separate stage with its own reset in the `CLASSIFIER` tab. The SONARA embedding and fingerprint rows
 survive too, and the next normal SONARA run sees Core missing and rewrites all three outputs
 together.
 

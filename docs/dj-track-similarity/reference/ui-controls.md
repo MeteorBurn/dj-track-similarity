@@ -2,7 +2,7 @@
 
 The interface mixes Russian and English labels. Every control below is named in English, whichever
 way its label reads on screen. Technical tokens are already English there: model names, `LAB`,
-`SIMILARITY`, `PROMPT`, `CLASS`, and field labels such as `Limit`, `Model`, `Device`, and `BatchSize`.
+`SIMILARITY`, `PROMPT`, `CLASSIFIER`, and field labels such as `Limit`, `Model`, `Device`, and `BatchSize`.
 The complete label mapping lives in the [UI language glossary](../help/ui-language.md).
 
 The browser works with one library database. The database picker selects the library SQLite file.
@@ -289,7 +289,7 @@ deduplicated by `catalog_uuid` plus `track_uuid`.
 The search and listening panel. A seed chip strip sits above a four-tab strip. Use `ArrowLeft` and
 `ArrowRight` to move between tabs. `Home` and `End` jump to the first and last tab.
 
-The tabs render as `LAB`, `SIMILARITY`, `PROMPT`, and `CLASS`, in that order. The internal
+The tabs render as `LAB`, `SIMILARITY`, `PROMPT`, and `CLASSIFIER`, in that order. The internal
 key for the PROMPT tab is still `text`.
 
 ### LAB
@@ -348,7 +348,7 @@ Result rows in this tab add a positive and a negative score chip, plus two feedb
 thumbs-up **On point** and a thumbs-down **Off target**. Each writes one verdict per selected
 preset, and clicking the same button again withdraws it.
 
-### CLASS
+### CLASSIFIER
 
 The tab filters the library by stored classifier scores. A summary line reads
 `available N · blocked N`. Each promoted profile shows a fact row with Status, Type, Models,

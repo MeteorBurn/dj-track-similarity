@@ -20,7 +20,7 @@ Panel 1, database and analysis, carries every maintenance action the browser has
 validation job runs at a time. Run it after a crash or a manual file move, and before a backup.
 
 Per-family analysis resets live on the model rows in the same panel, and classifier score resets
-live in the [CLASS tab](../user-guide/class-tab.md).
+live in the [CLASSIFIER tab](../user-guide/class-tab.md).
 
 ## Routine
 

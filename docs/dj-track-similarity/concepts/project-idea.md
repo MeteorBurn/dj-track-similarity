@@ -61,7 +61,7 @@ the set-dramaturgy framing above is the goal rather than the feature list.
 - Seed search over MAEST, MERT, MuQ, and MuQ-MuLan in the SIMILARITY tab.
 - Text search over CLAP or MuQ-MuLan in the PROMPT tab, with a preset picker and relevance verdicts.
 - LAB Reference Compare across six model families, with listening verdicts.
-- CLASS filters over promoted classifier scores, with per-key reset and rescore.
+- CLASSIFIER filters over promoted classifier scores, with per-key reset and rescore.
 - A browser-local current set, Rhythm Lab collection transfer, and M3U or CSV export.
 - Audio Dedup search, review, and deletion.
 

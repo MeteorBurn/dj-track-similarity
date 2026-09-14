@@ -42,7 +42,7 @@ failure.
 | MuQ | shared ML decode, resampled to 24 kHz `float32` | a 1024D L2-normalized row in `muq_embeddings` | seed search, LAB Reference Compare, Audio Dedup signal, classifier input |
 | MuQ-MuLan | shared ML decode, resampled to 24 kHz `float32` in 10-second windows | a separate 512D L2-normalized row in `mulan_embeddings` | MuQ-MuLan seed search, text-to-track retrieval, one of the six LAB Reference Compare groups, classifier input |
 | CLAP | shared ML decode, resampled to 48 kHz in 10-second windows | a 512D L2-normalized row in `clap_embeddings` | text-to-track retrieval, API and LAB seed search, Audio Dedup signal, classifier input |
-| Classifiers | the exact stored inputs each promoted manifest names | rows in `classifier_scores`, scoped by classifier key | CLASS filters |
+| Classifiers | the exact stored inputs each promoted manifest names | rows in `classifier_scores`, scoped by classifier key | CLASSIFIER filters |
 
 The browser SIMILARITY tab offers MAEST, MERT, MuQ, and MuQ-MuLan. CLAP seed search is reachable
 from `POST /api/search` and from the LAB tab.

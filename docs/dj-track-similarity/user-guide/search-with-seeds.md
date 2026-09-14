@@ -14,7 +14,7 @@ English on screen. The full mapping to the on-screen strings is in
 ## Where seed search lives
 
 Panel 3, search and listening, opens with a removable seed chip strip, then a four-tab strip. Tabs
-are ordered `LAB`, `SIMILARITY`, `PROMPT`, `CLASS`, and the panel opens on `SIMILARITY` with SONARA
+are ordered `LAB`, `SIMILARITY`, `PROMPT`, `CLASSIFIER`, and the panel opens on `SIMILARITY` with SONARA
 selected. Arrow keys, `Home`, and `End` move between tabs.
 
 Two of those tabs take seeds:

@@ -62,7 +62,7 @@ export type SearchHelpText = {
 const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
   similarity: { label: "SIMILARITY", title: "Seed similarity search (SONARA, MAEST, MERT, MuQ, MuQ-MuLan)" },
   text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
-  class: { label: "CLASS", title: "Classifier controls" },
+  class: { label: "CLASSIFIER", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }
 };
 
@@ -362,9 +362,17 @@ export function SearchPlaylistPanel({
         </div>
         <div className="seed-strip">
           {seedTracks.map((track) => (
-            <button className="seed-remove-chip" key={track.track_id} title={`Убрать seed: ${displayTrack(track)}`} onClick={() => removeSeed(track.track_id)} type="button">
-              {displayTrack(track)}
-              <X size={12} />
+            <button
+              className="seed-remove-chip"
+              key={track.track_id}
+              title={`Убрать seed: ${displayTrack(track)}`}
+              aria-label={`Убрать seed: ${displayTrack(track)}`}
+              onClick={() => removeSeed(track.track_id)}
+              type="button"
+            >
+              <Search size={12} aria-hidden="true" />
+              <span className="seed-remove-chip-label">{displayTrack(track)}</span>
+              <X size={12} aria-hidden="true" />
             </button>
           ))}
         </div>

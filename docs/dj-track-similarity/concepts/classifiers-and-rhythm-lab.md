@@ -123,6 +123,6 @@ The static Rhythm Lab UI shows current/missing/stale state for every source and 
 **Training recipe** selector for any supported source combination. Use
 `benchmark-ablation` with explicit `--feature-set` values when you need a repeatable CLI matrix.
 
-The main frontend lists promoted profiles in CLASS and serializes minimum-score filters. It also
+The main frontend lists promoted profiles in CLASSIFIER and serializes minimum-score filters. It also
 exposes per-profile reset plus rescore, while missing scores do not satisfy that profile's filter.
 Malformed manifests stay visible but block scoring with a clear status.

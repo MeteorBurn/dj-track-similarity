@@ -58,7 +58,7 @@ Shuffle and sort direction act on the rows already loaded on the current page. N
 server query or reaches other pages. Both are disabled while fewer than two rows are loaded.
 
 Promoted classifiers add minimum-score filters to the same library query. They are configured in the
-[CLASS tab](./class-tab.md).
+[CLASSIFIER tab](./class-tab.md).
 
 The API caps each request at `1..500`. The UI keeps rows light and opens full metadata only on
 demand.

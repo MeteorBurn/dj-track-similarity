@@ -62,7 +62,7 @@ reused.
 ## Can I use the browser UI with a compatible database?
 
 Yes. Build the current frontend bundle and serve it with the current backend. Database selection,
-library paging, analysis, search, Current Set, CLASS, LAB, Rhythm Lab launch, metadata, preview, and
+library paging, analysis, search, Current Set, CLASSIFIER, LAB, Rhythm Lab launch, metadata, preview, and
 exact-identity writes all use the current typed responses.
 
 Library loading is one fixed page of up to 200 tracks per request, with previous, next, and

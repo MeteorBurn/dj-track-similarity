@@ -14,7 +14,7 @@ test("server shutdown button uses the destructive intent color", () => {
   assert.match(shutdownRule, /color:\s*var\(--danger-text\)/);
 });
 
-test("class tab exposes per-classifier missing-score analysis controls", () => {
+test("CLASSIFIER tab exposes per-classifier missing-score analysis controls", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const librarySource = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
@@ -95,7 +95,7 @@ test("destructive actions use the in-app confirmation dialog", () => {
   assert.match(dialogSource, />Нет</);
 });
 
-test("class search tab shows classifier threshold and scoped analysis controls", () => {
+test("CLASSIFIER tab shows classifier threshold and scoped analysis controls", () => {
   const source = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const classPanel = source.match(/\{activeSearchTab === "class" && \(([\s\S]*?)\n        \)\}/)?.[1] || "";
 
@@ -264,19 +264,4 @@ test("database validation is disabled until the library has tracks", () => {
   const validationButton = source.match(/<button className="icon-button database-validation-button"[\s\S]*?<\/button>/)?.[0] || "";
 
   assert.match(validationButton, /disabled=\{stagesDisabled \|\| !hasTracks\}/);
-});
-
-test("seed chips use compact pill sizing and a compact removal icon", () => {
-  const source = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
-  const chipRule = styles.match(/\.seed-remove-chip\s*{([\s\S]*?)}/)?.[1] || "";
-  const seedChip = source.match(/<button className="seed-remove-chip"[\s\S]*?<\/button>/)?.[0] || "";
-
-  assert.match(chipRule, /border-radius:\s*999px;/);
-  assert.match(chipRule, /font-size:\s*11px;/);
-  assert.match(chipRule, /line-height:\s*1\.15;/);
-  assert.match(chipRule, /padding:\s*2px 6px;/);
-  assert.match(chipRule, /min-height:\s*0;/);
-  assert.match(chipRule, /gap:\s*4px;/);
-  assert.match(seedChip, /<X size=\{12\} \/>/);
 });

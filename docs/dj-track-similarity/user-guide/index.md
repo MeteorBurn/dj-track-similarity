@@ -20,7 +20,7 @@ and most field labels are English. Every page in this section names controls in 
 | A track that points in the right direction | `SIMILARITY` | Nearby candidates ranked around the seed |
 | A sound you can describe in words | `PROMPT` | A text-matched listening shortlist |
 | One reference and no idea which model hears it best | `LAB` | Six model columns for the same seed |
-| A recurring personal judgment | `CLASS` and Rhythm Lab | A reusable score for filtering the library |
+| A recurring personal judgment | `CLASSIFIER` and Rhythm Lab | A reusable score for filtering the library |
 | Useful candidates from several searches | **Set and export** | An editable working list for preview and export |
 
 You can move tracks between these surfaces without committing to a final playlist. Search results
@@ -32,7 +32,7 @@ and the current set remain local UI state until you explicitly add or export tra
 - [Analyze library](./analyze-library.md): stage selection, Direct and Staged modes, progress, cancellation, and reset.
 - [Search with seed tracks](./search-with-seeds.md): the `SIMILARITY` and `LAB` tabs.
 - [Text search](./text-search.md): the `PROMPT` tab, prompt banks, negatives, presets, and score scale.
-- [CLASS tab](./class-tab.md): use a personal learned concept as a library filter.
+- [CLASSIFIER tab](./class-tab.md): use a personal learned concept as a library filter.
 - [Export playlists](./export-playlists.md): M3U, CSV, output folder, and Rhythm Lab collections.
 - [Tags and audio writes](./tags-and-audio-writes.md): the exact workflows that can touch audio files.
 

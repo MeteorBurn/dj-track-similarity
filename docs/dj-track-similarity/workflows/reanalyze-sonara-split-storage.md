@@ -82,7 +82,7 @@ dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 
 The reset is required. Classifier scoring is incremental: its candidate query excludes every track
 that already has a row for that key, so rescoring without a reset finds zero work and leaves the
-stale scores in place. The play button on a `CLASS` row does both steps in one press.
+stale scores in place. The play button on a `CLASSIFIER` row does both steps in one press.
 
 Classifier scoring reads stored inputs and writes database scores. It does not decode or modify
 source audio.

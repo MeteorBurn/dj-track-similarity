@@ -20,3 +20,39 @@
 # Guard against an accidental root-level Firecrawl cache. Research output belongs
 # under .workspace/tools/firecrawl/, already excluded with the workspace.
 .firecrawl/
+
+# Code-only graph. The documentation site is no longer maintained.
+docs/dj-track-similarity/
+
+# Documents and media are outside the code corpus.
+*.md
+*.mdx
+*.qmd
+*.rst
+*.skill
+*.txt
+*.html
+*.yaml
+*.yml
+*.pdf
+*.docx
+*.xlsx
+*.gdoc
+*.gsheet
+*.gslides
+*.gif
+*.jpeg
+*.jpg
+*.png
+*.svg
+*.webp
+*.avi
+*.m4a
+*.m4v
+*.mkv
+*.mov
+*.mp3
+*.mp4
+*.ogg
+*.wav
+*.webm

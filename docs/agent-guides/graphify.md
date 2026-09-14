@@ -11,7 +11,8 @@ are relative to this file. These guides are read by task, not imported as a batc
 ## GRAPHIFY
 
 `graphify-out/graph.json` assists navigation over product source, tests, tools,
-scripts, and documentation. Read cited `source_file`/`source_location`; graph
+and scripts, with code-related Q&A from Graphify's work-memory loop. Project
+documentation and media are excluded. Read cited `source_file`/`source_location`; graph
 edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
 `AGENTS.md` routes code work through this guide and the plugin skill. Claude's
 upstream PreToolUse guards add query-first reminders. Codex's upstream
@@ -60,10 +61,11 @@ Follow `.djts/skills/graphify/references/query.md` with these project rules:
    use `explain`, or increase `--budget`. Disambiguate repeated labels with the
    exact node ID in `graph.json`. Open the named source
    before drawing conclusions.
-5. When explicitly maintaining graph memory, use `save-result` with the expanded
-   tokens, cited labels, and `--outcome useful|dead_end|corrected`; for a correction add
-   `--correction`. Both the saved question and answer must be English even when
-   the user's request is Russian; this overrides the reference's verbatim rule.
+5. When explicitly maintaining graph memory, save source-grounded code findings
+   with `save-result`, expanded tokens, cited labels, and
+   `--outcome useful|dead_end|corrected`; for a correction add `--correction`.
+   Both the saved question and answer must be English even when the user's
+   request is Russian; this overrides the reference's verbatim rule.
 6. Pass the relevant graph rules to code-exploration workers explicitly; do not
    assume their prompts or tool access match the parent session.
 
@@ -87,9 +89,20 @@ Path('graphify-out/.vocab.txt').write_text('\n'.join(sorted(vocab)), encoding='u
 if ($LASTEXITCODE -ne 0) { throw 'Graph vocabulary refresh failed' }
 ```
 
-`.graphifyignore` owns corpus exclusions, including `.workspace/`, `.djts/`,
-`.agents/`, `.claude/`, and `.codex/`. Fix corpus scope there, not by hiding
-unwanted hits. The local post-commit hook starts code rebuilds in the background
+`.graphifyignore` owns corpus exclusions, including documentation/media,
+`.workspace/`, `.djts/`, `.agents/`, `.claude/`, and `.codex/`. The entire
+`docs/dj-track-similarity/` tree is excluded: it is not maintained as current
+documentation. Fix corpus scope there, not by hiding unwanted hits.
+
+For authorized extraction, use
+`& .\.tools\graphify\bin\graphify.exe extract . --code-only`. This skips
+document/media semantic extraction and preserves the existing semantic layer.
+Keep Graphify's default `graphify-out/memory/` and `graphify-out/reflections/`:
+saved code-related Q&A is intentionally indexed by its documented work-memory
+loop. Recheck remembered findings against source; the unmaintained documentation
+site is not current evidence.
+
+The local post-commit hook starts code rebuilds in the background
 and skips linked worktrees and some Git operations; a commit does not prove the
 graph is current. Check hook output/freshness when it matters.
 

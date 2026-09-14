@@ -82,11 +82,11 @@ import { useSearchPlaylist } from "./useSearchPlaylist";
 import type { PreviewTarget } from "./useSearchPlaylist";
 import { useWorkspacePanels } from "./useWorkspacePanels";
 
-type Notice = { kind: "ok" | "error" | "idle"; text: string };
+type Notice = { kind: "ok" | "error" | "warn" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
 type ResetAdapter = AnalysisModel;
 
-const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
+const defaultNotice: Notice = { kind: "ok", text: "Готово к работе" };
 const analysisModelOrder = analysisSelectionOrder;
 const defaultScanWorkers = 8;
 const maxScanWorkers = 16;
@@ -1370,7 +1370,14 @@ export function App() {
           <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob)}>
             <RefreshCcw size={17} />
           </span>
-          <div className={`notice ${notice.kind}`}>{notice.text}</div>
+          <div className={`notice ${notice.kind}`} title={notice.text} role="status">
+            <span
+              className="notice-indicator"
+              data-state={notice.kind}
+              aria-hidden="true"
+            />
+            <span className="notice-text">{notice.text}</span>
+          </div>
         </div>
       </header>
 

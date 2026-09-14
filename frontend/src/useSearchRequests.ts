@@ -12,7 +12,7 @@ import type { SearchFiltersState } from "./SearchPlaylistPanel";
 import type { useActivityLog } from "./useActivityLog";
 import { errorText, isAbortError } from "./errors";
 
-export type SearchNotice = { kind: "ok" | "error" | "idle"; text: string };
+export type SearchNotice = { kind: "ok" | "error" | "warn" | "idle"; text: string };
 type GenericSearchResultState = {
   origin: GenericSearchTab;
   requestKey: string;

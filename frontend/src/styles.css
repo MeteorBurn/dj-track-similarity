@@ -86,6 +86,9 @@
   --notice-error-border: #d29b62;
   --notice-ok-bg: #e4f4e8;
   --notice-ok-border: #8dbb95;
+  --notice-ok-indicator: #2e9d58;
+  --notice-warn-indicator: #d4aa22;
+  --notice-error-indicator: #df4d4d;
   --blue-bg: #e8f1f7;
   --blue-bg-hover: #d9eaf3;
   --blue-bg-active: #cfe3ee;
@@ -865,14 +868,39 @@ h2 {
 }
 
 .notice {
+  align-items: center;
   border: 1px solid var(--button-border);
   border-radius: 6px;
-  max-width: 640px;
+  display: flex;
+  flex: 0 1 auto;
+  gap: 7px;
+  max-width: 60ch;
   min-height: 34px;
+  min-width: 0;
   overflow: hidden;
   padding: 7px 10px;
+}
+
+.notice-text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.notice-indicator {
+  background: var(--notice-ok-indicator);
+  border-radius: 50%;
+  flex: 0 0 7px;
+  height: 7px;
+}
+
+.notice-indicator[data-state="warn"] {
+  background: var(--notice-warn-indicator);
+}
+
+.notice-indicator[data-state="error"] {
+  background: var(--notice-error-indicator);
 }
 
 .notice.ok {
@@ -2645,6 +2673,10 @@ h2 {
   overflow: auto;
 }
 
+.search-panel:has(#search-tab-classifier[aria-selected="true"]) {
+  scrollbar-width: none;
+}
+
 .search-workflow-section {
   container-type: inline-size;
   container-name: search-workflow;
@@ -4393,9 +4425,9 @@ h2 {
 
 .search-workflow-section .similarity-search-controls {
   align-items: end;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(64px, 0.45fr);
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 1fr) minmax(72px, 1fr);
   margin: 0;
-  max-width: 420px;
+  max-width: 616px;
 }
 
 .similarity-search-controls :is(select, input) {
@@ -4964,12 +4996,6 @@ button.metadata-copy-value-button:hover:not(:disabled) {
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: flex-start;
-    width: 100%;
-  }
-
-  .topbar-actions .notice {
-    flex: 1 0 100%;
-    max-width: none;
     width: 100%;
   }
 
@@ -5694,7 +5720,7 @@ button.dedup-play-button {
 .workbench-nav button { background: transparent; border: 0; border-radius: 0; color: var(--text-muted); padding: 0 12px; font-size: 12px; letter-spacing: .06em; }
 .workbench-nav button:hover, .workbench-nav button:focus-visible { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
 .topbar-actions { gap: 7px; }
-.topbar .notice { max-width: 210px; font-size: 11px; }
+.topbar .notice { font-size: 11px; }
 .workspace { max-width: none; height: calc(100dvh - 160px); grid-template-columns: minmax(280px, 28fr) minmax(400px, 41fr) minmax(330px, 30fr); gap: 12px; }
 .panel { border-radius: 7px; padding: 13px; }
 .panel-title { min-height: 34px; padding-bottom: 12px; border-bottom: 1px solid var(--border-soft); margin-bottom: 12px; }
@@ -5768,7 +5794,6 @@ button.dedup-play-button {
   .topbar h1 { font-size: 20px; }
   .workbench-nav { gap: 2px; }
   .workbench-nav button { padding: 0 8px; font-size: 11px; }
-  .topbar .notice { max-width: 130px; }
   .workspace { grid-template-columns: minmax(270px, 28fr) minmax(360px, 41fr) minmax(310px, 31fr); }
   .player-track-info { width: 300px; }
 }
@@ -5868,15 +5893,11 @@ button.dedup-play-button {
     padding-inline: 2px;
   }
 
-  .search-workflow-section .similarity-search-controls {
-    column-gap: 6px;
-  }
-
   .similarity-search-controls :is(select, button) {
     font-size: var(--font-size-compact-selector);
   }
 
-  .similarity-search-controls select {
+  .similarity-search-controls :is(select, input) {
     padding-inline: 6px;
   }
 }

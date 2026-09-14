@@ -13,6 +13,12 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function textContent(node) {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textContent).join("");
+  return node?.props ? textContent(node.props.children) : "";
+}
+
 function harness() {
   const slots = [];
   let cursor = 0;
@@ -85,7 +91,7 @@ function harness() {
   function render() {
     cursor = 0;
     const tree = App();
-    return { library: find(tree, "LibraryPanel"), search: find(tree, "SearchPlaylistPanel"), notice: find(tree, "notice").children };
+    return { library: find(tree, "LibraryPanel"), search: find(tree, "SearchPlaylistPanel"), notice: textContent(find(tree, "notice").children) };
   }
   async function choose(nextCatalog, rerender = true) {
     catalog = nextCatalog;

@@ -15,7 +15,6 @@ import test from "node:test";
 // list may shrink, never grow: convert a file to an executing test when you next
 // touch its component, then delete its entry here.
 const SOURCE_TEXT_ONLY_LEGACY = [
-  "appHeaderMeta.test.mjs",
   "buttonClasses.test.mjs",
   "frontendHooks.test.mjs",
   "jobUi.test.mjs",

@@ -90,7 +90,7 @@ export function useJobState({
     setDatabaseValidationJob(job);
     const detail = `${job.checked} проверено · предупреждений ${job.warnings} · ошибок ${job.errors}`;
     const prefix = job.state === "completed" ? "Проверка БД завершена" : job.state === "cancelled" ? "Проверка БД отменена" : "Проверка БД";
-    setNotice({ kind: job.errors ? "error" : "ok", text: `${prefix}: ${detail}` });
+    setNotice({ kind: job.errors ? "error" : job.warnings ? "warn" : "ok", text: `${prefix}: ${detail}` });
     promptDatabaseOptimization(job);
   }, reportPollError);
 

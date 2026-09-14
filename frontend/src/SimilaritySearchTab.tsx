@@ -86,6 +86,16 @@ export function SimilaritySearchTab({
   return (
     <>
       <div className="search-filter-grid similarity-search-controls">
+        <button
+          className="embedding-random-track-button"
+          title={randomTrackTitle}
+          disabled={randomTrackBusy || Boolean(missingReason)}
+          onClick={onAddRandomTrack}
+          type="button"
+        >
+          <Shuffle size={15} />
+          <span>Add Random Track</span>
+        </button>
         <label>
           Model
           <select
@@ -97,21 +107,11 @@ export function SimilaritySearchTab({
           >
             {seedSearchModels.map((source) => (
               <option key={source} value={source} title={seedSearchModelPresentation[source].title}>
-                {seedSearchModelPresentation[source].label}
+                {seedSearchModelPresentation[source].label.toUpperCase()}
               </option>
             ))}
           </select>
         </label>
-        <button
-          className="embedding-random-track-button"
-          title={randomTrackTitle}
-          disabled={randomTrackBusy || Boolean(missingReason)}
-          onClick={onAddRandomTrack}
-          type="button"
-        >
-          <Shuffle size={15} />
-          <span>Add Random Track</span>
-        </button>
         <label className="search-limit-control" title={helpText.limit}>
           Limit
           <input

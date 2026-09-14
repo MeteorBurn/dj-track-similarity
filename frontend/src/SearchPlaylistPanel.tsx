@@ -302,7 +302,7 @@ export function SearchPlaylistPanel({
     if (!target) return;
     event.preventDefault();
     selectPrimarySearchTab(target);
-    queueMicrotask(() => document.getElementById(`search-tab-${target}`)?.focus());
+    queueMicrotask(() => document.getElementById(`search-tab-${target === "class" ? "classifier" : target}`)?.focus());
   }
 
   function selectPrimarySearchTab(target: PrimarySearchTab) {
@@ -380,7 +380,7 @@ export function SearchPlaylistPanel({
           {primarySearchTabs.map((tab) => (
             <button
               key={tab}
-              id={`search-tab-${tab}`}
+              id={`search-tab-${tab === "class" ? "classifier" : tab}`}
               className={`model-search-tab ${activeSearchTab === tab ? "active" : ""}`}
               title={primaryTabPresentation[tab].title}
               onClick={() => selectPrimarySearchTab(tab)}
@@ -462,7 +462,7 @@ export function SearchPlaylistPanel({
           </div>
         )}
         {activeSearchTab === "class" && (
-          <div id="search-panel-class" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-class">
+          <div id="search-panel-class" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-classifier">
             {orderedClassifierProfiles.length ? (
               <div className="classifier-controls">
                 <div className="classifier-profile-summary" role="status">

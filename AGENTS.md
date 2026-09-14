@@ -48,9 +48,13 @@ work unverified rather than inventing its instructions.
 - Delegate work across project ownership boundaries and integrate one answer,
   subject to the active harness's delegation rules. Use the agent-layer guide
   for roles, bounded assignments, relevant instructions, and dirty-state context.
-- Identify an explicitly named or already confirmed database before access.
-  Never infer the active library from launcher defaults, filenames, timestamps,
-  or a previous session. Ask only if the target remains unknown.
+- For development and server startup, use `database/test.sqlite` relative to
+  the repository root unless another database is explicitly specified.
+  This is the user-confirmed default; do not ask for
+  database-selection confirmation again when using it.
+  For other database access, identify an explicitly named or already confirmed
+  database. Never infer the active library from launcher defaults, filenames,
+  timestamps, or a previous session. Ask only if the target remains unknown.
 - State the model layer before changing shared model/search files. Keep family
   evidence separate and production logic in its owning layer; a request for one
   layer does not authorize extending another. Do not expand, redesign or remove

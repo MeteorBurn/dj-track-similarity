@@ -192,15 +192,15 @@ def _identity_map(
     }
 
 
-def _valid_sonara_core_ids(
+def _valid_sonara_core_rows(
     connection: sqlite3.Connection,
     *,
     output: AnalysisOutput | None,
     identities: Mapping[int, str],
     drive_from_requested: bool,
-) -> set[int]:
+) -> dict[int, sqlite3.Row]:
     if output is None or not identities:
-        return set()
+        return {}
     if drive_from_requested:
         rows = connection.execute(
             f"""
@@ -223,7 +223,7 @@ def _valid_sonara_core_ids(
             """,
             (_json_ids(identities),),
         ).fetchall()
-    valid_ids: set[int] = set()
+    valid_rows: dict[int, sqlite3.Row] = {}
     for row in rows:
         track_id = int(row["track_id"])
         if track_id not in identities:
@@ -233,19 +233,19 @@ def _valid_sonara_core_ids(
             expected_track_id=track_id,
         )
         if valid:
-            valid_ids.add(track_id)
-    return valid_ids
+            valid_rows[track_id] = row
+    return valid_rows
 
 
-def _valid_maest_analysis_ids(
+def _valid_maest_analysis_rows(
     connection: sqlite3.Connection,
     *,
     output: AnalysisOutput | None,
     identities: Mapping[int, str],
     drive_from_requested: bool,
-) -> set[int]:
+) -> dict[int, sqlite3.Row]:
     if output is None or not identities:
-        return set()
+        return {}
     if drive_from_requested:
         rows = connection.execute(
             f"""
@@ -268,7 +268,7 @@ def _valid_maest_analysis_ids(
             """,
             (_json_ids(identities),),
         ).fetchall()
-    valid_ids: set[int] = set()
+    valid_rows: dict[int, sqlite3.Row] = {}
     for row in rows:
         track_id = int(row["track_id"])
         if track_id not in identities:
@@ -278,8 +278,8 @@ def _valid_maest_analysis_ids(
             expected_track_id=track_id,
         )
         if valid:
-            valid_ids.add(track_id)
-    return valid_ids
+            valid_rows[track_id] = row
+    return valid_rows
 
 
 def _valid_embedding_rows(
@@ -453,16 +453,18 @@ def _coverage_and_classifiers(
     dict[int, AnalysisCoverage],
     dict[int, tuple[ClassifierScoreDetail, ...]],
     dict[tuple[str, str], dict[int, Mapping[str, object]]],
+    dict[int, sqlite3.Row],
+    dict[int, sqlite3.Row],
 ]:
     identities = _identity_map(rows)
     drive_from_requested = len(identities) <= 500
-    sonara_core = _valid_sonara_core_ids(
+    sonara_core = _valid_sonara_core_rows(
         connection,
         output=context.outputs.get(("sonara", "core")),
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
-    maest_analysis = _valid_maest_analysis_ids(
+    maest_analysis = _valid_maest_analysis_rows(
         connection,
         output=context.outputs.get(("maest", "analysis")),
         identities=identities,
@@ -499,7 +501,7 @@ def _coverage_and_classifiers(
         identities=identities,
         drive_from_requested=drive_from_requested,
     )
-    return coverage, classifiers, embedding_rows
+    return coverage, classifiers, embedding_rows, sonara_core, maest_analysis
 
 
 def _classifier_summaries(
@@ -523,17 +525,35 @@ def _track_summary(
     catalog_uuid: str,
     coverage: AnalysisCoverage,
     classifiers: Sequence[ClassifierScoreDetail],
+    sonara_row: sqlite3.Row | None,
+    maest_row: sqlite3.Row | None,
 ) -> TrackSummary:
     return TrackSummary(
         track_id=int(row["track_id"]),
         catalog_uuid=catalog_uuid,
         track_uuid=str(row["track_uuid"]),
         file_path=str(row["file_path"]),
+        file_size_bytes=int(row["file_size_bytes"]),
+        audio_format=_optional_text(row["audio_format"]),
+        sample_rate_hz=_optional_int(row["sample_rate_hz"]),
+        bit_rate_bps=_optional_int(row["bit_rate_bps"]),
+        bit_depth=_optional_int(row["bit_depth"]),
         title=_optional_text(row["title"]),
         artist=_optional_text(row["artist"]),
         album=_optional_text(row["album"]),
         tag_bpm=_optional_float(row["tag_bpm"]),
         tag_key=_optional_text(row["tag_key"]),
+        sonara_bpm=(
+            None if sonara_row is None else _optional_float(sonara_row["detected_bpm"])
+        ),
+        sonara_key_camelot=(
+            None
+            if sonara_row is None
+            else _optional_text(sonara_row["detected_key_camelot"])
+        ),
+        maest_genres=(
+            () if maest_row is None else _parse_maest_genres(maest_row["genres_json"])
+        ),
         audio_duration_seconds=_optional_float(row["audio_duration_seconds"]),
         liked=bool(row["liked"]),
         analysis_coverage=coverage,
@@ -547,7 +567,9 @@ def _assemble_summaries(
     context: _ReadContext,
     rows: Sequence[sqlite3.Row],
 ) -> tuple[TrackSummary, ...]:
-    coverage, classifiers, _embedding_rows = _coverage_and_classifiers(
+    (
+        coverage, classifiers, _embedding_rows, sonara_rows, maest_rows
+    ) = _coverage_and_classifiers(
         connection,
         context=context,
         rows=rows,
@@ -558,6 +580,8 @@ def _assemble_summaries(
             catalog_uuid=context.catalog_uuid,
             coverage=coverage[int(row["track_id"])],
             classifiers=classifiers.get(int(row["track_id"]), ()),
+            sonara_row=sonara_rows.get(int(row["track_id"])),
+            maest_row=maest_rows.get(int(row["track_id"])),
         )
         for row in rows
     )

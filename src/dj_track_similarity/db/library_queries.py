@@ -271,7 +271,9 @@ class LibraryQueryRepository:
             ).fetchone()
             if row is None:
                 raise KeyError(f"Unknown current track id: {track_id}")
-            coverage, classifiers, embedding_rows = _coverage_and_classifiers(
+            (
+                coverage, classifiers, embedding_rows, sonara_rows, maest_rows
+            ) = _coverage_and_classifiers(
                 connection,
                 context=context,
                 rows=[row],
@@ -283,6 +285,8 @@ class LibraryQueryRepository:
                 catalog_uuid=context.catalog_uuid,
                 coverage=coverage[numeric_id],
                 classifiers=classifier_details,
+                sonara_row=sonara_rows.get(numeric_id),
+                maest_row=maest_rows.get(numeric_id),
             )
             sonara = _sonara_core(
                 connection,

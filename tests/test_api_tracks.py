@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
+from dataclasses import fields
 from pathlib import Path
 
 from fastapi.responses import FileResponse
@@ -10,7 +12,14 @@ from fastapi.testclient import TestClient
 
 from dj_track_similarity.api import application as api_module
 from dj_track_similarity.api import media_preview as media_preview_module
+from dj_track_similarity.analysis_models import (
+    AnalysisTarget,
+    MaestGenreScore,
+    MaestWrite,
+    SonaraWrite,
+)
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db.ddl import SonaraRow
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
     ClassifierScoreDetail,
@@ -91,8 +100,49 @@ def test_tracks_endpoint_returns_paginated_typed_current_summaries(
         artist="Artist C",
         title="Gamma",
     )
+    with closing(database.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE tracks SET bit_depth = 24 WHERE track_id = ?",
+            (beta.track_id,),
+        )
+        connection.execute(
+            "UPDATE tracks SET audio_format = NULL, sample_rate_hz = NULL, bit_rate_bps = NULL WHERE track_id = ?",
+            (gamma.track_id,),
+        )
+    sonara_values = {field.name: None for field in fields(SonaraRow)}
+    sonara_values.update(
+        track_id=beta.track_id,
+        detected_bpm=130.25,
+        detected_key_name="E minor",
+        detected_key_camelot="9A",
+        mfcc_mean_blob=bytes(13 * 4),
+        chroma_mean_blob=bytes(12 * 4),
+        spectral_contrast_mean_blob=bytes(7 * 4),
+        analysis_schema_version=6,
+        analyzed_at="2026-09-14T00:00:00Z",
+    )
+    saved = database.save_sonara_results((
+        SonaraWrite(
+            target=AnalysisTarget(beta.catalog_uuid, beta.track_id, beta.track_uuid),
+            core=SonaraRow(**sonara_values),
+        ),
+    ))
+    assert saved[0].ok, saved[0].error
+    maest_saved = database.save_maest_results((
+        MaestWrite(
+            target=AnalysisTarget(beta.catalog_uuid, beta.track_id, beta.track_uuid),
+            genres=(
+                MaestGenreScore("Electronic---Breakbeat", 0.8),
+                MaestGenreScore("Electronic---House", 0.4),
+            ),
+            syncopated_rhythm=True,
+            analyzed_at="2026-09-14T00:00:00Z",
+        ),
+    ))
+    assert maest_saved[0].ok, maest_saved[0].error
+    client = _client(monkeypatch, db_path)
 
-    response = _client(monkeypatch, db_path).get(
+    response = client.get(
         "/api/tracks",
         params={"limit": 2, "offset": 1},
     )
@@ -109,6 +159,48 @@ def test_tracks_endpoint_returns_paginated_typed_current_summaries(
     ]
     assert all(item["catalog_uuid"] == beta.catalog_uuid for item in payload["items"])
     assert all("metadata" not in item and "id" not in item for item in payload["items"])
+    assert [
+        (
+            item["file_size_bytes"], item["audio_format"], item["sample_rate_hz"],
+            item["bit_rate_bps"], item["bit_depth"],
+        )
+        for item in payload["items"]
+    ] == [(5, "wav", 44_100, 1_411_200, 24), (5, None, None, None, None)]
+    assert [
+        (item["sonara_bpm"], item["sonara_key_camelot"])
+        for item in payload["items"]
+    ] == [(130.25, "9A"), (None, None)]
+    assert [item["maest_genres"] for item in payload["items"]] == [
+        [
+            {"rank": 1, "genre_name": "Electronic---Breakbeat", "score": 0.8},
+            {"rank": 2, "genre_name": "Electronic---House", "score": 0.4},
+        ],
+        [],
+    ]
+    assert all(
+        (item["tag_bpm"], item["tag_key"]) == (128.0, "8A")
+        for item in payload["items"]
+    )
+    filtered = client.post("/api/tracks/filtered", json={"query": "Beta"})
+    assert filtered.status_code == 200
+    assert filtered.json() == [payload["items"][0]]
+
+    with closing(database.connect()) as connection, connection:
+        connection.execute(
+            "UPDATE sonara_features SET key_candidates_json = '[{}]' WHERE track_id = ?",
+            (beta.track_id,),
+        )
+        connection.execute(
+            "UPDATE maest_genres SET genres_json = '[{}]' WHERE track_id = ?",
+            (beta.track_id,),
+        )
+    invalid = client.get("/api/tracks", params={"q": "Beta"})
+    assert invalid.status_code == 200
+    invalid_item = invalid.json()["items"][0]
+    assert invalid_item["sonara_bpm"] is None
+    assert invalid_item["sonara_key_camelot"] is None
+    assert invalid_item["maest_genres"] == []
+    assert (invalid_item["tag_bpm"], invalid_item["tag_key"]) == (128.0, "8A")
 
 
 def test_tracks_endpoints_return_empty_current_contract(
@@ -359,12 +451,17 @@ def test_track_detail_endpoint_returns_full_typed_tags(
     assert payload["catalog_uuid"] == identity.catalog_uuid
     assert payload["track_uuid"] == identity.track_uuid
     assert payload["file_tags"]["comment"] == "stored comment"
+    assert payload["sonara_bpm"] is None
+    assert payload["sonara_key_camelot"] is None
+    assert payload["maest_genres"] == []
     assert "audio_codec" not in payload["file"]
     assert payload["file"]["bit_depth"] is None
     assert "catalog_number" not in payload["file_tags"]
     assert "isrc" not in payload["file_tags"]
     assert "disc_number" not in payload["file_tags"]
     assert payload["file"]["file_size_bytes"] == 5
+    for field in ("file_size_bytes", "audio_format", "sample_rate_hz", "bit_rate_bps", "bit_depth"):
+        assert payload[field] == payload["file"][field]
 
 
 def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
@@ -390,11 +487,19 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
             catalog_uuid=identity.catalog_uuid,
             track_uuid=identity.track_uuid,
             file_path=str(tmp_path / "alpha.wav"),
+            file_size_bytes=5,
+            audio_format="wav",
+            sample_rate_hz=44_100,
+            bit_rate_bps=1_411_200,
+            bit_depth=16,
             title="Alpha",
             artist="Artist",
             album=None,
             tag_bpm=None,
             tag_key=None,
+            sonara_bpm=None,
+            sonara_key_camelot=None,
+            maest_genres=(),
             audio_duration_seconds=1.0,
             liked=False,
             analysis_coverage=AnalysisCoverage(),

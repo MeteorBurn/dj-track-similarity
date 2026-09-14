@@ -851,11 +851,19 @@ class TrackSummaryResponse(_ResponseModel):
     catalog_uuid: str
     track_uuid: str
     file_path: str
+    file_size_bytes: int
+    audio_format: str | None
+    sample_rate_hz: int | None
+    bit_rate_bps: int | None
+    bit_depth: int | None
     title: str | None
     artist: str | None
     album: str | None
     tag_bpm: float | None
     tag_key: str | None
+    sonara_bpm: float | None
+    sonara_key_camelot: str | None
+    maest_genres: list[MaestGenreResponse]
     audio_duration_seconds: float | None
     liked: bool
     analysis_coverage: AnalysisCoverageResponse

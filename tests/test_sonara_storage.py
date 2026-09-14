@@ -216,6 +216,8 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
     detail = database.get_track_detail(track_id)
     assert detail.sonara_core is not None
     assert detail.sonara_core.analysis_schema_version == 6
+    assert detail.sonara_bpm == detail.sonara_core.detected_bpm == 128.0
+    assert detail.sonara_key_camelot == detail.sonara_core.detected_key_camelot == "8A"
     assert database.list_analysis_candidates(
         (AnalysisOutput("sonara", "fingerprint"),)
     ) == []

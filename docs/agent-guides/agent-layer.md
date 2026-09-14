@@ -36,6 +36,17 @@ are relative to this file. These guides are read by task, not imported as a batc
 - `.claude/` holds only Claude configuration, hooks, and runtime state;
   `.codex/` holds Codex configuration and generated launchers. Do not put
   copies or links to shared skills/agents in `.claude/`.
+- Graphify stays in the `dj-track-similarity` plugin, with its canonical skill at
+  `.djts/skills/graphify/`. Keep this project plugin disabled in global Codex
+  configuration and enabled in this checkout's `.codex/config.toml`; preserve
+  that scope after plugin installation or refresh. Claude uses project scope.
+  Do not add standalone skill copies or register a Graphify MCP server.
+  Project PreToolUse hooks call the local CLI directly using Graphify's own
+  definitions: Claude `hook-guard search/read`, Codex `hook-check`. In 0.9.61,
+  `hook-check` is a no-op; Codex's query-first rule comes from `AGENTS.md` and
+  the Graphify guide. Do not add a custom SessionStart script for this.
+  New or changed Codex hooks require native trust review; configuration alone
+  does not prove activation.
 - Keep `.workspace/` scoped as listed in [STRUCTURE](architecture.md#structure). Optional AgentProof/Superpowers
   state stays at its supported roots (`.agentproof/`, `.superpowers/`), without
   junction redirection.

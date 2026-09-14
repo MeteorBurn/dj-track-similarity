@@ -28,7 +28,7 @@ work unverified rather than inventing its instructions.
 | Select implementation checks; change tests, runners, dependencies or persistence                         | [Verification](docs/agent-guides/verification.md)                                                            |
 | Edit agents, skills, plugins, hooks or generated launchers; delegate project roles                       | [Agent layer](docs/agent-guides/agent-layer.md)                                                              |
 | Research external facts, APIs, upstream behavior or model literature                                     | [Web research](docs/agent-guides/web-research.md)                                                            |
-| Broad source discovery or Graphify navigation                                                            | [Graphify](docs/agent-guides/graphify.md)                                                                    |
+| Explore or change repository code; Graphify navigation                                                   | [Graphify](docs/agent-guides/graphify.md)                                                                    |
 | UI layout, components, interaction or styling                                                            | [DESIGN.md](DESIGN.md); use existing tokens, no raw component colors; non-submit buttons use `type="button"` |
 | Need product/setup orientation                                                                           | Relevant sections of [README.md](README.md)                                                                  |
 

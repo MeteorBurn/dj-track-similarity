@@ -1,7 +1,8 @@
 # Graphify navigation
 
-Read before using Graphify for unfamiliar architecture, relationships, or change
-impact. Read known files, symbols, and configuration directly or locate them with `rg`.
+Before exploring or changing repository code, read and apply
+`.djts/skills/graphify/SKILL.md` and this guide. Start source discovery with a
+focused query against the existing graph, then inspect the cited source.
 
 Project instructions: [AGENTS.md](../../AGENTS.md). Commands and inline code paths
 are relative to the repository root unless explicitly absolute; Markdown links
@@ -12,9 +13,11 @@ are relative to this file. These guides are read by task, not imported as a batc
 `graphify-out/graph.json` assists navigation over product source, tests, tools,
 scripts, and documentation. Read cited `source_file`/`source_location`; graph
 edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
-Use it when relationships or unfamiliar architecture help answer the question;
-there is no mandatory graph step before a known file or symbol lookup. Read
-`AGENTS.md`, configuration, locks, Git state, and the excluded agent layer directly.
+`AGENTS.md` routes code work through this guide and the plugin skill. Claude's
+upstream PreToolUse guards add query-first reminders. Codex's upstream
+`hook-check` is a no-op in 0.9.61; its standing rule comes from these instructions.
+Tasks confined to `AGENTS.md`, configuration, locks, Git state, or the excluded
+agent layer use direct inspection; those files are outside the code graph.
 
 Routine lookups use the existing graph. Read vocabulary and lessons only when
 they help; do not run `reflect`, vocabulary regeneration, `save-result`, or a
@@ -26,26 +29,27 @@ Report stale or unavailable graph data and verify findings directly in source.
 
 | Navigation task | Tool |
 |---|---|
-| Locate an unfamiliar area | MCP `query_graph`, or `graphify query "<expanded tokens>"` |
-| Inspect a graph node and its neighbors | MCP `get_node` / `get_neighbors` with the exact node ID; CLI fallback: `graphify explain "<path::Symbol>"` |
+| Locate an unfamiliar area | `graphify query "<expanded tokens>"` |
+| Inspect a graph node and its neighbors | `graphify explain "<path::Symbol>"`; inspect exact IDs in `graph.json` when ambiguous |
 | Inspect affected callers | `graphify affected "<node_id>" --relation calls --depth 1` (use depth `2` for the next caller level) |
 | Trace a connection | Inspect exact-node neighbors and the cited source; see the path limitation below |
 | Orient in unfamiliar architecture | `graphify god-nodes`, then `explain` |
 
-Prefer the already connected MCP server for repeated graph queries. In Graphify
-0.9.61, CLI `path` and MCP `shortest_path` can resolve endpoints to semantic memory
-instead of code. Full code IDs do not reliably disambiguate those endpoints.
-Do not treat `No path` as evidence that a relationship is absent. Use exact IDs
-with `get_node` / `get_neighbors`, or a scoped CLI `explain`, and verify the source.
-For call relationships, use `get_neighbors` with `relation_filter="calls"` and
-read the edge arrows, or `affected` as above for incoming calls.
+This project uses the CLI without a Graphify MCP server. In Graphify 0.9.61,
+`path` can resolve endpoints to semantic memory instead of code. Full code IDs
+do not reliably disambiguate those endpoints. Do not treat `No path` as evidence
+that a relationship is absent. Use a scoped `explain`, or inspect exact node IDs
+and directed `links` in `graph.json` with the project Graphify interpreter, then
+verify the source. For incoming call relationships, use `affected` as above.
 
 Follow `.djts/skills/graphify/references/query.md` with these project rules:
 
-1. Use the connected MCP server or installed CLI; for Python helpers, read and
-   validate the interpreter in `graphify-out/.graphify_python`. It belongs to Graphify's external tool
-   environment. Do not install Graphify into the project or blindly run
-   `graphify install`, which can overwrite project instructions/hooks.
+1. Use `.\.tools\graphify\bin\graphify.exe` for the
+   CLI commands below. For Python helpers, read and validate the interpreter in
+   `graphify-out/.graphify_python`; it must point into `.tools/graphify/` in this
+   repository. Keep the package separate from the application environment.
+   Never register Graphify globally or add it to user/system PATH. Do not blindly
+   run `graphify install`, which can overwrite project instructions/hooks.
 2. Read `graphify-out/reflections/LESSONS.md` when prior query lessons are useful.
    Hook configuration alone does not prove a hook ran in the current harness.
 3. For a token query, use `.vocab.txt` or graph labels. Select up to 12
@@ -54,7 +58,7 @@ Follow `.djts/skills/graphify/references/query.md` with these project rules:
    and use direct source inspection; do not submit a misleading query.
 4. Use `--dfs` for a chain. Treat `TRUNCATED` as incomplete: narrow the query,
    use `explain`, or increase `--budget`. Disambiguate repeated labels with the
-   exact node ID through `get_node` / `get_neighbors`. Open the named source
+   exact node ID in `graph.json`. Open the named source
    before drawing conclusions.
 5. When explicitly maintaining graph memory, use `save-result` with the expanded
    tokens, cited labels, and `--outcome useful|dead_end|corrected`; for a correction add

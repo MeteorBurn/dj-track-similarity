@@ -1,11 +1,25 @@
 ---
 name: graphify
-description: "Use for any question about a codebase, its architecture, file relationships, or project content — especially when graphify-out/ exists, where the question should be treated as a graphify query first. Turns any input (code, docs, papers, images, videos) into a persistent knowledge graph with god nodes, community detection, and query/path/explain tools."
+description: "Use for dj-track-similarity codebase questions, architecture, file relationships, and source discovery against its existing graph. Available only for C:/projects/dj-track-similarity through the project plugin."
 ---
 
 # /graphify
 
 Turn any folder of files into a navigable knowledge graph with community detection, an honest audit trail, and three outputs: interactive HTML, GraphRAG-ready JSON, and a plain-language GRAPH_REPORT.md.
+
+## Project scope
+
+This plugin skill is restricted to `C:\projects\dj-track-similarity`. Work from
+that repository root and read `docs/agent-guides/graphify.md` before graph work.
+Its project rules override the generic reference examples, including automatic
+reflection, saved results, rebuilds, installation, and shell syntax.
+
+Use `& .\.tools\graphify\bin\graphify.exe` wherever this skill or a reference
+shows a bare `graphify` shell command. Python helpers use only
+`.tools/graphify/graphifyy/Scripts/python.exe`. Do not search global environments,
+install missing packages automatically, add Graphify to PATH, create standalone
+skill copies, or register/start a Graphify MCP server. If the local runtime is
+missing, report it and keep dependent graph work unverified.
 
 ## Usage
 
@@ -28,7 +42,6 @@ Turn any folder of files into a navigable knowledge graph with community detecti
 /graphify <path> --neo4j-push bolt://localhost:7687   # push directly to Neo4j
 /graphify <path> --falkordb                           # generate graphify-out/cypher.txt for FalkorDB
 /graphify <path> --falkordb-push falkordb://localhost:6379   # push directly to FalkorDB
-/graphify <path> --mcp                                # start MCP stdio server for agent access
 /graphify <path> --watch                              # watch folder, auto-rebuild on code changes (no LLM needed)
 /graphify <path> --wiki                               # build agent-crawlable wiki (index.md + one article per community)
 /graphify <path> --obsidian --obsidian-dir ~/vaults/my-project  # write vault to custom path (e.g. existing vault)
@@ -62,69 +75,21 @@ Follow these steps in order. Do not skip steps.
 
 Only when the path is one or more `https://github.com/...` URLs, or several local subfolders to merge. See `references/github-and-merge.md` for the clone, cross-repo merge, and monorepo flow, then continue with the resolved local path. A plain local path skips this step.
 
-### Step 1 - Ensure graphify is installed
+### Step 1 - Validate the project runtime
 
 ```powershell
-# Detect Python with graphify — uv/pipx-aware (fixes #831)
+$GRAPHIFY_PYTHON = 'C:\projects\dj-track-similarity\.tools\graphify\graphifyy\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $GRAPHIFY_PYTHON -PathType Leaf)) {
+    throw 'Project Graphify runtime is missing; do not install a global replacement.'
+}
+& $GRAPHIFY_PYTHON -c 'import graphify'
+if ($LASTEXITCODE -ne 0) { throw 'Project Graphify import failed.' }
+
+# Full extraction only: persist the already verified local interpreter.
 New-Item -ItemType Directory -Force -Path graphify-out | Out-Null
-$GRAPHIFY_PYTHON = $null
-
-function Find-GraphifyPython {
-    # 1. uv tool install — 'uv tool dir' is authoritative, respects UV_TOOL_DIR automatically
-    if (Get-Command uv -ErrorAction SilentlyContinue) {
-        $uvDir = (uv tool dir 2>$null).Trim()
-        if ($uvDir) {
-            $py = Join-Path $uvDir "graphifyy\Scripts\python.exe"
-            if (Test-Path $py) {
-                & $py -c "import graphify" 2>$null
-                if ($LASTEXITCODE -eq 0) { return $py }
-            }
-        }
-    }
-    # 2. pipx install — 'pipx environment' respects PIPX_HOME automatically
-    if (Get-Command pipx -ErrorAction SilentlyContinue) {
-        $venvs = (pipx environment --value PIPX_LOCAL_VENVS 2>$null).Trim()
-        if ($venvs) {
-            $py = Join-Path $venvs "graphifyy\Scripts\python.exe"
-            if (Test-Path $py) {
-                & $py -c "import graphify" 2>$null
-                if ($LASTEXITCODE -eq 0) { return $py }
-            }
-        }
-    }
-    # 3. Active venv / conda / pip-into-current-env
-    $pyCmd = Get-Command python -ErrorAction SilentlyContinue
-    if ($pyCmd) {
-        & $pyCmd.Source -c "import graphify" 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            return (& $pyCmd.Source -c "import sys; print(sys.executable)").Trim()
-        }
-    }
-    return $null
-}
-
-# Try to find the right Python (uv → pipx → active env)
-$GRAPHIFY_PYTHON = Find-GraphifyPython
-
-# Not found — install then re-detect
-if (-not $GRAPHIFY_PYTHON) {
-    if (Get-Command uv -ErrorAction SilentlyContinue) {
-        uv tool install --upgrade graphifyy -q 2>&1 | Select-Object -Last 3
-    } else {
-        pip install graphifyy -q 2>&1 | Select-Object -Last 3
-    }
-    $GRAPHIFY_PYTHON = Find-GraphifyPython
-}
-
-# Save interpreter path — all subsequent steps read this.
-# `Out-File -Encoding utf8` always writes a BOM on Windows PowerShell 5.1 (utf8NoBOM
-# only exists from PowerShell 6), and that BOM rides into the saved path, so the hook
-# rebuild fails with WinError 123 (#3028). WriteAllText with an explicit BOM-less
-# encoding writes the bytes POSIX writes, and adds no trailing newline.
-$Utf8NoBom = New-Object System.Text.UTF8Encoding $false
-[System.IO.File]::WriteAllText((Join-Path $PWD 'graphify-out\.graphify_python'), [string]$GRAPHIFY_PYTHON, $Utf8NoBom)
-# Save scan root so `graphify update` (no args) knows where to look next time
-[System.IO.File]::WriteAllText((Join-Path $PWD 'graphify-out\.graphify_root'), (Resolve-Path INPUT_PATH).Path, $Utf8NoBom)
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[IO.File]::WriteAllText((Join-Path $PWD 'graphify-out\.graphify_python'), $GRAPHIFY_PYTHON, $Utf8NoBom)
+[IO.File]::WriteAllText((Join-Path $PWD 'graphify-out\.graphify_root'), (Resolve-Path INPUT_PATH).Path, $Utf8NoBom)
 ```
 
 If the import succeeds, print nothing and move straight to Step 2.
@@ -685,21 +650,20 @@ The graph is the map. Your job after the pipeline is to be the guide.
 
 ## Interpreter guard for subcommands
 
-Before running any subcommand below (`--update`, `--cluster-only`, `query`, `path`, `explain`, `add`), check that `.graphify_python` exists. If it's missing (e.g. user deleted `graphify-out/`), re-resolve the interpreter first:
+Before running a subcommand, validate the project interpreter. A read-only lookup
+does not create or repair interpreter markers; use the verified local interpreter
+directly if the marker is absent.
 
 ```powershell
-if (-not (Test-Path graphify-out\.graphify_python)) {
-    $GRAPHIFY_PYTHON = $null
-    $graphifyCmd = Get-Command graphify -ErrorAction SilentlyContinue
-    if ($graphifyCmd) {
-        # The interpreter that owns the graphify entry point sits next to it
-        # (<env>\Scripts\python.exe for uv tool, pipx, and venv installs).
-        $py = Join-Path (Split-Path $graphifyCmd.Source) "python.exe"
-        if (Test-Path $py) { $GRAPHIFY_PYTHON = $py }
+$GRAPHIFY_PYTHON = 'C:\projects\dj-track-similarity\.tools\graphify\graphifyy\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $GRAPHIFY_PYTHON -PathType Leaf)) {
+    throw 'Project Graphify runtime is missing.'
+}
+if (Test-Path -LiteralPath 'graphify-out/.graphify_python') {
+    $savedPython = (Get-Content -LiteralPath 'graphify-out/.graphify_python' -Raw).Trim()
+    if ($savedPython -ne $GRAPHIFY_PYTHON) {
+        throw 'Graphify interpreter marker does not match the project runtime.'
     }
-    if (-not $GRAPHIFY_PYTHON) { $GRAPHIFY_PYTHON = "python" }
-    New-Item -ItemType Directory -Force -Path graphify-out | Out-Null
-    & $GRAPHIFY_PYTHON -c "import sys; open('graphify-out/.graphify_python', 'w', encoding='utf-8').write(sys.executable)"
 }
 ```
 
@@ -739,7 +703,7 @@ When the user asks to install the post-commit auto-rebuild hook or wire graphify
 
 If vertical scrolling breaks in PowerShell after running graphify, this is caused by ANSI escape sequences from the `graspologic` library. Graphify v0.3.10+ suppresses this output, but if you still see the issue:
 
-1. **Upgrade graphify**: `pip install --upgrade graphifyy`
+1. **Check the project runtime**: follow `docs/agent-guides/environment.md`; package upgrades require a maintenance request and must stay project-local.
 2. **Use Windows Terminal** instead of the legacy PowerShell console — Windows Terminal handles ANSI codes correctly
 3. **Reset your terminal**: close and reopen PowerShell
 4. **Skip Leiden**: uninstall its backend (`pip uninstall graspologic` on Python < 3.13, `pip uninstall graspologic-native` on Python 3.13+) and graphify will fall back to NetworkX's built-in Louvain algorithm, which produces no ANSI output

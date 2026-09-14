@@ -55,8 +55,13 @@ are relative to this file. These guides are read by task, not imported as a batc
 - Ruff is external: invoke `C:\Utils\tools\ruff\ruff.exe` directly, without an
   update check, and report its version when used. Keep `[tool.ruff]` and the
   native root `.ruff_cache/`; do not add Ruff as a Python dependency or invoke
-  `python -m ruff`. SQLite Toolkit and Graphify also use their own external
-  installations, not the application's `.venv`.
+  `python -m ruff`. SQLite Toolkit uses its own external installation.
+- Graphify is installed only for this repository in `.tools/graphify/`, separate
+  from the application's `.venv`. Invoke `.\.tools\graphify\bin\graphify.exe`;
+  its Python is `.tools/graphify/graphifyy/Scripts/python.exe`. For authorized
+  package maintenance, set `UV_TOOL_DIR` to this repository's `.tools/graphify`
+  and `UV_TOOL_BIN_DIR` to its `bin` child for that process only. Never add it to
+  user/system PATH or install/register Graphify globally.
 
 ## COMMANDS
 

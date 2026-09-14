@@ -15,6 +15,7 @@
 .agents/
 .claude/
 .codex/
+.tools/graphify/
 
 # Guard against an accidental root-level Firecrawl cache. Research output belongs
 # under .workspace/tools/firecrawl/, already excluded with the workspace.

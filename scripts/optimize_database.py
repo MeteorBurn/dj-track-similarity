@@ -15,25 +15,12 @@ from pathlib import Path
 
 from dj_track_similarity.db.optimize import (
     DatabaseInspection,
-    InspectedDatabaseFile,
     OptimizationError,
     OptimizationSummary,
-    OptimizedDatabaseFile,
     _require_free_space,
     inspect_database,
     optimize_database,
 )
-
-__all__ = [
-    "DatabaseInspection",
-    "InspectedDatabaseFile",
-    "OptimizationError",
-    "OptimizationSummary",
-    "OptimizedDatabaseFile",
-    "inspect_database",
-    "main",
-    "optimize_database",
-]
 
 
 def _fail(reason: str) -> int:

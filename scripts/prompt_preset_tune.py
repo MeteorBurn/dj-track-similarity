@@ -14,6 +14,7 @@ from collections import Counter
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 
@@ -30,8 +31,8 @@ from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.search.engine import _contrast_vector_scores
 from dj_track_similarity.text_search_models import content_hash
 
-from text_tag_crosscheck import load_presets
-
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PRESETS_TS = REPO_ROOT / "frontend" / "src" / "textPromptPresets.ts"
 WEIGHT_GRID = (0.0, 0.15, 0.35, 0.5, 0.75, 1.0)
 ADAPTERS = {"clap": ClapEmbeddingAdapter, "mulan": MuqMulanEmbeddingAdapter}
 
@@ -357,6 +358,38 @@ def evaluate_family(
     return report
 
 
+def load_presets() -> list[dict[str, Any]]:
+    """Read the vocabulary from the TypeScript module that owns it.
+
+    Each preset carries ``productionBanks``: the per-family banks composed by
+    the same TypeScript helpers the UI uses, so the tuner scores what ships.
+    """
+
+    script = (
+        "const ts=require('typescript');const fs=require('fs');"
+        "const out=ts.transpileModule(fs.readFileSync(process.argv[1],'utf8'),"
+        "{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;"
+        "const m={exports:{}};new Function('module','exports',out)(m,m.exports);"
+        "const presets=m.exports.textPromptPresets;"
+        "for(const preset of presets){preset.productionBanks={};"
+        "for(const family of ['clap','mulan']){"
+        "const bank=m.exports.composePromptBanks([preset.key],family);"
+        "const queries=m.exports.promptQueriesFromText(bank.positiveText,bank.negativeText);"
+        "preset.productionBanks[family]={positive_queries:queries.positiveQueries,"
+        "negative_queries:queries.negativeQueries,negative_weight:bank.negativeWeight??0};}}"
+        "console.log(JSON.stringify(presets));"
+    )
+    completed = subprocess.run(
+        ["node", "-e", script, str(PRESETS_TS)],
+        cwd=str(REPO_ROOT / "frontend"),
+        capture_output=True,
+        # node prints UTF-8; without this the Windows locale codec decodes it.
+        encoding="utf-8",
+        check=True,
+    )
+    return json.loads(completed.stdout)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, required=True)
@@ -386,10 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.candidates_json
             else []
         )
-        presets = {
-            preset["key"]: preset
-            for preset in load_presets(include_composed_banks=True)
-        }
+        presets = {preset["key"]: preset for preset in load_presets()}
         selected = {value.strip() for value in args.presets.split(",") if value.strip()}
         unknown = selected - presets.keys()
         if unknown:

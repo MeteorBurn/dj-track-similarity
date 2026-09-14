@@ -4536,11 +4536,10 @@ meter {
   display: flex;
   flex: 0 0 auto;
   gap: 10px;
-  padding-bottom: 4px;
+  padding-bottom: 10px;
 }
 
 .metadata-dialog-close-actions {
-  align-self: flex-end;
   display: flex;
   flex: 0 0 auto;
 }

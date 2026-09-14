@@ -229,17 +229,6 @@ export function TrackMetadataDialog({
         aria-label="Теги и анализ трека"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="metadata-dialog-close-actions">
-          <button
-            className="icon-button close-metadata-dialog-button"
-            title="Закрыть"
-            aria-label="Закрыть"
-            onClick={onClose}
-            type="button"
-          >
-            <X size={15} />
-          </button>
-        </div>
         <div className="metadata-dialog-title">
           <h2 className="metadata-track-title">
             <span>{displayTrack(track)}</span>
@@ -262,6 +251,17 @@ export function TrackMetadataDialog({
               <Trash2 size={16} />
             </button>
           </h2>
+          <div className="metadata-dialog-close-actions">
+            <button
+              className="icon-button close-metadata-dialog-button"
+              title="Закрыть"
+              aria-label="Закрыть"
+              onClick={onClose}
+              type="button"
+            >
+              <X size={15} />
+            </button>
+          </div>
         </div>
 
         <div className="maest-genres-block">

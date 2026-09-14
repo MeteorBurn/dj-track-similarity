@@ -1,343 +1,53 @@
 > [!WARNING]
-> ## 🚧 Early Development
->
-> DJ Track Similarity is a personal AI-powered music analysis project currently under active development.
->
-> The goal is to build practical tools for music similarity, custom music classifiers, and DJ-oriented music analysis.
->
-> Most components are experimental and the architecture still changes often. Expect incomplete features, breaking changes, and frequent refactoring.
+> **Early development.** This is a personal enthusiast project under active development. Schemas, commands, defaults, and UI structure change often. Expect incomplete features and breaking changes.
 
 # 🎧 DJ Track Similarity
 
 **Build DJ sets as stories from your own local music library.**
 
-<p align="center">
-  <img src="img/dj-track-similarity-banner.png" alt="DJ Track Similarity" width="100%">
-</p>
+<p align="center"><img src="img/dj-track-similarity-banner.png" alt="DJ Track Similarity" width="100%"></p>
 
-`dj-track-similarity` is a local-first DJ library workbench for people with large music folders who want more than tag browsing, BPM matching, or a list of similar tracks.
-
-The project is built around a bigger idea:
-
-> I have a large folder of music. I want to analyze it locally, rediscover tracks I already own, search by vibe, sound, references, or text, and build DJ sets that mix cleanly and move like a story.
-
-A good set is not just a sequence of compatible files. It has an opening, tension, release, turns, chapters, and a destination. This project helps turn a reference track into a short list that can shift mood gradually while staying coherent.
+`dj-track-similarity` is a local-first workbench for large music folders. It scans them into a SQLite library and runs audio-model analysis on your own machine. Search ranks candidates around seed tracks or text prompts, and the set you assemble by ear exports as M3U or CSV. The server binds to `127.0.0.1` by default, and model assets load only from the local `models/` directory with downloads disabled. Model scores are ranking evidence for listening, not DJ decisions.
 
 ## ✨ The core idea
 
-Most DJ tools start with the basic layer:
+BPM, key, energy, tags, and crates are the usual DJ toolkit. This project keeps that layer and adds two more:
 
-- BPM
-- key
-- energy
-- metadata
-- playlists
-- manual crates
+1. **Technical compatibility.** BPM, key, duration, energy, and related metadata from SONARA analysis and file tags. Available today.
+2. **Sonic compatibility.** Rhythm, timbre, density, dynamics, and audio similarity from SONARA features and MAEST, MERT, MuQ, MuQ-MuLan, and CLAP embeddings, plus texture and atmosphere through text prompts. Available today as ranking evidence.
+3. **Set dramaturgy.** A set that keeps flowing while the mood changes slowly, through chapters toward a destination. This is the direction. Nothing in the app orders a set automatically, and stored mood values are not a similarity input yet.
 
-That layer matters, but it is not enough when you want a set to feel like a journey.
+The goal is a DJ assistant that builds a playable narrative from reference tracks, start and target moods, a text prompt, an emotional arc, a personal classifier profile, and the previous track in the set. Similarity is one building block of that goal.
 
-This project aims to work on three layers at once:
+Large personal libraries hide music you forgot you own. A typical loop with the current app:
 
-1. **Technical compatibility**  
-   BPM, key, duration, energy, and transition-friendly metadata.
+1. Seed a search with an unusual opener, or open the LAB tab to compare how each model ranks the same reference.
+2. Preview the candidates, add one to the current set, and seed the next search from it.
+3. Repeat, shaping the flow by listening rather than by score.
 
-2. **Sonic and emotional compatibility**  
-   Rhythm, timbre, density, dynamics, texture, atmosphere, mood, and audio similarity.
-
-3. **Set dramaturgy**  
-   A higher-level flow where tracks carry one emotional place through chapters toward a coherent destination.
-
-The most important goal is not simply to answer:
-
-> What sounds similar to this track?
-
-The real goal is closer to:
-
-> What track should come next if this set needs to keep flowing while the mood changes slowly?
-
-Similarity is only a building block. The larger ambition is **dramaturgy**.
-
-## 🧭 Library Problem
-
-Large personal libraries hide a lot of forgotten music. You may own the perfect next track, but it is buried somewhere inside thousands of files.
-
-This project should help you:
-
-- discover tracks inside your own collection that you forgot about;
-- find music with a very specific sound or atmosphere;
-- start from an unusual opener and build outward;
-- search by reference tracks, text prompts, or personal taste;
-- prepare DJ sets that feel intentional instead of random;
-- move between moods gradually instead of jumping abruptly;
-- use model output as suggestions, not as truth.
-
-A typical use case:
-
-1. Pick an unusual reference track as the opening of a set.
-2. Ask the system for candidates from your local library, or use LAB Reference Compare to inspect how each model ranks the same reference.
-3. Review tracks that are close in sound, compatible for mixing, and useful for the next emotional step.
-4. Add one candidate.
-5. Continue from the previously selected track, letting the set evolve step by step.
-6. Shape the flow through listening and manual choices while treating model scores as suggestions.
-
-The set becomes less like a static playlist and more like a musical path.
-
-## 📝 Author note
-
-This is a personal enthusiast project.
-
-I am not an ML researcher, not a music information retrieval expert, and not someone who claims to fully understand every model or music-analysis method used here. I am an enthusiast building a tool I personally wanted: something local, practical, curious, and useful for digging through a large music collection.
-
-That also defines the attitude of the project:
-
-- model outputs are ranking signals, not objective truth;
-- the UI should help shortlist tracks, not replace listening;
-- every important signal should stay inspectable and separated;
-- the final decision belongs to the DJ.
-
-This is not a commercial recommendation service and it is not a benchmark. It is a local workbench for exploration, set preparation, and learning.
-
-<p align="center">
-  <img src="img/rhythm-lab-banner.png" alt="Rhythm Lab" width="100%">
-</p>
+The author claims no ML or music-information-retrieval expertise. Model outputs are stored separately per model so you can inspect them. The full background and the feature/direction boundary live in the [project idea](docs/dj-track-similarity/concepts/project-idea.md) page.
 
 ## ✅ What the project can do today
 
-The current application already supports the practical parts of that vision:
-
-- Create one compatible SQLite library and scan local audio files with Mutagen metadata.
-- Browse large libraries through paginated API responses.
-- Read typed metadata, analysis coverage, likes, audio preview, search state, and the current set.
-- Remove a confirmed track from the SQLite catalog and its catalog-owned data while keeping its source audio file.
-- Run SONARA, MAEST, MERT, MuQ, MuQ-MuLan, and CLAP analysis jobs.
-- Search from seed tracks with MAEST, MERT, MuQ, MuQ-MuLan, CLAP, and SONARA.
-- Search from text prompts with CLAP or MuQ-MuLan after audio embeddings for the selected family exist.
-- Compare text models side by side, save query-specific feedback, and optionally use it to refine later searches.
-- Launch Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
-- Read promoted Rhythm Lab classifier scores for CLASSIFIER filtering.
-- Run optional Evaluation API and CLI workflows for feedback, profiles, calibration, and transition diagnostics.
-- Export the current set as M3U or CSV.
-- Run report-first helper tools for Audio Doctor, Audio Dedup, and database optimization.
-- Explicitly merge a legacy Core/Artifacts pair into one library database with a backup-first CLI command.
-
-The Python backend and CLI create one selected library database. The optional adjacent
-`*.evaluation.sqlite` file is created only when an Evaluation workflow writes data. Normal startup
-does not rewrite an incompatible legacy layout. After stopping every database user, migrate a former
-Core/Artifacts pair explicitly with `uv run --no-sync dj-sim migrate-database --db ./database/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`; it creates a timestamped backup, verifies the staged one-file database,
-and does not start analysis or reanalysis.
-
-The React frontend consumes the current database, track, analysis, search, Current Set, CLASSIFIER, LAB,
-Rhythm Lab, Audio Dedup, metadata, media, and exact-identity mutation responses. Large-library loading
-uses fixed server-side pages of up to `200` tracks with previous, next, and page-number navigation.
-
-## 🚧 The long-term direction
-
-The north star is a DJ assistant that can help generate a playable musical narrative from:
-
-- one or more reference tracks;
-- a starting mood and target mood;
-- a text prompt or theme;
-- a desired emotional arc;
-- a personal classifier profile;
-- the previous track in the set.
-
-In that direction, a set should be able to feel like chapters in a book:
-
-```text
-opening mood -> first turn -> deeper chapter -> tension -> release -> final destination
-```
-
-The current project should be understood as a local-first foundation for that idea. Seed search and
-CLAP or MuQ-MuLan text search are implemented today. LAB Reference Compare and classifier scoring are also
-available. The browser keeps a manual current set and exports playlists. Other parts are still a
-product direction rather than a finished automatic DJ.
-
-## 🧩 How the pieces fit
-
-```text
-audio files -> scan tags -> SQLite library -> browse/search/export
-      |                         ^
-      +---- SONARA native -------+
-      +---- TorchCodec -> ML -----+
-      +---- stored inputs -> classifiers -> CLASSIFIER scores
-```
-
-The app keeps evidence sources separate:
-
-- **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy in `sonara_features`, a dedicated 48-dimensional embedding in `sonara_embeddings`, and a versioned acoustic fingerprint in `sonara_fingerprints`. Core rows retain the analysis schema version. The BPM analysis range is stored once for the library. Direct Mode reads source paths with native SONARA, while optional Staged Mode copies selected files read-only into a user-selected temporary directory and gives SONARA only the staging paths. A native decode or codec failure for one file recovers through in-process PyAV decoding with the configured shared FFmpeg libraries, then SONARA signal analysis. An unrecovered failure is recorded only for that track.
-
-The BPM range SONARA analyses with belongs to the library rather than to a single run.
-
-- Pick it once in the SONARA analysis settings dialog, from a preset or as your own pair.
-- The first SONARA analysis fixes it for the whole library.
-- Any later run must reuse that range. To move to another one, reset SONARA analysis first.
-- The upper bound must be at least twice the lower one, because SONARA folds estimated tempos by octaves into the range.
-
-| Preset | Range |
-| --- | ---: |
-| Rekordbox | 70 to 180 |
-| VirtualDJ | 80 to 240 |
-| Mixed In Key | 79 to 192 |
-
-- **MAEST** stores genre labels and an audio embedding.
-- **MERT** stores an audio embedding for seed similarity.
-- **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, Audio Dedup, and Rhythm Lab classifier feature sets.
-- **MuQ-MuLan** stores a separate 512-dimensional L2-normalized audio embedding in `mulan_embeddings`. It supports its own seed-search space and text-to-track retrieval, and compatible Rhythm Lab classifier feature sets can use it. It does not convert or reuse MuQ embeddings.
-- **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
-- **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
-
-MAEST, MERT, MuQ, MuQ-MuLan, and CLAP reuse one decoded input per track. TorchCodec `0.16` uses
-the configured shared FFmpeg libraries in process and returns mono `float32` at the source sample
-rate through `AudioDecoder(path, num_channels=1).get_all_samples()`. Its `AudioSamples.data[0]`
-stays a 1D CPU `torch.float32` tensor inside `DecodedAudio` and passes directly to each adapter
-without a shared Tensor-to-NumPy-to-Tensor round-trip. If that full-track decode fails, the
-affected ML family retries with a different decoder: PyAV `17.1.0` reading the same shared FFmpeg
-libraries in process, opened tolerantly so a malformed packet is discarded and the valid frames
-around it are kept, then downmixed to mono `float32`. A file the primary decoder refuses outright
-can still be analyzed from its intact audio. No `ffmpeg.exe` process is started. This is
-a recovery path, not a repair of an invalid audio file. Each adapter still applies its own window
-preparation and Torchaudio resampling. The selected CPU or CUDA device applies to model inference,
-not decoding.
-
-Tempo-aware search and Evaluation transition diagnostics use current signed SONARA tempo
-evidence. At low confidence, they also inspect SONARA candidates and the Mutagen BPM tag, while
-`grid_stability` can weaken reliability. Unreliable tempo evidence moves toward a neutral score
-instead of earning a similarity bonus or becoming an automatic hard rejection.
-
-SONARA mood values are retained for inspection and possible future audio workflows; they are not
-current similarity or classifier inputs. In SONARA search, the optional Aggression modifier
-uses the stored aggression rank and attenuates its directional bias by SONARA's evidence confidence.
-True peak and ReplayGain remain stored for future loudness-management work, not direct SONARA
-similarity scoring. Model embeddings live in dedicated tables in the library database.
-
-Each successful SONARA analysis writes its Core row, an unnormalized 48-dimensional `float32`
-embedding row, and a versioned native-base64 acoustic fingerprint row together under the original
-track identity. The fingerprint row in `sonara_fingerprints` contains `track_id`, `track_uuid`,
-`fingerprint_version`, `fingerprint_base64`, and `analyzed_at`. Timeline collection remains disabled.
-The stored SONARA embedding is not a current similarity, search, classifier, or Audio Dedup input,
-and SONARA similarity workflows continue to use Core fields. The stored fingerprint has one current
-consumer: the Audio Dedup tool reads it for candidate retrieval and manual-review verification.
-
-Promoted classifier artifacts must describe the feature names and inputs they actually use. If an
-analysis update changes that recipe, retrain and promote the affected profile before scoring it
-again.
-
-A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
-
-## 🔗 Upstream models and licenses
-
-Optional analysis uses upstream projects and downloaded checkpoints, including [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights, and upstream code and weights may use different licenses, so check source terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md) for details.
-
-## 🎚️ Main workflows
-
-### 1. 🔍 Rediscover your own library
-
-Use the browser, filters, likes, metadata, analysis coverage, CLAP text search, and seed search to find tracks that match a sound you have in mind.
-
-This is useful even when you are not building a set. The project can act like a discovery layer for hidden tracks and unusual textures in your own collection, including songs that match a specific atmosphere.
-
-### 2. 🎯 Start from a reference track
-
-Pick one or more tracks as seeds. The system can rank candidates around the seed using audio-space proximity and SONARA compatibility.
-
-Model Listening Lab uses the first seed as a reference and shows a limited candidate list for each
-available model. Scores stay separate by model. Save a listening verdict for a candidate and find
-it again when the same candidate appears for that reference and model.
-
-This is useful when you have a track that feels special but you do not know what should come after it.
-
-### 3. 🌊 Curate the current set
-
-Preview search candidates by ear and add useful rows individually to the shared current set. You
-can remove entries before export. The same list can be saved as a Rhythm Lab collection; exports
-support M3U and CSV. This is browser-local working state, not automatic sequencing.
-
-### 4. 💬 Search by text
-
-After CLAP or MuQ-MuLan audio embeddings exist, choose that family in the PROMPT tab and search your library from prompts such as:
-
-```text
-dark hypnotic techno, rolling bass, low light, late night tension
-```
-
-Submitting the first search loads the selected text model and displays its name in the status line.
-Later searches reuse it
-until the cache releases it after about ten minutes without a search. In A/B mode both models load.
-
-Build a prompt from presets or write your own positive and optional negative prompts. A/B compares
-CLAP and MuQ-MuLan side by side: each model receives its own preset wording, while a manually edited
-prompt is shared by both. Results show the executed query and whether saved feedback affected the
-ranking.
-
-Approve or reject results to save feedback for that exact query and model. You can opt in to using
-those judgments in later searches. Refinement applies only when enough usable approvals exist.
-It stays disabled during A/B comparison.
-
-CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Treat them as prompt evidence, not as a universal similarity value. MuQ-MuLan text-search scores stay inside that family's score space and are not directly comparable to CLAP or seed-search scores.
-
-### 5. 🧪 Train personal classifiers
-
-Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier
-scores. The backend has routes to launch or reuse it at `127.0.0.1:8777` and to save review
-collections. The main frontend exposes both actions, and the standalone Lab UI reports
-current/missing/stale source state plus training recipes over every supported feature source.
-
-A new Rhythm Lab labels database starts without a built-in classifier profile. Create or select the profile you want to train. Profile-specific CLI commands use an explicit `--profile`.
-
-The normal loop is:
-
-1. Label examples in Rhythm Lab.
-2. Train and review benchmark output for the active profile.
-3. Promote one trained artifact into `models/classifiers/<profile>/`.
-4. Run classifier scoring in the main library database.
-5. Use the promoted scores as CLASSIFIER filters.
-
-Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/MuQ/MuQ-MuLan/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
-
-SONARA-dependent classifier artifacts must use the same ordered feature recipe as the stored inputs
-they score. Missing requested values are skipped rather than imputed as `0.0`. When that recipe
-changes, retrain and promote the affected classifier, then rerun its scoring when you choose. Rhythm
-Lab labels and feedback remain available for that retraining loop.
-
-Launch Rhythm Lab from the main app. For training and promotion from PowerShell, use the root
-environment installed below. Replace `live_instrumentation` with your existing profile key:
-
-```powershell
-& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-uv run --no-sync dj-sim analyze-classifier live_instrumentation --db ./database/library.sqlite
-```
-
-The default Rhythm Lab state is the single stable database at
-`tools/rhythm-lab/database/rhythm_lab.sqlite`. Launching Rhythm Lab from the main app binds that Lab
-database to the currently selected library database.
-
-See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASSIFIER tab](docs/dj-track-similarity/user-guide/class-tab.md).
+- Scan a local music folder into one SQLite library (tags read with Mutagen) and browse it in server-side pages.
+- Analyze tracks with SONARA, MAEST, MERT, MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those six models.
+- Search from text prompts with CLAP or MuQ-MuLan once that family's audio embeddings exist (see workflow 4 for A/B comparison and feedback).
+- Train personal classifiers in Rhythm Lab (label, train, benchmark, promote) and filter the library by promoted scores in the CLASSIFIER tab.
+- Keep a manual current set, export it as M3U or CSV, and remove a confirmed track from the catalog without touching its audio file.
+- Run report-first Audio Doctor and Audio Dedup and backup-first database optimization (see [Maintenance tools](#-maintenance-tools)).
 
 ## 🚀 Quick start
 
-Verified local development is Windows-first. Run these PowerShell examples from the repository
-root. Commands use `uv run --no-sync` or the explicit root `.venv` interpreter, so manual
-activation is unnecessary. Install the relevant extras before running optional tools.
+Development is verified on Windows. Run these PowerShell examples from the repository root. `uv run --no-sync` and the root `.venv` interpreter need no activation.
 
 ### What you need
 
-- **`uv`.** This is the only prerequisite on the Python side, because `uv`
-  installs the interpreter as well as the packages. You do not need a system
-  Python: `.python-version` pins the exact CPython patch release, and `uv`
-  downloads that build on the first sync.
-- **FFmpeg `8.1.1`, as a full shared build.** The version is checked exactly and
-  anything else is refused, including newer releases. `ffmpeg.exe` on its own is
-  never enough, because the runtime loads the shared libraries next to it.
-- **Node.js**, only when you run the development UI or build the frontend or
-  docs from source.
-- **A local folder of audio files.** Source files stay in place. Optional Staged
-  Mode uses temporary copies. See the safety model below.
+- **`uv`**, the only Python-side prerequisite. `.python-version` pins CPython `3.10.20`, which `uv sync` downloads when the machine lacks it.
+- **FFmpeg `8.1.1` as a full shared build.** The version is checked exactly, any other release is refused, and `ffmpeg.exe` without the shared libraries next to it is never enough.
+- **Node.js** for the browser UI (the launcher starts Vite, and a clone has no built `frontend/dist`) and for the docs site. Pure CLI use does not need it.
+- **A local folder of audio files.** Source files stay in place. See the [Safety model](#-safety-model).
 
 ### Step 1 - install the prerequisites
-
-On a clean Windows machine:
 
 ```powershell
 winget install --id astral-sh.uv --exact
@@ -345,25 +55,11 @@ winget install --id OpenJS.NodeJS.LTS --exact
 winget install --id Gyan.FFmpeg.Shared --exact --version 8.1.1
 ```
 
-Pin the FFmpeg version explicitly, as shown. `Gyan.FFmpeg.Shared` tracks the
-latest release, so a plain `winget install` hands you a build the runtime will
-reject. Extracting an FFmpeg `8.1.1` full shared archive by hand works equally
-well; only the version and the shared libraries matter, not how they arrived.
-
-Close and reopen the terminal afterwards so the new `PATH` is visible.
+Keep `--version 8.1.1`, because the runtime accepts no other release. A hand-extracted `8.1.1` full shared archive also works. Reopen the terminal afterwards so any `PATH` change is visible, and use Step 2 if the runtime still cannot find the `bin` directory.
 
 ### Step 2 - make FFmpeg discoverable
 
-The runtime needs the directory holding the FFmpeg DLLs - `avcodec-62`,
-`avformat-62`, `avutil-60`, `avfilter-11`, `swresample-6`, `swscale-9` - which is
-the `bin` directory of a full shared build. It is found in one of two ways:
-
-1. `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, when set, is used and nothing else
-   is tried. Point it straight at that `bin` directory.
-2. Otherwise every directory on `PATH` is examined, and the first one holding a
-   matching `8.1.1` build wins.
-
-Set the variable for the current terminal and save it for future terminals:
+The runtime needs the `bin` directory of the shared build. When `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` is set, only that directory is tried. Otherwise the first `PATH` entry holding a complete `8.1.1` build wins. To set it for this and future terminals:
 
 ```powershell
 $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = "C:\path\to\ffmpeg\bin"
@@ -371,147 +67,66 @@ $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = "C:\path\to\ffmpeg\bin"
   "DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR", $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR, "User")
 ```
 
-Step 4 checks this, so it is fine to move on and come back if the check fails.
-
 ### Step 3 - install the project
 
-`uv` manages Python dependencies, including the optional tools under `tools/`.
-Install the frontend separately with npm from its lockfile:
+The base `uv sync` covers scan, serving, a fresh library database, and set export. The frontend and the docs site are separate npm installs. The third command below is needed only to build or check documentation (that package has no lockfile). Model analysis needs extras, described in [Add model-backed analysis](#-add-model-backed-analysis).
 
 ```powershell
 uv sync --locked --extra dev
 npm --prefix .\frontend ci
+npm --prefix .\docs\dj-track-similarity install --no-package-lock
 ```
-
-Install the separate documentation environment only if you will build or check documentation:
-
-```powershell
-npm --prefix .\docs\dj-track-similarity ci
-```
-
-`uv sync` reads `.python-version`, downloads that interpreter when the machine
-does not already have it, and builds `.venv` in the repository root from
-`uv.lock`. `--locked` guarantees the locked dependency set rather than a fresh
-resolution. `run_server.cmd` activates that `.venv` itself, so nothing has to be
-activated by hand.
-
-For an existing environment, keep every extra it needs in the sync command;
-unselected extras can be removed. See [Add model-backed analysis](#-add-model-backed-analysis).
-Use `uv run --no-sync`, as in `uv run --no-sync dj-sim scan ...`, for commands that
-should use the environment without synchronizing it again.
 
 ### Step 4 - verify
 
 ```powershell
 uv run --no-sync dj-sim doctor
+& .\.venv\Scripts\python.exe -c 'from dj_track_similarity.audio.ffmpeg_runtime import inspect_audio_runtime; print(inspect_audio_runtime())'
 ```
 
-This prints the selected Python, the FFmpeg directory and version it resolved,
-and the PyAV binding. When FFmpeg is missing or its version is refused, the
-error names every directory that was examined and why each one was rejected,
-which is usually enough to see what to correct in step 2.
-
-> **`uv sync` is the only supported way to install.**
+`doctor` prints the interpreter and Torch status, then the resolved FFmpeg directory, version, and PyAV binding. Without the `ml` extra it reports `torch=missing` (plus an install hint when a CUDA driver is detected) and skips the audio runtime check, so the second command checks the audio runtime on a base install. When the runtime is refused, the output lists every directory that holds FFmpeg libraries and why it was rejected.
 
 ### First run
 
-After installation, replace `D:/Music` with your music folder and scan it into a new library.
-Keeping the database under `database/` also makes it discoverable by the interactive launcher:
+Scan your music folder (replace `D:/Music`) into a new library. Keeping it under `database/` lets the interactive launcher find it:
 
 ```powershell
 uv run --no-sync dj-sim scan D:/Music --db ./database/library.sqlite
 ```
 
-Open that same library with the Windows launcher:
+Start the backend (`127.0.0.1:8765`) and the live Vite UI with the Windows launcher, keep its window open, and open the `Open UI` address it prints (`http://127.0.0.1:5173/`) in a browser. The window shows the output, and Ctrl+C stops the servers. Run it without arguments to pick a database from `database/` (or type a path to create one) and then choose the mode:
 
 ```powershell
 .\run_server.cmd local --db .\database\library.sqlite
-```
-
-Keep the launcher window visible so you can see output and stop the servers. To select a different
-database or mode interactively, run:
-
-```powershell
+.\run_server.cmd lan --db .\database\library.sqlite
 .\run_server.cmd
 ```
 
-It first looks in `database\` under the repository root. If it finds one or more `.sqlite`
-databases there, it lists their filenames and asks which one to open, defaulting to
-`volumes.sqlite` when present or the first one listed otherwise; you can type a list number, or
-type any path to open or create a database elsewhere. If `database\` has no `.sqlite` files yet, it
-falls back to suggesting `database\volumes.sqlite`, and Enter creates that path. The next prompt
-selects local or LAN mode. The launcher starts the backend plus the Vite live UI. Open the printed
-`5173` UI URL; frontend source changes are visible without rebuilding `frontend/dist`.
-
-When you are done with a launcher-managed browser session, click the top-bar power button. The UI
-requests `/api/server/shutdown`, the backend tries to stop a managed Rhythm Lab first, the launcher
-stops its Vite child after `dj-sim serve` exits, and the browser is asked to close the tab. If the
-browser blocks script-driven tab close, the app shows a final fallback page that says the servers
-have stopped and the tab can be closed manually.
-
-Supplying `--db` opens an existing compatible library or creates one new library database at that
-path. If you omit `--db`, the server starts without a selected database and does not create any
-SQLite file. You can then choose an existing database or create a new one with the database picker.
-
-For non-interactive use, specify the mode and database explicitly:
-
-```powershell
-.\run_server.cmd local --db C:/db/volumes.sqlite
-.\run_server.cmd lan --db C:/db/volumes.sqlite
-```
-
-`local` binds to `127.0.0.1`. `lan` binds to `0.0.0.0` and prints a LAN URL. Explicit mode commands
-use only the arguments supplied on the command line.
+`local` binds `127.0.0.1`, and `lan` binds `0.0.0.0` and prints a LAN URL. Naming a mode skips the prompts. `--db` opens an existing compatible library or creates a new one at that path. Without it the server creates no SQLite file and waits for the database picker. The top-bar power button stops the backend, a managed Rhythm Lab, and the launcher's Vite child. Launcher prompts and shutdown details are in the [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md).
 
 ## 🧠 Add model-backed analysis
 
-The base install is enough for scan, backend serving, a fresh library database, and set export. Install
-optional analysis dependencies when you want the model jobs:
+Model jobs need optional extras on top of the base install:
 
 ```powershell
 uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
 ```
 
-`pyproject.toml` declares five extras. `sonara`, `ml` and `rhythm-lab` carry the
-analysis stacks, `dev` adds test dependencies, and `audio-online` the two
-packages the Audio Online tool needs on top of the base install. Name the ones
-you want to retain in a single `uv sync`; its default exact sync can remove
-unselected extras. Ruff is managed separately from the Python environment.
+`sonara`, `ml`, and `rhythm-lab` carry the analysis stacks, `dev` adds the test dependencies, and `audio-online` adds the two packages the [Audio Online](docs/dj-track-similarity/tools-and-scripts/audio-online.md) tool needs. Name every extra you keep in one `uv sync`, because its default exact sync removes the others.
 
-The `sonara` extra resolves to a patched SONARA `0.3.6` wheel through
-`[tool.uv.sources]` rather than to a package index. Check that the configured
-wheel exists before syncing with this extra. A fresh clone does not include it.
-On another machine, obtain or build the matching wheel from the SONARA sources
-and update the source entry before resolving the environment. If you change
-that entry, regenerate `uv.lock` with `uv lock` before running a locked sync.
-Do not substitute an unrelated package for that local artifact.
-
-The `ml` extra is the clearest case for the rule above: it resolves through `[tool.uv.sources]`,
-which only `uv` reads. On Windows AMD64 with Python 3.10, `uv` selects `torch`, `torchaudio`, and
-`torchvision` from the CUDA 13.0 index plus the exact TorchCodec `0.16.0+cu130` wheel. Other
-supported environments select TorchCodec `0.16.0`. The manifests and lockfile describe the tested
-environment, not a permanent ban on updates. When dependencies change, update them together and run
-focused compatibility checks.
+`sonara` and the Torch packages in `ml` resolve through `[tool.uv.sources]`. `sonara` points at a patched SONARA `0.3.6` wheel at a local path that a fresh clone lacks. Build or obtain the matching wheel from the SONARA sources, point the source entry at it, then run `uv lock` before a locked sync. On Windows AMD64 with Python 3.10, `ml` selects `torch`, `torchaudio`, and `torchvision` from the CUDA 13.0 index plus the exact TorchCodec `0.16.0+cu130` wheel. Other supported environments select TorchCodec `0.16.0`.
 
 ### Prepare local model assets
 
-Installing the `ml` extra installs Python packages, not model weights. The adapters load pinned
-assets only from this checkout's `models/` directory and verify their SHA-256 hashes. Automatic
-downloads and fallback to shared Hub caches are disabled. A fresh clone needs the
-matching assets before ML analysis or text search can load a model.
+The `ml` extra installs packages, not weights. Adapters load pinned assets only from this checkout's `models/` directory and verify their SHA-256 hashes, with automatic downloads and Hub caches disabled. A fresh clone needs these assets before ML analysis or text search can load a model. File names and digests are declared in [analysis_models.py](src/dj_track_similarity/analysis_models.py).
 
-| Family | Required directories under `models/` | File and hash definitions |
-| --- | --- | --- |
-| MAEST | `maest/` | [MAEST adapter](src/dj_track_similarity/embedding/maest.py) |
-| MERT | `mert/` | [MERT adapter](src/dj_track_similarity/embedding/mert.py) |
-| MuQ | `muq/` | [MuQ adapter](src/dj_track_similarity/embedding/muq.py) |
-| MuQ-MuLan | `mulan/`, `mulan-text/`, `muq/` | [MuQ-MuLan adapter](src/dj_track_similarity/embedding/mulan.py) |
-| CLAP | `clap/`, `clap-text/` | [CLAP adapter](src/dj_track_similarity/embedding/clap.py) |
-
-Use the exact files and revisions declared by the relevant adapter. A missing file or a hash
-mismatch prevents loading. Restore the matching local asset before retrying. SONARA uses its
-installed native package instead of these ML checkpoints. Shared assets used by MuQ-MuLan do
-not make its saved embeddings interchangeable with MuQ embeddings.
+| Family | Required directories under `models/` |
+| --- | --- |
+| MAEST | `maest/` |
+| MERT | `mert/` |
+| MuQ | `muq/` |
+| MuQ-MuLan | `mulan/`, `mulan/text/`, `muq/` |
+| CLAP | `clap/`, `clap/text/` |
 
 ### Run analysis
 
@@ -523,158 +138,134 @@ uv run --no-sync dj-sim analyze --models maest,mert,muq,mulan,clap --limit 25 --
 uv run --no-sync dj-sim analyze-pipeline --stages sonara,ml --db ./database/library.sqlite
 ```
 
-Normal SONARA reruns select a track when its current Core, dedicated embedding, or fingerprint row
-is missing, then store all three outputs together after a successful pass. Tracks with all three
-rows remain skipped. Other model jobs target only their missing selected outputs. A legacy split database
-is never rewritten at startup. Its one-time, backup-first migration is explicit with
-`dj-sim migrate-database`. It does not start analysis. Reanalysis remains a separate user decision.
+Omit `--limit` to analyze the whole library. SONARA runs alone on the CPU while the ML families run together, and the pipeline always runs SONARA before ML. Reruns target only tracks with missing outputs, and per-file failures are kept in the job status without stopping the run. CUDA is recommended for full-library ML runs. The full option table is in the [CLI reference](docs/dj-track-similarity/reference/commands.md#dj-sim-analyze). Useful options:
 
-Useful options from the current CLI and API are:
-
-- `--models sonara` for the standalone CPU/Rust job, or `--models maest,mert,muq,mulan,clap` for ML analysis
-- `--sonara-batch-size 1..16`; default `8`, independent from ML batching
-- `--device auto|cpu|cuda`
+- `--sonara-batch-size 1..16` (default `8`) for the SONARA job
+- `--sonara-bpm-min` / `--sonara-bpm-max` (default `70` / `180`) set the library-wide BPM range on the first SONARA run; choose it here or in the browser SONARA settings dialog, because changing it later needs a SONARA analysis reset
+- `--device auto|cpu|cuda` for ML inference
 - `--top-k 1..10` for MAEST labels
-- `--track-batch-size 1..64`; default `8`
-- `--inference-batch-size 1..128`; default `16`
-- `--diagnostics` to write decoder and batch timing details to the file log
+- `--track-batch-size 1..64` (default `8`) and `--inference-batch-size 1..128` (default `16`) for ML batching
 
-Every analysis job loads its selected models before it decodes a track, and reports that as a warm-up
-phase in the job status and in the browser process box. Warm-up verifies and loads the local assets;
-a missing or invalid asset fails the job before track decoding begins. Loaded analysis models
-can be reused while their library stays selected. Switching databases or shutting down drains
-accepted work before releasing those models. Text search has a separate cache that survives a
-database switch and releases idle models. See
-[Model warm-up](docs/dj-track-similarity/reference/analysis-families.md#model-warm-up).
+Every job loads its selected models first and reports that as a warm-up phase. A missing or invalid local asset fails the job before any track is decoded. In the browser, SONARA and ML each offer a Direct Mode that reads source files in place and an optional Staged Mode for libraries on slow disks, which copies selected files into a user-selected temporary folder without touching the source and gives the analyzer only the staging paths. Tuning values persist in browser `localStorage`. The staging folder does not, because it receives temporary copies of your audio, so every session asks for it again. See [Model warm-up](docs/dj-track-similarity/reference/analysis-families.md#model-warm-up) and [Direct and Staged Mode](docs/dj-track-similarity/reference/analysis-families.md#direct-and-staged-mode).
 
-Analysis stages run one at a time within a server or CLI session. The pipeline
-fixes the order to SONARA, then ML. Per-file failures are retained in job status and do
-not stop the next stage. A fatal initialization error or cancellation does.
+## 🎚️ Main workflows
 
-Browser SONARA analysis starts in Direct Mode with BatchSize `8`; it reads the selected source files
-without making staging copies. Staged Mode is available for libraries on slower disks. Its folder
-starts empty and must be selected before analysis. Its editable defaults are Processes `4`, Threads
-`4`, BatchSize `4`, and StageSize `32`. Those numbers are kept in browser `localStorage`. The
-staging folder is not, because it receives temporary copies of your audio, so every session asks
-for it again. ML Staged Mode keeps its own folder the same way.
+The browser interface is in Russian. Model names, tab labels, and analysis mode names stay English, and [UI language](docs/dj-track-similarity/help/ui-language.md) maps the labels. Search tabs are SIMILARITY, PROMPT, CLASSIFIER, and LAB (Model Listening Lab).
 
-In Staged Mode, StageSize bounds the copy, ready, and analysis window. Completed copies join one
-shared ready queue, where each process takes up to BatchSize files without cross-process batch
-barriers and sets its Rayon pool from Threads. Core and embedding writes remain per-track savepoints
-under the original source-track identity. The process log reports copy, native analysis, result
-preparation, and database storage times plus shared-library recovery and per-track errors. Staging copies are
-deleted after each track completes, and the temporary job directory is cleaned up after completion,
-failure, or cancellation. Each Staged run uses a new unique job directory. Before it starts, the
-runner removes owner-marked job directories whose recorded process is no longer running and empty
-`sonara-stage-*` residues without a valid owner marker. It preserves a directory with a live owner
-and a nonempty directory without a valid marker. ML has a separate optional Staged Mode with its
-own temporary folder and copy/decode workers. It copies selected ML candidates read-only, then runs
-copy, decode, and inference. ML StageSize bounds the active staging window rather than the whole
-job. Each completed track has its staging copy deleted, and the window refills until every candidate
-in the current ML job has finished. Without ML Staged Mode, ML analysis reads original source paths
-and uses its separate full-TorchCodec decode. It then falls back to the tolerant PyAV
-shared-library decode if that decode fails. The recovery does not start `ffmpeg.exe`.
-Queued-stage messages contain only settings used by that stage. SONARA reports its mode and the
-relevant Direct or Staged values, ML reports its models, device, Track batch, and Inference batch.
-Classifier scoring runs as its own job rather than as a pipeline stage.
+### 1. 🔍 Rediscover your own library
 
-MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. MuQ-MuLan uses the same optional dependencies and official `OpenMuQ/MuQ-MuLan-large` weights. Both receive mono 24 kHz `float32` audio in 10-second windows and support CPU or CUDA. MuQ-MuLan writes its own normalized 512D vectors. It does not derive them from MuQ. The two families remain separate score spaces. CUDA is recommended for full-library runs.
+Filters, likes, analysis coverage, text search, and seed search find tracks that match a sound you have in mind, with or without a set in progress. See [Browse library](docs/dj-track-similarity/user-guide/browse-library.md).
 
-In the CLI, omit `--limit` to analyze the whole library.
+### 2. 🎯 Start from a reference track
 
-## 🖥️ Frontend status
+Pick up to five tracks as seeds. The SIMILARITY tab ranks candidates in one model space per search: SONARA measured Core features with a manual mixer of five sliders and nine directional modifiers, or a MAEST, MERT, MuQ, MuQ-MuLan, or CLAP embedding space. The LAB tab takes the first seed and shows a short candidate list per available model. Scores are model-specific, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
 
-The React source uses the current backend responses. Its main search tabs are LAB, SIMILARITY,
-PROMPT, and CLASSIFIER. The SIMILARITY model selector starts with SONARA, whose search uses a manual
-mixer and nine directional modifiers. It also searches separate MAEST, MERT, MuQ, and MuQ-MuLan
-embedding spaces. Search results provide individual current-set actions, and the shared
-Current Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.
-Database changes clear catalog-bound state. Exact-identity writes carry the catalog UUID and the
-track UUID, and the API refuses either value with surrounding whitespace (HTTP 422) instead of
-searching for a track that cannot exist.
+### 3. 🌊 Curate the current set
 
-The interface is in Russian. Model names, tab labels, and analysis mode names stay English. See
-[UI language](docs/dj-track-similarity/help/ui-language.md) for the label glossary the rest of the
-documentation refers to.
+Preview candidates and add rows to the shared current set. Any result list adds one row at a time. Bulk adds exist for the whole current library page in the browser and for every shown PROMPT candidate. The set panel previews and removes tracks. It also saves the list as a Rhythm Lab collection and exports M3U or CSV. The set is in-memory browser state rather than automatic sequencing, and switching databases clears it together with other catalog-bound state. See [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md).
 
-The UI remains a local, listening-led workbench. Similarity and classifier values are ranking
-signals for review, not objective musical truth or automatic performance decisions.
+### 4. 💬 Search by text
+
+After CLAP or MuQ-MuLan audio embeddings exist, the PROMPT tab searches your library from a prompt bank composed of presets. Each preset carries its own wording per model plus optional negative prompts you can switch off.
+
+A/B runs MuQ-MuLan and CLAP side by side. Approve or reject results to save feedback for that exact query and model. Later PROMPT-tab searches of the same query apply it automatically once at least three usable approvals exist, while the CLI does not use feedback. The results show the executed query and whether feedback applied.
+
+The first search loads the text model, which stays cached until about ten minutes pass without a search. Text-search scores are prompt evidence inside one model's score space and are not comparable to seed-search scores or to the other text model. See [Text search](docs/dj-track-similarity/user-guide/text-search.md). Free-form prompts are available from the CLI:
+
+```powershell
+uv run --no-sync dj-sim text-search "dark hypnotic techno, rolling bass, low light, late night tension" --model clap --db ./database/library.sqlite
+```
+
+### 5. 🧪 Train personal classifiers
+
+<p align="center"><img src="img/rhythm-lab-banner.png" alt="Rhythm Lab" width="100%"></p>
+
+Rhythm Lab is a separate local app that turns listening decisions into classifier scores. Launch it from the main app. The backend starts or reuses it at `127.0.0.1:8777`, bound to the selected library, with labels in `tools/rhythm-lab/database/rhythm_lab.sqlite`. A new labels database has no built-in profile, so create or select the one you want to train. See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASSIFIER tab](docs/dj-track-similarity/user-guide/class-tab.md). The loop:
+
+1. Label examples in Rhythm Lab.
+2. Train and review the profile.
+3. Promote one artifact into `models/classifiers/<profile-slug>/` (the profile key with hyphens, such as `live-instrumentation`).
+4. Score the library with `dj-sim analyze-classifier`.
+5. Filter by the scores in the CLASSIFIER tab.
+
+Scoring is database-only. It reads the stored SONARA, MAEST, MERT, MuQ, MuQ-MuLan, and CLAP inputs the promoted manifest names, and tracks missing a required input are left out of the job. From PowerShell, with the `rhythm-lab` extra installed, replace `live_instrumentation` with your profile key:
+
+```powershell
+& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
+& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
+uv run --no-sync dj-sim analyze-classifier live_instrumentation --db ./database/library.sqlite
+```
+
+## 🧩 How the pieces fit
+
+```text
+audio files -> scan tags -> SQLite library -> browse/search/export
+      +---- native SONARA -----------^
+      +---- TorchCodec (PyAV recovery) -> ML families ---^
+      +---- stored inputs -> classifiers -> CLASSIFIER scores
+```
+
+The app keeps evidence sources separate and never folds them into one score scale. A file genre tag, a MAEST genre label, a CLAP text score, and a duplicate score answer different questions ([Similarity scores](docs/dj-track-similarity/concepts/similarity-scores.md)).
+
+- **File tags** come from Mutagen during scan and Refresh Tags.
+- **SONARA** stores measured Core features (BPM, key, duration, energy, rhythm, dynamics, timbre, tonal signals), a 48-dimensional embedding, and a versioned acoustic fingerprint. The BPM analysis range is a library-wide setting claimed by the first SONARA run. Every later run has to reuse it, and switching requires a SONARA analysis reset. The library rejects an upper bound below twice the lower one. Presets are Rekordbox 70 to 180, VirtualDJ 80 to 240, and Mixed In Key 79 to 192.
+- **MAEST** stores genre labels and an audio embedding.
+- **MERT**, **MuQ**, **MuQ-MuLan**, and **CLAP** each store their own audio embedding in a separate seed-search space. CLAP and MuQ-MuLan also serve text-to-track search. MuQ-MuLan does not reuse MuQ embeddings.
+- **Rhythm Lab classifiers** score from stored inputs only and save results under a classifier key (see workflow 5).
+
+The ML families share one in-process decode per track: TorchCodec `0.16` over the shared FFmpeg `8.1.1` libraries, with a per-family PyAV `17.1.0` retry that discards malformed packets and keeps the valid audio around them. SONARA decodes natively and uses the same PyAV retry. The retry recovers a readable file. It does not repair a damaged one. Decoding never launches `ffmpeg.exe` (the executable is only run with `-version` to verify the runtime), and the CPU or CUDA device applies to inference only. See [Analysis families](docs/dj-track-similarity/reference/analysis-families.md).
+
+Tempo comparisons weight SONARA BPM by its confidence and beat-grid stability. Unreliable tempo drifts toward a neutral score instead of earning a bonus or a hard rejection. Transition diagnostics also consult SONARA tempo candidates and the file BPM tag at low confidence, while SONARA similarity search uses stored SONARA values only.
+
+Audio Dedup is the SONARA fingerprint's only consumer, and no search, classifier, or dedup workflow reads the SONARA embedding yet. Mood, true peak, and ReplayGain are stored for inspection and Rhythm Lab feature sets, not for similarity scoring. In SIMILARITY search with the SONARA model, the Aggression modifier uses the stored aggression score and shrinks its directional push by SONARA's aggression confidence. See [Features, embeddings, and tags](docs/dj-track-similarity/concepts/features-embeddings-tags.md).
+
+## 🔗 Upstream models and licenses
+
+Optional analysis uses upstream projects and downloaded checkpoints: [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights. Upstream code and weights carry different licenses, so check their terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md).
 
 ## 🛠️ Maintenance tools
 
-- **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode writes as soon as you pass `--apply`, backs up each file first, verifies the result, and restores the backup on failure. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
-- **Audio Dedup** reports duplicate candidates from saved SONARA fingerprints and stored MERT, MAEST, MuQ, and CLAP analysis data. Its default `--fingerprint` mode decides duplicates from exact fingerprint matches alone and keeps every candidate manual-review. The secondary `--embedding` mode scores the enabled sources with configurable weights and is the only mode that can mark safe delete candidates; MuQ alone never authorizes deletion. A read-only FFmpeg spectral check flags suspected transcodes inside duplicate groups and steers keeper choice toward full-band copies. A CLI apply run requires you to type `APPLY DELETE`. The browser sends that phrase itself once you confirm the deletion dialog. A CLI `--apply` run deletes only safe candidates inside the selected root, while the browser review dialog opens any report, plays the copies, and deletes the ones you mark to the recycle bin or permanently. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
-- **Database validation** checks SQLite integrity, track identities and stored analysis data without changing the library. It reports progress by track, model coverage and retained findings.
-- **Database optimization** can start from the browser confirmation offered after validation finishes without errors, or from the CLI. It verifies backups before maintenance and checks integrity again afterward. Library optimization includes its existing Evaluation sidecar; Rhythm Lab labels databases can be optimized separately. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
-
-Common maintenance commands:
+- **Audio Doctor** inspects audio metadata and container issues and is dry-run by default. `--apply` writes repairs without a further prompt. By default it backs up each file first, verifies the result, and restores the backup on failure; `--no-backup` skips the backup, so no rollback is possible. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
+- **Audio Dedup** reports duplicate candidates from stored SONARA fingerprints and MERT, MAEST, MuQ, and CLAP embeddings. The default `--fingerprint` mode leaves every candidate for manual review. Only `--embedding` mode can mark safe delete candidates, and those require MERT and MAEST evidence. Deletion needs the phrase `APPLY DELETE`. The CLI asks you to type it and deletes only safe candidates inside `--root`. The browser review dialog sends it once you confirm, then moves the copies you mark to the recycle bin (the default) or deletes them permanently. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
+- **Database validation** (`dj-sim validate-database` or the browser) checks SQLite integrity, track identities, and stored analysis data without changing the library.
+- **Database optimization** is backup-first. It verifies the backup, runs `VACUUM` and `ANALYZE`, then checks integrity again. The browser offers it after a validation with zero errors. The CLI can also run on a Rhythm Lab labels database, treated as a separate generic SQLite file. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
+- **Legacy database migration.** Startup never rewrites a legacy split (core + artifacts) database pair. Stop every database user, then run `uv run --no-sync dj-sim migrate-database --db ./database/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`. It creates a timestamped backup and verifies the merged file. No analysis starts.
 
 ```powershell
 & .\.venv\Scripts\python.exe tools/audio-doctor/audio_doctor_cli.py --db ./database/library.sqlite
 & .\.venv\Scripts\python.exe tools/audio-dedup/audio_dedup_cli.py --db ./database/library.sqlite --root D:/Music --preset safe
+uv run --no-sync dj-sim validate-database --db ./database/library.sqlite
 & .\.venv\Scripts\python.exe scripts/optimize_database.py --db ./database/library.sqlite
 & .\.venv\Scripts\python.exe scripts/optimize_database.py --db tools/rhythm-lab/database/rhythm_lab.sqlite
 ```
 
-## 🛡️ Safety model
+## 🛡 Safety model
 
-Default workflows do not modify source audio files:
+Normal workflows read source audio and never modify it. Scan, Refresh Tags, analysis, search, browser preview, analysis reset, database clear, confirmed single-track catalog removal, relocation preview, export, and classifier scoring write only SQLite rows, logs, reports, temporary preview files, temporary Staged Mode copies in the staging folder you choose, or exported M3U and CSV files.
 
-- scan
-- Refresh Tags
-- analysis
-- search
-- audio preview
-- analysis reset
-- database clear
-- confirmed single-track catalog removal
-- relocation preview
-- set generation
-- export
-- classifier scoring
+Only three workflows touch source audio, and each one is explicit (gates and backups are described under [Maintenance tools](#-maintenance-tools)):
 
-Explicit write paths are narrow:
+- **MAEST genre tag apply** writes the standard genre field of tracks with stored MAEST genres.
+- **Audio Doctor `--apply`** rewrites repairable files in place.
+- **Audio Dedup deletion** removes confirmed duplicate copies after an explicit confirmation.
 
-- MAEST genre tag apply writes the standard genre field in audio files.
-- Audio Doctor apply can repair previously reported repairable files.
-- Audio Dedup deletion can delete confirmed duplicate copies from the CLI or the browser review dialog.
-- Library relocation apply updates stored SQLite paths only. It does not move, copy, delete, or retag audio files.
+Library relocation apply rewrites stored SQLite paths only. It never moves, copies, deletes, or retags files.
 
-SQLite databases, logs, reports, generated indexes, and promoted classifier artifacts can reveal library information. Keep them out of Git unless you intentionally choose otherwise.
+SQLite databases, logs, reports, and promoted classifier artifacts reveal library paths and listening decisions, so `.gitignore` excludes them. [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md) holds the full write-path table.
 
 ## 📚 Documentation
 
-Start here:
+The docs site starts at the [project guide](docs/dj-track-similarity/project-guide.md).
 
-- [Project guide](docs/dj-track-similarity/project-guide.md)
-- [Project idea](docs/dj-track-similarity/concepts/project-idea.md)
-- [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md)
-- [Install](docs/dj-track-similarity/getting-started/install.md)
-- [First library](docs/dj-track-similarity/getting-started/first-library.md)
-- [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md)
-- [Migrate and reanalyze SONARA storage](docs/dj-track-similarity/workflows/reanalyze-sonara-split-storage.md)
-- [Browse library](docs/dj-track-similarity/user-guide/browse-library.md)
-- [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md)
-- [Text search](docs/dj-track-similarity/user-guide/text-search.md)
-- [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md)
-- [SONARA integration](docs/dj-track-similarity/reference/sonara-integration.md)
-- [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md)
-- [CLI reference](docs/dj-track-similarity/reference/commands.md)
-- [Audio Online](docs/dj-track-similarity/tools-and-scripts/audio-online.md)
-- [Scripts](docs/dj-track-similarity/tools-and-scripts/scripts.md)
-- [UI language](docs/dj-track-similarity/help/ui-language.md)
-- [Model citations and licenses](docs/dj-track-similarity/reference/model-citations.md)
+| Topic | Pages |
+| --- | --- |
+| Getting started | [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md), [Install](docs/dj-track-similarity/getting-started/install.md), [First library](docs/dj-track-similarity/getting-started/first-library.md), [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md) |
+| Everyday use | [Browse library](docs/dj-track-similarity/user-guide/browse-library.md), [Analyze library](docs/dj-track-similarity/user-guide/analyze-library.md), [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md), [Text search](docs/dj-track-similarity/user-guide/text-search.md), [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md) |
+| Reference and maintenance | [CLI reference](docs/dj-track-similarity/reference/commands.md), [API reference](docs/dj-track-similarity/reference/api.md), [Configuration](docs/dj-track-similarity/reference/configuration.md), [Database](docs/dj-track-similarity/reference/database.md), [SONARA integration](docs/dj-track-similarity/reference/sonara-integration.md), [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md), [Migrate and reanalyze SONARA storage](docs/dj-track-similarity/workflows/reanalyze-sonara-split-storage.md) |
 
 ## 🧪 Development checks
 
-Project instructions, the current working-branch policy, and verification
-routing live in [AGENTS.md](AGENTS.md). Check that policy and the live Git state
-before starting work. Branch policy is maintained there rather than duplicated here.
-
-Use the smallest check that covers the changed behavior. Reuse passing checks
-until related code, configuration or dependencies change. The root Pytest
-configuration collects only `tests/`. Run each script or tool suite explicitly.
-The examples below cover the main backend and the audio tools, followed by Rhythm Lab.
+[AGENTS.md](AGENTS.md) owns project instructions, the working-branch policy, and verification routing. Check it and the live Git state before starting work. Use the smallest check that covers the change. Root Pytest collects only `tests/`, so name each tool suite explicitly:
 
 ```powershell
 & .\.venv\Scripts\python.exe -m pytest tests/test_sonara_features.py
@@ -684,44 +275,15 @@ The examples below cover the main backend and the audio tools, followed by Rhyth
 & .\.venv\Scripts\python.exe -m pytest tools/rhythm-lab/tests/test_rhythm_lab.py
 ```
 
-For Audio Online workbook-bridge changes, also run
-`node --test tools/audio-online/workbook_bridge.test.mjs` with its existing Node
-dependencies and `METADATA_ENRICHMENT_NODE_MODULES` configuration.
-
-For frontend runtime or build changes, run type checking and the Node tests.
-The static bundle build is required before a commit. Changes only to instructions
-or copy do not require these application checks.
+Frontend runtime or build changes need type checking, the Node tests and, before a commit, the static bundle build. Maintained documentation changes run the docs check. Run `npm --prefix .\docs\dj-track-similarity run vale:sync` once after a fresh checkout or when `.vale.ini` packages change.
 
 ```powershell
 npm --prefix .\frontend run typecheck
 npm --prefix .\frontend test
 npm --prefix .\frontend run build
-```
-
-For maintained documentation changes, run:
-
-```powershell
 npm --prefix .\docs\dj-track-similarity run check
 ```
 
-Run `npm --prefix .\docs\dj-track-similarity run vale:sync` after a fresh checkout
-or when `.vale.ini` packages change. Behavior changes need a happy path and a
-relevant failure path at the matching browser, HTTP API, CLI or library boundary.
-Existing focused tests can cover those scenarios; a second manual run is not
-required solely to repeat them.
-
 ## 🤖 Optional coding-agent setup
 
-The application does not require an agent plugin. If you use Codex or Claude Code,
-the shared project agents and skills live in [.djts/](.djts/). Run the initial
-setup from the repository root:
-
-```powershell
-.\.djts\scripts\bootstrap.ps1
-```
-
-The script registers the local plugin for available Codex and Claude Code CLIs
-and generates the Codex agent launchers. Edit shared agent and skill Markdown
-in `.djts/`; see [AGENT LAYER](docs/agent-guides/agent-layer.md#agent-layer) for regeneration, plugin
-updates, and verification of the installed copy. An open session can retain its
-previous capabilities until restarted.
+The application does not require an agent plugin. For Codex or Claude Code, the shared agents and skills live in [.djts/](.djts/). The one-time setup `.\.djts\scripts\bootstrap.ps1` registers the plugin for the available CLIs and generates the Codex agent launchers. [AGENT LAYER](docs/agent-guides/agent-layer.md#agent-layer) covers regeneration, plugin updates, and verification of the installed copy.

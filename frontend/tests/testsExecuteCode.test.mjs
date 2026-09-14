@@ -20,7 +20,6 @@ const SOURCE_TEXT_ONLY_LEGACY = [
   "frontendHooks.test.mjs",
   "jobUi.test.mjs",
   "libraryRendering.test.mjs",
-  "playerAutoplay.test.mjs",
   "playlistAddHandler.test.mjs",
   "scanImportDialog.test.mjs",
   "sonaraDisplay.test.mjs",

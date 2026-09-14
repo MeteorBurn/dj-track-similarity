@@ -239,7 +239,7 @@ export function TrackPanel({
         </div>
         <div className="library-playback-controls">
           <button
-            className={`icon-button liked-filter-button ${likedOnly ? "active" : ""}`}
+            className={`icon-button liked-filter-button ${likedTrackCount > 0 ? "has-likes" : ""} ${likedOnly ? "active" : ""}`}
             title={likedTracksFilterTitle(likedOnly, likedTrackCount)}
             aria-label="Показать список лайкнутых треков"
             aria-pressed={likedOnly}
@@ -247,7 +247,7 @@ export function TrackPanel({
             onClick={onToggleLikedOnly}
             type="button"
           >
-            <Heart size={16} />
+            <Heart size={16} fill={likedOnly ? "currentColor" : "none"} />
           </button>
           <button
             className={`icon-button library-preset-button ${libraryPreset === "syncopated" ? "active" : ""}`}

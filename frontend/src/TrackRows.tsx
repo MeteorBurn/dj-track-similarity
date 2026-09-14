@@ -2,7 +2,7 @@ import { Heart, Minus, Pause, Play, Plus, Search, Tags, ThumbsDown, ThumbsUp } f
 import type { Track } from "./api";
 import { libraryTrackIdentityKey } from "./libraryLoading";
 import { previewPositionForTrack, usePreviewPosition } from "./previewPosition";
-import { displayTrack } from "./trackDisplay";
+import { displayTrack, formatTrackFileInfo } from "./trackDisplay";
 
 type TrackActions = {
   playingTrackId: number | null;
@@ -39,6 +39,7 @@ export function TrackList({
       {tracks.map((track, index) => {
         const trackPreviewActive = playingTrackId === track.track_id;
         const trackPreviewSelected = previewTrackId === track.track_id;
+        const fileInfo = formatTrackFileInfo(track);
         return (
           <div
             aria-current={trackPreviewActive ? "true" : undefined}
@@ -51,10 +52,10 @@ export function TrackList({
             </button>
             <div className="track-title-cell">
               <strong>{displayTrack(track)}</strong>
-              <span className="library-track-meta">{track.album || track.artist || "—"}</span>
+              <span className="library-track-meta" title={fileInfo.title}>{fileInfo.text}</span>
             </div>
-            <span className="library-track-bpm">{track.tag_bpm ?? "—"}</span>
-            <span className="library-track-key">{track.tag_key || "—"}</span>
+            <span className="library-track-bpm">{track.sonara_bpm?.toFixed(2) ?? "—"}</span>
+            <span className="library-track-key">{track.sonara_key_camelot || "—"}</span>
             <span className="library-track-duration">{track.audio_duration_seconds != null ? formatPlaybackTime(track.audio_duration_seconds) : "—"}</span>
             {trackPreviewSelected ? (
               <PlaybackSeekControl

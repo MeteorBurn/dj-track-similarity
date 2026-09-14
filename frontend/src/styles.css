@@ -2268,6 +2268,7 @@ h2 {
   color: var(--danger-text);
 }
 
+.liked-filter-button.has-likes,
 .track-liked-button {
   background: var(--pink-bg);
   border-color: var(--pink-border);
@@ -5720,33 +5721,61 @@ button.dedup-play-button {
 .stage-settings-button, .stage-start-button { background: linear-gradient(110deg, var(--accent-deep-bg), var(--accent-deep-hover)); border-color: var(--accent-border); color: var(--inverse-text); min-height: 38px; border-radius: 5px; }
 .model-search-tab { border-radius: 5px; min-height: 35px; }
 .model-search-tab.active { box-shadow: inset 0 0 12px var(--accent-soft-bg); }
-.track-list { gap: 0; }
-.track-list .track-row { grid-template-columns: 22px 38px minmax(90px, 1fr) 40px 35px 40px repeat(4, 29px); border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0; min-height: 57px; gap: 6px; padding: 7px 5px; }
-.track-list .track-row.is-playing { outline: 1px solid var(--accent); outline-offset: -1px; border-bottom-color: transparent; background: var(--accent-soft-bg); }
-.track-list .track-preview-button { width: 36px; height: 36px; border-radius: 5px; color: var(--accent); background: var(--accent-muted-bg); border: 1px solid var(--accent-soft-border); }
-.track-list .track-row > .icon-button:not(.track-preview-button) { width: 100%; min-width: 0; padding: 3px; background: transparent; border-color: transparent; }
-.track-list .track-row > .icon-button:not(.track-preview-button) svg { width: 18px; height: 18px; flex-shrink: 0; }
-.track-list .track-title-cell { display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
-.track-list .track-title-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.library-track-meta { color: var(--text-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
-.library-track-bpm, .library-track-duration { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.library-track-key { color: var(--preset-texture-text); font-size: 12px; }
-.track-list .track-row-playback { grid-column: 3 / -1; grid-row: 2; }
+.track-list { gap: 0; container-type: inline-size; container-name: library-tracks; }
+.track-list .track-row { grid-template-columns: 22px 36px minmax(0, 1fr) 56px 36px 42px repeat(4, 32px); border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0; min-height: 58px; min-width: 0; gap: 6px; padding: 7px; background: var(--surface); transition: none; }
+.track-list .track-row:hover { background: var(--surface-raised); border-bottom-color: var(--border); }
+.track-list .track-row.has-playback { background: var(--accent-soft-bg); }
+.track-list .track-row.is-playing { background: var(--accent-soft-bg); border-bottom-color: var(--accent-soft-border); box-shadow: inset 2px 0 var(--accent); }
+.track-list .track-row:focus-within { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
+.track-list .track-row > .row-index { grid-column: 1; grid-row: 1; font-size: 10px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.track-list .track-row > .icon-button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border-radius: 5px; justify-self: center; grid-row: 1; }
+.track-list .track-row > .icon-button svg { width: 16px; height: 16px; flex-shrink: 0; }
+.track-list .track-row > .track-preview-button { grid-column: 2; width: 36px; height: 36px; color: var(--accent); background: var(--accent-muted-bg); border: 1px solid var(--accent-soft-border); }
+.track-list .is-playing .track-preview-button { color: var(--accent-active-text); background: var(--accent-strong-bg); border-color: var(--accent-border); }
+.track-list .track-row > .icon-button:not(.track-preview-button) { padding: 3px; background: transparent; border-color: transparent; }
+.track-list .track-row > .icon-button:not(.track-preview-button) svg { width: 18px; height: 18px; }
+.track-list .track-row > .track-liked-button { grid-column: 7; }
+.track-list .track-row > .track-metadata-button { grid-column: 8; }
+.track-list .track-row > .track-seed-button { grid-column: 9; }
+.track-list .track-row > .track-playlist-toggle-button { grid-column: 10; }
+.track-list .track-title-cell { grid-column: 3; grid-row: 1; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+.track-list .track-title-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: 13px; font-weight: 600; line-height: 1.35; }
+.library-track-meta { color: var(--text-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.3; }
+.library-track-bpm, .library-track-key, .library-track-duration { grid-row: 1; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.library-track-bpm { grid-column: 4; color: var(--text-track); font-weight: 600; }
+.library-track-key { grid-column: 5; color: var(--preset-texture-text); background: var(--preset-texture-bg); border-radius: 4px; padding: 4px 0; }
+.library-track-duration { grid-column: 6; color: var(--text-muted); font-size: 11px; }
+.library-track-bpm, .library-track-key { font-size: 12px; }
+.track-list .track-row > .track-row-playback { grid-column: 3 / -1; grid-row: 2; }
+@container library-tracks (max-width: 640px) {
+  .track-list .track-row { grid-template-columns: 22px 36px minmax(0, 1fr) repeat(4, 32px); gap: 6px 4px; }
+  .track-list .track-title-cell { grid-column: 3 / -1; }
+  .track-list .track-row > .icon-button:not(.track-preview-button) { grid-row: 2; }
+  .track-list .track-row > .track-liked-button { grid-column: 4; }
+  .track-list .track-row > .track-metadata-button { grid-column: 5; }
+  .track-list .track-row > .track-seed-button { grid-column: 6; }
+  .track-list .track-row > .track-playlist-toggle-button { grid-column: 7; }
+  .library-track-bpm { grid-column: 1 / 3; grid-row: 2; }
+  .library-track-key { grid-column: 3; grid-row: 2; width: 36px; max-width: 100%; justify-self: start; }
+  .library-track-duration { display: none; }
+  .track-list .track-row > .track-row-playback { grid-column: 1 / -1; grid-row: 3; }
+}
 .text-preset-label { padding: 5px 11px; min-height: 29px; }
 .text-preset-axis-labels { gap: 6px; }
 .text-preset-axis-block { gap: 9px; }
 .text-preset-chip { border-radius: 999px; }
 .player-dock { display: flex; gap: 18px; align-items: center; height: 76px; margin-top: 10px; padding: 10px 16px; border: 1px solid var(--warning-soft-border); border-radius: 9px; background: var(--surface); box-shadow: inset 0 1px 15px var(--shadow-soft); }
+.player-dock input[type="range"] { border: 0; padding: 0; }
 .player-artwork { display: grid; place-items: center; width: 50px; height: 50px; flex-shrink: 0; color: var(--preset-texture-text); border: 1px solid var(--preset-texture-border); border-radius: 6px; background: var(--preset-texture-bg); }
-.player-track-info { display: flex; flex-direction: column; gap: 6px; width: 260px; min-width: 0; }
+.player-track-info { display: flex; flex-direction: column; gap: 6px; width: 420px; min-width: 0; }
 .player-track-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .player-track-info span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-play { display: grid; place-items: center; width: 49px; height: 49px; min-width: 49px; border-radius: 50%; color: var(--accent-active-text); border: 1px solid var(--accent); background: var(--accent-deep-bg); box-shadow: 0 0 15px var(--accent-soft-bg); }
 .player-timeline { flex: 1; display: flex; gap: 18px; align-items: center; min-width: 100px; }
 .player-timeline input { width: 100%; accent-color: var(--accent); }
 .player-timeline span { color: var(--text-muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.player-stat { display: flex; flex-direction: column; gap: 3px; min-width: 62px; text-align: center; padding: 8px; border: 1px solid var(--border); border-radius: 5px; }
-.player-stat span { color: var(--text-muted); font-size: 9px; letter-spacing: .1em; }
+.player-bpm, .player-key { display: flex; flex-direction: column; justify-content: center; gap: 3px; height: 50px; min-width: 62px; text-align: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; }
+.player-bpm span, .player-key span { color: var(--text-muted); font-size: 9px; letter-spacing: .1em; }
 .player-key strong { color: var(--preset-texture-text); }
 .player-volume { display: flex; align-items: center; gap: 12px; color: var(--text-muted); }
 .player-volume input { width: 95px; accent-color: var(--accent); }
@@ -5757,10 +5786,7 @@ button.dedup-play-button {
   .workbench-nav button { padding: 0 8px; font-size: 11px; }
   .topbar .notice { max-width: 130px; }
   .workspace { grid-template-columns: minmax(270px, 28fr) minmax(360px, 41fr) minmax(310px, 31fr); }
-  .track-list .track-row { grid-template-columns: 20px 32px minmax(80px, 1fr) 34px 29px repeat(4, 27px); gap: 4px; }
-  .library-track-duration { display: none; }
-  .track-list .track-preview-button { width: 30px; height: 34px; }
-  .player-track-info { width: 210px; }
+  .player-track-info { width: 300px; }
 }
 @media (max-width: 1050px) {
   .topbar { height: auto; min-height: 64px; flex-wrap: wrap; padding: 10px 0; }
@@ -5770,16 +5796,14 @@ button.dedup-play-button {
   .panel.collapsed { min-height: 48px; }
   .panel-rail-label { writing-mode: horizontal-tb; transform: none; }
   .player-dock { position: sticky; bottom: 8px; z-index: 20; gap: 10px; }
-  .player-stat, .player-volume { display: none; }
-  .player-track-info { width: 170px; }
+  .player-bpm, .player-key, .player-volume { display: none; }
+  .player-track-info { width: 220px; }
 }
 @media (max-width: 600px) {
   .topbar-actions { flex-wrap: wrap; }
   .player-artwork { display: none; }
   .player-track-info { width: 100px; }
   .player-timeline { flex-direction: column; gap: 2px; }
-  .track-list .track-row { grid-template-columns: 18px 28px minmax(65px, 1fr) repeat(4, 27px); }
-  .library-track-bpm, .library-track-key { display: none; }
 }
 
 .workbench-nav button[aria-pressed='true'] { color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
@@ -6009,29 +6033,28 @@ button.dedup-play-button {
   .results-list .result-row,
   .results-list .result-row.has-row-index,
   .results-list .result-row.has-feedback,
-  .results-list .result-row.has-row-index.has-feedback,
-  .track-list .track-row {
+  .results-list .result-row.has-row-index.has-feedback {
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 8px 4px;
     padding: 10px 6px;
   }
-  .results-list .result-row > .row-index, .track-list .track-row > .row-index {
+  .results-list .result-row > .row-index {
     grid-row: 1;
     grid-column: 1;
     align-self: start;
     font-size: 11px;
   }
-  .results-list .result-row > .track-title-cell, .track-list .track-row > .track-title-cell {
+  .results-list .result-row > .track-title-cell {
     grid-row: 1;
     grid-column: 2 / -1;
   }
-  .results-list .result-row .track-title-cell strong, .track-list .track-row .track-title-cell strong {
+  .results-list .result-row .track-title-cell strong {
     white-space: normal;
     overflow-wrap: anywhere;
     font-size: 13px;
     line-height: 1.4;
   }
-  .results-list .result-row > .icon-button, .track-list .track-row > .icon-button {
+  .results-list .result-row > .icon-button {
     grid-row: 2;
     grid-column: auto;
     width: 36px;
@@ -6041,11 +6064,10 @@ button.dedup-play-button {
   .results-list .result-row.has-feedback > .result-feedback-button.intent-relevant { grid-row: 3; grid-column: 5; }
   .results-list .result-row.has-feedback > .result-feedback-button.intent-irrelevant { grid-row: 3; grid-column: 6; }
   .results-list .result-row > .similarity-score { display: block; grid-row: 3; grid-column: 1 / 3; text-align: left; }
-  .results-list .result-row > .track-row-playback, .track-list .track-row > .track-row-playback {
+  .results-list .result-row > .track-row-playback {
     grid-row: 4;
     grid-column: 1 / -1;
   }
-  .track-list .library-track-bpm, .track-list .library-track-key, .track-list .library-track-duration { display: none; }
   .playlist-list .playlist-row { grid-template-columns: 22px 34px minmax(0, 1fr) 34px 34px; gap: 4px; }
   .playlist-row .track-title-cell strong { white-space: normal; overflow-wrap: anywhere; }
 }

@@ -10,9 +10,11 @@ are relative to this file. These guides are read by task, not imported as a batc
 
 ## GRAPHIFY
 
-`graphify-out/graph.json` assists navigation over product source, tests, tools,
-and scripts, with code-related Q&A from Graphify's work-memory loop. Project
-documentation and media are excluded. Read cited `source_file`/`source_location`; graph
+`graphify-out/graph.json` assists navigation over product source, tools, and
+scripts. Tests, project documentation, and media are excluded; notes under
+`.workspace/graphify/memory/` feed the work-memory loop (`reflect`, the
+`explain` overlay). Locate tests by naming convention (`tests/test_<module>.py`,
+`*.test.mjs`) with direct search. Read cited `source_file`/`source_location`; graph
 edges (`EXTRACTED`/`INFERRED`) are leads, not current runtime proof.
 `AGENTS.md` routes code work through this guide and the plugin skill. Claude's
 upstream PreToolUse guards add query-first reminders. Codex's upstream
@@ -20,13 +22,29 @@ upstream PreToolUse guards add query-first reminders. Codex's upstream
 Tasks confined to `AGENTS.md`, configuration, locks, Git state, or the excluded
 agent layer use direct inspection; those files are outside the code graph.
 
-Routine lookups use the existing graph. Read vocabulary and lessons only when
-they help; do not run `reflect`, vocabulary regeneration, `save-result`, or a
-rebuild for each lookup. Refresh vocabulary with an authorized graph update;
-reflection and saved findings belong to explicit graph memory maintenance. Read-only
-tasks never run these write steps. If vocabulary is missing or stale, derive
-tokens from graph labels in memory. Missing lessons do not block inspection.
-Report stale or unavailable graph data and verify findings directly in source.
+The agent maintains the graph while using it; the owner runs nothing by hand.
+Maintenance writes only `graphify-out/` and `.workspace/graphify/`, both local
+and ignored, so they are allowed in read-only tasks:
+
+- Freshness: when the read guard flags a stale file, `built_at_commit` in
+  `graph.json` differs from `git rev-parse HEAD`, or the working tree holds
+  uncommitted code changes, run `update .` once before querying (AST only,
+  seconds, no LLM; set `$env:PYTHONHASHSEED = '0'`). It is idempotent:
+  "No code-graph topology changes detected" means the edit was not structural,
+  and the guard may keep flagging that file until a later structural rebuild
+  rewrites `graph.json`; ignore it then. Do not run `update .` after every
+  edit or as a delivery check. The CLI `update .` replaces the skill's
+  `--update` runbook here: the corpus is code-only, so the runbook's semantic
+  branches never apply.
+- Vocabulary: refresh `.vocab.txt` (snippet below) whenever it is older than
+  `graph.json`; if it is missing, derive tokens from graph labels in memory.
+- Memory: after a graph-guided investigation, always save `dead_end` and
+  `corrected` outcomes, and save `useful` findings only when `LESSONS.md` does
+  not already list the cited source; then run
+  `reflect --if-stale --memory-dir .workspace/graphify/memory`.
+
+Missing lessons or vocabulary never block inspection. Report stale or
+unavailable graph data and verify findings directly in source.
 
 | Navigation task | Tool |
 |---|---|
@@ -61,15 +79,16 @@ Follow `.djts/skills/graphify/references/query.md` with these project rules:
    use `explain`, or increase `--budget`. Disambiguate repeated labels with the
    exact node ID in `graph.json`. Open the named source
    before drawing conclusions.
-5. When explicitly maintaining graph memory, save source-grounded code findings
-   with `save-result`, expanded tokens, cited labels, and
-   `--outcome useful|dead_end|corrected`; for a correction add `--correction`.
+5. Save source-grounded code findings (memory policy above)
+   with `save-result --memory-dir .workspace/graphify/memory`, expanded tokens,
+   cited labels, and `--outcome useful|dead_end|corrected`; for a correction add
+   `--correction`.
    Both the saved question and answer must be English even when the user's
    request is Russian; this overrides the reference's verbatim rule.
 6. Pass the relevant graph rules to code-exploration workers explicitly; do not
    assume their prompts or tool access match the parent session.
 
-PowerShell vocabulary refresh (during an authorized graph update):
+PowerShell vocabulary refresh (run when `.vocab.txt` is older than `graph.json`):
 
 ```powershell
 $graphPython = (Get-Content -LiteralPath 'graphify-out\.graphify_python' -Raw).Trim()
@@ -89,25 +108,36 @@ Path('graphify-out/.vocab.txt').write_text('\n'.join(sorted(vocab)), encoding='u
 if ($LASTEXITCODE -ne 0) { throw 'Graph vocabulary refresh failed' }
 ```
 
-`.graphifyignore` owns corpus exclusions, including documentation/media,
-`.workspace/`, `.djts/`, `.agents/`, `.claude/`, and `.codex/`. The entire
+`.graphifyignore` owns corpus exclusions, including tests (`tests/`,
+`*.test.mjs`), documentation/media, `.workspace/`, `.djts/`, `.agents/`,
+`.claude/`, and `.codex/`. The entire
 `docs/dj-track-similarity/` tree is excluded: it is not maintained as current
 documentation. Fix corpus scope there, not by hiding unwanted hits.
 
-For authorized extraction, use
+For a full re-extraction after corpus-rule changes or substantial deletions, use
 `& .\.tools\graphify\bin\graphify.exe extract . --code-only`. This skips
 document/media semantic extraction and preserves the existing semantic layer.
-Keep Graphify's default `graphify-out/memory/` and `graphify-out/reflections/`:
-saved code-related Q&A is intentionally indexed by its documented work-memory
-loop. Recheck remembered findings against source; the unmaintained documentation
-site is not current evidence.
+Add `--force` after corpus-exclusion changes so newly excluded sources are
+pruned instead of kept fail-closed. Set `$env:PYTHONHASHSEED = '0'` for every
+`extract`/`update`/`label` run: the Git hooks pin it, and community numbering
+only stays comparable between hook and agent rebuilds under the same seed.
+Community names are deterministic hub names; skip the skill's Step 5 and
+`label`, since any topology change renumbers communities and drops curated
+names.
+Saved Q&A lives in `.workspace/graphify/memory/`, outside the scan corpus:
+Graphify force-scans its default `graphify-out/memory/`, and the post-commit
+`update` path would index those notes as `document` nodes. Do not recreate that
+default directory; pass `--memory-dir` to `save-result` and `reflect`, which
+keep `graphify-out/reflections/LESSONS.md` and the `explain` overlay next to the
+graph. Recheck remembered findings against source; the unmaintained
+documentation site is not current evidence.
 
 The local post-commit hook starts code rebuilds in the background
 and skips linked worktrees and some Git operations; a commit does not prove the
 graph is current. Check hook output/freshness when it matters.
 
-Do not run `graphify update .` in the edit loop or as a routine delivery check;
-manual rebuilds are for corpus-exclusion changes or substantial code deletions.
-If the graph/tool is unavailable or stale, report that limit and inspect source
-without assuming permission to install or rebuild. Read `GRAPH_REPORT.md` only
+Routine freshness is `update .` under the maintenance policy above; a full
+`extract` is only for corpus-rule changes or substantial code deletions.
+If the graph/tool is unavailable, report that limit and inspect source
+without assuming permission to install. Read `GRAPH_REPORT.md` only
 when needed; preserve unrelated generated changes.

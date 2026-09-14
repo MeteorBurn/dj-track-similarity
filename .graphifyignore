@@ -56,3 +56,11 @@ docs/dj-track-similarity/
 *.ogg
 *.wav
 *.webm
+
+# Tests are outside the graph. With them in, they were 27% of the nodes and 30%
+# of the edges, seeded queries with generic helpers (job(), _library(), profile())
+# and made 88 of 254 communities test-dominated. Test files follow naming
+# conventions (tests/test_<module>.py, *.test.mjs), so rg/Glob locates them
+# without the graph.
+tests/
+*.test.mjs

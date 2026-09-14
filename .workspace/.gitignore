@@ -5,3 +5,6 @@ handoffs/
 ideas/
 reports/
 specs/
+
+# Graphify work-memory notes (save-result/reflect --memory-dir); kept out of the scan corpus.
+/graphify/

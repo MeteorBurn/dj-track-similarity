@@ -5,6 +5,7 @@ import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AudioLines, Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import { PlayerDock } from "./PlayerDock";
+import { PlaylistExportPanel } from "./PlaylistExportPanel";
 import {
   AnalysisModel,
   api,
@@ -201,7 +202,7 @@ export function App() {
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
-  const { setupCollapsed, libraryCollapsed, searchCollapsed, togglePanel, selectWorkspace } = useWorkspacePanels();
+  const { setupCollapsed, libraryCollapsed, searchCollapsed, exportVisible, togglePanel, selectWorkspace } = useWorkspacePanels();
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   // One optimization prompt per finished validation, however many polls observe it.
   const optimizationPromptedForJob = useRef<string | null>(null);
@@ -1321,10 +1322,11 @@ export function App() {
           </h1>
         </div>
         <nav className="workbench-nav" aria-label="Рабочая область">
-          <button type="button" aria-pressed={!setupCollapsed && !libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("discover")}>DISCOVER</button>
-          <button type="button" aria-pressed={!setupCollapsed && libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("analyze")}>ANALYZE</button>
-          <button type="button" aria-pressed={setupCollapsed && !libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("library")}>LIBRARY</button>
-          <button type="button" aria-pressed={setupCollapsed && libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("search")}>SEARCH</button>
+          <button type="button" aria-pressed={!exportVisible && !setupCollapsed && !libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("discover")}>DISCOVER</button>
+          <button type="button" aria-pressed={!exportVisible && !setupCollapsed && libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("analyze")}>ANALYZE</button>
+          <button type="button" aria-pressed={!exportVisible && setupCollapsed && !libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("library")}>LIBRARY</button>
+          <button type="button" aria-pressed={!exportVisible && setupCollapsed && libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("search")}>SEARCH</button>
+          <button type="button" aria-pressed={exportVisible} onClick={() => selectWorkspace("export")}>EXPORT</button>
         </nav>
         <div className="topbar-actions">
           <button
@@ -1383,6 +1385,7 @@ export function App() {
 
       <section
         className={`workspace ${setupCollapsed ? "setup-collapsed" : ""} ${libraryCollapsed ? "library-collapsed" : ""} ${searchCollapsed ? "search-collapsed" : ""}`}
+        hidden={exportVisible}
       >
         <LibraryPanel
           collapsed={setupCollapsed}
@@ -1524,11 +1527,6 @@ export function App() {
           seedSet={seedSet}
           playlistSet={playlistSet}
           playlist={playlist}
-          playlistName={playlistName}
-          onPlaylistNameChange={setPlaylistName}
-          outputDir={outputDir}
-          onOutputDirChange={setOutputDir}
-          onChooseOutputFolder={() => void handleChooseOutputFolder()}
           helpText={helpText}
           sonaraCount={librarySummary.sonara}
           embeddingCounts={{
@@ -1564,6 +1562,20 @@ export function App() {
           previewTrackId={preview?.track_id ?? null}
           setPreview={togglePreview}
           onSeekPreview={seekPreview}
+          setMetadataTrack={(track) => void handleTrackDetails(track)}
+        />
+      </section>
+      <section className="workspace export-workspace" hidden={!exportVisible}>
+        <PlaylistExportPanel
+          playlist={playlist}
+          playlistName={playlistName}
+          onPlaylistNameChange={setPlaylistName}
+          outputDir={outputDir}
+          onOutputDirChange={setOutputDir}
+          onChooseOutputFolder={() => void handleChooseOutputFolder()}
+          busy={busy || genericSearchPending || randomSonaraTrackPending || randomEmbeddingTrackPending || !databasePath}
+          playingTrackId={playingTrackId}
+          setPreview={togglePreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
           removeFromPlaylist={removeFromPlaylist}
           handleSaveToCollection={() => void handleSavePlaylistToRhythmLabCollection()}

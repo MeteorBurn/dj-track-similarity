@@ -960,6 +960,14 @@ h2 {
   grid-column: auto;
 }
 
+.workspace[hidden] {
+  display: none;
+}
+
+.workspace.export-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .library-panel.collapsed,
 .track-panel.collapsed,
 .search-panel.collapsed {
@@ -2729,85 +2737,9 @@ h2 {
   margin-left: auto;
 }
 
-.playlist-export-disclosure {
-  border-top: 1px solid var(--border-muted);
-  flex: 0 0 auto;
-  margin-bottom: 2px;
-  margin-top: auto;
+.playlist-export-panel {
   min-width: 0;
-}
-
-.playlist-export-summary {
-  align-items: center;
-  color: var(--text);
-  cursor: pointer;
-  display: flex;
-  gap: 8px;
-  list-style: none;
-  min-height: 44px;
-  padding-top: 10px;
-}
-
-.playlist-export-summary::-webkit-details-marker {
-  display: none;
-}
-
-.playlist-export-summary::marker {
-  content: "";
-}
-
-.playlist-export-summary:hover {
-  color: var(--accent-hover);
-}
-
-.playlist-export-summary:focus-visible {
-  border-radius: 6px;
-  box-shadow: 0 0 0 3px var(--focus-ring);
-  outline: none;
-}
-
-.playlist-export-summary-title {
-  align-items: center;
-  display: inline-flex;
-  gap: 8px;
-  min-width: 0;
-}
-
-.playlist-export-summary-title strong {
-  font-size: 15px;
-}
-
-.playlist-export-summary-toggle {
-  align-items: center;
-  color: var(--text-muted);
-  display: inline-flex;
-  font-size: 11px;
-  font-weight: 700;
-  gap: 7px;
-  margin-left: auto;
-  text-transform: uppercase;
-}
-
-.playlist-export-summary-toggle::before {
-  content: "Развернуть";
-}
-
-.playlist-export-summary-toggle::after {
-  border-bottom: 2px solid currentColor;
-  border-right: 2px solid currentColor;
-  content: "";
-  height: 6px;
-  transform: translateY(-2px) rotate(45deg);
-  transition: transform 140ms ease;
-  width: 6px;
-}
-
-.playlist-export-disclosure[open] .playlist-export-summary-toggle::before {
-  content: "Свернуть";
-}
-
-.playlist-export-disclosure[open] .playlist-export-summary-toggle::after {
-  transform: translateY(2px) rotate(225deg);
+  overflow: auto;
 }
 
 .playlist-export-section {
@@ -5971,7 +5903,6 @@ button.dedup-play-button {
   box-shadow: none;
 }
 .similarity-score { color: var(--accent); }
-.playlist-export-disclosure { border-color: var(--border); border-radius: var(--workbench-radius); background: var(--surface); }
 .empty-state { border-style: solid; border-color: var(--border-soft); background: var(--surface-muted); border-radius: var(--workbench-radius); }
 @media (max-width: 600px) {
   .text-preset-menu, .text-preset-menu:has(> .text-preset-overlap) {

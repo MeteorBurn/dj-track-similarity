@@ -4601,15 +4601,15 @@ meter {
 }
 
 .metadata-dialog-title {
-  display: block;
+  align-items: flex-start;
+  display: flex;
   flex: 0 0 auto;
+  gap: 10px;
 }
 
 .metadata-dialog-close-actions {
   display: flex;
-  position: absolute;
-  right: 14px;
-  top: 14px;
+  flex: 0 0 auto;
 }
 
 .metadata-grid {
@@ -4623,12 +4623,13 @@ meter {
 .metadata-track-title {
   align-items: center;
   display: flex;
+  flex: 1 1 auto;
   font-size: 17px;
   gap: 6px;
   line-height: 1.18;
   margin: 0;
+  min-width: 0;
   overflow-wrap: anywhere;
-  padding-right: 40px;
 }
 
 button.icon-button.metadata-preview-button,
@@ -4853,6 +4854,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 
 .metadata-scan-analyses-section + .metadata-scan-analyses-section {
   border-top: 1px solid var(--border-muted);
+  margin-top: 8px;
   padding-top: 8px;
 }
 

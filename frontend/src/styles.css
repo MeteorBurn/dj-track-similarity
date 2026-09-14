@@ -20,9 +20,12 @@
   --preset-selected-bg: #e7f3ed;
   --preset-selected-border: #9ccfbd;
   --preset-selected-text: #176c5a;
-  --preset-percussion-bg: #f9e9dd;
-  --preset-percussion-border: #c99064;
-  --preset-percussion-text: #864519;
+  --preset-rhythm-bg: #ffe5e7;
+  --preset-rhythm-border: #cc5360;
+  --preset-rhythm-text: #b51f2b;
+  --preset-percussion-bg: #e0f5e7;
+  --preset-percussion-border: #409f62;
+  --preset-percussion-text: #147638;
   --preset-instruments-bg: #ddf3f2;
   --preset-instruments-border: #78bbb9;
   --preset-instruments-text: #176968;
@@ -143,9 +146,12 @@
   --preset-selected-bg: #0b2f24;
   --preset-selected-border: #2f7d5f;
   --preset-selected-text: #86efac;
-  --preset-percussion-bg: #38261d;
-  --preset-percussion-border: #a66e4c;
-  --preset-percussion-text: #efbd93;
+  --preset-rhythm-bg: #361719;
+  --preset-rhythm-border: #b84646;
+  --preset-rhythm-text: #ff7373;
+  --preset-percussion-bg: #102f1b;
+  --preset-percussion-border: #369653;
+  --preset-percussion-text: #62d98a;
   --preset-instruments-bg: #123437;
   --preset-instruments-border: #3d8e94;
   --preset-instruments-text: #91dce0;
@@ -4053,45 +4059,52 @@ h2 {
   gap: 7px;
 }
 
-/* Axis identity follows a selected label from the picker into its chip. */
+/* Axis identity follows a preset through its labels, chips and descriptions. */
 .text-preset-axis-block,
-.text-preset-chip {
+.text-preset-chip,
+.text-preset-preview-hint {
   --preset-axis-bg: var(--preset-selected-bg);
   --preset-axis-border: var(--preset-selected-border);
   --preset-axis-text: var(--preset-selected-text);
 }
 
-.text-preset-picker [data-axis="rhythm"] {
-  --preset-axis-bg: var(--blue-bg-active);
-  --preset-axis-border: var(--blue-border-active);
-  --preset-axis-text: var(--blue-text-active);
+.text-prompt-box [data-axis="rhythm"] {
+  --preset-axis-bg: var(--preset-rhythm-bg);
+  --preset-axis-border: var(--preset-rhythm-border);
+  --preset-axis-text: var(--preset-rhythm-text);
 }
 
-.text-preset-picker [data-axis="percussion"] {
-  --preset-axis-bg: var(--preset-percussion-bg);
-  --preset-axis-border: var(--preset-percussion-border);
-  --preset-axis-text: var(--preset-percussion-text);
-}
-
-.text-preset-picker [data-axis="instruments"] {
-  --preset-axis-bg: var(--preset-instruments-bg);
-  --preset-axis-border: var(--preset-instruments-border);
-  --preset-axis-text: var(--preset-instruments-text);
-}
-
-.text-preset-picker [data-axis="bass"] {
+.text-prompt-box [data-axis="groove"] {
   --preset-axis-bg: var(--warning-soft-bg);
   --preset-axis-border: var(--warning-soft-border);
   --preset-axis-text: var(--warning-text);
 }
 
-.text-preset-picker [data-axis="texture"] {
+.text-prompt-box [data-axis="percussion"] {
+  --preset-axis-bg: var(--preset-percussion-bg);
+  --preset-axis-border: var(--preset-percussion-border);
+  --preset-axis-text: var(--preset-percussion-text);
+}
+
+.text-prompt-box [data-axis="instruments"] {
+  --preset-axis-bg: var(--preset-instruments-bg);
+  --preset-axis-border: var(--preset-instruments-border);
+  --preset-axis-text: var(--preset-instruments-text);
+}
+
+.text-prompt-box [data-axis="bass"] {
+  --preset-axis-bg: var(--warning-soft-bg);
+  --preset-axis-border: var(--warning-soft-border);
+  --preset-axis-text: var(--warning-text);
+}
+
+.text-prompt-box [data-axis="texture"] {
   --preset-axis-bg: var(--preset-texture-bg);
   --preset-axis-border: var(--preset-texture-border);
   --preset-axis-text: var(--preset-texture-text);
 }
 
-.text-preset-picker [data-axis="mood"] {
+.text-prompt-box [data-axis="mood"] {
   --preset-axis-bg: var(--pink-bg-active);
   --preset-axis-border: var(--pink-border-active);
   --preset-axis-text: var(--pink-text-active);
@@ -4115,8 +4128,7 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
-/* Chips wrap instead of forming columns: label lengths differ by a factor of
-   five across the vocabulary, and a grid would leave most of a row empty. */
+/* Labels wrap naturally, with room for at most five per row. */
 .text-preset-axis-labels {
   display: flex;
   flex-wrap: wrap;
@@ -4127,7 +4139,7 @@ h2 {
   align-items: center;
   background: var(--surface-muted);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--workbench-radius);
   color: var(--text);
   cursor: pointer;
   display: inline-flex;
@@ -4136,7 +4148,7 @@ h2 {
   height: auto;
   line-height: 1.2;
   min-height: 25px;
-  min-width: 0;
+  min-width: calc((100% - 24px) / 5);
   padding: 3px 9px;
   transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
   white-space: nowrap;
@@ -4215,14 +4227,12 @@ h2 {
   min-height: 0;
 }
 
-/* The description is what the label means, so it leads the preview in the
-   theme accent rather than sitting in the same muted grey as the headings
-   under it. */
+/* Descriptions share the preset's axis colours. */
 .text-preset-preview-hint {
-  background: var(--accent-soft-bg);
-  border: 1px solid var(--accent-soft-border);
+  background: var(--preset-axis-bg);
+  border: 1px solid var(--preset-axis-border);
   border-radius: 8px;
-  color: var(--accent-active-text);
+  color: var(--preset-axis-text);
   flex: 0 0 auto;
   font-size: 12px;
   font-weight: 600;
@@ -4610,8 +4620,15 @@ meter {
 }
 
 .metadata-dialog-close-actions {
+  align-self: flex-end;
   display: flex;
   flex: 0 0 auto;
+}
+
+.metadata-dialog-close-actions .icon-button {
+  height: 24px;
+  min-height: 24px;
+  width: 24px;
 }
 
 .metadata-grid {
@@ -5837,9 +5854,9 @@ button.dedup-play-button {
   --preset-selected-bg: #102c28;
   --preset-selected-border: #327d70;
   --preset-selected-text: #89dcc6;
-  --preset-percussion-bg: #302618;
-  --preset-percussion-border: #947038;
-  --preset-percussion-text: #e7ba70;
+  --preset-percussion-bg: #102f1b;
+  --preset-percussion-border: #369653;
+  --preset-percussion-text: #62d98a;
   --preset-instruments-bg: #102d28;
   --preset-instruments-border: #398b72;
   --preset-instruments-text: #8edac0;

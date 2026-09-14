@@ -331,7 +331,7 @@ export function TextSearchTab({
               <div className="text-preset-preview">
                 {previewPreset ? (
                   <>
-                    <div className="text-preset-preview-hint">{previewPreset.hint}</div>
+                    <div className="text-preset-preview-hint" data-axis={previewPreset.axis}>{previewPreset.hint}</div>
                     <div className="text-preset-preview-columns">
                       <div className="text-preset-preview-column">
                         <span className="text-preset-preview-heading">
@@ -373,7 +373,7 @@ export function TextSearchTab({
           ) : null}
         </div>
         {!presetMenuOpen && selectedPresets.map((preset) => (
-          <div className="text-preset-preview-hint" key={preset.key}>{preset.hint}</div>
+          <div className="text-preset-preview-hint" data-axis={preset.axis} key={preset.key}>{preset.hint}</div>
         ))}
         <div className="text-prompt-hint">Банк выбранных меток · {textModelLabel}</div>
         <label className="text-prompt-field" title={textPromptHelp}>

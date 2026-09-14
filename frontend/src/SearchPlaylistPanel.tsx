@@ -1,7 +1,7 @@
 import { TextExecutionDetails } from "./TextExecutionDetails";
 import type { TextSearchExecution } from "./api";
 import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useState } from "react";
-import { Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Plus, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Plus, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
 import { TextSearchTab } from "./TextSearchTab";
 import {
@@ -143,6 +143,8 @@ function PromptCandidatesAddButton({ results, playlist, busy, modelLabel, onAdd 
 }
 
 export function SearchPlaylistPanel({
+  collapsed,
+  onToggleCollapsed,
   seedTracks,
   onActivity,
   textQuery,
@@ -210,6 +212,8 @@ export function SearchPlaylistPanel({
   handleSaveToCollection,
   handleExport
 }: {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   seedTracks: Track[];
   onActivity: ReturnType<typeof useActivityLog>["appendActivity"];
   textQuery: string;
@@ -399,11 +403,34 @@ export function SearchPlaylistPanel({
   }
 
   return (
-    <aside className="panel search-panel">
-      <section className="search-workflow-section">
+    <aside className={`panel search-panel ${collapsed ? "collapsed" : ""}`}>
+      {collapsed ? (
+        <button
+          className="panel-rail"
+          title="Развернуть «Поиск и прослушивание»"
+          aria-label="Развернуть «Поиск и прослушивание»"
+          aria-expanded={false}
+          onClick={onToggleCollapsed}
+          type="button"
+        >
+          <ChevronsRight size={17} />
+          <span className="panel-rail-label">3. Поиск и прослушивание</span>
+        </button>
+      ) : null}
+      <section className="search-workflow-section" hidden={collapsed}>
         <div className="panel-title">
           <Search size={18} />
           <h2>3. Поиск и прослушивание</h2>
+          <button
+            className="icon-button panel-collapse-button"
+            title="Свернуть «Поиск и прослушивание»"
+            aria-label="Свернуть «Поиск и прослушивание»"
+            aria-expanded
+            onClick={onToggleCollapsed}
+            type="button"
+          >
+            <ChevronsLeft size={17} />
+          </button>
         </div>
         <div className="seed-strip">
           {seedTracks.map((track) => (
@@ -845,6 +872,7 @@ export function SearchPlaylistPanel({
       </section>
       <details
         className="playlist-export-disclosure"
+        hidden={collapsed}
         onToggle={(event) => {
           setPlaylistExportOpen(event.currentTarget.open);
         }}

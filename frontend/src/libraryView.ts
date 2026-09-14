@@ -72,20 +72,18 @@ export function likedTracksFilterTitle(likedOnly: boolean, likedCount: number) {
     : `Показать только лайкнутые треки. Доступно: ${likedCount}.`;
 }
 
-export type CollapsiblePanel = "setup" | "library";
+export type CollapsiblePanel = "setup" | "library" | "search";
 
 const panelStorageKeys: Record<CollapsiblePanel, string> = {
   setup: "dj-track-similarity-setup-collapsed",
-  library: "dj-track-similarity-library-collapsed"
+  library: "dj-track-similarity-library-collapsed",
+  search: "dj-track-similarity-search-collapsed"
 };
 
 /**
  * Whether a workspace panel was left collapsed.
  *
- * The row is three equal columns, and only the search panel needs all of its
- * width all of the time: setup is done once, and the library is a place to
- * find a track rather than to watch. Collapsing either hands its column to the
- * others, and collapsing both leaves the search panel nearly the whole row.
+ * Collapsing a panel hands its column width to the expanded panels.
  *
  * The choice outlives a reload. Storage that cannot be read means open,
  * because a panel nobody can find is worse than one taking room.

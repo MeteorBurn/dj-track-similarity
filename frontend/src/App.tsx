@@ -43,11 +43,8 @@ import { ScanImportDialog } from "./ScanImportDialog";
 import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
 import {
   appendVisibleTracksToPlaylist,
-  nextLibraryPlaybackTrack,
-  resolvePanelCollapsed,
-  storePanelCollapsed
+  nextLibraryPlaybackTrack
 } from "./libraryView";
-import type { CollapsiblePanel } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import { shutdownApplication } from "./shutdownApplication";
 import {
@@ -83,6 +80,7 @@ import { useConfirmation } from "./useConfirmation";
 import { useLibraryState } from "./useLibraryState";
 import { useSearchPlaylist } from "./useSearchPlaylist";
 import type { PreviewTarget } from "./useSearchPlaylist";
+import { useWorkspacePanels } from "./useWorkspacePanels";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -203,12 +201,7 @@ export function App() {
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
-  // The workspace is three equal columns, and only the search panel needs all
-  // of its width all of the time: setup is done once, and the library is a
-  // place to find a track rather than to watch. Either can fold to a rail, and
-  // folding both leaves the search panel nearly the whole row.
-  const [setupCollapsed, setSetupCollapsed] = useState(() => resolvePanelCollapsed("setup"));
-  const [libraryCollapsed, setLibraryCollapsed] = useState(() => resolvePanelCollapsed("library"));
+  const { setupCollapsed, libraryCollapsed, searchCollapsed, togglePanel, selectWorkspace } = useWorkspacePanels();
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   // One optimization prompt per finished validation, however many polls observe it.
   const optimizationPromptedForJob = useRef<string | null>(null);
@@ -1109,14 +1102,6 @@ export function App() {
     );
   }
 
-  function togglePanel(panel: CollapsiblePanel) {
-    const setter = panel === "setup" ? setSetupCollapsed : setLibraryCollapsed;
-    setter((collapsed) => {
-      storePanelCollapsed(panel, !collapsed);
-      return !collapsed;
-    });
-  }
-
   async function handleCancelAnalyze() {
     if (analysisPipelineJob && ["queued", "running"].includes(analysisPipelineJob.state)) {
       await run(
@@ -1337,10 +1322,10 @@ export function App() {
           </h1>
         </div>
         <nav className="workbench-nav" aria-label="Рабочая область">
-          <button type="button" aria-pressed={!setupCollapsed && !libraryCollapsed} onClick={() => { setSetupCollapsed(false); setLibraryCollapsed(false); }}>DISCOVER</button>
-          <button type="button" aria-pressed={!setupCollapsed && libraryCollapsed} onClick={() => { setSetupCollapsed(false); setLibraryCollapsed(true); }}>ANALYZE</button>
-          <button type="button" aria-pressed={setupCollapsed && !libraryCollapsed} onClick={() => { setSetupCollapsed(true); setLibraryCollapsed(false); }}>LIBRARY</button>
-          <button type="button" aria-pressed={setupCollapsed && libraryCollapsed} onClick={() => { setSetupCollapsed(true); setLibraryCollapsed(true); }}>SEARCH</button>
+          <button type="button" aria-pressed={!setupCollapsed && !libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("discover")}>DISCOVER</button>
+          <button type="button" aria-pressed={!setupCollapsed && libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("analyze")}>ANALYZE</button>
+          <button type="button" aria-pressed={setupCollapsed && !libraryCollapsed && searchCollapsed} onClick={() => selectWorkspace("library")}>LIBRARY</button>
+          <button type="button" aria-pressed={setupCollapsed && libraryCollapsed && !searchCollapsed} onClick={() => selectWorkspace("search")}>SEARCH</button>
         </nav>
         <div className="topbar-actions">
           <button
@@ -1391,7 +1376,7 @@ export function App() {
       </header>
 
       <section
-        className={`workspace ${setupCollapsed ? "setup-collapsed" : ""} ${libraryCollapsed ? "library-collapsed" : ""}`}
+        className={`workspace ${setupCollapsed ? "setup-collapsed" : ""} ${libraryCollapsed ? "library-collapsed" : ""} ${searchCollapsed ? "search-collapsed" : ""}`}
       >
         <LibraryPanel
           collapsed={setupCollapsed}
@@ -1475,6 +1460,8 @@ export function App() {
         />
 
         <SearchPlaylistPanel
+          collapsed={searchCollapsed}
+          onToggleCollapsed={() => togglePanel("search")}
           seedTracks={seedTracks}
           onActivity={appendActivity}
           textQuery={textQuery}

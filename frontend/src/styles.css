@@ -905,27 +905,35 @@ h2 {
   max-width: 1880px;
 }
 
-/* Only the search panel needs its full width all of the time: setup is done
-   once, and the library is a place to find a track rather than to watch.
-   Either column folds to a rail, and folding both leaves the search panel
-   nearly the whole row — which is what side-by-side model comparison needs.
-   The rail keeps the column clickable at its full height, so getting back is
-   one click anywhere down the strip rather than a hunt for an icon. */
+/* Folded panels stay clickable as rails; expanded panels share the free width. */
+.workspace:is(.setup-collapsed, .library-collapsed, .search-collapsed) {
+  grid-template-columns: var(--setup-column, minmax(0, 1fr)) var(--library-column, minmax(0, 1fr)) var(--search-column, minmax(0, 1fr));
+}
+
 .workspace.setup-collapsed {
-  grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1fr);
+  --setup-column: 56px;
 }
 
 .workspace.library-collapsed {
-  grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr);
+  --library-column: 56px;
 }
 
-.workspace.setup-collapsed.library-collapsed {
-  grid-template-columns: 56px 56px minmax(0, 1fr);
+.workspace.search-collapsed {
+  --search-column: 56px;
+}
+
+.workspace:is(.setup-collapsed, .library-collapsed, .search-collapsed) > .search-panel {
+  grid-column: auto;
 }
 
 .library-panel.collapsed,
-.track-panel.collapsed {
+.track-panel.collapsed,
+.search-panel.collapsed {
   padding: 8px 4px;
+}
+
+.search-panel > [hidden] {
+  display: none;
 }
 
 .panel-rail {
@@ -5791,7 +5799,7 @@ button.dedup-play-button {
 @media (max-width: 1050px) {
   .topbar { height: auto; min-height: 64px; flex-wrap: wrap; padding: 10px 0; }
   .workbench-nav { order: 3; width: 100%; height: 34px; }
-  .workspace, .workspace.setup-collapsed, .workspace.library-collapsed, .workspace.setup-collapsed.library-collapsed { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .workspace, .workspace:is(.setup-collapsed, .library-collapsed, .search-collapsed) { height: auto; grid-template-columns: minmax(0, 1fr); }
   .panel { max-height: 700px; min-height: 160px; }
   .panel.collapsed { min-height: 48px; }
   .panel-rail-label { writing-mode: horizontal-tb; transform: none; }

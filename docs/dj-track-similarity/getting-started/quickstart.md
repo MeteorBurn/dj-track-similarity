@@ -144,14 +144,14 @@ backend endpoints documented in the [API reference](../reference/api.md).
 2. In panel 2, library and listening, search or use `Prev`, `Next`, and the page-number field to
    move through fixed pages of up to `200` tracks.
 3. Add one to five tracks as seeds from the row actions.
-4. In panel 3, search and listening, open the `SIMILARITY` tab and pick `MAEST`, `MERT`, `MuQ`, or
-   `MuQ-MuLan` in its `Model` select, or open `SONARA` when you want to steer the search by rhythm,
-   sound, dynamics, harmony, or tempo.
+4. In panel 3, search and listening, open the `SIMILARITY` tab. Its `Model` select offers `SONARA`,
+   `MAEST`, `MERT`, `MuQ`, and `MuQ-MuLan`. Choose SONARA to steer the search with mixer weights and
+   directional modifiers for rhythm, sound, dynamics, harmony, and tempo.
 5. Preview candidates by ear and add the useful rows to the current set.
 6. Review or remove entries in the current set.
 7. Export the set as M3U or CSV once it has earned it.
 
-With no seed in mind, press **Add Random Track** in the `SONARA` or `SIMILARITY` tab. It pulls one
+With no seed in mind, press **Add Random Track** in the `SIMILARITY` tab. It pulls one
 eligible track from the library and uses it as the seed.
 
 The loop stays listening-led. Start from an idea, get a shortlist, play it, keep what survives.

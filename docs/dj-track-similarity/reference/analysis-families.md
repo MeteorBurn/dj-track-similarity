@@ -219,13 +219,11 @@ without feeding any current ranking:
 | --- | --- |
 | `mood_happy_score`, `mood_aggressive_score`, `mood_relaxed_score`, `mood_sad_score` | not a SONARA similarity input. Rhythm Lab does accept them as classifier features. |
 | `true_peak_dbtp`, `replay_gain_db`, `max_momentary_loudness_lufs`, `loudness_range_lu` | not a similarity dimension. Retained for possible loudness-management work, and available to Rhythm Lab as classifier features. |
-| `vocal_probability` | read only by the Custom SONARA search `vocalness` modifier. Rhythm Lab excludes it from its training features. |
-| `aggression_forcefulness`, `aggression_harshness`, `aggression_tension`, `aggression_rhythm` | unread. Only `aggression_score` and `aggression_confidence` drive the Custom search aggression modifier, and Rhythm Lab excludes the whole aggression family. |
+| `vocal_probability` | read only by the SONARA search `vocalness` modifier. Rhythm Lab excludes it from its training features. |
+| `aggression_forcefulness`, `aggression_harshness`, `aggression_tension`, `aggression_rhythm` | unread. Only `aggression_score` and `aggression_confidence` drive the SONARA search aggression modifier, and Rhythm Lab excludes the whole aggression family. |
 | the 48-dimensional `sonara_embeddings` vector | unread by search, classifiers, and Audio Dedup. |
 
-`aggression_score` is a confidence-aware directional modifier in Custom SONARA search. DJ transition
-mode blends a soft, directional structure fit from the seed outro to the candidate intro when both
-rows have usable structure fields.
+`aggression_score` is a confidence-aware directional modifier in SONARA search.
 
 MAEST, MERT, MuQ, MuQ-MuLan, and CLAP are the current generic seed-search embeddings. SONARA search
 uses stored Core features rather than the stored SONARA embedding or fingerprint.

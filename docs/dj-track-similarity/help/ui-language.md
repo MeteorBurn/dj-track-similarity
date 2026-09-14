@@ -15,8 +15,7 @@ The interface keeps these tokens in English, so the documentation and the screen
 without translation:
 
 - model and family names: `SONARA`, `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`, `CLAP`
-- tab labels: `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`
-- SONARA search modes: `Balanced`, `Vibe`, `Sound`, `DJ transition`, `Custom mixer`
+- tab labels: `LAB`, `SIMILARITY`, `PROMPT`, `CLASS`
 - analysis mode buttons: `Direct`, `Staged`
 - numeric field labels: `Limit`, `Mode`, `Model`, `Device`, `Track batch`, `Inference batch`,
   `BatchSize`, `StageSize`, `Processes`, `Threads`, `Workers`
@@ -203,23 +202,23 @@ The library search box uses the English placeholder `path, title, artist, genre`
 
 ## Panel 3, search and listening
 
-The five tabs render in this order: `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`. The internal
+The four tabs render in this order: `LAB`, `SIMILARITY`, `PROMPT`, `CLASS`. The internal
 key for `PROMPT` is still `text`, so the API path stays `/api/search/text`.
 
 | Russian | English meaning | Where |
 | --- | --- | --- |
 | `Убрать seed: <track>` | Remove that seed | Seed chip |
-| `Сбросить SONARA mixer и modifiers` | Reset the SONARA mixer and modifiers | `Reset` button in the SONARA tab |
+| `Сбросить SONARA mixer и modifiers` | Reset the SONARA mixer and modifiers | `Reset` button in the SONARA settings within SIMILARITY |
 | `— приоритизирует виды сходства.` | Prioritizes kinds of similarity | Note beside `Mixer` |
 | `— направляют характер выдачи.` | Steers the character of the results | Note beside `Modifiers` |
-| `Добавить случайный SONARA-ready трек из базы в seed` | Add a random SONARA-ready track as a seed | SONARA tab random button |
-| `Найти похожие треки через SONARA по выбранным seed-трекам` | Find similar tracks with SONARA from the chosen seeds | SONARA search button |
+| `Добавить случайный SONARA-ready трек из базы в seed` | Add a random SONARA-ready track as a seed | SIMILARITY random button with SONARA selected |
+| `Найти похожие треки через SONARA по выбранным seed-трекам` | Find similar tracks with SONARA from the chosen seeds | SIMILARITY search button with SONARA selected |
 | `Найти треки через <model> по текстовому описанию звучания.` | Find tracks with that model from a written sound description | PROMPT search button when embeddings exist |
 | `Запустите анализ <model> для библиотеки, затем повторите текстовый поиск.` | Run that model over the library, then search again | PROMPT search button with no stored embeddings |
 | `Удалить рассчитанные данные <profile>` | Delete the calculated data for that profile | CLASS reset button |
 
-The SIMILARITY tab keeps English throughout: `Add Random Track`, `Model`, `Limit`, and the model
-options `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`.
+The SIMILARITY tab uses English labels for `Add Random Track`, `Model`, `Limit`, and the model
+options `SONARA`, `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan`. Model descriptions and hover help are Russian.
 
 ### PROMPT tab
 

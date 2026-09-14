@@ -54,13 +54,6 @@ test("SONARA mixer help describes the audible similarity each weight controls", 
   assert.doesNotMatch(helpText.sonaraMixerTimbre, /0 — не учитывать/);
 });
 
-test("SONARA mode help describes ready-made modes and manual control", () => {
-  const helpText = loadHelpText();
-
-  assert.match(helpText.sonaraMode, /готовый сценарий поиска/);
-  assert.match(helpText.sonaraMode, /Custom mixer включает ручную настройку/);
-});
-
 test("library search help does not advertise syncopated rhythm", () => {
   const helpText = loadHelpText();
 

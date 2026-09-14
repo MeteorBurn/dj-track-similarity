@@ -392,7 +392,6 @@ def _sonara_group(
         )
     results = searcher.search(
         seed,
-        mode="balanced",
         min_similarity=0.0,
         limit=query.limit,
     )

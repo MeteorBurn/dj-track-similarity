@@ -6,9 +6,9 @@ the app works at all on your machine.
 ## The interface mixes languages, the documentation does not
 
 Panel headings, buttons, tooltips, and notices are mostly Russian. Technical tokens are English:
-the model names, the five tab labels, the SONARA mode names, and numeric field labels such as
-`Limit`, `Mode`, and `Device`. The split grew during development rather than by design, so which
-label reads which way is not something you can predict.
+the model names, the four tab labels, and field labels such as `Limit`, `Model`, and `Device`.
+The split grew during development rather than by design, so which label reads which way is not
+something you can predict.
 
 This documentation names every control in English regardless.
 [UI language](./ui-language.md) maps them, control by control.

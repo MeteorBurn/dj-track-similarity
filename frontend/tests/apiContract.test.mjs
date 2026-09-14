@@ -285,14 +285,14 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
     epsilon: null,
     noise: 0,
   }, { signal: controller.signal });
-  await api.sonaraSearch({
+  const sonaraPayload = {
     seed_track_ids: [7],
     limit: 10,
-    mode: "balanced",
-    mixer_weights: null,
-    modifiers: null,
+    mixer_weights: { timbre: 2, rhythm: 1, dynamics: 0.8, harmonic: 0.6, tempo: 0.25 },
+    modifiers: { energy: 0.2, valence: 0, aggression: 0, vocalness: -0.1, acousticness: 0, brightness: 0, rhythm_density: 0.3, dynamic_range: 0, loudness: 0 },
     min_similarity: 0,
-  }, { signal: controller.signal });
+  };
+  await api.sonaraSearch(sonaraPayload, { signal: controller.signal });
   await api.randomSonaraTrack({
     exclude_track_ids: [7],
   }, { signal: controller.signal });
@@ -319,6 +319,7 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
       "/api/search/text"
     ]
   );
+  assert.deepEqual(JSON.parse(calls[2].options.body), sonaraPayload);
   assert.deepEqual(JSON.parse(calls[3].options.body), {
     exclude_track_ids: [7],
   });

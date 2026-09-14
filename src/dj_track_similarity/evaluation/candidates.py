@@ -339,7 +339,6 @@ def _search_source(
         search = SonaraSimilaritySearch(db, analysis_output=output)
         return output, search.search(
             [seed_target],
-            mode="balanced",
             limit=per_source,
         )
     if source in {"mert", "maest", "muq", "mulan", "clap"}:

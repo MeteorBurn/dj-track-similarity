@@ -19,7 +19,7 @@ something.
 
 | Your situation | Start with | Result |
 | --- | --- | --- |
-| You remember one useful track | SIMILARITY or SONARA tab | A ranked list of nearby candidates to preview |
+| You remember one useful track | SIMILARITY tab | A ranked list of nearby candidates to preview |
 | You can describe the sound without naming a track | PROMPT tab, CLAP or MuQ-MuLan | A shortlist matched to an audible description |
 | You have useful candidates to collect | Current Set | An editable working list for preview and export |
 | You want a broad pool for later listening | Filters, seeds, or text search | A crate that you can export as CSV or M3U |

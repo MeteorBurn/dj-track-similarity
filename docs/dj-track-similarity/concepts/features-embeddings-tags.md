@@ -31,21 +31,22 @@ These are source-file tags. They can be incomplete or inconsistent. The app stor
 
 ## SONARA features and embedding
 
-SONARA produces explainable audio features and derived working fields such as BPM, key, duration, and energy. SONARA features support the SONARA tab, Evaluation transition diagnostics, Audio Dedup, and compatible classifier inputs.
+SONARA produces explainable audio features and derived working fields such as BPM, key, duration,
+and energy. SONARA features support its search in the SIMILARITY tab, Evaluation transition
+diagnostics, Audio Dedup, and compatible classifier inputs.
 
 Newer SONARA analysis adds optional Camelot key, vocalness, mood, loudness, beat-grid, structure,
 and silence fields. Treat these analysis estimates as inspectable evidence. Only fields wired into
 a scorer affect ranking.
 
 Mood affinities are shown as analysis data and retained for possible future workflows. They are not
-current similarity or classifier inputs. In Custom SONARA search, aggression is an explicit
-confidence-aware directional modifier. DJ transition adds a soft structure fit only when the seed
-outro and candidate intro data is present. True peak and ReplayGain are also retained
+current similarity or classifier inputs. In SONARA search, aggression is an explicit
+confidence-aware directional modifier. True peak and ReplayGain are also retained
 for possible loudness-management features rather than direct SONARA similarity. The current
 `sonara` classifier source includes those loudness scalars. It excludes `vocal_probability` and the
 whole aggression family by design, to keep the classifier baseline independent of SONARA's bundled
 learned outputs. The SONARA dynamics comparison uses momentary loudness maximum and loudness range.
-Vocalness reaches ranking only as an explicit Custom search modifier.
+Vocalness reaches ranking only as an explicit SONARA search modifier.
 
 SONARA analysis stores compact Core scalars and fixed vectors in `sonara_features`, an unnormalized
 48-dimensional `float32` embedding in the dedicated `sonara_embeddings` table, and a versioned

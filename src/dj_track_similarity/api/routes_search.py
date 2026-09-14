@@ -46,7 +46,6 @@ from ..search.engine import (
     SimilaritySearchResult,
 )
 from ..search.sonara import (
-    SonaraSearchMode,
     SonaraSearchUnavailable,
     SonaraSimilaritySearch,
 )
@@ -160,7 +159,6 @@ def register_search_routes(
             searcher = SonaraSimilaritySearch(database)
             results = searcher.search(
                 searcher.resolve_targets(request.seed_track_ids),
-                mode=_sonara_search_mode(request.mode),
                 mixer_weights=request.mixer_weights.model_dump() if request.mixer_weights else None,
                 modifiers=request.modifiers.model_dump() if request.modifiers else None,
                 min_similarity=request.min_similarity,
@@ -427,14 +425,6 @@ def _search_clap_text_prompts(
         )
     vector = adapter.embed_text(plan.prompt_bank.primary_query)
     return searcher.search_vector(vector, filters=plan.filters, limit=plan.limit)
-
-
-def _sonara_search_mode(mode: str) -> SonaraSearchMode:
-    match mode:
-        case "balanced" | "vibe" | "sound" | "dj_transition" | "custom":
-            return mode
-        case _:
-            raise ValueError(f"Unsupported SONARA search mode: {mode}")
 
 
 def _clean_text_queries(queries: list[str]) -> tuple[str, ...]:

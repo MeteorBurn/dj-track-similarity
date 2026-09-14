@@ -16,7 +16,7 @@ and a value from one says nothing about a value from another.
 
 | Scale | Where it appears | What it measures |
 | --- | --- | --- |
-| SONARA Core similarity | SONARA tab, `/api/search/sonara` | weighted agreement across named audio features |
+| SONARA Core similarity | SIMILARITY with SONARA selected, `/api/search/sonara` | weighted agreement across named audio features |
 | ML seed cosine | SIMILARITY tab and LAB, one value per family | cosine between L2-normalized embeddings of one family |
 | CLAP text contrast | PROMPT tab with CLAP selected | prompt vector against stored CLAP audio vectors |
 | MuQ-MuLan text contrast | PROMPT tab with MuQ-MuLan selected | prompt vector against stored MuQ-MuLan audio vectors |
@@ -34,10 +34,10 @@ prompt against audio, a seed score is audio against audio.
 
 ## ML seed search
 
-The SIMILARITY tab searches one embedding family at a time over MAEST, MERT, MuQ, or MuQ-MuLan. The
-query is the L2-normalized mean of the selected seed rows, the seeds are removed from the results,
-and the score is a cosine over unit vectors. Values fall in `-1` to `1` in principle, and useful
-neighborhoods sit well above zero in practice.
+With MAEST, MERT, MuQ, or MuQ-MuLan selected, the SIMILARITY tab searches one embedding family at a
+time. The query is the L2-normalized mean of the selected seed rows, the seeds are removed from the
+results, and the score is a cosine over unit vectors. Values fall in `-1` to `1` in principle, and
+useful neighborhoods sit well above zero in practice.
 
 CLAP is available for seed search through the HTTP API and in LAB, without an entry in the browser
 model selector.
@@ -48,9 +48,9 @@ SONARA search compares stored feature values under mixer weights, with optional 
 top. It explains itself better than an embedding cosine, and it is still a similarity model.
 Raising a mixer weight changes the ranking question rather than improving the answer.
 
-### How a Custom score is assembled
+### How the score is assembled
 
-Custom mode is the mode where every part is visible:
+The manual mixer and modifiers control the score:
 
 - Five mixer groups carry a weight from `0` to `5`: `Timbre` and `Rhythm` default to `1.0`,
   `Dynamics` and `Harmonic` to `0.8`, and `Tempo` to `0.35`.
@@ -63,23 +63,11 @@ Custom mode is the mode where every part is visible:
   modifier drives leaves the group similarity so the two do not cancel each other.
 - `Aggression` is the one modifier attenuated by evidence confidence, and it drops out entirely when
   SONARA stored no aggression confidence for a candidate.
-- A candidate is dropped when fewer than two numeric dimensions overlap with the seed.
+- A candidate is dropped when none of its enabled groups or modifiers can produce a score from the
+  available evidence.
 
 Harmonic scoring uses Camelot compatibility attenuated by key confidence. Key confidence is a
-reliability weight rather than a similarity dimension of its own. The harmonic group in Custom mode
-uses lighter tonal weights than Balanced and DJ transition do.
-
-### DJ transition adds a structural term
-
-DJ transition mode blends the feature similarity with a directional structural fit:
-
-```text
-score = 0.8 x similarity + 0.2 x transition_fit
-```
-
-`transition_fit` compares the seed outro against the candidate intro, the two energy levels, and the
-stored energy-curve summary. Missing parts are left out of the mean rather than counted as zero, so
-a track with partial structure data is not penalized for the gap.
+reliability weight rather than a similarity dimension of its own.
 
 ## Text search and the contrast score
 
@@ -134,7 +122,7 @@ The HTTP search API carries two filters with no browser control:
 
 ## Practical reading
 
-- Compare scores inside the same tab and the same settings.
+- Compare scores from the same model and the same settings.
 - Be careful after changing thresholds, weights, or prompts.
 - Preview audio before adding to a set.
 - Do not use one tab's threshold as another tab's safety rule.

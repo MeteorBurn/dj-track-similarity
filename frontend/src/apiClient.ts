@@ -36,7 +36,6 @@ import type {
   ServerShutdownResult,
   SonaraMixerWeights,
   SonaraModifiers,
-  SonaraSearchMode,
   Track,
   TrackDeleteResult,
   TrackDetail,
@@ -67,9 +66,8 @@ type FilteredTracksPayload = {
 type SonaraSearchPayload = {
   seed_track_ids: number[];
   limit: number;
-  mode: SonaraSearchMode;
-  mixer_weights?: SonaraMixerWeights | null;
-  modifiers?: SonaraModifiers | null;
+  mixer_weights: SonaraMixerWeights;
+  modifiers: SonaraModifiers;
   min_similarity?: number | null;
 };
 

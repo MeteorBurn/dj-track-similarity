@@ -7,7 +7,7 @@ is a three-column workspace under one top bar.
 | --- | --- | --- |
 | Left | Panel 1, database and analysis | database selection, import, maintenance actions, analysis stages and settings |
 | Middle | Panel 2, library and listening | the paginated track list, filters, preview, seeds |
-| Right | Panel 3, search and listening | the five search tabs and the current set |
+| Right | Panel 3, search and listening | the four search tabs and the current set |
 
 Panel headings, button titles, tooltips, and notices are Russian on screen. Tab labels, model names,
 and most field labels are English. Every page in this section names controls in English, and
@@ -17,7 +17,7 @@ and most field labels are English. Every page in this section names controls in 
 
 | What you already have | Open | What you will get |
 | --- | --- | --- |
-| A track that points in the right direction | `SIMILARITY` or `SONARA` | Nearby candidates ranked around the seed |
+| A track that points in the right direction | `SIMILARITY` | Nearby candidates ranked around the seed |
 | A sound you can describe in words | `PROMPT` | A text-matched listening shortlist |
 | One reference and no idea which model hears it best | `LAB` | Six model columns for the same seed |
 | A recurring personal judgment | `CLASS` and Rhythm Lab | A reusable score for filtering the library |
@@ -30,7 +30,7 @@ and the current set remain local UI state until you explicitly add or export tra
 
 - [Browse library](./browse-library.md): pagination, search, metadata, preview, seeds, and set actions.
 - [Analyze library](./analyze-library.md): stage selection, Direct and Staged modes, progress, cancellation, and reset.
-- [Search with seed tracks](./search-with-seeds.md): the `SIMILARITY`, `SONARA`, and `LAB` tabs.
+- [Search with seed tracks](./search-with-seeds.md): the `SIMILARITY` and `LAB` tabs.
 - [Text search](./text-search.md): the `PROMPT` tab, prompt banks, negatives, presets, and score scale.
 - [CLASS tab](./class-tab.md): use a personal learned concept as a library filter.
 - [Export playlists](./export-playlists.md): M3U, CSV, output folder, and Rhythm Lab collections.

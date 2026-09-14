@@ -3,9 +3,9 @@ import { api, type Track, type SearchResult, type EmbeddingSource } from "./api"
 import {
   createRequestTokenGuard,
   isSeedEmbeddingFamily,
-  seedEmbeddingFamilyPresentation,
+  seedSearchModelPresentation,
   type GenericSearchTab,
-  type SeedEmbeddingFamily,
+  type SeedSearchModel,
 } from "./searchSurfaceState";
 import { displayTrack } from "./trackDisplay";
 import type { SearchFiltersState } from "./SearchPlaylistPanel";
@@ -42,7 +42,7 @@ type SearchRequestsOptions = {
   textCompareModels: boolean;
   analysisDevice: "auto" | "cpu" | "cuda";
   textEmbeddingFamily: "clap" | "mulan";
-  seedEmbeddingFamily: SeedEmbeddingFamily;
+  seedSearchModel: SeedSearchModel;
   setResults: (results: SearchResult[]) => void;
   addSeed: (track: Track) => void;
   setNotice: (notice: SearchNotice) => void;
@@ -60,7 +60,7 @@ export function useSearchRequests({
   textCompareModels,
   analysisDevice,
   textEmbeddingFamily,
-  seedEmbeddingFamily,
+  seedSearchModel,
   setResults,
   addSeed,
   setNotice,
@@ -90,7 +90,7 @@ export function useSearchRequests({
       textCompareModels,
       analysis_device: analysisDevice,
       text_embedding_family: textEmbeddingFamily,
-      seed_embedding_family: seedEmbeddingFamily,
+      seed_search_model: seedSearchModel,
     }),
     [
       analysisDevice,
@@ -98,7 +98,7 @@ export function useSearchRequests({
       textCompareModels,
       textUseNegativePrompt,
       textEmbeddingFamily,
-      seedEmbeddingFamily,
+      seedSearchModel,
       databaseCatalogUuid,
       databasePath,
       filters,
@@ -193,16 +193,14 @@ export function useSearchRequests({
       setNotice({ kind: "error", text: "Выберите seed-треки" });
       return;
     }
-    const customMode = filters.sonaraMode === "custom";
     const ticket = beginGenericSearchRequest();
-    appendActivity("info", "SONARA search запущен", `${filters.sonaraMode} · ${seeds.length} seed`);
+    appendActivity("info", "SONARA search запущен", `${seeds.length} seed`);
     try {
       const value = await api.sonaraSearch({
         seed_track_ids: seeds,
         limit: filters.limit,
-        mode: filters.sonaraMode,
-        mixer_weights: customMode ? filters.sonaraMixer : null,
-        modifiers: customMode ? filters.sonaraModifiers : null,
+        mixer_weights: filters.sonaraMixer,
+        modifiers: filters.sonaraModifiers,
       }, {
         signal: ticket.controller.signal,
       });
@@ -255,16 +253,16 @@ export function useSearchRequests({
   }
 
   async function handleAddRandomEmbeddingTrack() {
-    if (randomTrackAbortController.current || !databaseCatalogUuid) return;
+    if (randomTrackAbortController.current || !databaseCatalogUuid || !isSeedEmbeddingFamily(seedSearchModel)) return;
     const controller = new AbortController();
     const databaseKey = randomTrackDatabaseKey;
     randomTrackAbortController.current = controller;
-    const label = seedEmbeddingFamilyPresentation[seedEmbeddingFamily].label;
+    const label = seedSearchModelPresentation[seedSearchModel].label;
     setRandomEmbeddingTrackPending(true);
     appendActivity("info", `Добавление случайного ${label} seed`, `Исключено текущих seed: ${seeds.length}`);
     try {
       const track = await api.randomEmbeddingTrack({
-        analysis_family: seedEmbeddingFamily,
+        analysis_family: seedSearchModel,
         exclude_track_ids: seeds,
       }, {
         signal: controller.signal,
@@ -298,7 +296,7 @@ export function useSearchRequests({
     if (!isSeedEmbeddingFamily(analysisFamily)) {
       throw new Error(`Unsupported seed embedding model: ${analysisFamily}`);
     }
-    const label = seedEmbeddingFamilyPresentation[analysisFamily].label;
+    const label = seedSearchModelPresentation[analysisFamily].label;
     const ticket = beginGenericSearchRequest();
     appendActivity("info", `${label} search запущен`, `${seeds.length} seed`);
     try {

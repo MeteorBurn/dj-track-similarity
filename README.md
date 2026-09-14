@@ -206,12 +206,10 @@ evidence. At low confidence, they also inspect SONARA candidates and the Mutagen
 instead of earning a similarity bonus or becoming an automatic hard rejection.
 
 SONARA mood values are retained for inspection and possible future audio workflows; they are not
-current similarity or classifier inputs. In Custom SONARA search, the optional Aggression modifier
+current similarity or classifier inputs. In SONARA search, the optional Aggression modifier
 uses the stored aggression rank and attenuates its directional bias by SONARA's evidence confidence.
-DJ transition mode also adds a soft, directional structural fit when current outro/intro and energy
-summary values are available. True peak and ReplayGain remain stored for future loudness-management
-work, not direct SONARA similarity scoring. Model embeddings live in dedicated tables in the
-library database.
+True peak and ReplayGain remain stored for future loudness-management work, not direct SONARA
+similarity scoring. Model embeddings live in dedicated tables in the library database.
 
 Each successful SONARA analysis writes its Core row, an unnormalized 48-dimensional `float32`
 embedding row, and a versioned native-base64 acoustic fingerprint row together under the original
@@ -586,15 +584,16 @@ In the CLI, omit `--limit` to analyze the whole library.
 
 ## 🖥️ Frontend status
 
-The React source uses the current backend responses. Its main search tabs are LAB, SONARA,
-SIMILARITY, PROMPT, and CLASS. The SIMILARITY model selector searches separate MAEST, MERT, MuQ,
-and MuQ-MuLan embedding spaces. Search results provide individual current-set actions, and the shared
+The React source uses the current backend responses. Its main search tabs are LAB, SIMILARITY,
+PROMPT, and CLASS. The SIMILARITY model selector starts with SONARA, whose search uses a manual
+mixer and nine directional modifiers. It also searches separate MAEST, MERT, MuQ, and MuQ-MuLan
+embedding spaces. Search results provide individual current-set actions, and the shared
 Current Set panel provides preview, removal, Rhythm Lab collection transfer, M3U export, and CSV export.
 Database changes clear catalog-bound state. Exact-identity writes carry the catalog UUID and the
 track UUID, and the API refuses either value with surrounding whitespace (HTTP 422) instead of
 searching for a track that cannot exist.
 
-The interface is in Russian. Model names, tab labels, and mode names stay English. See
+The interface is in Russian. Model names, tab labels, and analysis mode names stay English. See
 [UI language](docs/dj-track-similarity/help/ui-language.md) for the label glossary the rest of the
 documentation refers to.
 

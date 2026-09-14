@@ -349,9 +349,6 @@ class SonaraSearchRequest(BaseModel):
 
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1, max_length=5)
     limit: int = Field(default=10, ge=1, le=500)
-    mode: str = Field(
-        default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$"
-    )
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     mixer_weights: SonaraMixerWeights | None = None
     modifiers: SonaraModifiers | None = None

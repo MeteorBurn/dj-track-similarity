@@ -11,8 +11,8 @@ reorganizing or rewriting the source files.
 ## The UI mixes Russian and English
 
 Panel headings, button titles, tooltips, and notices are mostly Russian. Technical tokens are
-English: model names, the tab labels `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, and `CLASS`, mode
-names such as `Balanced` and `DJ transition`, and field labels such as `Limit`, `Mode`, and `Device`.
+English: model names, the tab labels `LAB`, `SIMILARITY`, `PROMPT`, and `CLASS`, and field labels
+such as `Limit`, `Model`, and `Device`.
 The split grew during development rather than by design, so it is not a rule you can predict from
 the kind of control. Even panel 1's own **Track limit** stepper is Russian-labelled.
 

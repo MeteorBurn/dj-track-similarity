@@ -236,6 +236,10 @@ test("random seeds ignore obsolete catalog responses without clearing a newer re
       const oldTrack = { track_id: 7, catalog_uuid: "A", track_uuid: "a7", file_path: "a.wav" };
       const currentTrack = { ...oldTrack, catalog_uuid: "B", track_uuid: "b7" };
       let ui = await h.choose("A");
+      if (kind === "Embedding") {
+        ui.search.onSeedSearchModelChange("mert");
+        ui = h.render();
+      }
       ui.search[`handleAddRandom${kind}Track`]();
       await h.choose("B", false);
       assert.equal(calls[0].signal?.aborted, true, "database reset cancels before rerender");

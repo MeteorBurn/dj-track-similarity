@@ -68,7 +68,7 @@ import {
 import {
   createRequestTokenGuard,
   type PrimarySearchTab,
-  type SeedEmbeddingFamily,
+  type SeedSearchModel,
 } from "./searchSurfaceState";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
@@ -174,7 +174,7 @@ export function App() {
     togglePlaylist,
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
-  const [seedEmbeddingFamily, setSeedEmbeddingFamily] = useState<SeedEmbeddingFamily>("mert");
+  const [seedSearchModel, setSeedSearchModel] = useState<SeedSearchModel>("sonara");
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [scanImportOpen, setScanImportOpen] = useState(false);
   const [sonaraSettingsDialogOpen, setSonaraSettingsDialogOpen] = useState(false);
@@ -210,7 +210,6 @@ export function App() {
   const [libraryPlaybackShuffle, setLibraryPlaybackShuffle] = useState(false);
   const [filters, setFilters] = useState<SearchFiltersState>({
     limit: 20,
-    sonaraMode: "custom",
     sonaraMixer: {
       timbre: 1,
       rhythm: 1,
@@ -273,7 +272,7 @@ export function App() {
     textCompareModels,
     analysisDevice,
     textEmbeddingFamily,
-    seedEmbeddingFamily,
+    seedSearchModel,
     setResults,
     addSeed,
     setNotice,
@@ -1470,8 +1469,8 @@ export function App() {
           onTextUseNegativePromptChange={setTextUseNegativePrompt}
           textEmbeddingFamily={textEmbeddingFamily}
           onTextEmbeddingFamilyChange={changeTextEmbeddingFamily}
-          seedEmbeddingFamily={seedEmbeddingFamily}
-          onSeedEmbeddingFamilyChange={setSeedEmbeddingFamily}
+          seedSearchModel={seedSearchModel}
+          onSeedSearchModelChange={setSeedSearchModel}
           textCompareModels={textCompareModels}
           textModelLoadingLabel={textModelLoadingLabel}
           onTextCompareModelsChange={setTextCompareModels}
@@ -1524,6 +1523,7 @@ export function App() {
           onOutputDirChange={setOutputDir}
           onChooseOutputFolder={() => void handleChooseOutputFolder()}
           helpText={helpText}
+          sonaraCount={librarySummary.sonara}
           embeddingCounts={{
             mert: librarySummary.mert,
             maest: librarySummary.maest_embedding,

@@ -1,8 +1,8 @@
 import { TextExecutionDetails } from "./TextExecutionDetails";
 import type { TextSearchExecution } from "./api";
 import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useState } from "react";
-import { ChevronsLeft, ChevronsRight, Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Plus, Search, Shuffle, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
+import { ChevronsLeft, ChevronsRight, Download, FolderOpen, ListMusic, ListPlus, Pause, Play, Plus, Search, Tags, Trash2, X } from "lucide-react";
+import { AnalysisJobStatus, EmbeddingSource, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import { TextSearchTab } from "./TextSearchTab";
 import {
   classifierIsAvailable,
@@ -12,19 +12,18 @@ import {
   orderPromotedClassifiers,
 } from "./classifierCompatibility";
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
-import { EmbeddingSearchTab } from "./EmbeddingSearchTab";
+import { SimilaritySearchTab } from "./SimilaritySearchTab";
 import { playlistPage } from "./playlistView";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import {
   genericSearchResultIsCurrent,
-  isSeedEmbeddingFamily,
   primarySearchTabs,
-  seedEmbeddingFamilyPresentation,
+  seedSearchModelPresentation,
   tabAfterKey,
   type GenericSearchTab,
   type PrimarySearchTab,
-  type SeedEmbeddingFamily
+  type SeedSearchModel
 } from "./searchSurfaceState";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
@@ -35,15 +34,13 @@ const playlistPageSize = 20;
 
 export type SearchFiltersState = {
   limit: number;
-  sonaraMode: SonaraSearchMode;
   sonaraMixer: SonaraMixerWeights;
   sonaraModifiers: SonaraModifiers;
 };
 
-type SearchHelpText = {
+export type SearchHelpText = {
   textPrompt: string;
   limit: string;
-  sonaraMode: string;
   sonaraMixerTimbre: string;
   sonaraMixerRhythm: string;
   sonaraMixerDynamics: string;
@@ -62,52 +59,17 @@ type SearchHelpText = {
   outputDir: string;
 };
 
-type SelectOption<T extends string> = {
-  value: T;
-  label: string;
-  title: string;
-};
-
-const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
-  {
-    value: "balanced",
-    label: "Balanced",
-    title: "Balanced: универсальный поиск с балансом настроения, саунда, темпа и гармонии."
-  },
-  {
-    value: "vibe",
-    label: "Vibe",
-    title: "Vibe: ищет близкие настроение, энергию, танцевальность и динамику."
-  },
-  {
-    value: "sound",
-    label: "Sound",
-    title: "Sound: ищет похожий характер звука — тембр, текстуру и яркость."
-  },
-  {
-    value: "dj_transition",
-    label: "DJ transition",
-    title: "DJ transition: ищет следующий трек для сета по темпу, ритму, энергии и тональности. При наличии данных учитывает outro → intro."
-  },
-  {
-    value: "custom",
-    label: "Custom mixer",
-    title: "Custom mixer: вручную решает, какая похожесть важна и в какую сторону направлять выдачу."
-  }
-];
-
 const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
-  sonara: { label: "SONARA", title: "SONARA similarity search" },
-  similarity: { label: "SIMILARITY", title: "Seed embedding similarity search (MAEST, MERT, MuQ, MuQ-MuLan)" },
+  similarity: { label: "SIMILARITY", title: "Seed similarity search (SONARA, MAEST, MERT, MuQ, MuQ-MuLan)" },
   text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
   class: { label: "CLASS", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }
 };
 
 function searchResultOriginLabel(origin: GenericSearchTab) {
-  return isSeedEmbeddingFamily(origin)
-    ? seedEmbeddingFamilyPresentation[origin].label
-    : primaryTabPresentation[origin].label;
+  return origin === "text"
+    ? primaryTabPresentation.text.label
+    : seedSearchModelPresentation[origin].label;
 }
 
 const classifierEmptyStateMessage = "No promoted classifier profiles found. Promote profiles from Rhythm Lab or place model.json + model.joblib under models/classifiers/<profile>/.";
@@ -156,8 +118,8 @@ export function SearchPlaylistPanel({
   textCompareModels,
   textModelLoadingLabel,
   onTextCompareModelsChange,
-  seedEmbeddingFamily,
-  onSeedEmbeddingFamilyChange,
+  seedSearchModel,
+  onSeedSearchModelChange,
   selectedPresetKeys,
   onTogglePreset,
   onClearPresets,
@@ -186,6 +148,7 @@ export function SearchPlaylistPanel({
   onOutputDirChange,
   onChooseOutputFolder,
   helpText,
+  sonaraCount,
   embeddingCounts,
   classifiers,
   classifierMinScores,
@@ -225,8 +188,8 @@ export function SearchPlaylistPanel({
   textCompareModels: boolean;
   textModelLoadingLabel: string | null;
   onTextCompareModelsChange: (value: boolean) => void;
-  seedEmbeddingFamily: SeedEmbeddingFamily;
-  onSeedEmbeddingFamilyChange: (value: SeedEmbeddingFamily) => void;
+  seedSearchModel: SeedSearchModel;
+  onSeedSearchModelChange: (value: SeedSearchModel) => void;
   selectedPresetKeys: string[];
   onTogglePreset: (key: string) => void;
   onClearPresets: () => void;
@@ -274,6 +237,7 @@ export function SearchPlaylistPanel({
   onOutputDirChange: (value: string) => void;
   onChooseOutputFolder: () => void;
   helpText: SearchHelpText;
+  sonaraCount: number;
   embeddingCounts: Record<EmbeddingSource, number>;
   classifiers: PromotedClassifier[];
   classifierMinScores: Record<string, number>;
@@ -300,7 +264,7 @@ export function SearchPlaylistPanel({
   handleSaveToCollection: () => void;
   handleExport: (format: "m3u" | "csv") => void;
 }) {
-  const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("sonara");
+  const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("similarity");
   const [playlistExportOpen, setPlaylistExportOpen] = useState(false);
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const [embeddingSearchPending, setEmbeddingSearchPending] = useState<Partial<Record<EmbeddingSource, boolean>>>({});
@@ -317,26 +281,6 @@ export function SearchPlaylistPanel({
       setPlaylistOffset(playlistPageState.offset);
     }
   }, [playlistOffset, playlistPageState.offset]);
-  const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
-    { key: "timbre", label: "Timbre", title: helpText.sonaraMixerTimbre },
-    { key: "rhythm", label: "Rhythm", title: helpText.sonaraMixerRhythm },
-    { key: "dynamics", label: "Dynamics", title: helpText.sonaraMixerDynamics },
-    { key: "harmonic", label: "Harmonic", title: helpText.sonaraMixerHarmonic },
-    { key: "tempo", label: "Tempo", title: helpText.sonaraMixerTempo }
-  ];
- const modifierControls: Array<{ key: keyof SonaraModifiers; label: string; title: string }> = [
-    { key: "energy", label: "Energy", title: helpText.sonaraModifierEnergy },
-    { key: "valence", label: "Valence", title: helpText.sonaraModifierValence },
-    { key: "aggression", label: "Aggression", title: helpText.sonaraModifierAggression },
-    { key: "vocalness", label: "Vocal", title: helpText.sonaraModifierVocalness },
-    { key: "acousticness", label: "Acoustic", title: helpText.sonaraModifierAcousticness },
-    { key: "brightness", label: "Bright", title: helpText.sonaraModifierBrightness },
-    { key: "rhythm_density", label: "Density", title: helpText.sonaraModifierRhythmDensity },
-    { key: "dynamic_range", label: "Range", title: helpText.sonaraModifierDynamicRange },
-    { key: "loudness", label: "LUFS", title: helpText.sonaraModifierLoudness }
-  ];
-  const sonaraModeTitle = optionTitle(sonaraModeOptions, filters.sonaraMode);
-  const customSonaraDisabled = filters.sonaraMode !== "custom";
   const orderedClassifierProfiles = orderPromotedClassifiers(classifiers);
   const availableClassifierCount = orderedClassifierProfiles.filter(classifierIsAvailable).length;
   const blockedClassifierCount = orderedClassifierProfiles.length - availableClassifierCount;
@@ -353,22 +297,6 @@ export function SearchPlaylistPanel({
     setEmbeddingSearchPending({});
   }, [databaseIdentity]);
 
-  function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
-    setFilters((current) => ({ ...current, sonaraMixer: { ...current.sonaraMixer, [key]: value } }));
-  }
-
-  function setSonaraModifierValue(key: keyof SonaraModifiers, value: number) {
-    setFilters((current) => ({ ...current, sonaraModifiers: { ...current.sonaraModifiers, [key]: value } }));
-  }
-
-  function resetCustomSonara() {
-    setFilters((current) => ({
-      ...current,
-      sonaraMixer: { timbre: 1, rhythm: 1, dynamics: 0.8, harmonic: 0.8, tempo: 0.35 },
-      sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0, vocalness: 0, aggression: 0 }
-    }));
-  }
-
   function handlePrimaryTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     const target = tabAfterKey(primarySearchTabs, activeSearchTab, event.key);
     if (!target) return;
@@ -383,10 +311,10 @@ export function SearchPlaylistPanel({
     onPrimarySearchTabChange(target);
   }
 
-  function selectSeedEmbeddingFamily(analysisFamily: SeedEmbeddingFamily) {
-    if (analysisFamily === seedEmbeddingFamily) return;
-    setEmbeddingSearchErrors((current) => ({ ...current, [analysisFamily]: "" }));
-    onSeedEmbeddingFamilyChange(analysisFamily);
+  function selectSeedSearchModel(model: SeedSearchModel) {
+    if (model === seedSearchModel) return;
+    setEmbeddingSearchErrors({});
+    onSeedSearchModelChange(model);
   }
 
   async function runEmbeddingSearch(analysisFamily: EmbeddingSource) {
@@ -478,133 +406,21 @@ export function SearchPlaylistPanel({
             />
           </div>
         )}
-        {activeSearchTab === "sonara" && (
-          <div id="search-panel-sonara" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-sonara">
-            <div className={customSonaraDisabled ? "sonara-custom-controls disabled-filter" : "sonara-custom-controls"}>
-              <div className="custom-control-header">
-                <div className="custom-control-copy">
-                  <span>Mixer</span>
-                  <small>— приоритизирует виды сходства.</small>
-                </div>
-                <button className="sonara-mixer-reset-button" title="Сбросить SONARA mixer и modifiers" type="button" onClick={resetCustomSonara}>Reset</button>
-              </div>
-              <div className="range-grid mixer-grid">
-                {mixerControls.map((control) => {
-                  const value = filters.sonaraMixer[control.key];
-                  const isOff = value === 0;
-                  return (
-                    <label className={isOff ? "range-control is-off" : "range-control"} key={control.key} title={control.title}>
-                      <span>
-                        <strong>{control.label}</strong>
-                        <em>{value.toFixed(2)}</em>
-                        {isOff ? <small className="sonara-control-off">Off</small> : null}
-                      </span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={5}
-                        step={0.05}
-                        value={value}
-                        title={control.title}
-                        disabled={customSonaraDisabled}
-                        onChange={(event) => setSonaraMixerValue(control.key, Number(event.target.value))}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="custom-control-header sonara-modifier-header">
-                <div className="custom-control-copy">
-                  <span>Modifiers</span>
-                  <small>— направляют характер выдачи.</small>
-                </div>
-              </div>
-              <div className="range-grid modifier-grid sonara-modifier-grid">
-                {modifierControls.map((control) => {
-                  const value = filters.sonaraModifiers[control.key];
-                  const isOff = value === 0;
-                  const inputId = `sonara-modifier-${control.key}`;
-                  return (
-                    <div className={isOff ? "range-control is-off" : "range-control"} key={control.key}>
-                      <span>
-                        <label htmlFor={inputId} title={control.title}><strong>{control.label}</strong></label>
-                        <em className="sonara-modifier-score">{formatSigned(value)}</em>
-                        <button
-                          aria-label={`Reset ${control.label} modifier to zero`}
-                          className="sonara-control-off sonara-modifier-reset-button"
-                          disabled={isOff || customSonaraDisabled}
-                          title={`Reset ${control.label} modifier to zero`}
-                          type="button"
-                          onClick={() => setSonaraModifierValue(control.key, 0)}
-                        >
-                          Off
-                        </button>
-                      </span>
-                      <input
-                        className="sonara-modifier-range"
-                        id={inputId}
-                        type="range"
-                        min={-1}
-                        max={1}
-                        step={0.05}
-                        value={value}
-                        title={control.title}
-                        disabled={customSonaraDisabled}
-                        onChange={(event) => setSonaraModifierValue(control.key, Number(event.target.value))}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="sonara-random-track-action">
-              <button className="sonara-random-track-button" title="Добавить случайный SONARA-ready трек из базы в seed" disabled={busy} onClick={handleAddRandomSonaraTrack} type="button">
-                <Shuffle size={15} />
-                Add Random Track
-              </button>
-            </div>
-            <div className="search-filter-grid sonara-search-filter-grid">
-              <label title={helpText.sonaraMode}>
-                Mode
-                <select
-                  className="sonara-mode-select"
-                  value={filters.sonaraMode}
-                  title={sonaraModeTitle}
-                  onChange={(event) => {
-                    const selectedMode = sonaraModeOptions.find((option) => option.value === event.target.value);
-                    if (selectedMode) setFilters({ ...filters, sonaraMode: selectedMode.value });
-                  }}
-                >
-                  {sonaraModeOptions.map((option) => (
-                    <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => {
-                if (Number.isFinite(event.currentTarget.valueAsNumber)) setFilters({ ...filters, limit: Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, 500)) });
-              }} /></label>
-            </div>
-            <button className="sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch} type="button">
-              <Search size={17} />
-              SONARA search
-            </button>
-          </div>
-        )}
         {activeSearchTab === "similarity" && (
           <div id="search-panel-similarity" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-similarity">
-            <EmbeddingSearchTab
-              analysisFamily={seedEmbeddingFamily}
-              onAnalysisFamilyChange={selectSeedEmbeddingFamily}
-              currentEmbeddingCount={embeddingCounts[seedEmbeddingFamily]}
+            <SimilaritySearchTab
+              model={seedSearchModel}
+              onModelChange={selectSeedSearchModel}
+              currentAnalysisCount={seedSearchModel === "sonara" ? sonaraCount : embeddingCounts[seedSearchModel]}
               busy={busy || !seeds.length}
               randomTrackBusy={busy}
-              pending={Boolean(embeddingSearchPending[seedEmbeddingFamily])}
-              error={embeddingSearchErrors[seedEmbeddingFamily] || ""}
-              limit={filters.limit}
-              limitHelp={helpText.limit}
-              onLimitChange={(value) => setFilters({ ...filters, limit: value })}
-              onSearch={runEmbeddingSearch}
-              onAddRandomTrack={handleAddRandomEmbeddingTrack}
+              pending={seedSearchModel !== "sonara" && Boolean(embeddingSearchPending[seedSearchModel])}
+              error={seedSearchModel === "sonara" ? "" : embeddingSearchErrors[seedSearchModel] || ""}
+              filters={filters}
+              setFilters={setFilters}
+              helpText={helpText}
+              onSearch={seedSearchModel === "sonara" ? handleSonaraSearch : () => void runEmbeddingSearch(seedSearchModel)}
+              onAddRandomTrack={seedSearchModel === "sonara" ? handleAddRandomSonaraTrack : handleAddRandomEmbeddingTrack}
             />
           </div>
         )}
@@ -942,11 +758,6 @@ export function SearchPlaylistPanel({
   );
 }
 
-function formatSigned(value: number) {
-  if (value === 0) return "0.00";
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
-}
-
 function classifierHelp(classifier: PromotedClassifier) {
   const label = classifier.positive_label ? ` Positive label: ${classifier.positive_label}.` : "";
   const description = classifier.profile_description ? `${classifier.profile_description} ` : "";
@@ -994,13 +805,4 @@ function formatPromotedDate(value: Date): string {
   const day = String(value.getDate()).padStart(2, "0");
   const month = String(value.getMonth() + 1).padStart(2, "0");
   return `${day}.${month}.${value.getFullYear()}`;
-}
-
-function optionTitle<T extends string>(options: Array<SelectOption<T>>, value: T) {
-  return options.find((option) => option.value === value)?.title || "";
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
 }

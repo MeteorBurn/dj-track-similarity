@@ -2646,6 +2646,8 @@ h2 {
 }
 
 .search-workflow-section {
+  container-type: inline-size;
+  container-name: search-workflow;
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
@@ -3088,9 +3090,9 @@ h2 {
 
 .search-tabs {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin: 10px 0 12px;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0 0 12px;
   max-width: 100%;
 }
 
@@ -3206,10 +3208,6 @@ h2 {
   max-width: 200px;
 }
 
-.search-workflow-section .sonara-search-filter-grid {
-  max-width: 520px;
-}
-
 .sonara-modifier-range,
 .sonara-mixer-range {
   max-width: 260px;
@@ -3217,11 +3215,6 @@ h2 {
 
 .search-tab-panel-wrapper {
   min-width: 0;
-}
-
-.embedding-search-grid {
-  align-items: end;
-  grid-template-columns: minmax(92px, 160px);
 }
 
 .embedding-model-select {
@@ -3236,10 +3229,6 @@ h2 {
   width: 100%;
 }
 
-.embedding-search-button {
-  min-height: 34px;
-}
-
 .embedding-search-requirement {
   color: var(--text-muted);
   display: block;
@@ -3251,7 +3240,7 @@ h2 {
   color: var(--danger-text);
 }
 
-.sonara-custom-controls {
+.sonara-search-settings {
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   display: grid;
@@ -3453,88 +3442,6 @@ h2 {
   color: var(--warning-muted-text);
 }
 
-.sonara-mode-select {
-  appearance: none;
-  background-color: var(--surface-muted);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--accent) 50%),
-    linear-gradient(135deg, var(--accent) 50%, transparent 50%);
-  background-position:
-    calc(100% - 18px) 50%,
-    calc(100% - 12px) 50%;
-  background-repeat: no-repeat;
-  background-size:
-    6px 6px,
-    6px 6px;
-  border: 1px solid var(--border-strong);
-  border-bottom-color: var(--accent-border);
-  border-radius: 6px;
-  box-shadow:
-    inset 0 1px 0 var(--inset-highlight),
-    0 1px 0 var(--shadow-soft);
-  color: var(--text-strong);
-  cursor: pointer;
-  font-weight: 650;
-  line-height: 1.2;
-  min-height: 34px;
-  min-width: 0;
-  padding: 7px 38px 7px 10px;
-  transition: border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
-  width: 100%;
-}
-
-.sonara-mode-select:hover:not(:disabled) {
-  background-color: var(--surface-raised);
-  border-color: var(--accent-border-hover);
-  box-shadow:
-    inset 0 1px 0 var(--inset-highlight),
-    0 0 0 1px var(--accent-muted-border);
-  color: var(--text-strong);
-}
-
-.sonara-mode-select:focus-visible {
-  border-color: var(--accent-border);
-  box-shadow:
-    inset 0 1px 0 var(--inset-highlight),
-    0 0 0 2px var(--accent-soft-border);
-  outline: none;
-}
-
-.sonara-mode-select:disabled {
-  background-color: var(--surface-disabled);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-disabled) 50%),
-    linear-gradient(135deg, var(--text-disabled) 50%, transparent 50%);
-  border-color: var(--surface-disabled-border);
-  box-shadow: none;
-  color: var(--text-disabled);
-  cursor: not-allowed;
-}
-
-.sonara-mode-select option {
-  background: var(--surface);
-  color: var(--app-text);
-}
-
-.sonara-mode-select {
-  background-color: var(--accent-strong-bg);
-  border-color: var(--accent-border);
-  box-shadow: none;
-  color: var(--accent-active-text);
-}
-
-.sonara-mode-select:hover:not(:disabled) {
-  background-color: var(--accent-strong-bg);
-  border-color: var(--accent-border-hover);
-  box-shadow: none;
-  color: var(--accent-active-text);
-}
-
-.sonara-mode-select:focus-visible {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 0 2px var(--focus-ring);
-}
-
 .custom-control-header {
   align-items: center;
   display: flex;
@@ -3633,11 +3540,11 @@ h2 {
   padding: 0;
 }
 
-.sonara-custom-controls .range-control.is-off {
+.sonara-search-settings .range-control.is-off {
   opacity: 0.6;
 }
 
-.sonara-custom-controls .range-control.is-off .sonara-control-off {
+.sonara-search-settings .range-control.is-off .sonara-control-off {
   color: var(--text-muted);
 }
 
@@ -4462,19 +4369,18 @@ h2 {
   min-width: 0;
 }
 
-.search-workflow-section .sonara-search-filter-grid {
-  column-gap: 10px;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr);
+.search-workflow-section .similarity-search-controls {
+  align-items: end;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(50px, 0.45fr);
+  margin: 0;
+  max-width: 420px;
 }
 
-.sonara-random-track-action,
-.embedding-random-track-action {
-  display: flex;
-  justify-content: flex-start;
-  margin: 8px 0 -4px;
+.similarity-search-controls :is(select, input) {
+  height: var(--workbench-control-height);
+  max-width: none;
 }
 
-.sonara-random-track-button,
 .embedding-random-track-button {
   align-items: center;
   background: var(--accent-soft-bg);
@@ -4483,11 +4389,17 @@ h2 {
   display: inline-flex;
   font-size: 12px;
   gap: 5px;
-  min-height: 28px;
-  padding: 4px 8px;
+  height: var(--workbench-control-height);
+  line-height: 1.1;
+  min-width: 0;
+  padding: 2px 6px;
+  white-space: normal;
 }
 
-.sonara-random-track-button:hover:not(:disabled),
+.embedding-random-track-button svg {
+  flex: none;
+}
+
 .embedding-random-track-button:hover:not(:disabled) {
   background: var(--accent-strong-bg);
   border-color: var(--accent);
@@ -4536,7 +4448,7 @@ h2 {
 
 .stage-settings-button,
 .scan-import-ok-button,
-.sonara-search-button,
+.embedding-search-button,
 .text-search-button,
 .confirmation-confirm-button,
 .sonara-settings-ok-button,
@@ -4556,7 +4468,7 @@ h2 {
 
 .stage-settings-button:hover:not(:disabled),
 .scan-import-ok-button:hover:not(:disabled),
-.sonara-search-button:hover:not(:disabled),
+.embedding-search-button:hover:not(:disabled),
 .text-search-button:hover:not(:disabled),
 .confirmation-confirm-button:hover:not(:disabled),
 .sonara-settings-ok-button:hover:not(:disabled),
@@ -5008,11 +4920,6 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 @media (max-width: 720px) {
   .app-shell {
     padding: 10px;
-  }
-
-  .search-tabs {
-    gap: 6px;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .search-tabs button {
@@ -5914,7 +5821,6 @@ button.dedup-play-button {
   border-color: var(--border-soft);
   border-radius: var(--workbench-radius);
 }
-.search-tabs { gap: 6px; margin-top: 0; }
 .search-tabs button {
   min-height: var(--workbench-control-height);
   border-radius: var(--workbench-radius);
@@ -5930,6 +5836,24 @@ button.dedup-play-button {
   box-shadow: none;
 }
 .search-tabs button:hover:not(:disabled) { border-color: var(--accent-border); color: var(--accent); }
+@container search-workflow (max-width: 300px) {
+  .search-tabs button {
+    font-size: var(--font-size-compact-selector);
+    padding-inline: 2px;
+  }
+
+  .search-workflow-section .similarity-search-controls {
+    column-gap: 6px;
+  }
+
+  .similarity-search-controls :is(select, input, button) {
+    font-size: var(--font-size-compact-selector);
+  }
+
+  .similarity-search-controls :is(select, input) {
+    padding-inline: 6px;
+  }
+}
 .search-tab-panel { gap: 12px; }
 .search-tab-panel :is(input:not([type="range"]):not([type="checkbox"]), select, textarea) {
   background: var(--surface-muted);
@@ -5940,7 +5864,7 @@ button.dedup-play-button {
   outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
-:is(.sonara-search-button, .text-search-button, .scan-import-ok-button,
+:is(.embedding-search-button, .text-search-button, .scan-import-ok-button,
     .sonara-settings-ok-button, .ml-settings-ok-button) {
   min-height: 38px;
   background: linear-gradient(110deg, var(--accent-deep-bg), var(--accent-deep-hover));

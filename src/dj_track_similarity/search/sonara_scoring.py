@@ -13,7 +13,6 @@ from ..tempo_resolution import (
     resolve_tempo_evidence_from_values,
 )
 from ..track_resolution import attenuate_harmonic_score, camelot_compatibility
-from ..transition_diagnostics import structure_transition_fit_from_values
 
 
 @dataclass(frozen=True)
@@ -22,48 +21,7 @@ class ComparableTrack:
     features: Mapping[str, object]
 
 
-VIBE_WEIGHTS = {
-    "energy_score": 3.0,
-    "danceability_score": 3.0,
-    "valence_score": 1.4,
-    "acousticness_score": 1.0,
-    "integrated_loudness_lufs": 0.8,
-    "dynamic_range_db": 0.8,
-    "onset_density_per_second": 0.8,
-    "rms_mean": 0.6,
-}
-SOUND_WEIGHTS = {
-    "mfcc_mean_blob": 1.8,
-    "spectral_centroid_hz": 1.0,
-    "spectral_bandwidth_hz": 1.0,
-    "spectral_rolloff_hz": 1.0,
-    "spectral_flatness": 0.9,
-    "spectral_contrast_mean_blob": 0.9,
-    "zero_crossing_rate": 0.8,
-    "rms_mean": 0.8,
-    "rms_max": 0.5,
-}
-DJ_NUMERIC_WEIGHTS = {
-    "detected_bpm": 3.0,
-    "onset_density_per_second": 2.0,
-    "energy_score": 1.3,
-    "danceability_score": 1.3,
-    "chord_changes_per_second": 1.0,
-    "dissonance_score": 1.0,
-}
-TONAL_TEXT_WEIGHTS = {
-    "detected_key_name": 4.0,
-    "detected_key_camelot": 3.0,
-    "predominant_chord": 3.0,
-}
-BALANCED_WEIGHTS = {
-    **{key: weight * 0.9 for key, weight in VIBE_WEIGHTS.items()},
-    **{key: weight * 0.7 for key, weight in SOUND_WEIGHTS.items()},
-    "detected_bpm": 1.0,
-    "chord_changes_per_second": 0.7,
-    "dissonance_score": 0.7,
-}
-CUSTOM_GROUP_WEIGHTS = {
+GROUP_WEIGHTS = {
     "timbre": {
         "mfcc_mean_blob": 1.7,
         "spectral_centroid_hz": 1.0,
@@ -97,14 +55,14 @@ CUSTOM_GROUP_WEIGHTS = {
         "detected_bpm": 1.0,
     },
 }
-DEFAULT_CUSTOM_MIXER_WEIGHTS = {
+DEFAULT_MIXER_WEIGHTS = {
     "timbre": 1.0,
     "rhythm": 1.0,
     "dynamics": 0.8,
     "harmonic": 0.8,
     "tempo": 0.35,
 }
-CUSTOM_MODIFIER_FIELDS = {
+MODIFIER_FIELDS = {
     "energy": "energy_score",
     "valence": "valence_score",
     "acousticness": "acousticness_score",
@@ -115,11 +73,9 @@ CUSTOM_MODIFIER_FIELDS = {
     "vocalness": "vocal_probability",
     "aggression": "aggression_score",
 }
-# The custom Harmonic knob should reflect harmonic color (chroma, dissonance, chord movement), not
-# act as an exact-key gate. Standard modes weight exact key/chord text at 4.0/3.0; in the custom
-# harmonic group we keep tonal-text agreement as a lighter nudge so a matching key helps without
-# dominating the group.
-CUSTOM_HARMONIC_TONAL_WEIGHTS = {
+# The Harmonic knob reflects harmonic color (chroma, dissonance, chord movement).
+# Tonal-text agreement is a lighter nudge so a matching key helps without dominating the group.
+HARMONIC_TONAL_WEIGHTS = {
     "detected_key_name": 0.9,
     "detected_key_camelot": 0.9,
     "predominant_chord": 0.6,
@@ -128,20 +84,9 @@ CUSTOM_HARMONIC_TONAL_WEIGHTS = {
 # felt in the final ranking instead of being averaged away by the mixer-group weights, while still
 # staying bounded so it cannot completely override sonic similarity.
 MODIFIER_GAIN = 2.5
-DJ_TRANSITION_FIT_BLEND = 0.2
 KEY_TONAL_FIELDS = {"detected_key_name", "detected_key_camelot"}
 KEY_CONFIDENCE_CONTEXT = "_key_confidence"
 TonalContext = dict[str, set[str] | float]
-
-
-def numeric_weights_for_mode(mode: str) -> dict[str, float]:
-    if mode == "vibe":
-        return VIBE_WEIGHTS
-    if mode == "sound":
-        return SOUND_WEIGHTS
-    if mode == "dj_transition":
-        return DJ_NUMERIC_WEIGHTS
-    return BALANCED_WEIGHTS
 
 
 def numeric_dimensions(
@@ -227,72 +172,6 @@ def centroid(
 
 def score_candidate(
     item: ComparableTrack,
-    mode: str,
-    dimensions: list[tuple[str, int | None, float]],
-    ranges: dict[tuple[str, int | None], tuple[float, float]],
-    feature_centroid: dict[tuple[str, int | None], float],
-    tonal_context: TonalContext,
-    tempo_context: list[ComparableTrack] | None = None,
-) -> float | None:
-    weighted_score = 0.0
-    total_weight = 0.0
-    numeric_overlap = 0
-    for field, index, weight in dimensions:
-        key = (field, index)
-        if key not in feature_centroid:
-            continue
-        raw_value = feature_value(item.features, field, index)
-        if raw_value is None:
-            continue
-        if field == "detected_bpm":
-            score = _tempo_similarity(item, tempo_context) if tempo_context else None
-            if score is None:
-                score = tempo_score(raw_value, denormalize_feature(feature_centroid[key], ranges[key]))
-        else:
-            value = normalize_feature(raw_value, ranges[key])
-            if value is None:
-                continue
-            score = max(0.0, 1.0 - abs(value - feature_centroid[key]))
-        weighted_score += score * weight
-        total_weight += weight
-        numeric_overlap += 1
-
-    if mode in {"balanced", "dj_transition"}:
-        for field, weight in TONAL_TEXT_WEIGHTS.items():
-            context_values = _tonal_context_values(tonal_context, field)
-            tonal_score = _tonal_similarity(item, field, context_values, tonal_context)
-            if tonal_score is None:
-                continue
-            weighted_score += tonal_score * weight
-            total_weight += weight
-
-    if numeric_overlap < 2 or total_weight <= 0:
-        return None
-    return max(0.0, min(1.0, weighted_score / total_weight))
-
-
-def transition_fit(
-    item: ComparableTrack,
-    context: list[ComparableTrack],
-) -> float | None:
-    """Return the mean directional structural fit from each seed to ``item``."""
-
-    scores = [
-        score
-        for seed in context
-        if (
-            score := structure_transition_fit_from_values(
-                seed.features,
-                item.features,
-            )
-        )
-        is not None
-    ]
-    return float(np.mean(scores)) if scores else None
-
-
-def score_custom_candidate(
-    item: ComparableTrack,
     dimensions: list[tuple[str, int | None, float]],
     ranges: dict[tuple[str, int | None], tuple[float, float]],
     feature_centroid: dict[tuple[str, int | None], float],
@@ -309,13 +188,13 @@ def score_custom_candidate(
     # group similarity so the two do not fight (e.g. the Energy modifier pushing away from the seed
     # while the Dynamics group pulls toward it), which otherwise cancels the knob out.
     modifier_fields = {
-        CUSTOM_MODIFIER_FIELDS[name] for name, direction in modifiers.items() if direction != 0
+        MODIFIER_FIELDS[name] for name, direction in modifiers.items() if direction != 0
     }
 
     for group_name, group_weight in mixer_weights.items():
         if group_weight <= 0:
             continue
-        group_score = score_custom_group(
+        group_score = score_group(
             item,
             group_name,
             dimensions,
@@ -360,7 +239,7 @@ def score_custom_candidate(
     return score, breakdown
 
 
-def score_custom_group(
+def score_group(
     item: ComparableTrack,
     group_name: str,
     dimensions: list[tuple[str, int | None, float]],
@@ -371,7 +250,7 @@ def score_custom_group(
     tempo_context: list[ComparableTrack] | None = None,
     exclude_fields: set[str] | None = None,
 ) -> float | None:
-    field_weights = CUSTOM_GROUP_WEIGHTS[group_name]
+    field_weights = GROUP_WEIGHTS[group_name]
     excluded = exclude_fields or set()
     # A vector feature (mfcc_mean=13, chroma_mean=12 components) expands into one dimension per
     # component. Split its group weight across those components so the field contributes its intended
@@ -408,7 +287,7 @@ def score_custom_group(
         total_weight += weight
 
     if group_name == "harmonic":
-        for field, weight in CUSTOM_HARMONIC_TONAL_WEIGHTS.items():
+        for field, weight in HARMONIC_TONAL_WEIGHTS.items():
             context_values = _tonal_context_values(tonal_context, field)
             tonal_score = _tonal_similarity(item, field, context_values, tonal_context)
             if tonal_score is None:
@@ -428,7 +307,7 @@ def score_modifier(
     ranges: dict[tuple[str, int | None], tuple[float, float]],
     feature_centroid: dict[tuple[str, int | None], float],
 ) -> tuple[float, float | None] | None:
-    field = CUSTOM_MODIFIER_FIELDS[modifier_name]
+    field = MODIFIER_FIELDS[modifier_name]
     key = (field, None)
     if key not in ranges or key not in feature_centroid:
         return None
@@ -455,10 +334,10 @@ def score_modifier(
 
 def clean_mixer_weights(mixer_weights: dict[str, float] | None) -> dict[str, float]:
     if mixer_weights is None:
-        return dict(DEFAULT_CUSTOM_MIXER_WEIGHTS)
-    cleaned = {name: 0.0 for name in CUSTOM_GROUP_WEIGHTS}
+        return dict(DEFAULT_MIXER_WEIGHTS)
+    cleaned = {name: 0.0 for name in GROUP_WEIGHTS}
     for name, value in mixer_weights.items():
-        if name not in CUSTOM_GROUP_WEIGHTS:
+        if name not in GROUP_WEIGHTS:
             raise ValueError(f"Unsupported SONARA mixer weight: {name}")
         number = optional_float(value)
         if number is None:
@@ -472,7 +351,7 @@ def clean_modifiers(modifiers: dict[str, float] | None) -> dict[str, float]:
         return {}
     cleaned: dict[str, float] = {}
     for name, value in modifiers.items():
-        if name not in CUSTOM_MODIFIER_FIELDS:
+        if name not in MODIFIER_FIELDS:
             raise ValueError(f"Unsupported SONARA modifier: {name}")
         number = optional_float(value)
         if number is None:
@@ -481,22 +360,22 @@ def clean_modifiers(modifiers: dict[str, float] | None) -> dict[str, float]:
     return cleaned
 
 
-def custom_numeric_fields(mixer_weights: dict[str, float], modifiers: dict[str, float]) -> dict[str, float]:
+def mixer_numeric_fields(mixer_weights: dict[str, float], modifiers: dict[str, float]) -> dict[str, float]:
     fields: dict[str, float] = {}
     for group_name, group_weight in mixer_weights.items():
         if group_weight <= 0:
             continue
-        for field in CUSTOM_GROUP_WEIGHTS[group_name]:
+        for field in GROUP_WEIGHTS[group_name]:
             fields[field] = 1.0
     for modifier_name, direction in modifiers.items():
         if direction != 0:
-            fields[CUSTOM_MODIFIER_FIELDS[modifier_name]] = 1.0
+            fields[MODIFIER_FIELDS[modifier_name]] = 1.0
     return fields
 
 
 def tonal_context(context: list[ComparableTrack]) -> TonalContext:
     result: TonalContext = {}
-    for field in TONAL_TEXT_WEIGHTS:
+    for field in HARMONIC_TONAL_WEIGHTS:
         values = [normalize_text(item.features.get(field)) for item in context]
         values = [value for value in values if value]
         if values:

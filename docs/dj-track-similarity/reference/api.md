@@ -345,7 +345,7 @@ browser SIMILARITY tab does not offer it.
 
 `POST /api/search/random-track` takes `{analysis_family, exclude_track_ids}` and returns one
 `TrackSummaryResponse`. The SONARA variant takes `{exclude_track_ids}` only. Excluded IDs must be
-unique. The browser wires both to its **Add Random Track** buttons.
+unique. The browser's **Add Random Track** button chooses the endpoint for the selected model.
 
 `POST /api/search/sonara` accepts:
 
@@ -353,12 +353,12 @@ unique. The browser wires both to its **Add Random Track** buttons.
 | --- | --- | --- |
 | `seed_track_ids` | yes | `1..5` unique entries. |
 | `limit` | no | `1..500`. Defaults to `10`. |
-| `mode` | no | `balanced`, `vibe`, `sound`, `dj_transition`, or `custom`. Defaults to `balanced`. |
 | `min_similarity` | no | `0..1` score floor. |
 | `mixer_weights` | no | Five weights, each `0..5`. Defaults are `timbre 1.0`, `rhythm 1.0`, `dynamics 0.8`, `harmonic 0.8`, `tempo 0.35`. |
 | `modifiers` | no | Nine directional knobs, each `-1..1`, all defaulting to `0.0`: `energy`, `valence`, `acousticness`, `brightness`, `rhythm_density`, `dynamic_range`, `loudness`, `vocalness`, `aggression`. |
 
-`mixer_weights` and `modifiers` take effect in `custom` mode. SONARA search reads stored Core
+`mixer_weights` and `modifiers` control every SONARA search. Omitting either object or sending it as
+`null` uses its defaults. Unknown top-level fields are rejected. SONARA search reads stored Core
 fields. The stored 48-dimensional SONARA embedding is not a search input.
 
 `POST /api/search/text` accepts this JSON contract:

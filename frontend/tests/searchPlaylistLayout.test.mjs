@@ -1,30 +1,25 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { mkdtempSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
 
 const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
 const panelSource = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
 const trackPanelSource = readFileSync(fileURLToPath(new URL("../src/TrackPanel.tsx", import.meta.url)), "utf8");
-const embeddingTabSource = readFileSync(fileURLToPath(new URL("../src/EmbeddingSearchTab.tsx", import.meta.url)), "utf8");
 
-async function loadSearchSurfaceState() {
+function loadSearchSurfaceState() {
   const sourcePath = new URL("../src/searchSurfaceState.ts", import.meta.url);
-  const tempDir = mkdtempSync(join(tmpdir(), "search-layout-state-"));
-  const modulePath = join(tempDir, "searchSurfaceState.cjs");
   const compiled = ts.transpileModule(readFileSync(sourcePath, "utf8"), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022
     }
   }).outputText;
-  writeFileSync(modulePath, compiled, "utf8");
-  return import(pathToFileURL(modulePath));
+  const module = { exports: {} };
+  vm.runInNewContext(compiled, { module, exports: module.exports });
+  return module.exports;
 }
 
 function cssRule(selector) {
@@ -83,44 +78,32 @@ test("library and generic search results render visible track numbering", () => 
   assert.match(panelSource, /rowIndex=\{index \+ 1\}/);
 });
 
-test("primary search tabs expose the five maintained workflows with roving ARIA relationships", () => {
-  assert.match(panelSource, /primarySearchTabs\.map/);
-  assert.match(panelSource, /id=\{`search-tab-\$\{tab\}`\}/);
-  assert.match(panelSource, /aria-controls=\{`search-panel-\$\{tab\}`\}/);
-  assert.match(panelSource, /tabIndex=\{activeSearchTab === tab \? 0 : -1\}/);
-  assert.match(panelSource, /onKeyDown=\{handlePrimaryTabKeyDown\}/);
-  assert.match(panelSource, /similarity: \{ label: "SIMILARITY", title: "Seed embedding similarity search \(MAEST, MERT, MuQ, MuQ-MuLan\)" \}/);
-});
-
-test("SIMILARITY selects MAEST embeddings and keeps MAEST result provenance", async () => {
+test("seed results share SIMILARITY while preserving source and request identity", () => {
   const {
     genericSearchResultIsCurrent,
     searchTabForResultOrigin,
-    seedEmbeddingFamilies,
-    seedEmbeddingFamilyPresentation
-  } = await loadSearchSurfaceState();
+  } = loadSearchSurfaceState();
 
-  assert.deepEqual([...seedEmbeddingFamilies], ["maest", "mert", "muq", "mulan"]);
-  assert.deepEqual(
-    seedEmbeddingFamilies.map((family) => seedEmbeddingFamilyPresentation[family].label),
-    ["MAEST", "MERT", "MuQ", "MuQ-MuLan"]
-  );
+  assert.equal(searchTabForResultOrigin("sonara"), "similarity");
   assert.equal(searchTabForResultOrigin("maest"), "similarity");
   assert.equal(searchTabForResultOrigin("mulan"), "similarity");
   assert.equal(searchTabForResultOrigin("text"), "text");
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "key", "key"), true);
   assert.equal(genericSearchResultIsCurrent("text", "muq", "key", "key"), false);
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "stale", "key"), false);
-  assert.match(panelSource, /searchResultOriginLabel\(genericSearchResultOrigin\)/);
+  assert.equal(genericSearchResultIsCurrent("similarity", "sonara", "key", "key"), true);
+  assert.equal(genericSearchResultIsCurrent("text", "sonara", "key", "key"), false);
+  assert.equal(genericSearchResultIsCurrent("similarity", "sonara", "stale", "key"), false);
 });
 
-test("Left Right Home End navigation wraps across maintained search tabs", async () => {
-  const { primarySearchTabs, tabAfterKey } = await loadSearchSurfaceState();
+test("Left Right Home End navigation wraps across tabs", () => {
+  const { tabAfterKey } = loadSearchSurfaceState();
+  const tabs = ["first", "middle", "last"];
 
-  assert.deepEqual(primarySearchTabs, ["lab", "sonara", "similarity", "text", "class"]);
-  assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowLeft"), "class");
-  assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowRight"), "sonara");
-  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "Home"), "lab");
-  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "ArrowRight"), "text");
-  assert.equal(tabAfterKey(primarySearchTabs, "similarity", "End"), "class");
+  assert.equal(tabAfterKey(tabs, "first", "ArrowLeft"), "last");
+  assert.equal(tabAfterKey(tabs, "last", "ArrowRight"), "first");
+  assert.equal(tabAfterKey(tabs, "middle", "ArrowLeft"), "first");
+  assert.equal(tabAfterKey(tabs, "middle", "ArrowRight"), "last");
+  assert.equal(tabAfterKey(tabs, "middle", "Home"), "first");
+  assert.equal(tabAfterKey(tabs, "middle", "End"), "last");
 });

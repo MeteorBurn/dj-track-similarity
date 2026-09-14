@@ -1,23 +1,45 @@
-export type PrimarySearchTab = "sonara" | "similarity" | "text" | "class" | "lab";
+export type PrimarySearchTab = "similarity" | "text" | "class" | "lab";
 export type SeedEmbeddingFamily = "maest" | "mert" | "muq" | "mulan";
-export type GenericSearchTab = Extract<PrimarySearchTab, "sonara" | "text"> | SeedEmbeddingFamily;
+export type SeedSearchModel = "sonara" | SeedEmbeddingFamily;
+export type GenericSearchTab = "text" | SeedSearchModel;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
 
 export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "lab",
-  "sonara",
   "similarity",
   "text",
   "class"
 ];
 
 export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert", "muq", "mulan"];
+export const seedSearchModels: readonly SeedSearchModel[] = ["sonara", ...seedEmbeddingFamilies];
 
-export const seedEmbeddingFamilyPresentation: Record<SeedEmbeddingFamily, { label: string; title: string }> = {
-  maest: { label: "MAEST", title: "MAEST seed embedding search" },
-  mert: { label: "MERT", title: "MERT seed embedding search" },
-  muq: { label: "MuQ", title: "MuQ seed embedding search" },
-  mulan: { label: "MuQ-MuLan", title: "MuQ-MuLan seed embedding search" }
+export const seedSearchModelPresentation: Record<SeedSearchModel, { label: string; title: string; description: string }> = {
+  sonara: {
+    label: "SONARA",
+    title: "SONARA similarity search",
+    description: "Сравнивает тембр, ритм, динамику, гармонию и темп по измеренным признакам. Их вклад можно настроить."
+  },
+  maest: {
+    label: "MAEST",
+    title: "MAEST seed embedding search",
+    description: "Сравнивает звучание через признаки модели, обученной распознавать жанры и стили музыки."
+  },
+  mert: {
+    label: "MERT",
+    title: "MERT seed embedding search",
+    description: "Сравнивает общее звучание по музыкальным признакам, которые нейросеть извлекает из аудио."
+  },
+  muq: {
+    label: "MuQ",
+    title: "MuQ seed embedding search",
+    description: "Сравнивает звучание по выученным акустическим признакам и их контексту в музыкальных фрагментах."
+  },
+  mulan: {
+    label: "MuQ-MuLan",
+    title: "MuQ-MuLan seed embedding search",
+    description: "Сравнивает звучание через модель, связывающую музыку со словесными описаниями."
+  }
 };
 
 export type RequestTokenGuard = {
@@ -60,7 +82,7 @@ export function isSeedEmbeddingFamily(value: string): value is SeedEmbeddingFami
 }
 
 export function searchTabForResultOrigin(origin: GenericSearchTab): PrimarySearchTab {
-  return isSeedEmbeddingFamily(origin) ? "similarity" : origin;
+  return origin === "text" ? "text" : "similarity";
 }
 
 export function genericSearchResultIsCurrent(

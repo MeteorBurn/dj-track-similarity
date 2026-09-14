@@ -146,7 +146,7 @@ From each visible result row you can:
 - open metadata,
 - toggle liked state.
 
-Seeds feed the `SIMILARITY`, `SONARA`, and `LAB` tabs. Selected seeds appear as removable chips
+Seeds feed the `SIMILARITY` and `LAB` tabs. Selected seeds appear as removable chips
 above the tab strip in panel 3, search and listening. The current set is the temporary playlist
 inside the collapsible **Set and export** block. It is not written to disk until you export it or
 save it as a Rhythm Lab collection.

@@ -24,7 +24,6 @@ const SOURCE_TEXT_ONLY_LEGACY = [
   "scanImportDialog.test.mjs",
   "sonaraDisplay.test.mjs",
   "sonaraFeatureLabels.test.mjs",
-  "sonaraSearchControls.test.mjs",
   "themeMode.test.mjs"
 ];
 

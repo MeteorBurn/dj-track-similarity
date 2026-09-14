@@ -277,8 +277,6 @@ export type LibrarySummary = {
   sonara_bpm_max: number | null;
 };
 
-export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
-
 export type SonaraMixerWeights = {
   timbre: number;
   rhythm: number;

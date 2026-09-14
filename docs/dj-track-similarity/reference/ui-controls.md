@@ -2,9 +2,8 @@
 
 The interface mixes Russian and English labels. Every control below is named in English, whichever
 way its label reads on screen. Technical tokens are already English there: model names, `LAB`,
-`SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`, mode names such as `Balanced` and `DJ transition`, and
-field labels such as `Limit`, `Mode`, `Device`, and `BatchSize`. The complete label mapping lives in
-the [UI language glossary](../help/ui-language.md).
+`SIMILARITY`, `PROMPT`, `CLASS`, and field labels such as `Limit`, `Model`, `Device`, and `BatchSize`.
+The complete label mapping lives in the [UI language glossary](../help/ui-language.md).
 
 The browser works with one library database. The database picker selects the library SQLite file.
 The optional `*.evaluation.sqlite` companion is opened only by Evaluation workflows. There are no
@@ -287,10 +286,10 @@ deduplicated by `catalog_uuid` plus `track_uuid`.
 
 ## Panel 3, search and listening
 
-The search and listening panel. A seed chip strip sits above a five-tab strip. Use `ArrowLeft` and
+The search and listening panel. A seed chip strip sits above a four-tab strip. Use `ArrowLeft` and
 `ArrowRight` to move between tabs. `Home` and `End` jump to the first and last tab.
 
-The tabs render as `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, and `CLASS`, in that order. The internal
+The tabs render as `LAB`, `SIMILARITY`, `PROMPT`, and `CLASS`, in that order. The internal
 key for the PROMPT tab is still `text`.
 
 ### LAB
@@ -299,32 +298,34 @@ Reference Compare across six separate groups: CLAP, MERT, MuQ, MuQ-MuLan, MAEST,
 unavailable model keeps its group and shows a model-specific reason. Verdict writes include
 `catalog_uuid` and `track_uuid`.
 
-### SONARA
+### SIMILARITY
+
+| Control | Default | Range or behavior |
+| --- | ---: | --- |
+| `Model` | `SONARA` | `SONARA`, `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan` |
+| `Add Random Track` | none | Adds one random track with current SONARA features or an embedding in the selected family |
+| `Limit` | `10` | `1..500` |
+| `Search` | none | Runs the seed search |
+
+`Model`, **Add Random Track**, and `Limit` share one row. A short description below explains the
+selected model's search evidence. Selecting SONARA shows its mixer and modifiers. Other model
+selections hide those controls while preserving their values.
+
+CLAP has no entry in this selector. It is available from `POST /api/search` and from LAB. If the
+selected model has no current analysis, `Search` and **Add Random Track** are disabled with a
+model-specific reason. Request failures stay visible in the tab instead of becoming an empty
+successful result.
+
+#### SONARA settings
 
 | Control | Default | Range or label |
 | --- | ---: | --- |
 | `Mixer` sliders (timbre, rhythm, dynamics, harmonic, tempo) | `1`, `1`, `0.8`, `0.8`, `0.35` | `0..5`, step `0.05` |
 | `Modifiers` sliders (nine knobs) | `0` | `-1..1`, each with its own Off reset |
 | `Reset` | none | **Reset the SONARA mixer and modifiers** |
-| `Add Random Track` | none | **Add a random SONARA-ready track as a seed** |
-| `Mode` | `Balanced` | `Balanced`, `Vibe`, `Sound`, `DJ transition`, `Custom mixer` |
-| `Limit` | `10` | `1..500` |
-| `SONARA search` | none | **Find similar tracks with SONARA from the chosen seeds** |
 
-The mixer and the modifiers take effect in `Custom mixer` mode.
-
-### SIMILARITY
-
-| Control | Default | Range or behavior |
-| --- | ---: | --- |
-| `Add Random Track` | none | Adds one random track that already has an embedding in the selected family |
-| `Model` | `MERT` | `MAEST`, `MERT`, `MuQ`, `MuQ-MuLan` |
-| `Limit` | `10` | `1..500` |
-| `Search` | none | Runs the seed search |
-
-CLAP has no entry in this selector. It is available from `POST /api/search` and from LAB. An option
-with zero current embeddings is disabled with a source-specific reason, and request failures stay
-visible in the tab instead of being replaced by an empty successful result.
+The mixer and modifiers are always active when SONARA is selected. Every SONARA search uses these
+manual settings.
 
 ### PROMPT
 

@@ -57,7 +57,13 @@ def test_sonara_search_endpoint_uses_stored_sonara_features(
         "/api/search/sonara",
         json={
             "seed_track_ids": [seed.track_id],
-            "mode": "vibe",
+            "mixer_weights": {
+                "timbre": 0.0,
+                "rhythm": 0.0,
+                "dynamics": 1.0,
+                "harmonic": 0.0,
+                "tempo": 0.0,
+            },
             "limit": 5,
             "min_similarity": 0.0,
         },
@@ -102,7 +108,7 @@ def test_generic_search_endpoint_returns_mert_result_shape(
     assert payload[0]["score_breakdown"] is None
 
 
-def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
+def test_sonara_search_endpoint_accepts_mixer_and_modifiers(
     monkeypatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
@@ -146,7 +152,6 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(
         "/api/search/sonara",
         json={
             "seed_track_ids": [seed.track_id],
-            "mode": "custom",
             "limit": 5,
             "min_similarity": 0.0,
             "mixer_weights": {

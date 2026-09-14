@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import math
-from typing import Literal, Protocol
+from typing import Protocol
 
 from ..analysis_models import (
     AnalysisOutput,
@@ -20,29 +20,13 @@ from .arguments import (
 )
 from .sonara_scoring import (
     ComparableTrack,
-    DJ_TRANSITION_FIT_BLEND,
     centroid,
     clean_mixer_weights,
     clean_modifiers,
-    custom_numeric_fields,
+    mixer_numeric_fields,
     numeric_dimensions,
-    numeric_weights_for_mode,
     score_candidate,
-    score_custom_candidate,
     tonal_context,
-    transition_fit,
-)
-
-
-SonaraSearchMode = Literal[
-    "balanced",
-    "vibe",
-    "sound",
-    "dj_transition",
-    "custom",
-]
-_SONARA_SEARCH_MODES = frozenset(
-    {"balanced", "vibe", "sound", "dj_transition", "custom"}
 )
 
 
@@ -83,7 +67,7 @@ class SonaraSimilaritySearch:
     """SONARA feature-mixer search over current Core data.
 
     The separate 48-dimensional SONARA representation remains data-only and is
-    intentionally not exposed as a public search mode.
+    intentionally not used for search.
     """
 
     def __init__(
@@ -195,16 +179,11 @@ class SonaraSimilaritySearch:
         seed_targets: Sequence[AnalysisTarget],
         *,
         candidate_targets: Sequence[AnalysisTarget] | None = None,
-        mode: SonaraSearchMode = "balanced",
         mixer_weights: dict[str, float] | None = None,
         modifiers: dict[str, float] | None = None,
         min_similarity: float | None = None,
         limit: int = 50,
     ) -> list[SimilaritySearchResult]:
-        if mode not in _SONARA_SEARCH_MODES:
-            raise ValueError(
-                f"Unsupported SONARA search mode: {mode}"
-            )
         if min_similarity is not None and not math.isfinite(
             float(min_similarity)
         ):
@@ -263,98 +242,9 @@ class SonaraSimilaritySearch:
                 f"{[target.track_id for target in missing_seeds]}"
             )
 
-        use_custom = (
-            mode == "custom"
-            or mixer_weights is not None
-            or modifiers is not None
-        )
-        if use_custom:
-            return self._search_custom(
-                tracks,
-                track_by_target,
-                seeds,
-                mixer_weights=mixer_weights,
-                modifiers=modifiers,
-                min_similarity=min_similarity,
-                limit=bounded_limit,
-            )
-
-        numeric_weights = numeric_weights_for_mode(mode)
-        dimensions, ranges = numeric_dimensions(
-            tracks,
-            numeric_weights,
-        )
-        context = [
-            track_by_target[target] for target in seeds
-        ]
-        feature_centroid = centroid(
-            context,
-            dimensions,
-            ranges,
-        )
-        context_tones = tonal_context(context)
-
-        ranked: list[SimilaritySearchResult] = []
-        for item in tracks:
-            if item.target in seeds:
-                continue
-            score = score_candidate(
-                item,
-                mode,
-                dimensions,
-                ranges,
-                feature_centroid,
-                context_tones,
-                tempo_context=context,
-            )
-            if score is None:
-                continue
-            breakdown: dict[str, float] | None = None
-            if mode == "dj_transition":
-                fit = transition_fit(item, context)
-                if fit is not None:
-                    base_score = score
-                    score = (
-                        (1.0 - DJ_TRANSITION_FIT_BLEND) * base_score
-                        + DJ_TRANSITION_FIT_BLEND * fit
-                    )
-                    breakdown = {
-                        "dj_similarity": round(base_score, 6),
-                        "transition_fit": round(fit, 6),
-                    }
-            if (
-                min_similarity is not None
-                and score < min_similarity
-            ):
-                continue
-            ranked.append(
-                SimilaritySearchResult(
-                    target=item.target,
-                    score=score,
-                    score_breakdown=breakdown,
-                )
-            )
-
-        ranked.sort(
-            key=lambda result: result.score,
-            reverse=True,
-        )
-        return ranked[:bounded_limit]
-
-    def _search_custom(
-        self,
-        tracks: list[ComparableTrack],
-        track_by_target: dict[AnalysisTarget, ComparableTrack],
-        context_targets: tuple[AnalysisTarget, ...],
-        *,
-        mixer_weights: dict[str, float] | None,
-        modifiers: dict[str, float] | None,
-        min_similarity: float | None,
-        limit: int,
-    ) -> list[SimilaritySearchResult]:
         clean_mixer = clean_mixer_weights(mixer_weights)
         clean_directional_modifiers = clean_modifiers(modifiers)
-        numeric_weights = custom_numeric_fields(
+        numeric_weights = mixer_numeric_fields(
             clean_mixer,
             clean_directional_modifiers,
         )
@@ -364,9 +254,9 @@ class SonaraSimilaritySearch:
         )
         context = [
             track_by_target[target]
-            for target in context_targets
+            for target in seeds
         ]
-        context_set = frozenset(context_targets)
+        context_set = frozenset(seeds)
         feature_centroid = centroid(
             context,
             dimensions,
@@ -378,7 +268,7 @@ class SonaraSimilaritySearch:
         for item in tracks:
             if item.target in context_set:
                 continue
-            scored = score_custom_candidate(
+            scored = score_candidate(
                 item,
                 dimensions,
                 ranges,
@@ -408,7 +298,7 @@ class SonaraSimilaritySearch:
             key=lambda result: result.score,
             reverse=True,
         )
-        return ranked[:limit]
+        return ranked[:bounded_limit]
 
 
 def _validate_rows(

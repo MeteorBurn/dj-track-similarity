@@ -16,7 +16,7 @@ can also feed a later selection pass. Control names below are given in English, 
 3. Press the plus icon at the right of the library controls to add every loaded row of the current
    page to the set, when the filter already describes the crate. It works on the loaded page only,
    and it skips tracks already in the set.
-4. Use the `SIMILARITY` or `SONARA` tab from a few seeds to expand around a sound.
+4. Use the `SIMILARITY` tab from a few seeds to expand around a sound.
 5. Use the `PROMPT` tab when the crate is easier to describe than to seed. Pick presets from its
    picker rather than writing prose, because short tag lines measured stronger than scene
    descriptions.

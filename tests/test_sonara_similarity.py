@@ -235,53 +235,6 @@ def _target_ids(*targets: AnalysisTarget) -> list[int]:
     return [target.track_id for target in targets]
 
 
-def test_vibe_mode_ranks_energy_danceability_valence_and_acousticness(
-    tmp_path: Path,
-) -> None:
-    db = _library(tmp_path)
-    seed = _add_sonara_track(
-        db,
-        "seed.wav",
-        {
-            "energy": 0.82,
-            "danceability": 0.78,
-            "valence": 0.36,
-            "acousticness": 0.1,
-            "loudness_lufs": -8.5,
-            "dynamic_range_db": 7.0,
-        },
-    )
-    close = _add_sonara_track(
-        db,
-        "close.wav",
-        {
-            "energy": 0.8,
-            "danceability": 0.76,
-            "valence": 0.34,
-            "acousticness": 0.12,
-            "loudness_lufs": -8.7,
-            "dynamic_range_db": 7.1,
-        },
-    )
-    far = _add_sonara_track(
-        db,
-        "far.wav",
-        {
-            "energy": 0.18,
-            "danceability": 0.28,
-            "valence": 0.82,
-            "acousticness": 0.7,
-            "loudness_lufs": -18.0,
-            "dynamic_range_db": 13.5,
-        },
-    )
-
-    results = SonaraSimilaritySearch(db).search((seed,), mode="vibe", limit=5)
-
-    assert [result.target.track_id for result in results] == _target_ids(close, far)
-    assert results[0].score > results[1].score
-
-
 def test_archival_sonara_fields_do_not_change_similarity_scores(tmp_path: Path) -> None:
     db = _library(tmp_path)
     seed = _add_sonara_track(
@@ -330,7 +283,7 @@ def test_archival_sonara_fields_do_not_change_similarity_scores(tmp_path: Path) 
         },
     )
 
-    results = SonaraSimilaritySearch(db).search((seed,), mode="vibe", limit=5)
+    results = SonaraSimilaritySearch(db).search((seed,), mixer_weights={"dynamics": 1.0}, limit=5)
     scores = {result.target.track_id: result.score for result in results}
 
     assert scores[same_archival_values.track_id] == pytest.approx(
@@ -338,108 +291,7 @@ def test_archival_sonara_fields_do_not_change_similarity_scores(tmp_path: Path) 
     )
 
 
-def test_sound_mode_ranks_mfcc_and_spectral_summaries(tmp_path: Path) -> None:
-    db = _library(tmp_path)
-    seed = _add_sonara_track(
-        db,
-        "seed.wav",
-        {
-            "mfcc_mean": [1.0, 0.4, -0.2],
-            "spectral_centroid_mean": 2100,
-            "spectral_bandwidth_mean": 1600,
-            "spectral_flatness_mean": 0.18,
-            "zero_crossing_rate": 0.08,
-            "rms_mean": 0.21,
-        },
-    )
-    close = _add_sonara_track(
-        db,
-        "close.wav",
-        {
-            "mfcc_mean": [0.95, 0.45, -0.18],
-            "spectral_centroid_mean": 2200,
-            "spectral_bandwidth_mean": 1580,
-            "spectral_flatness_mean": 0.19,
-            "zero_crossing_rate": 0.082,
-            "rms_mean": 0.22,
-        },
-    )
-    far = _add_sonara_track(
-        db,
-        "far.wav",
-        {
-            "mfcc_mean": [-1.0, -0.4, 0.8],
-            "spectral_centroid_mean": 5200,
-            "spectral_bandwidth_mean": 4200,
-            "spectral_flatness_mean": 0.55,
-            "zero_crossing_rate": 0.22,
-            "rms_mean": 0.06,
-        },
-    )
-
-    results = SonaraSimilaritySearch(db).search((seed,), mode="sound", limit=5)
-
-    assert [result.target.track_id for result in results] == _target_ids(close, far)
-    assert results[0].score > results[1].score
-
-
-def test_dj_transition_mode_ranks_bpm_onset_and_raw_tonal_data(tmp_path: Path) -> None:
-    db = _library(tmp_path)
-    seed = _add_sonara_track(
-        db,
-        "seed.wav",
-        {
-            "bpm": 128,
-            "onset_density": 5.8,
-            "energy": 0.74,
-            "danceability": 0.81,
-            "key": "A minor",
-            "key_confidence": 0.9,
-            "predominant_chord": "Am",
-            "chord_change_rate": 0.28,
-            "dissonance": 0.15,
-        },
-    )
-    close = _add_sonara_track(
-        db,
-        "close.wav",
-        {
-            "bpm": 129,
-            "onset_density": 5.6,
-            "energy": 0.72,
-            "danceability": 0.79,
-            "key": "A minor",
-            "key_confidence": 0.82,
-            "predominant_chord": "Am",
-            "chord_change_rate": 0.3,
-            "dissonance": 0.16,
-        },
-    )
-    wrong_key = _add_sonara_track(
-        db,
-        "wrong-key.wav",
-        {
-            "bpm": 128,
-            "onset_density": 5.8,
-            "energy": 0.74,
-            "danceability": 0.8,
-            "key": "F# major",
-            "key_confidence": 0.95,
-            "predominant_chord": "F#",
-            "chord_change_rate": 0.28,
-            "dissonance": 0.15,
-        },
-    )
-
-    results = SonaraSimilaritySearch(db).search((seed,), mode="dj_transition", limit=5)
-
-    assert [result.target.track_id for result in results] == _target_ids(
-        close, wrong_key
-    )
-    assert results[0].score > results[1].score
-
-
-def test_custom_tempo_uses_confidence_as_reliability_not_similarity_dimension(
+def test_tempo_uses_confidence_as_reliability_not_similarity_dimension(
     tmp_path: Path,
 ) -> None:
     db = _library(tmp_path)
@@ -453,7 +305,6 @@ def test_custom_tempo_uses_confidence_as_reliability_not_similarity_dimension(
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -483,7 +334,6 @@ def test_low_tempo_confidence_pulls_a_mismatch_toward_neutral(tmp_path: Path) ->
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -518,7 +368,6 @@ def test_multi_seed_tempo_is_pairwise_instead_of_an_arithmetic_bpm_centroid(
 
     results = SonaraSimilaritySearch(db).search(
         (seed_half, seed_full),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -534,7 +383,7 @@ def test_multi_seed_tempo_is_pairwise_instead_of_an_arithmetic_bpm_centroid(
     assert scores[arithmetic_midpoint.track_id] == 0.0
 
 
-def test_sonara_search_ignores_camelot_key_and_excludes_missing_features(
+def test_sonara_search_excludes_tracks_without_features(
     tmp_path: Path,
 ) -> None:
     db = _library(tmp_path)
@@ -562,7 +411,7 @@ def test_sonara_search_ignores_camelot_key_and_excludes_missing_features(
     )
     missing = _add_track_without_sonara(db, "missing.wav")
 
-    results = SonaraSimilaritySearch(db).search((seed,), mode="balanced", limit=5)
+    results = SonaraSimilaritySearch(db).search((seed,), mixer_weights={"dynamics": 1.0}, limit=5)
 
     assert [result.target.track_id for result in results] == _target_ids(close)
     assert missing.track_id not in {result.target.track_id for result in results}
@@ -586,14 +435,14 @@ def test_sonara_search_uses_only_seed_tracks_as_context(tmp_path: Path) -> None:
         {"energy": 1.0, "danceability": 0.2, "valence": 0.2, "acousticness": 0.0},
     )
 
-    results = SonaraSimilaritySearch(db).search((seed,), mode="vibe", limit=5)
+    results = SonaraSimilaritySearch(db).search((seed,), mixer_weights={"dynamics": 1.0}, limit=5)
 
     assert [result.target.track_id for result in results[:2]] == _target_ids(
         seed_clone, bridge
     )
 
 
-def test_custom_mixer_can_prioritize_rhythm_texture_over_dynamics(
+def test_mixer_can_prioritize_rhythm_texture_over_dynamics(
     tmp_path: Path,
 ) -> None:
     db = _library(tmp_path)
@@ -636,7 +485,6 @@ def test_custom_mixer_can_prioritize_rhythm_texture_over_dynamics(
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 3.0,
@@ -657,7 +505,7 @@ def test_custom_mixer_can_prioritize_rhythm_texture_over_dynamics(
     assert first_breakdown["rhythm"] > second_breakdown["rhythm"]
 
 
-def test_custom_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) -> None:
+def test_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) -> None:
     db = _library(tmp_path)
     seed = _add_sonara_track(
         db,
@@ -695,7 +543,6 @@ def test_custom_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) 
 
     brighter_results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 1.0,
             "rhythm": 0.0,
@@ -708,7 +555,6 @@ def test_custom_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) 
     )
     darker_results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 1.0,
             "rhythm": 0.0,
@@ -730,7 +576,7 @@ def test_custom_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) 
     assert "modifier_valence" in brighter_results[0].score_breakdown
 
 
-def test_custom_vector_field_does_not_drown_scalar_mixer_fields(tmp_path: Path) -> None:
+def test_vector_field_does_not_drown_scalar_mixer_fields(tmp_path: Path) -> None:
     # mfcc_mean expands into many dimensions. Its weight is split across components so it contributes
     # its intended field weight once, letting the scalar timbre fields still influence the ranking.
     db = _library(tmp_path)
@@ -775,7 +621,6 @@ def test_custom_vector_field_does_not_drown_scalar_mixer_fields(tmp_path: Path) 
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 1.0,
             "rhythm": 0.0,
@@ -793,7 +638,7 @@ def test_custom_vector_field_does_not_drown_scalar_mixer_fields(tmp_path: Path) 
     )
 
 
-def test_custom_modifier_on_group_shared_field_still_biases_direction(
+def test_modifier_on_group_shared_field_still_biases_direction(
     tmp_path: Path,
 ) -> None:
     # energy is both a dynamics-group field and the Energy modifier field. The modifier must win the
@@ -835,7 +680,6 @@ def test_custom_modifier_on_group_shared_field_still_biases_direction(
 
     higher_results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -848,7 +692,6 @@ def test_custom_modifier_on_group_shared_field_still_biases_direction(
     )
     lower_results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -874,7 +717,7 @@ def test_custom_modifier_on_group_shared_field_still_biases_direction(
     }
 
 
-def test_custom_dynamics_group_uses_sonara_20_loudness_fields(tmp_path: Path) -> None:
+def test_dynamics_group_uses_sonara_20_loudness_fields(tmp_path: Path) -> None:
     db = _library(tmp_path)
     seed = _add_sonara_track(
         db,
@@ -894,7 +737,6 @@ def test_custom_dynamics_group_uses_sonara_20_loudness_fields(tmp_path: Path) ->
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -915,7 +757,7 @@ def test_custom_dynamics_group_uses_sonara_20_loudness_fields(tmp_path: Path) ->
     assert first_breakdown["dynamics"] > second_breakdown["dynamics"]
 
 
-def test_custom_harmonic_group_uses_sonara_20_camelot_key(tmp_path: Path) -> None:
+def test_harmonic_group_uses_sonara_20_camelot_key(tmp_path: Path) -> None:
     db = _library(tmp_path)
     seed = _add_sonara_track(db, "seed.wav", {"key_camelot": "8A", "dissonance": 0.2})
     camelot_close = _add_sonara_track(
@@ -927,7 +769,6 @@ def test_custom_harmonic_group_uses_sonara_20_camelot_key(tmp_path: Path) -> Non
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -944,7 +785,7 @@ def test_custom_harmonic_group_uses_sonara_20_camelot_key(tmp_path: Path) -> Non
     assert results[0].score > results[1].score
 
 
-def test_custom_vocalness_modifier_biases_vocal_or_instrumental_tracks(
+def test_vocalness_modifier_biases_vocal_or_instrumental_tracks(
     tmp_path: Path,
 ) -> None:
     db = _library(tmp_path)
@@ -960,7 +801,6 @@ def test_custom_vocalness_modifier_biases_vocal_or_instrumental_tracks(
 
     vocal_results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 1.0,
             "rhythm": 0.0,
@@ -973,7 +813,6 @@ def test_custom_vocalness_modifier_biases_vocal_or_instrumental_tracks(
     )
     instrumental_results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 1.0,
             "rhythm": 0.0,
@@ -995,7 +834,7 @@ def test_custom_vocalness_modifier_biases_vocal_or_instrumental_tracks(
     assert "modifier_vocalness" in vocal_results[0].score_breakdown
 
 
-def test_custom_aggression_modifier_uses_evidence_confidence(tmp_path: Path) -> None:
+def test_aggression_modifier_uses_evidence_confidence(tmp_path: Path) -> None:
     db = _library(tmp_path)
     seed = _add_sonara_track(
         db,
@@ -1036,7 +875,6 @@ def test_custom_aggression_modifier_uses_evidence_confidence(tmp_path: Path) -> 
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 1.0,
             "rhythm": 0.0,
@@ -1065,88 +903,7 @@ def test_custom_aggression_modifier_uses_evidence_confidence(tmp_path: Path) -> 
     )
 
 
-def test_dj_transition_blends_directional_structure_fit_and_explains_it(
-    tmp_path: Path,
-) -> None:
-    db = _library(tmp_path)
-    shared_features = {
-        "bpm": 128.0,
-        "bpm_confidence": 1.0,
-        "onset_density": 5.0,
-        "energy": 0.6,
-        "danceability": 0.8,
-        "chord_change_rate": 0.3,
-        "dissonance": 0.1,
-        "key": "A minor",
-    }
-    seed = _add_sonara_track(
-        db,
-        "seed.wav",
-        {
-            **shared_features,
-            "duration_seconds": 300.0,
-            "outro_start_seconds": 284.0,
-            "energy_level": 7.0,
-            "energy_curve_hop_seconds": 0.5,
-            "energy_curve_sample_count": 10,
-            "energy_curve_mean": 0.5,
-            "energy_curve_stddev": 0.1,
-            "energy_curve_min": 0.2,
-            "energy_curve_max": 0.8,
-        },
-    )
-    compatible = _add_sonara_track(
-        db,
-        "compatible.wav",
-        {
-            **shared_features,
-            "intro_end_seconds": 20.0,
-            "energy_level": 7.0,
-            "energy_curve_hop_seconds": 0.5,
-            "energy_curve_sample_count": 10,
-            "energy_curve_mean": 0.5,
-            "energy_curve_stddev": 0.1,
-            "energy_curve_min": 0.2,
-            "energy_curve_max": 0.8,
-        },
-    )
-    abrupt = _add_sonara_track(
-        db,
-        "abrupt.wav",
-        {
-            **shared_features,
-            "intro_end_seconds": 0.0,
-            "energy_level": 2.0,
-            "energy_curve_hop_seconds": 0.5,
-            "energy_curve_sample_count": 10,
-            "energy_curve_mean": 0.1,
-            "energy_curve_stddev": 0.1,
-            "energy_curve_min": 0.1,
-            "energy_curve_max": 0.1,
-        },
-    )
-
-    results = SonaraSimilaritySearch(db).search(
-        (seed,),
-        mode="dj_transition",
-        limit=5,
-    )
-
-    assert [result.target.track_id for result in results] == _target_ids(
-        compatible,
-        abrupt,
-    )
-    assert results[0].score == pytest.approx(1.0)
-    assert results[0].score_breakdown == {
-        "dj_similarity": 1.0,
-        "transition_fit": 1.0,
-    }
-    assert results[1].score_breakdown is not None
-    assert results[1].score_breakdown["dj_similarity"] == 1.0
-    assert results[1].score_breakdown["transition_fit"] == pytest.approx(0.4)
-
-
-def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> None:
+def test_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> None:
     # The Harmonic knob should reflect harmonic color, so a track with very close chroma/dissonance
     # but a different key should still be able to outrank a same-key track that is harmonically far.
     db = _library(tmp_path)
@@ -1189,7 +946,6 @@ def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> No
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 0.0,
@@ -1203,7 +959,7 @@ def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> No
     assert results[0].target.track_id == color_close_diff_key.track_id
 
 
-def test_custom_mixer_reads_typed_sonara_core_values(tmp_path: Path) -> None:
+def test_mixer_reads_typed_sonara_core_values(tmp_path: Path) -> None:
     db = _library(tmp_path)
     seed = _add_sonara_track(
         db,
@@ -1247,7 +1003,6 @@ def test_custom_mixer_reads_typed_sonara_core_values(tmp_path: Path) -> None:
 
     results = SonaraSimilaritySearch(db).search(
         (seed,),
-        mode="custom",
         mixer_weights={
             "timbre": 0.0,
             "rhythm": 3.0,
@@ -1284,7 +1039,7 @@ def test_sonara_search_reads_active_rows_without_summary_scan(
     )
 
     searcher = SonaraSimilaritySearch(db)
-    cold_results = searcher.search((seed,), mode="vibe", limit=5)
+    cold_results = searcher.search((seed,), mixer_weights={"dynamics": 1.0}, limit=5)
 
     def fail_full_track_scan(*_args, **_kwargs):
         raise AssertionError(
@@ -1292,7 +1047,7 @@ def test_sonara_search_reads_active_rows_without_summary_scan(
         )
 
     monkeypatch.setattr(db, "list_track_summaries", fail_full_track_scan)
-    warm_results = searcher.search((seed,), mode="vibe", limit=5)
+    warm_results = searcher.search((seed,), mixer_weights={"dynamics": 1.0}, limit=5)
 
     assert [result.target.track_id for result in cold_results] == _target_ids(
         close, far
@@ -1382,7 +1137,7 @@ def test_sonara_search_reports_context_tracks_without_features(tmp_path: Path) -
     seed = _add_track_without_sonara(db, "seed.wav")
 
     with pytest.raises(ValueError, match="missing active SONARA Core features"):
-        SonaraSimilaritySearch(db).search((seed,), mode="vibe", limit=5)
+        SonaraSimilaritySearch(db).search((seed,), mixer_weights={"dynamics": 1.0}, limit=5)
 
 
 def _float_or_none(value: object) -> float | None:

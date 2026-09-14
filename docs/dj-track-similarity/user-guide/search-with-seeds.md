@@ -13,16 +13,16 @@ English on screen. The full mapping to the on-screen strings is in
 
 ## Where seed search lives
 
-Panel 3, search and listening, opens with a removable seed chip strip, then a five-tab strip. Tabs
-are ordered `LAB`, `SONARA`, `SIMILARITY`, `PROMPT`, `CLASS`, and the panel opens on `SONARA`. Arrow
-keys, `Home`, and `End` move between them.
+Panel 3, search and listening, opens with a removable seed chip strip, then a four-tab strip. Tabs
+are ordered `LAB`, `SIMILARITY`, `PROMPT`, `CLASS`, and the panel opens on `SIMILARITY` with SONARA
+selected. Arrow keys, `Home`, and `End` move between tabs.
 
-Three of those tabs take seeds:
+Two of those tabs take seeds:
 
-| Tab | Endpoint | What it compares |
+| Selection | Endpoint | What it compares |
 | --- | --- | --- |
-| `SIMILARITY` | `POST /api/search` | one selected embedding family |
-| `SONARA` | `POST /api/search/sonara` | stored SONARA Core feature rows |
+| `SIMILARITY` with SONARA | `POST /api/search/sonara` | stored SONARA Core feature rows |
+| `SIMILARITY` with an embedding model | `POST /api/search` | one selected embedding family |
 | `LAB` | `POST /api/reference/compare` | six families side by side for the first seed |
 
 Direct clients can also call `POST /api/search` with `analysis_family: "clap"`. CLAP has no browser
@@ -36,22 +36,21 @@ chips above the tab strip, each removable through its own **Remove that seed** t
 accepts one to five seeds, and a request outside that range is refused with a message asking for 1
 to 5 unique seed tracks.
 
-Both the `SONARA` and `SIMILARITY` tabs also carry an **Add Random Track** button. It calls
-`POST /api/search/sonara/random-track` or `POST /api/search/random-track`, pulls one eligible track
-from the library, and adds it as a seed. The SONARA variant needs a track with SONARA features. The
-SIMILARITY variant needs a track with a current embedding in the selected family, which its tooltip
-states as `Add a random track with a current MERT embedding as a seed.` This is the fastest way to
-start exploring with nothing particular in mind.
+The `SIMILARITY` tab also carries an **Add Random Track** button. It pulls one eligible track from
+the library and adds it as a seed. With SONARA selected, it calls
+`POST /api/search/sonara/random-track` and needs current SONARA features. With an embedding model
+selected, it calls `POST /api/search/random-track` and needs a current embedding in that family.
+Use it to start exploring with nothing particular in mind.
 
 ## Choose the kind of neighborhood
 
 | Use | When it helps | What you can change |
 | --- | --- | --- |
+| `SIMILARITY` with SONARA | You know which audible qualities should stay close or move | Mixer weights, directional modifiers, and `Limit` |
 | `SIMILARITY` with MAEST | You want to search the MAEST embedding space | `Limit` |
 | `SIMILARITY` with MERT | You want a broad learned audio neighborhood with few decisions | `Limit` |
 | `SIMILARITY` with MuQ | You want a second generic acoustic embedding neighborhood | `Limit` |
 | `SIMILARITY` with MuQ-MuLan | You want a music-text-aligned audio neighborhood without mixing it into another family | `Limit` |
-| `SONARA` | You know which audible qualities should stay close or move | `Mode`, mixer weights, and directional modifiers |
 | `LAB` | You want to hear how separate model families disagree | Model columns, `Limit`, and listening verdicts |
 
 The embedding families ask the quicker question: what is near these tracks in this model's audio
@@ -60,52 +59,37 @@ now?
 
 ## SIMILARITY tab
 
-The `SIMILARITY` tab calls `/api/search` with the selected seed IDs and the selected
-`analysis_family`. It compares only exact-current stored embeddings for that family and returns
-scored candidates.
+The `Model` select offers `SONARA`, `MAEST`, `MERT`, `MuQ`, and `MuQ-MuLan`, starting on SONARA.
+It shares a row with **Add Random Track** and `Limit`. A short description below explains what the
+selected model compares. Selecting SONARA reveals its mixer and modifiers; selecting an embedding
+model hides those controls while preserving their values.
 
-Its `Model` select carries four options, `MAEST`, `MERT`, `MuQ`, and `MuQ-MuLan`, starting on
-`MERT`. Its tooltip states the separation directly:
-`Embedding family used for seed-to-track similarity search. MAEST, MERT, MuQ, and MuQ-MuLan stay
-separate score spaces.`
+`Limit` controls the maximum result count, `1..500`, and is shared with the `PROMPT` tab. The
+browser ranks every returned candidate by score, from highest to lowest, and applies no
+minimum-similarity threshold.
 
-The query vector is the L2-normalized mean of the seed rows, and the seeds themselves are excluded
-from the results. Scoring is exact cosine similarity over a NumPy matrix, with no approximate index
-anywhere in the project.
+When the selected model has no current analysis, both its search and its random-track button are
+disabled with a model-specific reason. Request errors remain visible instead of looking like an
+empty successful result. The search button is also disabled while no seed is selected.
 
-`Limit` controls the maximum result count, `1..500`, and it is shared with the `SONARA` and `PROMPT`
-tabs. Changing it in one changes it in all three. The browser ranks every returned candidate by
-score, from highest to lowest, and applies no minimum-similarity threshold.
+### Embedding models
 
-When a family has zero current embeddings, both its search and its random-track button are disabled
-with a family-specific reason:
-`No current MuQ embeddings are available in the selected catalog. Run MuQ analysis first.` Request
-errors remain visible instead of looking like an empty successful result. The search button is also
-disabled while no seed is selected, which the tooltip does not mention.
+MAEST, MERT, MuQ, and MuQ-MuLan call `/api/search` with the selected seed IDs and
+`analysis_family`. Search compares only exact-current stored embeddings for that family. The query
+vector is the L2-normalized mean of the seed rows, and the seeds themselves are excluded from the
+results. Scoring is exact cosine similarity over a NumPy matrix, with no approximate index anywhere
+in the project.
 
 When BPM filtering is applied, embedding search resolves current SONARA tempo evidence first. Below
 `0.45` confidence, it also checks ranked SONARA candidates and the Mutagen BPM tag. Unreliable tempo
 does not become a hard rejection after those alternatives are checked.
 
-## SONARA tab
+## SONARA settings
 
-SONARA search calls `/api/search/sonara` and uses stored SONARA feature rows. It is useful when you
-want more explainable control over rhythm, timbre, level and energy, harmonic color, and tempo
-compatibility. Its search button is labelled `SONARA search`.
-
-Use `Mode` first. The tab opens on `Custom mixer`, which is the only mode where the sliders are
-active.
-
-- `Balanced` blends broad vibe, sound, tempo, and light harmonic agreement.
-- `Vibe` emphasizes energy, danceability, valence, acousticness, and broad dynamics.
-- `Sound` emphasizes timbre, MFCC, and spectral texture.
-- `DJ transition` emphasizes BPM, onset density, energy, danceability, and tonal compatibility. When
-  current structure data exists, it blends a soft directional fit from the outgoing seed outro to the
-  candidate intro at a fixed weight of `0.2` against `0.8` for the similarity itself. Energy level and
-  the compact energy-curve summary also inform that fit.
-- `Custom mixer` enables the visible mixer weights and directional modifiers.
-
-Outside `Custom mixer`, both slider blocks are greyed out and every control is disabled.
+Select SONARA in the `SIMILARITY` tab to search stored SONARA Core feature rows through
+`/api/search/sonara`. Its mixer and modifiers are always active, so you can directly set the
+importance of rhythm, timbre, level and energy, harmonic color, and tempo compatibility before
+pressing `Search`.
 
 ### Mixer weights
 

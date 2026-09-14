@@ -12,7 +12,7 @@ important tracks.
 For a one-off sound idea, use seed or text search instead. A classifier is most useful when the same
 question will return across many sessions.
 
-The `CLASS` tab is the fifth of the five tabs in panel 3, search and listening. Most of its text is
+The `CLASS` tab is the fourth of the four tabs in panel 3, search and listening. Most of its text is
 English on screen. The full label mapping is in [UI language](../help/ui-language.md).
 
 ## What you get in the main app

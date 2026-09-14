@@ -13,32 +13,30 @@ string for each one.
 1. Search the library for the reference track in panel 2, library and listening.
 2. Press the magnifier icon on its row, titled `Seed`. The track appears as a chip above the tab
    strip in panel 3, search and listening.
-3. Open the `SIMILARITY` tab, leave its `Model` select on `MERT`, and press `Search` for
+3. Open the `SIMILARITY` tab, choose `MERT` in its `Model` select, and press `Search` for
    embedding-near candidates.
-4. Open the `SONARA` tab and press `SONARA search` when you want more control over rhythm, timbre,
-   dynamics, harmonic color, or tempo. Its `Mode` select opens on `Custom mixer`, where the sliders
-   are active.
+4. Choose `SONARA` in the same selector when you want more control over rhythm, timbre, dynamics,
+   harmonic color, or tempo. Adjust its mixer weights and directional modifiers, then press `Search`.
 5. Raise `Limit` if you want to hear more lower-ranked candidates. It runs `1..500` and is shared
-   between the `SONARA`, `SIMILARITY`, and `PROMPT` tabs.
+   between the `SIMILARITY` and `PROMPT` tabs.
 6. Preview candidates before adding them to the current set.
 7. Add good candidates with the plus icon titled **Add to the set**, then export or save them as a
    Rhythm Lab collection.
 
-With no reference in mind, press **Add Random Track** in either tab. It pulls one eligible track
-from the library and seeds the search with it.
+With no reference in mind, press **Add Random Track** in `SIMILARITY`. It pulls one track eligible
+for the selected model from the library and seeds the search with it.
 
 ## Compare model ears first
 
 When one reference feels important and you do not know which family hears it well, open the `LAB`
 tab and press `Compare models`. It ranks candidates for the first seed with CLAP, MERT, MuQ,
-MuQ-MuLan, MAEST, and SONARA in six separate columns, at up to `100` candidates each. Use it to pick
-the family worth searching properly, then go back to `SIMILARITY` or `SONARA`.
+MuQ-MuLan, MAEST, and SONARA in six separate columns, at up to `100` candidates each. Use the
+comparison to decide which evidence is useful before returning to `SIMILARITY`.
 
 ## When one seed is too narrow
 
-Add a second or third seed that represents the intended direction. The query becomes the normalized
-mean of the seed rows, so unrelated seeds blur the target rather than widening it. The API accepts
-one to five seeds.
+Add a second or third seed that represents the intended direction. The search combines the selected
+seeds, so unrelated seeds blur the target rather than widening it. The API accepts one to five seeds.
 
 ## Tempo note
 

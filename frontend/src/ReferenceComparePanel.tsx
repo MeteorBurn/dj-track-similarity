@@ -11,7 +11,7 @@ import type {
   TrackSummary,
 } from "./api";
 import { ResultRow } from "./TrackRows";
-import { seedEmbeddingFamilyPresentation } from "./searchSurfaceState";
+import { seedSearchModelPresentation } from "./searchSurfaceState";
 import { displayTrack } from "./trackDisplay";
 import type { useActivityLog } from "./useActivityLog";
 import { errorText } from "./errors";
@@ -496,7 +496,7 @@ function normalizeLimit(value: number) {
 
 function referenceCompareModelLabel(model: ReferenceCompareModel) {
   if (model === "clap" || model === "sonara") return model.toUpperCase();
-  return seedEmbeddingFamilyPresentation[model].label;
+  return seedSearchModelPresentation[model].label;
 }
 
 function clearLabDeadline(request: PendingLabRequest) {

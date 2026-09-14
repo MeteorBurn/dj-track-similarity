@@ -59,7 +59,7 @@ requested opt-in field is skipped rather than zero-imputed.
 
 The `sonara` feature source deliberately leaves out `vocal_probability` and the entire aggression
 family. The stated reason is to keep the classifier baseline independent of SONARA's own bundled
-learned outputs. Those values remain available for inspection and for Custom search, and they never
+learned outputs. Those values remain available for inspection and for SONARA search, and they never
 enter a training recipe.
 
 ## Promotion

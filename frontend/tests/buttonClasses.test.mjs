@@ -95,15 +95,6 @@ test("destructive actions use the in-app confirmation dialog", () => {
   assert.match(dialogSource, />Нет</);
 });
 
-test("non-destructive sonara mixer reset does not request confirmation", () => {
-  const source = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
-  const resetBody = source.match(/function resetCustomSonara\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
-
-  assert.match(source, /sonara-mixer-reset-button/);
-  assert.match(resetBody, /setFilters/);
-  assert.doesNotMatch(resetBody, /onConfirmAction|ConfirmationRequest/);
-});
-
 test("class search tab shows classifier threshold and scoped analysis controls", () => {
   const source = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const classPanel = source.match(/\{activeSearchTab === "class" && \(([\s\S]*?)\n        \)\}/)?.[1] || "";

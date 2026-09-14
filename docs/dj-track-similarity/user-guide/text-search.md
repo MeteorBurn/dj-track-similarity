@@ -8,7 +8,7 @@ The result is a ranked shortlist to audition. It can reveal tracks with incomple
 it does not prove that every word in the prompt is present. Rewording the prompt changes the
 question and often changes the useful part of the list.
 
-The tab renders as **PROMPT**, the fourth of the five tabs in panel 3, search and listening. Its
+The tab renders as **PROMPT**, the third of the four tabs in panel 3, search and listening. Its
 internal key is still `text`, so the API route is `/api/search/text`. Most of its controls are
 English on screen while its tooltips are Russian. The full label mapping is in
 [UI language](../help/ui-language.md).
@@ -37,7 +37,7 @@ API clients can use `POST /api/search/text`; see the current request payload in 
 ## When to choose another search
 
 - Use the `SIMILARITY` tab when one existing track already captures the direction.
-- Use the `SONARA` tab when you want explicit control over rhythm, timbre, dynamics, harmony, or tempo.
+- Choose SONARA in `SIMILARITY` when you want explicit control over rhythm, timbre, dynamics, harmony, or tempo.
 - Use library filters when the property is already reliable metadata, such as artist or label.
 
 ## Before searching

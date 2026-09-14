@@ -57,7 +57,7 @@ the set-dramaturgy framing above is the goal rather than the feature list.
 
 - Library scan, then SONARA analysis in Direct or Staged mode under a library-scoped BPM range.
 - MAEST, MERT, MuQ, MuQ-MuLan, and CLAP analysis, in Direct or Staged mode.
-- SONARA search across five modes, with mixer weights and nine modifiers.
+- SONARA search in the SIMILARITY tab, with manual mixer weights and nine modifiers.
 - Seed search over MAEST, MERT, MuQ, and MuQ-MuLan in the SIMILARITY tab.
 - Text search over CLAP or MuQ-MuLan in the PROMPT tab, with a preset picker and relevance verdicts.
 - LAB Reference Compare across six model families, with listening verdicts.

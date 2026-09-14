@@ -202,6 +202,25 @@ test("like responses only update tracks in the current catalog with matching ide
   replacedLike.resolve({ ...otherIdentity, liked: true });
   await replacedResult;
   for (const arm of comparison.render().search.textComparison) assert.equal(arm.results[0].track.liked, false);
+
+  // Returning to the same catalog must not revive an earlier session's mutation.
+  for (const lateError of [false, true]) {
+    const obsoleteLike = comparison.startMutation();
+    const obsoleteResult = ui.search.toggleLiked(track);
+    await comparison.choose("B");
+    ui = await comparison.choose("A");
+    ui.search.handleTextSearch();
+    await flush();
+    ui = comparison.render();
+    const notice = ui.notice;
+    if (lateError) obsoleteLike.reject(new Error("obsolete like error"));
+    else obsoleteLike.resolve({ ...track, liked: true });
+    assert.equal(await obsoleteResult, null);
+    ui = comparison.render();
+    assert.equal(ui.notice, notice);
+    assert.equal(ui.search.results[0].track.liked, false);
+    for (const arm of ui.search.textComparison) assert.equal(arm.results[0].track.liked, false);
+  }
 });
 
 test("random seeds ignore obsolete catalog responses without clearing a newer request", async () => {

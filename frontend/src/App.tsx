@@ -112,6 +112,7 @@ export function App() {
   const [databaseCatalogUuid, setDatabaseCatalogUuid] = useState<string | null>(null);
   const databaseCatalogUuidRef = useRef(databaseCatalogUuid);
   databaseCatalogUuidRef.current = databaseCatalogUuid;
+  const databaseGenerationRef = useRef(0);
   const suppressNextLibraryRefresh = useRef(false);
   const startupInitializationStarted = useRef(false);
   const { activityLog, appendActivity } = useActivityLog();
@@ -521,6 +522,7 @@ export function App() {
   }
 
   function resetDatabaseScopedState() {
+    databaseGenerationRef.current += 1;
     databaseCatalogUuidRef.current = null;
     cancelGenericSearchRequest();
     cancelRandomTrackRequest();
@@ -1251,11 +1253,13 @@ export function App() {
 
   async function handleToggleTrackLiked(track: Track): Promise<Track | null> {
     if (databaseCatalogUuidRef.current !== track.catalog_uuid) return null;
+    const databaseGeneration = databaseGenerationRef.current;
     const nextLiked = !track.liked;
     try {
       const updated = await api.setTrackLiked(track, nextLiked);
       if (
-        databaseCatalogUuidRef.current !== track.catalog_uuid
+        databaseGenerationRef.current !== databaseGeneration
+        || databaseCatalogUuidRef.current !== track.catalog_uuid
         || !sameTrackIdentity(track, updated)
       ) return null;
       updateTrackLiked(updated);
@@ -1268,7 +1272,10 @@ export function App() {
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
       return updated;
     } catch (error) {
-      if (databaseCatalogUuidRef.current !== track.catalog_uuid) return null;
+      if (
+        databaseGenerationRef.current !== databaseGeneration
+        || databaseCatalogUuidRef.current !== track.catalog_uuid
+      ) return null;
       const message = errorText(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось изменить лайк", message);

@@ -54,9 +54,9 @@ export function TrackList({
               <strong>{displayTrack(track)}</strong>
               <span className="library-track-meta" title={fileInfo.title}>{fileInfo.text}</span>
             </div>
+            <span className="library-track-duration">{track.audio_duration_seconds != null ? formatPlaybackTime(track.audio_duration_seconds) : "—"}</span>
             <span className="library-track-bpm">{track.sonara_bpm?.toFixed(2) ?? "—"}</span>
             <span className="library-track-key">{track.sonara_key_camelot || "—"}</span>
-            <span className="library-track-duration">{track.audio_duration_seconds != null ? formatPlaybackTime(track.audio_duration_seconds) : "—"}</span>
             {trackPreviewSelected ? (
               <PlaybackSeekControl
                 track={track}

@@ -4601,10 +4601,12 @@ meter {
 }
 
 .metadata-dialog-title {
-  align-items: flex-start;
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
   display: flex;
   flex: 0 0 auto;
   gap: 10px;
+  padding-bottom: 4px;
 }
 
 .metadata-dialog-close-actions {
@@ -5732,10 +5734,10 @@ button.dedup-play-button {
 .model-search-tab { border-radius: 5px; min-height: 35px; }
 .model-search-tab.active { box-shadow: inset 0 0 12px var(--accent-soft-bg); }
 .track-list { gap: 0; container-type: inline-size; container-name: library-tracks; }
-.track-list .track-row { grid-template-columns: 22px 36px minmax(0, 1fr) 56px 36px 42px repeat(4, 32px); border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0; min-height: 58px; min-width: 0; gap: 6px; padding: 7px; background: var(--surface); transition: none; }
+.track-list .track-row { grid-template-columns: 22px 36px minmax(0, 1fr) 42px 56px 36px repeat(4, 32px); border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0; min-height: 58px; min-width: 0; gap: 6px; padding: 7px; background: var(--surface); transition: none; }
 .track-list .track-row:hover { background: var(--surface-raised); border-bottom-color: var(--border); }
 .track-list .track-row.has-playback { background: var(--accent-soft-bg); }
-.track-list .track-row.is-playing { background: var(--accent-soft-bg); border-bottom-color: var(--accent-soft-border); box-shadow: inset 2px 0 var(--accent); }
+.track-list .track-row.is-playing { background: linear-gradient(90deg, var(--accent-strong-bg), var(--accent-soft-bg)); border-bottom-color: transparent; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--accent-border); }
 .track-list .track-row:focus-within { outline: 1px solid var(--focus-ring); outline-offset: -1px; }
 .track-list .track-row > .row-index { grid-column: 1; grid-row: 1; font-size: 10px; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .track-list .track-row > .icon-button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border-radius: 5px; justify-self: center; grid-row: 1; }
@@ -5752,9 +5754,9 @@ button.dedup-play-button {
 .track-list .track-title-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: 13px; font-weight: 600; line-height: 1.35; }
 .library-track-meta { color: var(--text-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.3; }
 .library-track-bpm, .library-track-key, .library-track-duration { grid-row: 1; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.library-track-bpm { grid-column: 4; color: var(--text-track); font-weight: 600; }
-.library-track-key { grid-column: 5; color: var(--preset-texture-text); background: var(--preset-texture-bg); border-radius: 4px; padding: 4px 0; }
-.library-track-duration { grid-column: 6; color: var(--text-muted); font-size: 11px; }
+.library-track-bpm { grid-column: 5; color: var(--accent); background: var(--accent-soft-bg); border-radius: 4px; padding: 4px 0; }
+.library-track-key { grid-column: 6; color: var(--preset-texture-text); background: var(--preset-texture-bg); border-radius: 4px; padding: 4px 0; }
+.library-track-duration { grid-column: 4; color: var(--text-muted); font-size: 11px; }
 .library-track-bpm, .library-track-key { font-size: 12px; }
 .track-list .track-row > .track-row-playback { grid-column: 3 / -1; grid-row: 2; }
 @container library-tracks (max-width: 640px) {
@@ -5857,7 +5859,7 @@ button.dedup-play-button {
   box-shadow: var(--workbench-dialog-shadow);
 }
 :is(.scan-import-title, .sonara-settings-title, .ml-settings-title,
-    .metadata-dialog-title, .dedup-title) {
+    .dedup-title) {
   border-bottom: 1px solid var(--border-soft);
   padding-bottom: 12px;
 }

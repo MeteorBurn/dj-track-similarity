@@ -8,10 +8,11 @@ import type { PreviewTarget } from "./useSearchPlaylist";
 
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
-export function PlayerDock({ preview, playing, audioRef, onToggle, onSeek }: {
+export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek }: {
   preview: PreviewTarget | null;
   playing: boolean;
   audioRef: RefObject<HTMLAudioElement | null>;
+  sourceKey?: number;
   onToggle: (track: PreviewTarget) => void;
   onSeek: (track: PreviewTarget, seconds: number) => void;
 }) {
@@ -19,7 +20,7 @@ export function PlayerDock({ preview, playing, audioRef, onToggle, onSeek }: {
   const [volume, setVolume] = useState(1);
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
-  }, [audioRef, preview, volume]);
+  }, [audioRef, sourceKey, volume]);
   const { currentTime, duration } = previewPositionForTrack(position, preview?.track_id ?? -1);
   const track = preview && "file_path" in preview ? preview as Track : null;
   const fileInfo = formatTrackFileInfo(track);
@@ -34,8 +35,8 @@ export function PlayerDock({ preview, playing, audioRef, onToggle, onSeek }: {
         {playing ? <Pause size={25} fill="currentColor" /> : <Play size={25} fill="currentColor" />}
       </button>
       <div className="player-timeline">
-        <input type="range" min={0} max={duration || 1} step={0.1} value={currentTime} disabled={!preview || !duration} onChange={(event) => preview && onSeek(preview, Number(event.target.value))} aria-label="Позиция воспроизведения" />
-        <span>{time(currentTime)} / {time(duration)}</span>
+        <input type="range" min={0} max={duration || 1} step={0.1} value={duration > 0 ? currentTime : 0} disabled={!preview || !duration} onChange={(event) => preview && onSeek(preview, Number(event.target.value))} aria-label="Позиция воспроизведения" />
+        <span>{time(currentTime)} / {duration > 0 ? time(duration) : "—"}</span>
       </div>
       <div className="player-bpm"><strong>{track?.sonara_bpm?.toFixed(2) ?? "—"}</strong><span>BPM</span></div>
       <div className="player-key"><strong>{track?.sonara_key_camelot || "—"}</strong><span>KEY</span></div>

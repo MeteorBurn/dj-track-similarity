@@ -39,7 +39,6 @@ import { cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import type { ProcessLogKind } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import { MLAnalysisSettingsDialog } from "./MLAnalysisSettingsDialog";
-import { writePreviewPosition } from "./previewPosition";
 import { errorText, isAbortError } from "./errors";
 import { ScanImportDialog } from "./ScanImportDialog";
 import { SonaraAnalysisSettingsDialog } from "./SonaraAnalysisSettingsDialog";
@@ -78,6 +77,7 @@ import { displayTrack, sameTrackIdentity } from "./trackDisplay";
 import { applyTheme, resolveInitialTheme, themeStorageKey, type ThemeMode } from "./theme";
 import { TooltipLayer, useGlobalTooltip } from "./tooltipLayer";
 import { useActivityLog } from "./useActivityLog";
+import { useAudioPreview } from "./useAudioPreview";
 import { useConfirmation } from "./useConfirmation";
 import { useLibraryState } from "./useLibraryState";
 import { useSearchPlaylist } from "./useSearchPlaylist";
@@ -159,11 +159,6 @@ export function App() {
     setPlaylist,
     playlistName,
     setPlaylistName,
-    preview,
-    playingTrackId,
-    togglePreview,
-    markPreviewPlaying,
-    markPreviewPaused,
     metadataTrack,
     setMetadataTrack,
     setSeedTracks,
@@ -323,7 +318,14 @@ export function App() {
     promptDatabaseOptimization,
   });
 
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const {
+    preview, playingTrackId, previewAudioRef, sourceKey, sourceUrl,
+    togglePreview, seekPreview, stopPreview,
+  } = useAudioPreview({
+    databaseKey: databaseCatalogUuid,
+    onEnded: handleLibraryPreviewEnded,
+    onError: (text) => setNotice({ kind: "error", text }),
+  });
   const trackDetailRequestGuard = useRef(createRequestTokenGuard());
   const trackDetailAbortController = useRef<AbortController | null>(null);
 
@@ -405,24 +407,6 @@ export function App() {
   useEffect(() => () => {
     trackDetailAbortController.current?.abort();
   }, []);
-
-  useEffect(() => {
-    writePreviewPosition({
-      trackId: preview?.track_id ?? null,
-      currentTime: 0,
-      duration: 0,
-    });
-  }, [preview?.track_id]);
-
-  useEffect(() => {
-    const audio = previewAudioRef.current;
-    if (!audio || !preview) return;
-    if (playingTrackId === preview.track_id) {
-      void audio.play().catch(() => undefined);
-    } else {
-      audio.pause();
-    }
-  }, [preview, playingTrackId]);
 
   useEffect(() => {
     if (!databasePath) return;
@@ -519,6 +503,7 @@ export function App() {
   function resetDatabaseScopedState() {
     databaseGenerationRef.current += 1;
     databaseCatalogUuidRef.current = null;
+    stopPreview();
     cancelGenericSearchRequest();
     cancelRandomTrackRequest();
     cancelTextSearch();
@@ -573,27 +558,7 @@ export function App() {
     setMetadataTrack(null);
   }
 
-  function updatePreviewPosition(trackId: number) {
-    const audio = previewAudioRef.current;
-    if (!audio) return;
-    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
-    writePreviewPosition({
-      trackId,
-      currentTime: Math.min(Math.max(0, audio.currentTime), duration || 0),
-      duration,
-    });
-  }
-
-  function seekPreview(track: PreviewTarget, seconds: number) {
-    const audio = previewAudioRef.current;
-    if (!audio || preview?.track_id !== track.track_id) return;
-    const duration = Number.isFinite(audio.duration) ? Math.max(0, audio.duration) : 0;
-    audio.currentTime = Math.min(Math.max(0, seconds), duration);
-    updatePreviewPosition(track.track_id);
-  }
-
   function handleLibraryPreviewEnded(track: PreviewTarget) {
-    updatePreviewPosition(track.track_id);
     const nextTrack = nextLibraryPlaybackTrack(
       orderedTracks,
       track.track_id,
@@ -601,9 +566,7 @@ export function App() {
     );
     if (nextTrack) {
       togglePreview(nextTrack);
-      return;
     }
-    markPreviewPaused(track.track_id);
   }
 
   async function handleTrackDetails(track: Track) {
@@ -1584,21 +1547,13 @@ export function App() {
           handleExport={(format) => void handleExport(format)}
         />
       </section>
-      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} onToggle={togglePreview} onSeek={seekPreview} />
-      {preview ? (
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} />
+      {sourceUrl ? (
         <audio
+          key={sourceKey}
           ref={previewAudioRef}
           hidden
-          src={`/media/${preview.track_id}`}
-          onPlay={() => {
-            if (playingTrackId === preview.track_id) markPreviewPlaying(preview.track_id);
-          }}
-          onPause={() => markPreviewPaused(preview.track_id)}
-          onEnded={() => {
-            handleLibraryPreviewEnded(preview);
-          }}
-          onDurationChange={() => updatePreviewPosition(preview.track_id)}
-          onTimeUpdate={() => updatePreviewPosition(preview.track_id)}
+          src={sourceUrl}
         />
       ) : null}
       {metadataTrack && (

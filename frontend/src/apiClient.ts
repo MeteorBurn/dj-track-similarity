@@ -21,6 +21,7 @@ import type {
   GenreTagJobStatus,
   LibrarySummary,
   MaestMelExportRequest,
+  PreviewInfo,
   PromotedClassifier,
   ReferenceComparePayload,
   ReferenceCompareResponse,
@@ -218,6 +219,10 @@ const libraryApi = {
     }),
   track: (trackId: number, options?: { signal?: AbortSignal }) =>
     request<TrackDetail>(`/api/tracks/${trackId}`, {
+      signal: options?.signal,
+    }),
+  previewInfo: (trackId: number, options?: { signal?: AbortSignal }) =>
+    request<PreviewInfo>(`/api/tracks/${trackId}/preview-info`, {
       signal: options?.signal,
     }),
   revealTrackFile: (trackId: number) =>

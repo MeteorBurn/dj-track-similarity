@@ -17,8 +17,6 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   const [results, setResults] = useState<SearchResult[]>([]);
   const [playlist, setPlaylist] = useState<Track[]>([]);
   const [playlistName, setPlaylistName] = useState("seamless-set");
-  const [preview, setPreview] = useState<PreviewTarget | null>(null);
-  const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
   const [metadataTrack, setMetadataTrack] = useState<TrackDetail | null>(null);
 
   const seeds = useMemo(() => seedTracks.map((track) => track.track_id), [seedTracks]);
@@ -58,29 +56,10 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
     }
   }
 
-  function togglePreview(track: PreviewTarget) {
-    if (preview?.track_id === track.track_id && playingTrackId === track.track_id) {
-      setPlayingTrackId(null);
-      return;
-    }
-    setPreview(track);
-    setPlayingTrackId(track.track_id);
-  }
-
-  function markPreviewPlaying(trackId: number) {
-    setPlayingTrackId(trackId);
-  }
-
-  function markPreviewPaused(trackId: number) {
-    setPlayingTrackId((current) => (current === trackId ? null : current));
-  }
-
   function resetSearchPlaylistState() {
     setSeedTracks([]);
     setResults([]);
     setPlaylist([]);
-    setPreview(null);
-    setPlayingTrackId(null);
     setMetadataTrack(null);
   }
 
@@ -94,11 +73,6 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
     setPlaylist,
     playlistName,
     setPlaylistName,
-    preview,
-    playingTrackId,
-    togglePreview,
-    markPreviewPlaying,
-    markPreviewPaused,
     metadataTrack,
     setMetadataTrack,
     setSeedTracks,

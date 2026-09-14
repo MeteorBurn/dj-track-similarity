@@ -877,6 +877,10 @@ class TrackDetailResponse(TrackSummaryResponse):
     classifier_scores_detail: list[ClassifierScoreDetailResponse]
 
 
+class TrackPreviewInfoResponse(_ResponseModel):
+    duration_seconds: float | None = Field(allow_inf_nan=False, gt=0)
+
+
 class TrackPageResponse(_ResponseModel):
     items: list[TrackSummaryResponse]
     total: int

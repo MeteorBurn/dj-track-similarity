@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import ctypes
 import os
-import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from importlib import import_module
@@ -21,7 +20,7 @@ REQUIRED_FFMPEG_LIBRARIES = {
     "swscale": 9,
 }
 REQUIRED_PYAV_VERSION = "17.1.0"
-_DLL_DIRECTORY_HANDLES: list[object] = []
+_DLL_DIRECTORY_HANDLES: dict[Path, object] = {}
 
 
 @dataclass(frozen=True)
@@ -38,8 +37,8 @@ def configure_shared_ffmpeg_runtime() -> Path:
     """Find and register the required FFmpeg 8.1.1 full shared runtime."""
 
     directory = _configured_or_path_shared_directory()
-    if os.name == "nt":
-        _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(str(directory)))
+    if os.name == "nt" and directory not in _DLL_DIRECTORY_HANDLES:
+        _DLL_DIRECTORY_HANDLES[directory] = os.add_dll_directory(str(directory))
     return directory
 
 
@@ -150,21 +149,20 @@ def _missing_runtime_message(rejected: list[str]) -> str:
 
 
 def _ffmpeg_release_version(directory: Path) -> str:
-    executable = directory / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
-    if not executable.is_file():
-        raise RuntimeError("does not contain ffmpeg executable for version verification")
-    completed = subprocess.run(
-        [str(executable), "-version"],
-        check=False,
-        capture_output=True,
-        text=True,
+    library_path = directory / _shared_library_name(
+        "avutil", REQUIRED_FFMPEG_LIBRARIES["avutil"]
     )
-    if completed.returncode != 0:
-        raise RuntimeError("ffmpeg -version failed")
-    match = re.search(r"^ffmpeg version ([^\s]+)", completed.stdout, re.MULTILINE)
-    if match is None:
-        raise RuntimeError("ffmpeg -version did not report a version")
-    version = match.group(1)
+    try:
+        library = ctypes.CDLL(str(library_path.resolve()))
+        version_info = library.av_version_info
+        version_info.argtypes = []
+        version_info.restype = ctypes.c_char_p
+        raw_version = version_info()
+        if not raw_version:
+            raise RuntimeError("libavutil did not report an FFmpeg release version")
+        version = raw_version.decode("ascii")
+    except (OSError, AttributeError, UnicodeError) as error:
+        raise RuntimeError(f"cannot verify FFmpeg release through {library_path}: {error}") from error
     return version.split("-", maxsplit=1)[0]
 
 

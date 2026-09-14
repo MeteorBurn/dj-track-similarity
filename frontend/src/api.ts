@@ -59,6 +59,10 @@ export type TrackIdentity = Pick<
   "track_id" | "catalog_uuid" | "track_uuid"
 >;
 
+export type PreviewInfo = {
+  duration_seconds: number | null;
+};
+
 export interface FileTechnical {
     file_size_bytes: number;
     file_modified_ns: number;

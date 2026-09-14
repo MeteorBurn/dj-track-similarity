@@ -268,11 +268,12 @@ test("text warmup status client uses GET without a body and forwards AbortSignal
   assert.deepEqual(status.loaded, [{ analysis_family: "clap", device: "cpu" }]);
 });
 
-test("detail and generic search clients forward AbortSignal unchanged", async () => {
+test("detail, preview metadata and generic search clients forward AbortSignal unchanged", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
-    return jsonResponse(path.startsWith("/api/tracks/") ? {} : []);
+    return jsonResponse(path.endsWith("/preview-info") ? { duration_seconds: 120.25 }
+      : path.startsWith("/api/tracks/") ? {} : []);
   });
   const controller = new AbortController();
 
@@ -307,6 +308,8 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
     min_similarity: 0,
     device: "auto",
   }, { signal: controller.signal });
+  const preview = await api.previewInfo(7, { signal: controller.signal });
+  assert.equal(preview.duration_seconds, 120.25);
 
   assert.deepEqual(
     calls.map(({ path }) => path),
@@ -316,7 +319,8 @@ test("detail and generic search clients forward AbortSignal unchanged", async ()
       "/api/search/sonara",
       "/api/search/sonara/random-track",
       "/api/search/random-track",
-      "/api/search/text"
+      "/api/search/text",
+      "/api/tracks/7/preview-info"
     ]
   );
   assert.deepEqual(JSON.parse(calls[2].options.body), sonaraPayload);

@@ -4,8 +4,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 
+from .media_preview import AudioPreviewError, preview_duration_seconds, streaming_wav_response
 from .route_utils import query_classifier_min_scores, valid_classifier_min_scores
 from .schemas import (
     FilteredTracksRequest,
@@ -18,10 +19,10 @@ from .schemas import (
     TrackDeleteResponse,
     TrackLikedRequest,
     TrackPageResponse,
+    TrackPreviewInfoResponse,
     TrackSummaryResponse,
 )
 from .state import AppDatabaseState
-from .media_preview import AudioPreviewError, requires_browser_preview_transcode, transcoded_wav_file_response
 from ..track_models import TrackIdentity
 
 
@@ -178,18 +179,31 @@ def register_library_routes(
     def library_summary():
         return state.require_db().library_summary()
 
-    @app.get("/media/{track_id}")
-    def media(track_id: int):
+    def media_path(track_id: int) -> Path:
         try:
             path = state.require_db().get_media_path(track_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        if not path.exists():
+        if not path.is_file():
             raise HTTPException(status_code=404, detail="Audio file is missing")
+        return path
+
+    @app.get("/api/tracks/{track_id}/preview-info", response_model=TrackPreviewInfoResponse)
+    def preview_info(track_id: int) -> TrackPreviewInfoResponse:
+        path = media_path(track_id)
         try:
-            if requires_browser_preview_transcode(path):
-                return transcoded_wav_file_response(path)
-            return FileResponse(path)
+            return TrackPreviewInfoResponse(duration_seconds=preview_duration_seconds(path))
+        except AudioPreviewError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.get("/media/{track_id}")
+    def media(
+        track_id: int,
+        start: float = Query(default=0.0, ge=0.0, allow_inf_nan=False),
+    ) -> StreamingResponse:
+        path = media_path(track_id)
+        try:
+            return streaming_wav_response(path, start=start)
         except AudioPreviewError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except OSError as error:

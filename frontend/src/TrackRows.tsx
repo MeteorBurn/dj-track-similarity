@@ -131,7 +131,7 @@ function PlaybackSeekControl({
         type="range"
         value={progress}
       />
-      <span>{formatPlaybackTime(currentTime)} / {formatPlaybackTime(duration)}</span>
+      <span>{formatPlaybackTime(currentTime)} / {duration > 0 ? formatPlaybackTime(duration) : "—"}</span>
     </div>
   );
 }

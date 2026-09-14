@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import struct
+import wave
 from contextlib import closing
 from dataclasses import fields
 from pathlib import Path
 
-from fastapi.responses import FileResponse
+import av
 import pytest
 from fastapi.testclient import TestClient
 
@@ -646,45 +648,47 @@ def test_reveal_track_file_uses_explorer_select_without_shell(
     assert calls == [(f'explorer.exe /select,"{source}"', False)]
 
 
-def test_media_endpoint_transcodes_aiff_without_modifying_source(
+def test_media_endpoint_streams_source_timeline_without_modifying_source(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
-    source = tmp_path / "preview.aiff"
+    source = tmp_path / "preview.wav"
     identity = _add_track(
         LibraryDatabase(db_path),
         source,
         artist="Artist",
         title="Preview",
     )
+    pcm = struct.pack("<hh", 1000, -1000) * 22_050
+    with wave.open(str(source), "wb") as audio:
+        audio.setnchannels(2)
+        audio.setsampwidth(2)
+        audio.setframerate(44_100)
+        audio.writeframes(pcm)
     source_bytes = source.read_bytes()
-    calls: list[Path] = []
-    preview = tmp_path / "preview.wav"
-    preview.write_bytes(b"RIFFbrowser-compatible-wav")
-
-    def fake_transcode(path: Path) -> FileResponse:
-        calls.append(path)
-        return FileResponse(preview, media_type="audio/wav")
-
-    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
-    monkeypatch.setattr(
-        "dj_track_similarity.api.routes_library.transcoded_wav_file_response",
-        fake_transcode,
-    )
-
-    response = TestClient(api_module.create_app(db_path)).get(
-        f"/media/{identity.track_id}"
-    )
+    monkeypatch.setattr(media_preview_module, "load_project_pyav", lambda: av)
+    client = _client(monkeypatch, db_path)
+    info_url = f"/api/tracks/{identity.track_id}/preview-info"
+    assert client.get(info_url).json() == {"duration_seconds": 0.5}
+    response = client.get(f"/media/{identity.track_id}?start=0.125", headers={"Range": "bytes=0-"})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")
-    assert response.content == b"RIFFbrowser-compatible-wav"
+    assert "content-length" not in response.headers
+    assert "accept-ranges" not in response.headers
+    assert response.content[:4] == b"RIFF"
+    assert response.content[44:] == pcm[round(0.125 * 44_100) * 4:]
     assert source.read_bytes() == source_bytes
-    assert calls == [source]
+    for start in (0.5, 1.0):
+        beyond_end = client.get(f"/media/{identity.track_id}?start={start}")
+        assert beyond_end.status_code == 422
+        assert "end of the audio" in beyond_end.json()["detail"]
+    monkeypatch.setattr("dj_track_similarity.api.routes_library.preview_duration_seconds", lambda _path: None)
+    assert client.get(info_url).json() == {"duration_seconds": None}
 
 
-def test_media_endpoint_reports_transcode_failure_without_traceback(
+def test_media_endpoint_rejects_undecodable_audio_and_invalid_start_without_traceback(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -696,21 +700,15 @@ def test_media_endpoint_reports_transcode_failure_without_traceback(
         title="Broken",
     )
 
-    def fail_transcode(_path: Path) -> FileResponse:
-        raise media_preview_module.AudioPreviewError("Audio preview failed: Invalid data found when processing input")
-
-    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: tmp_path)
-    monkeypatch.setattr(
-        "dj_track_similarity.api.routes_library.transcoded_wav_file_response",
-        fail_transcode,
-    )
-
-    response = TestClient(
-        api_module.create_app(db_path),
-        raise_server_exceptions=False,
-    ).get(f"/media/{identity.track_id}")
+    monkeypatch.setattr(media_preview_module, "load_project_pyav", lambda: av)
+    client = _client(monkeypatch, db_path)
+    response = client.get(f"/media/{identity.track_id}")
 
     assert response.status_code == 422
     assert "Audio preview failed" in response.json()["detail"]
-    assert "Invalid data found when processing input" in response.json()["detail"]
     assert "Traceback" not in response.text
+    assert client.get(f"/api/tracks/{identity.track_id}/preview-info").status_code == 422
+    for invalid_start in ("-1", "nan", "inf", "-inf"):
+        rejected = client.get(f"/media/{identity.track_id}?start={invalid_start}")
+        assert rejected.status_code == 422
+        assert rejected.json()["detail"][0]["loc"] == ["query", "start"]

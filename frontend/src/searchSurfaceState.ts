@@ -1,5 +1,5 @@
 export type PrimarySearchTab = "similarity" | "text" | "class" | "lab";
-export type SeedEmbeddingFamily = "maest" | "mert" | "muq" | "mulan";
+export type SeedEmbeddingFamily = "maest" | "mert" | "muq" | "mulan" | "clap";
 export type SeedSearchModel = "sonara" | SeedEmbeddingFamily;
 export type GenericSearchTab = "text" | SeedSearchModel;
 export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
@@ -11,7 +11,7 @@ export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "class"
 ];
 
-export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert", "muq", "mulan"];
+export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert", "muq", "mulan", "clap"];
 export const seedSearchModels: readonly SeedSearchModel[] = ["sonara", ...seedEmbeddingFamilies];
 
 export const seedSearchModelPresentation: Record<SeedSearchModel, { label: string; title: string; description: string }> = {
@@ -39,6 +39,11 @@ export const seedSearchModelPresentation: Record<SeedSearchModel, { label: strin
     label: "MuQ-MuLan",
     title: "MuQ-MuLan seed embedding search",
     description: "Сравнивает звучание через модель, связывающую музыку со словесными описаниями."
+  },
+  clap: {
+    label: "CLAP",
+    title: "CLAP seed embedding search",
+    description: "Сравнивает звучание через модель, связывающую аудио со словесными описаниями."
   }
 };
 

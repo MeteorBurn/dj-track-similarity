@@ -648,7 +648,7 @@ def test_reveal_track_file_uses_explorer_select_without_shell(
     assert calls == [(f'explorer.exe /select,"{source}"', False)]
 
 
-def test_media_endpoint_streams_source_timeline_without_modifying_source(
+def test_media_endpoint_streams_audio_with_binary_metadata_without_modifying_source(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -666,6 +666,10 @@ def test_media_endpoint_streams_source_timeline_without_modifying_source(
         audio.setsampwidth(2)
         audio.setframerate(44_100)
         audio.writeframes(pcm)
+    metadata = b"INFO" + struct.pack("<4sI", b"NITR", 8) + b"NTKB\xa7\xaa\x00\x00"
+    wave_bytes = bytearray(source.read_bytes() + struct.pack("<4sI", b"LIST", len(metadata)) + metadata)
+    struct.pack_into("<I", wave_bytes, 4, len(wave_bytes) - 8)
+    source.write_bytes(wave_bytes)
     source_bytes = source.read_bytes()
     monkeypatch.setattr(media_preview_module, "load_project_pyav", lambda: av)
     client = _client(monkeypatch, db_path)

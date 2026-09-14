@@ -62,7 +62,7 @@ def preview_duration_seconds(path: Path) -> float | None:
     """Read source duration without decoding the whole track."""
     try:
         av = load_project_pyav()
-        with av.open(str(path)) as container:
+        with av.open(str(path), metadata_errors="replace") as container:
             stream = _audio_stream(container)
             return _source_duration(container, stream)
     except (OSError, RuntimeError, ValueError) as error:
@@ -124,7 +124,7 @@ def _pcm_chunks(path: Path, *, start: float = 0.0) -> Generator[bytes, None, Non
     if not math.isfinite(start) or start < 0:
         raise AudioPreviewError("Preview start must be a finite nonnegative number")
     av = load_project_pyav()
-    with av.open(str(path), options={"err_detect": "ignore_err"}) as container:
+    with av.open(str(path), metadata_errors="replace", options={"err_detect": "ignore_err"}) as container:
         stream = _audio_stream(container)
         duration = _source_duration(container, stream)
         if duration is not None and start >= duration:

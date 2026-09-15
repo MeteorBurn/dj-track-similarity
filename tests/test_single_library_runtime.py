@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import closing
+from dataclasses import fields
 from pathlib import Path
 import sqlite3
 import sys
@@ -9,20 +10,26 @@ import sys
 import numpy as np
 import pytest
 
+from dj_track_similarity.analysis.sonara_features import analysis_outputs_for_sonara_runtime
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
+    MAEST_EMBEDDING_DIM,
     EmbeddingOutput,
     EmbeddingWrite,
+    MaestGenreScore,
+    MaestWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.analysis_candidates import collect_analysis_candidates
+from dj_track_similarity.db.ddl import SonaraRow
 from dj_track_similarity.db.embeddings import (
     read_valid_embeddings,
     write_valid_embedding_in_transaction,
 )
 from dj_track_similarity.scanner import scan_library
 from dj_track_similarity.track_models import TrackIdentity
+from sonara_test_support import complete_sonara_write
 
 
 def _write_embedding(
@@ -448,7 +455,7 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
                     )
 
 
-def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> None:
+def test_stored_embedding_sonara_and_maest_readiness_does_not_read_payload(tmp_path: Path) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
     with closing(database.connect()) as connection, connection:
         track_id = int(
@@ -487,16 +494,52 @@ def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> Non
         EmbeddingOutput("mert_v2", vector, "now", (vector,) * 24),
     ),))
     assert result[0].ok
+    sonara_values = {field.name: None for field in fields(SonaraRow)}
+    sonara_values.update(
+        track_id=track_id,
+        analysis_schema_version=6,
+        analyzed_at="2026-08-12T00:00:00.000000Z",
+        mfcc_mean_blob=np.zeros(13, dtype="<f4").tobytes(),
+        chroma_mean_blob=np.zeros(12, dtype="<f4").tobytes(),
+        spectral_contrast_mean_blob=np.zeros(7, dtype="<f4").tobytes(),
+    )
+    sonara = database.save_sonara_results((complete_sonara_write(
+        AnalysisTarget(target.catalog_uuid, target.track_id, target.track_uuid),
+        SonaraRow(**sonara_values),
+    ),))
+    assert sonara[0].ok, sonara[0].error
+    maest_vector = np.zeros(MAEST_EMBEDDING_DIM, dtype=np.float32)
+    maest_vector[0] = 1.0
+    maest = database.save_maest_results((MaestWrite(
+        AnalysisTarget(target.catalog_uuid, target.track_id, target.track_uuid),
+        genres=(MaestGenreScore("Electronic---House", 0.8),),
+        syncopated_rhythm=False,
+        analyzed_at="2026-08-12T00:00:00.000000Z",
+        embedding=EmbeddingOutput("maest", maest_vector, "2026-08-12T00:00:00.000000Z"),
+    ),))
+    assert maest[0].ok, maest[0].error
+    payload_tables = {
+        "sonara_features",
+        "sonara_fingerprints",
+        "sonara_timeline",
+        "sonara_embeddings",
+        "maest_genres",
+    }
 
     with closing(database.connect()) as connection:
         def authorizer(
             action: int,
-            _arg1: str | None,
-            arg2: str | None,
+            table: str | None,
+            column: str | None,
             _database_name: str | None,
             _trigger_name: str | None,
         ) -> int:
-            if action == sqlite3.SQLITE_READ and arg2 == "embedding_blob":
+            # Readiness reads the track identity of a stored row, never its payload.
+            # SQLite reports the rowid behind an INTEGER PRIMARY KEY as "".
+            if action == sqlite3.SQLITE_READ and (
+                column == "embedding_blob"
+                or (table in payload_tables and column not in {"track_id", "track_uuid", ""})
+            ):
                 return sqlite3.SQLITE_DENY
             return sqlite3.SQLITE_OK
 
@@ -504,7 +547,13 @@ def test_stored_embedding_readiness_does_not_read_payload(tmp_path: Path) -> Non
         candidates = collect_analysis_candidates(
             connection=connection,
             catalog_uuid=database.catalog_uuid,
-            outputs=(AnalysisOutput("mert", "embedding"), AnalysisOutput("mert_v2", "embedding")),
+            outputs=(
+                AnalysisOutput("mert", "embedding"),
+                AnalysisOutput("mert_v2", "embedding"),
+                *analysis_outputs_for_sonara_runtime(),
+                AnalysisOutput("maest", "analysis"),
+                AnalysisOutput("maest", "embedding"),
+            ),
             limit=None,
         )
 

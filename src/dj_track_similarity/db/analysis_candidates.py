@@ -9,12 +9,9 @@ from ..analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
-    FingerprintOutput,
 )
 from .embeddings import EmbeddingTrackIdentity
 from .mert_v2_layers import require_mert_v2_layers
-from ..maest_analysis_validation import MAEST_ANALYSIS_COLUMNS, validate_maest_analysis_row
-from .sonara_core_validation import SONARA_CORE_COLUMNS, validate_sonara_core_row
 
 
 _TABLE_BY_OUTPUT = {
@@ -128,8 +125,9 @@ def current_sonara_target_keys(
     catalog_uuid: str,
 ) -> set[tuple[int, str]]:
     return set(
-        _valid_sonara_rows(
+        _current_track_rows(
             connection,
+            table="sonara_features",
             current_tracks=_current_tracks(connection, catalog_uuid=catalog_uuid),
         )
     )
@@ -145,25 +143,23 @@ def ready_target_keys_by_output(
     current_tracks = _current_tracks(connection, catalog_uuid=catalog_uuid)
     ready: dict[tuple[str, str], set[tuple[int, str]]] = {}
     for output in normalized:
-        if output.key == ("sonara", "core"):
-            rows = _valid_sonara_rows(connection, current_tracks=current_tracks)
-        elif output.key == ("sonara", "fingerprint"):
-            rows = _valid_sonara_fingerprint_rows(
+        # Like embeddings, SONARA and MAEST readiness is the stored row of the
+        # current track: the writer validated the payload, and checking every
+        # stored row per status request or job start would dominate large libraries.
+        if output.key in {("sonara", "core"), ("maest", "analysis")}:
+            rows = _current_track_rows(
                 connection,
+                table=_TABLE_BY_OUTPUT[output.key],
                 current_tracks=current_tracks,
             )
-        elif output.key == ("sonara", "timeline"):
-            # Like embeddings, readiness is the identity-bound row: the writer
-            # validated the payload, and parsing every timeline per status
-            # request would dominate large libraries.
-            require_sonara_timeline(connection)
+        elif output.key in {("sonara", "fingerprint"), ("sonara", "timeline")}:
+            if output.key == ("sonara", "timeline"):
+                require_sonara_timeline(connection)
             rows = _valid_embedding_rows(
                 connection,
-                table="sonara_timeline",
+                table=_TABLE_BY_OUTPUT[output.key],
                 current_tracks=current_tracks,
             )
-        elif output.key == ("maest", "analysis"):
-            rows = _valid_maest_rows(connection, current_tracks=current_tracks)
         elif output.output_kind == "embedding":
             table = table_for_output(output)
             if table is None:
@@ -199,77 +195,19 @@ def ready_target_keys_by_output(
     return ready
 
 
-def _valid_sonara_rows(
+def _current_track_rows(
     connection: sqlite3.Connection,
     *,
+    table: str,
     current_tracks: dict[int, EmbeddingTrackIdentity],
 ) -> tuple[tuple[int, str], ...]:
-    rows = connection.execute(
-        f"SELECT {', '.join(SONARA_CORE_COLUMNS)} FROM sonara_features"
-    ).fetchall()
-    valid: list[tuple[int, str]] = []
-    for row in rows:
-        expected = current_tracks.get(int(row["track_id"]))
-        if expected is None:
-            continue
-        is_valid, _reason = validate_sonara_core_row(
-            row,
-            expected_track_id=expected.track_id,
-        )
-        if is_valid:
-            valid.append((expected.track_id, expected.track_uuid))
-    return tuple(valid)
-
-
-def _valid_sonara_fingerprint_rows(
-    connection: sqlite3.Connection,
-    *,
-    current_tracks: dict[int, EmbeddingTrackIdentity],
-) -> tuple[tuple[int, str], ...]:
-    rows = connection.execute(
-        """
-        SELECT track_id, track_uuid, fingerprint_version, fingerprint_base64,
-               analyzed_at
-        FROM sonara_fingerprints
-        """
-    ).fetchall()
-    valid: list[tuple[int, str]] = []
-    for row in rows:
-        expected = current_tracks.get(int(row["track_id"]))
-        if expected is None or str(row["track_uuid"]) != expected.track_uuid:
-            continue
-        try:
-            FingerprintOutput(
-                value=row["fingerprint_base64"],
-                version=row["fingerprint_version"],
-                analyzed_at=row["analyzed_at"],
-            )
-        except (TypeError, ValueError):
-            continue
-        valid.append((expected.track_id, expected.track_uuid))
-    return tuple(valid)
-
-
-def _valid_maest_rows(
-    connection: sqlite3.Connection,
-    *,
-    current_tracks: dict[int, EmbeddingTrackIdentity],
-) -> tuple[tuple[int, str], ...]:
-    rows = connection.execute(
-        f"SELECT {', '.join(MAEST_ANALYSIS_COLUMNS)} FROM maest_genres"
-    ).fetchall()
-    valid: list[tuple[int, str]] = []
-    for row in rows:
-        expected = current_tracks.get(int(row["track_id"]))
-        if expected is None:
-            continue
-        is_valid, _reason = validate_maest_analysis_row(
-            row,
-            expected_track_id=expected.track_id,
-        )
-        if is_valid:
-            valid.append((expected.track_id, expected.track_uuid))
-    return tuple(valid)
+    # sonara_features and maest_genres have no track UUID: a row belongs to the
+    # track by track_id and is deleted together with it.
+    return tuple(
+        (expected.track_id, expected.track_uuid)
+        for (track_id,) in connection.execute(f"SELECT track_id FROM {table}")
+        if (expected := current_tracks.get(int(track_id))) is not None
+    )
 
 
 def _valid_embedding_rows(

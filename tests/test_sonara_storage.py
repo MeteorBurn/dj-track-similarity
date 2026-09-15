@@ -244,17 +244,6 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
     assert database.list_analysis_candidates(
         (AnalysisOutput("sonara", "fingerprint"),)
     ) == []
-    with closing(database.connect()) as connection, connection:
-        connection.execute(
-            "UPDATE sonara_fingerprints SET fingerprint_base64 = ? WHERE track_id = ?",
-            ("invalid base64", track_id),
-        )
-    candidates = database.list_analysis_candidates(
-        (AnalysisOutput("sonara", "fingerprint"),)
-    )
-    assert len(candidates) == 1
-    assert candidates[0].target == candidate.target
-    assert candidates[0].missing_outputs == (AnalysisOutput("sonara", "fingerprint"),)
 
 
 def test_repository_rolls_back_core_when_embedding_write_fails(

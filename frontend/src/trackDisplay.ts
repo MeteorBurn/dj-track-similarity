@@ -6,7 +6,6 @@ export function displayTrack(track: TrackSummary) {
 
 export function formatTrackFileInfo(track: TrackSummary | null) {
   const fields = [
-    ["File Size", track?.file_size_bytes == null ? "—" : `${(track.file_size_bytes / 1024 / 1024).toFixed(2)} MB`],
     ["Audio Format", track?.audio_format || "—"],
     ["Sample Rate", track?.sample_rate_hz == null ? "—" : `${track.sample_rate_hz / 1000} kHz`],
     ["Bit Rate", track?.bit_rate_bps == null ? "—" : `${Math.round(track.bit_rate_bps / 1000)} kbps`],

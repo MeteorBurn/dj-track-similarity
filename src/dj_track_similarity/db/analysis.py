@@ -549,27 +549,31 @@ class AnalysisRepository:
         require_current_sonara: bool = False,
     ) -> list[AnalysisCandidate]:
         normalized = normalize_analysis_outputs(outputs)
-        with self._write_lock:
-            with closing(self.connect()) as connection:
-                catalog_uuid = _catalog_uuid(connection)
-                return collect_analysis_candidates(
-                    connection=connection,
-                    catalog_uuid=catalog_uuid,
-                    outputs=normalized,
-                    limit=limit,
-                    require_current_sonara=require_current_sonara,
-                )
+        # Readiness validates every stored row, which takes seconds on a large
+        # library. It reads one snapshot instead of holding the write lock, so
+        # writers do not wait for it.
+        with closing(self.connect()) as connection:
+            connection.execute("BEGIN")
+            catalog_uuid = _catalog_uuid(connection)
+            return collect_analysis_candidates(
+                connection=connection,
+                catalog_uuid=catalog_uuid,
+                outputs=normalized,
+                limit=limit,
+                require_current_sonara=require_current_sonara,
+            )
 
     def current_sonara_track_count(self) -> int:
-        with self._write_lock:
-            with closing(self.connect()) as core_connection:
-                catalog_uuid = _catalog_uuid(core_connection)
-                return len(
-                    current_sonara_target_keys(
-                        core_connection,
-                        catalog_uuid=catalog_uuid,
-                    )
+        # One snapshot, not the write lock: see list_analysis_candidates.
+        with closing(self.connect()) as connection:
+            connection.execute("BEGIN")
+            catalog_uuid = _catalog_uuid(connection)
+            return len(
+                current_sonara_target_keys(
+                    connection,
+                    catalog_uuid=catalog_uuid,
                 )
+            )
 
     def save_sonara_results(
         self,

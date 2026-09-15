@@ -1152,8 +1152,9 @@ class AnalysisJobManager:
         if not isinstance(metrics, SonaraBatchMetrics):
             return
         source_mib = metrics.source_bytes / (1024 * 1024)
+        # Staged stage times add up parallel workers; the rate uses elapsed time.
         throughput = (
-            source_mib / metrics.analyze_seconds if metrics.analyze_seconds > 0 else 0.0
+            source_mib / metrics.wall_seconds if metrics.wall_seconds > 0 else 0.0
         )
         self._append_event(
             job_id,
@@ -1161,10 +1162,10 @@ class AnalysisJobManager:
             f"SONARA batch: {metrics.track_count} tracks · "
             f"staging {metrics.staged_track_count} · "
             f"copy {metrics.copy_seconds:.2f}s · "
-            f"analyze {metrics.analyze_seconds:.2f}s "
-            f"({throughput:.1f} MiB/s) · "
+            f"analyze {metrics.analyze_seconds:.2f}s · "
             f"prepare {metrics.prepare_seconds:.2f}s · "
-            f"store {metrics.store_seconds:.2f}s",
+            f"store {metrics.store_seconds:.2f}s · "
+            f"total {metrics.wall_seconds:.2f}s ({throughput:.1f} MiB/s)",
             model="sonara",
         )
 

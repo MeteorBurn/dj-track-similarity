@@ -76,10 +76,16 @@ class StagedSonaraResult:
     item: StagedSonaraCandidate
     analysis: dict[str, object] | None = None
     error: Exception | None = None
-    used_ffmpeg_fallback: bool = False
+    # A worker process has no log handlers, so it returns the FFmpeg fallback
+    # detail and the parent logs it.
+    ffmpeg_fallback_detail: str | None = None
     copy_seconds: float = 0.0
     analyze_seconds: float = 0.0
     store_seconds: float = 0.0
+
+    @property
+    def used_ffmpeg_fallback(self) -> bool:
+        return self.ffmpeg_fallback_detail is not None
 
     @property
     def candidate(self) -> AnalysisCandidate:
@@ -262,6 +268,12 @@ def analyze_and_store_staged_sonara(
                     except Exception as error:
                         results = tuple(StagedSonaraResult(item=item, error=error) for item in group)
                     for result in results:
+                        if result.ffmpeg_fallback_detail is not None:
+                            LOGGER.warning(
+                                "SONARA analysis recovered through FFmpeg PCM fallback path=%s %s",
+                                result.candidate.file_path,
+                                result.ffmpeg_fallback_detail,
+                            )
                         store_started = time.perf_counter()
                         try:
                             if result.error is None:
@@ -273,7 +285,7 @@ def analyze_and_store_staged_sonara(
                             result = StagedSonaraResult(
                                 item=result.item,
                                 error=error,
-                                used_ffmpeg_fallback=result.used_ffmpeg_fallback,
+                                ffmpeg_fallback_detail=result.ffmpeg_fallback_detail,
                                 copy_seconds=result.copy_seconds,
                                 analyze_seconds=result.analyze_seconds,
                             )
@@ -330,11 +342,13 @@ def analyze_staged_sonara_group(
     )
     if len(raw_results) != len(staged):
         raise RuntimeError("SONARA staged worker result count mismatch")
-    elapsed = time.perf_counter() - started
+    batch_seconds = time.perf_counter() - started
     results: list[StagedSonaraResult] = []
     for item, raw_result in zip(staged, raw_results):
+        # A fallback decode and analysis count toward this track's analysis time.
+        item_started = time.perf_counter()
         try:
-            analysis, used_ffmpeg_fallback = _analysis_mapping_with_ffmpeg_fallback(
+            analysis, fallback_detail = _analysis_mapping_with_ffmpeg_fallback(
                 sonara,
                 item.candidate,
                 raw_result,
@@ -342,17 +356,25 @@ def analyze_staged_sonara_group(
                 bpm_min=bpm_min,
                 bpm_max=bpm_max,
             )
+        except Exception as error:
             results.append(
                 StagedSonaraResult(
                     item=item,
-                    analysis=analysis,
-                    used_ffmpeg_fallback=used_ffmpeg_fallback,
+                    error=error,
                     copy_seconds=item.copy_seconds,
-                    analyze_seconds=elapsed / len(staged),
+                    analyze_seconds=batch_seconds / len(staged) + time.perf_counter() - item_started,
                 )
             )
-        except Exception as error:
-            results.append(StagedSonaraResult(item=item, error=error, copy_seconds=item.copy_seconds, analyze_seconds=elapsed / len(staged)))
+            continue
+        results.append(
+            StagedSonaraResult(
+                item=item,
+                analysis=analysis,
+                ffmpeg_fallback_detail=fallback_detail,
+                copy_seconds=item.copy_seconds,
+                analyze_seconds=batch_seconds / len(staged) + time.perf_counter() - item_started,
+            )
+        )
     return tuple(results)
 
 

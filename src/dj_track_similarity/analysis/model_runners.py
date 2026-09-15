@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
@@ -185,6 +186,7 @@ class SonaraModelRunner:
             )
         else:
             self.incremental_results_emitted = True
+            staged_started = time.perf_counter()
             staged_results = analyze_and_store_staged_sonara(
                 repository,
                 candidates,
@@ -213,6 +215,7 @@ class SonaraModelRunner:
                 analyze_seconds=sum(result.analyze_seconds for result in staged_results),
                 prepare_seconds=0.0,
                 store_seconds=sum(result.store_seconds for result in staged_results),
+                wall_seconds=time.perf_counter() - staged_started,
                 copy_seconds=sum(result.copy_seconds for result in staged_results),
                 staged_track_count=len(staged_results),
                 ffmpeg_fallback_count=sum(

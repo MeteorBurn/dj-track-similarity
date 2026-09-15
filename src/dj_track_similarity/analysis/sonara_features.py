@@ -63,6 +63,9 @@ class SonaraBatchMetrics:
     analyze_seconds: float
     prepare_seconds: float
     store_seconds: float
+    # Elapsed time of the whole batch. A staged run sums its stage times over
+    # parallel workers, so only this gives the batch rate.
+    wall_seconds: float
     copy_seconds: float = 0.0
     staged_track_count: int = 0
     ffmpeg_fallback_count: int = 0
@@ -132,15 +135,20 @@ def analyze_and_store_sonara_batch(
     fallback_track_ids: set[int] = set()
     for candidate, raw_result in zip(selected_candidates, raw_results):
         try:
-            analysis, used_ffmpeg_fallback = _analysis_mapping_with_ffmpeg_fallback(
+            analysis, fallback_detail = _analysis_mapping_with_ffmpeg_fallback(
                 sonara,
                 candidate,
                 raw_result,
                 bpm_min=bpm_min,
                 bpm_max=bpm_max,
             )
-            if used_ffmpeg_fallback:
+            if fallback_detail is not None:
                 fallback_track_ids.add(candidate.target.track_id)
+                LOGGER.warning(
+                    "SONARA analysis recovered through FFmpeg PCM fallback path=%s %s",
+                    candidate.file_path,
+                    fallback_detail,
+                )
             prepared.append(
                 prepare_sonara_write(
                     candidate,
@@ -196,6 +204,7 @@ def analyze_and_store_sonara_batch(
                 analyze_seconds=analyze_seconds,
                 prepare_seconds=prepare_seconds,
                 store_seconds=store_seconds,
+                wall_seconds=time.perf_counter() - analyze_started,
             )
         )
     return stored
@@ -209,10 +218,15 @@ def _analysis_mapping_with_ffmpeg_fallback(
     decode_path: str | None = None,
     bpm_min: float = DEFAULT_SONARA_BPM_MIN,
     bpm_max: float = DEFAULT_SONARA_BPM_MAX,
-) -> tuple[dict[str, object], bool]:
+) -> tuple[dict[str, object], str | None]:
+    """Map one native result, recovering a decode failure through FFmpeg PCM.
+
+    After a recovery it also returns the detail for the caller to log: a
+    staging worker process has no log handlers of its own.
+    """
     native_error: RuntimeError
     try:
-        return _analysis_mapping(raw_result), False
+        return _analysis_mapping(raw_result), None
     except RuntimeError as error:
         message = str(error).lower()
         if not (
@@ -256,18 +270,11 @@ def _analysis_mapping_with_ffmpeg_fallback(
             f"native={native_error}; fallback={fallback_error}"
         ) from fallback_error
 
-    LOGGER.warning(
-        "SONARA analysis recovered through FFmpeg PCM fallback path=%s "
-        "source_sample_rate=%s target_sample_rate=%s pcm_samples=%s "
-        "decode_detail=%s native_error=%s",
-        candidate.file_path,
-        source_sample_rate,
-        SONARA_SAMPLE_RATE,
-        audio.size,
-        decode_detail,
-        native_error,
+    return analysis, (
+        f"source_sample_rate={source_sample_rate} "
+        f"target_sample_rate={SONARA_SAMPLE_RATE} pcm_samples={audio.size} "
+        f"decode_detail={decode_detail} native_error={native_error}"
     )
-    return analysis, True
 
 
 def _analysis_mapping(raw_result: object) -> dict[str, object]:

@@ -21,7 +21,6 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.analysis.sonara_staging import (
     SonaraStagingConfig,
     SonaraStagingSession,
-    StagedSonaraCandidate,
     StagedSonaraResult,
     analyze_and_store_staged_sonara,
     analyze_staged_sonara_group,
@@ -94,23 +93,15 @@ def test_staging_session_cleans_all_copies_when_copy_fails(
     assert not any(staging_root.iterdir())
 
 
-def test_staged_ffmpeg_fallback_decodes_copy_but_logs_source_identity(
+def test_staged_ffmpeg_fallback_decodes_copy_and_the_parent_logs_source_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     source = tmp_path / "hdd" / "track.flac"
-    staged_path = tmp_path / "ssd" / "staged-track.flac"
     source.parent.mkdir()
-    staged_path.parent.mkdir()
     source.write_bytes(b"source")
-    staged_path.write_bytes(b"copy")
     candidate = _candidate(9, source)
-    staged = StagedSonaraCandidate(
-        candidate=candidate,
-        source_path=source,
-        path=staged_path,
-    )
     native_paths: list[str] = []
     ffmpeg_paths: list[Path] = []
 
@@ -144,14 +135,24 @@ def test_staged_ffmpeg_fallback_decodes_copy_but_logs_source_identity(
         decode_copy,
     )
 
-    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.analysis.sonara_features"):
-        results = analyze_staged_sonara_group((staged,))
+    with caplog.at_level(logging.WARNING):
+        results = analyze_and_store_staged_sonara(
+            object(),
+            (candidate,),
+            config=SonaraStagingConfig(root=tmp_path / "ssd"),
+            analyze_group=analyze_staged_sonara_group,
+            prepare_write=lambda _candidate, analysis: analysis,
+            store_write=lambda _repository, _write: None,
+        )
 
-    assert native_paths == [str(staged_path)]
+    staged_path = Path(native_paths[0])
+    assert staged_path.parent.parent == tmp_path / "ssd"
     assert ffmpeg_paths == [staged_path]
     assert results[0].candidate is candidate
     assert results[0].error is None
-    assert results[0].used_ffmpeg_fallback
+    # A staging worker process has no log handlers: the detail travels back in
+    # its result, and the parent logs it under the source path.
+    assert "unsupported codec" in str(results[0].ffmpeg_fallback_detail)
     assert f"path={source}" in caplog.text
     assert f"path={staged_path}" not in caplog.text
 

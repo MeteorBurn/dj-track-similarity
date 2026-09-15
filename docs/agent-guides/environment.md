@@ -71,11 +71,16 @@ Examples below are selected by task, not run as a batch. Local mode uses backend
 LAN exposure must be requested. Confirm the database before using `--db`.
 Start project servers only through `run_server.cmd` in a visible interactive
 window so the user can see and stop them. Do not launch hidden direct `dj-sim`,
-Uvicorn or Vite processes.
+Uvicorn or Vite processes. While the main server runs, start Rhythm Lab only
+through it (Rhythm Lab button or `POST /api/rhythm-lab/launch`); it runs as the
+server's managed child in the same window. Without the main server, use
+`run_rhythm-lab.cmd` in a visible window, which hands off to a running main
+server itself. Never run `rhythm_lab_cli.py serve` directly.
 
 ```powershell
 .\run_server.cmd --help
 .\run_server.cmd                         # interactive database and mode selection
+.\run_rhythm-lab.cmd                     # via the running main server, else standalone
 .\run_server.cmd local --db 'C:\path\selected.sqlite'
 & .\.venv\Scripts\python.exe -c 'import sys, sqlite3; print(sys.executable); print(sys.version); print(sqlite3.sqlite_version)'
 & .\.venv\Scripts\python.exe -c 'from dj_track_similarity.audio.ffmpeg_runtime import inspect_audio_runtime; print(inspect_audio_runtime())'

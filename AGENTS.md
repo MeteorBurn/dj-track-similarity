@@ -76,7 +76,12 @@ work unverified rather than inventing its instructions.
   never migrated automatically.
 - Start project servers only through `run_server.cmd` in a visible interactive
   window, after checking existing listeners/processes and the selected database.
-  Do not launch hidden direct `dj-sim`, Uvicorn or Vite processes.
+  Do not launch hidden direct `dj-sim`, Uvicorn or Vite processes. While the
+  main server runs, Rhythm Lab starts only through it (its Rhythm Lab button or
+  `POST /api/rhythm-lab/launch`) as a managed child in that server's window.
+  Without the main server, start it with `run_rhythm-lab.cmd` in a visible
+  window; the script hands off to a running main server itself. Never start
+  `rhythm_lab_cli.py serve` directly.
 
 ## Strict Simplicity & Anti-Bloat Guidelines
 

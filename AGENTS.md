@@ -51,7 +51,11 @@ work unverified rather than inventing its instructions.
 - For development and server startup, use `database/test.sqlite` relative to
   the repository root unless another database is explicitly specified.
   This is the user-confirmed default; do not ask for
-  database-selection confirmation again when using it.
+  database-selection confirmation again when using it. Pass it explicitly:
+  tool defaults are not the dev database (`run_server.cmd` prompt:
+  `database\volumes.sqlite`; Audio Dedup `--db`: `database/volumes.sqlite`;
+  Rhythm Lab CLI data-command `--source` and `collection-save --source-db`:
+  `C:\db\abstracted.sqlite`; `serve --source` has no default).
   For other database access, identify an explicitly named or already confirmed
   database. Never infer the active library from launcher defaults, filenames,
   timestamps, or a previous session. Ask only if the target remains unknown.
@@ -59,6 +63,17 @@ work unverified rather than inventing its instructions.
   evidence separate and production logic in its owning layer; a request for one
   layer does not authorize extending another. Do not expand, redesign or remove
   Model Listening Lab without a new request.
+- SONARA and ML never share a run on any entry point: a pipeline job has one
+  `stage` (`sonara` or `ml`), `dj-sim analyze --models` takes `sonara` alone or
+  ML models only, and a job rejects the other layer's settings (SONARA BPM
+  range, ML staged mode). ML refuses to start without any current SONARA track
+  and skips tracks lacking it. A SONARA write needs all four outputs and stores
+  them together: core, timeline, embedding, fingerprint. Readiness is a stored
+  current-track row, not a payload check; payloads are validated on write
+  (SONARA Core also on read), and `dj-sim validate-database` checks SONARA Core,
+  embedding and fingerprint rows but not timeline rows.
+  A library without the `sonara_timeline` table gets an explicit error and is
+  never migrated automatically.
 - Start project servers only through `run_server.cmd` in a visible interactive
   window, after checking existing listeners/processes and the selected database.
   Do not launch hidden direct `dj-sim`, Uvicorn or Vite processes.
@@ -96,14 +111,19 @@ work unverified rather than inventing its instructions.
 - Treat source audio as user data. Scan, preview, analysis, search, reset,
   relocation preview, export, classifier scoring, and routine verification
   must not modify it.
-- Normal tag writing is explicit and genre-only. Browser preview transcoding
-  uses temporary output and must not rewrite or cache the source audio.
+- Normal tag writing is explicit and genre-only. Browser preview decodes to a
+  streamed WAV (`Cache-Control: no-store`) or, in Rhythm Lab, a temporary WAV
+  file; it must not rewrite or cache the source audio.
 - Use `LibraryDatabase` for the main application's library reads and writes;
   explicit read-only inspection follows [SQLITE TOOLKIT](docs/agent-guides/sqlite-toolkit.md#sqlite-toolkit). Preserve WAL,
   busy-timeout and per-database locking on application write connections.
   Rhythm Lab keeps its existing `SourceDatabase` boundary: query-only library
-  reads and the explicit liked-track toggle with its shared write-lock and
-  ID/UUID checks. Its other state remains separate from the source library.
+  reads, a read-only `ATTACH` that syncs `track_sightings` into the lab
+  database, and the explicit liked-track toggle with its shared write-lock and
+  ID/UUID checks. It switches libraries at runtime: the launcher's catalog pin
+  covers only the first open, a switch is refused while a profile operation
+  runs, and the main app verifies the catalog a managed lab returns after a
+  switch. Its other state remains separate from the source library.
   This exception does not authorize additional direct library writes.
   Real-database destructive work requires a backup or disposable copy plus
   integrity and orphan checks.
@@ -117,11 +137,25 @@ work unverified rather than inventing its instructions.
   introduce data rewrites, schema or model/adapter revision bumps, or requirements
   to reanalyze, rescore or retrain merely because source paths or in-memory
   ownership changed.
+- Rhythm Lab labels, predictions, the label queue and review collections are
+  keyed by `content_key` = `"sfp<version>:" + sha256("sfp:<version>:" +
+  SONARA fingerprint bytes)`, so fingerprint bytes and version are preserved
+  identities. Rhythm Lab `migrate-content-identity` is the explicit re-key
+  (dry-run unless `--apply`, which backs up the lab database first). A
+  fingerprint version change blocks sighting sync; `--rekey` is reserved and
+  not implemented.
 - Keep launcher subprocess arguments list-based with `shell=False`. Local mode
   binds `127.0.0.1`; LAN exposure must be explicit.
-- Audio Doctor is dry-run-first, confirmation-gated, backup-first, verified,
-  and rollback-capable. Audio Dedup is report-first and deletes only confirmed,
-  qualified targets inside the selected root. Never run apply modes for QA.
+- Audio Doctor is dry-run unless `--apply`; there is no interactive prompt.
+  Apply makes a full-file backup, verifies the written file and restores the
+  backup on failure; it deletes the backup after a verified write or a
+  successful restore (a failed restore keeps it). `--no-backup` (rejected with
+  `--backup-dir` under `--apply`) drops both backup and rollback. Audio Dedup
+  is report-first; deletion needs `APPLY DELETE`, stays inside the report root,
+  rechecks track identity and file facts, and keeps at least one copy on disk
+  per group. The CLI permanently deletes only safe candidates; the browser
+  deletes reviewer-selected copies (any group member, recycle bin by default).
+  Never run apply modes for QA.
 - Classifier scoring is database-only, scoped by classifier key, and must
   validate promoted manifest feature order and artifact hashes.
 - Automated model/audio/database tests use temporary SQLite/WAV fixtures and

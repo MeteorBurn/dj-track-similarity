@@ -46,16 +46,15 @@ function trackWord(count: number) {
 }
 
 export function describeAnalysisStart(
-  order: readonly AnalysisPipelineStage[],
+  stage: AnalysisPipelineStage,
   mlModels: readonly AnalysisModel[],
   limit?: number
 ) {
-  const stages = order.map((stage) => {
-    if (stage === "sonara") return "SONARA";
-    if (stage === "classifiers") return "классификаторы";
-    if (!mlModels.length) return "ML-модели";
-    return `модели ${mlModels.map((model) => analysisModelLabels[model]).join(", ")}`;
-  });
+  const label = stage === "sonara"
+    ? "SONARA"
+    : mlModels.length
+      ? `модели ${mlModels.map((model) => analysisModelLabels[model]).join(", ")}`
+      : "ML-модели";
   const scope = limit && limit > 0 ? `${limit} ${trackWord(limit)}` : "вся библиотека";
-  return `Анализ запущен: ${stages.join(", затем ")} · ${scope}`;
+  return `Анализ запущен: ${label} · ${scope}`;
 }

@@ -970,7 +970,7 @@ export function App() {
       (job) => {
         setAnalysisPipelineJob(job);
         appendActivity("ok", "Анализ поставлен в очередь", settings.join(" | "));
-        return describeAnalysisStart(job.order, mlModels, limit);
+        return describeAnalysisStart(stage, mlModels, limit);
       }
     );
   }

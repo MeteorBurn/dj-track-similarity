@@ -1,6 +1,6 @@
 export type EmbeddingSource = "mert" | "mert_v2" | "maest" | "muq" | "mulan" | "clap";
 export type AnalysisModel = "sonara" | EmbeddingSource;
-export type AnalysisPipelineStage = "sonara" | "ml" | "classifiers";
+export type AnalysisPipelineStage = "sonara" | "ml";
 export type AnalysisCoverage = {
   sonara_core: boolean;
   maest_analysis: boolean;

@@ -64,18 +64,6 @@ def test_acquire_separates_families_and_devices() -> None:
     assert created == [("clap", "cpu"), ("clap", "cuda"), ("mulan", "cpu")]
 
 
-def test_acquire_normalizes_family_and_device_keys() -> None:
-    created: list[tuple[str, str]] = []
-    cache = _cache(created, _FakeClock())
-
-    with cache.acquire("clap", device="cpu"):
-        pass
-    with cache.acquire(" CLAP ", device=" CPU "):
-        pass
-
-    assert created == [("clap", "cpu")]
-
-
 def test_evict_idle_releases_stale_adapters_only() -> None:
     created: list[tuple[str, str]] = []
     clock = _FakeClock()

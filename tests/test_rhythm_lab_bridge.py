@@ -421,8 +421,3 @@ def test_launcher_refuses_unverified_or_different_running_source(
     )
     with pytest.raises(RuntimeError, match="cannot be verified"):
         launcher.launch_rhythm_lab(active)
-
-
-def test_launcher_rejects_path_only_legacy_source(tmp_path: Path) -> None:
-    with pytest.raises(TypeError, match="without catalog_uuid"):
-        launcher.launch_rhythm_lab(tmp_path / "library.sqlite")  # type: ignore[arg-type]

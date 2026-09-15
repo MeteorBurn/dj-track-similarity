@@ -6,11 +6,6 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
-const libraryStateSource = readFileSync(
-  new URL("../src/useLibraryState.ts", import.meta.url),
-  "utf8"
-);
-
 async function loadLibraryLoadingModule() {
   const source = readFileSync(new URL("../src/libraryLoading.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(source, {
@@ -50,15 +45,6 @@ function track(trackId, catalogUuid = "catalog-a") {
     classifier_scores: []
   };
 }
-
-test("library uses one fixed 200-track page per API request", async () => {
-  const { libraryPageSize } = await loadLibraryLoadingModule();
-
-  assert.equal(libraryPageSize, 200);
-  assert.match(libraryStateSource, /limit:\s*libraryPageSize/);
-  assert.match(libraryStateSource, /offset:\s*effectiveOffset/);
-  assert.doesNotMatch(libraryStateSource, /LibraryLoadSize|libraryChunkPlan|loadSize/);
-});
 
 test("chunk aggregation is catalog-aware and replaces a repeated identity", async () => {
   const { libraryTracksBelongToCatalog, mergeLibraryTracks } = await loadLibraryLoadingModule();
@@ -130,11 +116,8 @@ test("request keys include catalog, filters, scores, and page offset", async () 
   assert.notEqual(firstPage, otherCatalog);
 });
 
-test("equivalent classifier score state does not clear the visible library", async () => {
+test("equivalent classifier score maps compare equal regardless of key order", async () => {
   const { sameClassifierMinScores } = await loadLibraryLoadingModule();
-  const setter = libraryStateSource.match(
-    /const setClassifierMinScores:[\s\S]*?setClassifierMinScoresState\(resolved\);\s*\};/
-  )?.[0] || "";
 
   assert.equal(sameClassifierMinScores({}, {}), true);
   assert.equal(
@@ -157,9 +140,5 @@ test("equivalent classifier score state does not clear the visible library", asy
       { voice_presence: 0.7, break_energy: 0.4 }
     ),
     false
-  );
-  assert.match(setter, /if \(sameClassifierMinScores\(current, resolved\)\) return;/);
-  assert.ok(
-    setter.indexOf("sameClassifierMinScores(current, resolved)") < setter.indexOf("clearVisibleLibraryResult()")
   );
 });

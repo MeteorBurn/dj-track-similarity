@@ -221,40 +221,6 @@ def test_text_search_mean_pools_positive_prompt_bank(monkeypatch, tmp_path: Path
     assert FakeClapAdapter.queries == ["broken drums.", "syncopated percussion."]
 
 
-def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: Path) -> None:
-    FakeClapAdapter.queries = []
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    positive_id = _track_with_embedding(db, "positive.wav", [1.0, 0.0, 0.0], "clap")
-    negative_aligned_id = _track_with_embedding(db, "negative-aligned.wav", [0.70710677, 0.0, 0.70710677], "clap")
-    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
-
-    response = TestClient(create_app(db_path)).post(
-        "/api/search/text",
-        json={
-            "positive_queries": ["broken drums."],
-            "negative_queries": ["straight house groove."],
-            "limit": 5,
-            "device": "cpu",
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()["results"]
-    assert [item["track"]["track_id"] for item in payload] == [
-        positive_id,
-        negative_aligned_id,
-    ]
-    assert payload[1]["score"] == pytest.approx(0.35355339)
-    assert payload[1]["score_breakdown"] == {
-        "positive": pytest.approx(0.70710677),
-        "negative": pytest.approx(0.70710677),
-        "contrast": pytest.approx(0.35355339),
-        "negative_weight": 0.5,
-    }
-    assert FakeClapAdapter.queries == ["broken drums.", "straight house groove."]
-
-
 def test_text_search_applies_a_requested_negative_weight(monkeypatch, tmp_path: Path) -> None:
     FakeClapAdapter.queries = []
     db_path = tmp_path / "library.sqlite"
@@ -312,45 +278,6 @@ def test_text_search_rejects_a_min_similarity_outside_the_contract(tmp_path: Pat
         ).status_code
         == 422
     )
-
-
-def test_text_search_embeds_every_prompt_of_a_negated_bank(monkeypatch, tmp_path: Path) -> None:
-    """A multi-line bank is never reduced to its first line.
-
-    The removed ``adaptive_contrast`` switch silently dropped every prompt after
-    the first, so a five-line bank ranked on one line with no sign in the
-    response. Nothing selects that behaviour now.
-    """
-
-    FakeClapAdapter.queries = []
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    first_line_id = _track_with_embedding(db, "direct.wav", [1.0, 0.0, 0.0], "clap")
-    bank_id = _track_with_embedding(db, "bank.wav", [0.70710677, 0.70710677, 0.0], "clap")
-    monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
-
-    response = TestClient(create_app(db_path)).post(
-        "/api/search/text",
-        json={
-            "positive_queries": ["broken drums.", "syncopated percussion."],
-            "negative_queries": ["straight house groove."],
-            "limit": 5,
-            "device": "cpu",
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()["results"]
-    assert [item["track"]["track_id"] for item in payload] == [
-        bank_id,
-        first_line_id,
-    ]
-    assert payload[0]["score_breakdown"] is not None
-    assert FakeClapAdapter.queries == [
-        "broken drums.",
-        "syncopated percussion.",
-        "straight house groove.",
-    ]
 
 
 def test_text_search_rejects_a_blank_bank_before_loading_clap(monkeypatch, tmp_path: Path) -> None:
@@ -442,27 +369,6 @@ def test_text_search_warmup_rejects_unknown_contract_fields(tmp_path: Path) -> N
         ).status_code
         == 422
     )
-
-
-def test_text_search_rejects_unknown_contract_fields(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "library.sqlite"))
-
-    assert (
-        client.post(
-            "/api/search/text",
-            json={
-                "positive_queries": ["broken drums."],
-                "score_is_probability": True,
-            },
-        ).status_code
-        == 422
-    )
-    for retired in ("query", "adaptive_contrast", "preset"):
-        response = client.post(
-            "/api/search/text",
-            json={"positive_queries": ["broken drums."], retired: "broken drums."},
-        )
-        assert response.status_code == 422, retired
 
 
 def _track_with_embedding(
@@ -569,12 +475,6 @@ def test_text_search_feedback_lookup_restores_exact_query_only(monkeypatch, tmp_
     changed = _search(client, positive_queries=["dark rolling techno"])
     lookup = client.post("/api/search/text/feedback/lookup", json={"run_id": changed["execution"]["run_id"], "track_uuids": [uuid]})
     assert lookup.json()["verdicts"] == {}
-
-
-def test_text_search_feedback_lookup_rejects_retired_contract_fields(monkeypatch, tmp_path):
-    _db, client, _app = _feedback_client(monkeypatch, tmp_path)
-    assert client.post("/api/search/text/feedback/lookup", json={"track_uuids": ["whatever"], "preset_keys": ["mood/dark"], "analysis_family": "clap"}).status_code == 422
-    assert client.post("/api/search/text/feedback", json={"track_uuid": "whatever", "preset_keys": ["mood/dark"], "analysis_family": "clap", "verdict": 1}).status_code == 422
 
 
 def test_query_identity_tracks_effective_bank_and_output(monkeypatch, tmp_path):

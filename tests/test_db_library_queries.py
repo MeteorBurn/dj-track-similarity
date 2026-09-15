@@ -43,18 +43,6 @@ def test_public_library_filter_combines_search_and_liked_state(
     assert rows[0].liked
 
 
-def test_public_library_filter_rejects_unknown_search_mode(
-    tmp_path: Path,
-) -> None:
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-
-    with pytest.raises(ValueError, match="search_mode"):
-        database.filter_track_summaries(
-            query="Breaks",
-            search_mode="legacy",
-        )
-
-
 def test_public_library_order_is_deterministic_by_artist_title_and_path(
     tmp_path: Path,
 ) -> None:

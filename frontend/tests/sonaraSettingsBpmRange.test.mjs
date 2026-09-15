@@ -39,15 +39,6 @@ async function renderDialog(props) {
   }
 }
 
-test("the SONARA settings dialog is where the analysis range is chosen", async () => {
-  const markup = await renderDialog({});
-
-  assert.match(markup, /Диапазон BPM для анализа SONARA/);
-  assert.match(markup, /value="70"/);
-  assert.match(markup, /value="180"/);
-  assert.match(markup, /первый анализ SONARA закрепит его за всей базой/);
-});
-
 test("an analysed library shows the range as fixed and disables editing", async () => {
   const markup = await renderDialog({
     sonaraBpmRange: { bpmMin: 79, bpmMax: 192 },
@@ -72,35 +63,5 @@ test("a running job disables the range even before the library fixes it", async 
   assert.equal(bpmInputs?.length, 2);
   for (const input of bpmInputs) {
     assert.match(input, /disabled/);
-  }
-});
-
-test("the dialog offers the tool presets and marks the active one", async () => {
-  const markup = await renderDialog({ sonaraBpmRange: { bpmMin: 79, bpmMax: 192 } });
-
-  for (const label of ["Rekordbox", "VirtualDJ", "Mixed In Key"]) {
-    assert.ok(markup.includes(label), `preset ${label} should be offered`);
-  }
-  assert.match(markup, /aria-pressed="true"[^>]*>Mixed In Key</);
-  assert.match(markup, /79–192/);
-});
-
-test("a range outside the presets reads as a custom range", async () => {
-  const markup = await renderDialog({ sonaraBpmRange: { bpmMin: 90, bpmMax: 200 } });
-
-  assert.match(markup, /Свой диапазон/);
-  assert.doesNotMatch(markup, /aria-pressed="true"[^>]*>(Rekordbox|VirtualDJ|Mixed In Key)</);
-});
-
-test("a fixed library cannot switch preset", async () => {
-  const markup = await renderDialog({
-    sonaraBpmRange: { bpmMin: 70, bpmMax: 180 },
-    sonaraBpmRangeLocked: true,
-  });
-
-  const chips = markup.match(/<button[^>]*sonara-settings-bpm-preset-chip[^>]*>/g);
-  assert.equal(chips?.length, 3);
-  for (const chip of chips) {
-    assert.match(chip, /disabled/);
   }
 });

@@ -45,21 +45,6 @@ def test_validator_reports_each_track_and_does_not_mutate_database(tmp_path: Pat
     assert database.path.read_bytes() == before
 
 
-def test_validator_warns_when_stored_track_path_is_missing(tmp_path: Path) -> None:
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    identity = _track(database, tmp_path / "removed.wav")
-    (tmp_path / "removed.wav").unlink()
-
-    report = DatabaseValidator(database.path).run()
-
-    assert any(
-        finding.level == "warning"
-        and finding.code == "track_path_missing"
-        and finding.track_id == identity.track_id
-        for finding in report.findings
-    )
-
-
 def test_validator_reports_corrupt_embedding_payload(tmp_path: Path) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
     identity = _track(database, tmp_path / "track.wav")

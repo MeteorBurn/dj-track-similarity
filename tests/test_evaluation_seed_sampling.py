@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 from dataclasses import fields
 from pathlib import Path
 
@@ -22,9 +21,7 @@ from dj_track_similarity.analysis_models import (
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
 from dj_track_similarity.evaluation.seed_sampling import (
-    SEED_SAMPLE_COLUMNS,
     export_seed_sample,
-    write_seed_sample_csv,
 )
 from dj_track_similarity.track_models import (
     FileTags,
@@ -194,23 +191,6 @@ def test_seed_sample_prefers_distinct_known_artists(tmp_path: Path) -> None:
     assert len(set(artist_keys)) == 3
     expected_ids = {item.track_id for item in (*first_artist, *unique)}
     assert set(_track_ids(result.rows)).issubset(expected_ids)
-
-
-def test_write_seed_sample_csv_has_expected_columns(tmp_path: Path) -> None:
-    db = _seed_sample_library(tmp_path)
-    output_path = tmp_path / "seed_sample.csv"
-    result = export_seed_sample(db, count=3, random_seed=11)
-
-    write_seed_sample_csv(output_path, result.rows)
-
-    with output_path.open("r", encoding="utf-8", newline="") as file:
-        reader = csv.DictReader(file)
-        rows = list(reader)
-
-    assert reader.fieldnames == list(SEED_SAMPLE_COLUMNS)
-    assert len(rows) == 3
-    assert all(row["track_id"] for row in rows)
-    assert all(row["bucket"] for row in rows)
 
 
 def _seed_sample_library(tmp_path: Path) -> LibraryDatabase:

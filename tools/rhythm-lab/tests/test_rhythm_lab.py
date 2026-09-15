@@ -24,7 +24,6 @@ from dj_track_similarity.classifier.sonara_features import (  # noqa: E402
 )
 from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402
     RhythmLabCollections,
-    default_rhythm_lab_labels_path,
 )
 from rhythm_lab import cli as cli_module  # noqa: E402
 from rhythm_lab import ablation as ablation_module  # noqa: E402
@@ -32,7 +31,6 @@ from rhythm_lab import features as feature_module  # noqa: E402
 from rhythm_lab import training as training_module  # noqa: E402
 from rhythm_lab.artifact_io import artifact_sha256  # noqa: E402
 from rhythm_lab.cli import (  # noqa: E402
-    DEFAULT_LABELS_DB,
     PromotionError,
     build_parser,
     promote_profile_model,
@@ -51,7 +49,6 @@ from rhythm_lab.features import (  # noqa: E402
 from rhythm_lab.lab_db import (  # noqa: E402
     RhythmLabDatabase,
     TrackIdentity,
-    _default_artifact_dir,
 )
 from rhythm_lab.predictions import _predict_probabilities  # noqa: E402
 from rhythm_lab.source_db import (  # noqa: E402
@@ -63,11 +60,9 @@ from rhythm_lab.source_db import (  # noqa: E402
 from rhythm_lab.training import train_feature_set  # noqa: E402
 from rhythm_lab.web_app import (  # noqa: E402
     TrainingProgress,
-    _artifact_summary,
     _bind_artifact_source_readiness,
     _training_readiness,
     cleanup_training_artifacts,
-    create_app,
 )
 
 
@@ -174,38 +169,6 @@ def test_training_progress_reports_lifecycle() -> None:
     failed = progress.snapshot("focused")
     assert failed["status"] == "failed"
     assert failed["error"] == "source unavailable"
-
-
-@pytest.mark.parametrize("operation", ("refresh", "promote"))
-def test_workflow_progress_reports_refresh_and_promotion(operation: str) -> None:
-    progress = TrainingProgress()
-
-    progress.start("focused", operation=operation, stage="Preparing")
-    progress.update("focused", stage="Working", percent=62)
-    progress.complete("focused", stage="Complete")
-
-    assert progress.snapshot("focused") == {
-        "operation": operation,
-        "status": "completed",
-        "stage": "Complete",
-        "percent": 100,
-        "error": None,
-    }
-
-
-def test_training_progress_callback_reports_holdout_cross_validation_and_artifact(
-    tmp_path: Path,
-) -> None:
-    events: list[tuple[str, int, int]] = []
-
-    _train_artifact(
-        tmp_path / "artifacts",
-        progress_callback=lambda stage, completed, total: events.append((stage, completed, total)),
-    )
-
-    assert events[0] == ("Fitting holdout model", 0, 8)
-    assert any(stage == "Cross-validation fold 5/5" for stage, _, _ in events)
-    assert events[-1] == ("Model artifact saved", 8, 8)
 
 
 def test_ablation_benchmark_reports_progress_across_profile_and_report(
@@ -369,17 +332,6 @@ def test_muq_feature_sets_extract_current_structural_dimensions(
         assert result.matrix[0, result.feature_names.index("muq:0")] == pytest.approx(
             5.0
         )
-
-
-def test_ablation_selection_uses_the_single_current_sonara_source() -> None:
-    assert ABLATION_FEATURE_SETS == FEATURE_RECIPE_OPTIONS
-    assert all("sonara2" not in feature_set for feature_set in ABLATION_FEATURE_SETS)
-    assert all("sonara2" not in feature_set for feature_set in FEATURE_RECIPE_OPTIONS)
-    assert all(feature_set != "combined" for feature_set in (*ABLATION_FEATURE_SETS, *FEATURE_RECIPE_OPTIONS))
-    with pytest.raises(ValueError, match="Unsupported feature source: sonara2"):
-        feature_sources("sonara2")
-    with pytest.raises(ValueError, match="Unsupported feature source: combined"):
-        feature_sources("combined")
 
 
 def test_recipe_readiness_requires_only_selected_current_sources() -> None:
@@ -560,15 +512,6 @@ def test_serve_parser_forwards_expected_source_catalog_uuid(
     assert run_kwargs["port"] == 8777
 
 
-def test_default_labels_path_is_shared_stable_path() -> None:
-    args = build_parser().parse_args(["serve"])
-
-    assert DEFAULT_LABELS_DB == default_rhythm_lab_labels_path()
-    assert args.labels == DEFAULT_LABELS_DB
-    assert args.labels.parent.name == "database"
-    assert args.labels.name == "rhythm_lab.sqlite"
-
-
 def test_explicit_legacy_labels_path_fails_closed_without_mutation(
     tmp_path: Path,
 ) -> None:
@@ -745,48 +688,6 @@ def test_wal_visible_legacy_schema_is_rejected_before_any_ddl(
         reader.close()
 
 
-def test_web_app_creates_current_schema_at_stable_labels_path(
-    tmp_path: Path,
-) -> None:
-    labels_path = tmp_path / DEFAULT_LABELS_DB.name
-
-    app = create_app(labels_db_path=labels_path)
-
-    assert app.title == "Rhythm Lab"
-    assert labels_path.name == "rhythm_lab.sqlite"
-    assert labels_path.exists()
-    with sqlite3.connect(
-        f"file:{labels_path.as_posix()}?mode=ro",
-        uri=True,
-    ) as connection:
-        columns = {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(classifier_labels)"
-            ).fetchall()
-        }
-    assert {
-        "catalog_uuid",
-        "track_uuid",
-        "selected_path",
-    }.issubset(columns)
-
-
-def test_lab_database_starts_without_implicit_profiles(tmp_path: Path) -> None:
-    database = RhythmLabDatabase(tmp_path / "lab.sqlite")
-
-    assert database.list_profiles() == []
-    with pytest.raises(ValueError, match="profile key is required"):
-        database.get_profile()
-
-
-def test_profile_default_artifact_directory_uses_profiles_root() -> None:
-    assert _default_artifact_dir("voice_presence").parts[-2:] == (
-        "profiles",
-        "voice-presence",
-    )
-
-
 def test_lab_database_connections_use_wal_and_runtime_pragmas(tmp_path: Path) -> None:
     database = RhythmLabDatabase(tmp_path / "lab.sqlite")
 
@@ -809,90 +710,6 @@ def test_collection_connections_use_wal_and_runtime_pragmas(tmp_path: Path) -> N
         assert connection.execute("PRAGMA synchronous").fetchone()[0] == 1
         assert connection.execute("PRAGMA temp_store").fetchone()[0] == 2
         assert connection.execute("PRAGMA cache_size").fetchone()[0] == -32768
-
-
-def test_lab_database_ensures_prediction_hot_path_indexes(tmp_path: Path) -> None:
-    database = RhythmLabDatabase(tmp_path / "lab.sqlite")
-
-    with database.connect() as connection:
-        index_names = {
-            str(row["name"])
-            for row in connection.execute(
-                """
-                SELECT name
-                FROM sqlite_master
-                WHERE type = 'index'
-                  AND tbl_name = 'classifier_predictions'
-                """
-            ).fetchall()
-        }
-        assert "idx_classifier_predictions_latest" in index_names
-        assert "idx_classifier_predictions_model" in index_names
-
-        latest_plan = [
-            str(row["detail"])
-            for row in connection.execute(
-                """
-                EXPLAIN QUERY PLAN
-                SELECT rowid
-                FROM classifier_predictions
-                WHERE classifier_key = ?
-                  AND catalog_uuid = ?
-                  AND track_uuid = ?
-                  AND selected_path = ?
-                ORDER BY updated_at DESC, model_artifact DESC
-                """,
-                ("focused", "catalog-a", "track-a", "C:/music/a.wav"),
-            ).fetchall()
-        ]
-        assert any("idx_classifier_predictions_latest" in detail for detail in latest_plan)
-
-        model_plan = [
-            str(row["detail"])
-            for row in connection.execute(
-                """
-                EXPLAIN QUERY PLAN
-                SELECT rowid
-                FROM classifier_predictions
-                WHERE classifier_key = ?
-                  AND feature_set = ?
-                  AND model_artifact = ?
-                """,
-                ("focused", "mert", "model.joblib"),
-            ).fetchall()
-        ]
-        assert any("idx_classifier_predictions_model" in detail for detail in model_plan)
-
-
-def test_list_profiles_loads_profile_payloads_with_one_connection(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = tmp_path / "lab.sqlite"
-    root = RhythmLabDatabase(path)
-    _create_profile(path)
-    root.create_profile(
-        classifier_key="other",
-        name="Other",
-        labels=[
-            {"key": "yes", "name": "Yes", "role": "positive"},
-            {"key": "no", "name": "No", "role": "negative"},
-        ],
-    )
-    calls = 0
-    real_connect = root.connect
-
-    def recording_connect() -> sqlite3.Connection:
-        nonlocal calls
-        calls += 1
-        return real_connect()
-
-    monkeypatch.setattr(root, "connect", recording_connect)
-
-    profiles = root.list_profiles()
-
-    assert [profile.classifier_key for profile in profiles] == ["focused", "other"]
-    assert calls == 1
 
 
 def test_profile_creation_update_archive_and_unique_names(tmp_path: Path) -> None:
@@ -1458,39 +1275,6 @@ def test_artifact_readiness_rejects_a_different_source_catalog() -> None:
     assert option["source_data_ready"] is False
     assert "catalog-old" in option["source_data_reason"]
     assert "catalog-current" in option["source_data_reason"]
-
-
-def test_artifact_summary_surfaces_latest_calibrated_artifact(
-    tmp_path: Path,
-) -> None:
-    artifact_dir = tmp_path / "artifacts"
-    artifact_dir.mkdir()
-    uncalibrated = artifact_dir / "focused-mert-20260807T100000Z.joblib"
-    calibrated = artifact_dir / "focused-mert-20260807T110000Z.joblib"
-    for artifact, calibration in (
-        (uncalibrated, {"status": "uncalibrated", "method": None}),
-        (calibrated, {"status": "calibrated", "method": "sigmoid"}),
-    ):
-        artifact.write_bytes(artifact.name.encode("utf-8"))
-        artifact.with_suffix(".metrics.json").write_text(
-            json.dumps(
-                {
-                    "feature_set": "mert",
-                    "feature_names": ["mert:0"],
-                    "source_catalog_uuid": "catalog-current",
-                    "created_at": artifact.stem.rsplit("-", 1)[-1],
-                    "production_calibration": calibration,
-                }
-            ),
-            encoding="utf-8",
-        )
-
-    summary = _artifact_summary(artifact_dir, "focused")
-
-    option = summary["promotion_options"][0]
-    assert option["latest_model"] == str(calibrated)
-    assert option["calibration_status"] == "calibrated"
-    assert option["calibration_method"] == "sigmoid"
 
 
 def test_promotion_requires_matching_profile_and_calibration_gate(

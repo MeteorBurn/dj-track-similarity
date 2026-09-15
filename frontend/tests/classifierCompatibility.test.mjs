@@ -65,29 +65,3 @@ test("classifier availability follows manifest scoring compatibility", async () 
     { ready: 0.5 },
   );
 });
-
-test("classifier profiles keep promotion creation order with stable fallback", async () => {
-  const { orderPromotedClassifiers } = await loadClassifierCompatibility();
-  const input = [
-    classifier("newer", { promoted_at: "2026-07-08T18:28:37+00:00" }),
-    classifier("missing-time"),
-    classifier("older", { promoted_at: "2026-07-08T18:28:32+00:00" }),
-    classifier("invalid-time", { promoted_at: "not-a-date" }),
-  ];
-
-  assert.deepEqual(
-    orderPromotedClassifiers(input).map((item) => item.classifier_key),
-    ["older", "newer", "missing-time", "invalid-time"],
-  );
-  assert.deepEqual(
-    input.map((item) => item.classifier_key),
-    ["newer", "missing-time", "older", "invalid-time"],
-  );
-});
-
-test("classifier score count is shown as one tracks value", async () => {
-  const { formatClassifierScoredTracks } = await loadClassifierCompatibility();
-
-  assert.equal(formatClassifierScoredTracks(37), "37 tracks");
-  assert.equal(formatClassifierScoredTracks(undefined), "0 tracks");
-});

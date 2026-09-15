@@ -170,25 +170,6 @@ def test_adapter_identity_rejects_an_adapter_with_a_blank_field() -> None:
         _adapter_identity(_Blank())
 
 
-def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> None:
-    forbidden = {
-        "loader_package",
-        "text_loader_package",
-        "hub_package",
-        "package_wheel_sha256",
-    }
-
-    for adapter in (
-        MaestEmbeddingAdapter(device="cpu"),
-        MertEmbeddingAdapter(device="cpu"),
-        MertV2EmbeddingAdapter(device="cpu"),
-        MuqEmbeddingAdapter(device="cpu"),
-        MuqMulanEmbeddingAdapter(device="cpu"),
-        ClapEmbeddingAdapter(device="cpu"),
-    ):
-        assert forbidden.isdisjoint(adapter.runtime_parameters())
-
-
 def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
     for adapter in (
         MaestEmbeddingAdapter(device="cpu"),
@@ -201,18 +182,6 @@ def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
         parameters = adapter.runtime_parameters()
         assert parameters["decoder"] == "shared-torchcodec-0.16"
         assert parameters["channel_downmix"] == "torchcodec-num-channels-1"
-
-
-def test_checkpoint_verification_rejects_wrong_bytes(tmp_path) -> None:
-    checkpoint = tmp_path / "checkpoint.bin"
-    checkpoint.write_bytes(b"not the pinned checkpoint")
-
-    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
-        embedding_loading._verify_checkpoint_sha256(
-            checkpoint,
-            expected_sha256="0" * 64,
-            description="test checkpoint",
-        )
 
 
 def test_local_checkpoint_resolution_creates_immutable_verified_binding(

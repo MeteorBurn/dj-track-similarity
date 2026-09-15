@@ -415,16 +415,6 @@ def test_fixed_shape_outputs_reject_wrong_shapes(
         _prepare(analysis)
 
 
-def test_unknown_future_values_are_ignored() -> None:
-    analysis = _analysis()
-    analysis["future_output"] = object()
-    analysis["segments"] = [{"energy": float("nan")}]
-
-    write = _prepare(analysis)
-
-    assert write.core.detected_bpm == 128.0
-
-
 def test_embedding_rejects_non_finite_values_during_analysis_write() -> None:
     analysis = _analysis()
     analysis["embedding"] = np.full(48, np.nan, dtype=np.float32)
@@ -456,6 +446,17 @@ def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -
         ("energy_level", 11, "at most 10"),
         ("duration_sec", float("nan"), "finite number"),
         ("intro_end_sec", 181.0, "must not exceed duration"),
+        # The analysed tempo range must be positive and span at least an octave.
+        (
+            "provenance",
+            {"schema_version": 6, "bpm_min": 0.0, "bpm_max": 180.0},
+            "bpm_min must be greater than 0",
+        ),
+        (
+            "provenance",
+            {"schema_version": 6, "bpm_min": 70.0, "bpm_max": 139.0},
+            "bpm_max must be at least 140",
+        ),
     ],
 )
 def test_representative_scalar_invariants_are_strict(

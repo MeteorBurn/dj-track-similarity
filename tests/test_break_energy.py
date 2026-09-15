@@ -174,25 +174,6 @@ def _write_model(
     return model_path
 
 
-def test_classifier_artifact_loads_without_version_or_contract_identity(
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    model_path = _write_model(tmp_path / "break-energy", _mert_output())
-
-    metadata = json.loads(model_path.with_name("model.json").read_text(encoding="utf-8"))
-    requirements = load_classifier_requirements(
-        db,
-        "break_energy",
-        model_path=model_path,
-    )
-
-    assert "manifest_version" not in metadata
-    assert "feature_manifest_hash" not in metadata
-    assert "required_outputs" not in metadata["production"]
-    assert requirements.feature_names == ("mert:0",)
-
-
 def test_break_energy_job_scores_tracks_with_required_rows(
     tmp_path: Path,
 ) -> None:

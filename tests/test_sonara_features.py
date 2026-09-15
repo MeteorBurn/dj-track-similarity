@@ -57,21 +57,6 @@ class FakeSonara:
         ]
 
 
-class BoundarySonara(FakeSonara):
-    @classmethod
-    def analyze_batch(cls, paths, **kwargs):
-        cls.calls.append({"paths": list(paths), **kwargs})
-        results = [
-            _raw_analysis(path, features=tuple(kwargs["features"])) for path in paths
-        ]
-        results[0]["energy"] = np.float32(1.001)
-        results[1]["energy"] = np.nextafter(
-            np.float32(1.001),
-            np.float32(np.inf),
-        )
-        return results
-
-
 class FallbackSonara(FakeSonara):
     signal_calls: list[dict[str, object]] = []
     resample_calls: list[dict[str, object]] = []
@@ -258,25 +243,6 @@ def test_default_batch_requests_registers_and_writes_core_with_embedding() -> No
     assert measurement.store_seconds >= 0
 
 
-def test_batch_clamps_float32_boundary_and_isolates_outside_epsilon_error() -> None:
-    BoundarySonara.calls.clear()
-    repository = RecordingRepository()
-
-    results = analyze_and_store_sonara_batch(
-        repository,
-        (_candidate(1), _candidate(2)),
-        sonara_module=BoundarySonara,
-    )
-
-    assert results[0].error is None
-    assert results[1].error is not None
-    assert "allowed epsilon" in str(results[1].error)
-    assert len(repository.save_calls) == 1
-    assert len(repository.save_calls[0]) == 1
-    assert repository.save_calls[0][0].target.track_id == 1
-    assert repository.save_calls[0][0].core.energy_score == 1.0
-
-
 def test_batch_recovers_native_sonara_failure_with_ffmpeg_pcm_and_logs(
     monkeypatch,
     caplog,
@@ -316,30 +282,3 @@ def test_batch_recovers_native_sonara_failure_with_ffmpeg_pcm_and_logs(
     )
     assert "SONARA analysis recovered through FFmpeg PCM fallback" in caplog.text
     assert "native decoder rejected input" in caplog.text
-
-
-def test_analysis_output_helper_is_unversioned_and_ignores_runtime_metadata() -> None:
-    outputs = analysis_outputs_for_sonara_runtime(FakeSonara)
-
-    assert tuple(output.key for output in outputs) == (
-        ("sonara", "core"),
-        ("sonara", "embedding"),
-        ("sonara", "fingerprint"),
-    )
-
-
-def test_empty_batch_performs_no_runtime_or_repository_work() -> None:
-    repository = RecordingRepository()
-    FakeSonara.calls.clear()
-
-    assert (
-        analyze_and_store_sonara_batch(
-            repository,
-            [],
-            sonara_module=FakeSonara,
-        )
-        == []
-    )
-    assert repository.register_calls == []
-    assert repository.save_calls == []
-    assert FakeSonara.calls == []

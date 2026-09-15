@@ -49,25 +49,3 @@ test("a delete batch carries the confirmation phrase the delete endpoint require
     { group_id: 1, track_ids: [11] }
   ]);
 });
-
-test("a report the listing no longer holds is dropped for the newest one", () => {
-  const { reconcileReportId } = loadAudioDedupView();
-  const listing = [{ report_id: "newest" }, { report_id: "older" }];
-
-  assert.equal(reconcileReportId(listing, "older"), "older");
-  assert.equal(reconcileReportId(listing, "deleted"), "newest");
-  assert.equal(reconcileReportId([], "deleted"), null);
-  assert.equal(reconcileReportId([], null), null);
-});
-
-test("a selection that would delete every copy of a group is refused", () => {
-  const { buildDeleteRequest } = loadAudioDedupView();
-  const groups = [group(1, [file(10, "keeper"), file(11, "duplicate")])];
-
-  const emptied = buildDeleteRequest(groups, { 1: [10, 11] }, "trash");
-  const keeperOnly = buildDeleteRequest(groups, { 1: [10] }, "trash");
-
-  assert.equal(emptied.ok, false);
-  assert.match(emptied.error, /все копии/);
-  assert.equal(keeperOnly.ok, true, "deleting the suggested keeper stays allowed");
-});

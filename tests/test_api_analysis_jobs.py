@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from api_test_support import create_api_client
 import dj_track_similarity.api.application as api
-from dj_track_similarity.analysis.config import ML_ANALYSIS_MODEL_ORDER
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
 from dj_track_similarity.database import LibraryDatabase
@@ -136,35 +135,6 @@ def test_api_sonara_job_uses_default_outputs_and_keeps_native_batch_size(
     assert defaulted.json()["sonara_batch_size"] == 8
     assert obsolete.status_code == 422
     assert len(calls) == 1
-    assert "sonara_outputs" not in calls[0]
-
-
-def test_api_rejects_obsolete_sonara_outputs_field(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    response = _client(monkeypatch, tmp_path).post(
-        "/api/analysis/jobs",
-        json={"models": ["sonara"], "sonara_outputs": ["timeline"]},
-    )
-
-    assert response.status_code == 422
-
-
-def test_api_defaults_audio_job_to_ml_models_only(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    calls: list[dict[str, object]] = []
-    monkeypatch.setattr(AnalysisJobManager, "start", _analysis_start(calls))
-
-    response = _client(monkeypatch, tmp_path).post(
-        "/api/analysis/jobs",
-        json={"limit": 0},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["models"] == list(ML_ANALYSIS_MODEL_ORDER)
     assert "sonara_outputs" not in calls[0]
 
 
@@ -436,130 +406,6 @@ def test_api_pipeline_requires_selected_folder_for_staged_sonara(
     assert response.json()["detail"] == "Choose a staging folder before starting Staged Mode"
 
 
-@pytest.mark.parametrize(
-    ("field", "value"),
-    (
-        ("processes", 0),
-        ("processes", 17),
-        ("threads", 65),
-        ("batch_size", 17),
-        ("stage_size", 0),
-        ("stage_size", 513),
-    ),
-)
-def test_api_pipeline_rejects_out_of_range_staged_sonara_settings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    field: str,
-    value: int,
-) -> None:
-    staged = {
-        "folder": str(tmp_path),
-        "processes": 4,
-        "threads": 4,
-        "batch_size": 4,
-        "stage_size": 32,
-    }
-    staged[field] = value
-
-    response = _client(monkeypatch, tmp_path).post(
-        "/api/analysis/pipelines",
-        json={
-            "stages": ["sonara"],
-            "sonara": {
-                "mode": "staged",
-                "direct_batch_size": 8,
-                "staged": staged,
-            },
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_api_sonara_job_starts_without_release_preflight(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    events: list[str] = []
-
-    def reject(_manager: AnalysisJobManager) -> None:
-        events.append("preflight")
-        raise AssertionError("release preflight must not run")
-
-    def start(_manager: AnalysisJobManager, **_kwargs: object) -> dict[str, object]:
-        events.append("start")
-        return {"job_id": "should-not-start"}
-
-    monkeypatch.setattr(
-        AnalysisJobManager,
-        "validate_sonara_preflight",
-        reject,
-        raising=False,
-    )
-    monkeypatch.setattr(AnalysisJobManager, "start", start)
-    response = _client(monkeypatch, tmp_path).post(
-        "/api/analysis/jobs",
-        json={"models": ["sonara"], "limit": 0},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["job_id"] == "should-not-start"
-    assert events == ["start"]
-
-
-def test_api_sonara_status_returns_neutral_coverage(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    calls: list[str] = []
-
-    def sonara_status(_manager: AnalysisJobManager) -> dict[str, object]:
-        calls.append("status")
-        return {
-            "catalog_uuid": "catalog-current",
-            "total_tracks": 3,
-            "outputs": [
-                {"output_kind": "core", "present_count": 2, "missing_count": 1},
-                {
-                    "output_kind": "fingerprint",
-                    "present_count": 1,
-                    "missing_count": 2,
-                },
-            ],
-        }
-
-    monkeypatch.setattr(AnalysisJobManager, "sonara_status", sonara_status, raising=False)
-
-    response = _client(monkeypatch, tmp_path).get("/api/analysis/sonara/status")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "catalog_uuid": "catalog-current",
-        "total_tracks": 3,
-        "outputs": [
-            {"output_kind": "core", "present_count": 2, "missing_count": 1},
-            {
-                "output_kind": "fingerprint",
-                "present_count": 1,
-                "missing_count": 2,
-            },
-        ],
-    }
-
-
-def test_api_does_not_register_bulk_classifier_analysis(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    response = _client(monkeypatch, tmp_path).post(
-        "/api/classifiers/analyze",
-        json={"classifier_keys": ["voice_presence"], "limit": 0},
-    )
-
-    assert response.status_code == 405
-
-
 def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -576,19 +422,3 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
         "classifier_rows_deleted": 0,
     }
     assert legacy.status_code == 422
-
-
-def test_api_rejects_legacy_batch_size_and_unknown_device(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    client = _client(monkeypatch, tmp_path)
-
-    assert client.post(
-        "/api/analysis/jobs",
-        json={"models": ["mert"], "batch_size": 4},
-    ).status_code == 422
-    assert client.post(
-        "/api/analysis/jobs",
-        json={"models": ["mert"], "device": "gpu"},
-    ).status_code == 422

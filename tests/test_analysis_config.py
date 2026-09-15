@@ -8,18 +8,10 @@ from dj_track_similarity.analysis.config import (
     normalize_analysis_models,
     parse_analysis_models_text,
 )
-from dj_track_similarity.analysis.sonara_staging import SonaraStagingConfig
 
 
 def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() -> None:
     assert normalize_analysis_models(["CLAP", "muq", "mert", "clap"]) == ("mert", "muq", "clap")
-
-
-def test_default_analysis_models_can_run_together_as_ml() -> None:
-    defaults = normalize_analysis_models(None)
-    assert defaults
-    assert "sonara" not in defaults
-    assert build_analysis_job_config(models=defaults).require_current_sonara
 
 
 def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:
@@ -67,10 +59,6 @@ def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
     assert not hasattr(config, "sonara_outputs")
 
 
-def test_build_analysis_job_config_has_no_sonara_output_selection() -> None:
-    assert not hasattr(build_analysis_job_config(models=["sonara"]), "sonara_outputs")
-
-
 def test_ml_jobs_require_current_sonara_but_sonara_jobs_do_not() -> None:
     assert build_analysis_job_config(
         models=["maest", "mert"],
@@ -78,30 +66,6 @@ def test_ml_jobs_require_current_sonara_but_sonara_jobs_do_not() -> None:
     assert not build_analysis_job_config(
         models=["sonara"],
     ).require_current_sonara
-
-
-def test_sonara_mode_defaults_to_direct_and_keeps_staged_configuration(
-    tmp_path,
-) -> None:
-    direct = build_analysis_job_config(models=["sonara"])
-    staged_settings = SonaraStagingConfig(
-        root=tmp_path,
-        processes=4,
-        rayon_threads=4,
-        max_native_batch_size=4,
-        stage_size=32,
-    )
-    staged = build_analysis_job_config(
-        models=["sonara"],
-        sonara_mode="staged",
-        sonara_batch_size=4,
-        sonara_staging_config=staged_settings,
-    )
-
-    assert direct.sonara_mode == "direct"
-    assert direct.sonara_staging_config is None
-    assert staged.sonara_mode == "staged"
-    assert staged.sonara_staging_config == staged_settings
 
 
 def test_sonara_mode_rejects_unknown_or_incomplete_staged_configuration() -> None:

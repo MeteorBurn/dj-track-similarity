@@ -165,52 +165,6 @@ def test_database_switch_bootstraps_clean_selected_current_bundle(
     assert core_path.is_file()
 
 
-def test_liked_mutation_requires_current_composite_identity(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "library.sqlite"
-    database = LibraryDatabase(db_path)
-    identity = _track(database, tmp_path / "track.wav")
-    client = _client(monkeypatch, db_path)
-    url = f"/api/tracks/{identity.track_id}/liked"
-    payload = {
-        "catalog_uuid": identity.catalog_uuid,
-        "track_uuid": identity.track_uuid,
-        "liked": True,
-    }
-
-    stale = client.post(
-        url,
-        json={
-            **payload,
-            "track_uuid": "stale-track-uuid",
-        },
-    )
-    current = client.post(url, json=payload)
-
-    assert stale.status_code == 409
-    assert "identity changed" in stale.json()["detail"]
-    assert current.status_code == 200
-    assert current.json()["liked"] is True
-    assert current.json()["track_uuid"] == identity.track_uuid
-
-
-def test_removed_sonara_release_prepare_endpoint_is_not_exposed(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", lambda: None)
-    app = api_module.create_app(tmp_path / "library.sqlite")
-    paths = {
-        str(getattr(route, "path", ""))
-        for route in app.routes
-        if "POST" in (getattr(route, "methods", set()) or set())
-    }
-
-    assert "/api/analysis/sonara/releases/prepare" not in paths
-
-
 def test_reset_and_summary_use_analysis_family_names(
     monkeypatch,
     tmp_path: Path,

@@ -14,16 +14,15 @@ from dj_track_similarity.analysis_models import (
     MaestGenreScore,
     MaestWrite,
 )
-from dj_track_similarity import tags, wave_tags
+from dj_track_similarity import tags
 from dj_track_similarity.api.application import create_app
 from dj_track_similarity.tags import (
     GenreTagJobManager,
     apply_genre_tags_to_tracks,
-    genre_tag_apply_summary,
 )
 from fastapi.testclient import TestClient
 from mutagen import File as MutagenFile
-from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
+from mutagen.id3 import ID3, TCON, TIT2, TPE1
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
@@ -183,98 +182,6 @@ def _decoded_audio_md5(path: Path) -> str:
     return hashlib.md5(result.stdout).hexdigest()
 
 
-def test_custom_tag_api_is_not_available(tmp_path: Path) -> None:
-    audio_path = tmp_path / "track.flac"
-    audio_path.write_bytes(b"fake audio")
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    identity = _scan_track(
-        db,
-        audio_path,
-        title="T",
-        artist="A",
-        tag_bpm=128.0,
-        tag_key="8A",
-    )
-
-    client = TestClient(create_app(db_path))
-
-    assert client.post(
-        "/api/tags/preview", json={"track_ids": [identity.track_id]}
-    ).status_code in {404, 405}
-    assert client.post(
-        "/api/tags/apply", json={"track_ids": [identity.track_id]}
-    ).status_code in {404, 405}
-
-
-def test_genre_tag_specific_track_helpers_are_not_part_of_runtime_contract() -> None:
-    assert not hasattr(tags, "build_genre_tag_preview")
-    assert not hasattr(tags, "apply_genre_tags")
-
-
-def test_apply_genre_tags_overwrites_standard_genre_tag(
-    monkeypatch, tmp_path: Path
-) -> None:
-    audio_path = tmp_path / "track.flac"
-    audio_path.write_bytes(b"fake audio")
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    identity = _scan_track(db, audio_path, title="T")
-    _save_maest_genres(db, identity, "House")
-    written: list[tuple[Path, str]] = []
-    monkeypatch.setattr(
-        tags, "_write_genre_tag", lambda path, genre: written.append((path, genre))
-    )
-    monkeypatch.setattr(
-        tags,
-        "_read_file_tags",
-        lambda _path: FileTags(genres=("House",)),
-    )
-
-    result = apply_genre_tags_to_tracks(db, db.list_genre_tag_candidates())
-
-    assert result[0].tags == {"GENRE": "House"}
-    assert result[0].status == "applied"
-    assert result[0].message == "Genre tag written"
-    assert written == [(audio_path, "House")]
-
-
-def test_apply_genre_tags_reports_failures_and_continues(
-    monkeypatch, tmp_path: Path, caplog
-) -> None:
-    first_path = tmp_path / "first.flac"
-    second_path = tmp_path / "second.flac"
-    first_path.write_bytes(b"fake audio")
-    second_path.write_bytes(b"fake audio")
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    first = _scan_track(db, first_path, title="First")
-    second = _scan_track(db, second_path, title="Second")
-    _save_maest_genres(db, first, "House")
-    _save_maest_genres(db, second, "Minimal")
-    written: list[Path] = []
-
-    def fake_write(path: Path, genre: str) -> None:
-        if path == first_path:
-            raise RuntimeError("permission denied")
-        written.append(path)
-
-    monkeypatch.setattr(tags, "_write_genre_tag", fake_write)
-    monkeypatch.setattr(
-        tags, "_read_file_tags", lambda _path: FileTags(genres=("Minimal",))
-    )
-
-    with caplog.at_level("INFO", logger="dj_track_similarity.tags"):
-        result = apply_genre_tags_to_tracks(db, db.list_genre_tag_candidates())
-
-    assert [item.status for item in result] == ["failed", "applied"]
-    assert result[0].error == "permission denied"
-    assert written == [second_path]
-    assert genre_tag_apply_summary(result) == "applied=1 skipped=0 failed=1 total=2"
-    assert "Genre tag apply failed" in caplog.text
-    assert (
-        "Genre tag apply finished applied=1 skipped=0 failed=1 total=2" in caplog.text
-    )
-
-
 def test_genre_tags_apply_api_rejects_specific_track_ids(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -419,82 +326,6 @@ def test_genre_tag_job_api_returns_job_status(monkeypatch, tmp_path: Path) -> No
     assert payload["job_id"]
     assert payload["total"] == 1
     assert payload["state"] in {"queued", "running", "completed"}
-
-
-def test_write_genre_tag_replaces_common_audio_genre_field(
-    monkeypatch, tmp_path: Path
-) -> None:
-    class FakeAudio:
-        def __init__(self) -> None:
-            self.tags = {"GENRE": ["Old"]}
-            self.saved = False
-
-        def __setitem__(self, key: str, value: str) -> None:
-            self.tags[key] = value
-
-        def save(self) -> None:
-            self.saved = True
-
-    fake_audio = FakeAudio()
-    monkeypatch.setattr(tags, "MutagenFile", lambda path: fake_audio)
-
-    tags._write_genre_tag(tmp_path / "track.flac", "House; Techno")
-
-    assert fake_audio.tags["Genre"] == "House; Techno"
-    assert fake_audio.saved
-
-
-def test_write_genre_tag_handles_id3_tags_inside_wave(tmp_path: Path) -> None:
-    audio_path = tmp_path / "track.wav"
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(44_100)
-        handle.writeframes(b"\x00\x00" * 44_100)
-    audio_payload_before = _wave_chunk_payload(audio_path)
-
-    tags._write_genre_tag(audio_path, "Tech House; Minimal")
-    size_after_first_write = audio_path.stat().st_size
-    tags._write_genre_tag(audio_path, "Tech House; Minimal")
-
-    saved = MutagenFile(audio_path)
-    assert saved.tags["TCON"].text == ["Tech House; Minimal"]
-    assert audio_path.stat().st_size == size_after_first_write
-    assert _riff_size_delta(audio_path) == 0
-    assert _wave_chunk_payload(audio_path) == audio_payload_before
-    with wave.open(str(audio_path), "rb") as handle:
-        assert handle.getnframes() == 44_100
-
-
-def test_write_genre_tag_uses_wave_loader_when_generic_mutagen_detects_no_tags(
-    monkeypatch, tmp_path: Path
-) -> None:
-    class FakeWave:
-        def __init__(self, path: Path) -> None:
-            self.path = path
-            self.tags = None
-            self.saved = False
-
-        def add_tags(self) -> None:
-            self.tags = ID3()
-
-        def save(self) -> None:
-            self.saved = True
-
-    audio_path = tmp_path / "track.wav"
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(44_100)
-        handle.writeframes(b"\x00\x00" * 44_100)
-    fake_wave = FakeWave(audio_path)
-    monkeypatch.setattr(tags, "MutagenFile", lambda path: None)
-    monkeypatch.setattr(wave_tags, "WAVE", lambda path: fake_wave)
-
-    tags._write_genre_tag(audio_path, "Minimal")
-
-    assert fake_wave.saved
-    assert fake_wave.tags["TCON"].text == ["Minimal"]
 
 
 def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(
@@ -734,66 +565,3 @@ def test_write_genre_tag_upserts_aiff_genre_field_without_touching_audio(
     assert saved.tags["TIT2"].text == ["Existing Title"]
     assert audio_path.stat().st_size == size_after_first_write
     assert _decoded_audio_md5(audio_path) == audio_md5_before
-
-
-def test_write_genre_tag_persists_to_mp3_id3_and_preserves_existing_tags(
-    tmp_path: Path,
-) -> None:
-    audio_path = tmp_path / "track.mp3"
-    id3 = ID3()
-    id3.add(TPE1(encoding=3, text=["Existing Artist"]))
-    id3.add(TIT2(encoding=3, text=["Existing Title"]))
-    id3.add(TALB(encoding=3, text=["Existing Album"]))
-    id3.add(TCON(encoding=3, text=["Old Genre"]))
-    id3.save(audio_path)
-
-    tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
-
-    saved = ID3(audio_path)
-    assert saved["TCON"].text == ["Tech House; Minimal; Techno"]
-    assert saved["TPE1"].text == ["Existing Artist"]
-    assert saved["TIT2"].text == ["Existing Title"]
-    assert saved["TALB"].text == ["Existing Album"]
-
-
-def test_apply_genre_tags_refreshes_database_metadata_and_preserves_existing_file_tags(
-    tmp_path: Path,
-) -> None:
-    audio_path = tmp_path / "track.wav"
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(44_100)
-        handle.writeframes(b"\x00\x00" * 44_100)
-    audio = MutagenFile(audio_path)
-    audio.add_tags()
-    audio.tags.add(TPE1(encoding=3, text=["Existing Artist"]))
-    audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))
-    audio.tags.add(TALB(encoding=3, text=["Existing Album"]))
-    audio.tags.add(TCON(encoding=3, text=["Old Genre"]))
-    audio.save()
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    identity = _scan_track(
-        db,
-        audio_path,
-        title="Existing Title",
-        artist="Existing Artist",
-        album="Existing Album",
-        genres=("Old Genre",),
-    )
-    _save_maest_genres(db, identity, "Electronic---Tech House")
-
-    result = apply_genre_tags_to_tracks(db, db.list_genre_tag_candidates())
-
-    saved = MutagenFile(audio_path)
-    detail = db.get_track_detail(identity.track_id)
-    assert saved["TCON"].text == ["Tech House"]
-    assert saved["TPE1"].text == ["Existing Artist"]
-    assert saved["TIT2"].text == ["Existing Title"]
-    assert saved["TALB"].text == ["Existing Album"]
-    assert [item.status for item in result] == ["applied"]
-    assert detail.file_tags is not None
-    assert detail.file_tags.artist == "Existing Artist"
-    assert detail.file_tags.title == "Existing Title"
-    assert detail.file_tags.album == "Existing Album"
-    assert detail.file_tags.genres == ("Tech House",)

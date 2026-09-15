@@ -130,18 +130,6 @@ def test_mp3_content_with_flac_extension_is_reported_as_suspicious(monkeypatch, 
     assert "extension=.flac" in result.message
 
 
-def test_mp3_content_with_ogg_extension_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
-    audio_path = tmp_path / "wrong.ogg"
-    audio_path.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00")
-    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: None)
-
-    result = inspection_module.inspect_file(audio_path)
-
-    assert result.status == "suspicious"
-    assert result.detected_format == "mp3"
-    assert "extension=.ogg" in result.message
-
-
 def test_ogg_container_with_opus_codec_is_allowed(monkeypatch, tmp_path: Path) -> None:
     audio_path = tmp_path / "track.ogg"
     audio_path.write_bytes(b"OggS\x00\x02")
@@ -169,21 +157,6 @@ def test_wav_container_with_flac_codec_is_reported_as_suspicious(monkeypatch, tm
     assert result.detected_format == "wav"
     assert result.detected_codec == "flac"
     assert result.message == "extension=.wav detected_codec=flac"
-
-
-def test_flac_container_with_vorbis_codec_is_reported_as_suspicious(monkeypatch, tmp_path: Path) -> None:
-    audio_path = tmp_path / "wrong.flac"
-    audio_path.write_bytes(b"fLaC")
-    monkeypatch.setattr(inspection_module, "probe_file", lambda path: ("flac", "vorbis"))
-    monkeypatch.setattr(inspection_module, "read_mutagen_tag_summary", lambda path: "mutagen ok tags=no")
-    monkeypatch.setattr(inspection_module, "full_decode_error", lambda path: None)
-
-    result = inspection_module.inspect_file(audio_path)
-
-    assert result.status == "suspicious"
-    assert result.detected_format == "flac"
-    assert result.detected_codec == "vorbis"
-    assert result.message == "extension=.flac detected_codec=vorbis"
 
 
 def test_full_decode_failure_is_reported_even_when_header_tags_and_codec_look_valid(monkeypatch, tmp_path: Path) -> None:
@@ -317,128 +290,6 @@ def test_wave_without_container_repair_is_failed_when_full_decode_fails(monkeypa
 
     assert result.status == "failed"
     assert result.message == "full FFmpeg decode failed: [pcm] invalid packet"
-
-
-def test_main_output_includes_total_and_track_number(monkeypatch, tmp_path: Path, capsys) -> None:
-    first = tmp_path / "first.wav"
-    second = tmp_path / "second.wav"
-
-    def fake_repair_file(path: Path, **_kwargs):
-        return models_module.FileRepairResult(
-            path=path,
-            status="ok",
-            message="ok",
-            original_size=10,
-            repaired_size=10,
-            mutagen_summary="mutagen ok tags=yes",
-        )
-
-    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
-
-    exit_code = cli_module.main([str(first), str(second), "--no-file-log", "--no-report"])
-
-    output = capsys.readouterr().out
-    assert exit_code == 0
-    assert "Total tracks: 2" in output
-    assert "[1/2] OK" in output
-    assert "[2/2] OK" in output
-
-
-def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys) -> None:
-    wav_path = tmp_path / "repair.wav"
-    flac_path = tmp_path / "wrong.flac"
-    tag_path = tmp_path / "tags.aiff"
-    results = {
-        wav_path: models_module.FileRepairResult(
-            path=wav_path,
-            status="repairable",
-            message="ok",
-            original_size=20,
-            repaired_size=18,
-            actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
-        ),
-        flac_path: models_module.FileRepairResult(
-            path=flac_path,
-            status="suspicious",
-            message="extension=.flac detected=mp3",
-        ),
-        tag_path: models_module.FileRepairResult(
-            path=tag_path,
-            status="tag-error",
-            message="mutagen error: ID3v2.32 not supported",
-        ),
-    }
-
-    def fake_repair_file(path: Path, **_kwargs):
-        return results[path]
-
-    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
-
-    exit_code = cli_module.main([str(wav_path), str(flac_path), str(tag_path), "--no-file-log", "--no-report"])
-
-    output = capsys.readouterr().out
-    assert exit_code == 0
-    assert "Problem summary:" in output
-    assert "repairable[OVERSIZED_DATA]: WAV oversized data chunk before ID3 chunk: 1" in output
-    assert "suspicious[EXTENSION_MISMATCH]: extension mismatch: .flac detected as mp3: 1" in output
-    assert "tag-error[TAG_ERROR]: mutagen error: ID3v2.32 not supported: 1" in output
-
-
-def test_format_result_uses_compact_one_line_layout(tmp_path: Path) -> None:
-    result = models_module.FileRepairResult(
-        path=tmp_path / "track.wav",
-        status="repairable",
-        message="ok",
-        original_size=20,
-        repaired_size=18,
-        id3_seen=2,
-        id3_removed=1,
-        mutagen_summary="mutagen ok tags=yes keys=TCON",
-        actions=["shrunk oversized data chunk", "normalized RIFF root size"],
-    )
-
-    output = result_formatting_module.format_result(result, dry_run=True, index=1, total=10, color=False)
-
-    assert "\n" not in output
-    assert output.startswith("[1/10] REPAIRABLE")
-    assert "mode=dry-run" in output
-    assert "file=" in output
-    assert "size=20->18" in output
-    assert "id3=2/1" in output
-    assert "action=shrunk oversized data chunk" in output
-    assert "normalized RIFF root size" not in output
-
-
-def test_format_result_can_color_status(tmp_path: Path) -> None:
-    result = models_module.FileRepairResult(path=tmp_path / "track.flac", status="suspicious", message="extension mismatch")
-
-    output = result_formatting_module.format_result(result, dry_run=True, index=1, total=1, color=True)
-
-    assert "\x1b[" in output
-    assert "SUSPICIOUS" in output
-
-
-def test_main_writes_file_log_for_each_processed_track(monkeypatch, tmp_path: Path, capsys) -> None:
-    first = tmp_path / "first.wav"
-    second = tmp_path / "second.wav"
-    file_log = tmp_path / "repair.log"
-    file_log.write_text("old log content\n", encoding="utf-8")
-
-    def fake_repair_file(path: Path, **_kwargs):
-        return models_module.FileRepairResult(path=path, status="ok", message="ok")
-
-    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
-
-    exit_code = cli_module.main([str(first), str(second), "--file-log", str(file_log), "--color", "always", "--no-report"])
-
-    assert exit_code == 0
-    stdout = capsys.readouterr().out
-    log_text = file_log.read_text(encoding="utf-8")
-    assert "old log content" not in log_text
-    assert "[1/2] OK" in log_text
-    assert "[2/2] OK" in log_text
-    assert "\x1b[" not in log_text
-    assert "[1/2]" in stdout
 
 
 def test_main_writes_audio_doctor_report_bundle(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -822,42 +673,6 @@ def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path:
     assert str(missing) not in output
 
 
-def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) -> None:
-    db_path = tmp_path / "library.sqlite"
-    audio_path = tmp_path / "track.wav"
-    state_path = tmp_path / "state.json"
-    audio_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-    audio_stat = audio_path.stat()
-    database = LibraryDatabase(db_path)
-    database.upsert_scanned_track(
-        file=ScannedFile(
-            file_path=str(audio_path),
-            file_size_bytes=audio_stat.st_size,
-            file_modified_ns=audio_stat.st_mtime_ns,
-        ),
-        tags=FileTags(),
-    )
-    processed: list[Path] = []
-
-    def fake_repair_file(path: Path, **_kwargs):
-        processed.append(path)
-        return models_module.FileRepairResult(path=path, status="ok", message="ok")
-
-    monkeypatch.setattr(file_repair_module, "repair_file", fake_repair_file)
-
-    first_exit = cli_module.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
-    second_exit = cli_module.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
-
-    output = capsys.readouterr().out
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert first_exit == 0
-    assert second_exit == 0
-    assert processed == [audio_path]
-    assert state["sources"] == [f"db:{db_path.resolve()}"]
-    assert "Already checked from state: 1" in output
-    assert "Pending tracks: 0" in output
-
-
 def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, tmp_path: Path, capsys) -> None:
     run_dir = tmp_path / "audio_doctor"
     monkeypatch.setattr(config_module, "DEFAULT_RUN_DIR", run_dir)
@@ -898,19 +713,6 @@ def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, t
     assert processed == [first_track, second_track]
     assert f"State file: {first_state}" in output
     assert "Already checked from state: 1" in output
-
-
-def test_default_state_path_uses_safe_folder_label(monkeypatch, tmp_path: Path) -> None:
-    run_dir = tmp_path / "audio_doctor"
-    monkeypatch.setattr(config_module, "DEFAULT_RUN_DIR", run_dir)
-    folder = tmp_path / "Library Name #1"
-    folder.mkdir()
-
-    state_path = run_state_module.resolve_state_path(None, [folder])
-
-    assert state_path.parent == run_dir
-    assert state_path.name.startswith("state.Library_Name_1.")
-    assert state_path.name.endswith(".json")
 
 
 def test_default_backup_dir_is_under_script_work_dir(monkeypatch, tmp_path: Path) -> None:

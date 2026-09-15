@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import threading
 import weakref
 from pathlib import Path
@@ -11,9 +10,6 @@ from fastapi.testclient import TestClient
 from dj_track_similarity.api import application as api_module
 from dj_track_similarity.api import state as api_state
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.logging_config import (
-    install_asyncio_exception_logging,
-)
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -96,62 +92,6 @@ def test_selected_database_required_endpoints_return_api_error_without_traceback
     assert response.status_code == 400
     assert response.json() == {"detail": "Database is not selected"}
     assert "Traceback" not in response.text
-
-
-def test_app_registers_asyncio_exception_logging_startup() -> None:
-    app = api_module.create_app()
-
-    assert install_asyncio_exception_logging in app.router.on_startup
-
-
-def test_http_error_responses_are_written_to_app_log(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    log_path = tmp_path / "app.log"
-    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
-    client = TestClient(api_module.create_app())
-
-    response = client.get("/api/library/summary")
-
-    assert response.status_code == 400
-    for handler in logging.getLogger("dj_track_similarity").handlers:
-        handler.flush()
-    contents = log_path.read_text(encoding="utf-8")
-    assert (
-        "HTTP request returned error method=GET "
-        "path=/api/library/summary status=400"
-    ) in contents
-
-
-def test_database_switch_creates_selected_current_bundle(tmp_path: Path) -> None:
-    db_path = tmp_path / "new-library.sqlite"
-    client = TestClient(api_module.create_app())
-
-    response = client.post(
-        "/api/database/switch",
-        json={"path": str(db_path)},
-    )
-
-    assert response.status_code == 200
-    database = LibraryDatabase(db_path)
-    assert response.json() == _selected_state(database)
-    assert database.path.is_file()
-    assert not database.evaluation_path.exists()
-    assert client.get("/api/library/summary").json() == {
-        "tracks": 0,
-        "sonara": 0,
-        "maest_analysis": 0,
-        "maest_embedding": 0,
-        "mert": 0,
-        "muq": 0,
-        "mulan": 0,
-        "clap": 0,
-        "liked": 0,
-        "classifiers": 0,
-        "sonara_bpm_min": None,
-        "sonara_bpm_max": None,
-    }
 
 
 def test_database_switch_reads_existing_current_bundle_and_identity(

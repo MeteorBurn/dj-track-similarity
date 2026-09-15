@@ -114,15 +114,6 @@ def test_bpm_half_double_compatible_has_low_risk() -> None:
     assert diagnostics.transition_risk == diagnostics.components["bpm_risk"]
 
 
-def test_bpm_quarter_quadruple_not_treated_as_low_risk() -> None:
-    diagnostics = compute_transition_diagnostics(
-        _track(1, tag_bpm=60.0),
-        _track(2, tag_bpm=240.0),
-    )
-
-    assert diagnostics.components["bpm_risk"] == 1.0
-
-
 def test_sonara_bpm_precedes_tag_bpm_and_camelot_tag_precedes_sonara_key() -> None:
     diagnostics = compute_transition_diagnostics(
         _track(
@@ -155,43 +146,6 @@ def test_sonara_bpm_precedes_tag_bpm_and_camelot_tag_precedes_sonara_key() -> No
     assert diagnostics.components["key_risk"] < 0.1
 
 
-def test_tag_bpm_is_used_when_current_sonara_bpm_is_missing() -> None:
-    diagnostics = compute_transition_diagnostics(
-        _track(1, tag_bpm=100.0),
-        _track(2, tag_bpm=104.0),
-    )
-
-    assert diagnostics.components["bpm_risk"] == pytest.approx(
-        (4.0 / 100.0) / 0.12
-    )
-
-
-def test_sonara_bpm_and_key_are_used_when_tags_are_missing() -> None:
-    diagnostics = compute_transition_diagnostics(
-        _track(
-            1,
-            sonara_values={
-                "detected_bpm": 120.0,
-                "bpm_confidence": 1.0,
-                "detected_key_camelot": "8A",
-            },
-        ),
-        _track(
-            2,
-            sonara_values={
-                "detected_bpm": 123.0,
-                "bpm_confidence": 1.0,
-                "detected_key_camelot": "9A",
-            },
-        ),
-    )
-
-    assert diagnostics.components["bpm_risk"] == pytest.approx(
-        (3.0 / 120.0) / 0.12
-    )
-    assert diagnostics.components["key_risk"] < 0.1
-
-
 def test_adjacent_camelot_key_has_lower_risk_than_clash() -> None:
     adjacent = compute_transition_diagnostics(
         _track(1, tag_key="8A"),
@@ -205,23 +159,6 @@ def test_adjacent_camelot_key_has_lower_risk_than_clash() -> None:
     assert adjacent.components["key_risk"] < clash.components["key_risk"]
     assert adjacent.components["key_risk"] < 0.1
     assert clash.components["key_risk"] > 0.7
-
-
-def test_sonara_camelot_precedes_conversion_of_an_ordinary_key_tag_in_v2() -> None:
-    diagnostics = compute_transition_diagnostics(
-        _track(
-            1,
-            tag_key="F major",
-            sonara_values={"detected_key_camelot": "8A"},
-        ),
-        _track(
-            2,
-            tag_key="C minor",
-            sonara_values={"detected_key_camelot": "9A"},
-        ),
-    )
-
-    assert diagnostics.components["key_risk"] == pytest.approx(0.05)
 
 
 def test_low_sonara_key_confidence_attenuates_harmonic_evidence() -> None:

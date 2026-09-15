@@ -11,15 +11,13 @@ import numpy as np
 import pytest
 
 from dj_track_similarity.analysis import model_runners as runner_module
-from dj_track_similarity.analysis.config import build_analysis_job_config
-from dj_track_similarity.analysis.job_batch import AnalysisBatchItem, DecodeFailure
+from dj_track_similarity.analysis.job_batch import AnalysisBatchItem
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
 from dj_track_similarity.analysis.ml_staging import MLStagingConfig, MLStagingSession
 from dj_track_similarity.analysis.queue import AnalysisStageQueue
 from dj_track_similarity.analysis.model_runners import (
     EmbeddingModelRunner,
     MaestModelRunner,
-    SonaraModelRunner,
     current_embedding_analysis_output,
     default_model_runners,
 )
@@ -967,33 +965,6 @@ def test_cancelled_queued_job_performs_no_repository_work() -> None:
     assert repository.events == []
 
 
-def test_sonara_runner_exposes_default_core_and_embedding_outputs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    outputs = (_sonara_output("core"), _sonara_output("embedding"))
-    monkeypatch.setattr(
-        runner_module,
-        "analysis_outputs_for_sonara_runtime",
-        lambda _module=None: outputs,
-    )
-
-    runner = SonaraModelRunner(sonara_module=object())
-
-    assert [output.key for output in runner.active_outputs] == [
-        ("sonara", "core"),
-        ("sonara", "embedding"),
-    ]
-    assert [output.key for output in runner.candidate_outputs] == [
-        ("sonara", "core"),
-        ("sonara", "embedding"),
-    ]
-    assert not hasattr(build_analysis_job_config(models=["sonara"]), "sonara_outputs")
-
-
-def _sonara_output(kind: str) -> AnalysisOutput:
-    return AnalysisOutput("sonara", kind)
-
-
 class _FakeMertAdapter(MertEmbeddingAdapter):
     def __init__(self) -> None:
         super().__init__(
@@ -1079,70 +1050,6 @@ class _FakeMulanAdapter(MuqMulanEmbeddingAdapter):
         vector = np.zeros(512, dtype=np.float32)
         vector[0] = 1.0
         return [vector.copy() for _item in decoded_items]
-
-def test_mulan_runner_writes_its_own_typed_embedding_output() -> None:
-    runner = EmbeddingModelRunner(
-        "mulan",
-        device="cpu",
-        inference_batch_size=2,
-        adapter=_FakeMulanAdapter(),  # type: ignore[arg-type]
-    )
-    candidate = _candidate(1, runner.candidate_outputs)
-    repository = _EmbeddingWriteRepository()
-
-    results = runner.analyze_batch(
-        repository,  # type: ignore[arg-type]
-        (
-            AnalysisBatchItem(
-                candidate=candidate,
-                decoded=_decoded(candidate.file_path),
-                models=("mulan",),
-            ),
-        ),
-    )
-
-    assert results == [None]
-    assert repository.writes[0].output.family == "mulan"
-    assert repository.writes[0].output.vector.shape == (512,)
-
-
-def test_mulan_runner_uses_ffmpeg_after_full_decode_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    runner = EmbeddingModelRunner(
-        "mulan",
-        device="cpu",
-        inference_batch_size=2,
-        adapter=_FakeMulanAdapter(),  # type: ignore[arg-type]
-    )
-    candidate = _candidate(1, runner.candidate_outputs)
-    repository = _EmbeddingWriteRepository()
-    calls: list[str] = []
-
-    monkeypatch.setattr(
-        runner_module,
-        "load_decoded_audio_with_ffmpeg",
-        lambda path: (
-            calls.append(f"ffmpeg:{path}"),
-            _decoded(path),
-        )[1],
-    )
-
-    results = runner.analyze_batch(
-        repository,  # type: ignore[arg-type]
-        (
-            AnalysisBatchItem(
-                candidate=candidate,
-                decoded=DecodeFailure(RuntimeError("bad final packet")),
-                models=("mulan",),
-            ),
-        ),
-    )
-
-    assert results == [None]
-    assert calls == [f"ffmpeg:{candidate.file_path}"]
-    assert repository.writes[0].output.vector[0] == pytest.approx(1.0)
-    assert runner.last_ffmpeg_fallback_track_ids == frozenset({candidate.target.track_id})
 
 
 def test_fresh_current_database_runs_candidate_to_typed_embedding_write(

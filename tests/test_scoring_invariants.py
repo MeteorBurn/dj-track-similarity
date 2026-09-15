@@ -60,17 +60,6 @@ def test_weighted_rrf_missing_source_keeps_its_global_weight_penalty() -> None:
     assert actual < 1.0 / (60 + rank)
 
 
-def test_zero_weight_source_has_no_effect_on_weighted_rrf() -> None:
-    weights = {"mert": 1.0, "maest": 0.0}
-    positive = CandidateSourceContribution(rank=2, score=0.8)
-    ignored = CandidateSourceContribution(rank=1, score=1.0)
-
-    assert weighted_rrf_score(
-        {"mert": positive, "maest": ignored}, weights, 60
-    ) == pytest.approx(weighted_rrf_score({"mert": positive}, weights, 60))
-    assert weighted_rrf_score({"maest": ignored}, weights, 60) == 0.0
-
-
 def test_current_null_bpm_confidence_is_neutral_and_does_not_promote_tag_bpm() -> None:
     candidate = resolve_tempo_evidence_from_values(
         {

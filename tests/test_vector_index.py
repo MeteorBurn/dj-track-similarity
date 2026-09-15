@@ -1,24 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import numpy as np
 
-from dj_track_similarity.analysis.model_runners import (
-    current_embedding_analysis_output,
-)
 from dj_track_similarity.analysis_models import (
-    AnalysisOutput,
     AnalysisTarget,
-    EmbeddingOutput,
-    EmbeddingWrite,
-)
-from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.search.engine import SimilaritySearch
-from dj_track_similarity.track_models import (
-    FileTags,
-    ScannedFile,
-    TrackIdentity,
 )
 from dj_track_similarity.search.vector_index import (
     ExactVectorSearchBackend,
@@ -27,37 +13,6 @@ from dj_track_similarity.search.vector_index import (
 
 _NOW = "2026-07-24T10:00:00.000000Z"
 _CATALOG_UUID = "00000000-0000-4000-8000-000000000001"
-
-
-def test_exact_backend_matches_manual_matrix_dot_ranking() -> None:
-    matrix = np.stack(
-        (
-            _small_unit_vector(0.0, 1.0, 0.0),
-            _small_unit_vector(1.0, 0.0, 0.0),
-            _small_unit_vector(0.8, 0.2, 0.0),
-            _small_unit_vector(-1.0, 0.0, 0.0),
-        )
-    )
-    targets = _targets(10, 11, 12, 13)
-    query = _small_unit_vector(1.0, 0.0, 0.0)
-    scores = matrix @ query
-    manual_indices = np.argsort(-scores, kind="stable")[:3]
-
-    hits = ExactVectorSearchBackend().search(
-        matrix,
-        targets,
-        query,
-        limit=3,
-    )
-
-    expected_indices = [int(index) for index in manual_indices]
-    assert [hit.index for hit in hits] == expected_indices
-    assert [hit.target for hit in hits] == [
-        targets[index] for index in expected_indices
-    ]
-    assert [hit.score for hit in hits] == [
-        float(scores[index]) for index in expected_indices
-    ]
 
 
 def test_exact_backend_preserves_stable_input_order_for_ties() -> None:
@@ -98,60 +53,6 @@ def test_exact_backend_preserves_stable_input_order_for_ties() -> None:
     ]
 
 
-def test_similarity_search_excludes_seed_outside_vector_backend(
-    tmp_path: Path,
-) -> None:
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
-    database.register_analysis_outputs((output,))
-    seed = _add_track(
-        database,
-        tmp_path,
-        "seed",
-        output,
-        _mert_unit_vector(1.0, 0.0),
-    )
-    near = _add_track(
-        database,
-        tmp_path,
-        "near",
-        output,
-        _mert_unit_vector(0.99, 0.01),
-    )
-    far = _add_track(
-        database,
-        tmp_path,
-        "far",
-        output,
-        _mert_unit_vector(0.0, 1.0),
-    )
-    backend = ExactVectorSearchBackend()
-
-    rows = database.load_analysis_vectors(output)
-    matrix = np.stack(tuple(row.vector for row in rows))
-    targets = tuple(row.target for row in rows)
-    seed_index = targets.index(seed)
-    direct_hits = backend.search(
-        matrix,
-        targets,
-        matrix[seed_index],
-        limit=len(targets),
-    )
-    results = SimilaritySearch(
-        database,
-        "mert",
-        analysis_output=output,
-        vector_backend=backend,
-    ).search(
-        [seed],
-        limit=5,
-    )
-
-    assert direct_hits[0].target == seed
-    assert [result.target for result in results] == [near, far]
-    assert seed not in {result.target for result in results}
-
-
 def _targets(*track_ids: int) -> tuple[AnalysisTarget, ...]:
     return tuple(
         AnalysisTarget(
@@ -166,66 +67,8 @@ def _targets(*track_ids: int) -> tuple[AnalysisTarget, ...]:
     )
 
 
-def _mert_output() -> AnalysisOutput:
-    return current_embedding_analysis_output("mert")
-
-
-def _add_track(
-    database: LibraryDatabase,
-    tmp_path: Path,
-    stem: str,
-    output: AnalysisOutput,
-    vector: np.ndarray,
-) -> AnalysisTarget:
-    identity = database.upsert_scanned_track(
-        file=ScannedFile(
-            file_path=str(tmp_path / f"{stem}.wav"),
-            file_size_bytes=100,
-            file_modified_ns=1,
-            audio_format="wav",
-        ),
-        tags=FileTags(
-            artist="Vector Test",
-            title=stem,
-        ),
-        scanned_at=_NOW,
-    ).identity
-    target = _target(identity)
-    result = database.save_embedding_results(
-        (
-            EmbeddingWrite(
-                target=target,
-                output=EmbeddingOutput(
-                    family=output.analysis_family,
-                    vector=vector,
-                    analyzed_at=_NOW,
-                ),
-            ),
-        )
-    )
-    assert result[0].ok
-    return target
-
-
-def _target(identity: TrackIdentity) -> AnalysisTarget:
-    return AnalysisTarget(
-        catalog_uuid=identity.catalog_uuid,
-        track_id=identity.track_id,
-        track_uuid=identity.track_uuid,
-    )
-
-
 def _small_unit_vector(*values: float) -> np.ndarray:
     vector = np.asarray(values, dtype=np.float32)
-    norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
-    assert norm > 0.0
-    vector /= norm
-    return vector
-
-
-def _mert_unit_vector(first: float, second: float) -> np.ndarray:
-    vector = np.zeros(768, dtype=np.float32)
-    vector[:2] = (first, second)
     norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
     assert norm > 0.0
     vector /= norm

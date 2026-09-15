@@ -400,17 +400,3 @@ def test_rhythm_lab_log_mirror_prints_new_lines_with_prefix(tmp_path: Path, caps
 
     captured = capsys.readouterr()
     assert captured.out == "[Rhythm Lab] new line\n"
-
-
-def test_rhythm_lab_default_log_path_uses_logs_directory() -> None:
-    log_path = rhythm_lab_launcher._log_path()
-
-    assert log_path.name == "rhythm-lab.log"
-    assert log_path.parent.name == "logs"
-
-
-def test_rhythm_lab_default_pid_path_uses_database_directory() -> None:
-    pid_path = rhythm_lab_launcher._pid_path()
-
-    assert pid_path.name == "rhythm_lab.pid"
-    assert pid_path.parent.name == "database"

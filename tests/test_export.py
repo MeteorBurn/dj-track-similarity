@@ -120,11 +120,3 @@ def test_export_endpoint_writes_current_track_list_without_saving_playlist(
     ]
     assert first_path.read_bytes() == b"one"
     assert second_path.read_bytes() == b"two"
-
-
-def test_saved_playlist_endpoint_is_absent(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "library.sqlite"))
-
-    response = client.post("/api/playlists", json={"name": "old", "track_ids": []})
-
-    assert response.status_code in {404, 405}

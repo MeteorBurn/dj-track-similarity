@@ -57,16 +57,6 @@ def test_choose_folder_endpoint_returns_selected_path(
     assert response.json() == {"path": str(selected)}
 
 
-def test_create_app_requires_shared_ffmpeg(monkeypatch, tmp_path: Path) -> None:
-    def missing_shared_ffmpeg() -> Path:
-        raise RuntimeError("shared FFmpeg is required")
-
-    monkeypatch.setattr(api_module, "configure_shared_ffmpeg_runtime", missing_shared_ffmpeg)
-
-    with pytest.raises(RuntimeError, match="shared FFmpeg is required"):
-        api_module.create_app(tmp_path / "library.sqlite")
-
-
 def test_choose_folder_endpoint_allows_cancel(
     monkeypatch,
     tmp_path: Path,

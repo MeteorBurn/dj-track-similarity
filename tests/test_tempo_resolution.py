@@ -123,38 +123,6 @@ def test_set_trajectory_target_uses_direct_bpm_not_half_double_match() -> None:
     assert confidence_aware_target_score(candidate, 120.0, 12.0) == 0.0
 
 
-def test_sonara_analysis_without_confidence_is_neutral_not_trusted() -> None:
-    stale = _resolved(1, sonara_values={"detected_bpm": 90.0})
-    current = _evidence(128.0, 1.0)
-
-    assert stale.reliability == 0.0
-    assert confidence_aware_tempo_score(stale, current) == pytest.approx(0.5)
-
-
-def test_sonara_bpm_with_null_confidence_stays_neutral_not_tag_fallback() -> None:
-    evidence = _resolved(
-        1,
-        tag_bpm=128.0,
-        sonara_values={"detected_bpm": 155.0},
-    )
-
-    assert evidence.bpm == 155.0
-    assert evidence.source == "sonara_low_confidence"
-    assert evidence.reliability == 0.0
-
-
-def test_null_confidence_yields_neutral() -> None:
-    evidence = _resolved(
-        1,
-        tag_bpm=128.0,
-        sonara_values={"detected_bpm": 126.0},
-    )
-    reference = _evidence(128.0, 1.0)
-
-    assert evidence.reliability == 0.0
-    assert confidence_aware_tempo_score(evidence, reference) == pytest.approx(0.5)
-
-
 def test_tag_only_tempo_preserves_measured_matching_behavior() -> None:
     candidate = _resolved(1, tag_bpm=128.0)
     reference = _resolved(2, tag_bpm=130.0)

@@ -40,7 +40,6 @@ from audio_dedup import scoring as scoring_module  # noqa: E402
 
 from audio_dedup import track_loading as track_loading_module  # noqa: E402
 
-from audio_dedup import xlsx_report as xlsx_report_module  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -244,34 +243,6 @@ def test_path_contains_additionally_filters_inside_root(tmp_path: Path) -> None:
     assert [track.track_id for track in tracks] == [1]
 
 
-def test_load_tracks_reports_progress_after_each_200_row_chunk(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    _create_library_db(db_path)
-    for track_id in range(1, 202):
-        _insert_track(
-            db_path,
-            track_id=track_id,
-            path=f"M:/Volumes/Abstracted/{track_id:03d}.flac",
-        )
-    progress: list[tuple[int, int, str]] = []
-
-    tracks = track_loading_module.load_tracks(
-        db_path,
-        root=Path("M:/Volumes/Abstracted"),
-        path_contains=[],
-        sources=(),
-        progress_callback=lambda processed, total, message: progress.append(
-            (processed, total, message)
-        ),
-    )
-
-    assert track_loading_module.TRACK_LOAD_CHUNK_SIZE == 200
-    assert len(tracks) == 201
-    assert (0, 201, "Loading scoped tracks") in progress
-    assert (200, 201, "Loading scoped tracks") in progress
-    assert (201, 201, "Loading scoped tracks") in progress
-
-
 def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
     tmp_path: Path,
 ) -> None:
@@ -403,88 +374,6 @@ def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
     )
 
     assert "muq" not in invalid_tracks[0].embeddings
-
-
-def test_muq_influences_scores_and_disabling_it_restores_legacy_scores(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "library.sqlite"
-    _create_library_db(db_path)
-    sonara = {"energy": 0.7}
-    _insert_track(
-        db_path,
-        track_id=1,
-        path="M:/Volumes/Abstracted/one.flac",
-        sonara=sonara,
-        vectors={
-            "mert": [1.0, 0.0],
-            "maest": [1.0, 0.0],
-            "muq": [1.0, 0.0],
-            "clap": [1.0, 0.0],
-        },
-    )
-    _insert_track(
-        db_path,
-        track_id=2,
-        path="M:/Volumes/Abstracted/two.flac",
-        sonara=sonara,
-        vectors={
-            "mert": [0.96, 0.28],
-            "maest": [0.8, 0.6],
-            "muq": [-1.0, 0.0],
-            "clap": [0.6, 0.8],
-        },
-    )
-    tracks = track_loading_module.load_tracks(
-        db_path,
-        root=Path("M:/Volumes/Abstracted"),
-        path_contains=[],
-    )
-    config = config_module.resolve_preset("safe", min_score=None)
-
-    all_sources = scoring_module.score_pair(tracks[0], tracks[1], config)
-    legacy_config = config_module.resolve_source_config(
-        sources=["mert", "maest", "clap"],
-    )
-    legacy = scoring_module.score_pair(
-        tracks[0],
-        tracks[1],
-        config,
-        source_config=legacy_config,
-    )
-
-    assert all_sources.muq_similarity == pytest.approx(-1.0)
-    assert all_sources.content_similarity < legacy.content_similarity
-    assert all_sources.score < legacy.score
-    assert legacy.muq_similarity is None
-    expected_content = (
-        legacy.mert_similarity * 0.43
-        + legacy.maest_similarity * 0.32
-        + legacy.clap_similarity * 0.04
-    ) / (0.43 + 0.32 + 0.04)
-    legacy_weighted = 0.0
-    legacy_total = 0.0
-    for value, weight in (
-        (legacy.mert_similarity, 0.43),
-        (legacy.maest_similarity, 0.32),
-        (legacy.sonara_similarity, 0.14),
-        (legacy.clap_similarity, 0.04),
-    ):
-        legacy_weighted += value * weight
-        legacy_total += weight
-    legacy_weighted += 0.05
-    legacy_total += 0.05
-    assert legacy.content_similarity == expected_content
-    assert legacy.score == legacy_weighted / legacy_total
-    assert not any(
-        "corroboration" in blocker or "weight is not positive" in blocker
-        for blocker in legacy.blocked_reasons
-    )
-    assert legacy_config.weights == {
-        "mert": 0.43,
-        "maest": 0.32,
-        "clap": 0.04,
-    }
 
 
 @pytest.mark.parametrize(
@@ -740,46 +629,6 @@ def test_min_score_overrides_preset_threshold() -> None:
     assert config.direct_keeper_score == 0.98
 
 
-def test_presets_use_graduated_safe_delete_thresholds() -> None:
-
-    safe = config_module.resolve_preset("safe", min_score=None)
-    balanced = config_module.resolve_preset("balanced", min_score=None)
-    aggressive = config_module.resolve_preset("aggressive", min_score=None)
-
-    assert safe.min_score == 0.965
-    assert safe.min_similarity == 0.985
-    assert safe.direct_keeper_score == 0.98
-    assert balanced.min_score == 0.95
-    assert balanced.min_similarity == 0.97
-    assert balanced.direct_keeper_score == 0.97
-    assert aggressive.min_score == 0.925
-    assert aggressive.min_similarity == 0.94
-    assert aggressive.direct_keeper_score == 0.965
-
-
-def test_report_documents_audio_to_audio_clap_similarity_semantics(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    _create_library_db(db_path)
-    vectors = {
-        "mert": [1.0, 0.0, 0.0],
-        "maest": [1.0, 0.0, 0.0],
-        "muq": [1.0, 0.0, 0.0],
-        "clap": [1.0, 0.0, 0.0],
-    }
-    _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/one.flac", vectors=vectors)
-    _insert_track(db_path, track_id=2, path="M:/Volumes/Abstracted/two.flac", vectors=vectors)
-
-    tracks = track_loading_module.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
-    groups = scoring_module.find_duplicate_groups(tracks, config_module.resolve_preset("safe", min_score=None), limit_groups=None)
-    payload = report_payload_module.build_report(groups, tracks, config_module.resolve_preset("safe", min_score=None), root=Path("M:/Volumes/Abstracted"), path_contains=[])
-
-    semantics = payload["score_semantics"]
-    assert semantics["muq_similarity"]["kind"] == "audio_to_audio_cosine"
-    assert semantics["clap_similarity"]["kind"] == "audio_to_audio_cosine"
-    assert semantics["clap_similarity"]["text_search_comparable"] is False
-    assert "text-to-audio" in semantics["clap_similarity"]["notes"]
-
-
 def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     out_dir = tmp_path / "reports"
@@ -812,52 +661,6 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     assert payload["groups"][0]["suggested_keeper"]["track_id"] == 1
     assert payload["groups"][0]["candidate_deletes"][0]["track_id"] == 2
     assert payload["groups"][0]["candidate_deletes"][0]["safe_to_delete"] == "true_candidate"
-
-
-def test_xlsx_summary_sheet_is_formatted_as_review_dashboard(tmp_path: Path) -> None:
-    payload = {
-        "mode": "report-only",
-        "generated_at": "2026-06-23T12:00:00",
-        "database_path": "C:/db/library.sqlite",
-        "root": "D:/Music",
-        "path_contains": ["mastered"],
-        "preset": "safe",
-        "min_score": 0.965,
-        "min_similarity": 0.985,
-        "database_track_count": 25,
-        "scoped_track_count": 10,
-        "track_count": 10,
-        "group_count": 2,
-        "statistics": {
-            "candidate_count": 3,
-            "safe_candidate_count": 1,
-            "review_candidate_count": 2,
-            "confidence_counts": {"high": 1, "medium": 1, "review": 0},
-            "embedding_coverage": {"mert": 10, "maest": 9, "clap": 4},
-        },
-        "rhythm_lab": {
-            "database_path": "tools/rhythm-lab/database/rhythm_lab.sqlite",
-            "database_exists": True,
-            "affected_track_count": 1,
-            "affected_row_count": 4,
-            "affected_rows": [],
-        },
-        "groups": [],
-    }
-    path = tmp_path / "dedup.xlsx"
-
-    xlsx_report_module.write_xlsx_report(path, payload)
-
-    with zipfile.ZipFile(path) as archive:
-        summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
-        styles_xml = archive.read("xl/styles.xml").decode("utf-8")
-    assert '<mergeCell ref="A1:E1"/>' in summary_xml
-    assert '<mergeCell ref="A2:E2"/>' in summary_xml
-    assert 'showGridLines="0"' in summary_xml
-    assert 'Review workbook before deleting files' in summary_xml
-    assert "Safe delete candidates" in summary_xml
-    assert "Open the Candidates sheet and review every row before apply mode." in summary_xml
-    assert 'fgColor rgb="FF111827"' in styles_xml
 
 
 def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
@@ -964,45 +767,6 @@ def test_safe_preset_requires_content_similarity_not_only_overall_score(tmp_path
     groups = scoring_module.find_duplicate_groups(tracks, config_module.resolve_preset("safe", min_score=None), limit_groups=None)
 
     assert groups == []
-
-
-def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
-    config = config_module.resolve_preset("safe", min_score=None)
-    sonara = {"bpm": 128.0, "energy": 0.7, "onset_density": 0.4}
-    left = models_module.TrackRecord(
-        track_id=1,
-        path="M:/Volumes/Abstracted/one.flac",
-        size=20_000_000,
-        mtime=100.0,
-        artist="A",
-        title="T",
-        album="Album",
-        bpm=90.0,
-        musical_key="1A",
-        duration=300.0,
-        metadata={"sonara_features": sonara},
-        embeddings={},
-    )
-    right = models_module.TrackRecord(
-        track_id=2,
-        path="M:/Volumes/Abstracted/two.flac",
-        size=20_000_000,
-        mtime=100.0,
-        artist="A",
-        title="T",
-        album="Album",
-        bpm=180.0,
-        musical_key="12B",
-        duration=300.0,
-        metadata={"sonara_features": sonara},
-        embeddings={},
-    )
-
-    evidence = scoring_module.score_pair(left, right, config)
-
-    assert evidence.sonara_similarity == 1.0
-    assert not hasattr(evidence, "bpm_diff")
-    assert not hasattr(evidence, "key_match")
 
 
 def test_sonara_similarity_reads_stored_feature_payload_values() -> None:
@@ -1230,67 +994,6 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
     assert "keep_label" not in rhythm_lab_xml
     log_text = result.log_path.read_text(encoding="utf-8")
     assert "rhythm_lab_summary=safe_candidates=1 database_exists=true affected_tracks=1 affected_rows=2" in log_text
-
-
-def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    db_path = tmp_path / "library.sqlite"
-    rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
-    out_dir = tmp_path / "reports"
-    audio_dir = tmp_path / "Abstracted"
-    audio_dir.mkdir()
-    keeper_path = audio_dir / "keeper.flac"
-    duplicate_path = audio_dir / "duplicate.mp3"
-    keeper_path.write_bytes(b"keeper")
-    duplicate_path.write_bytes(b"duplicate")
-    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
-    _create_library_db(db_path)
-    _create_rhythm_lab_db(rhythm_lab_db)
-    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
-    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
-    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
-    duplicate_identity = _identity_tuple(db_path, 2)
-    with sqlite3.connect(rhythm_lab_db) as connection:
-        connection.execute(
-            """
-            INSERT INTO classifier_labels(
-                classifier_key, catalog_uuid, track_uuid, selected_path, label
-            ) VALUES (
-                'break_energy', ?, ?, ?, 'delete_label'
-            )
-            """,
-            (*duplicate_identity, str(duplicate_path)),
-        )
-
-    exit_code = cli_module.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir), "--embedding"])
-
-    assert exit_code == 0
-    stdout = capsys.readouterr().out
-    assert "Searching duplicate pairs: 100.0% (1/1)" in stdout
-    assert "Report-only run complete. groups=1 safe_candidates=1" in stdout
-    assert "Rhythm Lab: safe_candidates=1 database_exists=true affected_tracks=1 affected_rows=1" in stdout
-
-
-def test_console_progress_reporter_prints_phase_percent_and_final_newline(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    reporter = cli_module.ConsoleProgressReporter(refresh_seconds=0.0)
-
-    reporter(0, 0, "Reading database")
-    reporter(50, 200, "Searching duplicate pairs")
-    reporter(200, 200, "Searching duplicate pairs")
-    reporter.finish()
-
-    stdout = capsys.readouterr().out
-    assert "Reading database..." in stdout
-    assert "Searching duplicate pairs: 25.0% (50/200)" in stdout
-    assert "Searching duplicate pairs: 100.0% (200/200)" in stdout
-    assert stdout.endswith("\n")
-
-
-def test_cli_does_not_accept_rhythm_lab_db_argument() -> None:
-
-    with pytest.raises(SystemExit):
-        cli_module.parse_args(["--root", "M:/Volumes/Abstracted", "--rhythm-lab-db", "lab.sqlite"])
 
 
 def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

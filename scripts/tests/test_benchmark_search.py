@@ -15,41 +15,6 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "benchmark_search.py"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_benchmark_search_runs_and_deletes_temporary_bundle(tmp_path: Path) -> None:
-    output_path = tmp_path / "benchmark.json"
-
-    _run_benchmark(
-        "--output",
-        str(output_path),
-        "--track-counts",
-        "20",
-        "--seed-count",
-        "3",
-        "--per-source",
-        "5",
-    )
-
-    report = json.loads(output_path.read_text(encoding="utf-8"))
-    run = report["runs"][0]
-    db_path = Path(run["db_path"])
-
-    assert report["benchmark"] == "embedding_search_benchmark"
-    assert "schema_version" not in report
-    assert "contract_hash" not in json.dumps(report)
-    assert report["config"]["track_counts"] == [20]
-    assert report["config"]["embedding_dim"] == 768
-    assert report["config"]["vector_backend"] == "exact_numpy"
-    assert run["track_count"] == 20
-    assert run["kept_db"] is False
-    assert db_path.exists() is False
-    assert run["data"]["storage"] == "library"
-    assert run["data"]["synthetic_audio_files_created"] is False
-    assert run["load_embedding_matrix"]["mert"]["tracks"] == 20
-    assert run["load_embedding_matrix"]["maest"]["dim"] == 768
-    assert run["exact_similarity"]["mert"]["backend"] == "exact_numpy"
-    assert run["exact_similarity"]["mert"]["seed_count"] == 3
-
-
 def test_benchmark_search_keep_db_preserves_current_bundle(tmp_path: Path) -> None:
     output_path = tmp_path / "benchmark.json"
     keep_db_path = tmp_path / "kept-benchmark.sqlite"

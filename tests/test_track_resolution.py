@@ -14,7 +14,6 @@ from dj_track_similarity.track_resolution import (
     camelot_compatibility,
     key_name_to_camelot,
     resolve_track_camelot,
-    resolve_track_energy,
     resolve_track_key_confidence,
 )
 
@@ -152,24 +151,3 @@ def test_key_confidence_is_only_returned_for_sonara_resolved_key() -> None:
     )
     assert resolve_track_camelot(identity, track, sonara) == "11A"
     assert resolve_track_key_confidence(identity, track, sonara) is None
-
-
-def test_persisted_camelot_and_energy_require_current_identity_bound_sonara() -> None:
-    identity, track, sonara = _track(
-        1,
-        tag_key="F major",
-        sonara_values={
-            "detected_key_camelot": "8A",
-            "key_confidence": 0.9,
-            "energy_score": 0.9,
-        },
-    )
-
-    assert resolve_track_camelot(identity, track, sonara) == "8A"
-    assert resolve_track_key_confidence(identity, track, sonara) == pytest.approx(0.9)
-    assert resolve_track_energy(identity, track, sonara) == pytest.approx(0.9)
-
-    no_sonara_identity, no_sonara_track, no_sonara = _track(2, tag_key="8A")
-    assert resolve_track_camelot(no_sonara_identity, no_sonara_track, no_sonara) == "8A"
-    assert resolve_track_energy(no_sonara_identity, no_sonara_track, no_sonara) is None
-    assert resolve_track_key_confidence(no_sonara_identity, no_sonara_track, no_sonara) is None

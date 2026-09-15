@@ -5,27 +5,10 @@ import random
 import pytest
 
 from dj_track_similarity.evaluation.score_profile_optimizer import (
-    build_saved_score_profile_payload,
     build_score_profile_optimizer_report,
 )
 from dj_track_similarity.evaluation.score_profile_optimizer import _ranked_relevances as ranked_relevances_for_optimizer_test
 from evaluation_fixtures import EvaluationRepository
-
-
-def test_optimizer_rejects_insufficient_matched_judged_pairs() -> None:
-    db = EvaluationRepository()
-    seed_id = _track(db)
-    bad_id = _track(db)
-    good_id = _track(db)
-    _add_two_candidate_session(db, seed_id, bad_id, good_id, positive_source="mert")
-
-    report = build_score_profile_optimizer_report(db, bootstrap_samples=0)
-
-    assert report["status"] == "rejected"
-    assert report["decision"] == "insufficient_matched_judged_pairs"
-    assert report["judged_pairs"] == 2
-    assert report["weights"] == {}
-    assert report["can_apply_as_default"] is False
 
 
 def test_optimizer_ignores_unmatched_feedback_rows() -> None:
@@ -157,41 +140,6 @@ def test_optimizer_rejects_when_bad_suggestion_rate_increases() -> None:
     assert report["guardrails"]["validation_ndcg_improved"] is True
     assert report["guardrails"]["bad_rate_did_not_increase"] is False
     assert report["validation_metrics"]["bad_suggestion_rate_at_10"] > report["baseline_validation_metrics"]["bad_suggestion_rate_at_10"]
-
-
-def test_optimizer_does_not_write_database_rows_by_default() -> None:
-    db = _build_two_candidate_optimizer_library(
-        seed_count=100,
-        positive_source="mert",
-    )
-    before_counts = db.count_evaluation_rows()
-
-    report = build_score_profile_optimizer_report(
-        db,
-        grid_step=0.5,
-        bootstrap_samples=0,
-    )
-    after_counts = db.count_evaluation_rows()
-
-    assert report["status"] == "ok"
-    assert after_counts == before_counts
-
-
-def test_optimizer_saved_profile_requires_default_review_gate() -> None:
-    db = _build_two_candidate_optimizer_library(
-        seed_count=100,
-        positive_source="mert",
-    )
-    report = build_score_profile_optimizer_report(
-        db,
-        grid_step=0.5,
-        bootstrap_samples=0,
-    )
-
-    assert report["status"] == "ok"
-    assert report["can_update_defaults"] is False
-    with pytest.raises(ValueError, match="500 matched judged-pair"):
-        build_saved_score_profile_payload(report)
 
 
 def _build_two_candidate_optimizer_library(

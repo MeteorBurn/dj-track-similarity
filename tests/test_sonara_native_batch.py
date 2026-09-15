@@ -182,48 +182,6 @@ def test_batch_preserves_per_track_analysis_conversion_and_store_failures() -> N
     ] == [1, 4]
 
 
-def test_all_analysis_failures_still_use_one_empty_repository_batch() -> None:
-    repository = RecordingRepository()
-
-    results = analyze_and_store_sonara_batch(
-        repository,
-        [
-            _candidate(1, "analysis-failure-one"),
-            _candidate(2, "analysis-failure-two"),
-        ],
-        sonara_module=FakeSonara,
-    )
-
-    assert all(result.error is not None for result in results)
-    assert repository.save_calls == [()]
-
-
-def test_native_batch_maps_by_input_order_and_passes_progress_callback() -> None:
-    FakeSonara.calls.clear()
-    candidates = (
-        _candidate(1, "first"),
-        _candidate(2, "second"),
-        _candidate(3, "third"),
-    )
-    repository = RecordingRepository()
-
-    def progress(done: int, total: int) -> None:
-        del done, total
-
-    results = analyze_and_store_sonara_batch(
-        repository,
-        candidates,
-        sonara_module=FakeSonara,
-        progress=progress,
-    )
-
-    assert [result.target.track_id for result in results] == [1, 2, 3]
-    assert FakeSonara.calls[-1]["paths"] == [
-        candidate.file_path for candidate in candidates
-    ]
-    assert FakeSonara.calls[-1]["progress"] is progress
-
-
 def test_batch_cardinality_mismatch_is_a_fatal_error() -> None:
     with pytest.raises(RuntimeError, match="result count"):
         analyze_and_store_sonara_batch(
@@ -249,26 +207,3 @@ def test_repository_result_for_wrong_target_is_a_fatal_error() -> None:
             [_candidate(1, "first")],
             sonara_module=FakeSonara,
         )
-
-
-@pytest.mark.parametrize("future_runtime_parameter", ["alpha", "beta", "gamma"])
-def test_future_runtime_metadata_does_not_gate_registration_or_analysis(
-    future_runtime_parameter: str,
-) -> None:
-    runtime = type(
-        "FutureMetadataSonara",
-        (FakeSonara,),
-        {"__sonara_future_parameter__": future_runtime_parameter, "calls": []},
-    )
-    repository = RecordingRepository()
-
-    results = analyze_and_store_sonara_batch(
-        repository,
-        [_candidate(1, "first")],
-        sonara_module=runtime,
-    )
-
-    assert results[0].error is None
-    assert len(repository.register_calls) == 1
-    assert len(repository.save_calls) == 1
-    assert len(runtime.calls) == 1

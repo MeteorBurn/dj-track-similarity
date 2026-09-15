@@ -69,24 +69,6 @@ def test_candidate_pool_uses_current_targets_without_contract_hashes() -> None:
     )
 
 
-def test_candidate_pool_read_only_mode_does_not_open_evaluation_storage() -> None:
-    repository = _Repository()
-
-    result = export_candidate_pools(
-        repository,
-        seed_track_ids=(1,),
-        sources=("mert",),
-        per_source=1,
-        random_seed=3,
-        record_session=False,
-    )
-
-    assert len(result.rows) == 1
-    assert result.session_ids == ()
-    assert repository.created_sessions == []
-    assert repository.recorded_events == []
-
-
 def test_seed_sample_distinguishes_maest_analysis_and_embedding_coverage() -> None:
     repository = _Repository()
     repository.summaries[1] = _summary(

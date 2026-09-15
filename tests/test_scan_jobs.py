@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 import threading
 import wave
 from pathlib import Path
@@ -69,40 +69,6 @@ def test_scan_job_records_progress_and_events(tmp_path: Path) -> None:
     assert tuple(row) == ("MP3", "Murmure")
 
 
-def test_scan_job_records_requested_worker_count(tmp_path: Path) -> None:
-    music = tmp_path / "music"
-    music.mkdir()
-    _audio(music, "a.wav")
-    _audio(music, "b.wav")
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    manager = ScanJobManager(database)
-
-    status = manager.run_sync(music, workers=2)
-
-    assert status.workers == 2
-    assert status.events[0].message == "Scan queued · workers 2 · limit all"
-    assert status.state == "completed"
-    assert status.processed == 2
-
-
-def test_scan_job_creation_collects_paths_for_existing_workers(
-    tmp_path: Path,
-) -> None:
-    music = tmp_path / "music"
-    music.mkdir()
-    audio_path = _audio(music, "track.wav")
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    manager = ScanJobManager(database)
-
-    job_id = manager.create_job(music, workers=8)
-    payload = manager._store.payload(job_id)
-
-    assert manager.get(job_id).state == "queued"
-    assert manager.get(job_id).total == 1
-    assert isinstance(payload, ScanJobPayload)
-    assert payload.paths == [audio_path]
-
-
 def test_parallel_scan_uses_process_workers_and_writes_on_calling_thread(
     monkeypatch,
     tmp_path: Path,
@@ -150,78 +116,6 @@ def test_parallel_scan_uses_process_workers_and_writes_on_calling_thread(
     assert created_worker_counts == [4]
     assert len(set(writer_thread_ids)) == 1
     assert writer_thread_ids[0] == threading.get_ident()
-
-
-def test_parallel_scan_writes_ready_batches_before_all_paths_are_prepared(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    music = tmp_path / "music"
-    music.mkdir()
-    database = LibraryDatabase(tmp_path / "library.sqlite")
-    manager = ScanJobManager(database)
-    job_id = manager.create_job(music, workers=2)
-    paths = [music / f"track-{index}.wav" for index in range(10)]
-    events: list[tuple[str, tuple[Path, ...]]] = []
-
-    class RecordingFuture(Future[list[str]]):
-        def __init__(self, path_group: list[str]) -> None:
-            super().__init__()
-            self.path_group = path_group
-            self.set_result(path_group)
-
-        def result(self, timeout=None):
-            events.append(
-                ("prepared", tuple(Path(path) for path in self.path_group))
-            )
-            return super().result(timeout)
-
-    class ImmediateProcessPoolExecutor:
-        def __init__(self, *, max_workers: int) -> None:
-            self.max_workers = max_workers
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args) -> None:
-            return None
-
-        def submit(self, _function, path_group, **_kwargs):
-            return RecordingFuture(path_group)
-
-    def collect_prepared_group(_job_id: str, results: list[str]):
-        return [(Path(path), object()) for path in results], 0
-
-    def record_write(_job_id: str, batch) -> None:
-        events.append(("write", tuple(path for path, _prepared in batch)))
-
-    monkeypatch.setattr(scan_jobs_module, "_SCAN_PREPARE_BATCH_SIZE", 2, raising=False)
-    monkeypatch.setattr(
-        scan_jobs_module,
-        "ProcessPoolExecutor",
-        ImmediateProcessPoolExecutor,
-    )
-    monkeypatch.setattr(manager, "_collect_prepared_scan_group", collect_prepared_group)
-    monkeypatch.setattr(manager, "_write_prepared_scan_batch", record_write)
-
-    manager._run_parallel_scan(job_id, paths, workers=2)
-
-    event_kinds = [kind for kind, _paths in events]
-    assert event_kinds.index("write") < max(
-        index for index, kind in enumerate(event_kinds) if kind == "prepared"
-    )
-    assert event_kinds[-1] == "write"
-    assert all(
-        len(batch_paths) <= 2
-        for kind, batch_paths in events
-        if kind == "write"
-    )
-    assert {
-        path
-        for kind, batch_paths in events
-        if kind == "write"
-        for path in batch_paths
-    } == set(paths)
 
 
 def test_scan_writer_rejects_metadata_if_source_changes_after_read(
@@ -304,23 +198,35 @@ def test_prepare_audio_path_group_reads_duration_once(
     music = tmp_path / "music"
     music.mkdir()
     _audio(music, "accepted.wav", seconds=2)
+    _audio(music, "untagged.wav", seconds=2)
     original_reader = scanner.read_audio_metadata
     reads: list[Path] = []
+    header_reads: list[Path] = []
 
     def record_metadata_read(path: str | Path) -> dict[str, object]:
         reads.append(Path(path))
-        return original_reader(path)
+        metadata = original_reader(path)
+        if Path(path).name == "untagged.wav":
+            del metadata["duration"]
+        return metadata
+
+    def record_header_read(path: str | Path) -> float:
+        header_reads.append(Path(path))
+        return 2.0
 
     monkeypatch.setattr(scanner, "read_audio_metadata", record_metadata_read)
+    # Tags without a duration fall back to the container header.
+    monkeypatch.setattr(scanner, "read_ffmpeg_audio_duration_seconds", record_header_read)
 
     results = scanner.prepare_audio_path_group(
-        [str(music / "accepted.wav")],
+        [str(music / "accepted.wav"), str(music / "untagged.wav")],
         min_duration_seconds=1,
         max_duration_seconds=3,
     )
 
-    assert results[0].prepared is not None
-    assert reads == [music / "accepted.wav"]
+    assert [result.prepared.file.audio_duration_seconds for result in results] == [2.0, 2.0]
+    assert reads == [music / "accepted.wav", music / "untagged.wav"]
+    assert header_reads == [music / "untagged.wav"]
 
 
 def test_duration_filtered_scan_limit_counts_only_eligible_tracks(

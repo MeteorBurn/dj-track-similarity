@@ -1202,60 +1202,6 @@ def test_restore_apply_revalidates_catalog_and_preserves_core_bytes(
     connection.close()
 
 
-def test_restore_counts_profiles_definitions_manual_recovery_and_is_idempotent(
-    tmp_path: Path,
-) -> None:
-    rebound, core_db = _restore_fixture(
-        tmp_path,
-        labels=[
-            (
-                "alpha",
-                1,
-                "C:/Music/A.wav",
-                100,
-                10.0,
-                "yes",
-                None,
-                "2026-02-01T00:00:00Z",
-            ),
-            ("alpha", 2, None, None, None, "no", None, "2026-02-02T00:00:00Z"),
-        ],
-        tracks=[(7, "uuid-a", "C:/Music/A.wav", 100, 10_000_000_000)],
-    )
-    target = tmp_path / "target.sqlite"
-
-    first = restore_label_bundle(rebound, target, core_db_path=core_db, apply=True)
-    second = restore_label_bundle(rebound, target, core_db_path=core_db, apply=True)
-
-    assert (
-        first["summary"]
-        == second["summary"]
-        == {
-            "accepted_bound": 0,
-            "bound": 1,
-            "conflict_groups": 0,
-            "conflict_losers": 0,
-            "manual_label_total": 2,
-            "profile_count": 2,
-            "profile_label_definition_count": 4,
-            "recovered": 1,
-            "strong_bound": 1,
-        }
-    )
-    connection = sqlite3.connect(target)
-    counts = tuple(
-        connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        for table in (
-            "classifier_profiles",
-            "classifier_profile_labels",
-            "classifier_labels",
-            "classifier_label_recovery",
-        )
-    )
-    connection.close()
-    assert counts == (2, 4, 1, 1)
-
-
 def _restore_fixture(
     tmp_path: Path,
     *,

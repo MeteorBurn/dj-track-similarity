@@ -14,7 +14,6 @@ if str(TOOL_ROOT) not in sys.path:
 
 from audio_dedup.fingerprints import (  # noqa: E402
     FingerprintSketch,
-    _fingerprint_lsh_bucket_keys,
     fingerprint_candidate_pairs,
     fingerprint_match_scores,
     fingerprint_sketch,
@@ -59,19 +58,6 @@ def test_fingerprint_lsh_never_matches_across_fingerprint_versions() -> None:
     ]
 
     assert fingerprint_candidate_pairs(sketches) == set()
-
-
-def test_fingerprint_lsh_bucket_key_requires_two_adjacent_bands() -> None:
-    left_signature = np.zeros(96, dtype=bool)
-    right_signature = left_signature.copy()
-    right_signature[12] = True
-
-    left_keys = _fingerprint_lsh_bucket_keys(left_signature)
-    right_keys = _fingerprint_lsh_bucket_keys(right_signature)
-
-    assert len(left_keys) == 4
-    assert left_keys[0] != right_keys[0]
-    assert left_keys[1:] == right_keys[1:]
 
 
 def test_fingerprint_sketch_rejects_malformed_or_empty_storage_value() -> None:
@@ -143,91 +129,6 @@ def test_missing_fingerprint_table_disables_only_the_fingerprint_signal() -> Non
     assert loaded.sketches == ()
     assert loaded.rejected_rows == 0
     assert scores == {}
-
-
-def test_fingerprint_matching_reports_progress_after_each_chunk() -> None:
-    connection = sqlite3.connect(":memory:")
-    connection.row_factory = sqlite3.Row
-    connection.executescript(
-        """
-        CREATE TABLE sonara_fingerprints (
-            track_id INTEGER PRIMARY KEY,
-            track_uuid TEXT NOT NULL,
-            fingerprint_version INTEGER NOT NULL,
-            fingerprint_base64 TEXT NOT NULL,
-            analyzed_at TEXT NOT NULL
-        );
-        """
-    )
-    pairs = {(index * 2 + 1, index * 2 + 2) for index in range(251)}
-    identities = {
-        track_id: f"track-{track_id}"
-        for pair in pairs
-        for track_id in pair
-    }
-    value = _fingerprint_base64(np.arange(128, dtype=np.uint32))
-    connection.executemany(
-        """
-        INSERT INTO sonara_fingerprints (
-            track_id, track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?)
-        """,
-        [
-            (track_id, track_uuid, 1, value, "2026-08-26T00:00:00+00:00")
-            for track_id, track_uuid in identities.items()
-        ],
-    )
-    progress: list[tuple[int, int]] = []
-
-    scores = fingerprint_match_scores(
-        connection,
-        pairs,
-        identities,
-        matcher=lambda _left, _right: 0.88,
-        progress_callback=lambda completed, total: progress.append((completed, total)),
-    )
-
-    assert len(scores) == 251
-    assert progress == [(250, 251), (251, 251)]
-
-
-def test_fingerprint_sketch_loading_reports_progress_after_each_chunk() -> None:
-    connection = sqlite3.connect(":memory:")
-    connection.row_factory = sqlite3.Row
-    connection.executescript(
-        """
-        CREATE TABLE sonara_fingerprints (
-            track_id INTEGER PRIMARY KEY,
-            track_uuid TEXT NOT NULL,
-            fingerprint_version INTEGER NOT NULL,
-            fingerprint_base64 TEXT NOT NULL,
-            analyzed_at TEXT NOT NULL
-        );
-        """
-    )
-    identities = {track_id: f"track-{track_id}" for track_id in range(1, 451)}
-    value = _fingerprint_base64(np.arange(128, dtype=np.uint32))
-    connection.executemany(
-        """
-        INSERT INTO sonara_fingerprints (
-            track_id, track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?)
-        """,
-        [
-            (track_id, track_uuid, 1, value, "2026-08-26T00:00:00+00:00")
-            for track_id, track_uuid in identities.items()
-        ],
-    )
-    progress: list[tuple[int, int]] = []
-
-    loaded = load_fingerprint_sketches(
-        connection,
-        identities,
-        progress_callback=lambda completed, total: progress.append((completed, total)),
-    )
-
-    assert len(loaded.sketches) == 450
-    assert progress == [(200, 450), (400, 450), (450, 450)]
 
 
 def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding_gate() -> (

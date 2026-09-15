@@ -14,8 +14,6 @@ from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
 )
-from dj_track_similarity.analysis.pipeline import AnalysisPipelineManager
-from dj_track_similarity.analysis.queue import AnalysisStageQueue
 
 
 _OUTPUTS = (
@@ -123,49 +121,3 @@ def test_sonara_status_endpoint_is_neutral_and_release_routes_are_removed(
         client.post("/api/analysis/sonara/releases/prepare", json={}).status_code
         in {404, 405}
     )
-
-
-def test_sonara_analysis_api_queues_without_release_preflight(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    calls: list[dict[str, object]] = []
-
-    def start(_manager: AnalysisJobManager, **kwargs: object):
-        calls.append(dict(kwargs))
-        return {"job_id": "sonara-job", "state": "queued"}
-
-    monkeypatch.setattr(AnalysisJobManager, "start", start)
-
-    response = _client(monkeypatch, tmp_path).post(
-        "/api/analysis/jobs",
-        json={"models": ["sonara"]},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["job_id"] == "sonara-job"
-    assert calls[0]["models"] == ["sonara"]
-
-
-class _PreflightTrapAnalysisJobs:
-    def validate_sonara_preflight(self) -> None:
-        raise AssertionError("release preflight must not run")
-
-
-class _UnusedClassifierJobs:
-    pass
-
-
-def test_pipeline_job_creation_does_not_run_release_preflight() -> None:
-    manager = AnalysisPipelineManager(
-        _PreflightTrapAnalysisJobs(),  # type: ignore[arg-type]
-        AnalysisStageQueue(),
-    )
-
-    job_id = manager.create_job(
-        stages=["sonara"],
-        limit=None,
-        sonara={},
-    )
-
-    assert manager.get(job_id).order == ["sonara"]

@@ -47,11 +47,14 @@ def test_the_production_checkpoint_keeps_the_digest_the_adapter_ships() -> None:
 
 
 def test_labelled_pool_resolves_by_uuid_and_falls_back_to_path(tmp_path: Path) -> None:
-    library = tmp_path / "library.sqlite"
-    labels = tmp_path / "labels.sqlite"
-    audio = tmp_path / "kept.wav"
+    # "#" and "%20" are URI syntax: the read-only URI must still name these files.
+    root = tmp_path / "crate #1 %20"
+    root.mkdir()
+    library = root / "library.sqlite"
+    labels = root / "labels.sqlite"
+    audio = root / "kept.wav"
     audio.write_bytes(b"kept")
-    renamed = tmp_path / "renamed.wav"
+    renamed = root / "renamed.wav"
     renamed.write_bytes(b"renamed")
     _write_library(
         library,
@@ -67,6 +70,10 @@ def test_labelled_pool_resolves_by_uuid_and_falls_back_to_path(tmp_path: Path) -
     pool = embed_script.labelled_tracks(library, labels)
 
     assert pool == [(1, str(audio)), (2, str(renamed))]
+    with sqlite3.connect(benchmark._read_only_uri(library), uri=True) as connection:
+        assert connection.execute("select count(*) from tracks").fetchone() == (2,)
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            connection.execute("delete from tracks")
 
 
 def test_sidecar_round_trips_into_the_benchmark_matrix(tmp_path: Path) -> None:

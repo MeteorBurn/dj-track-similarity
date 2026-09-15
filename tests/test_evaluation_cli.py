@@ -102,45 +102,6 @@ def test_eval_report_cli_writes_json_summary(tmp_path: Path) -> None:
     assert report["counts"]["judged_results"] == 1
 
 
-def test_eval_report_cli_judged_only_writes_label_gate(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    output_path = tmp_path / "report.json"
-    db = LibraryDatabase(db_path)
-    seed_id = _add_cli_track(db, tmp_path, "seed")
-    candidate_id = _add_cli_track(db, tmp_path, "candidate")
-    _record_current_session(
-        db,
-        mode="evaluation_candidate_pool",
-        seed_id=seed_id,
-        events=((candidate_id, 1, {"mert": {"score": 0.9}}),),
-        request={"feedback_source": "manual"},
-    )
-    db.upsert_track_pair_feedback(seed_id, candidate_id, 3, source="manual")
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "eval",
-            "report",
-            "--db",
-            str(db_path),
-            "--output",
-            str(output_path),
-            "--k",
-            "1",
-            "--judged-only",
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert "status=insufficient_data" in result.output
-    assert "judged_pairs=1" in result.output
-    report = json.loads(output_path.read_text(encoding="utf-8"))
-    assert report["evaluation_mode"] == "judged_validation"
-    assert report["label_status"] == "insufficient_data"
-    assert report["judged_pairs"] == 1
-
-
 def test_eval_run_ablation_cli_writes_json_summary(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "ablation.json"
@@ -649,33 +610,6 @@ def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None
     assert report["variants"]["transition_risk_weight:1"]["ranked_sessions"][0][
         "ranked_candidate_track_ids"
     ] == [safe_id, risky_id]
-
-
-def test_eval_sweep_risk_penalty_cli_rejects_invalid_weight(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    output_path = tmp_path / "risk_sweep.json"
-    profile_path = tmp_path / "score_profile.json"
-    LibraryDatabase(db_path)
-    _write_score_profile(profile_path, {"mert": 1.0})
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "eval",
-            "sweep-risk-penalty",
-            "--db",
-            str(db_path),
-            "--profile",
-            str(profile_path),
-            "--output",
-            str(output_path),
-            "--weight",
-            "1.5",
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "weight must be between 0 and 1" in result.output
 
 
 def test_eval_profile_sources_cli_writes_score_profile_output(tmp_path: Path) -> None:

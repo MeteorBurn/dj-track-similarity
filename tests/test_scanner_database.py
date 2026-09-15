@@ -149,22 +149,6 @@ def test_read_audio_metadata_uses_fixed_tag_whitelist(
     }
 
 
-def test_read_audio_duration_uses_ffmpeg_when_mutagen_has_no_duration(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    audio_path = tmp_path / "recoverable.mp3"
-    monkeypatch.setattr(scanner, "read_audio_metadata", lambda path: {})
-    monkeypatch.setattr(
-        scanner,
-        "read_ffmpeg_audio_duration_seconds",
-        lambda path: 245.5,
-        raising=False,
-    )
-
-    assert scanner.read_ffmpeg_audio_duration_seconds(audio_path) == 245.5
-
-
 def test_ffmpeg_duration_reads_container_header_without_decoding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

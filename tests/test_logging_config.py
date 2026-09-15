@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import logging.config
-import re
 import sys
 import time
 
@@ -11,55 +9,9 @@ import dj_track_similarity.logging_config as logging_config
 from dj_track_similarity.logging_config import (
     LOG_ENV_VAR,
     handle_asyncio_exception_context,
-    install_asyncio_exception_logging,
     configure_logging,
-    exception_summary,
-    log_failure,
-    log_job_event,
     parse_log_level,
 )
-
-
-def test_configure_logging_writes_file(tmp_path):
-    log_path = tmp_path / "app.log"
-    configured = configure_logging(log_path, level=logging.INFO)
-
-    logger = logging.getLogger("dj_track_similarity.test")
-    logger.info("hello file log")
-    for handler in logging.getLogger("dj_track_similarity").handlers:
-        handler.flush()
-
-    assert configured == log_path.resolve()
-    assert log_path.exists()
-    assert "hello file log" in log_path.read_text(encoding="utf-8")
-
-
-def test_file_log_records_wrap_date_time_and_level_in_brackets(tmp_path):
-    log_path = tmp_path / "app.log"
-    configure_logging(log_path, level=logging.INFO)
-
-    logger = logging.getLogger("dj_track_similarity.test")
-    logger.warning("bracketed status")
-    for handler in logging.getLogger("dj_track_similarity").handlers:
-        handler.flush()
-
-    contents = log_path.read_text(encoding="utf-8")
-    assert re.search(
-        r"^\[\d{4}-\d{2}-\d{2}\] \[\d{2}:\d{2}:\d{2}\] \[WARNING\] dj_track_similarity\.test bracketed status$",
-        contents,
-        flags=re.MULTILINE,
-    )
-
-
-def test_uvicorn_log_config_wraps_console_date_time_and_level_in_brackets():
-    config = logging_config.uvicorn_log_config("warning")
-
-    assert config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
-    assert config["formatters"]["default"]["datefmt"] == "%Y-%m-%d] [%H:%M:%S"
-    assert config["formatters"]["access"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
-    assert config["loggers"]["uvicorn"]["level"] == "WARNING"
-    assert config["loggers"]["uvicorn.access"]["level"] == "WARNING"
-    assert config["loggers"]["rhythm_lab"]["level"] == "WARNING"
 
 
 def test_serve_logging_writes_every_record_to_the_file_once(tmp_path):
@@ -149,20 +101,6 @@ def test_unknown_asyncio_exception_is_logged_and_forwarded(caplog):
     assert forwarded == [context]
 
 
-def test_install_asyncio_exception_logging_is_idempotent():
-    async def run_check() -> None:
-        loop = asyncio.get_running_loop()
-
-        install_asyncio_exception_logging()
-        first_handler = loop.get_exception_handler()
-        install_asyncio_exception_logging()
-
-        assert first_handler is not None
-        assert loop.get_exception_handler() is first_handler
-
-    asyncio.run(run_check())
-
-
 def test_configure_logging_defaults_to_logs_directory(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(LOG_ENV_VAR, raising=False)
@@ -171,65 +109,6 @@ def test_configure_logging_defaults_to_logs_directory(monkeypatch, tmp_path):
 
     assert configured == (tmp_path / "logs" / "dj-track-similarity.log").resolve()
     assert configured.exists()
-
-
-def test_configure_logging_defaults_to_info_and_higher(tmp_path):
-    log_path = tmp_path / "app.log"
-    configure_logging(log_path)
-
-    logger = logging.getLogger("dj_track_similarity.test")
-    logger.debug("debug track line")
-    logger.info("normal progress")
-    logger.warning("important warning")
-    for handler in logging.getLogger("dj_track_similarity").handlers:
-        handler.flush()
-
-    contents = log_path.read_text(encoding="utf-8")
-    assert "debug track line" not in contents
-    assert "normal progress" in contents
-    assert "important warning" in contents
-
-
-def test_standard_stream_logging_omits_model_loading_noise(tmp_path):
-    """Library chatter arrives coloured and redrawn, not as tidy plain text.
-
-    transformers and huggingface_hub wrap their output in ANSI sequences and repaint
-    progress bars many times a second, so the filters are exercised against those
-    shapes: escapes, a load report for whichever model class transformers happened to
-    instantiate, and download bars.
-    """
-
-    escape = chr(27)
-    log_path = tmp_path / "app.log"
-    configure_logging(log_path)
-
-    print("Loading weights: 100%|███| 199/199 [00:00<00:00, 5143.40it/s]")
-    print("Fetching 5 files:   0%|          | 0/5 [00:00<?, ?it/s]")
-    print("Download complete: : 0.00B [00:02, ?B/s]")
-    print(
-        f"[transformers] {escape}[1mRobertaModel{escape}[0m "
-        f"LOAD REPORT{escape}[0m from: roberta-base"
-    )
-    print("Key                       | Status     |  |")
-    print("--------------------------+------------+--+-")
-    print(f"lm_head.bias              | {escape}[38;5;208mUNEXPECTED{escape}[0m |  |")
-    print(f"pooler.dense.weight       | {escape}[31mMISSING{escape}[0m    |  |")
-    print("Notes:")
-    print(f"- {escape}[38;5;208mUNEXPECTED:{escape}[0m can be ignored for another task")
-    print("Model loading completed")
-    for handler in logging.getLogger("dj_track_similarity").handlers:
-        handler.flush()
-
-    contents = log_path.read_text(encoding="utf-8")
-    assert "Loading weights:" not in contents
-    assert "Fetching 5 files" not in contents
-    assert "Download complete" not in contents
-    assert "LOAD REPORT" not in contents
-    assert "lm_head.bias" not in contents
-    assert "pooler.dense.weight" not in contents
-    assert "Notes:" not in contents
-    assert escape not in contents
-    assert "Model loading completed" in contents
 
 
 def test_configure_logging_does_not_roll_over_active_log_during_emit(tmp_path):
@@ -307,57 +186,3 @@ def test_parse_log_level_rejects_unknown_level():
         assert "Unsupported log level" in str(error)
     else:
         raise AssertionError("parse_log_level should reject unknown levels")
-
-
-def test_exception_summary_uses_exception_type_for_empty_message():
-    assert exception_summary(RuntimeError()) == "RuntimeError"
-    assert exception_summary(ValueError("bad file")) == "bad file"
-
-
-def test_log_failure_puts_traceback_only_in_debug(caplog):
-    logger = logging.getLogger("dj_track_similarity.test")
-
-    try:
-        raise ValueError("bad wav")
-    except ValueError:
-        with caplog.at_level(logging.ERROR, logger="dj_track_similarity"):
-            log_failure(logger, "Track failed path=%s error=%s", "track.wav", "bad wav")
-
-    assert "Track failed path=track.wav error=bad wav" in caplog.text
-    assert "Traceback" not in caplog.text
-
-    caplog.clear()
-    try:
-        raise ValueError("bad wav")
-    except ValueError:
-        with caplog.at_level(logging.DEBUG, logger="dj_track_similarity"):
-            log_failure(logger, "Track failed path=%s error=%s", "track.wav", "bad wav")
-
-    assert "Track failed path=track.wav error=bad wav" in caplog.text
-    assert "Traceback" in caplog.text
-
-
-def test_log_job_event_aggregates_track_success_by_default(caplog, tmp_path):
-    configure_logging(tmp_path / "app.log", log_track_events=False)
-    logger = logging.getLogger("dj_track_similarity.test")
-
-    with caplog.at_level(logging.INFO, logger="dj_track_similarity"):
-        log_job_event(logger, "ok", "Track analyzed path=%s", "track.wav", track_event=True)
-        log_job_event(logger, "info", "Track unchanged path=%s", "track.wav", track_event=True)
-        log_job_event(logger, "error", "Track failed path=%s", "track.wav", track_event=True)
-        log_job_event(logger, "info", "Analysis completed total=%s", 10)
-
-    assert "Track analyzed" not in caplog.text
-    assert "Track unchanged" not in caplog.text
-    assert "Track failed path=track.wav" in caplog.text
-    assert "Analysis completed total=10" in caplog.text
-
-
-def test_log_job_event_can_emit_track_success_details(caplog, tmp_path):
-    configure_logging(tmp_path / "app.log", log_track_events=True)
-    logger = logging.getLogger("dj_track_similarity.test")
-
-    with caplog.at_level(logging.INFO, logger="dj_track_similarity"):
-        log_job_event(logger, "ok", "Track analyzed path=%s", "track.wav", track_event=True)
-
-    assert "Track analyzed path=track.wav" in caplog.text

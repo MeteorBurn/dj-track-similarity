@@ -1,37 +1,20 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+import ts from "typescript";
 
-// A frontend test must load the module it checks as running code, not as text.
-// Source-text regex assertions pin how a component is written instead of what it
+// Every frontend test must run the module it checks, not read it as text.
+// Source-text assertions pin how a component is written instead of what it
 // does: they break on harmless renames and stay green when behaviour breaks.
 //
-// Three loaders count as executing the module under test:
-//   - `server.ssrLoadModule(...)` for React components (see analysisStatus.test.mjs)
-//   - `ts.transpileModule(...)` + `vm` for plain modules (see shutdownApplication.test.mjs)
-//   - a direct static or dynamic import from `../src/`
-//
-// The files below predate this rule and still assert on source text only. The
-// list may shrink, never grow: convert a file to an executing test when you next
-// touch its component, then delete its entry here.
-const SOURCE_TEXT_ONLY_LEGACY = [
-  "buttonClasses.test.mjs",
-  "frontendHooks.test.mjs",
-  "jobUi.test.mjs",
-  "libraryRendering.test.mjs",
-  "playlistAddHandler.test.mjs",
-  "scanImportDialog.test.mjs",
-  "sonaraDisplay.test.mjs",
-  "sonaraFeatureLabels.test.mjs",
-  "themeMode.test.mjs"
-];
+// A test counts as executing when its callback reaches, directly or through
+// file-level helpers and variables, one of:
+//   - `server.ssrLoadModule(...)` for React components
+//   - `ts.transpileModule(...)` for plain modules run with `vm` or imported
+//   - a binding imported from `../src/`, or `import("../src/...")`
+// Reaching one is required, not sufficient: review still judges the assertions.
 
-const EXECUTING_LOADERS = [
-  /\bssrLoadModule\s*\(/,
-  /\btranspileModule\s*\(/,
-  /^import\s[\s\S]*?\bfrom\s+"\.\.\/src\//m,
-  /\bimport\s*\(\s*["'`]\.\.\/src\//
-];
+const LOADER_CALLS = new Set(["ssrLoadModule", "transpileModule"]);
 
 function testFileNames() {
   return readdirSync(new URL(".", import.meta.url))
@@ -39,47 +22,90 @@ function testFileNames() {
     .sort();
 }
 
-function executesModuleUnderTest(name) {
-  const source = readFileSync(new URL(name, import.meta.url), "utf8");
-  return EXECUTING_LOADERS.some((pattern) => pattern.test(source));
+function isSourcePath(node) {
+  return node !== undefined && ts.isStringLiteralLike(node) && node.text.startsWith("../src/");
 }
 
-test("every new frontend test executes the module it checks", () => {
-  const legacy = new Set(SOURCE_TEXT_ONLY_LEGACY);
-  const offenders = testFileNames()
-    .filter((name) => !legacy.has(name))
-    .filter((name) => !executesModuleUnderTest(name));
+function isLoaderCall(node) {
+  if (!ts.isCallExpression(node)) return false;
+  if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return isSourcePath(node.arguments[0]);
+  const callee = ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression;
+  return ts.isIdentifier(callee) && LOADER_CALLS.has(callee.text);
+}
+
+function isPropertyName(node) {
+  const parent = node.parent;
+  return (ts.isPropertyAccessExpression(parent) && parent.name === node)
+    || (ts.isPropertyAssignment(parent) && parent.name === node);
+}
+
+function boundNames(name) {
+  if (ts.isIdentifier(name)) return [name.text];
+  return name.elements.flatMap((element) => (ts.isOmittedExpression(element) ? [] : boundNames(element.name)));
+}
+
+function nonExecutingTests(fileName, source) {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const executing = new Set();
+  const definitions = new Map();
+  const tests = [];
+  const define = (name, node) => definitions.set(name, [...(definitions.get(name) ?? []), node]);
+
+  const collect = (node) => {
+    if (ts.isImportDeclaration(node) && isSourcePath(node.moduleSpecifier)) {
+      const clause = node.importClause;
+      if (clause?.name) executing.add(clause.name.text);
+      const bindings = clause?.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) executing.add(bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) executing.add(element.name.text);
+      }
+    } else if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      define(node.name.text, node.body);
+    } else if (ts.isVariableDeclaration(node) && node.initializer) {
+      for (const name of boundNames(node.name)) define(name, node.initializer);
+    } else if (
+      ts.isBinaryExpression(node)
+      && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(node.left)
+    ) {
+      define(node.left.text, node.right);
+    } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "test") {
+      tests.push({ title: node.arguments[0]?.getText(file) ?? "<untitled>", body: node.arguments.at(-1) });
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(file);
+
+  const reaches = (node) => isLoaderCall(node)
+    || (ts.isIdentifier(node) && executing.has(node.text) && !isPropertyName(node))
+    || ts.forEachChild(node, reaches) === true;
+
+  // A helper or variable executes once anything it is defined from does.
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [name, nodes] of definitions) {
+      if (!executing.has(name) && nodes.some(reaches)) {
+        executing.add(name);
+        grew = true;
+      }
+    }
+  }
+
+  return tests.filter(({ body }) => body === undefined || !reaches(body)).map(({ title }) => title);
+}
+
+test("every frontend test executes the module it checks", () => {
+  const offenders = testFileNames().flatMap((name) =>
+    nonExecutingTests(name, readFileSync(new URL(name, import.meta.url), "utf8"))
+      .map((title) => `${name}: ${title}`)
+  );
 
   assert.deepEqual(
     offenders,
     [],
-    `These tests only assert on source text. Load the module under test with `
-      + `ssrLoadModule, transpileModule, or a direct ../src/ import instead:\n`
-      + offenders.map((name) => `  - ${name}`).join("\n")
-  );
-});
-
-test("the source-text legacy list only holds files that are still source-text only", () => {
-  const present = new Set(testFileNames());
-
-  const missing = SOURCE_TEXT_ONLY_LEGACY.filter((name) => !present.has(name));
-  assert.deepEqual(missing, [], `Legacy entries name tests that no longer exist: ${missing}`);
-
-  const converted = SOURCE_TEXT_ONLY_LEGACY.filter((name) => executesModuleUnderTest(name));
-  assert.deepEqual(
-    converted,
-    [],
-    `These tests now execute their module. Remove them from SOURCE_TEXT_ONLY_LEGACY:\n`
-      + converted.map((name) => `  - ${name}`).join("\n")
-  );
-});
-
-test("the source-text legacy list is sorted and free of duplicates", () => {
-  const sorted = [...SOURCE_TEXT_ONLY_LEGACY].sort();
-  assert.deepEqual(SOURCE_TEXT_ONLY_LEGACY, sorted, "Keep SOURCE_TEXT_ONLY_LEGACY sorted.");
-  assert.equal(
-    new Set(SOURCE_TEXT_ONLY_LEGACY).size,
-    SOURCE_TEXT_ONLY_LEGACY.length,
-    "SOURCE_TEXT_ONLY_LEGACY has duplicate entries."
+    `These tests never reach the module under test. Load it with ssrLoadModule, `
+      + `transpileModule, or a ../src/ import in the test or a helper it calls:\n`
+      + offenders.map((offender) => `  - ${offender}`).join("\n")
   );
 });

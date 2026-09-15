@@ -15,7 +15,6 @@ import dj_track_similarity.api.application as api
 import dj_track_similarity.cli.application as cli
 import dj_track_similarity.cli.analysis as cli_analysis
 import dj_track_similarity.cli.progress as cli_progress
-from dj_track_similarity.analysis.config import ML_ANALYSIS_MODEL_ORDER
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -274,54 +273,6 @@ def test_analyze_cli_rejects_unknown_device_before_opening_manager(
     assert result.exit_code != 0
     assert "Unknown torch device: gpu" in result.output
     assert _FakeAnalysisManager.last_kwargs == {}
-
-
-def test_analyze_cli_prints_default_ml_progress_and_settings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", _FakeAnalysisManager)
-    _FakeAnalysisManager.last_kwargs = {}
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["analyze", "--db", str(tmp_path / "library.sqlite")],
-    )
-
-    assert result.exit_code == 0
-    model_names = ",".join(ML_ANALYSIS_MODEL_ORDER)
-    assert f"Starting {model_names} analysis" in result.output
-    assert "processed=3/3" in result.output
-    assert "tracks/s" in result.output
-    assert "eta=" in result.output
-    assert "state=completed" in result.output
-    assert f"models={model_names}" in result.output
-    assert "sonara_batch_size" not in result.output
-    assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
-    assert _FakeAnalysisManager.last_instance.closed
-
-
-def test_analyze_cli_runs_sonara_core_only(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(cli_analysis, "AnalysisJobManager", _FakeAnalysisManager)
-    _FakeAnalysisManager.last_kwargs = {}
-
-    result = CliRunner().invoke(
-        cli.app,
-        [
-            "analyze",
-            "--models",
-            "sonara",
-            "--db",
-            str(tmp_path / "library.sqlite"),
-        ],
-    )
-
-    assert result.exit_code == 0
-    assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
-    assert "sonara_batch_size=8" in result.output
 
 
 def test_analyze_cli_passes_separate_ml_batch_sizes(

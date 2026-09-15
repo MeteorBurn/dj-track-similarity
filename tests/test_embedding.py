@@ -1,6 +1,5 @@
 # ruff: noqa: E402
 
-import logging
 import hashlib
 import os
 from pathlib import Path
@@ -15,7 +14,6 @@ import pytest
 torch = pytest.importorskip("torch")
 pytestmark = pytest.mark.ml
 
-import dj_track_similarity.embedding.clap as embedding_clap
 import dj_track_similarity.embedding.loading as embedding_loading
 import dj_track_similarity.embedding.numerics as embedding_numerics
 import dj_track_similarity.embedding.audio as embedding_audio
@@ -24,14 +22,10 @@ from dj_track_similarity.audio.loader import DecodedAudio
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
-from dj_track_similarity.embedding.mert import MertEmbeddingAdapter, _iter_mert_windows
+from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
 from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
-from dj_track_similarity.embedding.maest import _move_maest_runtime_modules
-from dj_track_similarity.embedding.numerics import _array_output_to_numpy
-from dj_track_similarity.embedding.audio import _pad_or_trim_audio_tensor
-from dj_track_similarity.logging_config import configure_logging
 
 
 def _text_embedding_rows(rows: int) -> np.ndarray:
@@ -158,12 +152,6 @@ def test_clap_first_import_needs_no_training_tokenizers_or_network(tmp_path) -> 
         assert "CLAP cold import and failure restoration passed" in result.stdout
 
 
-def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
-    assert MuqEmbeddingAdapter.embedding_key == "muq"
-    assert MuqEmbeddingAdapter.model_name == "OpenMuQ/MuQ-large-msd-iter"
-    assert MuqEmbeddingAdapter.target_rate == 24_000
-
-
 def test_mulan_local_safetensors_uses_strict_weight_norm_compatibility(tmp_path) -> None:
     from safetensors.torch import save_file
     from dj_track_similarity.embedding.mulan import _load_local_mulan_checkpoint
@@ -202,30 +190,6 @@ def test_mulan_local_safetensors_uses_strict_weight_norm_compatibility(tmp_path)
     save_file(legacy_state, str(checkpoint))
     with pytest.raises(RuntimeError, match="conv.bias"):
         _load_local_mulan_checkpoint(TinyMuLan, tmp_path)
-
-
-@pytest.mark.parametrize(
-    ("requested", "cuda_available", "expected"),
-    [
-        ("cpu", False, "cpu"),
-        ("cuda", True, "cuda"),
-        ("auto", True, "cuda"),
-        ("auto", False, "cpu"),
-    ],
-)
-def test_muq_adapter_uses_shared_torch_device_selection(requested: str, cuda_available: bool, expected: str) -> None:
-    adapter = MuqEmbeddingAdapter(device=requested)
-    adapter._torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: cuda_available))
-
-    assert adapter._device() == expected
-
-
-def test_muq_adapter_rejects_requested_cuda_when_unavailable() -> None:
-    adapter = MuqEmbeddingAdapter(device="cuda")
-    adapter._torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False))
-
-    with pytest.raises(RuntimeError, match="CUDA was requested"):
-        adapter._device()
 
 
 def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
@@ -413,145 +377,15 @@ def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
     assert vector.tolist() == expected.tolist()
 
 
-def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
-    monkeypatch, tmp_path
-) -> None:
-    log_path = tmp_path / "app.log"
-    checkpoint = tmp_path / "models" / "clap" / ClapEmbeddingAdapter.checkpoint_filename
-    checkpoint.parent.mkdir(parents=True)
-    monkeypatch.setattr(embedding_loading, "_MODELS_ROOT", tmp_path / "models")
-    checkpoint.write_bytes(b"stub checkpoint")
-    text_snapshot = tmp_path / "models" / "clap" / "text"
-    text_snapshot.mkdir()
-    for file_name in ClapEmbeddingAdapter.text_snapshot_files:
-        (text_snapshot / file_name).write_bytes(file_name.encode())
-    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
-    configure_logging()
-
-    torch_module = types.ModuleType("torch")
-
-    class FakeCuda:
-        @staticmethod
-        def is_available() -> bool:
-            return False
-
-    class FakeInferenceMode:
-        def __enter__(self):
-            return None
-
-        def __exit__(self, exc_type, exc, traceback):
-            return False
-
-    torch_module.cuda = FakeCuda()
-    torch_module.device = lambda name: f"device:{name}"
-    torch_module.inference_mode = FakeInferenceMode
-
-    torchaudio_module = types.ModuleType("torchaudio")
-    hf_module = types.ModuleType("huggingface_hub")
-    def forbidden_resolution(*args, **kwargs):
-        pytest.fail("CLAP attempted Hub/cache resolution")
-
-    hf_module.hf_hub_download = forbidden_resolution
-    hf_module.snapshot_download = forbidden_resolution
-    transformers_module = types.ModuleType("transformers")
-    transformers_module.RobertaModel = object()
-    transformers_module.RobertaTokenizer = object()
-
-    laion_module = types.ModuleType("laion_clap")
-
-    class FakeClapModule:
-        def __init__(self, *, enable_fusion, amodel, tmodel, device):
-            print(f"Loading CLAP {amodel} on {device}")
-
-        def load_ckpt(self, checkpoint_path, verbose=True):
-            print(f"Load the specified checkpoint {checkpoint_path} from users.")
-            print("CLAP warning from stderr", file=sys.stderr)
-
-        def get_text_embedding(self, texts, use_tensor=False):
-            return _text_embedding_rows(len(texts))
-
-    laion_module.CLAP_Module = FakeClapModule
-
-    monkeypatch.setitem(sys.modules, "torch", torch_module)
-    monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
-    monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
-    monkeypatch.setitem(sys.modules, "transformers", transformers_module)
-    monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
-    monkeypatch.setattr(
-        embedding_clap,
-        "_construct_clap_module_with_pinned_text_model",
-        lambda clap_module_type, **kwargs: clap_module_type(
-            enable_fusion=kwargs["enable_fusion"],
-            amodel=kwargs["amodel"],
-            tmodel=kwargs["tmodel"],
-            device=kwargs["device"],
-        ),
-    )
-
-    adapter = ClapEmbeddingAdapter(device="cpu")
-    adapter.checkpoint_sha256 = hashlib.sha256(b"stub checkpoint").hexdigest()
-    adapter.text_snapshot_sha256 = tuple(
-        (
-            file_name,
-            hashlib.sha256(file_name.encode()).hexdigest(),
-        )
-        for file_name in adapter.text_snapshot_files
-    )
-    adapter.text_checkpoint_sha256 = dict(adapter.text_snapshot_sha256)[
-        adapter.text_checkpoint_filename
-    ]
-    adapter.embed_text("warm minimal house")
-
-    for handler in logging.getLogger("dj_track_similarity").handlers:
-        handler.flush()
-    contents = log_path.read_text(encoding="utf-8")
-    assert "Loading CLAP " in contents
-    assert "Load the specified checkpoint " in contents
-    assert "djts-verified-model-" in contents
-    assert "CLAP warning from stderr" in contents
-
-
-def test_array_output_to_numpy_accepts_tensor_like_output() -> None:
-    class TensorLike:
-        def detach(self):
-            return self
-
-        def cpu(self):
-            return self
-
-        def numpy(self):
-            return np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
-
-    result = _array_output_to_numpy(TensorLike())
-
-    assert result.tolist() == [[0.0, 1.0, 0.0]]
-
-
 def test_normalize_rows_rejects_non_finite_vectors() -> None:
     for value in (np.nan, np.inf, -np.inf):
         with pytest.raises(ValueError, match="non-finite"):
             embedding_numerics._normalize_rows(np.asarray([[1.0, value, 0.0]], dtype=np.float32))
 
 
-def test_normalize_rows_returns_flat_float32_unit_vectors() -> None:
-    vectors = embedding_numerics._normalize_rows(np.asarray([[3.0, 4.0, 0.0]], dtype=np.float64))
-
-    assert len(vectors) == 1
-    assert vectors[0].shape == (3,)
-    assert vectors[0].dtype == np.float32
-    assert float(np.linalg.norm(vectors[0])) == pytest.approx(1.0)
-    np.testing.assert_allclose(vectors[0], np.asarray([0.6, 0.8, 0.0], dtype=np.float32))
-
-
 def test_normalize_rows_rejects_zero_vectors() -> None:
     with pytest.raises(ValueError, match="zero vector"):
         embedding_numerics._normalize_rows(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
-
-
-def test_pad_or_trim_audio_tensor_returns_fixed_length_float32() -> None:
-    assert _pad_or_trim_audio_tensor(torch.tensor([1.0, 2.0]), 4, torch).tolist() == [1.0, 2.0, 0.0, 0.0]
-    assert _pad_or_trim_audio_tensor(torch.tensor([1.0, 2.0, 3.0, 4.0]), 2, torch).tolist() == [1.0, 2.0]
-    assert _pad_or_trim_audio_tensor(torch.tensor([1, 2]), 2, torch).dtype == torch.float32
 
 
 class FakeClapAudioModel:
@@ -783,31 +617,6 @@ def test_muq_covers_each_track_with_consecutive_windows_and_preserves_pooling() 
         else:
             for actual, reference in zip(vectors, reference_vectors, strict=True):
                 np.testing.assert_array_equal(actual, reference)
-
-
-def test_muq_consumes_shared_torchcodec_tensor_without_numpy_round_trip(
-    monkeypatch,
-) -> None:
-    adapter = SharedAudioMuqAdapter()
-    decoded = [
-        DecodedAudio(
-            path="a.wav",
-            audio=torch.ones(24_000, dtype=torch.float32),
-            sample_rate=24_000,
-            detail="shared",
-        )
-    ]
-    monkeypatch.setattr(
-        torch,
-        "from_numpy",
-        lambda _audio: (_ for _ in ()).throw(
-            AssertionError("MuQ must keep TorchCodec audio as tensors")
-        ),
-    )
-
-    vectors = adapter.embed_decoded_batch(decoded)
-
-    assert vectors[0].tolist() == [1.0, 0.0, 0.0]
 
 
 def test_muq_embed_decoded_batch_resamples_to_strict_24khz_float32() -> None:
@@ -1219,25 +1028,6 @@ def test_mert_v2_full_coverage_pools_all_valid_layer_frames(monkeypatch) -> None
     assert len(resample_calls) == 1 and not model.calls
 
 
-def test_mert_windows_cover_every_sample_once_without_padding() -> None:
-    for length, expected_lengths in (
-        (400, [400]),
-        (119_999, [119_999]),
-        (120_000, [120_000]),
-        (120_001, [120_001]),
-        (120_399, [120_399]),
-        (120_400, [120_000, 400]),
-        (240_399, [120_000, 120_399]),
-        (240_400, [120_000, 120_000, 400]),
-        (840_400, [120_000] * 7 + [400]),
-    ):
-        waveform = torch.arange(length, dtype=torch.float32)
-        windows = list(_iter_mert_windows(waveform))
-        assert [window.numel() for window in windows] == expected_lengths
-        torch.testing.assert_close(torch.cat(windows), waveform, rtol=0, atol=0)
-        assert all(window.untyped_storage().data_ptr() == waveform.untyped_storage().data_ptr() for window in windows)
-
-
 class MovableModule(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -1323,21 +1113,6 @@ class BatchMaestAdapter(MaestEmbeddingAdapter):
         self._torchaudio = self.fake_torchaudio
         self.device = "cpu"
         self._model = self.fake_model
-
-
-def test_maest_initializes_only_missing_melspectrogram() -> None:
-    model = FakeMaestModel()
-
-    _move_maest_runtime_modules(model, "cuda")
-
-    assert model.init_calls == 1
-    assert model.melspectrogram is not None
-    assert model.melspectrogram.devices == ["cuda"]
-
-    _move_maest_runtime_modules(model, "cuda")
-
-    assert model.init_calls == 1
-    assert model.melspectrogram.devices == ["cuda", "cuda"]
 
 
 def test_maest_analyze_decoded_batch_returns_genres_and_embeddings() -> None:

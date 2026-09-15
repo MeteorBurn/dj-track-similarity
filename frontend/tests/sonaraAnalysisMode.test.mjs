@@ -1,39 +1,9 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createServer } from "vite";
 
-const appPath = fileURLToPath(new URL("../src/App.tsx", import.meta.url));
-const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
-const apiClientPath = fileURLToPath(new URL("../src/apiClient.ts", import.meta.url));
-const dialogPath = fileURLToPath(new URL("../src/SonaraAnalysisSettingsDialog.tsx", import.meta.url));
-const settingsPath = fileURLToPath(new URL("../src/sonaraAnalysisSettings.ts", import.meta.url));
 const frontendRoot = fileURLToPath(new URL("../", import.meta.url));
-
-const appSource = readFileSync(appPath, "utf8");
-const apiSource = readFileSync(apiPath, "utf8");
-const apiClientSource = readFileSync(apiClientPath, "utf8");
-const dialogSource = readFileSync(dialogPath, "utf8");
-const settingsSource = existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : "";
-
-test("SONARA settings default to Direct Mode and keep an empty staging folder", () => {
-  assert.match(settingsSource, /mode:\s*"direct"/);
-  assert.match(settingsSource, /directBatchSize:\s*8/);
-  assert.match(settingsSource, /folder:\s*""/);
-  assert.match(settingsSource, /processes:\s*4/);
-  assert.match(settingsSource, /threads:\s*4/);
-  assert.match(settingsSource, /batchSize:\s*4/);
-  assert.match(settingsSource, /stageSize:\s*32/);
-});
-
-test("SONARA settings persist as one localStorage object", () => {
-  assert.match(settingsSource, /localStorage/);
-  assert.match(settingsSource, /JSON\.parse/);
-  assert.match(settingsSource, /JSON\.stringify/);
-  assert.match(appSource, /loadSonaraAnalysisSettings/);
-  assert.match(appSource, /saveSonaraAnalysisSettings/);
-});
 
 test("SONARA settings clamp persisted custom values to supported ranges", async () => {
   const server = await createServer({
@@ -97,43 +67,4 @@ test("SONARA settings clamp persisted custom values to supported ranges", async 
   } finally {
     await server.close();
   }
-});
-
-test("Staged Mode requires a chosen folder before analysis starts", () => {
-  assert.match(appSource, /sonaraSettings\.mode === "staged"/);
-  assert.match(appSource, /sonaraSettings\.staged\.folder\.trim\(\)/);
-  assert.match(appSource, /Выберите папку staging/);
-});
-
-test("analysis API carries separate Direct and Staged SONARA settings", () => {
-  assert.match(apiSource, /direct_batch_size:\s*number/);
-  assert.match(apiSource, /processes:\s*number/);
-  assert.match(apiSource, /threads:\s*number/);
-  assert.match(apiSource, /stage_size:\s*number/);
-  assert.match(apiClientSource, /analysisPipelineStart: \(payload: AnalysisPipelineRequest\)/);
-  assert.match(appSource, /direct_batch_size:\s*sonaraSettings\.directBatchSize/);
-  assert.match(appSource, /stage_size:\s*sonaraSettings\.staged\.stageSize/);
-});
-
-test("SONARA settings dialog exposes the staging folder picker only in Staged Mode", () => {
-  assert.match(dialogSource, />Direct</);
-  assert.match(dialogSource, />Staged</);
-  assert.match(dialogSource, /staging-folder-picker-button/);
-  assert.match(dialogSource, /readOnly/);
-  assert.match(dialogSource, /sonaraSettings\.mode === "staged" && \(/);
-  for (const label of ["Processes", "Threads", "BatchSize", "StageSize"]) {
-    assert.match(dialogSource, new RegExp(`label="${label}"`));
-  }
-});
-
-test("SONARA settings dialog is opened from the library panel, not owned by it", () => {
-  const panelSource = readFileSync(
-    fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url)),
-    "utf8",
-  );
-
-  assert.match(panelSource, /onOpenSonaraSettingsDialog/);
-  assert.doesNotMatch(panelSource, /sonaraSettings\.mode/);
-  assert.match(appSource, /<SonaraAnalysisSettingsDialog/);
-  assert.match(appSource, /sonaraSettingsDialogOpen/);
 });

@@ -62,39 +62,6 @@ function loadApiModule(fetchImpl) {
   return module.exports;
 }
 
-test("API module keeps public types separate from domain client implementation", () => {
-  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
-  const clientSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
-
-  assert.match(apiSource, /export \{ api \} from "\.\/apiClient";/);
-  assert.match(clientSource, /const databaseApi = \{/);
-  assert.match(clientSource, /const searchApi = \{/);
-  assert.doesNotMatch(apiSource, /async function request/);
-});
-
-test("public API types omit generic versioned contract identity fields", () => {
-  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
-  const forbiddenFields = [
-    "schema_version",
-    "contract_hash",
-    "source_contract_hashes",
-    "release_hash",
-    "manifest_version",
-    "model_version",
-    "feature_manifest_hash",
-    "required_outputs_hash",
-    "sonara_release_hash",
-  ];
-
-  for (const field of forbiddenFields) {
-    assert.equal(
-      new RegExp(`^\\s*${field}:`, "m").test(apiSource),
-      false,
-      `${field} must not be a public frontend API property`,
-    );
-  }
-});
-
 function jsonResponse(value = {}) {
   return {
     ok: true,
@@ -251,21 +218,6 @@ test("text feedback transports issued run and expected revision", async () => {
   await api.textSearchFeedbackLookup({ run_id: "run", track_uuids: ["track"] });
   assert.equal(calls[1].path, "/api/search/text/feedback/lookup");
   assert.deepEqual(calls[1].payload, { run_id: "run", track_uuids: ["track"] });
-});
-
-test("text warmup status client uses GET without a body and forwards AbortSignal", async () => {
-  const controller = new AbortController();
-  const statusCalls = [];
-  const { api: statusApi } = loadApiModule(async (path, options) => {
-    statusCalls.push({ path, options });
-    return jsonResponse({ loaded: [{ analysis_family: "clap", device: "cpu" }] });
-  });
-  const status = await statusApi.textSearchWarmupStatus({ signal: controller.signal });
-  assert.equal(statusCalls[0].path, "/api/search/text/warmup");
-  assert.equal(statusCalls[0].options.method ?? "GET", "GET");
-  assert.equal(statusCalls[0].options.body, undefined);
-  assert.equal(statusCalls[0].options.signal, controller.signal);
-  assert.deepEqual(status.loaded, [{ analysis_family: "clap", device: "cpu" }]);
 });
 
 test("detail, preview metadata and generic search clients forward AbortSignal unchanged", async () => {

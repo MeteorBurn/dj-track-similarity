@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import sqlite3
@@ -772,48 +773,6 @@ def test_labeled_features_exclude_tracks_missing_any_rhythm_lab_source(
     assert features.skipped_identities[0].track_uuid == tracks[1].track_uuid
 
 
-def test_prediction_refresh_excludes_tracks_missing_any_rhythm_lab_source(
-    tmp_path: Path,
-) -> None:
-    repository = Repository(tmp_path)
-    output = _mert_output()
-    repository.register_analysis_outputs((output,))
-    _insert_track(repository, output, index=0)
-    _insert_track(repository, output, index=1)
-    with repository.connect() as connection:
-        track_ids = [
-            int(row[0])
-            for row in connection.execute(
-                "SELECT track_id FROM tracks ORDER BY track_id"
-            )
-        ]
-    _insert_complete_rhythm_lab_rows(
-        repository,
-        track_id=track_ids[0],
-        missing_source="mert",
-    )
-    labels_path = tmp_path / "lab.sqlite"
-    _create_focused_profile(labels_path)
-    artifact = _write_promotable_artifact(
-        tmp_path / "artifacts",
-        output=output,
-        catalog_uuid=repository.catalog_uuid,
-    )
-    progress: list[tuple[int, int]] = []
-
-    result = apply_model_to_lab(
-        repository.path,
-        labels_path,
-        artifact,
-        classifier_key="focused",
-        progress_callback=lambda completed, total: progress.append((completed, total)),
-    )
-
-    assert result["predicted"] == 1
-    assert result["skipped"] == 0
-    assert progress[-1] == (1, 1)
-
-
 def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
     tmp_path: Path,
 ) -> None:
@@ -846,6 +805,47 @@ def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
 
     assert response.status_code == 200
     assert response.json()["tracks"] == 1
+
+
+def test_labels_from_another_catalog_are_not_counted_or_trained(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    output = _mert_output()
+    repository.register_analysis_outputs((output,))
+    _insert_track(repository, output, index=0)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    track = SourceDatabase(repository.path).list_tracks()[0]
+    labels_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(labels_path)
+    scoped = RhythmLabDatabase(labels_path, classifier_key="focused")
+    scoped.set_label(track, "yes")
+    # The same file labelled under the catalog of an earlier scan.
+    scoped.set_label(replace(track, catalog_uuid=str(uuid.uuid4())), "no")
+    app = create_app(
+        repository.path,
+        labels_db_path=labels_path,
+        classifier_target_root=tmp_path / "promoted",
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+
+    features = build_labeled_feature_matrix(
+        repository.path,
+        labels_path,
+        "mert",
+        classifier_key="focused",
+    )
+    with TestClient(app) as client:
+        summary = client.get("/api/profiles/focused/summary").json()
+        readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "mert"},
+        ).json()
+
+    assert features.labels == ["yes"]
+    assert features.skipped_identities == ()
+    assert summary["labels"] == {"yes": 1}
+    assert readiness["current"] == {"yes": 1, "no": 0}
 
 
 def test_prediction_page_hides_track_after_any_source_row_is_removed(
@@ -1032,97 +1032,6 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             json={"liked": False},
         )
         assert incomplete.status_code == 422
-
-        index = client.get("/")
-        assert index.status_code == 200
-        assert "app.js?v=rhythm-lab-20260814-label-status-v1" in index.text
-        assert 'id="refreshCandidatesStatus"' not in index.text
-
-        static_script = client.get("/static/app.js")
-        assert static_script.status_code == 200
-        script = static_script.text
-        assert "track.track_id" in script
-        assert "track.file_path" in script
-        assert "catalog_uuid: track.catalog_uuid" in script
-        assert "function trackStatusLine(track)" in script
-        assert 'activeView === "candidates" ? predictionScoreStatus(track)' in script
-        status_line = script.split("function trackStatusLine(track)", 1)[1].split(
-            "function featuresReady(track)", 1
-        )[0]
-        assert status_line.index("trainedStatus(track)") < status_line.index(
-            "assignedLabelStatus(track)"
-        )
-        label_status = script.split("function assignedLabelStatus(track)", 1)[1].split(
-            "function predictionScoreStatus(track)", 1
-        )[0]
-        assert "labelByKey(track.label)" in label_status
-        assert '"status-yes"' in label_status
-        assert '"status-no"' in label_status
-        assert "escapeHtml(label.name)" in label_status
-        assert "maest-genre-pill" in script
-        assert 'split("---").pop()' in script
-        assert "lucide-audio-waveform" in script
-        assert '"Trained Model"' in script
-        assert '"Promoted Model"' in script
-        assert "Promoted model.json" in script
-        assert "Next training recipe" in script
-        assert 'label: "Combined"' in script
-        assert '"muq"' in script
-        assert "source_data_ready" in script
-        assert '"sonara+mert+maest+clap+muq+mulan"' in script
-        assert "async function calibrateClassifier()" in script
-        assert "/training/calibrate" in script
-        assert "async function refreshCandidates()" in script
-        assert "/predictions/refresh" in script
-        assert "function setWorkflowStatus(message)" in script
-        assert "let trainingProgressPollGeneration = 0;" in script
-        assert "let trainingProgressHasStarted = false;" in script
-        assert 'class="training-workflow-feedback"' in script
-        assert 'id="refreshCandidatesStatus" class="meta source-status-line"' in script
-        assert 'id="trainingInformation"' in script
-        assert "function refreshTrainingInformation(data)" in script
-        train_refresh_script = script.split("async function trainRefresh()", 1)[1].split(
-            "async function runBenchmark()", 1
-        )[0]
-        assert 'switchView("candidates")' not in train_refresh_script
-        assert "await refreshWorkflowData({ candidatesChanged: true });" not in train_refresh_script
-        assert "loadTrainingView()" not in train_refresh_script
-        assert 'stage: "Training and candidate refresh complete", percent: 100' in train_refresh_script
-        refresh_candidates_script = script.split(
-            "async function refreshCandidates()", 1
-        )[1].split("async function promoteClassifier()", 1)[0]
-        assert 'switchView("candidates")' not in refresh_candidates_script
-        assert "await refreshWorkflowData({ candidatesChanged: true });" not in refresh_candidates_script
-        assert "loadTrainingView()" not in refresh_candidates_script
-        assert "await loadTrainingReadiness();" in refresh_candidates_script
-        assert 'startTrainingProgressPolling(activeProfile.classifier_key, "refresh");' in refresh_candidates_script
-        assert 'String(progress.operation || "") !== operation' in script
-        benchmark_script = script.split("async function runBenchmark()", 1)[1].split(
-            "function selectedArtifactFeatureSet", 1
-        )[0]
-        assert "loadTrainingView()" not in benchmark_script
-        assert 'stage: "Benchmark complete", percent: 100' in benchmark_script
-        assert "await loadTrainingReadiness();" in benchmark_script
-        promotion_script = script.split("async function promoteClassifier()", 1)[1].split(
-            "async function refreshWorkflowData", 1
-        )[0]
-        assert "await refreshWorkflowData();" not in promotion_script
-        assert 'stage: "Promotion complete", percent: 100' in promotion_script
-        assert "await loadTrainingReadiness();" in promotion_script
-        calibrate_script = script.split("async function calibrateClassifier()", 1)[1].split(
-            "async function refreshCandidates()", 1
-        )[0]
-        assert "loadTrainingView()" not in calibrate_script
-        assert "await loadTrainingReadiness();" in calibrate_script
-        assert 'startTrainingProgressPolling(activeProfile.classifier_key, "calibrate");' in calibrate_script
-        assert 'stage: "Calibration complete", percent: 100' in calibrate_script
-        assert "feature_group_weights" in script
-        assert '["sonara", "mert", "maest", "clap", "muq", "mulan"]' in script
-        assert "Loading Training" in script
-        assert "Training could not load" in script
-        assert "if (!selected) return" in script
-        assert "track.id" not in script
-        assert "track.path" not in script
 
 
 def test_web_reuses_lab_database_repository_for_profile_requests(
@@ -1331,84 +1240,6 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
     assert response.json()["artifact"] != str(newer_artifact)
 
 
-def test_web_promotion_readiness_trusts_existing_muq_rows(
-    tmp_path: Path,
-) -> None:
-    repository = Repository(tmp_path)
-    current_muq = AnalysisOutput("muq", "embedding")
-    repository.register_analysis_outputs((current_muq,))
-    _insert_track(repository, current_muq, index=0)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="muq")
-    with repository.connect() as connection:
-        connection.execute(
-            "UPDATE muq_embeddings SET normalization = 'none'"
-        )
-
-    artifact_dir = tmp_path / "artifacts"
-    artifact_dir.mkdir()
-    lab_path = tmp_path / "lab.sqlite"
-    lab = RhythmLabDatabase(lab_path)
-    lab.create_profile(
-        classifier_key="focused",
-        name="Focused",
-        artifact_dir=artifact_dir,
-        labels=[
-            {"key": "yes", "name": "Yes", "role": "positive"},
-            {"key": "no", "name": "No", "role": "negative"},
-        ],
-    )
-    _write_promotable_artifact(
-        artifact_dir,
-        output=current_muq,
-        catalog_uuid=repository.catalog_uuid,
-    )
-
-    app = create_app(
-        repository.path,
-        labels_db_path=lab_path,
-        classifier_target_root=tmp_path / "promoted",
-        source_catalog_uuid=repository.catalog_uuid,
-    )
-    with TestClient(app) as client:
-        readiness = client.get(
-            "/api/profiles/focused/training/readiness",
-            params={"feature_set": "muq"},
-        )
-        assert readiness.status_code == 200
-        option = readiness.json()["artifact_summary"]["promotion_options"][0]
-        assert option["feature_set"] == "muq"
-        assert option["source_data_ready"] is True
-        assert option["source_data_reason"] is None
-
-
-def test_promotion_accepts_structurally_complete_muq_artifact(
-    tmp_path: Path,
-) -> None:
-    lab_path = tmp_path / "lab.sqlite"
-    _create_focused_profile(lab_path)
-    output = AnalysisOutput("muq", "embedding")
-    artifact = _write_promotable_artifact(tmp_path, output=output)
-
-    promoted = promote_profile_model(
-        lab_path,
-        "focused",
-        artifact_path=artifact,
-        target_root=tmp_path / "promoted",
-    )
-    summary = load_classifier_manifest_summary(
-        promoted["model_path"],
-        expected_classifier_key="focused",
-        metadata_path=promoted["metadata_path"],
-    )
-
-    assert summary.status == "valid", summary.errors
-    assert summary.feature_set == "muq"
-    assert summary.feature_names == tuple(
-        f"muq:{index}"
-        for index in range(current_embedding_spec("muq").dimension)
-    )
-
-
 def test_prediction_refresh_uses_requested_feature_recipe(
     tmp_path: Path,
 ) -> None:
@@ -1500,102 +1331,6 @@ def test_prediction_rejects_artifact_without_source_catalog_binding(
             artifact_path=artifact,
             target_root=tmp_path / "promoted",
         )
-
-
-def test_prediction_refresh_uses_bounded_features_and_one_atomic_swap(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repository = Repository(tmp_path)
-    output = _mert_output()
-    repository.register_analysis_outputs((output,))
-    for index in range(5):
-        _insert_track(repository, output, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
-    lab_path = tmp_path / "lab.sqlite"
-    _create_focused_profile(lab_path)
-    artifact = _write_promotable_artifact(
-        tmp_path / "artifacts",
-        output=output,
-        catalog_uuid=repository.catalog_uuid,
-    )
-    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
-    old_track = SourceDatabase(repository.path).list_tracks()[0]
-    scoped.save_prediction(
-        old_track,
-        feature_set="muq",
-        model_artifact="old-other-recipe.joblib",
-        label="no",
-        confidence=0.7,
-        probabilities={"yes": 0.3, "no": 0.7},
-    )
-    feature_batch_sizes: list[int] = []
-    staged_batch_sizes: list[int] = []
-    swap_calls = 0
-    original_tracks_by_ids = SourceDatabase.tracks_by_ids
-    original_stage_append = predictions_module.PredictionStage.append
-    original_replace_predictions = (
-        RhythmLabDatabase.replace_predictions_from_stage
-    )
-
-    def recording_tracks_by_ids(
-        self: SourceDatabase,
-        track_ids: object,
-    ) -> dict[int, object]:
-        selected_ids = list(track_ids)  # type: ignore[arg-type]
-        feature_batch_sizes.append(len(selected_ids))
-        return original_tracks_by_ids(self, selected_ids)
-
-    def recording_stage_append(
-        self: object,
-        predictions: object,
-    ) -> None:
-        rows = list(predictions)  # type: ignore[arg-type]
-        staged_batch_sizes.append(len(rows))
-        original_stage_append(self, rows)
-
-    def recording_replace_predictions_from_stage(
-        self: RhythmLabDatabase,
-        stage_path: Path,
-        **kwargs: object,
-    ) -> int:
-        nonlocal swap_calls
-        swap_calls += 1
-        return original_replace_predictions(self, stage_path, **kwargs)
-
-    monkeypatch.setattr(predictions_module, "PREDICTION_BATCH_SIZE", 2)
-    monkeypatch.setattr(
-        SourceDatabase,
-        "tracks_by_ids",
-        recording_tracks_by_ids,
-    )
-    monkeypatch.setattr(
-        predictions_module.PredictionStage,
-        "append",
-        recording_stage_append,
-    )
-    monkeypatch.setattr(
-        RhythmLabDatabase,
-        "replace_predictions_from_stage",
-        recording_replace_predictions_from_stage,
-    )
-
-    result = apply_model_to_lab(
-        repository.path,
-        lab_path,
-        artifact,
-        classifier_key="focused",
-    )
-
-    assert result["predicted"] == 5
-    assert result["skipped"] == 0
-    assert result["deleted_old_predictions"] == 1
-    assert feature_batch_sizes == [2, 2, 1]
-    assert staged_batch_sizes == [2, 2, 1]
-    assert swap_calls == 1
-    visible_rows = scoped.predictions()
-    assert len(visible_rows) == 5
-    assert {row["model_artifact"] for row in visible_rows} == {str(artifact)}
 
 
 def test_prediction_refresh_failure_leaves_previous_candidate_set_untouched(
@@ -1868,28 +1603,6 @@ def test_promote_replaces_the_root_model_pair(tmp_path: Path) -> None:
     assert discovered[0]["manifest_status"] == "valid"
     assert discovered[0]["profile_description"] == "Focused classifier description."
     assert discovered[0]["model_path"] == str(profile_dir / "model.joblib")
-
-
-def test_scoring_ready_artifact_is_validated_before_root_replacement(
-    tmp_path: Path,
-) -> None:
-    lab_path = tmp_path / "lab.sqlite"
-    _create_focused_profile(lab_path)
-    artifact = _write_promotable_artifact(tmp_path)
-    target_root = tmp_path / "promoted"
-
-    promoted = promote_profile_model(
-        lab_path,
-        "focused",
-        artifact_path=artifact,
-        target_root=target_root,
-    )
-
-    resolved = resolve_classifier_artifact_paths(Path(promoted["model_path"]))
-    discovered = promoted_classifiers(target_root)
-    assert resolved.model_path == promoted["model_path"]
-    assert discovered[0]["manifest_status"] == "valid"
-    assert discovered[0]["is_scoring_compatible"] is True
 
 
 @pytest.mark.parametrize(

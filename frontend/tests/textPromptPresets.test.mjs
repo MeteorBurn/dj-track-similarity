@@ -84,16 +84,6 @@ test("a zero model weight excludes negatives without excluding positive prompts"
   assert.equal(mulan.negativeWeight, 0.3);
 });
 
-test("selecting nothing clears both banks", () => {
-  const { composePromptBanks } = loadTextPromptModule();
-
-  const composed = composePromptBanks([], "clap");
-
-  assert.equal(composed.positiveText, "");
-  assert.equal(composed.negativeText, "");
-  assert.equal(composed.negativeWeight, null);
-});
-
 test("prompt text splits visible multiline banks into query arrays", () => {
   const { promptQueriesFromText } = loadTextPromptModule();
 

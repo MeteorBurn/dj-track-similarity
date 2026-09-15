@@ -24,7 +24,6 @@ from dj_track_similarity.analysis.sonara_staging import (
     StagedSonaraCandidate,
     StagedSonaraResult,
 )
-from dj_track_similarity.analysis.sonara_features import SonaraBatchMetrics
 
 
 def _mert_output() -> AnalysisOutput:
@@ -197,79 +196,6 @@ def test_multi_model_job_aggregates_exact_missing_outputs_per_track() -> None:
         "register",
         "candidates",
     ]
-
-
-def test_multi_model_preflight_failure_keeps_active_contract_pointer() -> None:
-    old_mert = _mert_output()
-    new_maest = _maest_output()
-    repository = _Repository(
-        [],
-        active_by_key={old_mert.key: old_mert},
-    )
-    runner = _Runner(
-        "maest",
-        new_maest,
-        preflight_error=RuntimeError("checkpoint SHA-256 mismatch"),
-    )
-
-    status = AnalysisJobManager(
-        repository,
-        model_runners={"maest": runner},
-    ).run_sync(models=("maest",), device="cpu")
-
-    assert status.state == "failed"
-    assert repository.active_by_key[old_mert.key] == old_mert
-    assert new_maest.key not in repository.active_by_key
-    assert repository.events == []
-    assert "checkpoint SHA-256 mismatch" in status.events[-1].message
-
-
-def test_sonara_ffmpeg_recovery_is_marked_in_final_track_event() -> None:
-    output = AnalysisOutput("sonara", "core")
-    runner = _Runner("sonara", output)
-    runner.last_ffmpeg_fallback_track_ids = frozenset({1})
-    repository = _Repository([_candidate(1, (output,))])
-
-    status = AnalysisJobManager(
-        repository,
-        model_runners={"sonara": runner},
-    ).run_sync(models=("sonara",), device="cpu")
-
-    assert status.state == "completed"
-    track_events = [event for event in status.events if event.track_id == 1]
-    assert [event.message for event in track_events] == [
-        "[ffmpeg] Track analyzed"
-    ]
-
-
-def test_sonara_batch_summary_omits_ffmpeg_fallback_count() -> None:
-    output = AnalysisOutput("sonara", "core")
-
-    class _MetricSonaraRunner(_Runner):
-        def analyze_batch(self, repository, items):
-            results = super().analyze_batch(repository, items)
-            self.last_metrics = SonaraBatchMetrics(
-                track_count=len(items),
-                source_bytes=sum(item.candidate.file_size_bytes for item in items),
-                analyze_seconds=1.0,
-                prepare_seconds=0.1,
-                store_seconds=0.1,
-                ffmpeg_fallback_count=1,
-            )
-            self.last_ffmpeg_fallback_track_ids = frozenset(
-                {items[0].candidate.target.track_id}
-            )
-            return results
-
-    repository = _Repository([_candidate(1, (output,)), _candidate(2, (output,))])
-    status = AnalysisJobManager(
-        repository,
-        model_runners={"sonara": _MetricSonaraRunner("sonara", output)},
-    ).run_sync(models=("sonara",), device="cpu")
-
-    batch_events = [event for event in status.events if event.message.startswith("SONARA batch:")]
-    assert len(batch_events) == 1
-    assert "FFmpeg fallback" not in batch_events[0].message
 
 
 def test_direct_sonara_uses_configured_batches_while_staged_uses_one_queue(

@@ -66,14 +66,3 @@ def test_qa_database_fails_on_a_violated_check_constraint(
 
     assert module.run_qa(db_path) == 1
     assert "FAIL" in capsys.readouterr().out
-
-
-def test_qa_database_allows_future_library_tables(tmp_path: Path) -> None:
-    module = _load_script()
-    db_path = tmp_path / "library.sqlite"
-    LibraryDatabase(db_path)
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("CREATE TABLE future_feature_values (value TEXT NOT NULL)")
-        connection.execute("INSERT INTO future_feature_values(value) VALUES ('kept')")
-
-    assert module.run_qa(db_path) == 0

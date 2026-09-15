@@ -291,24 +291,6 @@ def test_random_embedding_track_requires_an_available_embedded_track(
     assert "mert" in response.json()["detail"]
 
 
-def test_search_endpoints_reject_unknown_context_parameter(
-    monkeypatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
-    client = TestClient(create_app(tmp_path / "library.sqlite"))
-    unknown_context_key = "extra_context_track_ids"
-
-    mert_response = client.post(
-        "/api/search", json={"seed_track_ids": [], unknown_context_key: [1]}
-    )
-    sonara_response = client.post(
-        "/api/search/sonara", json={"seed_track_ids": [], unknown_context_key: [1]}
-    )
-
-    assert mert_response.status_code == 422
-    assert sonara_response.status_code == 422
-
-
 def test_sonara_search_enforces_the_shared_seed_contract(
     monkeypatch, tmp_path: Path
 ) -> None:

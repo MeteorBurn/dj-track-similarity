@@ -6,8 +6,7 @@ Max-negative is an experimental alternative; production uses top2-mean.
 
 The script reads both databases without writing them. Review-session labels are
 not a random sample or an independent held-out set. These in-sample measurements
-do not establish a production winner; use prompt_preset_tune's explicit grouped
-evaluation input for candidate selection and held-out evidence.
+do not establish a production winner.
 """
 
 from __future__ import annotations

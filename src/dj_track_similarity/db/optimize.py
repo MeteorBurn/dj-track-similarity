@@ -18,9 +18,8 @@ The run, in order:
 
 The module changes storage, never policy: it keeps the journal mode it found,
 because every database this project owns enforces WAL itself on open, and a
-generic file belongs to whoever created it. ``scripts/optimize_database.py``
-is the command-line face of this module and the optimization job runs it in
-the server; both report through the ``on_event`` hook.
+generic file belongs to whoever created it. The server's optimization job runs
+this module and reports through the ``on_event`` hook.
 """
 
 from __future__ import annotations

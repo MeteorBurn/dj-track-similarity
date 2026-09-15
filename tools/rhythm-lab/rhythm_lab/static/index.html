@@ -4,206 +4,192 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260915-en-styled" />
-  <script src="/static/app.js?v=rhythm-lab-20260915-en-styled" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-workbench-20260915-9" />
+  <script src="/static/player.js?v=rhythm-lab-workbench-20260915-3" defer></script>
+  <script src="/static/app.js?v=rhythm-lab-workbench-20260915-8" defer></script>
   <title>Rhythm Lab</title>
 </head>
-<body>
-  <header class="app-shell">
-    <section class="top-bar">
-      <div>
-        <strong>Rhythm Lab</strong>
-        <button id="shutdownLab" type="button" class="icon-button rhythm-lab-stop-button" title="Stop Rhythm Lab" aria-label="Stop Rhythm Lab">
-          <svg class="lucide lucide-power" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2v10" />
-            <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
-          </svg>
-        </button>
-      </div>
-      <div class="profile-controls">
-        <select id="profileSelect" title="Active classifier profile" aria-label="Classifier profile"></select>
-        <button id="newProfile" type="button">New profile</button>
-        <button id="settingsTab" type="button">Profile settings</button>
-        <button id="deleteProfile" type="button">Delete</button>
-      </div>
-    </section>
-
-    <section class="source-row">
-      <input id="sourcePath" class="source-path" placeholder="C:\db\library.sqlite" aria-label="Library database" title="An existing dj-track-similarity SQLite library. It opens read-only." />
-      <button id="chooseSource" type="button" title="Choose an existing SQLite library">Browse</button>
-      <button id="loadSource" type="button" title="Open the selected library">Load library</button>
-      <div class="source-actions">
-        <button id="trainingTab" type="button" class="tab-button">
-          <svg class="lucide lucide-brain" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
-            <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
-          </svg>
-          Training
-        </button>
-      </div>
-    </section>
-
-    <nav class="tabs">
-      <button id="libraryTab" type="button" class="tab-button active">
-        <svg class="lucide lucide-library-big" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect width="8" height="18" x="3" y="3" rx="1" />
-          <path d="M7 3v18" />
-          <path d="M20.4 18.9c.2.7-.2 1.4-.9 1.6l-3.7 1c-.7.2-1.4-.2-1.6-.9L9.1 5.1c-.2-.7.2-1.4.9-1.6l3.7-1c.7-.2 1.4.2 1.6.9Z" />
-        </svg>
-        Library
-      </button>
-      <button id="candidatesTab" type="button" class="tab-button">
-        <svg class="lucide lucide-sparkles" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594Z" />
-          <path d="M20 2v4" />
-          <path d="M22 4h-4" />
-          <circle cx="4" cy="20" r="2" />
-        </svg>
-        Candidates
-      </button>
-      <button id="collectionTab" type="button" class="tab-button">
-        <svg class="lucide lucide-list-checks" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m3 17 2 2 4-4" />
-          <path d="M13 6h8" />
-          <path d="M13 12h8" />
-          <path d="M13 18h8" />
-          <path d="m3 7 2 2 4-4" />
-        </svg>
-        Collection
-      </button>
-      <span id="collectionControls" class="collection-controls" hidden>
-        <select id="collectionSelect" title="Review collection" aria-label="Review collection"></select>
-        <button id="deleteCollection" type="button" class="icon-button delete-collection" title="Delete the selected collection. Labels stay in the active profile." aria-label="Delete the selected collection">
-          <svg class="lucide lucide-trash-2" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10 11v6" />
-            <path d="M14 11v6" />
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-            <path d="M3 6h18" />
-            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-          </svg>
-        </button>
-        <span id="collectionStatus" class="meta"></span>
-      </span>
-    </nav>
-
-    <section id="commonFilters" class="filters">
-      <input id="query" type="search" placeholder="Search path, title or artist" aria-label="Search tracks" />
-      <input id="bpmMin" type="number" min="0" step="0.1" placeholder="BPM from" aria-label="Minimum BPM" title="Minimum SONARA BPM. Leave empty for no lower bound." />
-      <input id="bpmMax" type="number" min="0" step="0.1" placeholder="BPM to" aria-label="Maximum BPM" title="Maximum SONARA BPM. Leave empty for no upper bound." />
-      <select id="label" aria-label="Label filter"></select>
-    </section>
-
-    <section id="candidateFilters" class="filters candidate-filters-placeholder">
-      <select id="libraryOrder" title="Library order" aria-label="Library order">
-        <option value="normal" selected>Normal order</option>
-        <option value="random">Random order</option>
-      </select>
-      <button id="shuffleLibraryOrder" type="button" class="icon-button shuffle-library-order" title="Shuffle the random order" aria-label="Shuffle the random order">
-        <svg class="lucide lucide-shuffle" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m18 14 4 4-4 4" />
-          <path d="m18 2 4 4-4 4" />
-          <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7L14 7.7C14.8 6.6 16 6 17.4 6H22" />
-          <path d="M2 6h1.9c.7 0 1.4.3 1.9.8L8 9" />
-          <path d="M11.7 14.9 14 16.3c.8 1.1 2 1.7 3.4 1.7H22" />
-        </svg>
-      </button>
-      <select id="candidatePredicted" aria-label="Prediction filter"></select>
-      <select id="candidateMinBroken" aria-label="Candidate order">
-        <option value="positive_highest" selected>Highest positive probability</option>
-        <option value="negative_highest">Highest negative probability</option>
-        <option value="balanced">Uncertain first</option>
-      </select>
-      <input id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0" aria-label="Minimum positive probability" title="Minimum positive probability" />
-    </section>
-
-    <section class="pager">
-      <span id="pageControls" class="page-controls">
-        <select id="pageSize" aria-label="Tracks per page">
-          <option value="50">50</option>
-          <option value="100" selected>100</option>
-          <option value="200">200</option>
-          <option value="500">500</option>
-        </select>
-        <button id="prevPage" type="button">Previous</button>
-        <button id="nextPage" type="button">Next</button>
-        <input id="pageNumber" class="page-number" type="number" min="1" step="1" value="1" aria-label="Page number" title="Page number" />
-        <button id="load" type="button" title="Reload this view">Reload</button>
-        <span id="pageInfo" class="meta"></span>
-      </span>
-      <span id="summary" class="summary-strip">
-        <span id="summaryCoverage"></span>
-        <span id="summaryLabels"></span>
-      </span>
-    </section>
+<body data-view="library">
+  <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="icon-pulse" viewBox="0 0 48 36"><path d="M1 19h7l4-10 6 23L24 2l6 29 5-18 4 6h8" /></symbol>
+      <symbol id="icon-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13M9 8l12-2"/><ellipse cx="6" cy="18" rx="3" ry="3"/><ellipse cx="18" cy="16" rx="3" ry="3"/></symbol>
+      <symbol id="icon-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M17 4a3 3 0 0 1 0 6M17 15a5 5 0 0 1 4 5v1"/></symbol>
+      <symbol id="icon-list" viewBox="0 0 24 24"><path d="M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01"/></symbol>
+      <symbol id="icon-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></symbol>
+      <symbol id="icon-training" viewBox="0 0 24 24"><path d="M3 21V12M8 21V5M13 21V9M18 21V2M23 21V14"/></symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24"><path d="m9 3 1-2h4l1 2 2 1 2-.2 2 3-1 2v3l1 2-2 3-2-.2-2 1-1 2h-4l-1-2-2-1-2 .2-2-3 1-2V9L3 7l2-3 2 .2Z" transform="translate(0 1)"/><circle cx="12" cy="11" r="3"/></symbol>
+      <symbol id="icon-power" viewBox="0 0 24 24"><path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+      <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 4v6h-6M4 20v-6h6M5.5 8a7 7 0 0 1 12-3L20 10M4 14l2.5 5a7 7 0 0 0 12-3"/></symbol>
+      <symbol id="icon-shuffle" viewBox="0 0 24 24"><path d="m18 14 4 4-4 4M18 2l4 4-4 4M2 18h1c4 0 9-12 14-12h5M2 6h1c2 0 4 3 5 4M12 15c2 2 3 3 5 3h5"/></symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></symbol>
+      <symbol id="icon-prev" viewBox="0 0 24 24"><path d="M5 4v16"/><path d="m19 4-12 8 12 8Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="icon-next" viewBox="0 0 24 24"><path d="M19 4v16"/><path d="m5 4 12 8-12 8Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24"><path d="m7 3 15 9-15 9Z" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="icon-volume" viewBox="0 0 24 24"><path d="M11 3 5 8H1v8h4l6 5ZM15 8a6 6 0 0 1 0 8M18 4a11 11 0 0 1 0 16"/></symbol>
+      <symbol id="icon-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+      <symbol id="icon-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    </defs>
+  </svg>
+  <header class="top-bar">
+    <a class="brand" href="/" aria-label="Rhythm Lab home"><svg aria-hidden="true"><use href="#icon-pulse"/></svg><strong>Rhythm Lab</strong></a>
+    <div class="profile-controls">
+      <select id="profileSelect" title="Active classifier profile" aria-label="Classifier profile"></select>
+      <button id="newProfile" type="button" class="header-button"><svg aria-hidden="true"><use href="#icon-plus"/></svg>New profile</button>
+      <button id="trainingTab" type="button" class="header-button tab-button"><svg aria-hidden="true"><use href="#icon-training"/></svg>Training</button>
+      <button id="settingsTab" type="button" class="header-button tab-button"><svg aria-hidden="true"><use href="#icon-settings"/></svg>Profile settings</button>
+      <button id="shutdownLab" type="button" class="icon-button rhythm-lab-stop-button" title="Stop Rhythm Lab" aria-label="Stop Rhythm Lab"><svg aria-hidden="true"><use href="#icon-power"/></svg></button>
+    </div>
   </header>
-
-  <main>
-    <section id="guidancePanel" class="guidance-panel"></section>
-    <section id="settingsPanel" class="settings-panel" hidden>
-      <div class="settings-grid">
-        <form id="profileForm" class="tool-panel">
-          <h2>Profile</h2>
-          <label>Name <input id="profileNameInput" /></label>
-          <label>Description <textarea id="profileDescriptionInput"></textarea></label>
-          <label>Artifact prefix <input id="profileArtifactPrefixInput" /></label>
-          <label>New labels per class before retraining <input id="profileTrainingMinAddedInput" type="number" min="1" step="1" value="50" /></label>
-          <label>Minimum labels per class for training <input id="profileTrainingMinLabelsInput" type="number" min="2" step="1" value="100" /></label>
-          <button type="submit">Save profile</button>
-        </form>
-        <form id="renameLabelForm" class="tool-panel">
-          <h2>Rename label key</h2>
-          <label>Current label <select id="renameLabelSelect"></select></label>
-          <label>New key <input id="renameLabelKeyInput" placeholder="lead_vocal" /></label>
-          <label>Display name <input id="renameLabelNameInput" placeholder="Lead vocal" /></label>
-          <button type="submit">Rename label</button>
-        </form>
-      </div>
-    </section>
-    <section id="trainingPanel" class="training-panel" hidden></section>
-    <section id="tracks"></section>
-  </main>
-
-  <dialog id="profileDialog">
-    <form id="newProfileForm" method="dialog" class="dialog-form">
-      <h2>New classifier profile</h2>
-      <label>Key <input id="newProfileKey" placeholder="vocal_presence" required /></label>
-      <label>Name <input id="newProfileName" placeholder="Vocal presence" required /></label>
-      <label>Type
-        <select id="newProfileType">
-          <option value="binary" selected>Binary</option>
-          <option value="multiclass">Multiclass</option>
-        </select>
-      </label>
-      <label>Description <textarea id="newProfileDescription" placeholder="What this classifier should recognize"></textarea></label>
-      <label>New labels per class before retraining <input id="newProfileTrainingMinAdded" type="number" min="1" step="1" value="50" required /></label>
-      <label>Minimum labels per class for training <input id="newProfileTrainingMinLabels" type="number" min="2" step="1" value="100" required /></label>
-      <div id="binaryLabelGrid" class="label-grid">
-        <label>Positive label key <input id="newPositiveKey" placeholder="vocal" required /></label>
-        <label>Positive label name <input id="newPositiveName" placeholder="Vocal" required /></label>
-        <label>Negative label key <input id="newNegativeKey" placeholder="instrumental" required /></label>
-        <label>Negative label name <input id="newNegativeName" placeholder="Instrumental" required /></label>
-        <label>Review label key <input id="newReviewKey" placeholder="uncertain" /></label>
-        <label>Review label name <input id="newReviewName" placeholder="Uncertain" /></label>
-      </div>
-      <div id="multiclassLabelEditor" class="multiclass-label-editor" hidden>
-        <div id="multiclassLabelRows" class="multiclass-label-rows">
-          <div class="multiclass-label-row">
-            <label>Class key <input class="multiclass-label-key" placeholder="euphoric" /></label>
-            <label>Class name <input class="multiclass-label-name" placeholder="Euphoric" /></label>
-            <label>Description <textarea class="multiclass-label-description" placeholder="Bright, uplifting, hands-in-the-air mood"></textarea></label>
-          </div>
-          <div class="multiclass-label-row">
-            <label>Class key <input class="multiclass-label-key" placeholder="dark" /></label>
-            <label>Class name <input class="multiclass-label-name" placeholder="Dark" /></label>
-            <label>Description <textarea class="multiclass-label-description" placeholder="Dark, tense, low-light mood"></textarea></label>
-          </div>
+  <main id="workspace" class="workspace">
+    <section class="workspace-primary">
+      <section class="library-shell">
+        <div class="source-row">
+          <svg class="source-icon" aria-hidden="true"><use href="#icon-database"/></svg>
+          <strong id="sourceName">No library loaded</strong>
+          <span id="sourceStatus" class="source-status" role="status">Choose a library</span>
+          <details class="source-change">
+            <summary>Change library</summary>
+            <div class="source-picker">
+              <label for="sourcePath">Library database</label>
+              <input id="sourcePath" class="source-path" placeholder="C:\db\library.sqlite" aria-label="Library database" />
+              <div class="source-picker-actions"><button id="chooseSource" type="button">Browse</button><button id="loadSource" type="button" class="primary-button">Load library</button></div>
+            </div>
+          </details>
         </div>
-        <button id="addMulticlassLabel" type="button">Add class</button>
+        <div class="navigation-row">
+          <nav class="tabs" aria-label="Rhythm Lab views">
+            <button id="libraryTab" type="button" class="tab-button active"><svg aria-hidden="true"><use href="#icon-music"/></svg>Library</button>
+            <button id="candidatesTab" type="button" class="tab-button"><svg aria-hidden="true"><use href="#icon-users"/></svg>Candidates</button>
+            <button id="collectionTab" type="button" class="tab-button"><svg aria-hidden="true"><use href="#icon-list"/></svg>Collection</button>
+            <button id="likedTab" type="button" class="tab-button"><svg aria-hidden="true"><use href="#icon-heart"/></svg>Liked</button>
+          </nav>
+          <span id="summary" class="summary-strip"><span id="summaryCoverage"></span><span id="summaryLabels" hidden></span></span>
+        </div>
+      </section>
+      <div id="globalStatus" class="global-status" role="alert" hidden></div>
+      <header class="page-heading"><h1 id="pageTitle"></h1><p id="pageSubtitle" class="meta"></p></header>
+      <section id="trackWorkspace" class="track-workspace">
+        <div id="collectionControls" class="collection-controls" hidden>
+          <select id="collectionSelect" title="Review collection" aria-label="Review collection"></select>
+          <span id="collectionStatus" class="meta"></span>
+          <button id="deleteCollection" type="button" class="text-button delete-collection" title="Delete the selected collection. Labels stay in the active profile."><svg aria-hidden="true"><use href="#icon-trash"/></svg>Delete collection</button>
+        </div>
+        <div class="filter-toolbar">
+          <section id="commonFilters" class="filters common-filters">
+            <input id="query" type="search" placeholder="Search tracks, artists or paths" aria-label="Search tracks" />
+            <input id="bpmMin" type="number" min="0" step="0.1" placeholder="BPM from" aria-label="Minimum BPM" title="Minimum SONARA BPM. Leave empty for no lower bound." />
+            <input id="bpmMax" type="number" min="0" step="0.1" placeholder="BPM to" aria-label="Maximum BPM" title="Maximum SONARA BPM. Leave empty for no upper bound." />
+            <select id="label" aria-label="Label filter"></select>
+          </section>
+          <section id="candidateFilters" class="filters candidate-filters-placeholder">
+            <select id="libraryOrder" title="Library order" aria-label="Library order"><option value="normal" selected>Normal order</option><option value="random">Random order</option></select>
+            <button id="shuffleLibraryOrder" type="button" class="icon-button" title="Shuffle the random order" aria-label="Shuffle the random order"><svg aria-hidden="true"><use href="#icon-shuffle"/></svg></button>
+            <select id="candidatePredicted" aria-label="Prediction filter"></select>
+            <select id="candidateMinBroken" aria-label="Candidate order"><option value="positive_highest" selected>Highest positive probability</option><option value="negative_highest">Highest negative probability</option><option value="balanced">Uncertain first</option></select>
+            <label class="probability-filter">Min score <input id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0" aria-label="Minimum positive probability" title="Minimum positive probability" /></label>
+          </section>
+          <button id="load" type="button" class="icon-button" title="Reload this view" aria-label="Reload this view"><svg aria-hidden="true"><use href="#icon-refresh"/></svg></button>
+        </div>
+        <div class="track-table-scroll">
+          <div id="trackTableHeader" class="track-table-header" aria-hidden="true"></div>
+          <section id="tracks" aria-label="Tracks"></section>
+        </div>
+        <footer class="pager">
+          <span id="pageControls" class="page-controls">
+            <select id="pageSize" aria-label="Tracks per page"><option value="50">50 / page</option><option value="100" selected>100 / page</option><option value="200">200 / page</option><option value="500">500 / page</option></select>
+            <span id="pageInfo" class="meta"></span>
+            <button id="prevPage" type="button" class="icon-button" aria-label="Previous page"><svg aria-hidden="true"><use href="#icon-left"/></svg></button>
+            <label class="page-jump">Page <input id="pageNumber" class="page-number" type="number" min="1" step="1" value="1" aria-label="Page number" title="Page number" /></label>
+            <button id="nextPage" type="button" class="icon-button" aria-label="Next page"><svg aria-hidden="true"><use href="#icon-right"/></svg></button>
+          </span>
+          <div id="keyboardHints" class="keyboard-hints"></div>
+        </footer>
+      </section>
+      <section id="settingsPanel" class="settings-panel" hidden>
+        <div class="settings-grid">
+          <form id="profileForm" class="tool-panel profile-details">
+            <h2 class="section-kicker">Profile details</h2>
+            <label class="form-row">Name <input id="profileNameInput" required /></label>
+            <label class="form-row">Description <textarea id="profileDescriptionInput"></textarea></label>
+            <label class="form-row">Artifact prefix <span class="field-stack"><input id="profileArtifactPrefixInput" /><small>Used for saved model artifacts.</small></span></label>
+            <section class="form-section">
+              <h2 class="section-kicker">Training thresholds</h2>
+              <label class="threshold-row">Minimum labels per class for training <span class="field-stack"><input id="profileTrainingMinLabelsInput" type="number" min="2" step="1" value="100" required /><small>Each class must have this many labeled tracks before training is allowed.</small></span></label>
+              <label class="threshold-row">New labels per class before retraining <span class="field-stack"><input id="profileTrainingMinAddedInput" type="number" min="1" step="1" value="50" required /><small>New labels since the last training.</small></span></label>
+              <p id="settingsCoverage" class="meta"></p>
+            </section>
+            <button type="submit" class="primary-button">Save profile</button>
+          </form>
+          <section class="tool-panel label-settings">
+            <h2 class="section-kicker">Label keys</h2>
+            <p class="meta">Labels used for training and classification in this profile.</p>
+            <div id="settingsLabels" class="settings-labels"></div>
+            <form id="renameLabelForm" class="form-section">
+              <h2 class="section-kicker">Rename label key</h2>
+              <p class="meta">Change the key and display name of a label in this profile.</p>
+              <label class="form-row">Current label <select id="renameLabelSelect"></select></label>
+              <label class="form-row">New key <input id="renameLabelKeyInput" placeholder="New label key" required /></label>
+              <label class="form-row">Display name <input id="renameLabelNameInput" placeholder="Display name" /></label>
+              <button type="submit">Rename label</button>
+            </form>
+            <div class="delete-profile-row"><button id="deleteProfile" type="button" class="danger-button"><svg aria-hidden="true"><use href="#icon-trash"/></svg>Delete profile</button><small>Deletes this profile and its labels.</small></div>
+          </section>
+        </div>
+      </section>
+      <section id="trainingPanel" class="training-panel" hidden></section>
+    </section>
+    <aside id="contextualSidebar" class="contextual-sidebar"><div id="guidancePanel" class="guidance-panel"></div></aside>
+  </main>
+  <footer class="audio-transport" aria-label="Audio player">
+    <audio id="playerAudio" preload="none"></audio>
+    <div class="player-track"><strong id="playerTitle">No track playing</strong><span id="playerArtist">Select a track from the library</span><span id="playerError" role="status" hidden></span></div>
+    <div class="player-buttons">
+      <button id="playerPrevious" type="button" class="transport-skip" aria-label="Previous track" disabled><svg aria-hidden="true"><use href="#icon-prev"/></svg></button>
+      <button id="playerToggle" type="button" class="transport-toggle" aria-label="Play" disabled><svg aria-hidden="true"><use href="#icon-play"/></svg></button>
+      <button id="playerNext" type="button" class="transport-skip" aria-label="Next track" disabled><svg aria-hidden="true"><use href="#icon-next"/></svg></button>
+    </div>
+    <div class="player-position"><input id="playerSeek" type="range" min="0" max="0" step="0.1" value="0" aria-label="Playback position" disabled /><div class="player-times"><span id="playerCurrentTime">0:00</span><span id="playerDuration">0:00</span></div></div>
+    <label class="player-volume"><svg aria-hidden="true"><use href="#icon-volume"/></svg><input id="playerVolume" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" /></label>
+  </footer>
+  <dialog id="profileDialog" aria-labelledby="newProfileHeading">
+    <form id="newProfileForm" method="dialog" class="dialog-form">
+      <header class="dialog-header"><div class="dialog-heading"><span class="dialog-icon"><svg aria-hidden="true"><use href="#icon-plus"/></svg></span><div><h2 id="newProfileHeading">New classifier profile</h2><p>Define what this classifier should recognize.</p></div></div><button id="closeProfileButton" type="button" class="text-button icon-button" aria-label="Close new profile"><svg aria-hidden="true"><use href="#icon-close"/></svg></button></header>
+      <p id="newProfileError" class="form-error" role="alert" hidden></p>
+      <div class="dialog-columns">
+        <section class="dialog-details">
+          <h3 class="section-kicker">Profile details</h3>
+          <div class="paired-fields"><label>Name <input id="newProfileName" placeholder="Vocal presence" required /><small>Human-readable name shown in the UI.</small></label><label>Key <input id="newProfileKey" placeholder="vocal_presence" required /><small>Unique profile identifier.</small></label></div>
+          <div class="dialog-type"><span>Type</span><div><div class="segmented-control" role="group" aria-label="Profile type"><button type="button" data-profile-type="binary" aria-pressed="true">Binary</button><button type="button" data-profile-type="multiclass" aria-pressed="false">Multiclass</button></div><select id="newProfileType" hidden aria-label="Profile type"><option value="binary" selected>Binary</option><option value="multiclass">Multiclass</option></select><p id="newProfileTypeHint" class="meta">Two training classes and one optional review label.</p></div></div>
+          <label class="form-row description-row">Description <textarea id="newProfileDescription" placeholder="What this classifier should recognize"></textarea></label>
+          <section class="form-section">
+            <h3 class="section-kicker">Training thresholds</h3>
+            <label class="threshold-row">Minimum labels per class for training <span class="field-stack"><input id="newProfileTrainingMinLabels" type="number" min="2" step="1" value="100" required /><small>Per class, in the open library.</small></span></label>
+            <label class="threshold-row">New labels per class before retraining <span class="field-stack"><input id="newProfileTrainingMinAdded" type="number" min="1" step="1" value="50" required /><small>New labels since the last training.</small></span></label>
+          </section>
+        </section>
+        <section class="dialog-labels">
+          <div id="binaryLabelGrid" class="label-grid">
+            <h3 class="section-kicker">Label structure</h3><p class="meta">Name the two classes and a review label.</p>
+            <section class="binary-label-group role-positive"><h4><span class="label-dot"></span>Positive</h4><p class="meta">Tracks that match the target concept.</p><div class="paired-fields"><label>Key <input id="newPositiveKey" placeholder="vocal" required /></label><label>Display name <input id="newPositiveName" placeholder="Vocal" required /></label></div></section>
+            <section class="binary-label-group role-negative"><h4><span class="label-dot"></span>Negative</h4><p class="meta">Tracks that do not match the target concept.</p><div class="paired-fields"><label>Key <input id="newNegativeKey" placeholder="instrumental" required /></label><label>Display name <input id="newNegativeName" placeholder="Instrumental" required /></label></div></section>
+            <section class="binary-label-group role-review"><h4><span class="label-dot"></span>Review</h4><p class="meta">Tracks that are uncertain or need manual review.</p><div class="paired-fields"><label>Key <input id="newReviewKey" placeholder="uncertain" /></label><label>Display name <input id="newReviewName" placeholder="Uncertain" /></label></div><small>Optional; excluded from training.</small></section>
+          </div>
+          <div id="multiclassLabelEditor" class="multiclass-label-editor" hidden>
+            <h3 class="section-kicker">Classes</h3><p class="meta">Define a key, display name and description for each class.</p>
+            <div id="multiclassLabelRows" class="multiclass-label-rows">
+              <div class="multiclass-label-row"><div class="class-row-heading"><span class="label-dot"></span><b>Class 1</b></div><label>Class key <input class="multiclass-label-key" placeholder="euphoric" /></label><label>Class name <input class="multiclass-label-name" placeholder="Euphoric" /></label><label>Description <textarea class="multiclass-label-description" placeholder="Bright, uplifting, hands-in-the-air mood"></textarea></label></div>
+              <div class="multiclass-label-row"><div class="class-row-heading"><span class="label-dot"></span><b>Class 2</b></div><label>Class key <input class="multiclass-label-key" placeholder="dark" /></label><label>Class name <input class="multiclass-label-name" placeholder="Dark" /></label><label>Description <textarea class="multiclass-label-description" placeholder="Dark, tense, low-light mood"></textarea></label></div>
+            </div>
+            <button id="addMulticlassLabel" type="button"><svg aria-hidden="true"><use href="#icon-plus"/></svg>Add class</button>
+          </div>
+          <section class="label-preview"><p class="meta">Track label buttons (preview)</p><div id="newProfileLabelPreview"></div></section>
+        </section>
       </div>
-      <menu>
-        <button id="cancelProfileButton" type="button" value="cancel">Cancel</button>
-        <button id="createProfileButton" type="submit" value="default">Create profile</button>
-      </menu>
+      <footer class="dialog-footer"><span id="newProfileFooterSummary" class="meta">Binary · 2 training classes</span><div><button id="cancelProfileButton" type="button" value="cancel">Cancel</button><button id="createProfileButton" type="submit" value="default" class="primary-button">Create profile</button></div></footer>
     </form>
   </dialog>
 </body>

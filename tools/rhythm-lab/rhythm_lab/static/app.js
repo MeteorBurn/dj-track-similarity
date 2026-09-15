@@ -73,7 +73,7 @@ let profiles = [];
 let activeProfile = null;
 let offset = 0;
 let total = 0;
-let activeAudio = null;
+let visibleTrackContext = null;
 let activeView = "library";
 let collections = [];
 const viewOffsets = { library: 0, candidates: 0, liked: 0, collection: 0, training: 0, settings: 0 };
@@ -85,6 +85,7 @@ let promoteFeatureSetEl = null;
 let selectedTrainingFeatureSet = null;
 let recipeMertV2Layer = null;
 let sourceCatalogUuid = null;
+let sourceSwitchPending = false;
 let benchmarkStrategy = DEFAULT_BENCHMARK_STRATEGY;
 let benchmarkCustomSets = [];
 let latestBenchmarkReport = null;
@@ -97,16 +98,23 @@ let trainingProgressPollGeneration = 0;
 let trainingProgressHasStarted = false;
 let latestWorkflowProgress = { status: "idle" };
 let workflowStatusText = "";
+const player = createRhythmPlayer({ onChange: updatePlayingRows });
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
 document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(showError));
-document.getElementById("newProfile").addEventListener("click", () => profileDialogEl.showModal());
+document.getElementById("newProfile").addEventListener("click", () => { document.getElementById("newProfileError").hidden = true; updateNewProfilePreview(); profileDialogEl.showModal(); });
 shutdownLabEl.addEventListener("click", () => shutdownLab().catch(showError));
 deleteProfileEl.addEventListener("click", () => deleteActiveProfile().catch(showError));
 document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());
 document.getElementById("newProfileForm").addEventListener("submit", event => createProfile(event).catch(showError));
 document.getElementById("newProfileType").addEventListener("change", updateNewProfileTypeControls);
+document.querySelectorAll("[data-profile-type]").forEach(button => button.addEventListener("click", () => {
+  newProfileTypeEl.value = button.dataset.profileType;
+  updateNewProfileTypeControls();
+}));
+document.getElementById("newProfileForm").addEventListener("input", updateNewProfilePreview);
+document.getElementById("closeProfileButton")?.addEventListener("click", () => profileDialogEl.close());
 document.getElementById("addMulticlassLabel").addEventListener("click", () => addMulticlassLabelRow());
 document.getElementById("profileForm").addEventListener("submit", event => updateProfile(event).catch(showError));
 document.getElementById("renameLabelForm").addEventListener("submit", event => renameLabel(event).catch(showError));
@@ -120,9 +128,10 @@ profileSelectEl.addEventListener("change", () => {
 });
 libraryTabEl.addEventListener("click", () => switchView("library"));
 candidatesTabEl.addEventListener("click", () => switchView("candidates"));
-summaryCoverageEl.addEventListener("click", event => {
-  const likedButton = event.target instanceof Element ? event.target.closest("#likedTab") : null;
-  if (likedButton) switchView("liked");
+document.getElementById("likedTab").addEventListener("click", () => switchView("liked"));
+guidancePanelEl.addEventListener("click", event => {
+  const target = event.target instanceof Element ? event.target.closest("[data-open-view]") : null;
+  if (target) switchView(target.dataset.openView).catch(showError);
 });
 collectionTabEl.addEventListener("click", () => switchView("collection"));
 trainingTabEl.addEventListener("click", () => switchView("training"));
@@ -224,6 +233,9 @@ function clearActiveProfile() {
   document.getElementById("profileTrainingMinAddedInput").value = "50";
   document.getElementById("profileTrainingMinLabelsInput").value = "100";
   document.getElementById("renameLabelSelect").innerHTML = "";
+  document.getElementById("settingsLabels").innerHTML = "";
+  document.getElementById("settingsCoverage").textContent = "";
+  settingsPanelEl.querySelectorAll("input, textarea, select, button").forEach(control => { control.disabled = true; });
   deleteProfileEl.disabled = true;
   updateLibraryOrderControls();
 }
@@ -256,6 +268,7 @@ function cancelScheduledReadinessRefresh() {
 function renderProfileControls() {
   // Step gates are not touched here: they come only from readiness (applyTrainingReadiness).
   deleteProfileEl.disabled = false;
+  settingsPanelEl.querySelectorAll("input, textarea, select, button").forEach(control => { control.disabled = false; });
   labelEl.innerHTML = "";
   addOption(labelEl, "all", "All labels");
   addOption(labelEl, "unlabeled", "Unlabeled");
@@ -290,7 +303,8 @@ function renderProfileControls() {
   const renameSelect = document.getElementById("renameLabelSelect");
   renameSelect.innerHTML = "";
   activeProfile.labels.forEach(label => addOption(renameSelect, label.key, `${label.name} (${label.key})`));
-  updateLibraryOrderControls();
+  document.getElementById("settingsLabels").innerHTML = `<div class="settings-label-heading"><span>Label</span><span>Key</span></div>${activeProfile.labels.map((label, index) => `<div class="settings-label-row ${labelRoleClass(label, index)}"><span><i class="label-dot"></i>${escapeHtml(label.name)}</span><span class="meta">${escapeHtml(label.key)}</span></div>`).join("")}`;
+  updateFilterPanelControls();
 }
 
 function trainingActionElement(id) {
@@ -308,10 +322,16 @@ function setWorkflowBusy(disabled) {
   ["openLibrary", "trainRefresh", "runBenchmark", "calibrateClassifier", "refreshCandidates", "promoteClassifier"].forEach(id => {
     setTrainingActionDisabled(id, disabled);
   });
+  trainingPanelEl.querySelectorAll("button[data-training-action]").forEach(button => { button.disabled = Boolean(disabled); });
 }
 
 function setWorkflowStatus(message) {
   workflowStatusText = String(message || "");
+  const globalStatus = document.getElementById("globalStatus");
+  if (globalStatus) {
+    globalStatus.textContent = workflowStatusText;
+    globalStatus.hidden = !workflowStatusText;
+  }
   const statusEl = document.getElementById("refreshCandidatesStatus");
   if (!statusEl) return;
   statusEl.textContent = workflowStatusText;
@@ -386,6 +406,13 @@ function startTrainingProgressPolling(profileKey, operation, stage = "Starting�
 async function handleTrainingActionClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  const variantButton = target.closest("button[data-variant-select]");
+  if (variantButton && promoteFeatureSetEl && !variantButton.disabled) {
+    promoteFeatureSetEl.value = variantButton.dataset.variantSelect;
+    applyTrainingReadiness(latestTrainingReadiness);
+    if (latestProfileSummary) renderGuidance(latestProfileSummary);
+    return;
+  }
   const applyButton = target.closest("button[data-recipe-apply]");
   if (applyButton) return applyRecipe(applyButton.dataset.recipeApply);
   if (target.closest("button[data-benchmark-add]")) return addCurrentRecipeToBenchmark();
@@ -458,23 +485,37 @@ async function chooseSource() {
 }
 
 async function switchSource(path) {
-  const response = await fetch("/api/source/switch", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path })
-  });
-  const data = await parseJsonResponse(response);
-  applySourceState(data);
-  // A new library has its own stored families: drop the recipe so readiness
-  // returns that library's default, and forget comparisons built for the old one.
-  latestTrainingReadiness = null;
-  selectedTrainingFeatureSet = null;
-  recipeMertV2Layer = null;
-  benchmarkCustomSets = [];
-  latestBenchmarkReport = null;
-  trainingViewProfileKey = null;
-  cancelScheduledReadinessRefresh();
-  await loadActive({ reset: true });
+  if (sourceSwitchPending) return;
+  sourceSwitchPending = true;
+  player.reset();
+  visibleTrackContext = null;
+  invalidateActiveLoads();
+  readinessRequestId += 1;
+  tracksEl.inert = true;
+  document.getElementById("loadSource").disabled = true;
+  try {
+    const response = await fetch("/api/source/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path })
+    });
+    const data = await parseJsonResponse(response);
+    applySourceState(data);
+    sourcePathEl.closest("details").open = false;
+    // Stored families and recipe evidence belong to the newly selected library.
+    latestTrainingReadiness = null;
+    selectedTrainingFeatureSet = null;
+    recipeMertV2Layer = null;
+    benchmarkCustomSets = [];
+    latestBenchmarkReport = null;
+    trainingViewProfileKey = null;
+    cancelScheduledReadinessRefresh();
+    await loadActive({ reset: true });
+  } finally {
+    sourceSwitchPending = false;
+    tracksEl.inert = false;
+    document.getElementById("loadSource").disabled = false;
+  }
 }
 
 async function loadSourceState() {
@@ -483,8 +524,17 @@ async function loadSourceState() {
 }
 
 function applySourceState(data) {
+  if (sourceCatalogUuid && sourceCatalogUuid !== data.catalog_uuid) {
+    player.reset();
+    visibleTrackContext = null;
+    invalidateActiveLoads();
+  }
   sourcePathEl.value = data.path || sourcePathEl.value || "";
   sourceCatalogUuid = data.catalog_uuid ? String(data.catalog_uuid) : null;
+  document.getElementById("sourceName").textContent = fileName(sourcePathEl.value) || "No library loaded";
+  document.getElementById("sourceStatus").textContent = sourceCatalogUuid ? "Library loaded" : "No library loaded";
+  document.getElementById("sourceStatus").classList.toggle("loaded", Boolean(sourceCatalogUuid));
+  document.getElementById("sourceStatus").dataset.loaded = String(Boolean(sourceCatalogUuid));
 }
 
 function appendRecipeParam(params) {
@@ -510,12 +560,17 @@ async function switchView(view) {
   viewOffsets[activeView] = offset;
   activeView = view;
   offset = viewOffsets[view] || 0;
+  document.querySelector(".track-table-scroll").scrollTop = 0;
   libraryTabEl.classList.toggle("active", view === "library");
   candidatesTabEl.classList.toggle("active", view === "candidates");
   document.getElementById("likedTab")?.classList.toggle("active", view === "liked");
   collectionTabEl.classList.toggle("active", view === "collection");
   trainingTabEl.classList.toggle("active", view === "training");
   settingsTabEl.classList.toggle("active", view === "settings");
+  document.querySelectorAll(".tab-button").forEach(button => {
+    if (button.classList.contains("active")) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
   updateFilterPanelControls();
   trainingPanelEl.hidden = view !== "training";
   settingsPanelEl.hidden = view !== "settings";
@@ -525,12 +580,22 @@ async function switchView(view) {
 
 function updateFilterPanelControls() {
   const trackView = activeView !== "training" && activeView !== "settings";
+  document.body.dataset.view = activeView;
+  document.getElementById("trackWorkspace").hidden = !trackView;
+  document.getElementById("contextualSidebar").hidden = !trackView;
+  const title = document.getElementById("pageTitle");
+  const subtitle = document.getElementById("pageSubtitle");
+  title.textContent = activeView === "candidates" ? "Candidates" : activeView === "collection" ? "Review collection" : "Profile settings";
+  subtitle.textContent = activeView === "candidates" ? "Review model predictions and label by listening." : activeView === "settings" ? activeProfile?.name || "Choose a profile" : "";
+  title.parentElement.hidden = ["library", "liked", "training"].includes(activeView);
+  queryEl.placeholder = activeView === "liked" ? "Search liked tracks…" : "Search tracks, artists or paths…";
   commonFiltersEl.hidden = !trackView;
   pageControlsEl.hidden = !trackView;
   collectionControlsEl.hidden = activeView !== "collection";
-  candidateFiltersEl.hidden = !trackView;
+  candidateFiltersEl.hidden = !trackView || (activeView !== "library" && activeView !== "candidates");
   candidateFiltersEl.classList.toggle("candidate-filters-placeholder", activeView !== "library" && activeView !== "candidates");
   updateLibraryOrderControls();
+  renderTrackHeader();
 }
 
 function updateLibraryOrder(options = {}) {
@@ -565,18 +630,20 @@ function makeLibraryRandomSeed() {
 
 async function loadActive(options = {}) {
   if (!activeProfile) return;
-  if (activeView === "candidates") return loadCandidates(options);
-  if (activeView === "liked") return loadLikedTracks(options);
-  if (activeView === "collection") return loadCollectionTracks(options);
-  if (activeView === "training") return loadTrainingView();
-  if (activeView === "settings") return loadSettingsView();
-  return loadTracks(options);
+  if (activeView === "candidates") return loadCandidates(options).catch(showError);
+  if (activeView === "liked") return loadLikedTracks(options).catch(showError);
+  if (activeView === "collection") return loadCollectionTracks(options).catch(showError);
+  if (activeView === "training") return loadTrainingView().catch(showError);
+  if (activeView === "settings") return loadSettingsView().catch(showError);
+  return loadTracks(options).catch(showError);
 }
 
 async function loadSummary(sequence = loadSequence) {
   if (!activeProfile) return;
   const profileKey = activeProfile.classifier_key;
-  const data = await fetch(`/api/profiles/${profileKey}/summary`).then(parseJsonResponse);
+  const params = new URLSearchParams();
+  if (activeView === "collection" && selectedCollection()) params.set("collection_id", String(selectedCollection().id));
+  const data = await fetch(`/api/profiles/${profileKey}/summary${params.size ? `?${params}` : ""}`).then(parseJsonResponse);
   if (sequence !== loadSequence || !activeProfile || activeProfile.classifier_key !== profileKey) return;
   latestProfileSummary = data;
   renderSummary(data);
@@ -602,31 +669,33 @@ function formatLabelCounts(labels, totals = null, labelsList = activeProfile.lab
 }
 
 function renderSummary(data) {
-  const coverage = [
-    coverageBadge("Tracks", data.tracks || 0, "tracks"),
-    coverageBadge("Liked", data.liked || 0, "liked")
-  ].join("");
-  summaryCoverageEl.innerHTML = `
-    <span class="summary-group summary-coverage" aria-label="Coverage">
-      <span class="summary-group-title">Coverage</span>${coverage}
-    </span>`;
-  summaryLabelsEl.innerHTML = `
-    <span class="summary-group summary-labels" aria-label="Label counts">
-      <span class="summary-group-title">Labels</span>${labelCountBadges(data.labels || {})}
-    </span>`;
+  summaryCoverageEl.innerHTML = `<span>${escapeHtml(data.tracks || 0)} tracks</span><span class="summary-liked">♡ ${escapeHtml(data.liked || 0)} liked</span>`;
+  summaryLabelsEl.innerHTML = labelCountBadges(data.labels || {});
+  const settingsCoverage = document.getElementById("settingsCoverage");
+  if (settingsCoverage) settingsCoverage.textContent = `In this library: ${formatLabelCounts(data.labels || {}, null, trainingLabels())}`;
 }
 
-function coverageBadge(label, value, key) {
-  if (key === "liked") {
-    return `
-      <button id="likedTab" type="button" class="summary-badge coverage-liked${activeView === "liked" ? " active" : ""}" title="Show liked tracks">
-        <svg class="lucide lucide-heart" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-        </svg>
-        <span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b>
-      </button>`;
-  }
-  return `<span class="summary-badge coverage-${escapeHtml(key)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`;
+function recipeChips(featureSet) {
+  return `<div class="recipe-chips">${recipeTokens(featureSet).map(token => `<span>${escapeHtml(recipeTokenLabel(token))}</span>`).join("")}</div>`;
+}
+
+function labelRoleClass(label, index = 0) {
+  return `role-${escapeHtml(label.role || "review")} label-color-${index % 7}`;
+}
+
+function coverageBars(data, compact = false) {
+  const counts = data?.current || latestProfileSummary?.labels || {};
+  const threshold = labelThreshold(data);
+  return trainingLabels().map((label, index) => {
+    const value = Number(counts[label.key] || 0);
+    return `<div class="coverage-item ${labelRoleClass(label, index)}${compact ? " compact" : ""}"><div class="coverage-label"><span>${escapeHtml(label.name)}</span><span>${value} / ${threshold}</span></div><div class="coverage-track" role="meter" aria-label="${escapeHtml(label.name)} labels" aria-valuemin="0" aria-valuemax="${threshold}" aria-valuenow="${Math.min(value, threshold)}"><span style="width:${Math.min(100, value / threshold * 100)}%"></span></div></div>`;
+  }).join("");
+}
+
+function sidebarModel(title, model, promoted = false) {
+  const available = model && (!promoted || model.status !== "not_promoted");
+  const score = promoted ? model?.calibration?.validation_f1 : model?.macro_f1_mean;
+  return `<section class="sidebar-section"><h3 class="sidebar-kicker">${title}</h3>${available ? `<div class="model-score"><strong>${formatMetricPercent(score)}</strong><span>F1</span><span class="calibration-chip ${model.calibration_status === "calibrated" ? "calibrated" : ""}">${model.calibration_status === "calibrated" ? "Calibrated" : "Not calibrated"}</span></div><p class="meta">${escapeHtml(model.feature_set || "Unknown recipe")}</p>` : '<p class="meta">No model available yet.</p>'}<button type="button" class="text-button" data-open-view="training">View details →</button></section>`;
 }
 
 function labelCountBadges(labels) {
@@ -646,36 +715,30 @@ function labelCountBadges(labels) {
 }
 
 function renderGuidance(summary) {
-  // Label counts and gates come from the latest readiness only; the summary
-  // supplies track/like totals. Before readiness arrives the cards say so.
-  const readiness = latestTrainingReadiness;
-  const labelsText = readiness
-    ? `${labelCoverageSentence(readiness)}${labelsElsewhereNote(readiness)}`
-    : "Loading training state…";
-  const winner = readiness?.artifact_summary?.benchmark_winner;
-  const selected = selectedPromotionOption(readiness);
-  const lastRun = readiness?.last_trained_at ? formatHumanDate(readiness.last_trained_at) : "never";
-  const recipe = readiness?.feature_recipe;
-  const readinessState = readiness
-    ? readiness.ready
-      ? "Ready to train"
-      : "Not ready yet"
-    : "Loading training state";
-  const recipeState = readiness
-    ? recipe?.ready
-      ? `${recipe.feature_set} features are current`
-      : recipeBlockingText(recipe)
-    : "checking the feature recipe";
-  guidancePanelEl.innerHTML = `
-    <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(profileSignalText())}</span></div>
-    <div class="guidance-card"><b>Labels</b><span class="meta">${escapeHtml(labelsText)}</span></div>
-    <div class="guidance-card"><b>Training state</b><span class="meta">${escapeHtml(readinessState)}, ${escapeHtml(recipeState || "feature recipe unavailable")}, last trained: ${escapeHtml(lastRun)}</span></div>
-    <div class="guidance-card"><b>Benchmark</b><span class="meta">${winner ? `${escapeHtml(winner.feature_set)}, F1 ${formatMetricPercent(winner.macro_f1_mean)}, recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No benchmark winner yet"}</span></div>
-    <div class="guidance-card"><b>Promotion</b><span class="meta">${selected ? `Selected ${escapeHtml(selected.feature_set)}, F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No variant selected for promotion yet"}</span></div>`;
+  if (!activeProfile) return;
+  const data = latestTrainingReadiness;
+  const selected = selectedPromotionOption(data);
+  const profile = `<section class="sidebar-section"><h3 class="sidebar-kicker">${activeView === "candidates" ? "Review context" : "Profile"}</h3><h2 class="sidebar-title">${escapeHtml(activeProfile.name)}</h2><p class="meta">${isMulticlassProfile() ? "Multiclass" : "Binary"} classifier</p>`;
+  const legendLabels = activeView === "library" && !isMulticlassProfile() ? trainingLabels() : activeProfile.labels;
+  const legend = legendLabels.map((label, index) => `<div class="label-legend ${labelRoleClass(label, index)}"><span class="label-dot"></span><div><b>${escapeHtml(label.name)}</b><span class="meta">${escapeHtml(label.role === "positive" ? "Positive label" : label.role === "negative" ? "Negative reference" : label.role === "class" ? "Training class" : "Uncertain / review")}</span></div></div>`).join("");
+  const trainingButton = '<button type="button" class="sidebar-action" data-open-view="training">Open Training</button>';
+  if (activeView === "collection") {
+    const collection = selectedCollection();
+    const progress = summary.collection_progress;
+    const count = progress?.total || 0;
+    const progressLabels = [...activeProfile.labels, { key: "__unlabeled", name: "Unlabeled", role: "unlabeled" }];
+    const countFor = label => label.key === "__unlabeled" ? progress?.unlabeled || 0 : progress?.labels?.[label.key] || 0;
+    guidancePanelEl.innerHTML = `<section class="sidebar-section"><h3 class="sidebar-kicker">Collection</h3><h2 class="sidebar-title">${escapeHtml(collection?.name || "No collection selected")}</h2><p class="meta">For focused listening and labeling.</p></section><section class="sidebar-section"><h3 class="sidebar-kicker">Review progress</h3><div class="collection-progress">${progressLabels.map((label, index) => `<span class="${labelRoleClass(label, index)}" style="width:${count ? countFor(label) / count * 100 : 0}%"></span>`).join("")}</div>${progressLabels.map((label, index) => `<div class="label-legend ${labelRoleClass(label, index)}"><span class="label-dot"></span><b>${countFor(label)}</b><span>${escapeHtml(label.name)}</span></div>`).join("")}<p class="meta">${count} unique tracks in this collection</p></section><section class="sidebar-section"><h3 class="sidebar-kicker">Profile labels</h3><p>Labels belong to ${escapeHtml(activeProfile.name)}. Removing a collection keeps its labels.</p></section>${!collection ? '<section class="sidebar-empty"><b>No collections yet</b><p>Choose a saved review collection when one is available.</p></section>' : ""}`;
+  } else if (activeView === "liked") {
+    guidancePanelEl.innerHTML = `<section class="sidebar-section"><h3 class="sidebar-kicker">Liked tracks</h3><h2 class="sidebar-title"><span class="liked-heart">♥</span> Liked tracks</h2><p>${summary.liked || 0} tracks</p><p class="meta">Profile: ${escapeHtml(activeProfile.name)}</p><p>Your favorites are independent of classifier labels.</p></section><section class="sidebar-section"><h3 class="sidebar-kicker">Label legend</h3><div class="label-legend"><span class="liked-heart">♥</span><div><b>Liked</b><span class="meta">In your favorites</span></div></div>${legend}</section>${!summary.liked ? '<section class="sidebar-empty"><h3>No liked tracks yet</h3><p>Use the heart beside a track to add it here.</p><button type="button" data-open-view="library">Open Library</button></section>' : ""}`;
+  } else if (activeView === "candidates") {
+    guidancePanelEl.innerHTML = `${profile}<p>Selected recipe</p>${recipeChips(selectedTrainingFeatureSet)}</section><section class="sidebar-section"><p>Model prediction and your label are separate.</p><p class="meta">${selected?.calibration_status === "calibrated" ? "Calibrated classifier scores." : "Uncalibrated scores: use for ranking."}</p></section><section class="sidebar-empty"><h3 class="sidebar-kicker">Current library</h3><p>${total ? `${total} candidates match the current filters.` : "No candidates for the current recipe and filters yet."}</p>${trainingButton}<p class="meta">Refresh candidates there.</p></section>`;
+  } else {
+    const totals = labelTotals(data);
+    guidancePanelEl.innerHTML = `${profile}<div class="profile-roles">${legend}</div></section><section class="sidebar-section"><h3 class="sidebar-kicker">Label coverage</h3><p class="meta">In this library</p>${coverageBars(data)}${totals ? `<p class="meta coverage-total">Across libraries: ${escapeHtml(formatLabelCounts(totals, null, trainingLabels()))}</p>` : ""}</section><section class="sidebar-section"><h3 class="sidebar-kicker">Training</h3><b class="training-state ${data?.ready ? "ready" : "blocked"}">${data ? data.ready ? "Ready to train" : "More labels or features needed" : "Loading training state…"}</b><p class="meta">${escapeHtml(data ? workflowRecommendation(data, selected) : "Checking this library.")}</p>${trainingButton}</section>${sidebarModel("Selected variant", selected)}${sidebarModel("Current promoted model", data?.promoted_model, true)}`;
+  }
 }
 
-// "In this library: 11 of 321 Abstract Edge, 6 of 315 Reference." The per-class
-// current/total counts from readiness (old payload: current only).
 function labelCoverageSentence(data) {
   const totals = labelTotals(data);
   const current = data?.current || {};
@@ -736,6 +799,7 @@ async function loadTracks(options = {}) {
   appendRecipeParam(params);
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
   if (sequence !== loadSequence || activeView !== "library") return;
+  visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/tracks`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
   viewOffsets.library = offset;
@@ -745,6 +809,7 @@ async function loadTracks(options = {}) {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderTrack(track));
   });
+  player.update();
   updatePager(data);
   await loadSummary(sequence);
   await loadTrainingReadiness();
@@ -767,6 +832,7 @@ async function loadLikedTracks(options = {}) {
   appendRecipeParam(params);
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
   if (sequence !== loadSequence || activeView !== "liked") return;
+  visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/tracks`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
   viewOffsets.liked = offset;
@@ -776,6 +842,7 @@ async function loadLikedTracks(options = {}) {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderTrack(track));
   });
+  player.update();
   updatePager(data);
   await loadSummary(sequence);
   await loadTrainingReadiness();
@@ -809,6 +876,7 @@ async function loadCollectionTracks(options = {}) {
   appendRecipeParam(params);
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
   if (sequence !== loadSequence || activeView !== "collection") return;
+  visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/tracks`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
   viewOffsets.collection = offset;
@@ -818,6 +886,7 @@ async function loadCollectionTracks(options = {}) {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderTrack(track));
   });
+  player.update();
   updatePager(data);
   await loadSummary(sequence);
   await loadTrainingReadiness();
@@ -854,6 +923,7 @@ async function loadCandidates(options = {}) {
   appendRecipeParam(params);
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions?${params}`).then(parseJsonResponse);
   if (sequence !== loadSequence || activeView !== "candidates") return;
+  visibleTrackContext = { endpoint: `/api/profiles/${activeProfile.classifier_key}/predictions`, params: params.toString(), items: data.items, offset: data.offset, limit: data.limit || limit, total: data.total };
   total = data.total;
   offset = data.offset;
   viewOffsets.candidates = offset;
@@ -863,6 +933,7 @@ async function loadCandidates(options = {}) {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderCandidate(track));
   });
+  player.update();
   updatePager(data);
   await loadSummary(sequence);
   await loadTrainingReadiness();
@@ -1072,6 +1143,7 @@ async function loadTrainingReadiness() {
   latestTrainingReadiness = data;
   syncRecipeFromReadiness(data);
   normalizeBenchmarkStrategy(data);
+  refreshVisibleTrackStates();
   applyTrainingReadiness(data);
   if (latestProfileSummary) {
     renderSummary(latestProfileSummary);
@@ -1103,6 +1175,7 @@ function applyTrainingReadiness(data) {
   if (steps) steps.innerHTML = renderWorkflowSteps(data, selected);
   updateBenchmarkControls(data);
   refreshTrainingInformation(data);
+  renderTrainingModels(data, selected);
 }
 
 function syncRecipeFromReadiness(data) {
@@ -1148,7 +1221,7 @@ function mountTrainingBlock(data) {
   trainingPlanText = isMulticlassProfile()
     ? `Logistic regression across ${trainingLabels().map(label => label.name).join(", ")}. Each track contributes at most one class label.`
     : `Logistic regression: ${labelByKey(activeProfile.positive_label).name} vs ${labelByKey(activeProfile.negative_label).name}. Review labels stay out of training.`;
-  trainingPanelEl.innerHTML = `${renderTrainingSkeleton()}<div id="trainingInformation"></div>`;
+  trainingPanelEl.innerHTML = renderTrainingSkeleton();
   trainingViewProfileKey = activeProfile.classifier_key;
   promoteFeatureSetEl = document.getElementById("promoteFeatureSet");
   promoteFeatureSetEl?.addEventListener("change", () => loadTrainingReadiness().catch(showError));
@@ -1172,43 +1245,33 @@ function renderTrainingLoadError(error) {
 // that depends on readiness is filled by applyTrainingReadiness().
 function renderTrainingSkeleton() {
   return `<div class="classifier-workflow-card">
-    <div class="workflow-header">
-      <div>
-        <b>Classifier workflow</b>
-        <span class="meta">${escapeHtml(activeProfile.name)}, ${escapeHtml(profileTypeLabel())}</span>
+    <div class="training-heading"><h1>Training</h1><span class="meta">Classifier workflow / ${escapeHtml(activeProfile.name)} · ${isMulticlassProfile() ? "Multiclass" : "Binary"}</span></div>
+    <div id="trainingCoverage" class="training-coverage"></div>
+    <div class="training-workflow-feedback"${workflowStatusText ? "" : " hidden"}><span id="refreshCandidatesStatus" class="meta source-status-line">${escapeHtml(workflowStatusText)}</span></div>
+    <div id="trainingProgress" class="training-progress" role="status" aria-live="polite" hidden><div class="training-progress-header"><span id="trainingProgressStage"></span><b id="trainingProgressPercent">0%</b></div><div class="training-progress-track"><span id="trainingProgressBar"></span></div></div>
+    <div class="training-columns">
+      <section class="training-workflow tool-panel"><h2 class="section-kicker">Workflow</h2><div id="workflowSteps" class="workflow-steps"></div></section>
+      <div class="training-center">
+        <section class="recipe-builder tool-panel"><h2 class="section-kicker">Training recipe</h2><p class="meta">Select model features to include in the recipe.</p><div id="recipeRack" class="recipe-rack"></div><details class="recipe-details"><summary>Recipe details</summary><p class="recipe-line"><code id="recipeString"></code><span id="recipeMissing" class="recipe-missing"></span></p><p id="workflowRecommendation" class="meta"></p></details></section>
+        <section id="savedVariants" class="tool-panel saved-variants"></section>
+        <details class="tool-panel model-contribution" open><summary>Model contribution</summary><p class="meta">Relative feature weights in the selected variant.</p><div id="modelContribution" class="contribution-metrics"></div></details>
+        <details class="tool-panel training-details"><summary>Artifact and training details</summary><label class="workflow-variant-select">Selected variant<select id="promoteFeatureSet"></select></label><p id="artifactState" class="meta"></p><div id="workflowFacts"></div><div id="trainingInformation"></div></details>
       </div>
-      <span id="workflowStateChip" class="workflow-state-chip"></span>
+      <div class="training-models"><section id="selectedVariant" class="tool-panel selected-variant"></section><section id="promotedModel" class="tool-panel promoted-model"></section></div>
     </div>
-    <div class="workflow-recommendation">
-      <b>Recommendation</b>
-      <span id="workflowRecommendation"></span>
-    </div>
-    <div class="recipe-builder">
-      <div class="recipe-builder-header">
-        <b>Training recipe</b>
-        <span class="meta">Pick one or more models stored in this library.</span>
-      </div>
-      <div id="recipeRack" class="recipe-rack"></div>
-      <p class="recipe-line">Recipe <code id="recipeString"></code>.<span id="recipeMissing" class="recipe-missing"></span></p>
-    </div>
-    <div class="workflow-variant-row">
-      <label class="workflow-variant-select">Selected variant
-        <select id="promoteFeatureSet"></select>
-      </label>
-      <div class="workflow-variant-select">Artifact state
-        <span id="artifactState" class="workflow-variant-note"></span>
-      </div>
-      <div id="workflowFacts" class="workflow-variant-facts"></div>
-    </div>
-    <div class="training-workflow-feedback"${workflowStatusText ? "" : " hidden"}>
-      <span id="refreshCandidatesStatus" class="meta source-status-line">${escapeHtml(workflowStatusText)}</span>
-    </div>
-    <div id="trainingProgress" class="training-progress" role="status" aria-live="polite" hidden>
-      <div class="training-progress-header"><span id="trainingProgressStage"></span><b id="trainingProgressPercent">0%</b></div>
-      <div class="training-progress-track"><span id="trainingProgressBar"></span></div>
-    </div>
-    <div id="workflowSteps" class="workflow-steps"></div>
   </div>`;
+}
+
+function renderTrainingModels(data, selected) {
+  const options = data?.artifact_summary?.promotion_options || [];
+  document.getElementById("trainingCoverage").innerHTML = `<b class="training-state ${data.ready ? "ready" : "blocked"}" id="workflowStateChip">${data.ready ? "Ready to train in this library" : "Training needs more labels or features in this library"}</b>${coverageBars(data, true)}${labelTotals(data) ? `<span class="meta">${escapeHtml(formatLabelCounts(labelTotals(data), null, trainingLabels()))} across libraries</span>` : ""}`;
+  document.getElementById("savedVariants").innerHTML = `<header class="saved-variants-heading"><h2 class="section-kicker">Saved variants</h2><span class="meta">${options.length} saved variants</span></header>${options.length ? `<div class="variants-table"><table><thead><tr><th>#</th><th>Recipe</th><th>F1</th><th>Calibration</th></tr></thead><tbody>${options.map((row, index) => `<tr class="${row.feature_set === selected?.feature_set ? "selected" : ""}"><td>${row.rank ?? index + 1}</td><td><button type="button" class="variant-select" data-variant-select="${escapeHtml(row.feature_set)}" ${selectableOption(row) ? "" : "disabled"} aria-pressed="${row.feature_set === selected?.feature_set}" title="${escapeHtml(promotionOptionLabel(row))}">${escapeHtml(recipeTokens(row.feature_set).map(recipeTokenLabel).join(" + "))}</button></td><td title="${escapeHtml(row.macro_f1_mean ?? "Unavailable")}">${formatMetricPercent(row.macro_f1_mean)}</td><td>${escapeHtml(row.calibration_status === "calibrated" ? row.calibration_method || "Calibrated" : "Uncalibrated")}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty-state">Train a model to save the first variant.</p>'}`;
+  document.getElementById("selectedVariant").innerHTML = `<h2 class="section-kicker">Selected variant</h2>${selected ? `<div class="model-score"><strong>${formatMetricPercent(selected.macro_f1_mean)}</strong><span>F1</span><span class="calibration-chip ${selected.calibration_status === "calibrated" ? "calibrated" : ""}">${selected.calibration_status === "calibrated" ? "Calibrated" : "Not calibrated"}</span></div><p>Recall ${formatMetricPercent(selected.positive_recall_mean)}</p><p class="meta">Recipe</p>${recipeChips(selected.feature_set)}<div class="model-provenance"><p>${escapeHtml(artifactProvenanceText(selected))}</p><p class="${selected.source_data_ready ? "ready" : "blocked"}">${selected.source_data_ready ? "Source data current" : escapeHtml(selected.source_data_reason || "Source data unavailable")}</p></div>${workflowButton("", "promote", "Promote", "promote-classifier", !canPromoteArtifact(data), promoteBlockedTitle(selected))}<p class="meta">${escapeHtml(selected.calibration_status === "calibrated" ? selected.spec_compatible ? "Ready for promotion." : selected.spec_reason || "Feature spec does not match." : "Calibrate before promotion.")}</p>` : '<p class="empty-state">No trained variant selected.</p>'}`;
+  const model = data.promoted_model;
+  const calibration = model?.calibration || {};
+  document.getElementById("promotedModel").innerHTML = `<h2 class="section-kicker">Current promoted model</h2>${model && model.status !== "not_promoted" ? `<span class="calibration-chip ${model.calibration_status === "calibrated" ? "calibrated" : ""}">${model.calibration_status === "calibrated" ? `Calibrated${calibration.method ? ` · ${escapeHtml(calibration.method)}` : ""}` : "Not calibrated"}</span><p class="meta">Recipe</p>${recipeChips(model.feature_set)}<div class="promoted-metrics">${[["F1", calibration.validation_f1], ["ROC-AUC", calibration.validation_roc_auc], ["Avg precision", calibration.validation_average_precision], ["Brier", calibration.brier], ["ECE10", calibration.ece10]].map(([name, value]) => `<div><span class="meta">${name}</span><b>${name === "Brier" ? nullableNumber(value) === null ? "—" : Number(value).toFixed(3) : formatMetricPercent(value)}</b></div>`).join("")}</div><p class="model-date">Promoted ${escapeHtml(formatHumanDate(model.promoted_at))}</p>${model.status !== "ready" ? `<p class="blocked">${escapeHtml((model.manifest_errors || ["Production manifest unavailable"])[0])}</p>` : ""}` : '<p class="empty-state">No model has been promoted yet.</p>'}<p class="meta">Latest training: ${data.trained_model?.artifact ? `${escapeHtml(data.trained_model.feature_set || "Unknown recipe")} · ${escapeHtml(formatHumanDate(data.trained_model.trained_at))}` : "No training checkpoint yet"}</p>`;
+  const weights = Object.entries(selected?.feature_group_weights || {});
+  document.getElementById("modelContribution").innerHTML = weights.length ? weights.map(([source, weight]) => `<div><span class="meta">${escapeHtml(recipeTokenLabel(source))}</span><b>${nullableNumber(weight) === null ? "—" : Number(weight).toFixed(3)}</b></div>`).join("") : '<p class="meta">Not recorded for this artifact.</p>';
 }
 
 function renderWorkflowFacts(data, selected) {
@@ -1259,7 +1322,7 @@ function renderWorkflowSteps(data, selected) {
     })}
     ${renderWorkflowStep({
       number: 2,
-      title: "Train the model",
+      title: "Train model",
       status: data?.ready ? "ready" : "blocked",
       body: `${trainingPlanText} Recipe: ${recipeText()}. Evaluation metrics come first, then the saved model is refit on all current labels and candidates refresh automatically.${data?.ready ? "" : ` Not available yet: ${thresholdBlocked ? thresholdNote : trainingBlocked}`}`,
       action: workflowButton("trainRefresh", "train", "Train", "train-refresh", !data?.ready, data?.ready ? `Train ${recipeText()} and refresh candidates` : trainingBlocked)
@@ -1279,7 +1342,7 @@ function renderWorkflowSteps(data, selected) {
     })}
     ${renderWorkflowStep({
       number: 4,
-      title: "Calibrate the selected variant",
+      title: "Calibrate variant",
       status: selectedCalibrated ? "done" : canCalibrate ? "ready" : "blocked",
       body: selectedCalibrated
         ? `${selected.feature_set} uses ${selected.calibration_method || "calibrated"} probabilities and can be promoted.`
@@ -1292,14 +1355,14 @@ function renderWorkflowSteps(data, selected) {
     })}
     ${renderWorkflowStep({
       number: 5,
-      title: "Refresh and review candidates",
+      title: "Review candidates",
       status: selectedReady ? "ready" : "blocked",
       body: selectedReady ? `Refresh predictions with ${selected.feature_set}, then review uncertain and confident candidates.` : "Train a variant whose sources are stored in this library first.",
       action: workflowButton("refreshCandidates", "refresh", "Refresh candidates", "refresh-candidates", !selectedReady, selectedReady ? `Refresh candidates with ${selected.feature_set}` : "Select a variant whose data is in this library")
     })}
     ${renderWorkflowStep({
       number: 6,
-      title: "Promote the model",
+      title: "Promote model",
       status: canPromote ? "ready" : "blocked",
       body: canPromote
         ? `Promote the calibrated ${selected.feature_set} model to models/classifiers for scoring in the main app.`
@@ -1337,20 +1400,13 @@ function canPromoteArtifact(data) {
   );
 }
 
-function renderWorkflowStep({ number, title, status, body, details = "", wide = false, action = "" }) {
-  return `<section class="workflow-step workflow-step-${status}${wide ? " workflow-step-wide" : ""}">
-    <div class="workflow-step-index">${number}</div>
-    <div class="workflow-step-copy">
-      <div class="workflow-step-title"><b>${escapeHtml(title)}</b><span class="workflow-state-chip ${status}">${escapeHtml(STEP_STATUS_LABELS[status] || status)}</span></div>
-      <span class="meta">${escapeHtml(body)}</span>
-      ${details}
-    </div>
-    ${wide ? "" : `<div class="workflow-step-action">${action}</div>`}
-  </section>`;
+function renderWorkflowStep({ number, title, status, body, details = "", action = "" }) {
+  const short = number === 1 ? `${trainingLabels().map(label => latestTrainingReadiness?.current?.[label.key] || 0).join(" + ")} in this library` : number === 2 || number === 4 ? status === "blocked" ? "More labels or features needed" : status === "done" ? "Calibrated" : "Ready" : number === 3 ? latestTrainingReadiness?.artifact_summary?.benchmark_winner ? "Previous results available" : "Compare model recipes" : number === 5 ? status === "ready" ? "Ready" : "Train a variant first" : status === "ready" ? "Ready for the main app" : "Calibration or matching spec required";
+  return `<section class="workflow-step workflow-step-${status}"><div class="workflow-step-main"><div class="workflow-step-index">${number}</div><div class="workflow-step-copy"><b>${escapeHtml(title)}</b><span class="meta">${escapeHtml(short)}</span></div><span class="workflow-state-chip ${status}">${escapeHtml(STEP_STATUS_LABELS[status] || status)}</span>${action ? `<div class="workflow-step-action">${action}</div>` : ""}</div>${details}<details class="workflow-step-details"><summary>Details</summary><p class="meta">${escapeHtml(body)}</p></details></section>`;
 }
 
 function workflowButton(id, action, label, className, disabled, title) {
-  return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${actionIcon(action)}<span>${escapeHtml(label)}</span></button>`;
+  return `<button ${id ? `id="${id}"` : ""} data-training-action="${action}" type="button" class="workflow-action-button ${className}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${actionIcon(action)}<span>${escapeHtml(label)}</span></button>`;
 }
 
 function actionIcon(action) {
@@ -1654,7 +1710,7 @@ function renderBenchmarkControls(data) {
       <button type="button" data-benchmark-add title="Add the current training recipe to the comparison">Add current recipe</button>
       <div id="benchmarkCustomList"></div>
     </div>
-    <div id="benchmarkResults" class="benchmark-results">${renderBenchmarkResults()}</div>
+    <details class="benchmark-result-details"><summary>Benchmark results</summary><div id="benchmarkResults" class="benchmark-results">${renderBenchmarkResults()}</div></details>
   </div>`;
 }
 
@@ -1695,8 +1751,8 @@ function benchmarkResultRows(report = latestBenchmarkReport) {
   return rows
     .map(row => {
       const cv = row?.metrics?.cross_validation || {};
-      const mean = Number(cv.macro_f1_mean);
-      const std = Number(cv.macro_f1_std);
+      const mean = nullableNumber(cv.macro_f1_mean);
+      const std = nullableNumber(cv.macro_f1_std);
       return {
         featureSet: String(row?.feature_set || ""),
         status: String(row?.status || "unknown"),
@@ -1934,12 +1990,12 @@ function renderTrainingMetricsLine(model) {
 }
 
 function metricPercentText(label, value) {
-  return Number.isFinite(Number(value)) ? `${label} ${formatMetricPercent(value)}` : "";
+  return nullableNumber(value) !== null ? `${label} ${formatMetricPercent(value)}` : "";
 }
 
 function metricNumberText(label, value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? `${label} ${number.toFixed(3)}` : "";
+  const number = nullableNumber(value);
+  return number !== null ? `${label} ${number.toFixed(3)}` : "";
 }
 
 function renderTrainingDynamicsLine(history) {
@@ -1968,18 +2024,16 @@ function renderTrack(track) {
   const row = document.createElement("section");
   row.className = "track";
   row.tabIndex = 0;
+  row.dataset.trackId = String(track.track_id);
+  row.dataset.trackUuid = String(track.track_uuid || "");
+  row.dataset.catalogUuid = String(track.catalog_uuid || "");
   row.innerHTML = trackMarkup(track);
   wireTrackRow(row, track);
   return row;
 }
 
 function renderCandidate(track) {
-  const row = document.createElement("section");
-  row.className = "track";
-  row.tabIndex = 0;
-  row.innerHTML = trackMarkup(track);
-  wireTrackRow(row, track);
-  return row;
+  return renderTrack(track);
 }
 
 function formatMaestGenreLabel(label) {
@@ -1994,32 +2048,70 @@ function genreBadges(track) {
       if (!genre) return "";
       const score = Number(scores[rawGenre]);
       const confidence = Number.isFinite(score) ? `<b>${Math.round(score * 100)}%</b>` : "";
-      return `<span class="maest-genre-pill">${escapeHtml(genre)}${confidence}</span>`;
+      return `<span class="maest-genre-pill" title="${escapeHtml(genre)}"><span class="genre-name">${escapeHtml(genre)}</span>${confidence}</span>`;
     })
     .join("");
 }
 
 function trackMarkup(track) {
-  return `
-    <div>
-      <div class="track-main">
-        <strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>
-        <div class="meta track-path">${escapeHtml(track.file_path)}</div>
-        <div class="meta feature-line">${trackStatusLine(track)}</div>
-      </div>
-      <div class="rhythm-media-block">
-        <div class="meta genres-line"><span class="status-item"><b>Genres</b></span><span class="genres">${genreBadges(track)}</span>${badgeRow(track)}</div>
-        <audio controls preload="none" src="/media/${track.track_id}"></audio>
-      </div>
-    </div>
-    <div class="actions">
-      <div class="row-tools">${renderLikeButton(track)}</div>
-      <div class="label-actions ${isMulticlassProfile() && hasContentKey(track) ? "multiclass-label-actions" : ""}">${hasContentKey(track) ? renderLabelButtons(track) : noFingerprintHint()}</div>
-    </div>`;
+  const candidates = activeView === "candidates";
+  const score = predictedScore(track);
+  const validScore = score !== null && score !== undefined && Number.isFinite(Number(score));
+  const label = labelByKey(track.predicted_label);
+  return `<span class="row-index">${track.rowNumber}</span>
+    <div class="row-play"><button type="button" class="track-play-button" data-action="play" aria-label="Play ${escapeHtml(displayTrackTitle(track))}" title="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m8 5 11 7-11 7z"/></svg></button></div>
+    <div class="track-details"><strong class="track-heading"><span class="track-title-main">${escapeHtml(displayTrackTitle(track))}</span>${activeView === "library" ? featuresIndicator(track) : ""}</strong><span class="track-artist">${escapeHtml(track.artist || "Unknown Artist")}</span>${activeView === "library" || activeView === "liked" ? `<span class="meta track-path" title="${escapeHtml(track.file_path)}">${escapeHtml(track.file_path)}</span>` : ""}${badgeRow(track)}</div>
+    <div class="track-genres">${genreBadges(track)}${syncopatedBadge(track)}</div>
+    ${candidates ? `<div class="track-score" title="${validScore ? escapeHtml(formatProbability(score)) : "Score unavailable"}"><span>${validScore ? Number(score).toFixed(6) : "—"}</span><span class="score-track"><i style="width:${validScore ? Math.max(0, Math.min(1, Number(score))) * 100 : 0}%"></i></span></div><div class="track-prediction ${labelRoleClass(label, activeProfile.labels.indexOf(label))}">${track.predicted_label ? escapeHtml(displayLabel(track.predicted_label)) : "—"}</div>` : activeView === "collection" ? "" : `<div class="track-state">${renderTrackState(track)}</div>`}
+    <div class="track-actions">${renderLikeButton(track)}<div class="label-actions ${isMulticlassProfile() ? "multiclass-label-actions" : ""}">${hasContentKey(track) ? renderLabelButtons(track) : noFingerprintHint()}</div></div>`;
 }
 
-// Phase-1 identity: labels bind to the SONARA fingerprint (content_key), so a
-// track without one cannot be labeled here, and rows sharing a key share a label.
+function renderTrackState(track) {
+  if (activeView === "liked") return `<span class="track-state-primary ${track.label_trained ? "ready" : "muted"}"><span class="status-dot"></span>${track.label_trained ? "Trained" : "Not trained"}</span><span class="meta">${track.label_trained_at ? escapeHtml(formatHumanDate(track.label_trained_at)) : "—"}</span>`;
+  const known = requiredFeatureSources().length > 0;
+  const ready = known && featuresReady(track);
+  return `<span class="track-state-primary ${ready ? "ready" : known ? "blocked" : "muted"}" title="${escapeHtml(known && !ready ? missingFeatures(track).join(", ") : "")}"><span class="status-dot"></span>${known ? ready ? "Ready" : "Missing features" : "Checking features"}</span><span class="meta">${track.label_trained ? "Trained" : "Not trained"}</span>`;
+}
+
+function refreshVisibleTrackStates() {
+  if (!visibleTrackContext || !activeProfile || activeView !== "library") return;
+  tracksEl.querySelectorAll(".track").forEach(row => {
+    const track = visibleTrackContext.items.find(item => String(item.track_id) === row.dataset.trackId);
+    if (!track) return;
+    const state = row.querySelector(".track-state");
+    if (state) state.innerHTML = renderTrackState(track);
+    const heading = row.querySelector(".track-heading");
+    if (heading) {
+      heading.querySelector(".features-indicator")?.remove();
+      heading.insertAdjacentHTML("beforeend", featuresIndicator(track));
+    }
+  });
+}
+
+function renderTrackHeader() {
+  const candidates = activeView === "candidates";
+  document.getElementById("trackTableHeader").innerHTML = `<span class="row-index">#</span><span class="row-play"></span><span class="track-details">Track</span><span class="track-genres">${candidates ? "" : "Genres"}</span>${candidates ? `<span class="track-score">${isMulticlassProfile() ? "Confidence" : `P(${escapeHtml(activeProfile ? labelByKey(activeProfile.positive_label).name : "positive")})`}</span><span class="track-prediction">Predicted</span>` : activeView === "collection" ? "" : `<span class="track-state">${activeView === "liked" ? "Trained" : "Status"}</span>`}<span class="track-actions">${candidates ? "Your label" : "Label"}</span>`;
+  const hints = document.getElementById("keyboardHints");
+  if (hints) {
+    hints.hidden = !candidates;
+    hints.innerHTML = activeProfile ? activeProfile.labels.slice(0, 9).map((label, index) => `<span><kbd>${index + 1}</kbd> ${escapeHtml(label.name)}</span>`).join("") + '<span><kbd>0</kbd> Clear label</span>' : "";
+  }
+}
+
+function updatePlayingRows({ track, playing }) {
+  tracksEl.querySelectorAll(".track").forEach(row => {
+    const active = Boolean(track && row.dataset.trackId === String(track.track_id) && row.dataset.trackUuid === String(track.track_uuid || "") && row.dataset.catalogUuid === String(track.catalog_uuid || ""));
+    row.classList.toggle("selected", active);
+    row.classList.toggle("playing", active && playing);
+    const button = row.querySelector('[data-action="play"]');
+    if (button) {
+      button.setAttribute("aria-label", active && playing ? "Pause" : "Play");
+      button.title = active && playing ? "Pause" : "Play";
+      button.innerHTML = active && playing ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m8 5 11 7-11 7z"/></svg>';
+    }
+  });
+}
+
 function hasContentKey(track) {
   return typeof track?.content_key === "string" && track.content_key.length > 0;
 }
@@ -2060,27 +2152,32 @@ function renderLabelButtons(track) {
   const buttons = activeProfile.labels.map((label, index) => {
     const active = track.label === label.key;
     const shortcut = index < 9 ? ` (key ${index + 1})` : "";
-    return `<button type="button" class="role-${escapeHtml(label.role)}${active ? " active" : ""}" data-action="label" data-label="${escapeHtml(label.key)}" aria-pressed="${active ? "true" : "false"}" title="${escapeHtml(`${label.name}${shortcut}`)}">${escapeHtml(label.name)}</button>`;
+    return `<button type="button" class="${labelRoleClass(label, index)}${active ? " active" : ""}" data-action="label" data-label="${escapeHtml(label.key)}" aria-pressed="${active ? "true" : "false"}" title="${escapeHtml(`${label.name}${shortcut}`)}">${escapeHtml(label.name)}</button>`;
   });
-  buttons.push('<button type="button" class="label-clear" data-action="label" data-label="" title="Clear the label (key 0)">Clear label</button>');
+  buttons.push('<button type="button" class="label-clear" data-action="label" data-label="" title="Clear the label (key 0)" aria-label="Clear label">↶</button>');
   return buttons.join("");
 }
 
 function wireTrackRow(row, track) {
+  const context = visibleTrackContext;
   const likeButton = row.querySelector('[data-action="like"]');
   if (likeButton) likeButton.addEventListener("click", () => toggleLike(track).catch(showError));
+  row.querySelector('[data-action="play"]').addEventListener("click", () => { if (!sourceSwitchPending) player.select(track, context, track.rowNumber - 1); });
   row.querySelectorAll('[data-action="label"]').forEach(button => {
-    button.addEventListener("click", () => setLabel(track.track_id, button.dataset.label));
+    button.addEventListener("click", () => setLabel(track.track_id, button.dataset.label).catch(showError));
   });
   row.addEventListener("keydown", event => {
-    if (!hasContentKey(track)) return;
+    if (sourceSwitchPending) return;
+    if (event.key === " " && event.target === row) {
+      event.preventDefault();
+      player.select(track, context, track.rowNumber - 1);
+      return;
+    }
+    if (!hasContentKey(track) || event.ctrlKey || event.altKey || event.metaKey) return;
     const keys = { "0": "" };
-    activeProfile.labels.forEach((label, index) => {
-      if (index < 9) keys[String(index + 1)] = label.key;
-    });
-    if (keys[event.key] !== undefined) setLabel(track.track_id, keys[event.key]);
+    activeProfile.labels.forEach((label, index) => { if (index < 9) keys[String(index + 1)] = label.key; });
+    if (keys[event.key] !== undefined) { event.preventDefault(); setLabel(track.track_id, keys[event.key]).catch(showError); }
   });
-  wireAudioPreview(row.querySelector("audio"));
 }
 
 async function toggleLike(track) {
@@ -2095,23 +2192,6 @@ async function toggleLike(track) {
   });
   await parseJsonResponse(response);
   await loadActive();
-}
-
-function wireAudioPreview(audio) {
-  if (!audio) return;
-  audio.addEventListener("play", () => {
-    if (activeAudio && activeAudio !== audio) {
-      activeAudio.pause();
-      activeAudio.currentTime = 0;
-    }
-    activeAudio = audio;
-  });
-  audio.addEventListener("ended", () => {
-    if (activeAudio === audio) activeAudio = null;
-  });
-  audio.addEventListener("pause", () => {
-    if (activeAudio === audio && audio.currentTime === 0) activeAudio = null;
-  });
 }
 
 async function setLabel(trackId, label) {
@@ -2183,18 +2263,30 @@ function updateNewProfileTypeControls() {
   const multiclass = newProfileTypeEl.value === "multiclass";
   binaryLabelGridEl.hidden = multiclass;
   multiclassLabelEditorEl.hidden = !multiclass;
-  binaryLabelGridEl.querySelectorAll("input").forEach(input => {
-    input.required = !multiclass && ["newPositiveKey", "newPositiveName", "newNegativeKey", "newNegativeName"].includes(input.id);
+  binaryLabelGridEl.querySelectorAll("input").forEach(input => { input.required = !multiclass && ["newPositiveKey", "newPositiveName", "newNegativeKey", "newNegativeName"].includes(input.id); });
+  multiclassLabelRowsEl.querySelectorAll(".multiclass-label-key, .multiclass-label-name").forEach(input => { input.required = multiclass; });
+  document.querySelectorAll("[data-profile-type]").forEach(button => {
+    const active = button.dataset.profileType === newProfileTypeEl.value;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
   });
-  multiclassLabelRowsEl.querySelectorAll(".multiclass-label-key, .multiclass-label-name").forEach(input => {
-    input.required = multiclass;
-  });
+  document.getElementById("newProfileTypeHint").textContent = multiclass ? "Choose one class for each track." : "Two training classes and one optional review label.";
+  updateNewProfilePreview();
+}
+
+function updateNewProfilePreview() {
+  const multiclass = newProfileTypeEl.value === "multiclass";
+  const labels = multiclass ? Array.from(multiclassLabelRowsEl.querySelectorAll(".multiclass-label-row")).map((row, index) => ({ name: row.querySelector(".multiclass-label-name").value || `Class ${index + 1}`, role: "class" })) : [{ name: document.getElementById("newPositiveName").value || "Positive", role: "positive" }, { name: document.getElementById("newNegativeName").value || "Negative", role: "negative" }, ...(document.getElementById("newReviewKey").value.trim() ? [{ name: document.getElementById("newReviewName").value || document.getElementById("newReviewKey").value, role: "review" }] : [])];
+  multiclassLabelRowsEl.querySelectorAll(".multiclass-label-row").forEach((row, index) => { row.className = `multiclass-label-row role-class label-color-${index % 7}`; });
+  document.getElementById("newProfileLabelPreview").innerHTML = labels.map((label, index) => `<span class="preview-label ${labelRoleClass(label, index)}"><span class="label-dot"></span>${escapeHtml(label.name)}</span>`).join("");
+  document.getElementById("newProfileFooterSummary").textContent = multiclass ? `Multiclass · ${labels.length} classes` : `Binary · 2 training classes${labels.length > 2 ? " + 1 review label" : ""}`;
 }
 
 function addMulticlassLabelRow() {
   const row = document.createElement("div");
   row.className = "multiclass-label-row";
   row.innerHTML = `
+    <div class="class-row-heading"><span class="label-dot"></span><b>Class ${multiclassLabelRowsEl.children.length + 1}</b></div>
     <label>Class key <input class="multiclass-label-key" placeholder="dreamy" /></label>
     <label>Class name <input class="multiclass-label-name" placeholder="Dreamy" /></label>
     <label>Description <textarea class="multiclass-label-description" placeholder="Optional class description"></textarea></label>`;
@@ -2318,13 +2410,13 @@ function updatePager(data) {
 }
 
 function badgeRow(track) {
-  const badges = [duplicateBadge(track), syncopatedBadge(track)].filter(Boolean);
+  const badges = [duplicateBadge(track)].filter(Boolean);
   return badges.length ? `<div class="badge-row">${badges.join("")}</div>` : "";
 }
 
 function syncopatedBadge(track) {
   return track.maest_syncopated_rhythm === true
-    ? `<span aria-label="Syncopated rhythm" class="syncopated-rhythm-indicator" role="img" title="MAEST detected a syncopated rhythm">
+    ? `<span class="syncopated-rhythm-indicator" role="img" aria-label="Syncopated rhythm" title="MAEST detected a syncopated rhythm">
         <svg class="lucide lucide-audio-waveform" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2 12h.01" /><path d="M6 12v4" /><path d="M10 12v-2" /><path d="M14 12v6" /><path d="M18 12v-8" /><path d="M22 12v2" />
         </svg>
@@ -2338,14 +2430,18 @@ function displayLabel(key) {
 }
 
 function displayTrackTitle(track) {
-  const title = track.title || track.file_path;
-  return track.artist ? `${track.artist} - ${title}` : title;
+  return track.title || fileName(track.file_path) || "Untitled track";
+}
+
+function nullableNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function formatProbability(value) {
-  const number = Number(value || 0);
-  if (!Number.isFinite(number)) return "-";
-  return formatScore(number);
+  const number = nullableNumber(value);
+  return number === null ? "—" : formatScore(number);
 }
 
 function formatScore(number) {
@@ -2354,15 +2450,14 @@ function formatScore(number) {
 }
 
 function formatMetricPercent(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "-";
-  return `${(number * 100).toFixed(1)}%`;
+  const number = nullableNumber(value);
+  return number === null ? "—" : `${(number * 100).toFixed(1)}%`;
 }
 
 function formatMetricDelta(current, previous) {
-  const currentNumber = Number(current);
-  const previousNumber = Number(previous);
-  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) return "-";
+  const currentNumber = nullableNumber(current);
+  const previousNumber = nullableNumber(previous);
+  if (currentNumber === null || previousNumber === null) return "—";
   const delta = (currentNumber - previousNumber) * 100;
   const sign = delta < 0 ? "−" : "+";
   return `${sign}${Math.abs(delta).toFixed(1)} pp`;
@@ -2404,18 +2499,6 @@ function formatBytes(value) {
 
 function fileName(path) {
   return path ? String(path).split(/[\\/]/).pop() : "";
-}
-
-function mark(value) {
-  return value ? "Yes" : "No";
-}
-
-function trackStatusLine(track) {
-  return [
-    trainedStatus(track),
-    assignedLabelStatus(track),
-    activeView === "candidates" ? predictionScoreStatus(track) : "",
-  ].filter(Boolean).join(" ");
 }
 
 function trackFeatureState(track, source) {
@@ -2461,42 +2544,26 @@ function featureStateReason(state) {
   return typeof state === "object" && state ? String(state.reason || "") : "";
 }
 
-function trainedStatus(track) {
-  return featureStatusBadge("Trained", track.label_trained);
-}
-
-function assignedLabelStatus(track) {
-  if (isMulticlassProfile()) return "";
-  if (track.label !== activeProfile.positive_label && track.label !== activeProfile.negative_label) return "";
-  const label = labelByKey(track.label);
-  const status = track.label === activeProfile.positive_label ? "status-yes" : "status-no";
-  return `<span class="status-item"><b>Label</b><span class="analysis-status-badge ${status}">${escapeHtml(label.name)}</span></span>`;
-}
-
-function predictionScoreStatus(track) {
-  return track.predicted_label
-    ? `<span class="status-item"><b>Score</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>`
-    : "";
-}
-
 function predictedScore(track) {
   if (isMulticlassProfile()) return track.confidence;
   return positiveScore(track);
 }
 
 function positiveScore(track) {
-  const positive = Number(track.positive_probability || 0);
-  const negative = Number(track.negative_probability || 0);
+  const positive = nullableNumber(track.positive_probability);
+  const negative = nullableNumber(track.negative_probability);
   if (positive === 1 && negative > 0 && negative < 1) return 1 - negative;
   return positive;
 }
 
-function featureStatusBadge(name, value) {
-  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-off"}">${mark(value)}</span></span>`;
-}
-
 function showError(error) {
-  setWorkflowStatus(error.message || String(error));
+  const message = error.message || String(error);
+  if (profileDialogEl.open) {
+    const dialogError = document.getElementById("newProfileError");
+    dialogError.textContent = message;
+    dialogError.hidden = false;
+  }
+  setWorkflowStatus(message);
 }
 
 function escapeHtml(value) {

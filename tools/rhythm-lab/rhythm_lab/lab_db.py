@@ -741,6 +741,37 @@ class RhythmLabDatabase:
             ).fetchall()
         return {str(row["label"]): int(row["count"]) for row in rows}
 
+    def collection_progress(self, collection_id: int) -> dict[str, object]:
+        """Count saved collection content against this profile, across all catalogs."""
+
+        profile_key = self._active_profile_key()
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT l.label, COUNT(t.content_key) AS count
+                FROM review_collections AS c
+                LEFT JOIN review_collection_tracks AS t ON t.collection_id = c.id
+                LEFT JOIN classifier_labels AS l
+                  ON l.content_key = t.content_key AND l.classifier_key = ?
+                WHERE c.id = ?
+                GROUP BY l.label
+                """,
+                (profile_key, collection_id),
+            ).fetchall()
+        if not rows:
+            raise KeyError(f"Review collection not found: {collection_id}")
+        return {
+            "total": sum(int(row["count"]) for row in rows),
+            "labels": {
+                str(row["label"]): int(row["count"])
+                for row in rows
+                if row["label"] is not None
+            },
+            "unlabeled": next(
+                (int(row["count"]) for row in rows if row["label"] is None), 0
+            ),
+        }
+
     def upsert_label_queue_items(self, *, mode: str, items: list[dict[str, object]]) -> int:
         profile_key = self._active_profile_key()
         clean_mode = _validate_queue_mode(mode)

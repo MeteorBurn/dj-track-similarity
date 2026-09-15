@@ -631,7 +631,10 @@ def create_app(
         return _profile_payload(profile)
 
     @app.get("/api/profiles/{profile_key}/summary")
-    def profile_summary(profile_key: str):
+    def profile_summary(
+        profile_key: str,
+        collection_id: int | None = Query(default=None, ge=1),
+    ):
         profile = profile_or_404(profile_key)
         scoped = profile_db(profile_key)
         source = source_state.source
@@ -652,6 +655,11 @@ def create_app(
             "liked": 0,
             "source": source_state.current(),
         }
+        if collection_id is not None:
+            try:
+                base["collection_progress"] = scoped.collection_progress(collection_id)
+            except KeyError as error:
+                raise HTTPException(status_code=404, detail=str(error)) from error
         if source is None:
             return base
         feature_counts = source.feature_counts()

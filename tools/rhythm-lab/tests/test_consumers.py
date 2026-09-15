@@ -35,7 +35,12 @@ from dj_track_similarity.db.analysis import AnalysisRepository  # noqa: E402
 from dj_track_similarity.db.ddl import create_library_schema  # noqa: E402
 from dj_track_similarity.db.library_queries import LibraryQueryRepository  # noqa: E402
 from dj_track_similarity.db.schema import insert_library  # noqa: E402
-from dj_track_similarity.rhythm_lab_collections import sonara_content_key  # noqa: E402
+from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402
+    RhythmLabCollectionSelection,
+    RhythmLabCollections,
+    RhythmLabTrackSelection,
+    sonara_content_key,
+)
 from rhythm_lab.cli import promote_profile_model  # noqa: E402
 from rhythm_lab.artifact_io import (  # noqa: E402
     ArtifactIntegrityError,
@@ -855,6 +860,59 @@ def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
     )
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
+    scoped = RhythmLabDatabase(labels_path, classifier_key="focused")
+    track = SourceDatabase(repository.path).tracks_by_ids([complete_track_id])[complete_track_id]
+    scoped.set_label(track, "yes")
+    remote_root = tmp_path / "remote"
+    remote_root.mkdir()
+    remote = Repository(remote_root)
+    for index in (0, 77, 78):
+        _insert_track_without_embedding(remote, index=index)
+    remote_source = SourceDatabase(remote.path)
+    remote_tracks = remote_source.list_tracks()
+    scoped.sync_track_sightings(remote_source)
+    scoped.set_label(remote_tracks[1], "no")
+    scoped.create_profile(
+        classifier_key="other",
+        name="Other",
+        labels=[
+            {"key": "yes", "name": "Yes", "role": "positive"},
+            {"key": "no", "name": "No", "role": "negative"},
+        ],
+    )
+    scoped.scoped("other").set_label(track, "no")
+    collections = RhythmLabCollections(labels_path)
+    collection = collections.save_collection(
+        "Whole collection",
+        RhythmLabCollectionSelection(
+            catalog_uuid=track.catalog_uuid,
+            tracks=(RhythmLabTrackSelection(
+                catalog_uuid=track.catalog_uuid,
+                track_uuid=track.track_uuid,
+                selected_path=track.file_path,
+                content_key=str(track.content_key),
+            ),),
+        ),
+    )
+    collections.append_tracks(
+        collection.id,
+        RhythmLabCollectionSelection(
+            catalog_uuid=remote.catalog_uuid,
+            tracks=tuple(
+                RhythmLabTrackSelection(
+                    catalog_uuid=item.catalog_uuid,
+                    track_uuid=item.track_uuid,
+                    selected_path=item.file_path,
+                    content_key=str(item.content_key),
+                )
+                for item in remote_tracks
+            ),
+        ),
+    )
+    empty = collections.save_collection(
+        "Empty collection",
+        RhythmLabCollectionSelection(catalog_uuid=track.catalog_uuid, tracks=()),
+    )
     app = create_app(
         repository.path,
         labels_db_path=labels_path,
@@ -863,9 +921,53 @@ def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
 
     with TestClient(app) as client:
         response = client.get("/api/profiles/focused/summary")
+        progress_response = client.get(
+            "/api/profiles/focused/summary", params={"collection_id": collection.id}
+        )
+        page = client.get(
+            "/api/profiles/focused/tracks",
+            params={"collection_id": collection.id, "label": "yes", "limit": 1},
+        )
+        after_page = client.get(
+            "/api/profiles/focused/summary", params={"collection_id": collection.id}
+        )
+        other = client.get(
+            "/api/profiles/other/summary", params={"collection_id": collection.id}
+        )
+        empty_response = client.get(
+            "/api/profiles/focused/summary", params={"collection_id": empty.id}
+        )
+        missing = client.get(
+            "/api/profiles/focused/summary", params={"collection_id": empty.id + 1}
+        )
+        invalid = client.get("/api/profiles/focused/summary", params={"collection_id": 0})
 
     assert response.status_code == 200
     assert response.json()["tracks"] == 1
+    assert response.json()["labels"] == {"yes": 1}
+    assert "collection_progress" not in response.json()
+    assert progress_response.status_code == 200
+    assert progress_response.json()["collection_progress"] == {
+        "total": 3, "labels": {"yes": 1, "no": 1}, "unlabeled": 1,
+    }
+    assert progress_response.json()["labels"] == response.json()["labels"]
+    assert page.status_code == 200
+    assert len(page.json()["items"]) == 1
+    assert after_page.json() == progress_response.json()
+    assert other.json()["collection_progress"] == {
+        "total": 3, "labels": {"no": 1}, "unlabeled": 2,
+    }
+    assert empty_response.json()["collection_progress"] == {
+        "total": 0, "labels": {}, "unlabeled": 0,
+    }
+    assert missing.status_code == 404
+    assert "Review collection not found" in missing.json()["detail"]
+    assert invalid.status_code == 422
+    with TestClient(create_app(labels_db_path=labels_path)) as client:
+        without_source = client.get(
+            "/api/profiles/focused/summary", params={"collection_id": collection.id}
+        )
+    assert without_source.json()["collection_progress"] == progress_response.json()["collection_progress"]
 
 
 def test_labels_from_another_catalog_are_not_counted_or_trained(

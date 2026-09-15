@@ -22,6 +22,7 @@ from ..db.ddl import FLOAT32_LE, SonaraRow
 # Stored timeline key -> analyzer result key.
 _TIMELINE_SOURCE_KEYS = {
     "beats": "beats",
+    "onsets": "onset_frames",
     "chord_events": "chord_events",
     "downbeats": "downbeats",
     "energy_curve": "energy_curve",

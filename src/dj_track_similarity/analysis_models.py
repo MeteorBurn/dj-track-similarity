@@ -442,6 +442,7 @@ class FingerprintOutput:
 SONARA_TIMELINE_KEYS = frozenset(
     {
         "beats",
+        "onsets",
         "chord_events",
         "downbeats",
         "energy_curve",
@@ -457,7 +458,7 @@ SONARA_TIMELINE_KEYS = frozenset(
 class TimelineOutput:
     """SONARA time-resolved structure of one track.
 
-    ``beats`` and ``downbeats`` are frame indices: seconds are
+    ``beats``, ``onsets`` and ``downbeats`` are frame indices: seconds are
     ``frame * hop_length / sample_rate_hz``. The analyzer result is validated
     here before it is written; stored rows are only identity-checked for
     readiness until something reads them.
@@ -486,7 +487,6 @@ class TimelineOutput:
     def payload_json(self) -> str:
         return json.dumps(
             dict(self.payload),
-            sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
             allow_nan=False,
@@ -523,6 +523,7 @@ def _timeline_payload(payload: object) -> dict[str, object]:
         raise ValueError("timeline.segments must not be empty")
     return {
         "beats": beats,
+        "onsets": _timeline_frames(payload["onsets"], "timeline.onsets"),
         "chord_events": _timeline_spans(
             payload["chord_events"],
             "timeline.chord_events",

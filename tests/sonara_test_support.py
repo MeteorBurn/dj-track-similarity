@@ -29,6 +29,7 @@ def complete_sonara_write(target: AnalysisTarget, core: SonaraRow) -> SonaraWrit
         timeline=TimelineOutput(
             payload={
                 "beats": [],
+                "onsets": [],
                 "chord_events": [],
                 "downbeats": [],
                 "energy_curve": [0.5],

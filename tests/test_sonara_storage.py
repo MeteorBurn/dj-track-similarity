@@ -121,6 +121,7 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert (write.timeline.sample_rate_hz, write.timeline.hop_length) == (22_050, 512)
     assert json.loads(write.timeline.payload_json) == {
         "beats": [0, 22, 43],
+        "onsets": [0, 10, 20],
         "chord_events": [{"end_sec": 8.0, "label": "Am", "start_sec": 0.0}],
         "downbeats": [0, 43],
         "energy_curve": [float(np.float32(0.2)), 0.5, float(np.float32(0.8))],
@@ -130,6 +131,13 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
         "tempo_curve": [128.0, float(np.float32(128.1))],
     }
     assert not hasattr(write, "similarity_embedding")
+
+    analysis["onset_frames"] = np.asarray([], dtype=np.int64)
+    assert _prepare(analysis).timeline.payload["onsets"] == []
+    for invalid_onsets in (None, [0, 1.5]):
+        analysis["onset_frames"] = invalid_onsets
+        with pytest.raises(ValueError, match="onset_frames|timeline.onsets"):
+            _prepare(analysis)
 
 
 def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> None:
@@ -217,6 +225,7 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
     assert timeline["track_uuid"] == track_uuid
     assert (timeline["sample_rate_hz"], timeline["hop_length"]) == (22_050, 512)
     assert timeline["timeline_json"] == write.timeline.payload_json
+    assert json.loads(timeline["timeline_json"])["onsets"] == [0, 10, 20]
     assert timeline["analyzed_at"] == "2026-07-23T12:00:00.000000Z"
     assert database.list_analysis_candidates(
         (AnalysisOutput("sonara", "timeline"),)

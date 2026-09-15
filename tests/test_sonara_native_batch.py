@@ -133,6 +133,7 @@ def _core_result(path: str, features: tuple[str, ...]) -> FakeTrackAnalysis:
         duration_sec=60.0,
         energy=0.7,
         beats=np.asarray([0, 22], dtype=np.int64),
+        onset_frames=np.asarray([0, 10, 20], dtype=np.int64),
         n_beats=2,
         downbeats=np.asarray([0], dtype=np.int64),
         tempo_curve=np.asarray([128.0], dtype=np.float32),

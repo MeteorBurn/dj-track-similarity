@@ -3,8 +3,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db.optimize import optimize_database
+from dj_track_similarity.db.optimize import OptimizationError, optimize_database
 from dj_track_similarity.db.storage import evaluation_database_path
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -95,3 +97,22 @@ def test_optimize_database_keeps_generic_sqlite_file_and_its_journal_mode(
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
         assert connection.execute("SELECT value FROM values_table").fetchone()[0] == "kept"
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_optimize_database_refuses_a_database_that_fails_verification(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "broken.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE values_table (value INTEGER CHECK(value > 0))")
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute("INSERT INTO values_table(value) VALUES (-1)")
+    size_before = db_path.stat().st_size
+
+    with pytest.raises(OptimizationError, match="integrity_check"):
+        optimize_database(db_path)
+
+    assert sorted(tmp_path.glob("*.bak-*")) == []
+    assert db_path.stat().st_size == size_before
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT value FROM values_table").fetchone()[0] == -1

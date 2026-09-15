@@ -26,8 +26,8 @@ are relative to this file. These guides are read by task, not imported as a batc
   affected shared contracts, persistence, broad refactors, releases, unresolved
   failures, or dependency/runtime/test-runner changes with broad impact. Changes
   outside `src/` do not by themselves require or prohibit backend checks.
-- Root pytest collects only `tests/`. Name affected script/tool suites explicitly:
-  `scripts/tests`, `tools/audio-dedup/tests`, `tools/audio-doctor/tests`,
+- Root pytest collects only `tests/`. Name affected tool suites explicitly:
+  `tools/audio-dedup/tests`, `tools/audio-doctor/tests`,
   `tools/audio-online/tests`, or `tools/rhythm-lab/tests`.
   For Audio Online workbook-bridge changes, also run
   `node --test tools/audio-online/workbook_bridge.test.mjs` with its existing

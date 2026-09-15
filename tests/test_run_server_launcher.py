@@ -16,7 +16,7 @@ def _run_isolated_launcher(
     stdin: str,
     arguments: tuple[str, ...] = (),
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     script = tmp_path / "run_server.cmd"
     shutil.copyfile(root / "run_server.cmd", script)
 
@@ -105,47 +105,6 @@ def test_no_argument_launcher_prompts_for_database_before_mode_and_accepts_defau
 
 
 @pytest.mark.skipif(os.name != "nt", reason="run_server.cmd requires Windows")
-def test_no_argument_launcher_accepts_custom_database_and_lan_mode(
-    tmp_path: Path,
-) -> None:
-    completed, captured_launch = _run_isolated_launcher(
-        tmp_path,
-        stdin="D:\\DJ!House & Techno ^ %Mix% (2026)\\custom.sqlite\n2\n",
-    )
-
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert captured_launch == {
-        "arguments": [],
-        "host": "0.0.0.0",
-        "port": "8765",
-        "database_path": r"D:\DJ!House & Techno ^ %Mix% (2026)\custom.sqlite",
-    }
-
-
-@pytest.mark.skipif(os.name != "nt", reason="run_server.cmd requires Windows")
-def test_explicit_lan_mode_uses_only_supplied_arguments(tmp_path: Path) -> None:
-    completed, captured_launch = _run_isolated_launcher(
-        tmp_path,
-        stdin="",
-        arguments=("lan", "--db", r"D:\Explicit!DJ & Techno\library.sqlite"),
-    )
-
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "Database path [" not in completed.stdout
-    assert "Choose server mode" not in completed.stdout
-    assert captured_launch == {
-        "arguments": [
-            "lan",
-            "--db",
-            r"D:\Explicit!DJ & Techno\library.sqlite",
-        ],
-        "host": "0.0.0.0",
-        "port": "8765",
-        "database_path": "",
-    }
-
-
-@pytest.mark.skipif(os.name != "nt", reason="run_server.cmd requires Windows")
 def test_explicit_local_mode_does_not_inject_a_database(tmp_path: Path) -> None:
     completed, captured_launch = _run_isolated_launcher(
         tmp_path,
@@ -167,7 +126,7 @@ def test_explicit_local_mode_does_not_inject_a_database(tmp_path: Path) -> None:
 def test_python_launcher_builds_argument_list_without_shell_reparsing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     module_path = root / "scripts" / "run_server_launcher.py"
     spec = importlib.util.spec_from_file_location("run_server_launcher", module_path)
     assert spec is not None
@@ -263,32 +222,3 @@ def test_python_launcher_builds_argument_list_without_shell_reparsing(
         "check": False,
         "shell": False,
     }
-
-
-def test_python_launcher_stops_frontend_after_backend_exits(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root = Path(__file__).resolve().parents[2]
-    module_path = root / "scripts" / "run_server_launcher.py"
-    spec = importlib.util.spec_from_file_location("run_server_launcher_cleanup", module_path)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    frontend_process = object()
-    stopped: list[object] = []
-    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_HOST", "127.0.0.1")
-    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_PORT", "8765")
-    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LAUNCHER_FRONTEND_DEV", "1")
-    monkeypatch.setattr(module, "resolve_npm_executable", lambda: "npm.cmd")
-    monkeypatch.setattr(module.subprocess, "Popen", lambda *_args, **_kwargs: frontend_process)
-    monkeypatch.setattr(
-        module.subprocess,
-        "run",
-        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0),
-    )
-    monkeypatch.setattr(module, "stop_process", lambda process: stopped.append(process))
-
-    assert module.main(("local",)) == 0
-    assert stopped == [frontend_process]

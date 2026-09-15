@@ -199,12 +199,13 @@ def test_default_batch_requests_registers_and_writes_core_with_embedding() -> No
     assert len(repository.register_calls) == 1
     assert [output.output_kind for output in repository.register_calls[0]] == [
         "core",
+        "timeline",
         "embedding",
         "fingerprint",
     ]
     assert len(repository.save_calls) == 1
     assert len(repository.save_calls[0]) == 2
-    assert all(not hasattr(write, "timeline") for write in repository.save_calls[0])
+    assert all(write.timeline is not None for write in repository.save_calls[0])
     assert all(write.embedding is not None for write in repository.save_calls[0])
     assert all(write.embedding.vector.shape == (48,) for write in repository.save_calls[0])
     assert all(write.fingerprint is not None for write in repository.save_calls[0])

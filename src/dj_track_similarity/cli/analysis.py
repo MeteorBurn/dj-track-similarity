@@ -20,20 +20,23 @@ from ..analysis.config import (
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
     MIN_SONARA_BATCH_SIZE,
-    MIN_SONARA_BPM,
-    MAX_SONARA_BPM,
     build_analysis_job_config,
-    normalize_analysis_device,
     parse_analysis_models_text,
+    parse_sonara_bpm_range,
 )
-from .._shutdown import defer_keyboard_interrupt
 from ..analysis.jobs import AnalysisJobManager
-from ..analysis.pipeline import AnalysisPipelineManager
-from ..analysis.queue import AnalysisStageQueue
-from ..analysis.sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
+from ..analysis.sonara_runtime import DEFAULT_SONARA_BPM_PRESET, SONARA_BPM_PRESETS
 from ..classifier.scoring import analyze_classifier as run_classifier_analysis
 from .common import _db
 from .progress import _run_cli_job_with_progress
+
+
+_SONARA_BPM_RANGE_HELP = (
+    "SONARA BPM analysis range: a preset ("
+    + ", ".join(f"{name} {low:g}-{high:g}" for name, (low, high) in SONARA_BPM_PRESETS.items())
+    + ") or MIN-MAX such as 70-140, where MAX is at least twice MIN. Defaults to the "
+    f"library's range, or {DEFAULT_SONARA_BPM_PRESET} for a library without SONARA analysis."
+)
 
 
 def _parse_analysis_models(value: str) -> list[str]:
@@ -76,19 +79,10 @@ def analyze(
         max=MAX_SONARA_BATCH_SIZE,
         help="Native SONARA/Symphonia file batch size; independent from ML batching.",
     ),
-    sonara_bpm_min: float = typer.Option(
-        DEFAULT_SONARA_BPM_MIN,
-        "--sonara-bpm-min",
-        min=MIN_SONARA_BPM,
-        max=MAX_SONARA_BPM,
-        help="Lower bound of the SONARA BPM analysis range.",
-    ),
-    sonara_bpm_max: float = typer.Option(
-        DEFAULT_SONARA_BPM_MAX,
-        "--sonara-bpm-max",
-        min=MIN_SONARA_BPM,
-        max=MAX_SONARA_BPM,
-        help="Upper bound of the SONARA BPM analysis range; must be at least twice the lower bound.",
+    sonara_bpm_range: Optional[str] = typer.Option(
+        None,
+        "--sonara-bpm-range",
+        help=_SONARA_BPM_RANGE_HELP,
     ),
     ml_staged: bool = typer.Option(False, "--ml-staged", help="Enable ML Staged Mode (copy→decode→inference pipeline for HDD optimization)."),
     ml_staging_path: Optional[str] = typer.Option(None, "--ml-staging-path", help="ML staging folder (SSD recommended). Required when --ml-staged is enabled."),
@@ -125,6 +119,7 @@ def analyze(
 
     try:
         selected_models = _parse_analysis_models(models)
+        sonara_bpm_min, sonara_bpm_max = parse_sonara_bpm_range(sonara_bpm_range) or (None, None)
         config = build_analysis_job_config(
             models=selected_models,
             limit=limit,
@@ -166,7 +161,7 @@ def analyze(
     if config.models == ("sonara",):
         result_summary += (
             f" sonara_batch_size={config.sonara_batch_size}"
-            f" sonara_bpm={config.sonara_bpm_min:g}-{config.sonara_bpm_max:g}"
+            f" sonara_bpm={status.sonara_bpm_min:g}-{status.sonara_bpm_max:g}"
         )
     else:
         result_summary += (
@@ -174,67 +169,6 @@ def analyze(
             f" track_batch_size={status.track_batch_size} inference_batch_size={status.inference_batch_size}"
         )
     typer.echo(result_summary)
-
-
-def analyze_pipeline(
-    stages: str = typer.Option("sonara,ml", "--stages", help="Selected stages; execution order is always sonara,ml."),
-    ml_models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--ml-models"),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    limit: Optional[int] = typer.Option(None, "--limit"),
-    device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device"),
-    track_batch_size: int = typer.Option(DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, "--track-batch-size", min=1, max=MAX_ANALYSIS_TRACK_BATCH_SIZE),
-    inference_batch_size: int = typer.Option(DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, "--inference-batch-size", min=1, max=MAX_ANALYSIS_INFERENCE_BATCH_SIZE),
-    sonara_batch_size: int = typer.Option(DEFAULT_SONARA_BATCH_SIZE, "--sonara-batch-size", min=1, max=MAX_SONARA_BATCH_SIZE),
-    sonara_bpm_min: float = typer.Option(DEFAULT_SONARA_BPM_MIN, "--sonara-bpm-min", min=MIN_SONARA_BPM, max=MAX_SONARA_BPM),
-    sonara_bpm_max: float = typer.Option(DEFAULT_SONARA_BPM_MAX, "--sonara-bpm-max", min=MIN_SONARA_BPM, max=MAX_SONARA_BPM),
-) -> None:
-    selected_stages = [item.strip().lower() for item in stages.split(",") if item.strip()]
-    selected_ml_models = list(parse_analysis_models_text(ml_models))
-    if "sonara" in selected_ml_models:
-        typer.secho(
-            "SONARA is a separate pipeline stage; remove it from --ml-models and select the sonara stage instead.",
-            err=True,
-            fg=typer.colors.RED,
-        )
-        raise typer.Exit(1)
-    db = _db(db_path)
-    stage_queue = AnalysisStageQueue()
-    audio_manager = None
-    try:
-        audio_manager = AnalysisJobManager(db, stage_queue=stage_queue)
-        manager = AnalysisPipelineManager(audio_manager, stage_queue)
-        job_id = manager.create_job(
-            stages=selected_stages,
-            limit=limit,
-            sonara={
-                "batch_size": sonara_batch_size,
-                "bpm_min": sonara_bpm_min,
-                "bpm_max": sonara_bpm_max,
-            },
-            ml={
-                "models": selected_ml_models,
-                "device": normalize_analysis_device(device),
-                "track_batch_size": track_batch_size,
-                "inference_batch_size": inference_batch_size,
-                "top_k": DEFAULT_ANALYSIS_TOP_K,
-            },
-        )
-        status = manager.run_job(job_id)
-    except (FileNotFoundError, RuntimeError, ValueError) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-    finally:
-        with defer_keyboard_interrupt() as finish:
-            finish(stage_queue.close)
-            if audio_manager is not None:
-                finish(audio_manager.close)
-    typer.echo(
-        f"state={status.state} order={','.join(status.order)} "
-        + " ".join(
-            f"{stage}={status.stages[stage].state}:{status.stages[stage].child_job_id or '-'}"
-            for stage in status.order
-        )
-    )
 
 
 def analyze_classifier(
@@ -258,7 +192,6 @@ def analyze_classifier(
 
 def register_commands(app: typer.Typer) -> None:
     app.command()(analyze)
-    app.command('analyze-pipeline')(analyze_pipeline)
     app.command('analyze-classifier')(analyze_classifier)
     app.command('export-maest-mel')(export_maest_mel)
 

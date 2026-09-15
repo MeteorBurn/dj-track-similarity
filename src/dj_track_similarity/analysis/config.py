@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
-from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
+from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN, SONARA_BPM_PRESETS
 from .sonara_staging import SonaraStagingConfig
 from .ml_staging import MLStagingConfig
 
@@ -44,8 +44,8 @@ class AnalysisJobConfig:
     inference_batch_size: int
     sonara_batch_size: int
     sonara_mode: str
-    sonara_bpm_min: float
-    sonara_bpm_max: float
+    sonara_bpm_min: float | None
+    sonara_bpm_max: float | None
     sonara_staging_config: SonaraStagingConfig | None
     ml_staging_config: MLStagingConfig | None
 
@@ -89,6 +89,32 @@ def normalize_sonara_mode(mode: str | None) -> str:
     return text
 
 
+def parse_sonara_bpm_range(value: str | None) -> tuple[float, float] | None:
+    """Read the one SONARA BPM range argument: a preset name or ``MIN-MAX``.
+
+    ``None`` means the argument was not given, so the run uses the library's
+    claimed range, or the default preset for a library without one. A custom
+    range must span at least an octave, like every preset.
+    """
+    if value is None:
+        return None
+    text = value.strip().lower()
+    if text in SONARA_BPM_PRESETS:
+        return SONARA_BPM_PRESETS[text]
+    message = (
+        f"sonara_bpm_range must be a preset ({', '.join(SONARA_BPM_PRESETS)}) "
+        "or MIN-MAX such as 70-140"
+    )
+    bounds = text.split("-")
+    if len(bounds) != 2:
+        raise ValueError(message)
+    try:
+        low, high = (float(bound) for bound in bounds)
+    except ValueError as error:
+        raise ValueError(message) from error
+    return normalize_sonara_bpm_range(low, high)
+
+
 def normalize_sonara_bpm_range(
     bpm_min: float | None,
     bpm_max: float | None,
@@ -130,8 +156,8 @@ def build_analysis_job_config(
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
     sonara_mode: str = DEFAULT_SONARA_ANALYSIS_MODE,
-    sonara_bpm_min: float = DEFAULT_SONARA_BPM_MIN,
-    sonara_bpm_max: float = DEFAULT_SONARA_BPM_MAX,
+    sonara_bpm_min: float | None = None,
+    sonara_bpm_max: float | None = None,
     sonara_staging_config: SonaraStagingConfig | None = None,
     ml_staging_config: MLStagingConfig | None = None,
 ) -> AnalysisJobConfig:
@@ -139,7 +165,13 @@ def build_analysis_job_config(
     normalized_sonara_mode = normalize_sonara_mode(sonara_mode)
     if normalized_sonara_mode == "staged" and sonara_staging_config is None:
         raise ValueError("Staged SONARA mode requires staging settings")
-    bpm_min, bpm_max = normalize_sonara_bpm_range(sonara_bpm_min, sonara_bpm_max)
+    # No range means the one the library already analyses with; a SONARA job
+    # resolves it against the library when it is created.
+    bpm_min, bpm_max = (
+        (None, None)
+        if sonara_bpm_min is None and sonara_bpm_max is None
+        else normalize_sonara_bpm_range(sonara_bpm_min, sonara_bpm_max)
+    )
     effective_inference_batch_size = _int_in_range(
         inference_batch_size,
         name="inference_batch_size",

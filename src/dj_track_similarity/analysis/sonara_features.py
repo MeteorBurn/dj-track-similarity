@@ -71,11 +71,12 @@ class SonaraBatchMetrics:
 def analysis_outputs_for_sonara_runtime(
     sonara_module: Any | None = None,
 ) -> tuple[AnalysisOutput, ...]:
-    """Return the current SONARA Core, embedding, and fingerprint outputs."""
+    """Return the SONARA outputs in derivation order: Core, timeline, embedding, fingerprint."""
 
     del sonara_module
     return (
         AnalysisOutput("sonara", "core"),
+        AnalysisOutput("sonara", "timeline"),
         AnalysisOutput("sonara", "embedding"),
         AnalysisOutput("sonara", "fingerprint"),
     )

@@ -4,12 +4,15 @@ import logging
 import os
 import subprocess
 import sys
+from concurrent.futures import Future
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 import dj_track_similarity.analysis.sonara_features as sonara_features_module
+from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -354,7 +357,8 @@ def test_staged_pipeline_cleans_copies_when_cancelled(tmp_path: Path) -> None:
     source.write_bytes(b"original audio")
     staging_root = tmp_path / "ssd"
 
-    with pytest.raises(RuntimeError, match="staging cancelled"):
+    # The job ends as cancelled only for this type; any other error fails it.
+    with pytest.raises(EmbeddingCancelledError):
         analyze_and_store_staged_sonara(
             object(),
             (_candidate(1, source),),
@@ -367,6 +371,64 @@ def test_staged_pipeline_cleans_copies_when_cancelled(tmp_path: Path) -> None:
 
     assert source.read_bytes() == b"original audio"
     assert not any(staging_root.iterdir())
+
+
+def test_staged_pipeline_replaces_a_crashed_worker_pool_and_finishes_the_queue(
+    tmp_path: Path,
+) -> None:
+    candidates = []
+    for track_id in range(1, 5):
+        source = tmp_path / "hdd" / f"{track_id}.wav"
+        source.parent.mkdir(exist_ok=True)
+        source.write_bytes(bytes([track_id]))
+        candidates.append(_candidate(track_id, source))
+    pools: list[object] = []
+
+    class _PoolThatDiesOnTrackTwo:
+        """Mimics ProcessPoolExecutor: once a worker dies, submit refuses work."""
+
+        def __init__(self) -> None:
+            self.broken = False
+            pools.append(self)
+
+        def submit(self, fn, *args):
+            if self.broken:
+                raise BrokenProcessPool("a child process terminated abruptly")
+            future: Future = Future()
+            if any(item.candidate.target.track_id == 2 for item in args[1]):
+                self.broken = True
+                future.set_exception(BrokenProcessPool("a child process terminated abruptly"))
+            else:
+                future.set_result(fn(*args))
+            return future
+
+        def shutdown(self, wait: bool = True, cancel_futures: bool = False) -> None:
+            del wait, cancel_futures
+
+    outcomes = analyze_and_store_staged_sonara(
+        object(),
+        candidates,
+        config=SonaraStagingConfig(
+            root=tmp_path / "ssd",
+            stage_size=4,
+            copy_workers=1,
+            processes=1,
+            max_native_batch_size=1,
+        ),
+        analyze_group=lambda staged: [
+            StagedSonaraResult(item=item, analysis={"energy": 0.5}) for item in staged
+        ],
+        prepare_write=lambda candidate, analysis: candidate.target.track_id,
+        store_write=lambda repository, write: None,
+        executor_factory=_PoolThatDiesOnTrackTwo,
+    )
+
+    errors = {outcome.candidate.target.track_id: outcome.error for outcome in outcomes}
+    assert set(errors) == {1, 2, 3, 4}
+    assert isinstance(errors[2], BrokenProcessPool)
+    assert [errors[track_id] for track_id in (1, 3, 4)] == [None, None, None]
+    assert len(pools) == 2
+    assert not any((tmp_path / "ssd").iterdir())
 
 
 def test_orphan_cleanup_preserves_live_job_directories(tmp_path: Path) -> None:

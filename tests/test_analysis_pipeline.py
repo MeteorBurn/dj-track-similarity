@@ -32,26 +32,6 @@ class FakeJobs:
         self.cancelled.append(job_id)
 
 
-def test_pipeline_uses_fixed_order_and_continues_after_completed_per_file_failures() -> None:
-    audio = FakeJobs(["completed", "completed"], sonara_count=0)
-    stage_queue = AnalysisStageQueue()
-    manager = AnalysisPipelineManager(audio, stage_queue)
-    queued = manager.start(
-        stages=["ml", "sonara"],
-        limit=10,
-        sonara={"batch_size": 16},
-        ml={"models": ["mert"]},
-    )
-
-    stage_queue.close()
-    status = manager.get(queued.job_id)
-
-    assert status.state == "completed"
-    assert status.order == ["sonara", "ml"]
-    assert [stage.state for stage in status.stages.values()] == ["completed", "completed"]
-    assert len(audio.created) == 2
-
-
 def test_pipeline_forwards_staged_sonara_configuration_to_child_job(tmp_path) -> None:
     audio = FakeJobs(["completed"])
     manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
@@ -63,7 +43,7 @@ def test_pipeline_forwards_staged_sonara_configuration_to_child_job(tmp_path) ->
         stage_size=32,
     )
     job_id = manager.create_job(
-        stages=["sonara"],
+        stage="sonara",
         limit=None,
         sonara={
             "mode": "staged",
@@ -101,7 +81,7 @@ def test_pipeline_forwards_staged_ml_configuration_to_child_job(tmp_path) -> Non
         inference_batch_size=16,
     )
     job_id = manager.create_job(
-        stages=["ml"],
+        stage="ml",
         limit=None,
         ml={
             "models": ["mert"],
@@ -131,19 +111,18 @@ def test_pipeline_forwards_staged_ml_configuration_to_child_job(tmp_path) -> Non
     ]
 
 
-def test_pipeline_stops_after_fatal_stage_failure() -> None:
-    audio = FakeJobs(["completed", "failed"])
+def test_pipeline_fails_when_its_stage_fails() -> None:
+    audio = FakeJobs(["failed"])
     manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
     job_id = manager.create_job(
-        stages=["sonara", "ml"],
+        stage="sonara",
         limit=None,
     )
 
     status = manager.run_job(job_id)
 
     assert status.state == "failed"
-    assert status.stages["sonara"].state == "completed"
-    assert status.stages["ml"].state == "failed"
+    assert status.stages["sonara"].state == "failed"
 
 
 def test_pipeline_without_sonara_stage_requires_existing_sonara() -> None:
@@ -154,14 +133,14 @@ def test_pipeline_without_sonara_stage_requires_existing_sonara() -> None:
         ValueError,
         match="ML pipeline stage requires at least one track with current SONARA",
     ):
-        manager.create_job(stages=["ml"], limit=None)
+        manager.create_job(stage="ml", limit=None)
 
     assert audio.created == []
 
 
-def test_parent_cancel_before_start_removes_pending_stages() -> None:
+def test_parent_cancel_before_start_cancels_its_stage() -> None:
     manager = AnalysisPipelineManager(FakeJobs([]), AnalysisStageQueue())
-    job_id = manager.create_job(stages=["ml"], limit=None)
+    job_id = manager.create_job(stage="ml", limit=None)
     cancelled = manager.cancel(job_id)
 
     assert cancelled.state == "cancelled"
@@ -173,7 +152,7 @@ def test_parent_cancel_before_start_removes_pending_stages() -> None:
     assert all(stage.state == "cancelled" for stage in status.stages.values())
 
 
-def test_parent_cancel_propagates_to_current_child_and_cancels_pending_stages() -> None:
+def test_parent_cancel_propagates_to_current_child() -> None:
     holder = {}
 
     class CancelDuringRun(FakeJobs):
@@ -184,7 +163,7 @@ def test_parent_cancel_propagates_to_current_child_and_cancels_pending_stages() 
     audio = CancelDuringRun(["cancelled"])
     manager = AnalysisPipelineManager(audio, AnalysisStageQueue())
     parent_id = manager.create_job(
-        stages=["sonara", "ml"],
+        stage="ml",
         limit=None,
         ml={"models": ["mert"]},
     )
@@ -194,7 +173,6 @@ def test_parent_cancel_propagates_to_current_child_and_cancels_pending_stages() 
 
     assert status.state == "cancelled"
     assert audio.cancelled == ["child-1"]
-    assert status.stages["sonara"].state == "cancelled"
     assert status.stages["ml"].state == "cancelled"
 
 

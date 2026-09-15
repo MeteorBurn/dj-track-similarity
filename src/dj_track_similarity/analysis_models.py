@@ -19,6 +19,7 @@ from typing import Literal
 
 import numpy as np
 
+from .analysis.sonara_runtime import SONARA_UNIT_INTERVAL_EPSILON
 from .db.ddl import (
     FLOAT32_LE,
     FLOAT32_LE_BYTES,
@@ -32,7 +33,7 @@ from .scalars import (
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "sonara": frozenset({"core", "embedding", "fingerprint"}),
+        "sonara": frozenset({"core", "embedding", "fingerprint", "timeline"}),
         "maest": frozenset({"analysis", "embedding"}),
         "mert": frozenset({"embedding"}),
         "mert_v2": frozenset({"embedding"}),
@@ -438,10 +439,189 @@ class FingerprintOutput:
             raise ValueError("fingerprint.analyzed_at must be a non-empty string")
 
 
+SONARA_TIMELINE_KEYS = frozenset(
+    {
+        "beats",
+        "chord_events",
+        "downbeats",
+        "energy_curve",
+        "energy_curve_hop_seconds",
+        "loudness_curve",
+        "segments",
+        "tempo_curve",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineOutput:
+    """SONARA time-resolved structure of one track.
+
+    ``beats`` and ``downbeats`` are frame indices: seconds are
+    ``frame * hop_length / sample_rate_hz``. The analyzer result is validated
+    here before it is written; stored rows are only identity-checked for
+    readiness until something reads them.
+    """
+
+    payload: Mapping[str, object]
+    sample_rate_hz: int
+    hop_length: int
+    analyzed_at: str
+
+    def __post_init__(self) -> None:
+        positive_int(self.sample_rate_hz, "timeline.sample_rate_hz")
+        positive_int(self.hop_length, "timeline.hop_length")
+        object.__setattr__(
+            self,
+            "analyzed_at",
+            _required_text(self.analyzed_at, "timeline.analyzed_at"),
+        )
+        object.__setattr__(
+            self,
+            "payload",
+            MappingProxyType(_timeline_payload(self.payload)),
+        )
+
+    @property
+    def payload_json(self) -> str:
+        return json.dumps(
+            dict(self.payload),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+
+def _timeline_payload(payload: object) -> dict[str, object]:
+    if not isinstance(payload, Mapping) or set(payload) != SONARA_TIMELINE_KEYS:
+        raise ValueError(
+            "timeline must contain exactly: " + ", ".join(sorted(SONARA_TIMELINE_KEYS))
+        )
+    beats = _timeline_frames(payload["beats"], "timeline.beats")
+    downbeats = _timeline_frames(payload["downbeats"], "timeline.downbeats")
+    if not set(downbeats).issubset(beats):
+        raise ValueError("timeline.downbeats must be a subset of timeline.beats")
+    tempo_curve = [
+        _timeline_number(value, f"timeline.tempo_curve[{index}]", positive=True)
+        for index, value in enumerate(_timeline_sequence(payload["tempo_curve"], "timeline.tempo_curve"))
+    ]
+    if len(tempo_curve) != max(len(beats) - 1, 0):
+        raise ValueError("timeline.tempo_curve length must equal max(len(beats) - 1, 0)")
+    energy_curve = [
+        sonara_unit_interval(value, f"timeline.energy_curve[{index}]")
+        for index, value in enumerate(_timeline_sequence(payload["energy_curve"], "timeline.energy_curve"))
+    ]
+    if not energy_curve:
+        raise ValueError("timeline.energy_curve must not be empty")
+    segments = _timeline_spans(
+        payload["segments"],
+        "timeline.segments",
+        extra_key="energy",
+    )
+    if not segments:
+        raise ValueError("timeline.segments must not be empty")
+    return {
+        "beats": beats,
+        "chord_events": _timeline_spans(
+            payload["chord_events"],
+            "timeline.chord_events",
+            extra_key="label",
+        ),
+        "downbeats": downbeats,
+        "energy_curve": energy_curve,
+        "energy_curve_hop_seconds": _timeline_number(
+            payload["energy_curve_hop_seconds"],
+            "timeline.energy_curve_hop_seconds",
+            positive=True,
+        ),
+        "loudness_curve": [
+            _timeline_number(value, f"timeline.loudness_curve[{index}]")
+            for index, value in enumerate(_timeline_sequence(payload["loudness_curve"], "timeline.loudness_curve"))
+        ],
+        "segments": segments,
+        "tempo_curve": tempo_curve,
+    }
+
+
+def _timeline_sequence(value: object, field_name: str) -> list[object]:
+    if isinstance(value, np.ndarray):
+        if value.ndim != 1:
+            raise ValueError(f"{field_name} must be one-dimensional")
+        return value.tolist()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{field_name} must be a sequence")
+    return list(value)
+
+
+def _timeline_frames(value: object, field_name: str) -> list[int]:
+    frames: list[int] = []
+    for index, raw in enumerate(_timeline_sequence(value, field_name)):
+        if isinstance(raw, bool) or not isinstance(raw, (int, np.integer)) or raw < 0:
+            raise ValueError(f"{field_name}[{index}] must be a non-negative frame integer")
+        if frames and int(raw) <= frames[-1]:
+            raise ValueError(f"{field_name} must be strictly increasing")
+        frames.append(int(raw))
+    return frames
+
+
+def _timeline_number(value: object, field_name: str, *, positive: bool = False) -> float:
+    if not isinstance(value, (int, float, np.integer, np.floating)):
+        raise ValueError(f"{field_name} must be a finite number")
+    number = finite_number(value, field_name)
+    if positive and number <= 0:
+        raise ValueError(f"{field_name} must be greater than 0")
+    return number
+
+
+def sonara_unit_interval(value: object, field_name: str) -> float:
+    number = _timeline_number(value, field_name)
+    # SONARA reports f32, so the tolerance boundary is compared in f32 too.
+    if not (
+        float(np.float32(-SONARA_UNIT_INTERVAL_EPSILON))
+        <= number
+        <= float(np.float32(1.0 + SONARA_UNIT_INTERVAL_EPSILON))
+    ):
+        raise ValueError(
+            f"{field_name} is outside the unit interval by more than "
+            f"the allowed epsilon {SONARA_UNIT_INTERVAL_EPSILON:g}"
+        )
+    return min(1.0, max(0.0, number))
+
+
+def _timeline_spans(
+    value: object,
+    field_name: str,
+    *,
+    extra_key: Literal["energy", "label"],
+) -> list[dict[str, object]]:
+    spans: list[dict[str, object]] = []
+    previous_end = 0.0
+    for index, raw in enumerate(_timeline_sequence(value, field_name)):
+        name = f"{field_name}[{index}]"
+        if not isinstance(raw, Mapping) or set(raw) != {"start_sec", "end_sec", extra_key}:
+            raise ValueError(f"{name} must contain exactly start_sec, end_sec and {extra_key}")
+        start = _timeline_number(raw["start_sec"], f"{name}.start_sec")
+        end = _timeline_number(raw["end_sec"], f"{name}.end_sec")
+        if start < previous_end:
+            raise ValueError(f"{field_name} must not overlap and must start at or after 0")
+        if end < start or (extra_key == "energy" and end == start):
+            raise ValueError(f"{name}.end_sec must follow start_sec")
+        extra = (
+            sonara_unit_interval(raw["energy"], f"{name}.energy")
+            if extra_key == "energy"
+            else _required_text(raw["label"], f"{name}.label")
+        )
+        spans.append({"start_sec": start, "end_sec": end, extra_key: extra})
+        previous_end = end
+    return spans
+
+
 @dataclass(frozen=True)
 class SonaraWrite:
     target: AnalysisTarget
     core: SonaraRow
+    timeline: TimelineOutput | None = None
     embedding: EmbeddingOutput | None = None
     fingerprint: FingerprintOutput | None = None
 
@@ -471,10 +651,14 @@ class SonaraWrite:
             FingerprintOutput,
         ):
             raise TypeError("SONARA fingerprint output must be a FingerprintOutput")
+        if self.timeline is not None and not isinstance(self.timeline, TimelineOutput):
+            raise TypeError("SONARA timeline output must be a TimelineOutput")
 
     @property
     def outputs(self) -> tuple[AnalysisOutput, ...]:
         outputs = [AnalysisOutput("sonara", "core")]
+        if self.timeline is not None:
+            outputs.append(AnalysisOutput("sonara", "timeline"))
         if self.embedding is not None:
             outputs.append(AnalysisOutput("sonara", "embedding"))
         if self.fingerprint is not None:

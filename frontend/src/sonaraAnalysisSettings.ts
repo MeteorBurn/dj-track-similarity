@@ -19,9 +19,9 @@ type StorageWriter = Pick<Storage, "setItem">;
 
 export const sonaraAnalysisSettingsStorageKey = "dj-track-similarity.sonara-analysis-settings";
 
-// Matches the backend default analysis range (Rekordbox 70-180).
-export const defaultSonaraBpmMin = 70;
-export const defaultSonaraBpmMax = 180;
+// Matches the backend default analysis range (Mixed In Key 79-192).
+export const defaultSonaraBpmMin = 79;
+export const defaultSonaraBpmMax = 192;
 export const minSonaraBpm = 20;
 export const maxSonaraBpm = 400;
 

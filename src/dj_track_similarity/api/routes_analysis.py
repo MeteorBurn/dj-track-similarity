@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 
-from ..analysis.config import build_analysis_job_config
+from ..analysis.config import build_analysis_job_config, parse_sonara_bpm_range
 from ..analysis_models import (
     AnalysisOutput,
     AnalysisResetResult,
@@ -79,6 +79,7 @@ def register_analysis_routes(
     @app.post("/api/analysis/jobs")
     def analyze(request: AnalysisJobRequest):
         try:
+            bpm_min, bpm_max = parse_sonara_bpm_range(request.sonara_bpm_range) or (None, None)
             config = build_analysis_job_config(
                 models=request.models,
                 limit=request.limit,
@@ -87,8 +88,8 @@ def register_analysis_routes(
                 track_batch_size=request.track_batch_size,
                 inference_batch_size=request.inference_batch_size,
                 sonara_batch_size=request.sonara_batch_size,
-                sonara_bpm_min=request.sonara_bpm_min,
-                sonara_bpm_max=request.sonara_bpm_max,
+                sonara_bpm_min=bpm_min,
+                sonara_bpm_max=bpm_max,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -148,7 +149,7 @@ def register_analysis_routes(
     def analyze_pipeline(request: AnalysisPipelineRequest):
         try:
             sonara_settings: dict[str, object] = {}
-            if "sonara" in request.stages:
+            if request.stage == "sonara":
                 staging_config: SonaraStagingConfig | None = None
                 if request.sonara.mode == "staged":
                     folder = request.sonara.staged.folder.strip()
@@ -174,10 +175,10 @@ def register_analysis_routes(
                     else request.sonara.direct_batch_size
                 )
                 # Reject a range the library cannot accept now, rather than at
-                # the moment the stage starts running.
-                resolved_range = state.require_analysis_jobs().resolve_sonara_range(
-                    request.sonara.bpm_min,
-                    request.sonara.bpm_max,
+                # the moment the stage starts running. Only the SONARA job itself
+                # claims the range, so a request refused later claims nothing.
+                resolved_range = state.require_analysis_jobs().check_sonara_range(
+                    *(parse_sonara_bpm_range(request.sonara.bpm_range) or (None, None))
                 )
                 sonara_config = build_analysis_job_config(
                     models=["sonara"],
@@ -195,7 +196,7 @@ def register_analysis_routes(
                 }
 
             ml_settings: dict[str, object] = {}
-            if "ml" in request.stages:
+            if request.stage == "ml":
                 ml_staging_config: MLStagingConfig | None = None
                 if request.ml.mode == "staged":
                     folder = request.ml.staged.folder.strip()
@@ -240,7 +241,7 @@ def register_analysis_routes(
                 }
             with state.job_start():
                 return state.require_analysis_pipeline_jobs().start(
-                    stages=list(request.stages),
+                    stage=request.stage,
                     limit=request.limit,
                     sonara=sonara_settings,
                     ml=ml_settings,
@@ -362,7 +363,9 @@ def _outputs_for_family(
     analysis_family: str,
 ) -> tuple[AnalysisOutput, ...]:
     output_kinds = {
-        "sonara": ("core",),
+        # One SONARA run writes all four outputs under one BPM range; resetting
+        # only Core would leave the rest looking current.
+        "sonara": ("core", "timeline", "embedding", "fingerprint"),
         "maest": ("analysis", "embedding"),
         "mert": ("embedding",),
         "mert_v2": ("embedding",),

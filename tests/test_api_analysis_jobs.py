@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -88,8 +89,8 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
             "track_batch_size": 5,
             "inference_batch_size": 18,
             "sonara_batch_size": 8,
-            "sonara_bpm_min": DEFAULT_SONARA_BPM_MIN,
-            "sonara_bpm_max": DEFAULT_SONARA_BPM_MAX,
+            "sonara_bpm_min": None,
+            "sonara_bpm_max": None,
             "device": "cpu",
             "top_k": 4,
         }
@@ -155,7 +156,7 @@ def test_api_pipeline_starts_ml_with_direct_settings(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
-            "stages": ["ml"],
+            "stage": "ml",
             "limit": 0,
             "ml": {
                 "models": ["mert"],
@@ -170,7 +171,7 @@ def test_api_pipeline_starts_ml_with_direct_settings(
     assert response.status_code == 200
     assert captured == [
         {
-            "stages": ["ml"],
+            "stage": "ml",
             "limit": 0,
             "sonara": {},
             "ml": {
@@ -202,7 +203,7 @@ def test_api_pipeline_builds_staged_ml_settings(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
-            "stages": ["ml"],
+            "stage": "ml",
             "ml": {
                 "models": ["mert"],
                 "device": "cpu",
@@ -243,7 +244,7 @@ def test_api_pipeline_rejects_unknown_ml_staged_setting(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
-            "stages": ["ml"],
+            "stage": "ml",
             "ml": {
                 "models": ["mert"],
                 "mode": "staged",
@@ -278,7 +279,7 @@ def test_api_pipeline_rejects_classifier_stage(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
-            "stages": ["classifiers", "ml"],
+            "stage": "classifiers",
             "limit": 0,
             "ml": {
                 "models": ["mert"],
@@ -311,7 +312,7 @@ def test_api_pipeline_builds_staged_sonara_settings(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
-            "stages": ["sonara"],
+            "stage": "sonara",
             "sonara": {
                 "mode": "staged",
                 "direct_batch_size": 8,
@@ -353,7 +354,7 @@ def test_api_pipeline_builds_direct_sonara_settings_without_staging_folder(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
-            "stages": ["sonara"],
+            "stage": "sonara",
             "sonara": {
                 "mode": "direct",
                 "direct_batch_size": 12,
@@ -387,7 +388,7 @@ def test_api_pipeline_requires_selected_folder_for_staged_sonara(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
-            "stages": ["sonara"],
+            "stage": "sonara",
             "sonara": {
                 "mode": "staged",
                 "direct_batch_size": 8,
@@ -422,3 +423,47 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
         "classifier_rows_deleted": 0,
     }
     assert legacy.status_code == 422
+
+    # One SONARA run writes four outputs under one BPM range, so a SONARA
+    # reset must not leave Timeline, embedding or fingerprint looking current.
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    sonara_tables = ("sonara_features", "sonara_timeline", "sonara_embeddings", "sonara_fingerprints")
+    track_uuid = "00000000-0000-0000-0000-000000000009"
+    stamp = "2026-09-15T00:00:00Z"
+    with closing(database.connect()) as connection, connection:
+        track_id = connection.execute(
+            "INSERT INTO tracks(track_uuid, file_path, file_size_bytes, file_modified_ns, "
+            "last_scanned_at, created_at, updated_at) VALUES (?, ?, 1, 1, ?, ?, ?)",
+            (track_uuid, (tmp_path / "track.wav").as_posix(), stamp, stamp, stamp),
+        ).lastrowid
+        connection.execute(
+            "INSERT INTO sonara_features(track_id, mfcc_mean_blob, chroma_mean_blob, "
+            "spectral_contrast_mean_blob, analysis_schema_version, analyzed_at) VALUES (?, ?, ?, ?, 6, ?)",
+            (track_id, bytes(52), bytes(48), bytes(28), stamp),
+        )
+        connection.execute(
+            "INSERT INTO sonara_timeline VALUES (?, ?, 22050, 512, '{}', ?)",
+            (track_id, track_uuid, stamp),
+        )
+        connection.execute(
+            "INSERT INTO sonara_embeddings VALUES (?, ?, 48, 'none', ?, ?)",
+            (track_id, track_uuid, bytes(192), stamp),
+        )
+        connection.execute(
+            "INSERT INTO sonara_fingerprints VALUES (?, ?, 1, 'AQAAAA==', ?)",
+            (track_id, track_uuid, stamp),
+        )
+
+    sonara = client.post("/api/analysis/reset", json={"analysis_family": "sonara"})
+
+    assert sonara.status_code == 200
+    assert sonara.json() == {
+        "feature_rows_deleted": 3,
+        "embedding_rows_deleted": 1,
+        "classifier_rows_deleted": 0,
+    }
+    with closing(database.connect()) as connection:
+        assert [
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in sonara_tables
+        ] == [0, 0, 0, 0]

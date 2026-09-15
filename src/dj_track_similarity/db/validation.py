@@ -419,9 +419,12 @@ def _build_track_query() -> _TrackQuery:
             f"{family}.normalization",
             f"{family}.embedding_blob",
         ]
+        # MERT-v2 stores 24 layer rows per track; joining all of them would
+        # validate and count every track 24 times. Layer 24 is its stored vector.
+        layer_filter = " AND mert_v2.layer = 24" if family == "mert_v2" else ""
         joins.append(
             f"LEFT JOIN {family}_embeddings AS {family}"
-            f" ON {family}.track_id = t.track_id"
+            f" ON {family}.track_id = t.track_id{layer_filter}"
         )
     sonara_base = len(selects)
     selects += [f"features.{column}" for column in SONARA_CORE_COLUMNS]

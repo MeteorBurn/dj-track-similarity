@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api.application as api
 from dj_track_similarity.analysis.jobs import AnalysisJobManager
+from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
@@ -18,6 +20,7 @@ from dj_track_similarity.analysis_models import (
 
 _OUTPUTS = (
     AnalysisOutput("sonara", "core"),
+    AnalysisOutput("sonara", "timeline"),
     AnalysisOutput("sonara", "embedding"),
     AnalysisOutput("sonara", "fingerprint"),
 )
@@ -44,8 +47,8 @@ def _candidate(
 class _CoverageRepository:
     catalog_uuid: str = "catalog-test"
 
-    def library_summary(self):
-        return SimpleNamespace(tracks=3)
+    def list_track_paths(self):
+        return [SimpleNamespace(track_id=track_id) for track_id in (1, 2, 3)]
 
     def list_analysis_candidates(
         self,
@@ -76,6 +79,7 @@ def test_sonara_status_reports_current_data_coverage_without_release_identity() 
         for output in status.outputs
     ] == [
         ("core", 2, 1),
+        ("timeline", 2, 1),
         ("embedding", 2, 1),
         ("fingerprint", 2, 1),
     ]
@@ -91,29 +95,30 @@ def test_sonara_status_endpoint_is_neutral_and_release_routes_are_removed(
     tmp_path: Path,
 ) -> None:
     client = _client(monkeypatch, tmp_path)
+    # A missing track is neither a candidate nor part of the total: counting it
+    # would report its absent SONARA data as present.
+    stamp = "2026-09-15T00:00:00Z"
+    with closing(LibraryDatabase(tmp_path / "library.sqlite").connect()) as connection, connection:
+        for index, missing_since in ((1, None), (2, stamp)):
+            connection.execute(
+                "INSERT INTO tracks(track_uuid, file_path, file_size_bytes, file_modified_ns, "
+                "last_scanned_at, missing_since, created_at, updated_at) VALUES (?, ?, 1, 1, ?, ?, ?, ?)",
+                (f"00000000-0000-0000-0000-00000000000{index}", str(tmp_path / f"{index}.wav"), stamp, missing_since, stamp, stamp),
+            )
 
     response = client.get("/api/analysis/sonara/status")
 
     assert response.status_code == 200
     assert response.json() == {
         "catalog_uuid": response.json()["catalog_uuid"],
-        "total_tracks": 0,
+        "total_tracks": 1,
         "outputs": [
             {
-                "output_kind": "core",
+                "output_kind": kind,
                 "present_count": 0,
-                "missing_count": 0,
-            },
-            {
-                "output_kind": "embedding",
-                "present_count": 0,
-                "missing_count": 0,
-            },
-            {
-                "output_kind": "fingerprint",
-                "present_count": 0,
-                "missing_count": 0,
-            },
+                "missing_count": 1,
+            }
+            for kind in ("core", "timeline", "embedding", "fingerprint")
         ],
     }
     assert client.get("/api/analysis/sonara/releases/status").status_code == 404

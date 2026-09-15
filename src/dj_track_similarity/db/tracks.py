@@ -36,6 +36,9 @@ from ..track_models import (
 
 _DERIVED_TRACK_TABLES = (
     "sonara_features",
+    "sonara_timeline",
+    "sonara_embeddings",
+    "sonara_fingerprints",
     "maest_genres",
     "classifier_scores",
     "maest_embeddings",
@@ -46,6 +49,7 @@ _DERIVED_TRACK_TABLES = (
     "clap_embeddings",
 )
 _EMBEDDING_TABLES = (
+    "sonara_embeddings",
     "maest_embeddings",
     "mert_embeddings",
     "mert_v2_embeddings",
@@ -1173,7 +1177,12 @@ class TrackRepository:
                     )
                     feature_rows_deleted = sum(
                         derived_counts[table]
-                        for table in ("sonara_features", "maest_genres")
+                        for table in (
+                            "sonara_features",
+                            "sonara_timeline",
+                            "sonara_fingerprints",
+                            "maest_genres",
+                        )
                     )
                     classifier_rows_deleted = derived_counts["classifier_scores"]
                     connection.execute("DELETE FROM track_search_fts")

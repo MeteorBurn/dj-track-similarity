@@ -14,37 +14,22 @@ from ..analysis_models import (
     FingerprintOutput,
     SONARA_EMBEDDING_DIM,
     SonaraWrite,
+    TimelineOutput,
+    sonara_unit_interval,
 )
 from ..db.ddl import FLOAT32_LE, SonaraRow
-from .sonara_runtime import SONARA_UNIT_INTERVAL_EPSILON
 
-_IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS = frozenset(
-    {
-        "acousticness",
-        "aggression_confidence",
-        "aggression_forcefulness",
-        "aggression_harshness",
-        "aggression_rhythm",
-        "aggression_score",
-        "aggression_tension",
-        "bpm_confidence",
-        "danceability",
-        "dissonance",
-        "energy",
-        "energy_curve[]",
-        "grid_stability",
-        "key_candidates[].score",
-        "key_confidence",
-        "mood_aggressive",
-        "mood_happy",
-        "mood_relaxed",
-        "mood_sad",
-        "spectral_flatness_mean",
-        "valence",
-        "vocalness",
-        "zero_crossing_rate",
-    }
-)
+# Stored timeline key -> analyzer result key.
+_TIMELINE_SOURCE_KEYS = {
+    "beats": "beats",
+    "chord_events": "chord_events",
+    "downbeats": "downbeats",
+    "energy_curve": "energy_curve",
+    "energy_curve_hop_seconds": "energy_curve_hop_sec",
+    "loudness_curve": "loudness_curve",
+    "segments": "segments",
+    "tempo_curve": "tempo_curve",
+}
 
 
 def prepare_sonara_write(
@@ -59,15 +44,19 @@ def prepare_sonara_write(
         raise TypeError("candidate must be an AnalysisCandidate")
     if not isinstance(analysis, Mapping):
         raise TypeError("SONARA analysis result must be a mapping")
+    # Timeline is the frame-level evidence; Core summarizes the validated curves.
+    timeline = _timeline_output(analysis, analyzed_at=analyzed_at)
     core = _sonara_core_row(
         candidate,
         analysis,
+        timeline=timeline,
         analyzed_at=analyzed_at,
     )
 
     return SonaraWrite(
         target=candidate.target,
         core=core,
+        timeline=timeline,
         embedding=EmbeddingOutput(
             family="sonara",
             vector=_float32_vector(
@@ -88,10 +77,38 @@ def prepare_sonara_write(
     )
 
 
+def _timeline_output(
+    analysis: Mapping[str, object],
+    *,
+    analyzed_at: str,
+) -> TimelineOutput:
+    missing = sorted(
+        source for source in _TIMELINE_SOURCE_KEYS.values() if analysis.get(source) is None
+    )
+    if missing:
+        raise ValueError(f"SONARA timeline is incomplete; missing fields: {', '.join(missing)}")
+    provenance = analysis.get("provenance")
+    if not isinstance(provenance, Mapping):
+        raise ValueError("provenance must be a mapping")
+    return TimelineOutput(
+        payload={key: analysis[source] for key, source in _TIMELINE_SOURCE_KEYS.items()},
+        sample_rate_hz=_required_positive_int(
+            provenance.get("sample_rate"),
+            "provenance.sample_rate",
+        ),
+        hop_length=_required_positive_int(
+            provenance.get("hop_length"),
+            "provenance.hop_length",
+        ),
+        analyzed_at=analyzed_at,
+    )
+
+
 def _sonara_core_row(
     candidate: AnalysisCandidate,
     analysis: Mapping[str, object],
     *,
+    timeline: TimelineOutput,
     analyzed_at: str,
 ) -> SonaraRow:
     provenance = analysis.get("provenance")
@@ -126,45 +143,24 @@ def _sonara_core_row(
     raw_bpm = _optional_float(analysis, "bpm_raw", minimum=0.0, strict_minimum=True)
     bpm_confidence = _optional_unit_interval(
         analysis,
-        "bpm_confidence",
-        epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-    )
-    beat_count = _beat_count(analysis)
+        "bpm_confidence",    )
+    beat_count = len(timeline.payload["beats"])
+    declared_beat_count = _optional_int(analysis, "n_beats", minimum=0)
+    if declared_beat_count is not None and declared_beat_count != beat_count:
+        raise ValueError("n_beats does not match the beats sequence")
     detected_key_name = _optional_text(analysis, "key")
     detected_key_camelot = _optional_text(analysis, "key_camelot")
 
-    energy_curve = _optional_float32_curve(
-        analysis.get("energy_curve"),
-        epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-    )
-    if energy_curve is None:
-        energy_curve_hop_seconds = _optional_float(
-            analysis,
-            "energy_curve_hop_sec",
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        if energy_curve_hop_seconds is not None:
-            raise ValueError(
-                "energy_curve_hop_sec requires a finite one-dimensional energy_curve"
-            )
-        energy_curve_sample_count = None
-        energy_curve_min = None
-        energy_curve_max = None
-        energy_curve_mean = None
-        energy_curve_stddev = None
-    else:
-        energy_curve_hop_seconds = _required_float(
-            analysis.get("energy_curve_hop_sec"),
-            "energy_curve_hop_sec",
-            minimum=0.0,
-            strict_minimum=True,
-        )
-        energy_curve_sample_count = int(energy_curve.size)
-        energy_curve_min = float(np.min(energy_curve))
-        energy_curve_max = float(np.max(energy_curve))
-        energy_curve_mean = float(np.mean(energy_curve, dtype=np.float64))
-        energy_curve_stddev = float(np.std(energy_curve, dtype=np.float64))
+    # Not FLOAT32_LE: the curve itself is stored as Timeline JSON. Only REAL
+    # scalars derived from it are stored here, so this rounding is a precision
+    # choice that must not follow a change to the BLOB encoding.
+    energy_curve = np.asarray(timeline.payload["energy_curve"], dtype="<f4")
+    energy_curve_hop_seconds = timeline.payload["energy_curve_hop_seconds"]
+    energy_curve_sample_count = int(energy_curve.size)
+    energy_curve_min = float(np.min(energy_curve))
+    energy_curve_max = float(np.max(energy_curve))
+    energy_curve_mean = float(np.mean(energy_curve, dtype=np.float64))
+    energy_curve_stddev = float(np.std(energy_curve, dtype=np.float64))
 
     duration = _optional_float(
         analysis,
@@ -206,17 +202,13 @@ def _sonara_core_row(
         ),
         beat_grid_stability=_optional_unit_interval(
             analysis,
-            "grid_stability",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "grid_stability",        ),
         bpm_candidates_json=_bpm_candidates_json(analysis.get("bpm_candidates")),
         detected_key_name=detected_key_name,
         detected_key_camelot=detected_key_camelot,
         key_confidence=_optional_unit_interval(
             analysis,
-            "key_confidence",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "key_confidence",        ),
         predominant_chord=_optional_text(analysis, "predominant_chord"),
         chord_changes_per_second=_optional_float(
             analysis,
@@ -227,13 +219,10 @@ def _sonara_core_row(
             analysis.get("key_candidates"),
             detected_key_name=detected_key_name,
             detected_key_camelot=detected_key_camelot,
-            unit_interval_epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         energy_score=_optional_unit_interval(
             analysis,
-            "energy",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "energy",        ),
         energy_level=_optional_int(
             analysis,
             "energy_level",
@@ -242,24 +231,16 @@ def _sonara_core_row(
         ),
         danceability_score=_optional_unit_interval(
             analysis,
-            "danceability",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "danceability",        ),
         valence_score=_optional_unit_interval(
             analysis,
-            "valence",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "valence",        ),
         acousticness_score=_optional_unit_interval(
             analysis,
-            "acousticness",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "acousticness",        ),
         dissonance_score=_optional_unit_interval(
             analysis,
-            "dissonance",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "dissonance",        ),
         spectral_centroid_hz=_optional_float(
             analysis,
             "spectral_centroid_mean",
@@ -277,14 +258,10 @@ def _sonara_core_row(
         ),
         spectral_flatness=_optional_unit_interval(
             analysis,
-            "spectral_flatness_mean",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "spectral_flatness_mean",        ),
         zero_crossing_rate=_optional_unit_interval(
             analysis,
-            "zero_crossing_rate",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "zero_crossing_rate",        ),
         rms_mean=_optional_float(analysis, "rms_mean", minimum=0.0),
         rms_max=_optional_float(analysis, "rms_max", minimum=0.0),
         integrated_loudness_lufs=_optional_float(analysis, "loudness_lufs"),
@@ -325,59 +302,37 @@ def _sonara_core_row(
         energy_curve_stddev=energy_curve_stddev,
         vocal_probability=_optional_unit_interval(
             analysis,
-            "vocalness",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "vocalness",        ),
         mood_happy_score=_optional_unit_interval(
             analysis,
-            "mood_happy",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "mood_happy",        ),
         mood_aggressive_score=_optional_unit_interval(
             analysis,
-            "mood_aggressive",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "mood_aggressive",        ),
         mood_relaxed_score=_optional_unit_interval(
             analysis,
-            "mood_relaxed",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "mood_relaxed",        ),
         mood_sad_score=_optional_unit_interval(
             analysis,
-            "mood_sad",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "mood_sad",        ),
         aggression_score=_optional_unit_interval(
             analysis,
-            "aggression_score",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "aggression_score",        ),
         aggression_confidence=_optional_unit_interval(
             analysis,
-            "aggression_confidence",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "aggression_confidence",        ),
         aggression_forcefulness=_optional_unit_interval(
             analysis,
-            "aggression_forcefulness",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "aggression_forcefulness",        ),
         aggression_harshness=_optional_unit_interval(
             analysis,
-            "aggression_harshness",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "aggression_harshness",        ),
         aggression_tension=_optional_unit_interval(
             analysis,
-            "aggression_tension",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "aggression_tension",        ),
         aggression_rhythm=_optional_unit_interval(
             analysis,
-            "aggression_rhythm",
-            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        ),
+            "aggression_rhythm",        ),
         mfcc_mean_blob=_float32_blob(analysis.get("mfcc_mean"), 13, "mfcc_mean"),
         chroma_mean_blob=_float32_blob(
             analysis.get("chroma_mean"),
@@ -392,71 +347,6 @@ def _sonara_core_row(
         analysis_schema_version=analysis_schema_version,
         analyzed_at=analyzed_at,
     )
-
-
-def _beat_count(analysis: Mapping[str, object]) -> int | None:
-    declared = _optional_int(analysis, "n_beats", minimum=0)
-    raw_beats = analysis.get("beats")
-    if raw_beats is None:
-        return declared
-    beats = _frame_indices(raw_beats, "beats")
-    count = len(beats)
-    if declared is not None and declared != count:
-        raise ValueError("n_beats does not match the beats sequence")
-    return count
-
-
-def _frame_indices(value: object, field_name: str) -> list[int]:
-    array = np.asarray(value)
-    if array.ndim != 1:
-        raise ValueError(f"{field_name} must be one-dimensional")
-    normalized: list[int] = []
-    previous = -1
-    for index, raw_value in enumerate(array.tolist()):
-        if isinstance(raw_value, bool) or not isinstance(
-            raw_value,
-            (int, np.integer),
-        ):
-            raise ValueError(
-                f"{field_name}[{index}] must be a non-negative frame integer"
-            )
-        frame = int(raw_value)
-        if frame < 0:
-            raise ValueError(
-                f"{field_name}[{index}] must be a non-negative frame integer"
-            )
-        if frame <= previous:
-            raise ValueError(f"{field_name} must be strictly increasing")
-        previous = frame
-        normalized.append(frame)
-    return normalized
-
-
-def _optional_float32_curve(
-    value: object,
-    *,
-    epsilon: float,
-) -> np.ndarray | None:
-    if value is None:
-        return None
-    raw_curve = np.asarray(value)
-    if raw_curve.dtype.kind not in "iuf":
-        raise ValueError("energy_curve must contain only numbers")
-    if raw_curve.ndim != 1 or not raw_curve.size:
-        raise ValueError("energy_curve must be a non-empty one-dimensional vector")
-    clamped = [
-        _unit_interval(
-            child,
-            f"energy_curve[{index}]",
-            epsilon=epsilon,
-        )
-        for index, child in enumerate(raw_curve)
-    ]
-    # Not FLOAT32_LE: the curve itself is never stored. Only REAL scalars
-    # derived from it below are, so this rounding is a precision choice
-    # that must not follow a change to the BLOB encoding.
-    curve = np.asarray(clamped, dtype="<f4")
-    return curve
 
 
 def _float32_vector(value: object, *, dim: int, field_name: str) -> np.ndarray:
@@ -526,36 +416,11 @@ def _optional_float(
 def _optional_unit_interval(
     values: Mapping[str, object],
     key: str,
-    *,
-    epsilon: float,
 ) -> float | None:
     value = values.get(key)
     if value is None:
         return None
-    return _unit_interval(value, key, epsilon=epsilon)
-
-
-def _unit_interval(
-    value: object,
-    field_name: str,
-    *,
-    epsilon: float,
-) -> float:
-    number = _required_float(value, field_name)
-    lower_bound = _float32_policy_bound(-epsilon)
-    upper_bound = _float32_policy_bound(1.0 + epsilon)
-    if number < lower_bound or number > upper_bound:
-        raise ValueError(
-            f"{field_name} is outside the unit interval by more than "
-            f"the allowed epsilon {epsilon:g}"
-        )
-    return min(1.0, max(0.0, number))
-
-
-def _float32_policy_bound(boundary: float) -> float:
-    """Represent a policy boundary in SONARA's upstream f32 precision."""
-
-    return float(np.float32(boundary))
+    return sonara_unit_interval(value, key)
 
 
 def _optional_int(
@@ -636,7 +501,6 @@ def _key_candidates_json(
     *,
     detected_key_name: str | None,
     detected_key_camelot: str | None,
-    unit_interval_epsilon: float,
 ) -> str | None:
     if value is None:
         return None
@@ -659,10 +523,9 @@ def _key_candidates_json(
             entry[1],
             f"key_candidates[{rank - 1}].camelot",
         )
-        score = _unit_interval(
+        score = sonara_unit_interval(
             entry[2],
             f"key_candidates[{rank - 1}].score",
-            epsilon=unit_interval_epsilon,
         )
         if score > previous_score:
             raise ValueError("key_candidates must be sorted by descending score")

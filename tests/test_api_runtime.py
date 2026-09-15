@@ -355,7 +355,10 @@ def test_state_close_drains_inline_pipeline_children_outside_state_lock(
     closer = threading.Thread(target=close, daemon=True)
     second_close = threading.Thread(target=lambda: (state.close(), second_closed.set()), daemon=True)
     try:
-        job = pipeline.start(stages=["sonara", "ml"], limit=None, ml={"models": ["mert"]})
+        job = pipeline.start(stage="sonara", limit=None)
+        # SONARA and ML never share a pipeline, so the ML run is queued behind
+        # it as its own pipeline; closing must still drain both.
+        ml_job = pipeline.start(stage="ml", limit=None, ml={"models": ["mert"]})
         assert entered.wait(5)
         closer.start()
         assert joining.wait(5)
@@ -378,6 +381,7 @@ def test_state_close_drains_inline_pipeline_children_outside_state_lock(
     assert closed.is_set()
     assert close_errors == [interrupt]
     assert pipeline.get(job.job_id).state == "completed"
+    assert pipeline.get(ml_job.job_id).state == "completed"
     assert order == [["sonara"], ["mert"]]
     with pytest.raises(RuntimeError, match="closed"):
         audio.run_sync(models=["mert"], device="cpu")

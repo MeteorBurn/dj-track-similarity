@@ -7,7 +7,26 @@ from dj_track_similarity.analysis.config import (
     normalize_analysis_device,
     normalize_analysis_models,
     parse_analysis_models_text,
+    parse_sonara_bpm_range,
 )
+
+
+def test_sonara_bpm_range_is_one_argument_holding_a_preset_or_an_octave_wide_range() -> None:
+    assert parse_sonara_bpm_range(None) is None
+    assert parse_sonara_bpm_range("mixed-in-key") == (79.0, 192.0)
+    assert parse_sonara_bpm_range(" Rekordbox ") == (70.0, 180.0)
+    assert parse_sonara_bpm_range("virtual-dj") == (80.0, 240.0)
+    for value, expected in (("70-140", (70.0, 140.0)), ("50 - 100", (50.0, 100.0)), ("90-180", (90.0, 180.0))):
+        assert parse_sonara_bpm_range(value) == expected
+    for value, message in (
+        ("100-150", "at least twice"),
+        ("techno", "must be a preset"),
+        ("70", "must be a preset"),
+        ("70-140-280", "must be a preset"),
+        ("", "must be a preset"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            parse_sonara_bpm_range(value)
 
 
 def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() -> None:

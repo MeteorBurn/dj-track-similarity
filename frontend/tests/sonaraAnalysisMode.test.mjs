@@ -31,8 +31,8 @@ test("SONARA settings clamp persisted custom values to supported ranges", async 
     assert.deepEqual(settingsModule.loadSonaraAnalysisSettings(storage), {
       mode: "staged",
       directBatchSize: 16,
-      bpmMin: 70,
-      bpmMax: 180,
+      bpmMin: settingsModule.defaultSonaraBpmMin,
+      bpmMax: settingsModule.defaultSonaraBpmMax,
       staged: {
         // A stored staging path is deliberately not restored: the folder
         // receives temporary copies and must be chosen for each session.

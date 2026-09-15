@@ -87,8 +87,9 @@ class AnalysisJobStatus:
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE
     sonara_mode: str = "direct"
-    sonara_bpm_min: float = DEFAULT_SONARA_BPM_MIN
-    sonara_bpm_max: float = DEFAULT_SONARA_BPM_MAX
+    # None for ML jobs, which do not analyse with a BPM range.
+    sonara_bpm_min: float | None = DEFAULT_SONARA_BPM_MIN
+    sonara_bpm_max: float | None = DEFAULT_SONARA_BPM_MAX
     top_k: int = 3
 
 

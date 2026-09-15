@@ -376,8 +376,8 @@ export type AnalysisJobStatus = {
   inference_batch_size?: number;
   sonara_batch_size?: number;
   sonara_mode?: "direct" | "staged";
-  sonara_bpm_min?: number;
-  sonara_bpm_max?: number;
+  sonara_bpm_min?: number | null;
+  sonara_bpm_max?: number | null;
   top_k?: number;
   readiness?: Record<string, { candidates: number; ready: number; not_ready: number; selected: number }>;
   blockers?: Record<string, string[]>;
@@ -554,8 +554,8 @@ export type SonaraStagedSettings = {
 export type SonaraPipelineSettings = {
   mode: "direct" | "staged";
   direct_batch_size: number;
-  bpm_min: number;
-  bpm_max: number;
+  // A preset name or MIN-MAX, such as "79-192".
+  bpm_range: string;
   staged: SonaraStagedSettings;
 };
 
@@ -578,7 +578,8 @@ export type MlPipelineSettings = {
 };
 
 export type AnalysisPipelineRequest = {
-  stages: AnalysisPipelineStage[];
+  // One stage per run: SONARA and ML are never combined.
+  stage: "sonara" | "ml";
   limit?: number;
   sonara?: SonaraPipelineSettings;
   ml?: MlPipelineSettings;

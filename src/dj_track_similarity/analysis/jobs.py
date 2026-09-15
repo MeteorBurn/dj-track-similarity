@@ -6,7 +6,7 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
@@ -20,6 +20,7 @@ from .config import (
     DEFAULT_SONARA_BATCH_SIZE,
     AnalysisJobConfig,
     build_analysis_job_config,
+    normalize_sonara_bpm_range,
 )
 from .job_batch import (
     AnalysisBatchItem,
@@ -49,7 +50,6 @@ from .model_runners import (
     RunnerFactory,
     SonaraModelRunner,
 )
-from .sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 from .sonara_staging import SonaraStagingConfig, StagedSonaraResult
 from .ml_staging import MLStagingConfig, MLStagedResult, analyze_and_store_staged_ml
 from .._shutdown import defer_keyboard_interrupt
@@ -119,7 +119,7 @@ class _RunnerPreflightError(RuntimeError):
 
 @dataclass(frozen=True)
 class SonaraOutputStatus:
-    output_kind: Literal["core", "embedding", "fingerprint"]
+    output_kind: Literal["core", "timeline", "embedding", "fingerprint"]
     present_count: int
     missing_count: int
 
@@ -176,6 +176,23 @@ class AnalysisJobManager:
             unknown_label="analysis job",
         )
 
+    def check_sonara_range(
+        self,
+        requested_min: float | None,
+        requested_max: float | None,
+    ) -> dict[str, float]:
+        """Return the range a SONARA run would use, without claiming it.
+
+        Lets a request be refused up front while leaving the claim to the SONARA
+        job itself, so a request rejected later claims nothing.
+        """
+        summary = self.db.library_summary()
+        return _library_sonara_range(
+            requested_min,
+            requested_max,
+            (summary.sonara_bpm_min, summary.sonara_bpm_max),
+        )
+
     def resolve_sonara_range(
         self,
         requested_min: float | None,
@@ -187,20 +204,14 @@ class AnalysisJobManager:
         so one library stays internally comparable. Releasing it means resetting
         the stored SONARA analysis or clearing the library.
         """
-        library_min, library_max = self.db.claim_sonara_analysis_range(
-            DEFAULT_SONARA_BPM_MIN if requested_min is None else requested_min,
-            DEFAULT_SONARA_BPM_MAX if requested_max is None else requested_max,
+        # Validate before claiming: a range narrower than an octave must be a
+        # settings error, not a library constraint failure.
+        low, high = normalize_sonara_bpm_range(requested_min, requested_max)
+        return _library_sonara_range(
+            requested_min,
+            requested_max,
+            self.db.claim_sonara_analysis_range(low, high),
         )
-        requested = (
-            requested_min if requested_min is not None else library_min,
-            requested_max if requested_max is not None else library_max,
-        )
-        if requested != (library_min, library_max):
-            raise ValueError(
-                f"This library is analysed with the BPM range {library_min:g}-{library_max:g}. "
-                f"Reset SONARA analysis before switching to {requested[0]:g}-{requested[1]:g}."
-            )
-        return {"sonara_bpm_min": library_min, "sonara_bpm_max": library_max}
 
     def create_job(
         self,
@@ -239,7 +250,8 @@ class AnalysisJobManager:
                 else sonara_batch_size
             ),
             sonara_mode=sonara_mode,
-            **self.resolve_sonara_range(sonara_bpm_min, sonara_bpm_max),
+            sonara_bpm_min=sonara_bpm_min,
+            sonara_bpm_max=sonara_bpm_max,
             sonara_staging_config=sonara_staging_config,
             ml_staging_config=ml_staging_config,
         )
@@ -247,6 +259,14 @@ class AnalysisJobManager:
             raise ValueError(
                 "ML analysis requires at least one track with current "
                 "SONARA analysis"
+            )
+        # Only a SONARA run analyses with the library's BPM range, and it claims
+        # the range last, once every other setting has been accepted. An ML job
+        # neither claims the range nor can be refused by it.
+        if config.models == ("sonara",):
+            config = replace(
+                config,
+                **self.resolve_sonara_range(config.sonara_bpm_min, config.sonara_bpm_max),
             )
         job_id = str(uuid.uuid4())
         status = AnalysisJobStatus(
@@ -279,7 +299,7 @@ class AnalysisJobManager:
                 staging = config.sonara_staging_config
                 assert staging is not None
                 settings_message = (
-                    "SONARA queued · outputs Core + embedding · Staged Mode · "
+                    "SONARA queued · outputs Core + Timeline + embedding + fingerprint · Staged Mode · "
                     f"folder {staging.root} · processes {staging.processes} · "
                     f"threads {staging.rayon_threads} · "
                     f"batch {staging.max_native_batch_size} · "
@@ -287,7 +307,7 @@ class AnalysisJobManager:
                 )
             else:
                 settings_message = (
-                    "SONARA queued · outputs Core + embedding · Direct Mode · "
+                    "SONARA queued · outputs Core + Timeline + embedding + fingerprint · Direct Mode · "
                     f"batch {config.sonara_batch_size}"
                 )
         else:
@@ -321,7 +341,8 @@ class AnalysisJobManager:
 
         repository = self.db
         outputs = analysis_outputs_for_sonara_runtime()
-        total_tracks = int(repository.library_summary().tracks)
+        # Candidates cover only current tracks, so the total must too.
+        total_tracks = len(repository.list_track_paths())
         missing_counts = {output.key: 0 for output in outputs}
         for candidate in repository.list_analysis_candidates(outputs):
             for output in candidate.missing_outputs:
@@ -1346,6 +1367,33 @@ class AnalysisJobManager:
     @staticmethod
     def _copy_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         return copy_analysis_status(status)
+
+
+def _library_sonara_range(
+    requested_min: float | None,
+    requested_max: float | None,
+    stored: tuple[float | None, float | None],
+) -> dict[str, float]:
+    """Settle a requested SONARA range against the library's stored one.
+
+    An unclaimed library takes the requested range, or the default for a bound
+    left out. A claimed library accepts only its own range; an omitted bound
+    means "the library's".
+    """
+    stored_min, stored_max = stored
+    if stored_min is None or stored_max is None:
+        low, high = normalize_sonara_bpm_range(requested_min, requested_max)
+        return {"sonara_bpm_min": low, "sonara_bpm_max": high}
+    requested = (
+        stored_min if requested_min is None else float(requested_min),
+        stored_max if requested_max is None else float(requested_max),
+    )
+    if requested != (stored_min, stored_max):
+        raise ValueError(
+            f"This library is analysed with the BPM range {stored_min:g}-{stored_max:g}. "
+            f"Reset SONARA analysis before switching to {requested[0]:g}-{requested[1]:g}."
+        )
+    return {"sonara_bpm_min": stored_min, "sonara_bpm_max": stored_max}
 
 
 def _validate_runner(

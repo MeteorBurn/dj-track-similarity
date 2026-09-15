@@ -884,15 +884,15 @@ export function App() {
     // DATABASE is handled by handleStageStart before this ever runs; the
     // mutual-exclusion in toggleStage guarantees it is absent here.
     const stageModels = selectedStages.filter((stage): stage is AnalysisSelection => stage !== "database");
-    const mlModels = stageModels.filter((model) => model !== "sonara");
-    const includeSonara = stageModels.includes("sonara");
-    const stages: Array<"sonara" | "ml"> = [];
-    if (includeSonara) stages.push("sonara");
-    if (mlModels.length) stages.push("ml");
-    if (!stages.length) {
+    if (!stageModels.length) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну стадию анализа" });
       return;
     }
+    // toggleStage keeps SONARA and ML apart and the backend refuses to combine
+    // them, so one start runs exactly one of the two stages.
+    const includeSonara = stageModels.includes("sonara");
+    const mlModels = includeSonara ? [] : stageModels;
+    const stage = includeSonara ? "sonara" : "ml";
     if (
       includeSonara
       && sonaraSettings.mode === "staged"
@@ -936,13 +936,12 @@ export function App() {
     await run(
       async () => {
         return api.analysisPipelineStart({
-          stages,
+          stage,
           limit: limit === 0 ? undefined : limit,
           sonara: {
             mode: sonaraSettings.mode,
             direct_batch_size: sonaraSettings.directBatchSize,
-            bpm_min: sonaraBpmRange.bpmMin,
-            bpm_max: sonaraBpmRange.bpmMax,
+            bpm_range: `${sonaraBpmRange.bpmMin}-${sonaraBpmRange.bpmMax}`,
             staged: {
               folder: sonaraSettings.staged.folder,
               processes: sonaraSettings.staged.processes,

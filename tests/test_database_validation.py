@@ -30,10 +30,24 @@ def _track(database: LibraryDatabase, path: Path):
 def test_validator_reports_each_track_and_does_not_mutate_database(tmp_path: Path) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
     identity = _track(database, tmp_path / "present.wav")
+    # MERT-v2 keeps 24 layer rows per track; the track is still one track.
+    with database.connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        for layer, vector in enumerate(np.eye(1024, dtype="<f4")[:24], start=1):
+            write_valid_embedding_in_transaction(
+                connection=connection,
+                track=identity,
+                family="mert_v2",
+                embedding=vector,
+                analyzed_at="2026-08-13T00:00:00Z",
+                mert_v2_layer=layer,
+            )
+        connection.commit()
     before = database.path.read_bytes()
 
     report = DatabaseValidator(database.path).run()
 
+    assert report.tracks_checked == 1
     assert report.error_count == 0
     assert report.warning_count == 0
     assert any(

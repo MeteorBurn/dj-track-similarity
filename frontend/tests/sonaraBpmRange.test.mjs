@@ -43,9 +43,10 @@ test("editing one bound keeps the pair at least an octave apart", async () => {
 test("a stored range that breaks the octave rule falls back to the default", async () => {
   const { module, close } = await loadSettingsModule();
   try {
-    assert.deepEqual(module.boundedBpmRange(120, 140), { bpmMin: 70, bpmMax: 180 });
+    const defaultRange = { bpmMin: module.defaultSonaraBpmMin, bpmMax: module.defaultSonaraBpmMax };
+    assert.deepEqual(module.boundedBpmRange(120, 140), defaultRange);
     assert.deepEqual(module.boundedBpmRange(79, 192), { bpmMin: 79, bpmMax: 192 });
-    assert.deepEqual(module.boundedBpmRange("nonsense", null), { bpmMin: 70, bpmMax: 180 });
+    assert.deepEqual(module.boundedBpmRange("nonsense", null), defaultRange);
   } finally {
     await close();
   }

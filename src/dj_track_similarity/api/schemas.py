@@ -24,15 +24,13 @@ from ..analysis.config import (
     MAX_ANALYSIS_TOP_K,
     MAX_ANALYSIS_TRACK_BATCH_SIZE,
     MAX_SONARA_BATCH_SIZE,
-    MAX_SONARA_BPM,
     MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
     MIN_SONARA_BATCH_SIZE,
-    MIN_SONARA_BPM,
+    parse_sonara_bpm_range,
 )
 from ..scanner import SUPPORTED_AUDIO_EXTENSIONS
-from ..analysis.sonara_runtime import DEFAULT_SONARA_BPM_MAX, DEFAULT_SONARA_BPM_MIN
 
 
 EmbeddingSource = Literal["mert", "maest", "muq", "mulan", "clap"]
@@ -197,16 +195,15 @@ class AnalysisJobRequest(BaseModel):
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
     )
-    sonara_bpm_min: float = Field(
-        default=DEFAULT_SONARA_BPM_MIN,
-        ge=MIN_SONARA_BPM,
-        le=MAX_SONARA_BPM,
-    )
-    sonara_bpm_max: float = Field(
-        default=DEFAULT_SONARA_BPM_MAX,
-        ge=MIN_SONARA_BPM,
-        le=MAX_SONARA_BPM,
-    )
+    # A preset name or MIN-MAX. Omitted: the library's claimed range, or the
+    # default preset for a fresh library.
+    sonara_bpm_range: str | None = None
+
+    @field_validator("sonara_bpm_range")
+    @classmethod
+    def _valid_sonara_bpm_range(cls, value: str | None) -> str | None:
+        parse_sonara_bpm_range(value)
+        return value
 
 
 class ClassifierAnalyzeRequest(BaseModel):
@@ -232,17 +229,16 @@ class SonaraPipelineSettings(BaseModel):
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
     )
-    bpm_min: float = Field(
-        default=DEFAULT_SONARA_BPM_MIN,
-        ge=MIN_SONARA_BPM,
-        le=MAX_SONARA_BPM,
-    )
-    bpm_max: float = Field(
-        default=DEFAULT_SONARA_BPM_MAX,
-        ge=MIN_SONARA_BPM,
-        le=MAX_SONARA_BPM,
-    )
+    # A preset name or MIN-MAX. Omitted: the library's claimed range, or the
+    # default preset for a fresh library.
+    bpm_range: str | None = None
     staged: SonaraStagedSettings = Field(default_factory=SonaraStagedSettings)
+
+    @field_validator("bpm_range")
+    @classmethod
+    def _valid_bpm_range(cls, value: str | None) -> str | None:
+        parse_sonara_bpm_range(value)
+        return value
 
 
 class MLStagedSettings(BaseModel):
@@ -288,7 +284,8 @@ class MlPipelineSettings(BaseModel):
 class AnalysisPipelineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    stages: list[Literal["sonara", "ml"]]
+    # One stage per run: SONARA and ML are never combined.
+    stage: Literal["sonara", "ml"]
     limit: int | None = None
     sonara: SonaraPipelineSettings = Field(default_factory=SonaraPipelineSettings)
     ml: MlPipelineSettings = Field(default_factory=MlPipelineSettings)
@@ -694,7 +691,7 @@ class _ResponseModel(BaseModel):
 
 
 class SonaraStatusOutputResponse(_ResponseModel):
-    output_kind: Literal["core", "embedding", "fingerprint"]
+    output_kind: Literal["core", "timeline", "embedding", "fingerprint"]
     present_count: int = Field(ge=0)
     missing_count: int = Field(ge=0)
 

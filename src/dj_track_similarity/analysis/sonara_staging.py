@@ -10,11 +10,13 @@ import logging
 from collections import deque
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from ..analysis_models import AnalysisCandidate
+from ..embedding.contracts import EmbeddingCancelledError
 from .sonara_runtime import (
     DEFAULT_SONARA_BPM_MAX,
     DEFAULT_SONARA_BPM_MIN,
@@ -179,10 +181,18 @@ def analyze_and_store_staged_sonara(
         if result_callback is not None:
             result_callback(result)
 
+    def new_analyzer() -> Any:
+        if executor_factory is not None:
+            return executor_factory()
+        return ThreadPoolExecutor(max_workers=config.processes)
+
+    # The analyzer is shut down before the copier and the session exit, so no
+    # worker still reads a staged copy when the session removes it.
     with SonaraStagingSession(config) as session, ThreadPoolExecutor(
         max_workers=config.copy_workers,
         thread_name_prefix="sonara-stage-copy",
-    ) as copier, (executor_factory() if executor_factory is not None else ThreadPoolExecutor(max_workers=config.processes)) as analyzer:
+    ) as copier:
+        analyzer = new_analyzer()
         exhausted = False
 
         def fill_window() -> None:
@@ -200,69 +210,83 @@ def analyze_and_store_staged_sonara(
                     return
                 copy_futures[copier.submit(session.stage, candidate)] = candidate
 
-        fill_window()
-        while copy_futures or ready or analysis_futures:
-            if cancelled is not None and cancelled():
-                raise RuntimeError("SONARA staging cancelled")
-            while ready and len(analysis_futures) < config.processes:
-                group = tuple(
-                    ready.popleft()
-                    for _ in range(min(config.max_native_batch_size, len(ready)))
-                )
-                analysis_futures[analyzer.submit(_run_group, analyze_group, group)] = group
-
-            futures = tuple(copy_futures) + tuple(analysis_futures)
-            if not futures:
-                continue
-            done, _ = wait(futures, return_when=FIRST_COMPLETED)
-            for future in done:
-                if future in copy_futures:
-                    candidate = copy_futures.pop(future)
-                    try:
-                        ready.append(future.result())
-                    except Exception as error:
-                        complete(
-                            StagedSonaraResult(
-                                item=StagedSonaraCandidate(
-                                    candidate=candidate,
-                                    source_path=Path(candidate.file_path),
-                                    path=session.path / "copy-failed",
-                                ),
-                                error=error,
-                            )
-                        )
-                    continue
-                group = analysis_futures.pop(future)
-                try:
-                    results = future.result()
-                    if len(results) != len(group):
-                        raise RuntimeError("SONARA staged worker result count mismatch")
-                except Exception as error:
-                    results = tuple(StagedSonaraResult(item=item, error=error) for item in group)
-                for result in results:
-                    store_started = time.perf_counter()
-                    try:
-                        if result.error is None:
-                            if result.analysis is None:
-                                raise RuntimeError("SONARA staged worker returned no analysis")
-                            write = prepare_write(result.candidate, result.analysis)
-                            store_write(repository, write)
-                    except Exception as error:
-                        result = StagedSonaraResult(
-                            item=result.item,
-                            error=error,
-                            used_ffmpeg_fallback=result.used_ffmpeg_fallback,
-                            copy_seconds=result.copy_seconds,
-                            analyze_seconds=result.analyze_seconds,
-                        )
-                    finally:
-                        result = replace(
-                            result,
-                            store_seconds=time.perf_counter() - store_started,
-                        )
-                        session.release(result.item)
-                    complete(result)
+        try:
             fill_window()
+            while copy_futures or ready or analysis_futures:
+                if cancelled is not None and cancelled():
+                    # The job treats only this type as a cancellation.
+                    raise EmbeddingCancelledError("SONARA analysis cancelled")
+                while ready and len(analysis_futures) < config.processes:
+                    group = tuple(
+                        ready.popleft()
+                        for _ in range(min(config.max_native_batch_size, len(ready)))
+                    )
+                    try:
+                        future = analyzer.submit(_run_group, analyze_group, group)
+                    except BrokenProcessPool:
+                        # A worker process died. Tracks that were inside the broken
+                        # pool fail through their own futures; the remaining tracks
+                        # continue on fresh workers instead of ending the job.
+                        LOGGER.warning("SONARA staged worker pool broke; starting fresh workers")
+                        analyzer.shutdown(wait=True)
+                        analyzer = new_analyzer()
+                        future = analyzer.submit(_run_group, analyze_group, group)
+                    analysis_futures[future] = group
+
+                futures = tuple(copy_futures) + tuple(analysis_futures)
+                if not futures:
+                    continue
+                done, _ = wait(futures, return_when=FIRST_COMPLETED)
+                for future in done:
+                    if future in copy_futures:
+                        candidate = copy_futures.pop(future)
+                        try:
+                            ready.append(future.result())
+                        except Exception as error:
+                            complete(
+                                StagedSonaraResult(
+                                    item=StagedSonaraCandidate(
+                                        candidate=candidate,
+                                        source_path=Path(candidate.file_path),
+                                        path=session.path / "copy-failed",
+                                    ),
+                                    error=error,
+                                )
+                            )
+                        continue
+                    group = analysis_futures.pop(future)
+                    try:
+                        results = future.result()
+                        if len(results) != len(group):
+                            raise RuntimeError("SONARA staged worker result count mismatch")
+                    except Exception as error:
+                        results = tuple(StagedSonaraResult(item=item, error=error) for item in group)
+                    for result in results:
+                        store_started = time.perf_counter()
+                        try:
+                            if result.error is None:
+                                if result.analysis is None:
+                                    raise RuntimeError("SONARA staged worker returned no analysis")
+                                write = prepare_write(result.candidate, result.analysis)
+                                store_write(repository, write)
+                        except Exception as error:
+                            result = StagedSonaraResult(
+                                item=result.item,
+                                error=error,
+                                used_ffmpeg_fallback=result.used_ffmpeg_fallback,
+                                copy_seconds=result.copy_seconds,
+                                analyze_seconds=result.analyze_seconds,
+                            )
+                        finally:
+                            result = replace(
+                                result,
+                                store_seconds=time.perf_counter() - store_started,
+                            )
+                            session.release(result.item)
+                        complete(result)
+                fill_window()
+        finally:
+            analyzer.shutdown(wait=True, cancel_futures=True)
     return outcomes
 
 

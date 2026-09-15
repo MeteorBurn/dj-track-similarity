@@ -39,6 +39,7 @@ from .analysis_candidates import (
     current_sonara_target_keys,
     normalize_analysis_outputs,
     read_current_track_identities,
+    require_sonara_timeline,
     table_for_output,
     target_from_track_row,
 )
@@ -211,6 +212,38 @@ def _upsert_sonara_fingerprint(
             fingerprint.version,
             fingerprint.value,
             fingerprint.analyzed_at,
+        ),
+    )
+
+
+def _upsert_sonara_timeline(
+    connection: sqlite3.Connection,
+    *,
+    write: SonaraWrite,
+) -> None:
+    timeline = write.timeline
+    if timeline is None:
+        return
+    require_sonara_timeline(connection)
+    connection.execute(
+        """
+        INSERT INTO sonara_timeline(
+            track_id, track_uuid, sample_rate_hz, hop_length, timeline_json, analyzed_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(track_id) DO UPDATE SET
+            track_uuid = excluded.track_uuid,
+            sample_rate_hz = excluded.sample_rate_hz,
+            hop_length = excluded.hop_length,
+            timeline_json = excluded.timeline_json,
+            analyzed_at = excluded.analyzed_at
+        """,
+        (
+            write.target.track_id,
+            write.target.track_uuid,
+            timeline.sample_rate_hz,
+            timeline.hop_length,
+            timeline.payload_json,
+            timeline.analyzed_at,
         ),
     )
 
@@ -564,6 +597,10 @@ class AnalysisRepository:
                                 catalog_uuid=catalog_uuid,
                             )
                             _upsert_sonara_core(
+                                connection,
+                                write=write,
+                            )
+                            _upsert_sonara_timeline(
                                 connection,
                                 write=write,
                             )
@@ -1212,10 +1249,14 @@ class AnalysisRepository:
                                     "SELECT COUNT(DISTINCT track_id) FROM mert_v2_embeddings"
                                 ).fetchone()[0])
                             cursor = connection.execute(f"DELETE FROM {table}")
-                            embedding_deleted += (
+                            deleted = (
                                 deleted_tracks if deleted_tracks is not None
                                 else max(0, int(cursor.rowcount))
                             )
+                            if output.output_kind == "embedding":
+                                embedding_deleted += deleted
+                            else:
+                                core_deleted += deleted
                     classifier_deleted = 0
                     _bump_write_generation(connection)
                     connection.commit()

@@ -8,7 +8,9 @@ Tables (emission order matches FK dependency order):
   2.  tracks                — identity + file facts (file_modified_ns INTEGER)
   3.  tags                  — Mutagen tags per track
   4.  sonara_features       — SONARA scalars + three short BLOB vectors
+      sonara_timeline       — SONARA time-resolved structure (canonical JSON)
   5.  sonara_embeddings     — SONARA float32-le embedding BLOBs
+      sonara_fingerprints   — SONARA native base64 acoustic fingerprints
   6.  maest_genres          — MAEST genre predictions + syncopated_rhythm flag
   7.  maest_embeddings      — MAEST float32-le embedding BLOBs
   8.  mert_embeddings       — MERT float32-le embedding BLOBs
@@ -199,6 +201,24 @@ CREATE TABLE sonara_features (
     -- Ordering constraint
     CHECK(energy_curve_min IS NULL OR energy_curve_mean IS NULL OR energy_curve_max IS NULL OR (energy_curve_min <= energy_curve_mean AND energy_curve_mean <= energy_curve_max))
 );
+"""
+
+# SONARA outputs follow their derivation: Core anchors the track, Timeline is
+# the frame-level evidence Core summarizes, the embedding is derived from Core
+# scalars, and the fingerprint is independent audio evidence.
+# Frame arrays in timeline_json are SONARA frame indices: seconds are
+# frame * hop_length / sample_rate_hz. Libraries created before this table
+# received it through a one-time explicit schema update; startup never adds it.
+SONARA_TIMELINE_DDL = """
+CREATE TABLE sonara_timeline (
+    track_id        INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
+    track_uuid      TEXT    NOT NULL,
+    sample_rate_hz  INTEGER NOT NULL CHECK(sample_rate_hz > 0),
+    hop_length      INTEGER NOT NULL CHECK(hop_length > 0),
+    timeline_json   TEXT    NOT NULL CHECK(json_valid(timeline_json) AND json_type(timeline_json) = 'object'),
+    analyzed_at     TEXT    NOT NULL
+);
+CREATE INDEX idx_sonara_timeline_track_uuid ON sonara_timeline(track_uuid);
 """
 
 _DDL_SONARA_EMBEDDINGS = """
@@ -417,6 +437,7 @@ _ALL_DDL: list[str] = [
     _DDL_TRACKS,
     _DDL_TAGS,
     _DDL_SONARA_FEATURES,
+    SONARA_TIMELINE_DDL,
     _DDL_SONARA_EMBEDDINGS,
     _DDL_SONARA_FINGERPRINTS,
     _DDL_MAEST_GENRES,

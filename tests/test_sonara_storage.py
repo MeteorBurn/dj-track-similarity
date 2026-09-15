@@ -16,14 +16,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.analysis.sonara_runtime import (
-    DEFAULT_SONARA_BPM_MAX,
-    SONARA_UNIT_INTERVAL_FIELDS,
-)
-from dj_track_similarity.analysis.sonara_results import (
-    _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS,
-    prepare_sonara_write,
-)
+from dj_track_similarity.analysis.sonara_results import prepare_sonara_write
 
 
 def _candidate() -> AnalysisCandidate:
@@ -84,6 +77,8 @@ def _analysis() -> dict[str, object]:
             "schema_version": 6,
             "bpm_min": 70.0,
             "bpm_max": 180.0,
+            "sample_rate": 22_050,
+            "hop_length": 512,
             "future_analyzer_parameter": "accepted",
         },
     }
@@ -115,13 +110,25 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert np.array_equal(write.embedding.vector, analysis["embedding"])
     assert write.outputs == (
         AnalysisOutput("sonara", "core"),
+        AnalysisOutput("sonara", "timeline"),
         AnalysisOutput("sonara", "embedding"),
         AnalysisOutput("sonara", "fingerprint"),
     )
     assert write.fingerprint is not None
     assert write.fingerprint.value == "AQAAAAIAAAA="
     assert write.fingerprint.version == 7
-    assert not hasattr(write, "timeline")
+    assert write.timeline is not None
+    assert (write.timeline.sample_rate_hz, write.timeline.hop_length) == (22_050, 512)
+    assert json.loads(write.timeline.payload_json) == {
+        "beats": [0, 22, 43],
+        "chord_events": [{"end_sec": 8.0, "label": "Am", "start_sec": 0.0}],
+        "downbeats": [0, 43],
+        "energy_curve": [float(np.float32(0.2)), 0.5, float(np.float32(0.8))],
+        "energy_curve_hop_seconds": 0.5,
+        "loudness_curve": [-10.0, -9.5],
+        "segments": [{"end_sec": 16.0, "energy": 0.4, "start_sec": 0.0}],
+        "tempo_curve": [128.0, float(np.float32(128.1))],
+    }
     assert not hasattr(write, "similarity_embedding")
 
 
@@ -198,6 +205,22 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
             """,
             (track_id,),
         ).fetchone()
+        timeline = connection.execute(
+            """
+            SELECT track_uuid, sample_rate_hz, hop_length, timeline_json, analyzed_at
+            FROM sonara_timeline
+            WHERE track_id = ?
+            """,
+            (track_id,),
+        ).fetchone()
+    assert timeline is not None
+    assert timeline["track_uuid"] == track_uuid
+    assert (timeline["sample_rate_hz"], timeline["hop_length"]) == (22_050, 512)
+    assert timeline["timeline_json"] == write.timeline.payload_json
+    assert timeline["analyzed_at"] == "2026-07-23T12:00:00.000000Z"
+    assert database.list_analysis_candidates(
+        (AnalysisOutput("sonara", "timeline"),)
+    ) == []
     assert core is not None
     assert core["analysis_schema_version"] == 6
     assert embedding is not None
@@ -355,14 +378,9 @@ def test_unknown_future_analyzer_fields_do_not_gate_conversion() -> None:
     assert write.core.vocal_probability == pytest.approx(0.3)
     assert write.outputs == (
         AnalysisOutput("sonara", "core"),
+        AnalysisOutput("sonara", "timeline"),
         AnalysisOutput("sonara", "embedding"),
         AnalysisOutput("sonara", "fingerprint"),
-    )
-
-
-def test_declared_clamp_fields_match_converter_implementation() -> None:
-    assert _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS == frozenset(
-        SONARA_UNIT_INTERVAL_FIELDS
     )
 
 
@@ -436,25 +454,26 @@ def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -
 @pytest.mark.parametrize(
     ("field_name", "bad_value", "message"),
     [
-        # Anchored to the configured ceiling, so changing the analysis range
-        # does not turn this into a failing test.
+        # Anchored to the range the fixture's own run analysed with, so changing
+        # the default analysis range does not turn this into a failing test.
         (
             "bpm",
-            float(DEFAULT_SONARA_BPM_MAX) + 20.0,
-            f"at most {float(DEFAULT_SONARA_BPM_MAX)}",
+            float(_analysis()["provenance"]["bpm_max"]) + 20.0,
+            f"at most {float(_analysis()['provenance']['bpm_max'])}",
         ),
         ("energy_level", 11, "at most 10"),
         ("duration_sec", float("nan"), "finite number"),
         ("intro_end_sec", 181.0, "must not exceed duration"),
+        ("downbeats", [22, 30], "subset of timeline.beats"),
         # The analysed tempo range must be positive and span at least an octave.
         (
             "provenance",
-            {"schema_version": 6, "bpm_min": 0.0, "bpm_max": 180.0},
+            {"schema_version": 6, "bpm_min": 0.0, "bpm_max": 180.0, "sample_rate": 22_050, "hop_length": 512},
             "bpm_min must be greater than 0",
         ),
         (
             "provenance",
-            {"schema_version": 6, "bpm_min": 70.0, "bpm_max": 139.0},
+            {"schema_version": 6, "bpm_min": 70.0, "bpm_max": 139.0, "sample_rate": 22_050, "hop_length": 512},
             "bpm_max must be at least 140",
         ),
     ],
@@ -521,6 +540,8 @@ def test_nested_bounded_values_are_clamped_without_clamping_bpm_scores() -> None
 
     assert write.core.energy_curve_min == 0.0
     assert write.core.energy_curve_max == 1.0
+    assert write.timeline is not None
+    assert write.timeline.payload["segments"][0]["energy"] == 1.0
     assert json.loads(write.core.key_candidates_json or "null")[0]["score"] == 1.0
     assert json.loads(write.core.bpm_candidates_json or "null")[0]["score"] == 1.5
 
@@ -561,6 +582,21 @@ def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
     summary = database.library_summary()
     assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)
 
+    # An ML-only job never analyses with the range, so it does not claim one...
+    with pytest.raises(ValueError, match="requires at least one track"):
+        manager.create_job(models=["maest"], sonara_bpm_min=70, sonara_bpm_max=180)
+    # ...a SONARA job refused over another setting claims nothing either...
+    with pytest.raises(ValueError, match="Staged SONARA mode requires staging settings"):
+        manager.create_job(models=["sonara"], sonara_mode="staged", sonara_bpm_min=79, sonara_bpm_max=192)
+    # ...and a range narrower than an octave is refused as a setting, both when
+    # checked alone and when a job would claim it.
+    with pytest.raises(ValueError, match="at least twice"):
+        manager.check_sonara_range(100, 150)
+    with pytest.raises(ValueError, match="at least twice"):
+        manager.resolve_sonara_range(100, 150)
+    summary = database.library_summary()
+    assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)
+
     manager.create_job(models=["sonara"], sonara_bpm_min=79, sonara_bpm_max=192)
 
     summary = database.library_summary()
@@ -572,6 +608,9 @@ def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
 
     with pytest.raises(ValueError, match="Reset SONARA analysis"):
         manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
+    # ...and is not refused by a different one once the library has claimed it.
+    with pytest.raises(ValueError, match="requires at least one track"):
+        manager.create_job(models=["maest"], sonara_bpm_min=70, sonara_bpm_max=180)
 
 
 def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(

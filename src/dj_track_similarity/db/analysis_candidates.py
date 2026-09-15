@@ -28,7 +28,21 @@ _TABLE_BY_OUTPUT = {
     ("clap", "embedding"): "clap_embeddings",
     ("sonara", "embedding"): "sonara_embeddings",
     ("sonara", "fingerprint"): "sonara_fingerprints",
+    ("sonara", "timeline"): "sonara_timeline",
 }
+
+
+def require_sonara_timeline(connection: sqlite3.Connection) -> None:
+    """Fail clearly on a library that never received the sonara_timeline table."""
+
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'sonara_timeline'"
+    ).fetchone()
+    if exists is None:
+        raise RuntimeError(
+            "This library database has no sonara_timeline table; "
+            "SONARA Timeline cannot be stored or read until the table is added"
+        )
 
 
 def normalize_analysis_outputs(
@@ -136,6 +150,16 @@ def ready_target_keys_by_output(
         elif output.key == ("sonara", "fingerprint"):
             rows = _valid_sonara_fingerprint_rows(
                 connection,
+                current_tracks=current_tracks,
+            )
+        elif output.key == ("sonara", "timeline"):
+            # Like embeddings, readiness is the identity-bound row: the writer
+            # validated the payload, and parsing every timeline per status
+            # request would dominate large libraries.
+            require_sonara_timeline(connection)
+            rows = _valid_embedding_rows(
+                connection,
+                table="sonara_timeline",
                 current_tracks=current_tracks,
             )
         elif output.key == ("maest", "analysis"):

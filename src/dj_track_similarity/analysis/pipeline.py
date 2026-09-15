@@ -16,7 +16,9 @@ from .ml_staging import MLStagingConfig
 from .sonara_staging import SonaraStagingConfig
 
 
-PIPELINE_STAGE_ORDER = ("sonara", "ml")
+# SONARA and ML never share a run on any entry point, so a pipeline carries
+# exactly one of these stages.
+PIPELINE_STAGES = ("sonara", "ml")
 
 
 @dataclass
@@ -59,22 +61,14 @@ class AnalysisPipelineManager:
     def create_job(
         self,
         *,
-        stages: list[str],
+        stage: str,
         limit: int | None,
         sonara: dict[str, object] | None = None,
         ml: dict[str, object] | None = None,
     ) -> str:
-        selected = [stage for stage in PIPELINE_STAGE_ORDER if stage in stages]
-        unknown = sorted(set(stages) - set(PIPELINE_STAGE_ORDER))
-        if unknown:
-            raise ValueError(f"Unknown pipeline stages: {', '.join(unknown)}")
-        if not selected:
-            raise ValueError("At least one pipeline stage must be selected")
-        if (
-            "sonara" not in selected
-            and "ml" in selected
-            and self.analysis_jobs.current_sonara_track_count() < 1
-        ):
+        if stage not in PIPELINE_STAGES:
+            raise ValueError(f"Unknown pipeline stage: {stage}")
+        if stage == "ml" and self.analysis_jobs.current_sonara_track_count() < 1:
             raise ValueError(
                 "The ML pipeline stage requires at least one track "
                 "with current SONARA analysis"
@@ -83,8 +77,8 @@ class AnalysisPipelineManager:
         status = AnalysisPipelineStatus(
             job_id=job_id,
             state="queued",
-            order=selected,
-            stages={stage: PipelineStageStatus(name=stage) for stage in selected},
+            order=[stage],
+            stages={stage: PipelineStageStatus(name=stage)},
         )
         self._store.add(
             job_id,

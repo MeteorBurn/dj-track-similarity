@@ -8,11 +8,12 @@ const candidatesTabEl = document.getElementById("candidatesTab");
 const collectionTabEl = document.getElementById("collectionTab");
 const trainingTabEl = document.getElementById("trainingTab");
 const settingsTabEl = document.getElementById("settingsTab");
-const listBarEl = document.getElementById("listBar");
+const commonFiltersEl = document.getElementById("commonFilters");
 const collectionControlsEl = document.getElementById("collectionControls");
 const collectionSelectEl = document.getElementById("collectionSelect");
 const deleteCollectionEl = document.getElementById("deleteCollection");
 const collectionStatusEl = document.getElementById("collectionStatus");
+const candidateFiltersEl = document.getElementById("candidateFilters");
 const bpmMinEl = document.getElementById("bpmMin");
 const bpmMaxEl = document.getElementById("bpmMax");
 const labelEl = document.getElementById("label");
@@ -24,6 +25,7 @@ const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
 const deleteProfileEl = document.getElementById("deleteProfile");
 const summaryCoverageEl = document.getElementById("summaryCoverage");
 const summaryLabelsEl = document.getElementById("summaryLabels");
+const pageControlsEl = document.getElementById("pageControls");
 const pageSizeEl = document.getElementById("pageSize");
 const pageNumberEl = document.getElementById("pageNumber");
 const prevPageEl = document.getElementById("prevPage");
@@ -211,7 +213,7 @@ function clearActiveProfile() {
   pageInfoEl.textContent = "";
   tracksEl.innerHTML = "";
   trainingPanelEl.innerHTML = "";
-  guidancePanelEl.innerHTML = statusCell("Choose a profile", "Select or create a classifier profile to load tracks.");
+  guidancePanelEl.innerHTML = '<div class="guidance-card"><b>Choose a profile</b><span class="meta">Select or create a classifier profile to load tracks.</span></div>';
   labelEl.innerHTML = "";
   addOption(labelEl, "all", "All labels");
   candidatePredictedEl.innerHTML = "";
@@ -333,6 +335,7 @@ function renderTrainingProgress(progress) {
   percentEl.textContent = `${Math.round(percent)}%`;
   barEl.style.width = `${percent}%`;
   container.dataset.status = status;
+  container.dataset.operation = String(progress?.operation || "");
   container.hidden = false;
 }
 
@@ -373,7 +376,7 @@ async function pollTrainingProgress(profileKey, operation, pollingGeneration) {
 function startTrainingProgressPolling(profileKey, operation, stage = "Starting…") {
   stopTrainingProgressPolling();
   trainingProgressHasStarted = false;
-  renderTrainingProgress({ status: "running", stage, percent: 0 });
+  renderTrainingProgress({ status: "running", operation, stage, percent: 0 });
   const pollingGeneration = trainingProgressPollGeneration;
   trainingProgressPollHandle = window.setInterval(() => {
     pollTrainingProgress(profileKey, operation, pollingGeneration).catch(() => {});
@@ -521,8 +524,12 @@ async function switchView(view) {
 }
 
 function updateFilterPanelControls() {
-  listBarEl.hidden = activeView === "training" || activeView === "settings";
+  const trackView = activeView !== "training" && activeView !== "settings";
+  commonFiltersEl.hidden = !trackView;
+  pageControlsEl.hidden = !trackView;
   collectionControlsEl.hidden = activeView !== "collection";
+  candidateFiltersEl.hidden = !trackView;
+  candidateFiltersEl.classList.toggle("candidate-filters-placeholder", activeView !== "library" && activeView !== "candidates");
   updateLibraryOrderControls();
 }
 
@@ -599,21 +606,27 @@ function renderSummary(data) {
     coverageBadge("Tracks", data.tracks || 0, "tracks"),
     coverageBadge("Liked", data.liked || 0, "liked")
   ].join("");
-  summaryCoverageEl.innerHTML = `<span class="count-group" aria-label="Coverage">${coverage}</span>`;
-  summaryLabelsEl.innerHTML = `<span class="count-group" aria-label="Label counts">${labelCountBadges(data.labels || {})}</span>`;
+  summaryCoverageEl.innerHTML = `
+    <span class="summary-group summary-coverage" aria-label="Coverage">
+      <span class="summary-group-title">Coverage</span>${coverage}
+    </span>`;
+  summaryLabelsEl.innerHTML = `
+    <span class="summary-group summary-labels" aria-label="Label counts">
+      <span class="summary-group-title">Labels</span>${labelCountBadges(data.labels || {})}
+    </span>`;
 }
 
 function coverageBadge(label, value, key) {
   if (key === "liked") {
     return `
-      <button id="likedTab" type="button" class="count count-button${activeView === "liked" ? " active" : ""}" title="Show liked tracks">
+      <button id="likedTab" type="button" class="summary-badge coverage-liked${activeView === "liked" ? " active" : ""}" title="Show liked tracks">
         <svg class="lucide lucide-heart" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
         </svg>
         <span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b>
       </button>`;
   }
-  return `<span class="count"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`;
+  return `<span class="summary-badge coverage-${escapeHtml(key)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`;
 }
 
 function labelCountBadges(labels) {
@@ -627,14 +640,14 @@ function labelCountBadges(labels) {
       const total = totals ? (totals[label.key] ?? 0) : null;
       const value = totals ? `${current} / ${total}` : `${current}`;
       const title = totals ? `${current} of ${total} tracks labeled "${label.name}" are in this library` : `${label.name}: ${current}`;
-      return `<span class="count" title="${escapeHtml(title)}"><span>${escapeHtml(label.name)}</span><b>${escapeHtml(value)}</b></span>`;
+      return `<span class="summary-badge label-count-badge" title="${escapeHtml(title)}"><span>${escapeHtml(label.name)}</span><b>${escapeHtml(value)}</b></span>`;
     })
     .join("");
 }
 
 function renderGuidance(summary) {
   // Label counts and gates come from the latest readiness only; the summary
-  // supplies track/like totals. Before readiness arrives the cells say so.
+  // supplies track/like totals. Before readiness arrives the cards say so.
   const readiness = latestTrainingReadiness;
   const labelsText = readiness
     ? `${labelCoverageSentence(readiness)}${labelsElsewhereNote(readiness)}`
@@ -653,17 +666,12 @@ function renderGuidance(summary) {
       ? `${recipe.feature_set} features are current`
       : recipeBlockingText(recipe)
     : "checking the feature recipe";
-  guidancePanelEl.innerHTML = [
-    statusCell(activeProfile.name, profileSignalText()),
-    statusCell("Labels", labelsText),
-    statusCell("Training", `${readinessState}, ${recipeState || "feature recipe unavailable"}, last trained: ${lastRun}`),
-    statusCell("Benchmark", winner ? `${winner.feature_set}, F1 ${formatMetricPercent(winner.macro_f1_mean)}, recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No benchmark winner yet"),
-    statusCell("Promotion", selected ? `Selected ${selected.feature_set}, F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No variant selected for promotion yet"),
-  ].join("");
-}
-
-function statusCell(title, text) {
-  return `<div class="status-cell"><b>${escapeHtml(title)}</b><span>${escapeHtml(text)}</span></div>`;
+  guidancePanelEl.innerHTML = `
+    <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(profileSignalText())}</span></div>
+    <div class="guidance-card"><b>Labels</b><span class="meta">${escapeHtml(labelsText)}</span></div>
+    <div class="guidance-card"><b>Training state</b><span class="meta">${escapeHtml(readinessState)}, ${escapeHtml(recipeState || "feature recipe unavailable")}, last trained: ${escapeHtml(lastRun)}</span></div>
+    <div class="guidance-card"><b>Benchmark</b><span class="meta">${winner ? `${escapeHtml(winner.feature_set)}, F1 ${formatMetricPercent(winner.macro_f1_mean)}, recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No benchmark winner yet"}</span></div>
+    <div class="guidance-card"><b>Promotion</b><span class="meta">${selected ? `Selected ${escapeHtml(selected.feature_set)}, F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No variant selected for promotion yet"}</span></div>`;
 }
 
 // "In this library: 11 of 321 Abstract Edge, 6 of 315 Reference." The per-class
@@ -731,7 +739,7 @@ async function loadTracks(options = {}) {
   total = data.total;
   offset = data.offset;
   viewOffsets.library = offset;
-  tracksEl.innerHTML = "";
+  tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
@@ -762,7 +770,7 @@ async function loadLikedTracks(options = {}) {
   total = data.total;
   offset = data.offset;
   viewOffsets.liked = offset;
-  tracksEl.innerHTML = "";
+  tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
@@ -804,7 +812,7 @@ async function loadCollectionTracks(options = {}) {
   total = data.total;
   offset = data.offset;
   viewOffsets.collection = offset;
-  tracksEl.innerHTML = "";
+  tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
@@ -849,7 +857,7 @@ async function loadCandidates(options = {}) {
   total = data.total;
   offset = data.offset;
   viewOffsets.candidates = offset;
-  tracksEl.innerHTML = "";
+  tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
@@ -873,6 +881,13 @@ function bpmFilterValue(value) {
   const parsed = Number(text);
   if (!Number.isFinite(parsed) || parsed <= 0) return "";
   return String(parsed);
+}
+
+function emptyTracksMessage() {
+  const message = activeView === "candidates"
+    ? `No candidates for ${recipeText()} yet. Refresh candidates in the Training tab.`
+    : "No tracks match these filters.";
+  return `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
 async function openLibraryForLabels() {
@@ -899,7 +914,7 @@ async function trainRefresh() {
     stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "train-refresh", stage: "Training complete", percent: 100 });
   } catch (error) {
-    renderTrainingProgress({ status: "failed", stage: "Training failed", error: error.message || String(error), percent: 0 });
+    renderTrainingProgress({ status: "failed", operation: "train-refresh", stage: "Training failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
@@ -933,7 +948,7 @@ async function runBenchmark() {
     stopTrainingProgressPolling();
     renderTrainingProgress({ status: "completed", operation: "benchmark", stage: "Benchmark complete", percent: 100 });
   } catch (error) {
-    renderTrainingProgress({ status: "failed", stage: "Benchmark failed", error: error.message || String(error), percent: 0 });
+    renderTrainingProgress({ status: "failed", operation: "benchmark", stage: "Benchmark failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
@@ -1071,10 +1086,10 @@ async function loadTrainingReadiness() {
 function applyTrainingReadiness(data) {
   if (!data || !trainingPanelEl.querySelector(".classifier-workflow-card")) return;
   const selected = selectedPromotionOption(data);
-  const state = document.getElementById("workflowState");
-  if (state) {
-    state.className = `workflow-state ${data.ready ? "ready" : "blocked"}`;
-    state.textContent = data.ready ? "Ready to train" : "Not ready yet";
+  const chip = document.getElementById("workflowStateChip");
+  if (chip) {
+    chip.className = `workflow-state-chip ${data.ready ? "ready" : "blocked"}`;
+    chip.textContent = data.ready ? "Ready to train" : "Not ready yet";
   }
   const recommendation = document.getElementById("workflowRecommendation");
   if (recommendation) recommendation.textContent = workflowRecommendation(data, selected);
@@ -1113,7 +1128,7 @@ async function loadTrainingView() {
   if (!activeProfile) return;
   const profileKey = activeProfile.classifier_key;
   // Keep the mounted block on screen while readiness is in flight; only an
-  // empty panel (first open, other profile) shows the loading note.
+  // empty panel (first open, other profile) shows the loading card.
   if (!trainingBlockMounted(profileKey)) trainingPanelEl.innerHTML = renderTrainingLoading(activeProfile.name);
   try {
     const data = await loadTrainingReadiness();
@@ -1142,14 +1157,14 @@ function mountTrainingBlock(data) {
 }
 
 function renderTrainingLoading(profileName) {
-  return `<div class="training-note"><b>Loading training</b>
-    <span class="meta">Checking labels, feature sources and saved models for ${escapeHtml(profileName)}…</span>
+  return `<div class="training-info-card"><b>Loading training</b>
+    <span class="meta training-info-text">Checking labels, feature sources and saved models for ${escapeHtml(profileName)}…</span>
   </div>`;
 }
 
 function renderTrainingLoadError(error) {
-  return `<div class="training-note"><b>Training could not load</b>
-    <span class="meta">${escapeHtml(error?.message || String(error))}</span>
+  return `<div class="training-info-card"><b>Training could not load</b>
+    <span class="meta training-info-text">${escapeHtml(error?.message || String(error))}</span>
   </div>`;
 }
 
@@ -1157,42 +1172,42 @@ function renderTrainingLoadError(error) {
 // that depends on readiness is filled by applyTrainingReadiness().
 function renderTrainingSkeleton() {
   return `<div class="classifier-workflow-card">
-    <header class="workflow-section workflow-header">
-      <div class="workflow-heading">
-        <h2>Training</h2>
+    <div class="workflow-header">
+      <div>
+        <b>Classifier workflow</b>
         <span class="meta">${escapeHtml(activeProfile.name)}, ${escapeHtml(profileTypeLabel())}</span>
-        <span id="workflowState" class="workflow-state"></span>
       </div>
-      <p class="workflow-recommendation"><b>Next step:</b> <span id="workflowRecommendation"></span></p>
-    </header>
-    <section class="workflow-section recipe-builder" aria-labelledby="recipeHeading">
-      <div class="section-heading">
-        <h3 id="recipeHeading">Recipe</h3>
+      <span id="workflowStateChip" class="workflow-state-chip"></span>
+    </div>
+    <div class="workflow-recommendation">
+      <b>Recommendation</b>
+      <span id="workflowRecommendation"></span>
+    </div>
+    <div class="recipe-builder">
+      <div class="recipe-builder-header">
+        <b>Training recipe</b>
         <span class="meta">Pick one or more models stored in this library.</span>
       </div>
-      <div id="recipeRack" class="recipe-rack" role="group" aria-labelledby="recipeHeading"></div>
-      <p class="recipe-line">Recipe <code id="recipeString"></code></p>
-      <p id="recipeMissing" class="recipe-missing" hidden></p>
-    </section>
-    <section class="workflow-section workflow-variant" aria-label="Trained variant">
-      <div class="workflow-variant-row">
-        <label class="field">Selected variant
-          <select id="promoteFeatureSet"></select>
-        </label>
-        <div class="field">Artifact state
-          <span id="artifactState" class="workflow-variant-note"></span>
-        </div>
-      </div>
-      <dl id="workflowFacts" class="facts facts-grid"></dl>
-    </section>
-    <div class="workflow-section training-workflow-feedback"${workflowStatusText ? "" : " hidden"}>
-      <span id="refreshCandidatesStatus" class="source-status-line">${escapeHtml(workflowStatusText)}</span>
+      <div id="recipeRack" class="recipe-rack"></div>
+      <p class="recipe-line">Recipe <code id="recipeString"></code>.<span id="recipeMissing" class="recipe-missing"></span></p>
     </div>
-    <div id="trainingProgress" class="workflow-section training-progress" role="status" aria-live="polite" hidden>
+    <div class="workflow-variant-row">
+      <label class="workflow-variant-select">Selected variant
+        <select id="promoteFeatureSet"></select>
+      </label>
+      <div class="workflow-variant-select">Artifact state
+        <span id="artifactState" class="workflow-variant-note"></span>
+      </div>
+      <div id="workflowFacts" class="workflow-variant-facts"></div>
+    </div>
+    <div class="training-workflow-feedback"${workflowStatusText ? "" : " hidden"}>
+      <span id="refreshCandidatesStatus" class="meta source-status-line">${escapeHtml(workflowStatusText)}</span>
+    </div>
+    <div id="trainingProgress" class="training-progress" role="status" aria-live="polite" hidden>
       <div class="training-progress-header"><span id="trainingProgressStage"></span><b id="trainingProgressPercent">0%</b></div>
       <div class="training-progress-track"><span id="trainingProgressBar"></span></div>
     </div>
-    <ol id="workflowSteps" class="workflow-section workflow-steps"></ol>
+    <div id="workflowSteps" class="workflow-steps"></div>
   </div>`;
 }
 
@@ -1323,19 +1338,29 @@ function canPromoteArtifact(data) {
 }
 
 function renderWorkflowStep({ number, title, status, body, details = "", wide = false, action = "" }) {
-  return `<li class="workflow-step workflow-step-${status}${wide ? " workflow-step-wide" : ""}">
-    <span class="workflow-step-index">${number}</span>
+  return `<section class="workflow-step workflow-step-${status}${wide ? " workflow-step-wide" : ""}">
+    <div class="workflow-step-index">${number}</div>
     <div class="workflow-step-copy">
-      <div class="workflow-step-title"><h3>${escapeHtml(title)}</h3><span class="workflow-step-state">${escapeHtml(STEP_STATUS_LABELS[status] || status)}</span></div>
-      <p class="workflow-step-body">${escapeHtml(body)}</p>
+      <div class="workflow-step-title"><b>${escapeHtml(title)}</b><span class="workflow-state-chip ${status}">${escapeHtml(STEP_STATUS_LABELS[status] || status)}</span></div>
+      <span class="meta">${escapeHtml(body)}</span>
       ${details}
     </div>
     ${wide ? "" : `<div class="workflow-step-action">${action}</div>`}
-  </li>`;
+  </section>`;
 }
 
 function workflowButton(id, action, label, className, disabled, title) {
-  return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</button>`;
+  return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${actionIcon(action)}<span>${escapeHtml(label)}</span></button>`;
+}
+
+function actionIcon(action) {
+  if (action === "library") return '<svg class="lucide lucide-library-big" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1" /><path d="M7 3v18" /><path d="M20.4 18.9c.2.7-.2 1.4-.9 1.6l-3.7 1c-.7.2-1.4-.2-1.6-.9L9.1 5.1c-.2-.7.2-1.4.9-1.6l3.7-1c.7-.2 1.4.2 1.6.9Z" /></svg>';
+  if (action === "train") return '<svg class="lucide lucide-brain" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>';
+  if (action === "candidates") return '<svg class="lucide lucide-sparkles" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594Z" /><path d="M20 2v4" /><path d="M22 4h-4" /></svg>';
+  if (action === "benchmark") return '<svg class="lucide lucide-chart-no-axes-column-increasing" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" /></svg>';
+  if (action === "calibrate") return '<svg class="lucide lucide-gauge" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /></svg>';
+  if (action === "refresh") return '<svg class="lucide lucide-refresh-cw" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" /></svg>';
+  return '<svg class="lucide lucide-upload" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>';
 }
 
 function workflowRecommendation(data, selected) {
@@ -1504,7 +1529,7 @@ function joinNames(names) {
 // library, in the mandated order. A recipe is the set of engaged slots.
 function renderRecipeSlots(data) {
   const available = orderedFamilies(data?.available_feature_sources || []);
-  if (!available.length) return '<p class="recipe-empty">This library has no stored feature sources.</p>';
+  if (!available.length) return '<span class="meta">This library has no stored feature sources.</span>';
   const selected = selectedRecipeFamilies();
   const layers = storedMertV2Layers(data);
   const layer = currentMertV2Layer(data);
@@ -1512,7 +1537,7 @@ function renderRecipeSlots(data) {
     const layerSelect = family === "mert_v2" && layers.length
       ? `<select data-recipe-layer aria-label="MERT-v2 layer" title="MERT-v2 layer stored in this library">${layers.map(value => `<option value="${value}" ${value === layer ? "selected" : ""}>Layer ${value}</option>`).join("")}</select>`
       : "";
-    return `<div class="recipe-slot" data-family="${escapeHtml(family)}">
+    return `<div class="recipe-slot">
       <label>
         <input type="checkbox" data-recipe-family="${escapeHtml(family)}" ${selected.has(family) ? "checked" : ""} />
         <span>${escapeHtml(familyLabel(family))}</span>
@@ -1549,10 +1574,7 @@ function updateRecipeLine(data = latestTrainingReadiness) {
   const codeEl = document.getElementById("recipeString");
   if (codeEl) codeEl.textContent = selectedTrainingFeatureSet || "none";
   const missingEl = document.getElementById("recipeMissing");
-  if (missingEl) {
-    missingEl.textContent = missingFamiliesText(data);
-    missingEl.hidden = !missingEl.textContent;
-  }
+  if (missingEl) missingEl.textContent = missingFamiliesText(data);
 }
 
 function missingFamiliesText(data) {
@@ -1561,7 +1583,7 @@ function missingFamiliesText(data) {
     .filter(family => !available.includes(family))
     .map(familyLabel);
   if (!missing.length) return "";
-  return `Not in this library: ${missing.join(", ")}. Run ${joinNames(missing)} analysis in the main app, then reload the library.`;
+  return ` Not in this library: ${missing.join(", ")}. Run ${joinNames(missing)} analysis in the main app, then reload the library.`;
 }
 
 // ---- Benchmark panel ---------------------------------------------------------
@@ -1703,93 +1725,44 @@ function formatLadderDelta(current, reference) {
 
 // The ladder: ranked by cross-validated macro-F1. The rows within one standard
 // deviation of the best form a prefix of the ranking, so they are bracketed as
-// a group on the left edge instead of being badged one by one. Each recipe is
-// drawn as the rack's model grid, and each score as mean ± std on one scale.
+// a group on the left edge instead of being badged one by one.
 function renderBenchmarkResults(report = latestBenchmarkReport) {
-  if (!report) return '<p class="meta">Run a benchmark to compare recipes.</p>';
+  if (!report) return '<span class="meta">Run a benchmark to compare recipes.</span>';
   const rows = benchmarkResultRows(report);
-  if (!rows.length) return '<p class="meta">The benchmark returned no results.</p>';
+  if (!rows.length) return '<span class="meta">The benchmark returned no results.</span>';
   const trained = rows.filter(row => row.mean !== null);
   const best = trained[0] || null;
   const bandSize = best && best.std !== null ? trained.filter(row => row.mean >= best.mean - best.std).length : 0;
   const bracket = bandSize >= 2;
   const allModels = latestTrainingReadiness?.default_feature_set || null;
   const reference = trained.find(row => row.featureSet === allModels) || null;
-  const families = ladderFamilies(rows);
-  const showLayers = rows.some(row => recipeTokens(row.featureSet).some(token => token.includes("@")));
-  const scale = ladderScale(trained);
   const body = [];
   rows.forEach((row, index) => {
     const isTrained = row.mean !== null;
     const inBand = bracket && isTrained && index < bandSize;
-    const classes = [inBand ? "ladder-band" : "", inBand && index === 0 ? "ladder-band-start" : "", isTrained ? "" : "ladder-unavailable"].filter(Boolean).join(" ");
-    const grid = `<td class="ladder-models">${recipeGrid(row.featureSet, families, showLayers)}</td>`;
-    if (!isTrained) {
-      body.push(`<tr class="${classes}"><td class="ladder-rank"></td>${grid}<td colspan="3">${escapeHtml(row.error || row.status)}</td><td></td></tr>`);
-      return;
-    }
-    const score = `${(row.mean * 100).toFixed(1)}${row.std !== null ? ` ± ${(row.std * 100).toFixed(1)}` : ""}`;
-    const delta = reference ? (row === reference ? "baseline" : formatLadderDelta(row.mean, reference.mean)) : "";
-    body.push(`<tr class="${classes}"><td class="ladder-rank">${index + 1}</td>${grid}<td class="ladder-plot">${ladderWhisker(row, scale)}</td><td class="ladder-number">${score}</td><td class="ladder-number">${delta}</td><td class="ladder-action"><button type="button" data-recipe-apply="${escapeHtml(row.featureSet)}" title="Make ${escapeHtml(row.featureSet)} the training recipe">Use this recipe</button></td></tr>`);
+    const classes = [inBand ? "ladder-band" : "", isTrained ? "" : "ladder-unavailable"].filter(Boolean).join(" ");
+    const score = isTrained
+      ? `${(row.mean * 100).toFixed(1)}${row.std !== null ? ` ± ${(row.std * 100).toFixed(1)}` : ""}`
+      : "";
+    const delta = isTrained && reference ? (row === reference ? "baseline" : formatLadderDelta(row.mean, reference.mean)) : "";
+    const recipe = isTrained
+      ? `<code>${escapeHtml(row.featureSet)}</code>`
+      : `<code>${escapeHtml(row.featureSet)}</code> <span class="meta">${escapeHtml(row.error || row.status)}</span>`;
+    const action = isTrained
+      ? `<button type="button" data-recipe-apply="${escapeHtml(row.featureSet)}" title="Make ${escapeHtml(row.featureSet)} the training recipe">Use this recipe</button>`
+      : "";
+    body.push(`<tr class="${classes}"><td class="ladder-rank">${isTrained ? index + 1 : ""}</td><td class="ladder-recipe">${recipe}</td><td class="ladder-number">${score}</td><td class="ladder-number">${delta}</td><td class="ladder-action">${action}</td></tr>`);
     if (bracket && index === bandSize - 1) {
-      body.push('<tr class="ladder-band ladder-band-caption"><td></td><td colspan="5">Within noise of the best</td></tr>');
+      body.push('<tr class="ladder-band ladder-band-caption"><td></td><td colspan="4">Within noise of the best</td></tr>');
     }
   });
   const note = reference
     ? ""
     : '<p class="meta ladder-note">The all-models recipe was not in this run, so the comparison column is empty.</p>';
-  const axis = scale
-    ? `<span class="ladder-axis"><span>${scale.low}</span><span>Macro-F1, %</span><span>${scale.high}</span></span>`
-    : "Macro-F1, %";
-  return `<div class="ladder-scroll"><table class="ladder" aria-label="Benchmark results ranked by cross-validated macro-F1">
-    <thead><tr><th class="ladder-rank" scope="col">#</th><th class="ladder-models" scope="col"><span class="ladder-grid">${families.map(family => `<span>${escapeHtml(familyLabel(family))}</span>`).join("")}</span></th><th class="ladder-plot" scope="col">${axis}</th><th class="ladder-number" scope="col">Mean ± std</th><th class="ladder-number" scope="col">vs all models</th><th class="ladder-action" scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
+  return `<div class="ladder-scroll"><table class="ladder">
+    <thead><tr><th class="ladder-rank">#</th><th>Recipe</th><th class="ladder-number">Macro-F1 (%)</th><th class="ladder-number">vs all models</th><th></th></tr></thead>
     <tbody>${body.join("")}</tbody>
   </table></div>${note}`;
-}
-
-// Columns of the model grid: every stored family plus any family a result row
-// names, in the rack's order.
-function ladderFamilies(rows) {
-  const families = new Set(latestTrainingReadiness?.available_feature_sources || []);
-  rows.forEach(row => recipeTokens(row.featureSet).forEach(token => families.add(recipeTokenFamily(token))));
-  return orderedFamilies(families);
-}
-
-function recipeGrid(featureSet, families, showLayers) {
-  const tokens = recipeTokens(featureSet);
-  const byFamily = new Map(tokens.map(token => [recipeTokenFamily(token), token]));
-  const cells = families.map(family => {
-    const token = byFamily.get(family);
-    if (!token) return '<span class="grid-cell"></span>';
-    const layer = family === "mert_v2" && showLayers ? token.split("@")[1] || String(MERT_V2_DEFAULT_LAYER) : "";
-    return `<span class="grid-cell on">${escapeHtml(layer)}</span>`;
-  }).join("");
-  return `<span class="ladder-grid" role="img" aria-label="${escapeHtml(tokens.map(recipeTokenLabel).join(", "))}" title="${escapeHtml(featureSet)}">${cells}</span>`;
-}
-
-// One shared scale for the ladder's mean ± std marks, rounded out to whole
-// percent so the two end labels stay clean.
-function ladderScale(trained) {
-  if (!trained.length) return null;
-  const lowest = Math.min(...trained.map(row => row.mean - (row.std ?? 0)));
-  const highest = Math.max(...trained.map(row => row.mean + (row.std ?? 0)));
-  let low = Math.max(0, Math.floor(lowest * 100) - 1);
-  let high = Math.min(100, Math.ceil(highest * 100) + 1);
-  if (high - low < 2) {
-    if (high < 100) high = Math.min(100, low + 2);
-    else low = Math.max(0, high - 2);
-  }
-  const position = value => Math.max(0, Math.min(100, ((value * 100 - low) / (high - low)) * 100));
-  return { low, high, position };
-}
-
-function ladderWhisker(row, scale) {
-  if (!scale) return "";
-  const std = row.std ?? 0;
-  const start = scale.position(row.mean - std);
-  const end = scale.position(row.mean + std);
-  const center = scale.position(row.mean);
-  return `<span class="whisker" aria-hidden="true"><span class="whisker-range" style="left:${start.toFixed(2)}%;width:${(end - start).toFixed(2)}%"></span><span class="whisker-dot" style="left:${center.toFixed(2)}%"></span></span>`;
 }
 
 function renderBenchmarkResultsInPlace() {
@@ -1900,17 +1873,17 @@ function refreshTrainingInformation(data) {
 }
 
 function renderTrainingInformationMetrics(data) {
-  return `<section class="training-info-card" aria-labelledby="trainingOverviewHeading">
-    <div class="section-heading">
-      <h3 id="trainingOverviewHeading">Training overview</h3>
+  return `<section class="training-info-card">
+    <header class="training-info-heading">
+      <b>Training overview</b>
       <span class="meta">The latest training checkpoint and the promoted model that scores tracks.</span>
-    </div>
-    <dl class="facts">
+    </header>
+    <div class="meta training-info-text">
       ${renderTrainingLastRunLine(data)}
       ${renderTrainingPromotedModelLine(data?.promoted_model)}
       ${renderTrainingMetricsLine(data?.promoted_model)}
       ${renderTrainingDynamicsLine(data?.metrics_history)}
-    </dl>
+    </div>
   </section>`;
 }
 
@@ -1983,7 +1956,7 @@ function renderTrainingDynamicsLine(history) {
 }
 
 function trainingInfoLine(label, text) {
-  return `<div class="fact"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(text)}</dd></div>`;
+  return `<span class="training-info-line"><b class="training-info-label">${escapeHtml(label)}</b><span class="training-info-value">${escapeHtml(text)}</span></span>`;
 }
 
 async function loadSettingsView() {
@@ -2027,20 +2000,21 @@ function genreBadges(track) {
 }
 
 function trackMarkup(track) {
-  const genres = genreBadges(track);
   return `
-    <span class="track-number">${track.rowNumber}</span>
-    <div class="track-body">
+    <div>
       <div class="track-main">
-        <strong class="track-heading"><span class="track-title-main">${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>
+        <strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>
         <div class="meta track-path">${escapeHtml(track.file_path)}</div>
-        <div class="meta feature-line">${trackStatusLine(track)}${genres ? `<span class="status-item"><b>Genres</b><span class="genres">${genres}</span></span>` : ""}${badgeRow(track)}</div>
+        <div class="meta feature-line">${trackStatusLine(track)}</div>
       </div>
-      <audio controls preload="none" src="/media/${track.track_id}"></audio>
+      <div class="rhythm-media-block">
+        <div class="meta genres-line"><span class="status-item"><b>Genres</b></span><span class="genres">${genreBadges(track)}</span>${badgeRow(track)}</div>
+        <audio controls preload="none" src="/media/${track.track_id}"></audio>
+      </div>
     </div>
     <div class="actions">
       <div class="row-tools">${renderLikeButton(track)}</div>
-      <div class="label-actions${isMulticlassProfile() && hasContentKey(track) ? " multiclass-label-actions" : ""}">${hasContentKey(track) ? renderLabelButtons(track) : noFingerprintHint()}</div>
+      <div class="label-actions ${isMulticlassProfile() && hasContentKey(track) ? "multiclass-label-actions" : ""}">${hasContentKey(track) ? renderLabelButtons(track) : noFingerprintHint()}</div>
     </div>`;
 }
 
@@ -2066,7 +2040,7 @@ function markPageDuplicates(items) {
 
 function duplicateBadge(track) {
   return track.duplicateOnPage
-    ? '<span class="duplicate-badge" title="Same audio as a row above on this page; the rows share one label">Duplicate</span>'
+    ? '<span class="profile-label-badge duplicate-badge" title="Same audio as a row above on this page; the rows share one label">Duplicate</span>'
     : "";
 }
 
@@ -2086,9 +2060,9 @@ function renderLabelButtons(track) {
   const buttons = activeProfile.labels.map((label, index) => {
     const active = track.label === label.key;
     const shortcut = index < 9 ? ` (key ${index + 1})` : "";
-    return `<button type="button" class="label-button role-${escapeHtml(label.role)}${active ? " active" : ""}" data-action="label" data-label="${escapeHtml(label.key)}" aria-pressed="${active ? "true" : "false"}" title="${escapeHtml(`${label.name}${shortcut}`)}">${escapeHtml(label.name)}</button>`;
+    return `<button type="button" class="role-${escapeHtml(label.role)}${active ? " active" : ""}" data-action="label" data-label="${escapeHtml(label.key)}" aria-pressed="${active ? "true" : "false"}" title="${escapeHtml(`${label.name}${shortcut}`)}">${escapeHtml(label.name)}</button>`;
   });
-  buttons.push('<button type="button" class="label-button label-clear" data-action="label" data-label="" title="Clear the label (key 0)">Clear label</button>');
+  buttons.push('<button type="button" class="label-clear" data-action="label" data-label="" title="Clear the label (key 0)">Clear label</button>');
   return buttons.join("");
 }
 
@@ -2345,7 +2319,7 @@ function updatePager(data) {
 
 function badgeRow(track) {
   const badges = [duplicateBadge(track), syncopatedBadge(track)].filter(Boolean);
-  return badges.length ? `<span class="badge-row">${badges.join("")}</span>` : "";
+  return badges.length ? `<div class="badge-row">${badges.join('<span class="badge-separator">·</span>')}</div>` : "";
 }
 
 function syncopatedBadge(track) {
@@ -2441,7 +2415,7 @@ function trackStatusLine(track) {
     trainedStatus(track),
     assignedLabelStatus(track),
     activeView === "candidates" ? predictionScoreStatus(track) : "",
-  ].filter(Boolean).join("");
+  ].filter(Boolean).join(" ");
 }
 
 function trackFeatureState(track, source) {
@@ -2518,7 +2492,7 @@ function positiveScore(track) {
 }
 
 function featureStatusBadge(name, value) {
-  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-off"}">${mark(value)}</span></span>`;
+  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-no"}">${mark(value)}</span></span>`;
 }
 
 function showError(error) {

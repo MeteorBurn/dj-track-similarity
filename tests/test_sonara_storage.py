@@ -584,7 +584,7 @@ def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
 
     # An ML-only job never analyses with the range, so it does not claim one...
     with pytest.raises(ValueError, match="requires at least one track"):
-        manager.create_job(models=["maest"], sonara_bpm_min=70, sonara_bpm_max=180)
+        manager.create_job(models=["maest"])
     # ...a SONARA job refused over another setting claims nothing either...
     with pytest.raises(ValueError, match="Staged SONARA mode requires staging settings"):
         manager.create_job(models=["sonara"], sonara_mode="staged", sonara_bpm_min=79, sonara_bpm_max=192)
@@ -608,9 +608,10 @@ def test_library_claims_one_bpm_range_and_holds_every_later_run_to_it(
 
     with pytest.raises(ValueError, match="Reset SONARA analysis"):
         manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
-    # ...and is not refused by a different one once the library has claimed it.
+    # An ML job is not held to the claimed range either: it fails only for
+    # lacking SONARA tracks.
     with pytest.raises(ValueError, match="requires at least one track"):
-        manager.create_job(models=["maest"], sonara_bpm_min=70, sonara_bpm_max=180)
+        manager.create_job(models=["maest"])
 
 
 def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(

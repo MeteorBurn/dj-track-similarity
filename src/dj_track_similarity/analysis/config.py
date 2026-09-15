@@ -162,6 +162,12 @@ def build_analysis_job_config(
     ml_staging_config: MLStagingConfig | None = None,
 ) -> AnalysisJobConfig:
     normalized_models = normalize_analysis_models(models)
+    # Each layer takes only its own settings; the other layer would ignore them.
+    is_sonara = normalized_models == ("sonara",)
+    if not is_sonara and (sonara_bpm_min is not None or sonara_bpm_max is not None):
+        raise ValueError("The SONARA BPM range applies only to SONARA analysis")
+    if is_sonara and ml_staging_config is not None:
+        raise ValueError("ML staged mode applies only to ML models")
     normalized_sonara_mode = normalize_sonara_mode(sonara_mode)
     if normalized_sonara_mode == "staged" and sonara_staging_config is None:
         raise ValueError("Staged SONARA mode requires staging settings")
@@ -189,9 +195,7 @@ def build_analysis_job_config(
         )
     return AnalysisJobConfig(
         models=normalized_models,
-        require_current_sonara=bool(
-            normalized_models and normalized_models != ("sonara",)
-        ),
+        require_current_sonara=not is_sonara,
         limit=_normalize_limit(limit),
         device=normalize_analysis_device(device),
         top_k=_int_in_range(

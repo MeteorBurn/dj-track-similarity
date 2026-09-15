@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from dj_track_similarity.analysis.ml_staging import MLStagingConfig
 from dj_track_similarity.analysis.config import (
     build_analysis_job_config,
     normalize_analysis_device,
@@ -101,8 +104,17 @@ def test_sonara_mode_rejects_unknown_or_incomplete_staged_configuration() -> Non
         ({"track_batch_size": 65}, "track_batch_size must be between 1 and 64"),
         ({"inference_batch_size": 0}, "inference_batch_size must be between 1 and 128"),
         ({"sonara_batch_size": 17}, "sonara_batch_size must be between 1 and 16"),
+        # A setting of the other layer is refused rather than silently ignored.
+        ({"sonara_bpm_min": 70.0, "sonara_bpm_max": 140.0}, "BPM range applies only to SONARA"),
+        (
+            {"models": ["sonara"], "ml_staging_config": MLStagingConfig(root=Path("staging"))},
+            "ML staged mode applies only to ML models",
+        ),
     ],
 )
-def test_build_analysis_job_config_rejects_values_outside_shared_ranges(kwargs: dict[str, int], message: str) -> None:
+def test_build_analysis_job_config_rejects_out_of_range_or_other_layer_settings(
+    kwargs: dict[str, object],
+    message: str,
+) -> None:
     with pytest.raises(ValueError, match=message):
         build_analysis_job_config(**kwargs)

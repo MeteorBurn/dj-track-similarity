@@ -134,12 +134,17 @@ work unverified rather than inventing its instructions.
 
 The suite is a set of standing contracts, not a log of past edits. It should
 stay roughly the same size from one feature to the next. A change does not earn
-a test by existing, and a growing test count is a defect, not progress.
+a test by existing, and a growing test count is a defect, not progress. This
+overrides the rule of TDD skills that every feature, fix, refactor or behavior
+change starts with a new test: admit a test only under the rules below.
 
 - Add a test only for something durable: a persisted schema, migration, or
   on-disk format; an HTTP payload, CLI contract, or other cross-boundary shape;
   a scoring, ranking, or safety invariant; or a reproduced bug whose cause is
   understood, asserted at the cause rather than the symptom.
+- A new or extended test must fail without what it protects. Before keeping it,
+  revert the fix or break that behavior in a disposable copy, watch the test go
+  red, and report that run. A test that stays green protects nothing.
 - Add no test for cosmetics, labels, copy, tooltips, colors, class names, the
   order of fields, rows, or menu entries, or a default, threshold, or option
   that is expected to keep moving.
@@ -148,9 +153,9 @@ a test by existing, and a growing test count is a defect, not progress.
 - Never assert on the text of a source file. Reading a module, script, or
   `.cmd` file and matching strings pins how the code is written instead of what
   it does. Drive the running module and assert its behavior.
-  `frontend/tests/testsExecuteCode.test.mjs` checks for loader patterns outside
-  its legacy exemptions; it does not prove that assertions exercise behavior
-  and does not replace review. Do not grow the legacy exemption list.
+  `frontend/tests/testsExecuteCode.test.mjs` fails every frontend test that
+  never reaches the module it checks through a loader or a `../src/` import; it
+  does not prove that assertions exercise behavior and does not replace review.
 - When behavior changes, edit the existing test that owns that contract instead
   of adding a second one. Two tests over one contract mean one is redundant.
 - Delete a test whose contract is gone, and delete a test that blocks an

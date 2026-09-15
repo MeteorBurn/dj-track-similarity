@@ -412,11 +412,11 @@ class RhythmLabDatabase:
         positive_label, negative_label = _training_labels_from_specs(label_specs, profile_type=clean_type)
         clean_name = name.strip()
         if not clean_name:
-            raise ValueError("Укажите имя профиля")
+            raise ValueError("Profile name is required")
         artifact_path = _normalize_artifact_dir(artifact_dir or _default_artifact_dir(key))
         prefix = (artifact_prefix or key.replace("_", "-")).strip()
         if not prefix:
-            raise ValueError("Укажите префикс артефактов")
+            raise ValueError("Artifact prefix is required")
         min_added = _validate_training_min_added(training_min_added)
         min_labels = _validate_training_min_labels(training_min_labels)
         with self.connect() as connection:
@@ -446,8 +446,8 @@ class RhythmLabDatabase:
             except sqlite3.IntegrityError as error:
                 message = str(error).lower()
                 if "profile_name" in message or "index" in message:
-                    raise ValueError(f"Профиль с таким именем уже существует: {clean_name}") from error
-                raise ValueError(f"Профиль уже существует или задан некорректно: {key}") from error
+                    raise ValueError(f"A profile with this name already exists: {clean_name}") from error
+                raise ValueError(f"Profile already exists or is invalid: {key}") from error
         return self.get_profile(key)
 
     def update_profile(
@@ -468,7 +468,7 @@ class RhythmLabDatabase:
             current_profile = _get_profile(connection, key)
             clean_type = _validate_profile_type(profile_type) if profile_type is not None else current_profile.profile_type
             if profile_type is not None and clean_type != current_profile.profile_type and labels is None:
-                raise ValueError("Смена типа профиля требует заменить его метки")
+                raise ValueError("Changing the profile type requires replacing its labels")
             assignments: list[str] = []
             params: list[object] = []
             if profile_type is not None and clean_type != current_profile.profile_type:
@@ -477,7 +477,7 @@ class RhythmLabDatabase:
             if name is not None:
                 clean_name = name.strip()
                 if not clean_name:
-                    raise ValueError("Укажите имя профиля")
+                    raise ValueError("Profile name is required")
                 assignments.append("name = ?")
                 params.append(clean_name)
             if description is not None:
@@ -489,7 +489,7 @@ class RhythmLabDatabase:
             if artifact_prefix is not None:
                 prefix = artifact_prefix.strip()
                 if not prefix:
-                    raise ValueError("Укажите префикс артефактов")
+                    raise ValueError("Artifact prefix is required")
                 assignments.append("artifact_prefix = ?")
                 params.append(prefix)
             if training_min_added is not None:
@@ -508,7 +508,7 @@ class RhythmLabDatabase:
                 except sqlite3.IntegrityError as error:
                     message = str(error).lower()
                     if "profile_name" in message or "index" in message:
-                        raise ValueError(f"Профиль с таким именем уже существует: {name.strip() if name else ''}") from error
+                        raise ValueError(f"A profile with this name already exists: {name.strip() if name else ''}") from error
                     raise
             if labels is not None:
                 label_specs = _normalize_profile_labels(labels, profile_type=clean_type)
@@ -516,7 +516,7 @@ class RhythmLabDatabase:
                 missing = sorted(existing - {label.key for label in label_specs})
                 if missing:
                     raise ValueError(
-                        "Нельзя удалить метки, которые уже используются; сначала переименуйте или очистите их: "
+                        "Cannot remove labels that are already used; rename or clear them first: "
                         + ", ".join(missing)
                     )
                 positive_label, negative_label = _training_labels_from_specs(label_specs, profile_type=clean_type)
@@ -609,7 +609,7 @@ class RhythmLabDatabase:
                 (profile_key, old_label),
             ).fetchone()
             if label_row is None:
-                raise KeyError(f"У профиля {profile_key} нет метки {old_label}")
+                raise KeyError(f"Profile {profile_key} has no label {old_label}")
             conflict = connection.execute(
                 """
                 SELECT 1 FROM classifier_profile_labels
@@ -618,7 +618,7 @@ class RhythmLabDatabase:
                 (profile_key, new_label),
             ).fetchone()
             if conflict is not None:
-                raise ValueError(f"У профиля {profile_key} уже есть метка {new_label}")
+                raise ValueError(f"Profile {profile_key} already has label {new_label}")
             new_name = display_name.strip() if display_name is not None else str(label_row["display_name"])
             new_description = description.strip() if description is not None else str(label_row["description"] or "")
             connection.execute(
@@ -673,7 +673,7 @@ class RhythmLabDatabase:
         label = label.strip()
         profile = self.get_profile()
         if label not in profile.label_keys:
-            raise ValueError(f"Неподдерживаемая метка: {label}")
+            raise ValueError(f"Unsupported label: {label}")
         with self.connect() as connection:
             connection.execute(
                 """
@@ -958,7 +958,7 @@ class RhythmLabDatabase:
                 unsupported = sorted(staged_labels - allowed_labels)
                 if unsupported:
                     raise ValueError(
-                        "Неподдерживаемая предсказанная метка: "
+                        "Unsupported predicted label: "
                         + ", ".join(unsupported)
                     )
                 connection.execute("BEGIN IMMEDIATE")
@@ -1016,7 +1016,7 @@ class RhythmLabDatabase:
         )
         if unsupported:
             raise ValueError(
-                "Неподдерживаемая предсказанная метка: "
+                "Unsupported predicted label: "
                 + ", ".join(unsupported)
             )
         clean_feature_set = _required_identity_text(feature_set, "feature_set")
@@ -1187,7 +1187,7 @@ def track_content_key(track: SourceTrack) -> str:
     if not isinstance(track, SourceTrack):
         raise TypeError("track must be a SourceTrack")
     if not track.content_key:
-        raise ValueError("У трека нет отпечатка SONARA; сначала проанализируйте его в основном приложении")
+        raise ValueError("Track has no SONARA fingerprint; analyze it in the main app first")
     return track.content_key
 
 
@@ -1226,7 +1226,7 @@ def require_fingerprint_table(connection: sqlite3.Connection, alias: str) -> Non
     ).fetchone()
     if row is None:
         raise SourceDatabaseIntegrityError(
-            "В библиотеке нет таблицы sonara_fingerprints; сначала выполните анализ SONARA в основном приложении"
+            "Library has no sonara_fingerprints table; run SONARA analysis in the main app first"
         )
 
 
@@ -1319,10 +1319,10 @@ def upsert_track_sightings(
     }
     if stored_versions and incoming_versions - stored_versions:
         raise ContentKeyVersionChanged(
-            "Версия отпечатка SONARA изменилась "
-            f"(в базе меток {sorted(stored_versions)}, в библиотеке {sorted(incoming_versions)}); "
-            "метки привязаны к сохранённой версии. Перед синхронизацией этой библиотеки "
-            f"перекодируйте их командой `{CONTENT_IDENTITY_MIGRATION_COMMAND} --rekey`"
+            "SONARA fingerprint version changed "
+            f"(labels database {sorted(stored_versions)}, library {sorted(incoming_versions)}); "
+            "labels are bound to the stored version. Before syncing this library, "
+            f"rekey them with `{CONTENT_IDENTITY_MIGRATION_COMMAND} --rekey`"
         )
     cursor = connection.execute(
         """
@@ -1566,7 +1566,7 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
         (classifier_key,),
     ).fetchone()
     if row is None:
-        raise KeyError(f"Неизвестный профиль: {classifier_key}")
+        raise KeyError(f"Unknown profile: {classifier_key}")
     label_rows = connection.execute(
         """
         SELECT label_key, display_name, description, role, position
@@ -1605,7 +1605,7 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
 def _get_profile_by_name(connection: sqlite3.Connection, name: str) -> ClassifierProfile:
     clean_name = name.strip()
     if not clean_name:
-        raise ValueError("Укажите имя профиля")
+        raise ValueError("Profile name is required")
     row = connection.execute(
         """
         SELECT classifier_key
@@ -1625,7 +1625,7 @@ def _normalize_profile_labels(
     profile_type: str = "binary",
 ) -> tuple[ClassifierProfileLabel, ...]:
     if not labels:
-        raise ValueError("Нужно не меньше двух обучающих меток")
+        raise ValueError("At least two training labels are required")
     clean_type = _validate_profile_type(profile_type)
     result: list[ClassifierProfileLabel] = []
     seen: set[str] = set()
@@ -1642,11 +1642,11 @@ def _normalize_profile_labels(
             description = str(raw.get("description") or "").strip()
         key = _validate_label_key(key)
         if key in seen:
-            raise ValueError(f"Ключ метки повторяется: {key}")
+            raise ValueError(f"Duplicate label key: {key}")
         if role not in PROFILE_LABEL_ROLES:
-            raise ValueError(f"Неподдерживаемая роль метки: {role}")
+            raise ValueError(f"Unsupported label role: {role}")
         if not name:
-            raise ValueError(f"Укажите отображаемое имя метки: {key}")
+            raise ValueError(f"Display name is required for label: {key}")
         seen.add(key)
         result.append(ClassifierProfileLabel(key=key, name=name, role=role, description=description, position=position))
     _training_labels_from_specs(tuple(result), profile_type=clean_type)
@@ -1659,17 +1659,17 @@ def _training_labels_from_specs(labels: tuple[ClassifierProfileLabel, ...], *, p
         classes = [label.key for label in labels if label.role == "class"]
         unsupported = [label.role for label in labels if label.role != "class"]
         if unsupported:
-            raise ValueError("Мультиклассовый профиль допускает только метки-классы")
+            raise ValueError("Multiclass profiles support only class labels")
         if len(classes) < 2:
-            raise ValueError("Мультиклассовому профилю нужно не меньше двух меток-классов")
+            raise ValueError("A multiclass profile needs at least two class labels")
         return classes[0], classes[1]
     positive = [label.key for label in labels if label.role == "positive"]
     negative = [label.key for label in labels if label.role == "negative"]
     class_labels = [label.key for label in labels if label.role == "class"]
     if class_labels:
-        raise ValueError("Метки-классы допустимы только в мультиклассовом профиле")
+        raise ValueError("Class labels require a multiclass profile")
     if len(positive) != 1 or len(negative) != 1:
-        raise ValueError("Нужны ровно одна положительная и одна отрицательная обучающая метка")
+        raise ValueError("Exactly one positive and one negative training label are required")
     return positive[0], negative[0]
 
 
@@ -1784,7 +1784,7 @@ def _training_counts_payload(counts: dict[str, object], training_keys: tuple[str
 def _validate_profile_type(profile_type: str) -> str:
     value = str(profile_type or "").strip()
     if value not in PROFILE_TYPES:
-        raise ValueError(f"Неподдерживаемый тип профиля: {value}")
+        raise ValueError(f"Unsupported profile type: {value}")
     return value
 
 
@@ -1792,9 +1792,9 @@ def _validate_training_min_added(value: object) -> int:
     try:
         number = int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError("Порог новых меток для переобучения должен быть положительным целым числом") from error
+        raise ValueError("New labels before retraining must be a positive integer") from error
     if number < 1:
-        raise ValueError("Порог новых меток для переобучения должен быть не меньше 1")
+        raise ValueError("New labels before retraining must be at least 1")
     return number
 
 
@@ -1802,29 +1802,29 @@ def _validate_training_min_labels(value: object) -> int:
     try:
         number = int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError("Минимум меток на класс должен быть целым числом") from error
+        raise ValueError("Minimum labels per class must be an integer") from error
     if number < 2:
-        raise ValueError("Минимум меток на класс должен быть не меньше 2")
+        raise ValueError("Minimum labels per class must be at least 2")
     return number
 
 
 def _validate_profile_key(key: str) -> str:
     value = str(key or "").strip()
     if not PROFILE_KEY_PATTERN.match(value):
-        raise ValueError("Ключ профиля может содержать только строчные латинские буквы, цифры и подчёркивания")
+        raise ValueError("Profile key may contain only lowercase letters, digits and underscores")
     return value
 
 
 def _required_profile_key(key: str | None) -> str:
     if key is None or not str(key).strip():
-        raise ValueError("Укажите ключ профиля")
+        raise ValueError("Profile key is required")
     return _validate_profile_key(key)
 
 
 def _validate_label_key(key: str) -> str:
     value = str(key or "").strip()
     if not LABEL_KEY_PATTERN.match(value):
-        raise ValueError("Ключ метки может содержать только строчные латинские буквы, цифры и подчёркивания")
+        raise ValueError("Label key may contain only lowercase letters, digits and underscores")
     return value
 
 

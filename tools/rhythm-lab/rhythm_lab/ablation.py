@@ -62,7 +62,7 @@ def benchmark_plan(
         return tuple(plan)
     if clean_strategy in {"layers", "layers+all"}:
         if "mert_v2" not in sources or not layers:
-            raise ValueError("Данные MERT_V2 не сохранены в этой библиотеке")
+            raise ValueError("MERT_V2 data is not stored in this library")
         layer_tokens = tuple(
             "mert_v2" if layer == MERT_V2_DEFAULT_LAYER else f"mert_v2@{layer}"
             for layer in layers
@@ -168,14 +168,14 @@ def run_ablation_benchmark(
     )
     _report_progress(
         progress_callback,
-        "Запись отчёта бенчмарка",
+        "Writing benchmark report",
         total_progress_steps - 1,
         total_progress_steps,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     report["output_path"] = str(output.expanduser().resolve(strict=False))
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    _report_progress(progress_callback, "Бенчмарк завершён", total_progress_steps, total_progress_steps)
+    _report_progress(progress_callback, "Benchmark complete", total_progress_steps, total_progress_steps)
     return report
 
 
@@ -320,7 +320,7 @@ def cli_summary(report: dict[str, object]) -> dict[str, object]:
 def _benchmark_strategy(strategy: str) -> str:
     clean = str(strategy or "").strip().lower()
     if clean not in BENCHMARK_STRATEGIES:
-        raise ValueError(f"Неподдерживаемая стратегия бенчмарка: {strategy!r}")
+        raise ValueError(f"Unsupported benchmark strategy: {strategy!r}")
     return clean
 
 
@@ -410,7 +410,7 @@ def _train_feature_set_row(
     try:
         _report_progress(
             progress_callback,
-            f"Построение матрицы признаков {feature_set}",
+            f"Building {feature_set} feature matrix",
             progress_completed,
             progress_total,
         )
@@ -423,7 +423,7 @@ def _train_feature_set_row(
         )
         _report_progress(
             progress_callback,
-            f"Обучение {feature_set}",
+            f"Training {feature_set}",
             progress_completed + 1,
             progress_total,
         )
@@ -462,7 +462,7 @@ def _train_feature_set_row(
         }
     _report_progress(
         progress_callback,
-        f"Модель {feature_set} сохранена",
+        f"Saved {feature_set} model",
         progress_completed + 10,
         progress_total,
     )
@@ -597,7 +597,7 @@ def _normalize_feature_sets(feature_sets: Sequence[str]) -> list[str]:
         if value not in clean:
             clean.append(value)
     if not clean:
-        raise ValueError("Укажите хотя бы один набор признаков")
+        raise ValueError("At least one feature set is required")
     return clean
 
 

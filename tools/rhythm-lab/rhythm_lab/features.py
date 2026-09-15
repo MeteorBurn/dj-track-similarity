@@ -195,7 +195,7 @@ def build_feature_matrix(
     expected = _parse_feature_names(expected_feature_names)
     if expected is not None and set(expected) != set(feature_names):
         raise ValueError(
-            "feature_names артефакта не совпадают с текущими размерностями источников"
+            "Artifact feature_names do not match current source dimensions"
         )
     selected_tracks: list[SourceTrack] = []
     rows: list[np.ndarray] = []
@@ -321,7 +321,7 @@ def _cached_embedding_vectors(
         else:
             if loaded.dimension != cached[0]:
                 raise ValueError(
-                    f"Размерность {family.upper()} изменилась во время построения признаков"
+                    f"{family.upper()} dimension changed while building features"
                 )
             cached[1].update(loaded_vectors)
     return cache[family]
@@ -336,7 +336,7 @@ def _parse_feature_names(value: object) -> list[str] | None:
         or any(not isinstance(item, str) or not item for item in value)
         or len(set(value)) != len(value)
     ):
-        raise ValueError("feature_names должен быть непустым упорядоченным списком уникальных строк")
+        raise ValueError("feature_names must be a non-empty ordered list of unique strings")
     return list(value)
 
 
@@ -359,14 +359,14 @@ def canonical_feature_set(sources: Iterable[str]) -> str:
 
 def _canonical_sources(raw: tuple[str, ...]) -> tuple[str, ...]:
     if not raw:
-        raise ValueError("Укажите набор признаков")
+        raise ValueError("Feature set is required")
     parsed = [_parse_feature_source(token) for token in raw]
     canonical = [_source_token(family, layer) for family, layer in parsed]
     duplicates = sorted(
         source for source in set(canonical) if canonical.count(source) > 1
     )
     if duplicates:
-        raise ValueError(f"Источник признаков повторяется: {', '.join(duplicates)}")
+        raise ValueError(f"Duplicate feature source: {', '.join(duplicates)}")
     ordered = sorted(
         zip(parsed, canonical),
         key=lambda item: (SUPPORTED_FEATURE_SOURCES.index(item[0][0]), item[0][1]),
@@ -377,13 +377,13 @@ def _canonical_sources(raw: tuple[str, ...]) -> tuple[str, ...]:
 def _parse_feature_source(token: str) -> tuple[str, int]:
     family, separator, layer_text = token.partition("@")
     if family not in SUPPORTED_FEATURE_SOURCES:
-        raise ValueError(f"Неподдерживаемый источник признаков: {family or token}")
+        raise ValueError(f"Unsupported feature source: {family or token}")
     if not separator:
         return family, MERT_V2_DEFAULT_LAYER if family in _LAYERED_FAMILIES else 0
     if family not in _LAYERED_FAMILIES:
-        raise ValueError(f"{family.upper()} не хранит слои эмбеддинга: {token}")
+        raise ValueError(f"{family.upper()} does not store embedding layers: {token}")
     if not layer_text.isdigit() or int(layer_text) < 1 or str(int(layer_text)) != layer_text:
-        raise ValueError(f"Слой {family.upper()} должен быть положительным целым числом: {token}")
+        raise ValueError(f"{family.upper()} layer must be a positive integer: {token}")
     return family, int(layer_text)
 
 
@@ -426,9 +426,9 @@ def source_availability_error(
 
     family, layer = split_feature_source(source)
     if family not in available:
-        return f"Данные {family.upper()} не сохранены в этой библиотеке"
+        return f"{family.upper()} data is not stored in this library"
     if layer is not None and layer not in tuple(mert_v2_layers):
-        return f"Слой {layer} {family.upper()} не сохранён в этой библиотеке"
+        return f"{family.upper()} layer {layer} is not stored in this library"
     return None
 
 
@@ -480,26 +480,26 @@ def artifact_feature_compatibility(
         or not feature_names
         or any(not isinstance(name, str) or ":" not in name for name in feature_names)
     ):
-        return False, "Артефакт не содержит корректного упорядоченного списка feature_names."
+        return False, "Artifact has no valid ordered feature_names list."
     blocks: dict[str, tuple[str, ...]] = {}
     for token, names in groupby(feature_names, key=lambda name: str(name).partition(":")[0]):
         if token in blocks:
-            return False, "В feature_names артефакта источники признаков перемешаны; переобучите модель."
+            return False, "Artifact feature_names interleave feature sources; retrain it."
         blocks[token] = tuple(names)
     if set(blocks) != set(required_sources):
-        return False, "feature_names артефакта не соответствуют выбранному рецепту признаков."
+        return False, "Artifact feature_names do not match the selected feature recipe."
     for token in required_sources:
         block = blocks[token]
         if token == "sonara":
             if block != SONARA_FEATURE_NAMES:
-                return False, "Артефакт обучен на устаревшем рецепте SONARA; переобучите модель."
+                return False, "Artifact was trained with an older SONARA recipe; retrain it."
             continue
         dimension = current_embedding_spec(source_family(token)).dimension
         if block != tuple(f"{token}:{index}" for index in range(dimension)):
             return (
                 False,
-                f"Блок {token.upper()} артефакта не соответствует текущему эмбеддингу "
-                f"размерности {dimension}; переобучите модель.",
+                f"Artifact {token.upper()} block does not match the current embedding "
+                f"dimension {dimension}; retrain it.",
             )
     return True, None
 
@@ -524,7 +524,7 @@ def artifact_source_readiness(
         if state["status"] != "current":
             return (
                 False,
-                str(state["reason"] or f"Данные источника {family.upper()} недоступны ({state['status']})."),
+                str(state["reason"] or f"{family.upper()} source data is {state['status']}."),
             )
     return True, None
 
@@ -562,7 +562,7 @@ def _feature_state_payload(value: object, *, source: str) -> dict[str, object]:
         reason = getattr(value, "reason", None)
     if status not in {"current", "missing"}:
         status = "missing"
-        reason = f"Состояние признаков {source.upper()} неизвестно."
+        reason = f"{source.upper()} feature status is unavailable."
     return {
         "status": status,
         "reason": None if reason is None else str(reason),

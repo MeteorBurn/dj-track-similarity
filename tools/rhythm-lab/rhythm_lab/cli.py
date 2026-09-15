@@ -317,24 +317,24 @@ def promote_profile_model(
             feature_set or _profile_feature_set(labels_db, artifact_dir),
             calibration=calibration_filter,
         )
-    _report_promotion_progress(progress_callback, "Чтение артефакта модели", 5)
+    _report_promotion_progress(progress_callback, "Reading model artifact", 5)
     try:
         verified_artifact = load_verified_artifact(artifact)
     except ArtifactIntegrityError as error:
         raise PromotionError(str(error)) from error
     payload = verified_artifact.payload
-    _report_promotion_progress(progress_callback, "Проверка совместимости модели", 20)
+    _report_promotion_progress(progress_callback, "Checking model compatibility", 20)
     classifier_key = str(payload.get("classifier_key") or "")
     if classifier_key != profile.classifier_key:
         raise PromotionError(
-            f"Ожидался артефакт профиля {profile.classifier_key!r}, получен classifier_key={classifier_key!r}"
+            f"Expected artifact for profile {profile.classifier_key!r}, got classifier_key={classifier_key!r}"
         )
     # Older artifacts carry the recipe under a previous family order; compare canonically.
     payload_feature_set = canonical_feature_set(
         feature_sources(str(payload.get("feature_set") or ""))
     )
     if feature_set is not None and payload_feature_set != feature_set:
-        raise PromotionError(f"Ожидался артефакт рецепта {feature_set!r}, получен feature_set={payload_feature_set!r}")
+        raise PromotionError(f"Expected a {feature_set!r} artifact, got feature_set={payload_feature_set!r}")
     # Provenance only: the main app scores by feature spec, not by catalog.
     artifact_source_catalog_uuid = str(
         payload.get("source_catalog_uuid") or ""
@@ -343,9 +343,9 @@ def promote_profile_model(
     production_calibration = _artifact_calibration_payload(payload)
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
-        raise PromotionError(f"Требуется откалиброванный артефакт, но калибровки нет: {reason}")
+        raise PromotionError(f"Artifact calibration is required but not available: {reason}")
 
-    _report_promotion_progress(progress_callback, "Подготовка манифеста для основного приложения", 35)
+    _report_promotion_progress(progress_callback, "Preparing manifest for the main app", 35)
     target = Path(target_root) / profile.artifact_prefix
     artifact_hash = verified_artifact.artifact_hash
     promoted_at = datetime.now(timezone.utc)
@@ -383,7 +383,7 @@ def promote_profile_model(
         )
     except (ArtifactIntegrityError, OSError, TypeError, ValueError) as error:
         raise PromotionError(
-            f"Не удалось атомарно опубликовать классификатор: {error}"
+            f"Could not publish the classifier atomically: {error}"
         ) from error
     return {
         "model_path": published.model_path,
@@ -703,7 +703,7 @@ def _validated_feature_names(value: object) -> list[str]:
         or len(set(value)) != len(value)
     ):
         raise PromotionError(
-            "Артефакт должен содержать непустой упорядоченный список feature_names"
+            "Artifact must declare a non-empty ordered feature_names list"
         )
     return list(value)
 

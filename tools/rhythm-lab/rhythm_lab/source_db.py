@@ -272,11 +272,11 @@ class SourceDatabase:
     ) -> None:
         selected = Path(_clean_path_text(path)).expanduser()
         if not str(selected).strip() or not selected.name:
-            raise ValueError("Укажите путь к базе библиотеки")
+            raise ValueError("Library database path is required")
         if not selected.exists():
-            raise FileNotFoundError(f"База библиотеки не найдена: {selected}")
+            raise FileNotFoundError(f"Library database not found: {selected}")
         if not selected.is_file():
-            raise ValueError("Путь к базе библиотеки должен указывать на существующий файл")
+            raise ValueError("Library database path must point to an existing file")
         self.path = selected.resolve(strict=True)
         clean_expected = _optional_non_empty_text(
             expected_catalog_uuid,
@@ -478,7 +478,7 @@ class SourceDatabase:
         clean_id = _positive_track_id(track_id)
         track = self.tracks_by_ids((clean_id,)).get(clean_id)
         if track is None:
-            raise KeyError(f"Нет текущего трека с id {clean_id}")
+            raise KeyError(f"No current track with id {clean_id}")
         return track
 
     def tracks_by_ids(
@@ -544,7 +544,7 @@ class SourceDatabase:
 
         clean_family = _embedding_family(family)
         if layer is not None and clean_family != "mert_v2":
-            raise ValueError(f"{clean_family.upper()} не хранит слои эмбеддинга")
+            raise ValueError(f"{clean_family.upper()} does not store embedding layers")
         spec = current_embedding_spec(clean_family)
         selected_ids = (
             None
@@ -631,7 +631,7 @@ class SourceDatabase:
                     ).fetchone()
                     if row is None:
                         raise SourceTrackNotCurrentError(
-                            "Лайк адресован не текущему треку: ID/UUID не совпадают"
+                            "Like target is not the current track: ID/UUID mismatch"
                         )
                     track_id = int(row[0])
                     if liked:
@@ -1459,7 +1459,7 @@ def _track_page_filters(
             "ms.track_id IS NOT NULL AND ms.syncopated_rhythm = 0"
         )
     elif syncopated != "all":
-        raise ValueError(f"Неизвестный фильтр синкопы: {syncopated}")
+        raise ValueError(f"Unknown syncopation filter: {syncopated}")
     if bpm_min is not None:
         params["bpm_min"] = float(bpm_min)
         where.append("s.detected_bpm >= :bpm_min")
@@ -1471,14 +1471,14 @@ def _track_page_filters(
     elif liked == "no":
         where.append("l.track_id IS NULL")
     elif liked != "all":
-        raise ValueError(f"Неизвестный фильтр лайков: {liked}")
+        raise ValueError(f"Unknown liked filter: {liked}")
     if label == "unlabeled":
         where.append("rl.label IS NULL")
     elif label in set(label_keys):
         params["label_filter"] = label
         where.append("rl.label = :label_filter")
     elif label != "all":
-        raise ValueError(f"Неизвестный фильтр метки: {label}")
+        raise ValueError(f"Unknown label filter: {label}")
     return where
 
 
@@ -1503,7 +1503,7 @@ def _track_page_order_sql(
             "ORDER BY rhythm_lab_random_rank(:random_seed, t.track_id), "
             f"{path_order}"
         )
-    raise ValueError(f"Неизвестный порядок сортировки: {order}")
+    raise ValueError(f"Unknown library order: {order}")
 
 
 def _track_page_item(
@@ -1687,7 +1687,7 @@ def _prediction_page_filter_sql(
             )
         )
     elif syncopated != "all":
-        raise ValueError(f"Неизвестный фильтр синкопы: {syncopated}")
+        raise ValueError(f"Unknown syncopation filter: {syncopated}")
     if bpm_min is not None:
         params["bpm_min"] = float(bpm_min)
         where.extend(
@@ -1710,7 +1710,7 @@ def _prediction_page_filter_sql(
         params["label_filter"] = label
         where.append("classifier_label = :label_filter")
     elif label != "all":
-        raise ValueError(f"Неизвестный фильтр метки: {label}")
+        raise ValueError(f"Unknown label filter: {label}")
     if predicted != "all":
         params["predicted_filter"] = predicted
         where.append("predicted_label = :predicted_filter")
@@ -1835,7 +1835,7 @@ def _feature_source_states(
                 reason=(
                     None
                     if int(counts.get(source, 0)) > 0
-                    else f"В библиотеке нет сохранённых данных {source.upper()} для текущих треков."
+                    else f"This library has no stored {source.upper()} data for current tracks."
                 ),
             )
             for source in FEATURE_SOURCE_OUTPUTS
@@ -1866,7 +1866,7 @@ def _track_feature_states(
                     else SourceFeatureState(
                         status="missing",
                         reason=(
-                            f"У этого трека нет текущего результата "
+                            f"This track has no current output from "
                             f"{source.upper()}."
                         ),
                     )
@@ -1885,7 +1885,7 @@ def _feature_status_payload(
             {
                 source: SourceFeatureState(
                     status="missing",
-                    reason="Предсказание больше не соответствует текущему содержимому трека.",
+                    reason="The prediction no longer matches the current track content.",
                 )
                 for source in FEATURE_SOURCE_OUTPUTS
             }
@@ -1903,7 +1903,7 @@ def _feature_status_payload(
                     reason=(
                         None
                         if ready
-                        else f"У этого трека нет текущего результата {source.upper()}."
+                        else f"This track has no current output from {source.upper()}."
                     ),
                 )
                 for source, ready in _coverage_by_source(
@@ -1948,7 +1948,7 @@ def _require_collection_identity_schema(
     }
     if columns != _COLLECTION_COLUMNS:
         raise SourceDatabaseIntegrityError(
-            "Строки коллекций не привязаны к контентной идентичности; выполните миграцию базы Rhythm Lab"
+            "Collection rows are not bound to content identity; migrate the Rhythm Lab database"
         )
 
 
@@ -2105,7 +2105,7 @@ def _mert_v2_layer(layer: int | None) -> int:
     if layer is None:
         return MERT_V2_DEFAULT_LAYER
     if isinstance(layer, bool) or int(layer) < 1:
-        raise ValueError("Слой MERT_V2 должен быть положительным целым числом")
+        raise ValueError("MERT_V2 layer must be a positive integer")
     return int(layer)
 
 
@@ -2114,13 +2114,13 @@ def _split_source_token(token: str) -> tuple[str, int | None]:
 
     family, _separator, layer_text = str(token).strip().lower().partition("@")
     if family not in FEATURE_SOURCE_OUTPUTS:
-        raise ValueError(f"Неподдерживаемый источник признаков: {family or token}")
+        raise ValueError(f"Unsupported feature source: {family or token}")
     if not layer_text:
         return family, None
     if family != "mert_v2":
-        raise ValueError(f"{family.upper()} не хранит слои эмбеддинга: {token}")
+        raise ValueError(f"{family.upper()} does not store embedding layers: {token}")
     if not layer_text.isdigit():
-        raise ValueError(f"Слой MERT_V2 должен быть положительным целым числом: {token}")
+        raise ValueError(f"MERT_V2 layer must be a positive integer: {token}")
     return family, _mert_v2_layer(int(layer_text))
 
 
@@ -2209,25 +2209,25 @@ def _optional_finite_float(
 
 def _positive_track_id(value: object) -> int:
     if isinstance(value, bool):
-        raise ValueError("track_id должен быть положительным целым числом")
+        raise ValueError("track_id must be a positive integer")
     try:
         clean = int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError("track_id должен быть положительным целым числом") from error
+        raise ValueError("track_id must be a positive integer") from error
     if clean <= 0:
-        raise ValueError("track_id должен быть положительным целым числом")
+        raise ValueError("track_id must be a positive integer")
     return clean
 
 
 def _positive_collection_id(value: object) -> int:
     if isinstance(value, bool):
-        raise ValueError("collection_id должен быть положительным целым числом")
+        raise ValueError("collection_id must be a positive integer")
     try:
         clean = int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError("collection_id должен быть положительным целым числом") from error
+        raise ValueError("collection_id must be a positive integer") from error
     if clean <= 0:
-        raise ValueError("collection_id должен быть положительным целым числом")
+        raise ValueError("collection_id must be a positive integer")
     return clean
 
 

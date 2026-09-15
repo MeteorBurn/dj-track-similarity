@@ -8,12 +8,11 @@ const candidatesTabEl = document.getElementById("candidatesTab");
 const collectionTabEl = document.getElementById("collectionTab");
 const trainingTabEl = document.getElementById("trainingTab");
 const settingsTabEl = document.getElementById("settingsTab");
-const commonFiltersEl = document.getElementById("commonFilters");
+const listBarEl = document.getElementById("listBar");
 const collectionControlsEl = document.getElementById("collectionControls");
 const collectionSelectEl = document.getElementById("collectionSelect");
 const deleteCollectionEl = document.getElementById("deleteCollection");
 const collectionStatusEl = document.getElementById("collectionStatus");
-const candidateFiltersEl = document.getElementById("candidateFilters");
 const bpmMinEl = document.getElementById("bpmMin");
 const bpmMaxEl = document.getElementById("bpmMax");
 const labelEl = document.getElementById("label");
@@ -53,17 +52,17 @@ const MERT_V2_DEFAULT_LAYER = 24;
 const DEFAULT_BENCHMARK_STRATEGY = "singles+all";
 // Labels are UI copy; the keys are the values sent to the API.
 const BENCHMARK_STRATEGY_LABELS = {
-  singles: "По одной модели",
-  "singles+all": "По одной + все",
-  greedy: "Жадный отбор",
-  full: "Полная сетка",
-  layers: "Слои MERT-v2",
-  "layers+all": "Слои MERT-v2 + остальные",
-  custom: "Свой список",
+  singles: "One model at a time",
+  "singles+all": "One at a time + all",
+  greedy: "Greedy selection",
+  full: "Full grid",
+  layers: "MERT-v2 layers",
+  "layers+all": "MERT-v2 layers + others",
+  custom: "Custom list",
 };
 const BENCHMARK_RUN_WARNING = 30;
-const STEP_STATUS_LABELS = { done: "выполнено", ready: "доступно", blocked: "заблокировано" };
-const FEATURE_STATE_LABELS = { current: "актуально", missing: "отсутствует", stale: "устарело" };
+const STEP_STATUS_LABELS = { done: "Done", ready: "Ready", blocked: "Blocked" };
+const FEATURE_STATE_LABELS = { current: "current", missing: "missing", stale: "stale" };
 // Backend training rule (rhythm_lab.web_app.MIN_TRAINING_ROWS_PER_LABEL); shown so an enabled Train is understandable.
 const MIN_ROWS_PER_CLASS = 2;
 const READINESS_DEBOUNCE_MS = 250;
@@ -169,7 +168,7 @@ async function loadProfiles() {
   const data = await fetch("/api/profiles").then(parseJsonResponse);
   profiles = data.items || [];
   profileSelectEl.innerHTML = "";
-  addOption(profileSelectEl, "", "Выберите профиль");
+  addOption(profileSelectEl, "", "Choose a profile");
   profiles.forEach(profile => {
     const option = document.createElement("option");
     option.value = profile.classifier_key;
@@ -212,11 +211,11 @@ function clearActiveProfile() {
   pageInfoEl.textContent = "";
   tracksEl.innerHTML = "";
   trainingPanelEl.innerHTML = "";
-  guidancePanelEl.innerHTML = '<div class="guidance-card"><b>Выберите профиль</b><span class="meta">Выберите или создайте профиль классификатора, чтобы загрузить треки.</span></div>';
+  guidancePanelEl.innerHTML = statusCell("Choose a profile", "Select or create a classifier profile to load tracks.");
   labelEl.innerHTML = "";
-  addOption(labelEl, "all", "все метки");
+  addOption(labelEl, "all", "All labels");
   candidatePredictedEl.innerHTML = "";
-  addOption(candidatePredictedEl, "all", "все прогнозы");
+  addOption(candidatePredictedEl, "all", "All predictions");
   document.getElementById("profileNameInput").value = "";
   document.getElementById("profileDescriptionInput").value = "";
   document.getElementById("profileArtifactPrefixInput").value = "";
@@ -256,28 +255,28 @@ function renderProfileControls() {
   // Step gates are not touched here: they come only from readiness (applyTrainingReadiness).
   deleteProfileEl.disabled = false;
   labelEl.innerHTML = "";
-  addOption(labelEl, "all", "все метки");
-  addOption(labelEl, "unlabeled", "без метки");
+  addOption(labelEl, "all", "All labels");
+  addOption(labelEl, "unlabeled", "Unlabeled");
   activeProfile.labels.forEach(label => addOption(labelEl, label.key, label.name));
 
   candidatePredictedEl.innerHTML = "";
-  addOption(candidatePredictedEl, "all", "все прогнозы");
-  trainingLabels().forEach(label => addOption(candidatePredictedEl, label.key, `прогноз: ${label.name}`));
+  addOption(candidatePredictedEl, "all", "All predictions");
+  trainingLabels().forEach(label => addOption(candidatePredictedEl, label.key, `Predicted ${label.name}`));
 
   const positive = labelByKey(activeProfile.positive_label);
   const negative = labelByKey(activeProfile.negative_label);
   if (isMulticlassProfile()) {
     if (candidateMinBrokenEl.value === "negative_highest") candidateMinBrokenEl.value = "positive_highest";
-    candidateMinBrokenEl.options[0].textContent = "наибольшая уверенность";
+    candidateMinBrokenEl.options[0].textContent = "Highest confidence";
     candidateMinBrokenEl.options[1].hidden = true;
     candidateMinBrokenEl.options[1].disabled = true;
-    candidateMinBrokenEl.options[2].textContent = "наименьшая уверенность";
+    candidateMinBrokenEl.options[2].textContent = "Lowest confidence";
   } else {
     candidateMinBrokenEl.options[1].hidden = false;
     candidateMinBrokenEl.options[1].disabled = false;
-    candidateMinBrokenEl.options[0].textContent = `наибольшая P(${positive.name})`;
-    candidateMinBrokenEl.options[1].textContent = `наибольшая P(${negative.name})`;
-    candidateMinBrokenEl.options[2].textContent = "неуверенные / пограничные";
+    candidateMinBrokenEl.options[0].textContent = `Highest P(${positive.name})`;
+    candidateMinBrokenEl.options[1].textContent = `Highest P(${negative.name})`;
+    candidateMinBrokenEl.options[2].textContent = "Uncertain first";
   }
 
   document.getElementById("profileNameInput").value = activeProfile.name || "";
@@ -330,11 +329,10 @@ function renderTrainingProgress(progress) {
     return;
   }
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
-  stageEl.textContent = String(progress?.error || progress?.stage || "Подготовка данных");
+  stageEl.textContent = String(progress?.error || progress?.stage || "Preparing data");
   percentEl.textContent = `${Math.round(percent)}%`;
   barEl.style.width = `${percent}%`;
   container.dataset.status = status;
-  container.dataset.operation = String(progress?.operation || "");
   container.hidden = false;
 }
 
@@ -372,7 +370,7 @@ async function pollTrainingProgress(profileKey, operation, pollingGeneration) {
   }
 }
 
-function startTrainingProgressPolling(profileKey, operation, stage = "Запуск…") {
+function startTrainingProgressPolling(profileKey, operation, stage = "Starting…") {
   stopTrainingProgressPolling();
   trainingProgressHasStarted = false;
   renderTrainingProgress({ status: "running", stage, percent: 0 });
@@ -414,8 +412,8 @@ async function loadCollections() {
   collections = data.items || [];
   collectionSelectEl.innerHTML = "";
   if (!collections.length) {
-    addOption(collectionSelectEl, "", "Нет коллекций");
-    collectionStatusEl.textContent = "0 коллекций";
+    addOption(collectionSelectEl, "", "No collections");
+    collectionStatusEl.textContent = "0 collections";
     deleteCollectionEl.disabled = true;
     return;
   }
@@ -427,8 +425,8 @@ async function loadCollections() {
   }
   const active = selectedCollection();
   collectionStatusEl.textContent = active
-    ? `${active.track_count} ${pluralRu(active.track_count, "трек", "трека", "треков")}, ${active.source}`
-    : `${collections.length} ${pluralRu(collections.length, "коллекция", "коллекции", "коллекций")}`;
+    ? `${active.track_count} ${plural(active.track_count, "track", "tracks")}, ${active.source}`
+    : `${collections.length} ${plural(collections.length, "collection", "collections")}`;
   deleteCollectionEl.disabled = !active;
 }
 
@@ -494,14 +492,14 @@ function appendRecipeParam(params) {
 async function shutdownLab() {
   shutdownLabEl.disabled = true;
   shutdownLabEl.classList.add("stopping");
-  setWorkflowStatus("Останавливаю Rhythm Lab…");
+  setWorkflowStatus("Stopping Rhythm Lab…");
   const response = await fetch("/api/shutdown", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({})
   });
   await parseJsonResponse(response);
-  setWorkflowStatus("Rhythm Lab останавливается…");
+  setWorkflowStatus("Rhythm Lab is stopping…");
   window.setTimeout(() => window.close(), 300);
 }
 
@@ -523,10 +521,8 @@ async function switchView(view) {
 }
 
 function updateFilterPanelControls() {
-  commonFiltersEl.hidden = activeView === "training" || activeView === "settings";
+  listBarEl.hidden = activeView === "training" || activeView === "settings";
   collectionControlsEl.hidden = activeView !== "collection";
-  candidateFiltersEl.hidden = activeView === "training" || activeView === "settings";
-  candidateFiltersEl.classList.toggle("candidate-filters-placeholder", activeView !== "library" && activeView !== "candidates");
   updateLibraryOrderControls();
 }
 
@@ -600,30 +596,24 @@ function formatLabelCounts(labels, totals = null, labelsList = activeProfile.lab
 
 function renderSummary(data) {
   const coverage = [
-    coverageBadge("Треки", data.tracks || 0, "tracks"),
-    coverageBadge("Избранное", data.liked || 0, "liked")
+    coverageBadge("Tracks", data.tracks || 0, "tracks"),
+    coverageBadge("Liked", data.liked || 0, "liked")
   ].join("");
-  summaryCoverageEl.innerHTML = `
-    <span class="summary-group summary-coverage" aria-label="Покрытие">
-      <span class="summary-group-title">Покрытие</span>${coverage}
-    </span>`;
-  summaryLabelsEl.innerHTML = `
-    <span class="summary-group summary-labels" aria-label="Число меток">
-      <span class="summary-group-title">Метки</span>${labelCountBadges(data.labels || {})}
-    </span>`;
+  summaryCoverageEl.innerHTML = `<span class="count-group" aria-label="Coverage">${coverage}</span>`;
+  summaryLabelsEl.innerHTML = `<span class="count-group" aria-label="Label counts">${labelCountBadges(data.labels || {})}</span>`;
 }
 
 function coverageBadge(label, value, key) {
   if (key === "liked") {
     return `
-      <button id="likedTab" type="button" class="summary-badge coverage-liked${activeView === "liked" ? " active" : ""}" title="Показать избранные треки" aria-label="Показать избранные треки">
+      <button id="likedTab" type="button" class="count count-button${activeView === "liked" ? " active" : ""}" title="Show liked tracks">
         <svg class="lucide lucide-heart" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
         </svg>
         <span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b>
       </button>`;
   }
-  return `<span class="summary-badge coverage-${escapeHtml(key)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`;
+  return `<span class="count"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`;
 }
 
 function labelCountBadges(labels) {
@@ -636,43 +626,48 @@ function labelCountBadges(labels) {
       const current = readiness?.current ? (readiness.current[label.key] ?? summaryCount) : summaryCount;
       const total = totals ? (totals[label.key] ?? 0) : null;
       const value = totals ? `${current} / ${total}` : `${current}`;
-      const title = totals ? `${current} из ${total} размеченных треков «${label.name}» есть в этой библиотеке` : `${label.name}: ${current}`;
-      return `<span class="summary-badge label-count-badge" title="${escapeHtml(title)}"><span>${escapeHtml(label.name)}</span><b>${escapeHtml(value)}</b></span>`;
+      const title = totals ? `${current} of ${total} tracks labeled "${label.name}" are in this library` : `${label.name}: ${current}`;
+      return `<span class="count" title="${escapeHtml(title)}"><span>${escapeHtml(label.name)}</span><b>${escapeHtml(value)}</b></span>`;
     })
     .join("");
 }
 
 function renderGuidance(summary) {
   // Label counts and gates come from the latest readiness only; the summary
-  // supplies track/like totals. Before readiness arrives the cards say so.
+  // supplies track/like totals. Before readiness arrives the cells say so.
   const readiness = latestTrainingReadiness;
   const labelsText = readiness
     ? `${labelCoverageSentence(readiness)}${labelsElsewhereNote(readiness)}`
-    : "Загружаю состояние обучения…";
+    : "Loading training state…";
   const winner = readiness?.artifact_summary?.benchmark_winner;
   const selected = selectedPromotionOption(readiness);
-  const lastRun = readiness?.last_trained_at ? formatHumanDate(readiness.last_trained_at) : "ещё не обучалась";
+  const lastRun = readiness?.last_trained_at ? formatHumanDate(readiness.last_trained_at) : "never";
   const recipe = readiness?.feature_recipe;
   const readinessState = readiness
     ? readiness.ready
-      ? "Готово к обучению"
-      : "Пока не готово"
-    : "Загружаю состояние обучения";
+      ? "Ready to train"
+      : "Not ready yet"
+    : "Loading training state";
   const recipeState = readiness
     ? recipe?.ready
-      ? `признаки ${recipe.feature_set} актуальны`
+      ? `${recipe.feature_set} features are current`
       : recipeBlockingText(recipe)
-    : "проверяю рецепт признаков";
-  guidancePanelEl.innerHTML = `
-    <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(profileSignalText())}</span></div>
-    <div class="guidance-card"><b>Метки</b><span class="meta">${escapeHtml(labelsText)}</span></div>
-    <div class="guidance-card"><b>Состояние обучения</b><span class="meta">${escapeHtml(readinessState)}, ${escapeHtml(recipeState || "рецепт признаков недоступен")}, последнее обучение: ${escapeHtml(lastRun)}</span></div>
-    <div class="guidance-card"><b>Бенчмарк</b><span class="meta">${winner ? `${escapeHtml(winner.feature_set)}, F1 ${formatMetricPercent(winner.macro_f1_mean)}, полнота ${formatMetricPercent(winner.positive_recall_mean)}` : "Победителя бенчмарка пока нет"}</span></div>
-    <div class="guidance-card"><b>Продакшен</b><span class="meta">${selected ? `Выбран ${escapeHtml(selected.feature_set)}, F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "Вариант для продвижения пока не выбран"}</span></div>`;
+    : "checking the feature recipe";
+  guidancePanelEl.innerHTML = [
+    statusCell(activeProfile.name, profileSignalText()),
+    statusCell("Labels", labelsText),
+    statusCell("Training", `${readinessState}, ${recipeState || "feature recipe unavailable"}, last trained: ${lastRun}`),
+    statusCell("Benchmark", winner ? `${winner.feature_set}, F1 ${formatMetricPercent(winner.macro_f1_mean)}, recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No benchmark winner yet"),
+    statusCell("Promotion", selected ? `Selected ${selected.feature_set}, F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No variant selected for promotion yet"),
+  ].join("");
 }
 
-// «В этой библиотеке: 11 из 321 abstract_edge, 6 из 315 reference.» — the
-// per-class current/total counts from readiness (old payload: current only).
+function statusCell(title, text) {
+  return `<div class="status-cell"><b>${escapeHtml(title)}</b><span>${escapeHtml(text)}</span></div>`;
+}
+
+// "In this library: 11 of 321 Abstract Edge, 6 of 315 Reference." The per-class
+// current/total counts from readiness (old payload: current only).
 function labelCoverageSentence(data) {
   const totals = labelTotals(data);
   const current = data?.current || {};
@@ -680,13 +675,13 @@ function labelCoverageSentence(data) {
   const hasThreshold = Number.isFinite(threshold) && threshold > 0;
   const parts = trainingLabels().map(label => {
     const have = current[label.key] || 0;
-    if (hasThreshold && totals) return `${label.name}: ${have} из ${threshold} нужных (всего размечено ${totals[label.key] || 0})`;
-    if (hasThreshold) return `${label.name}: ${have} из ${threshold} нужных`;
-    if (totals) return `${have} из ${totals[label.key] || 0} ${label.name}`;
+    if (hasThreshold && totals) return `${label.name}: ${have} of ${threshold} needed (${totals[label.key] || 0} labeled in total)`;
+    if (hasThreshold) return `${label.name}: ${have} of ${threshold} needed`;
+    if (totals) return `${have} of ${totals[label.key] || 0} ${label.name}`;
     return `${label.name} ${have}`;
   });
-  if (hasThreshold) return `В этой библиотеке: ${parts.join("; ")}.`;
-  return totals ? `В этой библиотеке: ${parts.join(", ")}.` : `Метки: ${parts.join(", ")}.`;
+  if (hasThreshold) return `In this library: ${parts.join("; ")}.`;
+  return totals ? `In this library: ${parts.join(", ")}.` : `Labels: ${parts.join(", ")}.`;
 }
 
 function labelsElsewhereNote(data) {
@@ -697,27 +692,22 @@ function labelsElsewhereNote(data) {
     const total = Number(totals[label.key] || 0);
     return total > 0 && Number(current[label.key] || 0) < total / 2;
   });
-  return farBelow ? " Остальные размеченные треки не входят в эту библиотеку." : "";
+  return farBelow ? " The other labeled tracks are not in this library." : "";
 }
 
 function profileTypeLabel() {
-  return activeProfile?.profile_type === "multiclass" ? "мультикласс" : "бинарный";
+  return activeProfile?.profile_type === "multiclass" ? "multiclass" : "binary";
 }
 
 function profileSignalText() {
   if (isMulticlassProfile()) {
-    return `${profileTypeLabel()}, ${activeProfile.description || "профиль готов к разметке"}`;
+    return `${profileTypeLabel()}, ${activeProfile.description || "ready for labeling"}`;
   }
-  return `${profileTypeLabel()}, положительная: ${labelByKey(activeProfile.positive_label).name}, отрицательная: ${labelByKey(activeProfile.negative_label).name}`;
+  return `${profileTypeLabel()}, positive: ${labelByKey(activeProfile.positive_label).name}, negative: ${labelByKey(activeProfile.negative_label).name}`;
 }
 
-function pluralRu(count, one, few, many) {
-  const n = Math.abs(Math.trunc(Number(count) || 0)) % 100;
-  const n1 = n % 10;
-  if (n > 10 && n < 20) return many;
-  if (n1 > 1 && n1 < 5) return few;
-  if (n1 === 1) return one;
-  return many;
+function plural(count, one, many) {
+  return Math.abs(Number(count)) === 1 ? one : many;
 }
 
 async function loadTracks(options = {}) {
@@ -792,7 +782,7 @@ async function loadCollectionTracks(options = {}) {
   if (!collection) {
     total = 0;
     offset = 0;
-    tracksEl.innerHTML = '<div class="empty-state">Коллекция не выбрана</div>';
+    tracksEl.innerHTML = '<div class="empty-state">No collection selected</div>';
     updatePager({ items: [], total: 0, limit: pageLimit(), offset: 0 });
     await loadSummary(sequence);
     await loadTrainingReadiness();
@@ -828,7 +818,7 @@ async function loadCollectionTracks(options = {}) {
 async function deleteSelectedCollection() {
   const collection = selectedCollection();
   if (!collection) return;
-  if (!window.confirm(`Удалить коллекцию «${collection.name}»? Метки останутся в активном профиле.`)) return;
+  if (!window.confirm(`Delete the collection "${collection.name}"? Labels stay in the active profile.`)) return;
   const response = await fetch(`/api/collections/${collection.id}`, { method: "DELETE" });
   await parseJsonResponse(response);
   offset = 0;
@@ -892,12 +882,12 @@ async function openLibraryForLabels() {
 
 async function trainRefresh() {
   if (trainingActionElement("trainRefresh")?.disabled) return;
-  if (!window.confirm(`Обучить новую модель ${activeProfile.name} по рецепту ${recipeText()} и обновить кандидатов?`)) {
+  if (!window.confirm(`Train a new ${activeProfile.name} model with recipe ${recipeText()} and refresh candidates?`)) {
     return;
   }
   setWorkflowBusy(true);
-  setWorkflowStatus("Обучение…");
-  startTrainingProgressPolling(activeProfile.classifier_key, "train-refresh", "Обучение…");
+  setWorkflowStatus("Training…");
+  startTrainingProgressPolling(activeProfile.classifier_key, "train-refresh", "Training…");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, {
       method: "POST",
@@ -905,11 +895,11 @@ async function trainRefresh() {
       body: JSON.stringify(recipeBody(selectedTrainingFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Обучение завершено. Обучено: ${formatLabelCounts(data.training_counts)}; обновлено ${data.predicted}, пропущено ${data.skipped}.`);
+    setWorkflowStatus(`Training complete. Trained on ${formatLabelCounts(data.training_counts)}; updated ${data.predicted}, skipped ${data.skipped}.`);
     stopTrainingProgressPolling();
-    renderTrainingProgress({ status: "completed", operation: "train-refresh", stage: "Обучение завершено", percent: 100 });
+    renderTrainingProgress({ status: "completed", operation: "train-refresh", stage: "Training complete", percent: 100 });
   } catch (error) {
-    renderTrainingProgress({ status: "failed", stage: "Обучение не удалось", error: error.message || String(error), percent: 0 });
+    renderTrainingProgress({ status: "failed", stage: "Training failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
@@ -921,13 +911,13 @@ async function runBenchmark() {
   if (trainingActionElement("runBenchmark")?.disabled) return;
   const plan = plannedBenchmarkRuns();
   const strategyLabel = BENCHMARK_STRATEGY_LABELS[benchmarkStrategy] || benchmarkStrategy;
-  const warning = plan.count > BENCHMARK_RUN_WARNING ? " Это большой план, он займёт много времени." : "";
-  if (!window.confirm(`Запустить бенчмарк «${strategyLabel}» для ${activeProfile.name}? ${plannedRunsText(plan)}.${warning}`)) {
+  const warning = plan.count > BENCHMARK_RUN_WARNING ? " This is a large plan and will take a long time." : "";
+  if (!window.confirm(`Run the "${strategyLabel}" benchmark for ${activeProfile.name}? ${plannedRunsText(plan)}.${warning}`)) {
     return;
   }
   setWorkflowBusy(true);
-  setWorkflowStatus("Бенчмарк выполняется…");
-  startTrainingProgressPolling(activeProfile.classifier_key, "benchmark", "Бенчмарк выполняется…");
+  setWorkflowStatus("Benchmark running…");
+  startTrainingProgressPolling(activeProfile.classifier_key, "benchmark", "Benchmark running…");
   try {
     const body = { strategy: benchmarkStrategy };
     if (benchmarkStrategy === "custom") body.feature_sets = [...benchmarkCustomSets];
@@ -938,12 +928,12 @@ async function runBenchmark() {
     });
     const data = await parseRefreshResponse(response);
     latestBenchmarkReport = data;
-    const winner = data.winner?.feature_set ? ` Лучший рецепт: ${data.winner.feature_set}.` : "";
-    setWorkflowStatus(`Бенчмарк завершён.${winner}`);
+    const winner = data.winner?.feature_set ? ` Best recipe: ${data.winner.feature_set}.` : "";
+    setWorkflowStatus(`Benchmark complete.${winner}`);
     stopTrainingProgressPolling();
-    renderTrainingProgress({ status: "completed", operation: "benchmark", stage: "Бенчмарк завершён", percent: 100 });
+    renderTrainingProgress({ status: "completed", operation: "benchmark", stage: "Benchmark complete", percent: 100 });
   } catch (error) {
-    renderTrainingProgress({ status: "failed", stage: "Бенчмарк не удался", error: error.message || String(error), percent: 0 });
+    renderTrainingProgress({ status: "failed", stage: "Benchmark failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
@@ -964,18 +954,18 @@ function recipeBody(featureSet) {
 }
 
 function recipeText() {
-  return selectedTrainingFeatureSet || latestTrainingReadiness?.feature_recipe?.feature_set || "рецепт по умолчанию";
+  return selectedTrainingFeatureSet || latestTrainingReadiness?.feature_recipe?.feature_set || "the default recipe";
 }
 
 async function calibrateClassifier() {
   if (trainingActionElement("calibrateClassifier")?.disabled) return;
   const selectedFeatureSet = selectedArtifactFeatureSet();
-  if (!window.confirm(`Откалибровать новую модель ${activeProfile.name} ${selectedFeatureSet || recipeText()} по всем текущим меткам?`)) {
+  if (!window.confirm(`Calibrate a new ${activeProfile.name} ${selectedFeatureSet || recipeText()} model on all current labels?`)) {
     return;
   }
   setWorkflowBusy(true);
-  setWorkflowStatus("Калибровка…");
-  startTrainingProgressPolling(activeProfile.classifier_key, "calibrate", "Калибровка…");
+  setWorkflowStatus("Calibrating…");
+  startTrainingProgressPolling(activeProfile.classifier_key, "calibrate", "Calibrating…");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/calibrate`, {
       method: "POST",
@@ -983,11 +973,11 @@ async function calibrateClassifier() {
       body: JSON.stringify(recipeBody(selectedFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Калибровка завершена. ${data.feature_set}: ${fileName(data.artifact)}.`);
+    setWorkflowStatus(`Calibration complete. ${data.feature_set}: ${fileName(data.artifact)}.`);
     stopTrainingProgressPolling();
-    renderTrainingProgress({ status: "completed", operation: "calibrate", stage: "Калибровка завершена", percent: 100 });
+    renderTrainingProgress({ status: "completed", operation: "calibrate", stage: "Calibration complete", percent: 100 });
   } catch (error) {
-    renderTrainingProgress({ status: "failed", operation: "calibrate", stage: "Калибровка не удалась", error: error.message || String(error), percent: 0 });
+    renderTrainingProgress({ status: "failed", operation: "calibrate", stage: "Calibration failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
@@ -999,8 +989,8 @@ async function refreshCandidates() {
   if (trainingActionElement("refreshCandidates")?.disabled) return;
   const selectedFeatureSet = selectedArtifactFeatureSet();
   setWorkflowBusy(true);
-  setWorkflowStatus("Обновление кандидатов…");
-  startTrainingProgressPolling(activeProfile.classifier_key, "refresh", "Обновление кандидатов…");
+  setWorkflowStatus("Refreshing candidates…");
+  startTrainingProgressPolling(activeProfile.classifier_key, "refresh", "Refreshing candidates…");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, {
       method: "POST",
@@ -1008,11 +998,11 @@ async function refreshCandidates() {
       body: JSON.stringify(recipeBody(selectedFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Обновление кандидатов завершено. ${data.feature_set}: обновлено ${data.predicted}, пропущено ${data.skipped}.`);
+    setWorkflowStatus(`Candidate refresh complete. ${data.feature_set}: updated ${data.predicted}, skipped ${data.skipped}.`);
     stopTrainingProgressPolling();
-    renderTrainingProgress({ status: "completed", operation: "refresh", stage: "Обновление кандидатов завершено", percent: 100 });
+    renderTrainingProgress({ status: "completed", operation: "refresh", stage: "Candidate refresh complete", percent: 100 });
   } catch (error) {
-    renderTrainingProgress({ status: "failed", operation: "refresh", stage: "Обновление кандидатов не удалось", error: error.message || String(error), percent: 0 });
+    renderTrainingProgress({ status: "failed", operation: "refresh", stage: "Candidate refresh failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
@@ -1023,12 +1013,12 @@ async function refreshCandidates() {
 async function promoteClassifier() {
   if (trainingActionElement("promoteClassifier")?.disabled) return;
   const selectedFeatureSet = selectedArtifactFeatureSet();
-  if (!window.confirm(`Продвинуть последнюю модель ${activeProfile.name} ${selectedFeatureSet || recipeText()} в основное приложение?`)) {
+  if (!window.confirm(`Promote the latest ${activeProfile.name} ${selectedFeatureSet || recipeText()} model to the main app?`)) {
     return;
   }
   setWorkflowBusy(true);
-  setWorkflowStatus("Продвижение модели…");
-  startTrainingProgressPolling(activeProfile.classifier_key, "promote", "Продвижение модели…");
+  setWorkflowStatus("Promoting…");
+  startTrainingProgressPolling(activeProfile.classifier_key, "promote", "Promoting…");
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, {
       method: "POST",
@@ -1036,11 +1026,11 @@ async function promoteClassifier() {
       body: JSON.stringify(recipeBody(selectedFeatureSet))
     });
     const data = await parseRefreshResponse(response);
-    setWorkflowStatus(`Продвижение завершено. Модель ${fileName(data.model_path)}, метаданные ${fileName(data.metadata_path)}.`);
+    setWorkflowStatus(`Promotion complete. Model ${fileName(data.model_path)}, metadata ${fileName(data.metadata_path)}.`);
     stopTrainingProgressPolling();
-    renderTrainingProgress({ status: "completed", operation: "promote", stage: "Продвижение завершено", percent: 100 });
+    renderTrainingProgress({ status: "completed", operation: "promote", stage: "Promotion complete", percent: 100 });
   } catch (error) {
-    renderTrainingProgress({ status: "failed", operation: "promote", stage: "Продвижение не удалось", error: error.message || String(error), percent: 0 });
+    renderTrainingProgress({ status: "failed", operation: "promote", stage: "Promotion failed", error: error.message || String(error), percent: 0 });
     throw error;
   } finally {
     stopTrainingProgressPolling();
@@ -1081,10 +1071,10 @@ async function loadTrainingReadiness() {
 function applyTrainingReadiness(data) {
   if (!data || !trainingPanelEl.querySelector(".classifier-workflow-card")) return;
   const selected = selectedPromotionOption(data);
-  const chip = document.getElementById("workflowStateChip");
-  if (chip) {
-    chip.className = `workflow-state-chip ${data.ready ? "ready" : "blocked"}`;
-    chip.textContent = data.ready ? "Готово к обучению" : "Пока не готово";
+  const state = document.getElementById("workflowState");
+  if (state) {
+    state.className = `workflow-state ${data.ready ? "ready" : "blocked"}`;
+    state.textContent = data.ready ? "Ready to train" : "Not ready yet";
   }
   const recommendation = document.getElementById("workflowRecommendation");
   if (recommendation) recommendation.textContent = workflowRecommendation(data, selected);
@@ -1109,10 +1099,10 @@ function syncRecipeFromReadiness(data) {
 }
 
 function promoteBlockedTitle(selected) {
-  if (!selected) return "Сначала обучите и откалибруйте вариант";
-  if (selected.spec_compatible !== true) return selected.spec_reason || "Выбранный вариант не соответствует текущей спецификации признаков";
-  if (selected.calibration_status !== "calibrated") return "Сначала откалибруйте выбранный вариант";
-  return "Продвинуть выбранный откалиброванный вариант";
+  if (!selected) return "Train and calibrate a variant first";
+  if (selected.spec_compatible !== true) return selected.spec_reason || "The selected variant does not match the current feature spec";
+  if (selected.calibration_status !== "calibrated") return "Calibrate the selected variant first";
+  return "Promote the selected calibrated variant";
 }
 
 function trainingBlockMounted(profileKey) {
@@ -1123,7 +1113,7 @@ async function loadTrainingView() {
   if (!activeProfile) return;
   const profileKey = activeProfile.classifier_key;
   // Keep the mounted block on screen while readiness is in flight; only an
-  // empty panel (first open, other profile) shows the loading card.
+  // empty panel (first open, other profile) shows the loading note.
   if (!trainingBlockMounted(profileKey)) trainingPanelEl.innerHTML = renderTrainingLoading(activeProfile.name);
   try {
     const data = await loadTrainingReadiness();
@@ -1141,8 +1131,8 @@ async function loadTrainingView() {
 
 function mountTrainingBlock(data) {
   trainingPlanText = isMulticlassProfile()
-    ? `Логистическая регрессия по классам ${trainingLabels().map(label => label.name).join(", ")}. Каждый трек даёт не больше одной метки класса.`
-    : `Логистическая регрессия: ${labelByKey(activeProfile.positive_label).name} против ${labelByKey(activeProfile.negative_label).name}. Метки для ревью в обучение не входят.`;
+    ? `Logistic regression across ${trainingLabels().map(label => label.name).join(", ")}. Each track contributes at most one class label.`
+    : `Logistic regression: ${labelByKey(activeProfile.positive_label).name} vs ${labelByKey(activeProfile.negative_label).name}. Review labels stay out of training.`;
   trainingPanelEl.innerHTML = `${renderTrainingSkeleton()}<div id="trainingInformation"></div>`;
   trainingViewProfileKey = activeProfile.classifier_key;
   promoteFeatureSetEl = document.getElementById("promoteFeatureSet");
@@ -1152,14 +1142,14 @@ function mountTrainingBlock(data) {
 }
 
 function renderTrainingLoading(profileName) {
-  return `<div class="training-info-card"><b>Загружаю обучение</b>
-    <span class="meta training-info-text">Проверяю метки, источники признаков и сохранённые модели для ${escapeHtml(profileName)}…</span>
+  return `<div class="training-note"><b>Loading training</b>
+    <span class="meta">Checking labels, feature sources and saved models for ${escapeHtml(profileName)}…</span>
   </div>`;
 }
 
 function renderTrainingLoadError(error) {
-  return `<div class="training-info-card"><b>Не удалось загрузить обучение</b>
-    <span class="meta training-info-text">${escapeHtml(error?.message || String(error))}</span>
+  return `<div class="training-note"><b>Training could not load</b>
+    <span class="meta">${escapeHtml(error?.message || String(error))}</span>
   </div>`;
 }
 
@@ -1167,42 +1157,42 @@ function renderTrainingLoadError(error) {
 // that depends on readiness is filled by applyTrainingReadiness().
 function renderTrainingSkeleton() {
   return `<div class="classifier-workflow-card">
-    <div class="workflow-header">
-      <div>
-        <b>Рабочий процесс классификатора</b>
+    <header class="workflow-section workflow-header">
+      <div class="workflow-heading">
+        <h2>Training</h2>
         <span class="meta">${escapeHtml(activeProfile.name)}, ${escapeHtml(profileTypeLabel())}</span>
+        <span id="workflowState" class="workflow-state"></span>
       </div>
-      <span id="workflowStateChip" class="workflow-state-chip"></span>
-    </div>
-    <div class="workflow-recommendation">
-      <b>Рекомендация</b>
-      <span id="workflowRecommendation"></span>
-    </div>
-    <div class="recipe-builder">
-      <div class="recipe-builder-header">
-        <b>Рецепт обучения</b>
-        <span class="meta">Выберите одну или несколько моделей, сохранённых в этой библиотеке.</span>
+      <p class="workflow-recommendation"><b>Next step:</b> <span id="workflowRecommendation"></span></p>
+    </header>
+    <section class="workflow-section recipe-builder" aria-labelledby="recipeHeading">
+      <div class="section-heading">
+        <h3 id="recipeHeading">Recipe</h3>
+        <span class="meta">Pick one or more models stored in this library.</span>
       </div>
-      <div id="recipeRack" class="recipe-rack"></div>
-      <p class="recipe-line">Рецепт <code id="recipeString"></code>.<span id="recipeMissing" class="recipe-missing"></span></p>
-    </div>
-    <div class="workflow-variant-row">
-      <label class="workflow-variant-select">Выбранный вариант
-        <select id="promoteFeatureSet"></select>
-      </label>
-      <div class="workflow-variant-select">Состояние артефакта
-        <span id="artifactState" class="workflow-variant-note"></span>
+      <div id="recipeRack" class="recipe-rack" role="group" aria-labelledby="recipeHeading"></div>
+      <p class="recipe-line">Recipe <code id="recipeString"></code></p>
+      <p id="recipeMissing" class="recipe-missing" hidden></p>
+    </section>
+    <section class="workflow-section workflow-variant" aria-label="Trained variant">
+      <div class="workflow-variant-row">
+        <label class="field">Selected variant
+          <select id="promoteFeatureSet"></select>
+        </label>
+        <div class="field">Artifact state
+          <span id="artifactState" class="workflow-variant-note"></span>
+        </div>
       </div>
-      <div id="workflowFacts" class="workflow-variant-facts"></div>
+      <dl id="workflowFacts" class="facts facts-grid"></dl>
+    </section>
+    <div class="workflow-section training-workflow-feedback"${workflowStatusText ? "" : " hidden"}>
+      <span id="refreshCandidatesStatus" class="source-status-line">${escapeHtml(workflowStatusText)}</span>
     </div>
-    <div class="training-workflow-feedback"${workflowStatusText ? "" : " hidden"}>
-      <span id="refreshCandidatesStatus" class="meta source-status-line">${escapeHtml(workflowStatusText)}</span>
-    </div>
-    <div id="trainingProgress" class="training-progress" role="status" aria-live="polite" hidden>
+    <div id="trainingProgress" class="workflow-section training-progress" role="status" aria-live="polite" hidden>
       <div class="training-progress-header"><span id="trainingProgressStage"></span><b id="trainingProgressPercent">0%</b></div>
       <div class="training-progress-track"><span id="trainingProgressBar"></span></div>
     </div>
-    <div id="workflowSteps" class="workflow-steps"></div>
+    <ol id="workflowSteps" class="workflow-section workflow-steps"></ol>
   </div>`;
 }
 
@@ -1211,14 +1201,14 @@ function renderWorkflowFacts(data, selected) {
   const winner = data?.artifact_summary?.benchmark_winner;
   const selectedCalibrated = selected?.calibration_status === "calibrated";
   return `
-    ${trainingInfoLine("Источники", (featureRecipe.required_sources || []).map(recipeTokenLabel).join(" + ") || "нет")}
-    ${trainingInfoLine("Данные", featureRecipe.ready ? "Готовы" : recipeBlockingText(featureRecipe))}
-    ${trainingInfoLine("Бенчмарк", winner ? `${winner.feature_set}, F1 ${formatMetricPercent(winner.macro_f1_mean)}, полнота ${formatMetricPercent(winner.positive_recall_mean)}` : "Запустите бенчмарк, чтобы сравнить рецепты.")}
-    ${trainingInfoLine("Выбор", selected ? `${selected.feature_set}, место ${selected.rank ?? "-"}, F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "Выберите обученный вариант.")}
-    ${trainingInfoLine("Калибровка", selectedCalibrated ? `${selected.calibration_method || "Откалибрована"}, готова к продвижению` : selected ? `Не откалибрована${selected.calibration_reason ? `: ${selected.calibration_reason}` : ""}` : "Вариант не выбран.")}
-    ${trainingInfoLine("Вклад моделей", formatFeatureGroupWeights(selected?.feature_group_weights))}
-    ${trainingInfoLine("Происхождение", selected ? artifactProvenanceText(selected) : "Вариант не выбран.")}
-    ${trainingInfoLine("Основное приложение", selected ? (selected.spec_compatible === true ? "Спецификация признаков совпадает; можно продвигать." : selected.spec_reason || "Спецификация признаков не совпадает с основным приложением.") : "Вариант не выбран.")}`;
+    ${trainingInfoLine("Sources", (featureRecipe.required_sources || []).map(recipeTokenLabel).join(" + ") || "none")}
+    ${trainingInfoLine("Data", featureRecipe.ready ? "Ready" : recipeBlockingText(featureRecipe))}
+    ${trainingInfoLine("Benchmark", winner ? `${winner.feature_set}, F1 ${formatMetricPercent(winner.macro_f1_mean)}, recall ${formatMetricPercent(winner.positive_recall_mean)}` : "Run a benchmark to compare recipes.")}
+    ${trainingInfoLine("Selection", selected ? `${selected.feature_set}, rank ${selected.rank ?? "–"}, F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "Choose a trained variant.")}
+    ${trainingInfoLine("Calibration", selectedCalibrated ? `${selected.calibration_method || "Calibrated"}, ready to promote` : selected ? `Not calibrated${selected.calibration_reason ? `: ${selected.calibration_reason}` : ""}` : "No variant selected.")}
+    ${trainingInfoLine("Model contribution", formatFeatureGroupWeights(selected?.feature_group_weights))}
+    ${trainingInfoLine("Provenance", selected ? artifactProvenanceText(selected) : "No variant selected.")}
+    ${trainingInfoLine("Main app", selected ? (selected.spec_compatible === true ? "Feature spec matches; ready to promote." : selected.spec_reason || "The feature spec does not match the main app.") : "No variant selected.")}`;
 }
 
 // The six steps. Every gate here reads the readiness payload only; the
@@ -1236,71 +1226,72 @@ function renderWorkflowSteps(data, selected) {
   const benchmarkRun = benchmarkRunState(data);
   const hasSources = (data?.available_feature_sources || []).length > 0;
   const skipped = Number(data?.skipped_training_rows || 0);
-  const perClassRule = `минимум ${labelThreshold(data)} на класс`;
+  const perClassRule = `at least ${labelThreshold(data)} per class`;
+  const thresholdNote = "the label minimum in step 1 is not met.";
   return `
     ${renderWorkflowStep({
       number: 1,
-      title: "Собрать метки",
+      title: "Collect labels",
       status: data?.labels_ready && !thresholdBlocked ? "done" : "blocked",
       body: thresholdBlocked
-        ? `${thresholdReason} ${labelCoverageSentence(data)}${labelsElsewhereNote(data)}`
+        ? thresholdReason
         : data?.labels_ready
-          ? `Меток достаточно (правило: ${perClassRule}). ${labelCoverageSentence(data)}${labelsElsewhereNote(data)} Новых с последнего обучения: ${formatLabelCounts(data?.added || {}, null, trainingLabels())}.`
+          ? `Enough labels (rule: ${perClassRule}). ${labelCoverageSentence(data)}${labelsElsewhereNote(data)} New since the last training: ${formatLabelCounts(data?.added || {}, null, trainingLabels())}.`
           : skipped > 0
-            ? `${skipped} ${pluralRu(skipped, "размеченный трек не имеет", "размеченных трека не имеют", "размеченных треков не имеют")} актуальных признаков для этого рецепта. Восстановите признаки или добавьте примеры с полным набором признаков: ${missingLabelText(data) || perClassRule}. ${labelCoverageSentence(data)}`
-            : `Добавьте недостающие метки (правило: ${perClassRule}): ${missingLabelText(data) || perClassRule}. ${labelCoverageSentence(data)}${labelsElsewhereNote(data)}`,
-      action: workflowButton("openLibrary", "library", "Открыть библиотеку", "open-library", false, "Открыть библиотеку для разметки")
+            ? `${skipped} labeled ${plural(skipped, "track has", "tracks have")} no current features for this recipe. Restore the features or add examples with the full feature set: ${missingLabelText(data) || perClassRule}. ${labelCoverageSentence(data)}`
+            : `Add the missing labels (rule: ${perClassRule}): ${missingLabelText(data) || perClassRule}. ${labelCoverageSentence(data)}${labelsElsewhereNote(data)}`,
+      action: workflowButton("openLibrary", "library", "Open library", "open-library", false, "Open the library to label tracks")
     })}
     ${renderWorkflowStep({
       number: 2,
-      title: "Обучить модель",
+      title: "Train the model",
       status: data?.ready ? "ready" : "blocked",
-      body: `${trainingPlanText} Рецепт: ${recipeText()}. Считаются метрики оценки, затем сохранённая продакшен-модель переобучается на всех текущих метках; кандидаты обновляются автоматически.${data?.ready ? "" : ` Пока недоступно: ${trainingBlocked}`}`,
-      action: workflowButton("trainRefresh", "train", "Обучить", "train-refresh", !data?.ready, data?.ready ? `Обучить ${recipeText()} и обновить кандидатов` : trainingBlocked)
+      body: `${trainingPlanText} Recipe: ${recipeText()}. Evaluation metrics come first, then the saved model is refit on all current labels and candidates refresh automatically.${data?.ready ? "" : ` Not available yet: ${thresholdBlocked ? thresholdNote : trainingBlocked}`}`,
+      action: workflowButton("trainRefresh", "train", "Train", "train-refresh", !data?.ready, data?.ready ? `Train ${recipeText()} and refresh candidates` : trainingBlocked)
     })}
     ${renderWorkflowStep({
       number: 3,
-      title: "Бенчмарк рецептов",
+      title: "Benchmark recipes",
       status: winner ? "done" : benchmarkRun.runnable ? "ready" : "blocked",
       body: `${winner
-        ? `Лучший обученный рецепт: ${winner.feature_set}, F1 ${formatMetricPercent(winner.macro_f1_mean)}.`
+        ? `Best trained recipe: ${winner.feature_set}, F1 ${formatMetricPercent(winner.macro_f1_mean)}.`
         : hasSources
-          ? "Сравнение рецептов по кросс-валидационному macro-F1."
-          : "В этой библиотеке нет сохранённых источников признаков, сравнивать нечего."}${benchmarkRun.runnable ? "" : ` Пока недоступно: ${benchmarkRun.title}`}`,
+          ? "Compares recipes by cross-validated macro-F1."
+          : "This library has no stored feature sources to compare."}${benchmarkRun.runnable ? "" : ` Not available yet: ${thresholdBlocked ? thresholdNote : benchmarkRun.title}`}`,
       details: renderBenchmarkControls(data),
       wide: true,
       action: ""
     })}
     ${renderWorkflowStep({
       number: 4,
-      title: "Откалибровать выбранный вариант",
+      title: "Calibrate the selected variant",
       status: selectedCalibrated ? "done" : canCalibrate ? "ready" : "blocked",
       body: selectedCalibrated
-        ? `${selected.feature_set} использует ${selected.calibration_method || "калиброванные"} вероятности и может быть продвинут.`
+        ? `${selected.feature_set} uses ${selected.calibration_method || "calibrated"} probabilities and can be promoted.`
         : thresholdBlocked
-          ? thresholdReason
+          ? `Not available yet: ${thresholdNote}`
           : selectedReady && data?.calibration_ready
-            ? "Переобучите выбранный рецепт с калибровкой вероятностей перед продвижением."
-            : data?.calibration_readiness?.reason || "Обучите или сравните вариант, источники которого сохранены в этой библиотеке.",
-      action: workflowButton("calibrateClassifier", "calibrate", "Откалибровать", "calibrate-classifier", !canCalibrate, canCalibrate ? `Откалибровать ${selected.feature_set}` : selectedCalibrated ? "Выбранный вариант уже откалиброван" : thresholdBlocked ? thresholdReason : data?.calibration_readiness?.reason || "Выберите вариант, данные которого есть в этой библиотеке")
+            ? "Refit the selected recipe with probability calibration before promoting."
+            : data?.calibration_readiness?.reason || "Train or benchmark a variant whose sources are stored in this library.",
+      action: workflowButton("calibrateClassifier", "calibrate", "Calibrate", "calibrate-classifier", !canCalibrate, canCalibrate ? `Calibrate ${selected.feature_set}` : selectedCalibrated ? "The selected variant is already calibrated" : thresholdBlocked ? thresholdReason : data?.calibration_readiness?.reason || "Select a variant whose data is in this library")
     })}
     ${renderWorkflowStep({
       number: 5,
-      title: "Обновить и проверить кандидатов",
+      title: "Refresh and review candidates",
       status: selectedReady ? "ready" : "blocked",
-      body: selectedReady ? `Обновите прогнозы моделью ${selected.feature_set}, затем проверьте неуверенных и уверенных кандидатов.` : "Сначала обучите вариант, источники которого сохранены в этой библиотеке.",
-      action: workflowButton("refreshCandidates", "refresh", "Обновить кандидатов", "refresh-candidates", !selectedReady, selectedReady ? `Обновить кандидатов моделью ${selected.feature_set}` : "Выберите вариант, данные которого есть в этой библиотеке")
+      body: selectedReady ? `Refresh predictions with ${selected.feature_set}, then review uncertain and confident candidates.` : "Train a variant whose sources are stored in this library first.",
+      action: workflowButton("refreshCandidates", "refresh", "Refresh candidates", "refresh-candidates", !selectedReady, selectedReady ? `Refresh candidates with ${selected.feature_set}` : "Select a variant whose data is in this library")
     })}
     ${renderWorkflowStep({
       number: 6,
-      title: "Продвинуть модель",
+      title: "Promote the model",
       status: canPromote ? "ready" : "blocked",
       body: canPromote
-        ? `Продвинуть откалиброванную модель ${selected.feature_set} в models/classifiers для скоринга в основном приложении.`
+        ? `Promote the calibrated ${selected.feature_set} model to models/classifiers for scoring in the main app.`
         : selected && selected.spec_compatible !== true
-          ? `Только для лаборатории: ${selected.spec_reason || "спецификация признаков не совпадает с основным приложением"}.`
-          : "Для продвижения нужен откалиброванный артефакт, спецификация признаков которого совпадает с основным приложением.",
-      action: workflowButton("promoteClassifier", "promote", "Продвинуть модель", "promote-classifier", !canPromote, canPromote ? "Продвинуть выбранный откалиброванный вариант" : promoteBlockedTitle(selected))
+          ? `Lab only: ${selected.spec_reason || "the feature spec does not match the main app"}.`
+          : "Promotion needs a calibrated artifact whose feature spec matches the main app.",
+      action: workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier", !canPromote, canPromote ? "Promote the selected calibrated variant" : promoteBlockedTitle(selected))
     })}`;
 }
 
@@ -1320,7 +1311,7 @@ function labelThresholdReason(data) {
     .map(text => String(text).trim())
     .filter(Boolean);
   if (texts.length) return texts.join(" ");
-  return `В этой библиотеке меньше ${labelThreshold(data)} меток на класс, а это минимум для обучения.`;
+  return `This library has fewer than ${labelThreshold(data)} labels per class, the minimum for training.`;
 }
 
 function canPromoteArtifact(data) {
@@ -1332,46 +1323,36 @@ function canPromoteArtifact(data) {
 }
 
 function renderWorkflowStep({ number, title, status, body, details = "", wide = false, action = "" }) {
-  return `<section class="workflow-step workflow-step-${status}${wide ? " workflow-step-wide" : ""}">
-    <div class="workflow-step-index">${number}</div>
+  return `<li class="workflow-step workflow-step-${status}${wide ? " workflow-step-wide" : ""}">
+    <span class="workflow-step-index">${number}</span>
     <div class="workflow-step-copy">
-      <div class="workflow-step-title"><b>${escapeHtml(title)}</b><span class="workflow-state-chip ${status}">${escapeHtml(STEP_STATUS_LABELS[status] || status)}</span></div>
-      <span class="meta">${escapeHtml(body)}</span>
+      <div class="workflow-step-title"><h3>${escapeHtml(title)}</h3><span class="workflow-step-state">${escapeHtml(STEP_STATUS_LABELS[status] || status)}</span></div>
+      <p class="workflow-step-body">${escapeHtml(body)}</p>
       ${details}
     </div>
     ${wide ? "" : `<div class="workflow-step-action">${action}</div>`}
-  </section>`;
+  </li>`;
 }
 
 function workflowButton(id, action, label, className, disabled, title) {
-  return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${actionIcon(action)}<span>${escapeHtml(label)}</span></button>`;
-}
-
-function actionIcon(action) {
-  if (action === "library") return '<svg class="lucide lucide-library-big" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1" /><path d="M7 3v18" /><path d="M20.4 18.9c.2.7-.2 1.4-.9 1.6l-3.7 1c-.7.2-1.4-.2-1.6-.9L9.1 5.1c-.2-.7.2-1.4.9-1.6l3.7-1c.7-.2 1.4.2 1.6.9Z" /></svg>';
-  if (action === "train") return '<svg class="lucide lucide-brain" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>';
-  if (action === "candidates") return '<svg class="lucide lucide-sparkles" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594Z" /><path d="M20 2v4" /><path d="M22 4h-4" /></svg>';
-  if (action === "benchmark") return '<svg class="lucide lucide-chart-no-axes-column-increasing" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" /></svg>';
-  if (action === "calibrate") return '<svg class="lucide lucide-gauge" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4" /><path d="M3.34 19a10 10 0 1 1 17.32 0" /></svg>';
-  if (action === "refresh") return '<svg class="lucide lucide-refresh-cw" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" /></svg>';
-  return '<svg class="lucide lucide-upload" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>';
+  return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</button>`;
 }
 
 function workflowRecommendation(data, selected) {
   const missing = missingLabelText(data);
   const skipped = Number(data?.skipped_training_rows || 0);
   if (data?.label_threshold_ready === false) return labelThresholdReason(data);
-  if (missing && skipped > 0) return `Восстановите признаки для ${skipped} размеченных треков или добавьте ${missing} примеров с полным набором признаков.`;
-  if (missing) return `Добавьте ${missing} перед следующим обучением.`;
+  if (missing && skipped > 0) return `Restore features for ${skipped} labeled ${plural(skipped, "track", "tracks")} or add ${missing} examples with the full feature set.`;
+  if (missing) return `Add ${missing} before the next training run.`;
   if (!data?.features_ready) return recipeBlockingText(data?.feature_recipe);
-  if (!data?.model_artifact && !(data?.artifact_summary?.promotion_options || []).length) return "Обучите первую модель для этого профиля.";
-  if (!data?.artifact_summary?.benchmark_winner) return "Запустите бенчмарк, чтобы выбрать самый сильный рецепт.";
-  if (!selected) return "Переобучите вариант на текущих данных источника перед калибровкой или продвижением.";
+  if (!data?.model_artifact && !(data?.artifact_summary?.promotion_options || []).length) return "Train the first model for this profile.";
+  if (!data?.artifact_summary?.benchmark_winner) return "Run a benchmark to find the strongest recipe.";
+  if (!selected) return "Retrain a variant on the current library data before calibrating or promoting.";
   if (selected?.calibration_status !== "calibrated" && !data?.calibration_ready) {
-    return data?.calibration_readiness?.reason || "Добавьте больше меток перед калибровкой.";
+    return data?.calibration_readiness?.reason || "Add more labels before calibrating.";
   }
-  if (selected?.calibration_status !== "calibrated") return "Откалибруйте выбранный вариант, затем обновите его кандидатов.";
-  return "Обновите и проверьте кандидатов откалиброванного варианта, затем продвиньте его.";
+  if (selected?.calibration_status !== "calibrated") return "Calibrate the selected variant, then refresh its candidates.";
+  return "Refresh and review candidates from the calibrated variant, then promote it.";
 }
 
 function missingLabelText(data) {
@@ -1391,9 +1372,9 @@ function missingLabelText(data) {
     const total = missingRows.reduce((sum, value) => sum + value, 0);
     const uniqueValues = new Set(missingRows);
     if (uniqueValues.size === 1) {
-      return `по ${missingRows[0]} на класс в ${missingRows.length} классах`;
+      return `${missingRows[0]} per class across ${missingRows.length} classes`;
     }
-    return `${total} ${pluralRu(total, "метку", "метки", "меток")} в ${missingRows.length} классах`;
+    return `${total} ${plural(total, "label", "labels")} across ${missingRows.length} classes`;
   }
   return hasMissing ? formatLabelCounts(missing) : "";
 }
@@ -1516,22 +1497,22 @@ function scheduleReadinessRefresh() {
 function joinNames(names) {
   const list = names.map(String);
   if (list.length <= 1) return list.join("");
-  return `${list.slice(0, -1).join(", ")} и ${list[list.length - 1]}`;
+  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
 }
 
 // The rack: one strip of equal-height slots, one per model stored in this
 // library, in the mandated order. A recipe is the set of engaged slots.
 function renderRecipeSlots(data) {
   const available = orderedFamilies(data?.available_feature_sources || []);
-  if (!available.length) return '<span class="meta">В этой библиотеке нет сохранённых источников признаков.</span>';
+  if (!available.length) return '<p class="recipe-empty">This library has no stored feature sources.</p>';
   const selected = selectedRecipeFamilies();
   const layers = storedMertV2Layers(data);
   const layer = currentMertV2Layer(data);
   return available.map(family => {
     const layerSelect = family === "mert_v2" && layers.length
-      ? `<select data-recipe-layer aria-label="Слой MERT-v2" title="Слой MERT-v2, сохранённый в этой библиотеке">${layers.map(value => `<option value="${value}" ${value === layer ? "selected" : ""}>слой ${value}</option>`).join("")}</select>`
+      ? `<select data-recipe-layer aria-label="MERT-v2 layer" title="MERT-v2 layer stored in this library">${layers.map(value => `<option value="${value}" ${value === layer ? "selected" : ""}>Layer ${value}</option>`).join("")}</select>`
       : "";
-    return `<div class="recipe-slot">
+    return `<div class="recipe-slot" data-family="${escapeHtml(family)}">
       <label>
         <input type="checkbox" data-recipe-family="${escapeHtml(family)}" ${selected.has(family) ? "checked" : ""} />
         <span>${escapeHtml(familyLabel(family))}</span>
@@ -1566,9 +1547,12 @@ function syncRecipeRack(data = latestTrainingReadiness) {
 
 function updateRecipeLine(data = latestTrainingReadiness) {
   const codeEl = document.getElementById("recipeString");
-  if (codeEl) codeEl.textContent = selectedTrainingFeatureSet || "нет";
+  if (codeEl) codeEl.textContent = selectedTrainingFeatureSet || "none";
   const missingEl = document.getElementById("recipeMissing");
-  if (missingEl) missingEl.textContent = missingFamiliesText(data);
+  if (missingEl) {
+    missingEl.textContent = missingFamiliesText(data);
+    missingEl.hidden = !missingEl.textContent;
+  }
 }
 
 function missingFamiliesText(data) {
@@ -1577,7 +1561,7 @@ function missingFamiliesText(data) {
     .filter(family => !available.includes(family))
     .map(familyLabel);
   if (!missing.length) return "";
-  return ` Нет в этой библиотеке: ${missing.join(", ")}. Запустите анализ ${joinNames(missing)} в основном приложении, затем перезагрузите источник.`;
+  return `Not in this library: ${missing.join(", ")}. Run ${joinNames(missing)} analysis in the main app, then reload the library.`;
 }
 
 // ---- Benchmark panel ---------------------------------------------------------
@@ -1607,8 +1591,8 @@ function plannedBenchmarkRuns(data = latestTrainingReadiness) {
 }
 
 function plannedRunsText(plan = plannedBenchmarkRuns()) {
-  const runs = `${plan.count} ${pluralRu(plan.count, "прогон", "прогона", "прогонов")}`;
-  return plan.bound ? `до ${runs}` : runs;
+  const runs = `${plan.count} ${plural(plan.count, "run", "runs")}`;
+  return plan.bound ? `up to ${runs}` : runs;
 }
 
 function benchmarkRunState(data = latestTrainingReadiness) {
@@ -1620,15 +1604,15 @@ function benchmarkRunState(data = latestTrainingReadiness) {
     return {
       runnable: false,
       plan,
-      title: benchmarkStrategy === "custom" ? "Добавьте хотя бы один рецепт для сравнения" : "В этой библиотеке нет сохранённых источников признаков",
+      title: benchmarkStrategy === "custom" ? "Add at least one recipe to compare" : "This library has no stored feature sources",
     };
   }
-  return { runnable: true, plan, title: `Запустить бенчмарк: ${BENCHMARK_STRATEGY_LABELS[benchmarkStrategy] || benchmarkStrategy}, ${plannedRunsText(plan)}` };
+  return { runnable: true, plan, title: `Run benchmark: ${BENCHMARK_STRATEGY_LABELS[benchmarkStrategy] || benchmarkStrategy}, ${plannedRunsText(plan)}` };
 }
 
 function benchmarkPlanHintText(plan) {
   const runs = plannedRunsText(plan);
-  return plan.count > BENCHMARK_RUN_WARNING ? `${runs}, это займёт много времени` : runs;
+  return plan.count > BENCHMARK_RUN_WARNING ? `${runs}, this will take a while` : runs;
 }
 
 function renderBenchmarkControls(data) {
@@ -1638,14 +1622,14 @@ function renderBenchmarkControls(data) {
     .join("");
   return `<div class="benchmark-controls">
     <div class="benchmark-row">
-      <label class="benchmark-strategy">Стратегия
+      <label class="benchmark-strategy">Strategy
         <select id="benchmarkStrategy">${options}</select>
       </label>
       <span id="benchmarkPlanHint" class="benchmark-plan-hint${run.plan.count > BENCHMARK_RUN_WARNING ? " warning" : ""}">${escapeHtml(benchmarkPlanHintText(run.plan))}</span>
-      ${workflowButton("runBenchmark", "benchmark", "Запустить бенчмарк", "run-benchmark", !run.runnable, run.title)}
+      ${workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark", !run.runnable, run.title)}
     </div>
     <div id="benchmarkCustom" class="benchmark-custom" hidden>
-      <button type="button" data-benchmark-add title="Добавить текущий рецепт обучения в сравнение">Добавить текущий рецепт</button>
+      <button type="button" data-benchmark-add title="Add the current training recipe to the comparison">Add current recipe</button>
       <div id="benchmarkCustomList"></div>
     </div>
     <div id="benchmarkResults" class="benchmark-results">${renderBenchmarkResults()}</div>
@@ -1678,9 +1662,9 @@ function removeBenchmarkRecipe(featureSet) {
 }
 
 function renderBenchmarkCustomList() {
-  if (!benchmarkCustomSets.length) return '<span class="meta">Рецепты ещё не добавлены. Соберите рецепт в стойке и добавьте его сюда.</span>';
+  if (!benchmarkCustomSets.length) return '<span class="meta">No recipes added yet. Build a recipe in the rack and add it here.</span>';
   return `<ul class="benchmark-custom-list">${benchmarkCustomSets
-    .map(featureSet => `<li><code>${escapeHtml(featureSet)}</code><button type="button" data-benchmark-remove="${escapeHtml(featureSet)}" title="Убрать ${escapeHtml(featureSet)} из сравнения">Убрать</button></li>`)
+    .map(featureSet => `<li><code>${escapeHtml(featureSet)}</code><button type="button" data-benchmark-remove="${escapeHtml(featureSet)}" title="Remove ${escapeHtml(featureSet)} from the comparison">Remove</button></li>`)
     .join("")}</ul>`;
 }
 
@@ -1719,44 +1703,93 @@ function formatLadderDelta(current, reference) {
 
 // The ladder: ranked by cross-validated macro-F1. The rows within one standard
 // deviation of the best form a prefix of the ranking, so they are bracketed as
-// a group on the left edge instead of being badged one by one.
+// a group on the left edge instead of being badged one by one. Each recipe is
+// drawn as the rack's model grid, and each score as mean ± std on one scale.
 function renderBenchmarkResults(report = latestBenchmarkReport) {
-  if (!report) return '<span class="meta">Запустите бенчмарк, чтобы сравнить рецепты.</span>';
+  if (!report) return '<p class="meta">Run a benchmark to compare recipes.</p>';
   const rows = benchmarkResultRows(report);
-  if (!rows.length) return '<span class="meta">Бенчмарк не вернул результатов.</span>';
+  if (!rows.length) return '<p class="meta">The benchmark returned no results.</p>';
   const trained = rows.filter(row => row.mean !== null);
   const best = trained[0] || null;
   const bandSize = best && best.std !== null ? trained.filter(row => row.mean >= best.mean - best.std).length : 0;
   const bracket = bandSize >= 2;
   const allModels = latestTrainingReadiness?.default_feature_set || null;
   const reference = trained.find(row => row.featureSet === allModels) || null;
+  const families = ladderFamilies(rows);
+  const showLayers = rows.some(row => recipeTokens(row.featureSet).some(token => token.includes("@")));
+  const scale = ladderScale(trained);
   const body = [];
   rows.forEach((row, index) => {
     const isTrained = row.mean !== null;
     const inBand = bracket && isTrained && index < bandSize;
-    const classes = [inBand ? "ladder-band" : "", isTrained ? "" : "ladder-unavailable"].filter(Boolean).join(" ");
-    const score = isTrained
-      ? `${(row.mean * 100).toFixed(1)}${row.std !== null ? ` ± ${(row.std * 100).toFixed(1)}` : ""}`
-      : "";
-    const delta = isTrained && reference ? (row === reference ? "база" : formatLadderDelta(row.mean, reference.mean)) : "";
-    const recipe = isTrained
-      ? `<code>${escapeHtml(row.featureSet)}</code>`
-      : `<code>${escapeHtml(row.featureSet)}</code> <span class="meta">${escapeHtml(row.error || row.status)}</span>`;
-    const action = isTrained
-      ? `<button type="button" data-recipe-apply="${escapeHtml(row.featureSet)}" title="Сделать ${escapeHtml(row.featureSet)} рецептом обучения">Использовать этот рецепт</button>`
-      : "";
-    body.push(`<tr class="${classes}"><td class="ladder-rank">${isTrained ? index + 1 : ""}</td><td class="ladder-recipe">${recipe}</td><td class="ladder-number">${score}</td><td class="ladder-number">${delta}</td><td class="ladder-action">${action}</td></tr>`);
+    const classes = [inBand ? "ladder-band" : "", inBand && index === 0 ? "ladder-band-start" : "", isTrained ? "" : "ladder-unavailable"].filter(Boolean).join(" ");
+    const grid = `<td class="ladder-models">${recipeGrid(row.featureSet, families, showLayers)}</td>`;
+    if (!isTrained) {
+      body.push(`<tr class="${classes}"><td class="ladder-rank"></td>${grid}<td colspan="3">${escapeHtml(row.error || row.status)}</td><td></td></tr>`);
+      return;
+    }
+    const score = `${(row.mean * 100).toFixed(1)}${row.std !== null ? ` ± ${(row.std * 100).toFixed(1)}` : ""}`;
+    const delta = reference ? (row === reference ? "baseline" : formatLadderDelta(row.mean, reference.mean)) : "";
+    body.push(`<tr class="${classes}"><td class="ladder-rank">${index + 1}</td>${grid}<td class="ladder-plot">${ladderWhisker(row, scale)}</td><td class="ladder-number">${score}</td><td class="ladder-number">${delta}</td><td class="ladder-action"><button type="button" data-recipe-apply="${escapeHtml(row.featureSet)}" title="Make ${escapeHtml(row.featureSet)} the training recipe">Use this recipe</button></td></tr>`);
     if (bracket && index === bandSize - 1) {
-      body.push('<tr class="ladder-band ladder-band-caption"><td></td><td colspan="4">в пределах шума лучшего</td></tr>');
+      body.push('<tr class="ladder-band ladder-band-caption"><td></td><td colspan="5">Within noise of the best</td></tr>');
     }
   });
   const note = reference
     ? ""
-    : '<p class="meta ladder-note">Рецепт со всеми моделями не участвовал в прогоне, поэтому колонка с разницей пуста.</p>';
-  return `<div class="ladder-scroll"><table class="ladder">
-    <thead><tr><th class="ladder-rank">#</th><th>Рецепт</th><th class="ladder-number">Macro-F1 (%)</th><th class="ladder-number">к рецепту со всеми моделями</th><th></th></tr></thead>
+    : '<p class="meta ladder-note">The all-models recipe was not in this run, so the comparison column is empty.</p>';
+  const axis = scale
+    ? `<span class="ladder-axis"><span>${scale.low}</span><span>Macro-F1, %</span><span>${scale.high}</span></span>`
+    : "Macro-F1, %";
+  return `<div class="ladder-scroll"><table class="ladder" aria-label="Benchmark results ranked by cross-validated macro-F1">
+    <thead><tr><th class="ladder-rank" scope="col">#</th><th class="ladder-models" scope="col"><span class="ladder-grid">${families.map(family => `<span>${escapeHtml(familyLabel(family))}</span>`).join("")}</span></th><th class="ladder-plot" scope="col">${axis}</th><th class="ladder-number" scope="col">Mean ± std</th><th class="ladder-number" scope="col">vs all models</th><th class="ladder-action" scope="col"><span class="visually-hidden">Action</span></th></tr></thead>
     <tbody>${body.join("")}</tbody>
   </table></div>${note}`;
+}
+
+// Columns of the model grid: every stored family plus any family a result row
+// names, in the rack's order.
+function ladderFamilies(rows) {
+  const families = new Set(latestTrainingReadiness?.available_feature_sources || []);
+  rows.forEach(row => recipeTokens(row.featureSet).forEach(token => families.add(recipeTokenFamily(token))));
+  return orderedFamilies(families);
+}
+
+function recipeGrid(featureSet, families, showLayers) {
+  const tokens = recipeTokens(featureSet);
+  const byFamily = new Map(tokens.map(token => [recipeTokenFamily(token), token]));
+  const cells = families.map(family => {
+    const token = byFamily.get(family);
+    if (!token) return '<span class="grid-cell"></span>';
+    const layer = family === "mert_v2" && showLayers ? token.split("@")[1] || String(MERT_V2_DEFAULT_LAYER) : "";
+    return `<span class="grid-cell on">${escapeHtml(layer)}</span>`;
+  }).join("");
+  return `<span class="ladder-grid" role="img" aria-label="${escapeHtml(tokens.map(recipeTokenLabel).join(", "))}" title="${escapeHtml(featureSet)}">${cells}</span>`;
+}
+
+// One shared scale for the ladder's mean ± std marks, rounded out to whole
+// percent so the two end labels stay clean.
+function ladderScale(trained) {
+  if (!trained.length) return null;
+  const lowest = Math.min(...trained.map(row => row.mean - (row.std ?? 0)));
+  const highest = Math.max(...trained.map(row => row.mean + (row.std ?? 0)));
+  let low = Math.max(0, Math.floor(lowest * 100) - 1);
+  let high = Math.min(100, Math.ceil(highest * 100) + 1);
+  if (high - low < 2) {
+    if (high < 100) high = Math.min(100, low + 2);
+    else low = Math.max(0, high - 2);
+  }
+  const position = value => Math.max(0, Math.min(100, ((value * 100 - low) / (high - low)) * 100));
+  return { low, high, position };
+}
+
+function ladderWhisker(row, scale) {
+  if (!scale) return "";
+  const std = row.std ?? 0;
+  const start = scale.position(row.mean - std);
+  const end = scale.position(row.mean + std);
+  const center = scale.position(row.mean);
+  return `<span class="whisker" aria-hidden="true"><span class="whisker-range" style="left:${start.toFixed(2)}%;width:${(end - start).toFixed(2)}%"></span><span class="whisker-dot" style="left:${center.toFixed(2)}%"></span></span>`;
 }
 
 function renderBenchmarkResultsInPlace() {
@@ -1772,9 +1805,9 @@ function selectableOption(row) {
 
 function artifactProvenanceText(row) {
   const uuid = String(row?.source_catalog_uuid || "").trim();
-  if (!uuid) return "Каталог источника неизвестен";
+  if (!uuid) return "Source library unknown";
   const short = uuid.slice(0, 8);
-  return sourceCatalogUuid && uuid === sourceCatalogUuid ? `Обучена на этой библиотеке (${short})` : `Обучена на другой библиотеке (${short})`;
+  return sourceCatalogUuid && uuid === sourceCatalogUuid ? `Trained on this library (${short})` : `Trained on another library (${short})`;
 }
 
 function sentenceFragment(text, fallback) {
@@ -1782,21 +1815,21 @@ function sentenceFragment(text, fallback) {
 }
 
 function artifactStateText(row) {
-  if (!row) return "Обученного варианта пока нет.";
+  if (!row) return "No trained variant yet.";
   const dataState = row.source_data_ready === true
-    ? "Данные источника актуальны."
-    : `Данные источника заблокированы: ${sentenceFragment(row.source_data_reason, "недоступны")}.`;
+    ? "Source data is current."
+    : `Source data is blocked: ${sentenceFragment(row.source_data_reason, "unavailable")}.`;
   const specState = row.spec_compatible === true
-    ? "Можно продвинуть в основное приложение."
-    : `Нельзя продвинуть: ${sentenceFragment(row.spec_reason, "спецификация признаков не совпадает")}.`;
+    ? "Can be promoted to the main app."
+    : `Cannot be promoted: ${sentenceFragment(row.spec_reason, "the feature spec does not match")}.`;
   return `${artifactProvenanceText(row)}. ${dataState} ${specState}`;
 }
 
 function recipeBlockingText(recipe) {
   const blocking = recipe?.blocking || [];
-  if (!blocking.length) return "Состояние рецепта признаков недоступно";
+  if (!blocking.length) return "Feature recipe state is unavailable";
   return blocking
-    .map(item => `${recipeTokenLabel(item.source)}: ${item.reason || FEATURE_STATE_LABELS[item.status] || item.status || "не актуально"}`)
+    .map(item => `${recipeTokenLabel(item.source)}: ${item.reason || FEATURE_STATE_LABELS[item.status] || item.status || "not current"}`)
     .join("; ");
 }
 
@@ -1805,7 +1838,7 @@ function recipeBlockingText(recipe) {
 function readinessBlockedTitle(data) {
   if (data?.label_threshold_ready === false) return labelThresholdReason(data);
   if (!data?.features_ready) return recipeBlockingText(data?.feature_recipe);
-  return `Добавьте недостающие метки: ${missingLabelText(data) || `минимум ${labelThreshold(data)} на класс`}.`;
+  return `Add the missing labels: ${missingLabelText(data) || `at least ${labelThreshold(data)} per class`}.`;
 }
 
 function updatePromoteFeatureSetOptions(data) {
@@ -1816,7 +1849,7 @@ function updatePromoteFeatureSetOptions(data) {
   const previous = promoteFeatureSetEl.value;
   promoteFeatureSetEl.innerHTML = options.length
     ? renderPromotionOptions(options)
-    : '<option value="">Нет обученной модели</option>';
+    : '<option value="">No trained model</option>';
   const allowedValues = new Set(usableOptions.map(row => String(row.feature_set || "")));
   promoteFeatureSetEl.value = allowedValues.has(previous) ? previous : String(selected?.feature_set || "");
   promoteFeatureSetEl.disabled = usableOptions.length === 0;
@@ -1837,24 +1870,24 @@ function selectedPromotionOption(data) {
 function renderPromotionOptions(options) {
   return options.length
     ? options.map(row => `<option value="${escapeHtml(String(row.feature_set || ""))}" ${selectableOption(row) ? "" : "disabled"}>${escapeHtml(promotionOptionLabel(row))}</option>`).join("")
-    : '<option value="">Нет обученной модели</option>';
+    : '<option value="">No trained model</option>';
 }
 
 function promotionOptionLabel(row) {
-  const rank = row.rank ? `место ${row.rank}` : "без места";
+  const rank = row.rank ? `rank ${row.rank}` : "unranked";
   const calibration = row.calibration_status === "calibrated"
-    ? `откалибрована ${row.calibration_method || ""}`.trim()
-    : "не откалибрована";
+    ? `calibrated ${row.calibration_method || ""}`.trim()
+    : "not calibrated";
   const uuid = String(row.source_catalog_uuid || "").trim();
-  const provenance = !uuid ? "библиотека неизвестна" : sourceCatalogUuid && uuid === sourceCatalogUuid ? "эта библиотека" : "другая библиотека";
-  const state = `${row.source_data_ready === true ? "данные актуальны" : "данные заблокированы"}, ${row.spec_compatible === true ? "можно продвигать" : "нельзя продвигать"}`;
-  return `${row.feature_set || "модель"}, ${rank}, F1 ${formatMetricPercent(row.macro_f1_mean)}, ${calibration}, ${formatHumanDate(row.created_at)}, ${provenance}, ${state}`;
+  const provenance = !uuid ? "unknown library" : sourceCatalogUuid && uuid === sourceCatalogUuid ? "this library" : "another library";
+  const state = `${row.source_data_ready === true ? "data current" : "data blocked"}, ${row.spec_compatible === true ? "promotable" : "not promotable"}`;
+  return `${row.feature_set || "model"}, ${rank}, F1 ${formatMetricPercent(row.macro_f1_mean)}, ${calibration}, ${formatHumanDate(row.created_at)}, ${provenance}, ${state}`;
 }
 
 function formatFeatureGroupWeights(weights) {
-  if (!weights || typeof weights !== "object") return "Для этого артефакта не записан.";
+  if (!weights || typeof weights !== "object") return "Not recorded for this artifact.";
   const entries = Object.entries(weights);
-  if (!entries.length) return "Для этого артефакта не записан.";
+  if (!entries.length) return "Not recorded for this artifact.";
   return entries
     .map(([source, value]) => `${recipeTokenLabel(source)} ${Number(value).toFixed(3)}`)
     .join(", ");
@@ -1867,64 +1900,64 @@ function refreshTrainingInformation(data) {
 }
 
 function renderTrainingInformationMetrics(data) {
-  return `<section class="training-info-card">
-    <header class="training-info-heading">
-      <b>Обзор обучения</b>
-      <span class="meta">Последний чекпоинт обучения и продвинутая модель, которой считаются оценки.</span>
-    </header>
-    <div class="meta training-info-text">
+  return `<section class="training-info-card" aria-labelledby="trainingOverviewHeading">
+    <div class="section-heading">
+      <h3 id="trainingOverviewHeading">Training overview</h3>
+      <span class="meta">The latest training checkpoint and the promoted model that scores tracks.</span>
+    </div>
+    <dl class="facts">
       ${renderTrainingLastRunLine(data)}
       ${renderTrainingPromotedModelLine(data?.promoted_model)}
       ${renderTrainingMetricsLine(data?.promoted_model)}
       ${renderTrainingDynamicsLine(data?.metrics_history)}
-    </div>
+    </dl>
   </section>`;
 }
 
 function renderTrainingLastRunLine(data) {
   const model = data?.trained_model;
   if (!model?.artifact) {
-    return trainingInfoLine("Обученная модель", "Чекпоинт обучения ещё не записан.");
+    return trainingInfoLine("Trained model", "No training checkpoint recorded yet.");
   }
   return trainingInfoLine(
-    "Обученная модель",
-    `Последний чекпоинт: ${model.feature_set || "рецепт неизвестен"}, ${formatHumanDate(model.trained_at)}, ${formatLabelCounts(model.label_counts || {})}`
+    "Trained model",
+    `Latest checkpoint: ${model.feature_set || "unknown recipe"}, ${formatHumanDate(model.trained_at)}, ${formatLabelCounts(model.label_counts || {})}`
   );
 }
 
 function renderTrainingPromotedModelLine(model) {
   if (!model || model.status === "not_promoted") {
-    return trainingInfoLine("Продвинутая модель", "Продакшен-модель ещё не продвинута.");
+    return trainingInfoLine("Promoted model", "No model has been promoted yet.");
   }
   const status = model.status === "ready"
-    ? "готова к скорингу"
-    : `недействительна: ${(model.manifest_errors || ["продакшен-манифест непригоден"])[0]}`;
-  const promotedAt = model.promoted_at ? formatHumanDate(model.promoted_at) : "дата неизвестна";
+    ? "ready for scoring"
+    : `invalid: ${(model.manifest_errors || ["the production manifest is unusable"])[0]}`;
+  const promotedAt = model.promoted_at ? formatHumanDate(model.promoted_at) : "date unknown";
   return trainingInfoLine(
-    "Продвинутая модель",
-    `${model.feature_set || "рецепт неизвестен"}, продвинута ${promotedAt}, ${status}`
+    "Promoted model",
+    `${model.feature_set || "unknown recipe"}, promoted ${promotedAt}, ${status}`
   );
 }
 
 function renderTrainingMetricsLine(model) {
   if (!model || model.status !== "ready") {
-    return trainingInfoLine("Качество", "Нет продвинутого model.json, чтобы оценить качество скоринга.");
+    return trainingInfoLine("Quality", "No promoted model.json to assess scoring quality.");
   }
   const calibration = model.calibration || {};
   const calibrationState = model.calibration_status === "calibrated"
-    ? `откалибрована${calibration.method ? ` (${calibration.method})` : ""}`
-    : `не откалибрована${calibration.reason ? `: ${calibration.reason}` : ""}`;
+    ? `calibrated${calibration.method ? ` (${calibration.method})` : ""}`
+    : `not calibrated${calibration.reason ? `: ${calibration.reason}` : ""}`;
   const values = [
-    `вариант ${model.feature_set || "рецепт неизвестен"}`,
+    `variant ${model.feature_set || "unknown recipe"}`,
     calibrationState,
-    `скоринг: ${model.score_semantics || "не записан"}`,
-    metricPercentText("F1 на валидации", calibration.validation_f1),
+    `scoring: ${model.score_semantics || "not recorded"}`,
+    metricPercentText("validation F1", calibration.validation_f1),
     metricPercentText("ROC-AUC", calibration.validation_roc_auc),
-    metricPercentText("средняя точность", calibration.validation_average_precision),
+    metricPercentText("average precision", calibration.validation_average_precision),
     metricNumberText("Brier", calibration.brier),
     metricPercentText("ECE10", calibration.ece10),
   ].filter(Boolean).join(", ");
-  return trainingInfoLine("Качество", `Продвинутый model.json: ${values}`);
+  return trainingInfoLine("Quality", `Promoted model.json: ${values}`);
 }
 
 function metricPercentText(label, value) {
@@ -1939,18 +1972,18 @@ function metricNumberText(label, value) {
 function renderTrainingDynamicsLine(history) {
   const latest = (history || [])[0];
   const previous = (history || [])[1];
-  if (!latest) return trainingInfoLine("Динамика", `Обучите ${recipeText()}, чтобы получить базовую линию.`);
+  if (!latest) return trainingInfoLine("Change", `Train ${recipeText()} to set a baseline.`);
   const trend = previous
-    ? `к предыдущему запуску: точность ${formatMetricDelta(latest.accuracy_mean, previous.accuracy_mean)}, F1 ${formatMetricDelta(latest.macro_f1_mean, previous.macro_f1_mean)}`
-    : "Первая записанная модель для этого рецепта.";
+    ? `vs the previous run: accuracy ${formatMetricDelta(latest.accuracy_mean, previous.accuracy_mean)}, F1 ${formatMetricDelta(latest.macro_f1_mean, previous.macro_f1_mean)}`
+    : "First recorded model for this recipe.";
   return trainingInfoLine(
-    "Динамика",
-    `${trend}; ${formatHumanDate(latest.created_at)}, размеченных треков: ${latest.trained_rows ?? "-"}, точность ${formatMetricPercent(latest.accuracy_mean)}, F1 ${formatMetricPercent(latest.macro_f1_mean)}`
+    "Change",
+    `${trend}; ${formatHumanDate(latest.created_at)}, labeled tracks: ${latest.trained_rows ?? "–"}, accuracy ${formatMetricPercent(latest.accuracy_mean)}, F1 ${formatMetricPercent(latest.macro_f1_mean)}`
   );
 }
 
 function trainingInfoLine(label, text) {
-  return `<span class="training-info-line"><b class="training-info-label">${escapeHtml(label)}</b><span class="training-info-value">${escapeHtml(text)}</span></span>`;
+  return `<div class="fact"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(text)}</dd></div>`;
 }
 
 async function loadSettingsView() {
@@ -1994,21 +2027,20 @@ function genreBadges(track) {
 }
 
 function trackMarkup(track) {
+  const genres = genreBadges(track);
   return `
-    <div>
+    <span class="track-number">${track.rowNumber}</span>
+    <div class="track-body">
       <div class="track-main">
-        <strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>
+        <strong class="track-heading"><span class="track-title-main">${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>
         <div class="meta track-path">${escapeHtml(track.file_path)}</div>
-        <div class="meta feature-line">${trackStatusLine(track)}</div>
+        <div class="meta feature-line">${trackStatusLine(track)}${genres ? `<span class="status-item"><b>Genres</b><span class="genres">${genres}</span></span>` : ""}${badgeRow(track)}</div>
       </div>
-      <div class="rhythm-media-block">
-        <div class="meta genres-line"><span class="status-item"><b>ЖАНРЫ</b></span><span class="genres">${genreBadges(track)}</span>${badgeRow(track)}</div>
-        <audio controls preload="none" src="/media/${track.track_id}"></audio>
-      </div>
+      <audio controls preload="none" src="/media/${track.track_id}"></audio>
     </div>
     <div class="actions">
       <div class="row-tools">${renderLikeButton(track)}</div>
-      <div class="label-actions ${isMulticlassProfile() && hasContentKey(track) ? "multiclass-label-actions" : ""}">${hasContentKey(track) ? renderLabelButtons(track) : noFingerprintHint()}</div>
+      <div class="label-actions${isMulticlassProfile() && hasContentKey(track) ? " multiclass-label-actions" : ""}">${hasContentKey(track) ? renderLabelButtons(track) : noFingerprintHint()}</div>
     </div>`;
 }
 
@@ -2019,7 +2051,7 @@ function hasContentKey(track) {
 }
 
 function noFingerprintHint() {
-  return '<span class="meta label-hint" title="Метки привязаны к отпечатку SONARA, у этого трека его пока нет">Нет отпечатка SONARA для этого трека. Проанализируйте его в основном приложении.</span>';
+  return '<span class="meta label-hint" title="Labels are bound to the SONARA fingerprint, and this track has none yet">No SONARA fingerprint for this track. Analyze it in the main app.</span>';
 }
 
 function markPageDuplicates(items) {
@@ -2034,14 +2066,14 @@ function markPageDuplicates(items) {
 
 function duplicateBadge(track) {
   return track.duplicateOnPage
-    ? '<span class="profile-label-badge duplicate-badge" title="Тот же контент, что и у строки выше на этой странице; метка общая">дубль</span>'
+    ? '<span class="duplicate-badge" title="Same audio as a row above on this page; the rows share one label">Duplicate</span>'
     : "";
 }
 
 function renderLikeButton(track) {
   const active = track.liked ? " active intent-liked" : "";
   const fill = track.liked ? "currentColor" : "none";
-  const title = track.liked ? "Убрать из избранного" : "В избранное";
+  const title = track.liked ? "Remove from liked" : "Add to liked";
   return `
     <button type="button" class="icon-button track-like-button${active}" data-action="like" title="${title}" aria-label="${title}" aria-pressed="${track.liked ? "true" : "false"}">
       <svg class="lucide lucide-heart" aria-hidden="true" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2051,11 +2083,12 @@ function renderLikeButton(track) {
 }
 
 function renderLabelButtons(track) {
-  const buttons = activeProfile.labels.map(label => {
-    const active = track.label === label.key ? " active" : "";
-    return `<button type="button" class="${active}" data-action="label" data-label="${escapeHtml(label.key)}">${escapeHtml(label.name)}</button>`;
+  const buttons = activeProfile.labels.map((label, index) => {
+    const active = track.label === label.key;
+    const shortcut = index < 9 ? ` (key ${index + 1})` : "";
+    return `<button type="button" class="label-button role-${escapeHtml(label.role)}${active ? " active" : ""}" data-action="label" data-label="${escapeHtml(label.key)}" aria-pressed="${active ? "true" : "false"}" title="${escapeHtml(`${label.name}${shortcut}`)}">${escapeHtml(label.name)}</button>`;
   });
-  buttons.push('<button type="button" data-action="label" data-label="">Снять метку</button>');
+  buttons.push('<button type="button" class="label-button label-clear" data-action="label" data-label="" title="Clear the label (key 0)">Clear label</button>');
   return buttons.join("");
 }
 
@@ -2211,7 +2244,7 @@ async function updateProfile(event) {
   const profile = await parseJsonResponse(response);
   await loadProfiles();
   await setActiveProfile(profile.classifier_key, { skipLoad: true });
-  setWorkflowStatus("Профиль сохранён");
+  setWorkflowStatus("Profile saved");
 }
 
 async function renameLabel(event) {
@@ -2234,7 +2267,7 @@ async function renameLabel(event) {
 async function deleteActiveProfile() {
   if (!activeProfile) return;
   const confirmation = window.prompt(
-    `Удалить ${activeProfile.name}? Будут безвозвратно удалены метки Rhythm Lab, прогнозы, очередь разметки, чекпоинты, метрики и локальные артефакты обучения этого профиля. Продвинутые модели в models/classifiers останутся.\n\nВведите «${activeProfile.name}» или «${activeProfile.classifier_key}», чтобы удалить.`
+    `Delete ${activeProfile.name}? This permanently removes the profile's Rhythm Lab labels, predictions, labeling queue, checkpoints, metrics and local training artifacts. Promoted models in models/classifiers stay.\n\nType "${activeProfile.name}" or "${activeProfile.classifier_key}" to delete.`
   );
   if (confirmation === null) return;
   const response = await fetch(`/api/profiles/${activeProfile.classifier_key}`, {
@@ -2243,7 +2276,8 @@ async function deleteActiveProfile() {
     body: JSON.stringify({ confirm: confirmation })
   });
   const data = await parseJsonResponse(response);
-  setWorkflowStatus(`Удалён ${data.name}, файлов артефактов: ${data.artifact_cleanup?.deleted_files || 0}`);
+  const deletedFiles = data.artifact_cleanup?.deleted_files || 0;
+  setWorkflowStatus(`Deleted ${data.name} and ${deletedFiles} artifact ${plural(deletedFiles, "file", "files")}`);
   activeProfile = null;
   await loadProfiles();
   await loadActive({ reset: true });
@@ -2301,7 +2335,7 @@ function updatePager(data) {
   const last = shown ? data.offset + shown : 0;
   const pages = pageCount(data.total, data.limit);
   const current = currentPage(data);
-  pageInfoEl.textContent = `${current} / ${pages} (${first}-${last} / ${data.total})`;
+  pageInfoEl.textContent = data.total > 0 ? `${first}–${last} of ${data.total}, page ${current} of ${pages}` : "No tracks";
   pageNumberEl.value = String(current || 1);
   pageNumberEl.max = String(Math.max(1, pages));
   pageNumberEl.disabled = pages <= 0;
@@ -2311,12 +2345,12 @@ function updatePager(data) {
 
 function badgeRow(track) {
   const badges = [duplicateBadge(track), syncopatedBadge(track)].filter(Boolean);
-  return badges.length ? `<div class="badge-row">${badges.join('<span class="badge-separator">·</span>')}</div>` : "";
+  return badges.length ? `<span class="badge-row">${badges.join("")}</span>` : "";
 }
 
 function syncopatedBadge(track) {
   return track.maest_syncopated_rhythm === true
-    ? `<span aria-label="синкопированный ритм" class="syncopated-rhythm-indicator" role="img" title="MAEST обнаружил синкопированный ритм">
+    ? `<span aria-label="Syncopated rhythm" class="syncopated-rhythm-indicator" role="img" title="MAEST detected a syncopated rhythm">
         <svg class="lucide lucide-audio-waveform" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2 12h.01" /><path d="M6 12v4" /><path d="M10 12v-2" /><path d="M14 12v6" /><path d="M18 12v-8" /><path d="M22 12v2" />
         </svg>
@@ -2357,13 +2391,13 @@ function formatMetricDelta(current, previous) {
   if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) return "-";
   const delta = (currentNumber - previousNumber) * 100;
   const sign = delta < 0 ? "−" : "+";
-  return `${sign}${Math.abs(delta).toFixed(1)} п.п.`;
+  return `${sign}${Math.abs(delta).toFixed(1)} pp`;
 }
 
 function formatHumanDate(value) {
   const date = parseTrainingDate(value);
-  if (!date) return "никогда";
-  return new Intl.DateTimeFormat(undefined, {
+  if (!date) return "never";
+  return new Intl.DateTimeFormat("en-GB", {
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -2399,7 +2433,7 @@ function fileName(path) {
 }
 
 function mark(value) {
-  return value ? "ДА" : "НЕТ";
+  return value ? "Yes" : "No";
 }
 
 function trackStatusLine(track) {
@@ -2407,7 +2441,7 @@ function trackStatusLine(track) {
     trainedStatus(track),
     assignedLabelStatus(track),
     activeView === "candidates" ? predictionScoreStatus(track) : "",
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join("");
 }
 
 function trackFeatureState(track, source) {
@@ -2424,7 +2458,7 @@ function missingFeatures(track) {
     .map(source => {
       const state = trackFeatureState(track, source);
       const status = featureStateStatus(state);
-      return `${recipeTokenLabel(source)} (${FEATURE_STATE_LABELS[status] || status}: ${featureStateReason(state) || "не актуально"})`;
+      return `${recipeTokenLabel(source)} (${FEATURE_STATE_LABELS[status] || status}: ${featureStateReason(state) || "not current"})`;
     });
 }
 
@@ -2434,8 +2468,8 @@ function featuresIndicator(track) {
   const ready = featuresReady(track);
   const recipe = latestTrainingReadiness?.feature_recipe?.feature_set || required.join("+");
   const label = ready
-    ? `Признаки для ${recipe} готовы: ${required.map(recipeTokenLabel).join(", ")}`
-    : `Для ${recipe} не хватает: ${missingFeatures(track).join(", ")}`;
+    ? `Features for ${recipe} are ready: ${required.map(recipeTokenLabel).join(", ")}`
+    : `${recipe} is missing: ${missingFeatures(track).join(", ")}`;
   return `<span class="features-indicator ${ready ? "ready" : "missing"}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${ready ? "✓" : "!"}</span>`;
 }
 
@@ -2454,7 +2488,7 @@ function featureStateReason(state) {
 }
 
 function trainedStatus(track) {
-  return featureStatusBadge("ОБУЧЕНО", track.label_trained);
+  return featureStatusBadge("Trained", track.label_trained);
 }
 
 function assignedLabelStatus(track) {
@@ -2462,12 +2496,12 @@ function assignedLabelStatus(track) {
   if (track.label !== activeProfile.positive_label && track.label !== activeProfile.negative_label) return "";
   const label = labelByKey(track.label);
   const status = track.label === activeProfile.positive_label ? "status-yes" : "status-no";
-  return `<span class="status-item"><b>МЕТКА</b><span class="analysis-status-badge ${status}">${escapeHtml(label.name)}</span></span>`;
+  return `<span class="status-item"><b>Label</b><span class="analysis-status-badge ${status}">${escapeHtml(label.name)}</span></span>`;
 }
 
 function predictionScoreStatus(track) {
   return track.predicted_label
-    ? `<span class="status-item"><b>ОЦЕНКА</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>`
+    ? `<span class="status-item"><b>Score</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>`
     : "";
 }
 
@@ -2484,7 +2518,7 @@ function positiveScore(track) {
 }
 
 function featureStatusBadge(name, value) {
-  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-no"}">${mark(value)}</span></span>`;
+  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-off"}">${mark(value)}</span></span>`;
 }
 
 function showError(error) {

@@ -597,7 +597,7 @@ def test_source_feature_states_distinguish_current_and_missing(
 
     assert states["mert"].status == "current"
     assert states["muq"].status == "missing"
-    assert "нет сохранённых данных MUQ" in str(states["muq"].reason)
+    assert "no stored MUQ data" in str(states["muq"].reason)
     assert states["clap"].status == "missing"
     assert states["mert_v2"].status == "missing"
 
@@ -1222,7 +1222,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         # labels resolve, so training-type operations are refused server-side.
         foreign = client.post("/api/profiles/focused/training/benchmark", json={"strategy": "singles"})
         assert foreign.status_code == 409, foreign.text
-        assert "yes — 0 (всего 2), no — 0 (всего 2)" in foreign.json()["detail"]
+        assert "yes — 0 (2 total), no — 0 (2 total)" in foreign.json()["detail"]
         assert client.post("/api/source/switch", json={"path": str(repository.path)}).status_code == 200
 
         # While a profile operation runs, the source stays put.
@@ -1462,7 +1462,7 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
         ):
             blocked = client.post(f"/api/profiles/focused/{path}", json=body)
             assert blocked.status_code == 409, blocked.text
-            assert "не меньше 3 меток на класс" in blocked.json()["detail"]
+            assert "at least 3 labels per class" in blocked.json()["detail"]
         readiness = client.get("/api/profiles/focused/training/readiness", params={"feature_set": "mert"}).json()
         assert (readiness["label_threshold"], readiness["label_threshold_ready"]) == (3, False)
         assert client.patch("/api/profiles/focused", json={"training_min_labels": 2}).status_code == 200
@@ -1545,7 +1545,7 @@ def test_prediction_applies_artifacts_by_feature_spec_not_source_catalog(
         output=AnalysisOutput("muq", "embedding"),
         catalog_uuid=other_repository.catalog_uuid,
     )
-    with pytest.raises(ValueError, match="данных MUQ"):
+    with pytest.raises(ValueError, match="no stored MUQ data"):
         apply_model_to_lab(
             other_repository.path,
             lab_path,
@@ -1741,7 +1741,7 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
         assert calibration_progress == {
             "operation": "calibrate",
             "status": "completed",
-            "stage": "Калибровка завершена",
+            "stage": "Calibration complete",
             "percent": 100,
             "error": None,
         }
@@ -1863,7 +1863,7 @@ def test_promote_replaces_the_root_model_pair(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("invalid_case", "expected_error"),
     [
-        ("empty_features", "непустой упорядоченный список feature_names"),
+        ("empty_features", "non-empty ordered feature_names list"),
         ("unusable_model", "must implement predict_proba"),
     ],
 )

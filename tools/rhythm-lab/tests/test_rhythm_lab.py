@@ -253,7 +253,7 @@ def test_ablation_benchmark_reports_progress_across_profile_and_report(
     )
 
     assert events[0] == ("Focused: Cross-validation fold 5/5", 10, 11)
-    assert events[-1] == ("Бенчмарк завершён", 11, 11)
+    assert events[-1] == ("Benchmark complete", 11, 11)
     assert report["strategy"] == "custom"
     assert report["available_sources"] == ["sonara", "maest", "mert", "muq", "mulan", "clap"]
     assert report["planned_runs"] == 1
@@ -340,7 +340,7 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
 
     assert [row["feature_set"] for row in custom["results"]] == ["sonara+mert", "sonara+muq"]
     assert custom["results"][1]["status"] == "unavailable"
-    assert custom["results"][1]["error"] == "Данные MUQ не сохранены в этой библиотеке"
+    assert custom["results"][1]["error"] == "MUQ data is not stored in this library"
     assert custom["winner"]["feature_set"] == "sonara+mert"
 
     # Layers strategy: one run per layer the library reports.
@@ -370,7 +370,7 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
         strategy="custom",
         feature_sets=("sonara+mert_v2@3",),
     )
-    assert stale_layer["results"][0]["error"] == "Слой 3 MERT_V2 не сохранён в этой библиотеке"
+    assert stale_layer["results"][0]["error"] == "MERT_V2 layer 3 is not stored in this library"
 
 
 class _ConstantClassifier:
@@ -547,7 +547,7 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     assert canonical_feature_set(("mert_v2", "maest", "sonara")) == "sonara+maest+mert_v2"
     assert feature_sources("MERT_V2+sonara") == ("sonara", "mert_v2")
     assert feature_recipe_readiness("mert_v2+sonara", states)["required_sources"] == ["sonara", "mert_v2"]
-    with pytest.raises(ValueError, match="повторяется"):
+    with pytest.raises(ValueError, match="Duplicate feature source"):
         canonical_feature_set(("sonara", "sonara"))
 
     # MERT-v2 layer token: bare = stored default layer 24; other layers are their own source.
@@ -579,13 +579,13 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     old_order = [*layer_block, *sonara_block]
     assert artifact_feature_compatibility(feature_set="sonara+mert_v2@12", feature_names=old_order) == (True, None)
     interleaved = [*layer_block[:1], *sonara_block, *layer_block[1:]]
-    assert "перемешаны" in str(artifact_feature_compatibility(feature_set="sonara+mert_v2@12", feature_names=interleaved)[1])
-    assert "размерности" in str(artifact_feature_compatibility(feature_set="sonara+mert_v2@12", feature_names=[*layer_block[:-1], *sonara_block])[1])
+    assert "interleave" in str(artifact_feature_compatibility(feature_set="sonara+mert_v2@12", feature_names=interleaved)[1])
+    assert "embedding dimension" in str(artifact_feature_compatibility(feature_set="sonara+mert_v2@12", feature_names=[*layer_block[:-1], *sonara_block])[1])
     reordered = build_feature_matrix(source, "sonara+mert_v2@12", labels_by_identity=identity, expected_feature_names=old_order)  # type: ignore[arg-type]
     assert reordered.feature_names == old_order
     np.testing.assert_array_equal(reordered.matrix[0, : len(layer_block)], at_12.matrix[0, -len(layer_block) :])
     np.testing.assert_array_equal(reordered.matrix[0, len(layer_block) :], at_12.matrix[0, : len(sonara_block)])
-    with pytest.raises(ValueError, match="не совпадают с текущими размерностями"):
+    with pytest.raises(ValueError, match="do not match current source dimensions"):
         build_feature_matrix(source, "sonara+mert_v2@12", labels_by_identity=identity, expected_feature_names=old_order[:-1])  # type: ignore[arg-type]
 
     available = available_feature_sources(states)
@@ -603,7 +603,7 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     assert full[0] == "sonara+maest+mert+mert_v2+clap"
     assert len(full) == len(set(full)) == 2 ** len(available) - 1
     assert plan(available, "custom", ("mert_v2+sonara", "clap")) == ("sonara+mert_v2", "clap")
-    with pytest.raises(ValueError, match="Данные MUQ не сохранены"):
+    with pytest.raises(ValueError, match="MUQ data is not stored"):
         plan(available, "custom", ("sonara+muq",))
     assert count(available, "singles") == 5
     assert count(available, "singles+all") == 6
@@ -625,9 +625,9 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     )
     assert plan(("mert_v2",), "layers+all", mert_v2_layers=(24,)) == ("mert_v2",)
     assert plan(available, "custom", ("sonara+mert_v2@12",), mert_v2_layers=layers) == ("sonara+mert_v2@12",)
-    with pytest.raises(ValueError, match="Слой 12 MERT_V2 не сохранён"):
+    with pytest.raises(ValueError, match="MERT_V2 layer 12 is not stored"):
         plan(available, "custom", ("sonara+mert_v2@12",), mert_v2_layers=(24,))
-    with pytest.raises(ValueError, match="Данные MERT_V2 не сохранены"):
+    with pytest.raises(ValueError, match="MERT_V2 data is not stored"):
         plan(("sonara", "mert"), "layers", mert_v2_layers=layers)
     assert "mert_v2@12" not in plan(available, "full", mert_v2_layers=layers)
 
@@ -705,7 +705,7 @@ def test_artifact_with_the_previous_sonara_schema_is_not_promotable() -> None:
     assert row["spec_compatible"] is False
     assert row["source_data_ready"] is False
     assert row["spec_reason"] == row["source_data_reason"] == (
-        "Артефакт обучен на устаревшем рецепте SONARA; переобучите модель."
+        "Artifact was trained with an older SONARA recipe; retrain it."
     )
     assert current["latest_promotable"] is None
     assert tuple(SONARA_FEATURE_NAMES) != ("sonara:bpm",)
@@ -979,13 +979,13 @@ def test_profile_creation_update_archive_and_unique_names(tmp_path: Path) -> Non
     assert updated.training_min_added == 12
     assert updated.training_min_labels == 150
     # The per-class label minimum is an absolute count of at least 2.
-    with pytest.raises(ValueError, match="не меньше 2"):
+    with pytest.raises(ValueError, match="at least 2"):
         focused.update_profile("focused", training_min_labels=1)
-    with pytest.raises(ValueError, match="целым числом"):
+    with pytest.raises(ValueError, match="must be an integer"):
         focused.update_profile("focused", training_min_labels="many")  # type: ignore[arg-type]
 
     root = RhythmLabDatabase(path)
-    with pytest.raises(ValueError, match="уже существует"):
+    with pytest.raises(ValueError, match="already exists"):
         root.create_profile(
             classifier_key="duplicate",
             name="focused updated",
@@ -1048,7 +1048,7 @@ def test_labels_use_current_track_identity_and_remain_profile_scoped(
     focused.set_label(track, None)
     assert focused.label_for_track(elsewhere) is None
     assert other.label_for_track(track).label == "no"
-    with pytest.raises(ValueError, match="нет отпечатка SONARA"):
+    with pytest.raises(ValueError, match="no SONARA fingerprint"):
         focused.set_label(replace(track, content_key=None), "yes")
 
 
@@ -1246,8 +1246,8 @@ def test_training_checkpoint_counts_are_profile_scoped_and_catalog_global(
         feature_set="mert",
     )
     assert (short["label_threshold"], short["label_threshold_ready"], short["ready"]) == (3, False, False)
-    assert "не меньше 3 меток на класс" in short["label_threshold_reason"]
-    assert "yes — 2 (всего 4), no — 2 (всего 2)" in short["label_threshold_reason"]
+    assert "at least 3 labels per class" in short["label_threshold_reason"]
+    assert "yes — 2 (4 total), no — 2 (2 total)" in short["label_threshold_reason"]
     fresh.update_profile("focused", training_min_labels=2)
     assert _training_readiness(
         fresh,
@@ -1298,7 +1298,7 @@ def test_calibration_gate_failure_does_not_write_uncalibrated_artifact(
     labels = ["yes" if index % 2 == 0 else "no" for index in range(20)]
     artifact_dir = tmp_path / "artifacts"
 
-    with pytest.raises(ValueError, match="пригодные обучающие строки"):
+    with pytest.raises(ValueError, match="usable training rows"):
         train_feature_set(
             matrix,
             labels,
@@ -1585,7 +1585,7 @@ def test_cli_training_promotion_and_calibration_default_to_current_recipe(
     explicit.func(explicit)
     assert trained == [("sonara+mert+mert_v2",), ("sonara+mert_v2",)]
     invalid = parser.parse_args([*train_args, "--feature-set", "combined"])
-    with pytest.raises(ValueError, match="Неподдерживаемый источник признаков"):
+    with pytest.raises(ValueError, match="Unsupported feature source"):
         invalid.func(invalid)
 
     ablation = parser.parse_args(["benchmark-ablation", "--profile", "focused"])
@@ -1857,12 +1857,12 @@ def test_artifact_readiness_is_gated_by_feature_spec_not_source_catalog() -> Non
     short = by_feature["clap"]
     assert short["spec_compatible"] is False
     assert short["source_data_ready"] is False
-    assert "эмбеддингу размерности" in short["spec_reason"]
+    assert "current embedding dimension" in short["spec_reason"]
     # Non-default MERT-v2 layers train and predict in the lab but never promote.
     layered = by_feature["mert_v2@12"]
     assert layered["spec_compatible"] is False
     assert layered["spec_reason"] == (
-        "Основное приложение скорит только слой 24 MERT-v2; артефакты слоя 12 остаются лабораторными"
+        "The main app scores only MERT-v2 layer 24; layer 12 artifacts stay in the lab"
     )
     assert layered["source_data_ready"] is True
     assert bound["latest_promotable"]["feature_set"] == "mert"
@@ -1875,7 +1875,7 @@ def test_promotion_requires_matching_profile_and_calibration_gate(
     _create_profile(lab_path)
     result = _train_artifact(tmp_path / "artifacts")
 
-    with pytest.raises(PromotionError, match="калибровки нет"):
+    with pytest.raises(PromotionError, match="calibration is required"):
         promote_profile_model(
             lab_path,
             "focused",
@@ -1890,7 +1890,7 @@ def test_promotion_requires_matching_profile_and_calibration_gate(
     metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
     metrics["artifact_hash"] = artifact_sha256(result.artifact_path.read_bytes())
     result.metrics_path.write_text(json.dumps(metrics), encoding="utf-8")
-    with pytest.raises(PromotionError, match="Ожидался артефакт профиля"):
+    with pytest.raises(PromotionError, match="Expected artifact for profile"):
         promote_profile_model(
             lab_path,
             "focused",

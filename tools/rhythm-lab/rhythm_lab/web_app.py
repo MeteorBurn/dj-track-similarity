@@ -73,8 +73,8 @@ MIN_TRAINING_ROWS_PER_LABEL = 2
 KEEP_JOBLIB_PER_FEATURE = 3
 KEEP_METRICS_PER_FEATURE = 10
 _NO_SOURCE_DATA_DETAIL = (
-    "В выбранной библиотеке нет ни одного источника признаков; "
-    "выполните анализ в основном приложении и перезагрузите источник."
+    "The selected library has no stored feature sources; "
+    "run analysis in the main app, then reload the library."
 )
 
 
@@ -230,7 +230,7 @@ class SourceDatabaseState:
             running = self._busy_check() if self._busy_check is not None else None
             if running is not None:
                 raise RuntimeError(
-                    f"Нельзя переключить библиотеку, пока выполняется операция {running}"
+                    f"Cannot switch libraries while the {running} operation is running"
                 )
             return self._open(path, expected_catalog_uuid=None)
 
@@ -250,7 +250,7 @@ class SourceDatabaseState:
     def require_source(self) -> SourceDatabase:
         source = self.source
         if source is None:
-            raise ValueError("Библиотека не выбрана")
+            raise ValueError("No library is open")
         return source
 
 
@@ -265,7 +265,7 @@ class TrainingProgress:
         with self._lock:
             existing = self._states.get(profile_key)
             if existing is not None and existing.get("status") == "running":
-                raise RuntimeError("Для этого профиля уже выполняется операция")
+                raise RuntimeError("Another operation is already running for this profile")
             self._states[profile_key] = {
                 "operation": operation,
                 "status": "running",
@@ -294,7 +294,7 @@ class TrainingProgress:
             state = self._states.get(profile_key)
             if state is None:
                 return
-            state.update({"status": "failed", "stage": "Операция не выполнена", "error": str(error)})
+            state.update({"status": "failed", "stage": "Operation failed", "error": str(error)})
 
     def snapshot(self, profile_key: str) -> dict[str, object]:
         with self._lock:
@@ -324,7 +324,7 @@ def open_existing_database_file_dialog() -> Path | None:
         import tkinter as tk
         from tkinter import filedialog
     except Exception as error:  # pragma: no cover - depends on local Python GUI support.
-        raise RuntimeError("Системный диалог выбора файла недоступен") from error
+        raise RuntimeError("The system file dialog is unavailable") from error
 
     root = tk.Tk()
     root.withdraw()
@@ -390,14 +390,14 @@ def create_app(
         tracks_by_id = source.tracks_by_ids(track_ids)
         if len(tracks_by_id) != len(set(track_ids)):
             missing = sorted(set(track_ids) - set(tracks_by_id))
-            raise ValueError(f"Нет текущих треков с id: {missing}")
+            raise ValueError(f"No current tracks with ids: {missing}")
         unfingerprinted = sorted(
             track_id for track_id, track in tracks_by_id.items() if track.content_key is None
         )
         if unfingerprinted:
             raise ValueError(
-                "Треки без отпечатка SONARA нельзя добавить в коллекцию; сначала "
-                f"проанализируйте их в основном приложении: {unfingerprinted}"
+                "Tracks without a SONARA fingerprint cannot join a collection; "
+                f"analyze them in the main app first: {unfingerprinted}"
             )
         return RhythmLabCollectionSelection(
             catalog_uuid=source.catalog_uuid,
@@ -442,7 +442,7 @@ def create_app(
         target = (STATIC_DIR / asset_path).resolve(strict=False)
         static_root = STATIC_DIR.resolve(strict=False)
         if static_root not in target.parents or not target.is_file():
-            raise HTTPException(status_code=404, detail="Статический файл не найден")
+            raise HTTPException(status_code=404, detail="Static file not found")
         return FileResponse(target)
 
     @app.post("/api/shutdown")
@@ -546,7 +546,7 @@ def create_app(
     def delete_review_collection(collection_id: int):
         deleted = collections_db().delete_collection(collection_id)
         if not deleted:
-            raise HTTPException(status_code=404, detail=f"Коллекция не найдена: {collection_id}")
+            raise HTTPException(status_code=404, detail=f"Collection not found: {collection_id}")
         return {"id": collection_id, "deleted": True}
 
     @app.post("/api/profiles")
@@ -598,7 +598,7 @@ def create_app(
             if confirmation not in {profile.classifier_key, profile.name}:
                 raise HTTPException(
                     status_code=400,
-                    detail="Подтверждение удаления должно точно совпадать с ключом или именем профиля.",
+                    detail="Delete confirmation must exactly match the profile key or name.",
                 )
             deleted = labels_db.delete_profile(classifier_key=profile.classifier_key)
             artifact_cleanup = delete_profile_artifacts(
@@ -645,7 +645,7 @@ def create_app(
             "feature_states": {
                 source_name: {
                     "status": "missing",
-                    "reason": "Библиотека не выбрана.",
+                    "reason": "No library is open.",
                 }
                 for source_name in SUPPORTED_FEATURE_SOURCES
             },
@@ -688,8 +688,8 @@ def create_app(
         if source is None:
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         try:
-            bpm_min_value = _bpm_bound_value(bpm_min, "BPM от")
-            bpm_max_value = _bpm_bound_value(bpm_max, "BPM до")
+            bpm_min_value = _bpm_bound_value(bpm_min, "BPM from")
+            bpm_max_value = _bpm_bound_value(bpm_max, "BPM to")
             return source.list_tracks_page(
                 labels_db_path=labels_path,
                 classifier_key=profile.classifier_key,
@@ -717,7 +717,7 @@ def create_app(
             source = source_state.require_source()
             if request.catalog_uuid != source.catalog_uuid:
                 raise SourceTrackNotCurrentError(
-                    "Лайк адресован другой библиотеке: catalog UUID не совпадает с выбранной"
+                    "Like target belongs to another library: catalog UUID does not match the open library"
                 )
             updated = source.set_track_liked(
                 track_id=track_id,
@@ -766,13 +766,13 @@ def create_app(
         profile = profile_or_404(profile_key)
         required_sources = page_required_sources(feature_set)
         if label not in {"all", "unlabeled", *profile.label_keys}:
-            raise HTTPException(status_code=400, detail=f"Неизвестный фильтр метки: {label}")
+            raise HTTPException(status_code=400, detail=f"Unknown label filter: {label}")
         if predicted not in {"all", *profile.training_label_keys}:
-            raise HTTPException(status_code=400, detail=f"Неизвестный фильтр предсказанной метки: {predicted}")
+            raise HTTPException(status_code=400, detail=f"Unknown predicted label filter: {predicted}")
         try:
             min_positive_value = _probability_filter_value(min_positive)
-            bpm_min_value = _bpm_bound_value(bpm_min, "BPM от")
-            bpm_max_value = _bpm_bound_value(bpm_max, "BPM до")
+            bpm_min_value = _bpm_bound_value(bpm_min, "BPM from")
+            bpm_max_value = _bpm_bound_value(bpm_max, "BPM to")
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         source = source_state.source
@@ -810,7 +810,7 @@ def create_app(
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
+            raise HTTPException(status_code=400, detail="No library is open")
         scoped = profile_db(profile.classifier_key)
         requested_feature_set = request.feature_set if request is not None else None
         try:
@@ -831,8 +831,8 @@ def create_app(
             raise HTTPException(
                 status_code=404,
                 detail=(
-                    f"У профиля {profile.name} нет артефакта модели для рецепта "
-                    f"{selected_feature_set} в {profile.artifact_dir}"
+                    f"Profile {profile.name} has no model artifact for recipe "
+                    f"{selected_feature_set} in {profile.artifact_dir}"
                 ),
             )
         if selected_option.get("source_data_ready") is not True:
@@ -841,8 +841,8 @@ def create_app(
                 detail=str(
                     selected_option.get("source_data_reason")
                     or (
-                        f"Артефакт {selected_feature_set} не готов для данных "
-                        "текущей библиотеки."
+                        f"The {selected_feature_set} artifact is not ready for "
+                        "the open library's data."
                     )
                 ),
             )
@@ -851,17 +851,17 @@ def create_app(
             training_progress.start(
                 profile.classifier_key,
                 operation="refresh",
-                stage="Подготовка обновления кандидатов",
+                stage="Preparing candidate refresh",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
         def report_prediction_progress(completed: int, total: int) -> None:
             if total <= 0:
-                stage = "Обновление кандидатов"
+                stage = "Refreshing candidates"
                 percent = 5
             else:
-                stage = f"Обновление кандидатов: {completed:,}/{total:,}"
+                stage = f"Refreshing candidates: {completed:,}/{total:,}"
                 percent = 5 + round(90 * completed / total)
             training_progress.update(
                 profile.classifier_key,
@@ -879,7 +879,7 @@ def create_app(
             )
             training_progress.update(
                 profile.classifier_key,
-                stage="Публикация обновлённых кандидатов",
+                stage="Publishing refreshed candidates",
                 percent=97,
             )
             deleted = int(result.get("deleted_old_predictions", 0))
@@ -889,7 +889,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Обновление кандидатов завершено",
+            stage="Candidate refresh complete",
         )
         return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
 
@@ -927,7 +927,7 @@ def create_app(
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
+            raise HTTPException(status_code=400, detail="No library is open")
         requested_feature_set = request.feature_set if request is not None else None
         scoped = profile_db(profile.classifier_key)
         try:
@@ -954,7 +954,7 @@ def create_app(
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"Рецепт признаков {selected_feature_set} не готов. "
+                        f"Feature recipe {selected_feature_set} is not ready. "
                         f"{blocking}"
                     ),
                 )
@@ -971,7 +971,7 @@ def create_app(
             training_progress.start(
                 profile.classifier_key,
                 operation="train-refresh",
-                stage="Подготовка обучающих данных",
+                stage="Preparing training data",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -986,7 +986,7 @@ def create_app(
         def report_prediction_progress(completed: int, total: int) -> None:
             training_progress.update(
                 profile.classifier_key,
-                stage=f"Обновление кандидатов: {completed:,}/{total:,}",
+                stage=f"Refreshing candidates: {completed:,}/{total:,}",
                 percent=70 + round(28 * completed / max(1, total)),
             )
 
@@ -1004,7 +1004,7 @@ def create_app(
                 error = (
                     trained.get("error")
                     if isinstance(trained, dict)
-                    else "рецепт признаков не был обучен"
+                    else "the feature recipe was not trained"
                 )
                 raise RuntimeError(str(error))
             artifact = _trained_artifact_path(
@@ -1015,7 +1015,7 @@ def create_app(
             )
             training_progress.update(
                 profile.classifier_key,
-                stage="Обновление предсказаний кандидатов",
+                stage="Refreshing candidate predictions",
                 percent=70,
             )
             result = apply_model_to_lab(
@@ -1038,7 +1038,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Обучение и обновление кандидатов завершены",
+            stage="Training complete",
         )
         return {
             "training": training,
@@ -1055,7 +1055,7 @@ def create_app(
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
+            raise HTTPException(status_code=400, detail="No library is open")
         strategy = request.strategy if request is not None else DEFAULT_BENCHMARK_STRATEGY
         feature_sets = tuple(request.feature_sets) if request is not None else ()
         available = available_feature_sources(source.feature_states())
@@ -1081,7 +1081,7 @@ def create_app(
             training_progress.start(
                 profile.classifier_key,
                 operation="benchmark",
-                stage="Подготовка бенчмарка",
+                stage="Preparing benchmark",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1107,7 +1107,7 @@ def create_app(
             training_progress.fail(profile.classifier_key, error=error)
             LOGGER.exception("%s benchmark failed", profile.name)
             raise HTTPException(status_code=500, detail=str(error)) from error
-        training_progress.complete(profile.classifier_key, stage="Бенчмарк завершён")
+        training_progress.complete(profile.classifier_key, stage="Benchmark complete")
         profile_report = next(
             (
                 row
@@ -1131,7 +1131,7 @@ def create_app(
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
+            raise HTTPException(status_code=400, detail="No library is open")
         scoped = profile_db(profile.classifier_key)
         requested_feature_set = request.feature_set if request is not None else None
         try:
@@ -1156,7 +1156,7 @@ def create_app(
                 detail=str(
                     calibration_readiness.get("reason")
                     if isinstance(calibration_readiness, Mapping)
-                    else "Требования к калибровке не выполнены."
+                    else "Calibration requirements are not met."
                 ),
             )
         if readiness["labels_ready"] is not True:
@@ -1170,7 +1170,7 @@ def create_app(
         if selected_option is None or not selected_option.get("latest_model"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Сначала обучите модель {selected_feature_set} профиля {profile.name}, затем калибруйте.",
+                detail=f"Train a {selected_feature_set} model for {profile.name} before calibrating.",
             )
         if selected_option.get("source_data_ready") is not True:
             raise HTTPException(
@@ -1178,8 +1178,8 @@ def create_app(
                 detail=str(
                     selected_option.get("source_data_reason")
                     or (
-                        f"Артефакт {selected_feature_set} не готов для данных "
-                        "текущей библиотеки."
+                        f"The {selected_feature_set} artifact is not ready for "
+                        "the open library's data."
                     )
                 ),
             )
@@ -1187,7 +1187,7 @@ def create_app(
             training_progress.start(
                 profile.classifier_key,
                 operation="calibrate",
-                stage="Подготовка калибровки",
+                stage="Preparing calibration",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1220,7 +1220,7 @@ def create_app(
             error = (
                 trained.get("error")
                 if isinstance(trained, dict)
-                else "рецепт признаков не был откалиброван"
+                else "the feature recipe was not calibrated"
             )
             training_progress.fail(
                 profile.classifier_key, error=RuntimeError(str(error))
@@ -1248,8 +1248,8 @@ def create_app(
         metrics = _read_metrics(metrics_path)
         calibration_status = _metric_summary(metrics).get("calibration_status")
         if calibration_status != "calibrated":
-            reason = _metric_summary(metrics).get("calibration_reason") or "порог калибровки не пройден"
-            detail = f"Калибровка не дала откалиброванный артефакт: {reason}"
+            reason = _metric_summary(metrics).get("calibration_reason") or "the calibration gate was not met"
+            detail = f"Calibration did not produce a calibrated artifact: {reason}"
             training_progress.fail(
                 profile.classifier_key, error=RuntimeError(detail)
             )
@@ -1273,7 +1273,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Калибровка завершена",
+            stage="Calibration complete",
         )
         return {
             "classifier_key": profile.classifier_key,
@@ -1308,7 +1308,7 @@ def create_app(
         if selected_option is None or not selected_option.get("latest_model"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Сначала обучите модель {selected_feature_set} профиля {profile.name}, затем продвигайте.",
+                detail=f"Train a {selected_feature_set} model for {profile.name} before promoting.",
             )
         if selected_option.get("spec_compatible") is not True:
             raise HTTPException(
@@ -1316,8 +1316,8 @@ def create_app(
                 detail=str(
                     selected_option.get("spec_reason")
                     or (
-                        f"Артефакт {selected_feature_set} не соответствует "
-                        "текущей спецификации признаков."
+                        f"The {selected_feature_set} artifact does not match "
+                        "the current feature spec."
                     )
                 ),
             )
@@ -1328,15 +1328,15 @@ def create_app(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"Сначала откалибруйте модель {selected_feature_set} профиля "
-                    f"{profile.name}, затем продвигайте."
+                    f"Calibrate the {selected_feature_set} model for "
+                    f"{profile.name} before promoting."
                 ),
             )
         try:
             training_progress.start(
                 profile.classifier_key,
                 operation="promote",
-                stage="Подготовка продвижения",
+                stage="Preparing promotion",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1365,7 +1365,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Продвижение завершено",
+            stage="Promotion complete",
         )
         return {
             "classifier_key": profile.classifier_key,
@@ -1383,7 +1383,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(error)) from error
         path = Path(track.file_path)
         if not path.is_file():
-            raise HTTPException(status_code=404, detail="Аудиофайл отсутствует")
+            raise HTTPException(status_code=404, detail="Audio file is missing")
         if requires_browser_preview_transcode(path):
             try:
                 configure_shared_ffmpeg_runtime()
@@ -1598,19 +1598,19 @@ def _trained_artifact_path(
     artifact_value = trained.get("artifact_path")
     if not artifact_value:
         raise RuntimeError(
-            f"Обучение не вернуло путь к артефакту {feature_set}."
+            f"Training did not return the {feature_set} artifact path."
         )
     try:
         artifact = Path(str(artifact_value)).expanduser().resolve(strict=True)
     except OSError as error:
         raise RuntimeError(
-            f"Обучение вернуло несуществующий артефакт {feature_set}: "
+            f"Training returned a missing {feature_set} artifact: "
             f"{artifact_value}"
         ) from error
     root = artifact_dir.expanduser().resolve(strict=False)
     if artifact.parent != root:
         raise RuntimeError(
-            f"Обучение вернуло артефакт вне каталога {root}: {artifact}"
+            f"Training returned an artifact outside {root}: {artifact}"
         )
     artifact_feature = artifact_feature_set(
         artifact.name,
@@ -1619,8 +1619,8 @@ def _trained_artifact_path(
     )
     if artifact_feature != feature_set:
         raise RuntimeError(
-            f"Обучение вернуло артефакт рецепта {artifact_feature or '<не распознан>'} "
-            f"вместо запрошенного {feature_set}."
+            f"Training returned an artifact for recipe {artifact_feature or '<unrecognized>'} "
+            f"instead of the requested {feature_set}."
         )
     return artifact
 
@@ -1638,21 +1638,21 @@ def _calibration_readiness(
     total_count = positive_count + negative_count
     reason: str | None = None
     if profile.profile_type != "binary":
-        reason = "Калибровка вероятностей пока доступна только для бинарных профилей."
+        reason = "Probability calibration is available only for binary profiles."
     elif total_count < MIN_CALIBRATION_LABELS:
         reason = (
-            f"Для калибровки нужно не меньше {MIN_CALIBRATION_LABELS} обучающих "
-            f"меток; сейчас {total_count}."
+            f"Calibration needs at least {MIN_CALIBRATION_LABELS} training "
+            f"labels; now {total_count}."
         )
     elif positive_count < MIN_CALIBRATION_POSITIVE:
         reason = (
-            f"Для калибровки нужно не меньше {MIN_CALIBRATION_POSITIVE} меток "
-            f"{profile.positive_label}; сейчас {positive_count}."
+            f"Calibration needs at least {MIN_CALIBRATION_POSITIVE} "
+            f"{profile.positive_label} labels; now {positive_count}."
         )
     elif negative_count < MIN_CALIBRATION_NEGATIVE:
         reason = (
-            f"Для калибровки нужно не меньше {MIN_CALIBRATION_NEGATIVE} меток, "
-            f"отличных от {profile.positive_label}; сейчас {negative_count}."
+            f"Calibration needs at least {MIN_CALIBRATION_NEGATIVE} labels "
+            f"other than {profile.positive_label}; now {negative_count}."
         )
     return {
         "ready": reason is None,
@@ -1682,7 +1682,7 @@ class _SourceInventory:
                 states={
                     source_name: {
                         "status": "missing",
-                        "reason": "Библиотека не выбрана.",
+                        "reason": "No library is open.",
                     }
                     for source_name in SUPPORTED_FEATURE_SOURCES
                 },
@@ -1698,8 +1698,8 @@ class _SourceInventory:
                 states[source_name] = {
                     "status": "missing",
                     "reason": (
-                        f"Нет текущих результатов {source_name.upper()} ни для "
-                        "одного трека."
+                        f"No track has a current {source_name.upper()} "
+                        "output."
                     ),
                 }
         return cls(
@@ -1896,14 +1896,14 @@ def _label_threshold_readiness(
     if all(int(counts.get(label, 0)) >= threshold for label in profile.training_label_keys):
         return True, None
     current = ", ".join(
-        f"{label} — {int(counts.get(label, 0))} (всего {int(total_counts.get(label, 0))})"
+        f"{label} — {int(counts.get(label, 0))} ({int(total_counts.get(label, 0))} total)"
         for label in profile.training_label_keys
     )
     return (
         False,
-        f"Для обучения нужно не меньше {threshold} меток на класс в открытой "
-        f"библиотеке. Сейчас: {current}. Откройте библиотеку, где размечен "
-        "профиль, или измените порог в настройках профиля.",
+        f"Training needs at least {threshold} labels per class in the open "
+        f"library. Now: {current}. Open the library where this profile is "
+        "labeled, or lower the threshold in profile settings.",
     )
 
 
@@ -2015,8 +2015,8 @@ def _main_app_spec_compatibility(feature_set: str) -> tuple[bool, str | None]:
         if family == "mert_v2" and layer is not None:
             return (
                 False,
-                f"Основное приложение скорит только слой {MERT_V2_DEFAULT_LAYER} "
-                f"MERT-v2; артефакты слоя {layer} остаются лабораторными",
+                f"The main app scores only MERT-v2 layer {MERT_V2_DEFAULT_LAYER}; "
+                f"layer {layer} artifacts stay in the lab",
             )
     return True, None
 
@@ -2190,9 +2190,9 @@ def _probability_filter_value(value: object) -> float:
     try:
         probability = float(text)
     except ValueError as error:
-        raise ValueError("Минимальная вероятность должна быть числом от 0 до 1") from error
+        raise ValueError("Minimum probability must be a number between 0 and 1") from error
     if probability < 0.0 or probability > 1.0:
-        raise ValueError("Минимальная вероятность должна быть числом от 0 до 1")
+        raise ValueError("Minimum probability must be a number between 0 and 1")
     return probability
 
 
@@ -2203,9 +2203,9 @@ def _bpm_bound_value(value: object, label: str) -> float | None:
     try:
         bpm = float(text)
     except ValueError as error:
-        raise ValueError(f"Значение «{label}» должно быть положительным числом") from error
+        raise ValueError(f"{label} must be a positive number") from error
     if bpm <= 0:
-        raise ValueError(f"Значение «{label}» должно быть положительным числом")
+        raise ValueError(f"{label} must be a positive number")
     return bpm
 
 
@@ -2223,12 +2223,12 @@ def _training_readiness_error(
             for label in profile.training_label_keys
         )
         return (
-            "Нужно не меньше двух размеченных треков на каждый класс. "
-            f"Не хватает: {counts}."
+            "Each class needs at least two labeled tracks. "
+            f"Missing: {counts}."
         )
     return (
-        f"Нужно не меньше двух треков с меткой {profile.positive_label} и двух "
-        f"с меткой {profile.negative_label}. Не хватает: "
+        f"Need at least two {profile.positive_label} and two "
+        f"{profile.negative_label} labeled tracks. Missing: "
         f"{profile.positive_label} {int(missing.get(profile.positive_label, 0))}, "
         f"{profile.negative_label} {int(missing.get(profile.negative_label, 0))}."
     )

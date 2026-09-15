@@ -47,7 +47,7 @@ def apply_model_to_lab(
         raise ValueError(str(reason))
     resolved_classifier_key = str(classifier_key or payload.get("classifier_key") or "").strip()
     if not resolved_classifier_key:
-        raise ValueError("Артефакт не содержит classifier_key; укажите профиль явно")
+        raise ValueError("Artifact does not declare classifier_key; pass the profile explicitly")
     model = payload["model"]
     label_order = [str(label) for label in payload.get("label_order", getattr(model, "classes_", []))]
     labels_db = RhythmLabDatabase(labels_db_path, classifier_key=resolved_classifier_key)

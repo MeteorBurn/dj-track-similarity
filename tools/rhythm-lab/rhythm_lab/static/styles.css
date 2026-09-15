@@ -14,6 +14,11 @@
   --violet: #9d7cff;
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-code: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 16px;
+  --text-xl: 20px;
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -41,7 +46,7 @@ body {
     var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--text-md);
   line-height: 1.4;
 }
 
@@ -165,8 +170,9 @@ main {
 }
 
 .top-bar strong {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: 750;
+  letter-spacing: -0.01em;
 }
 
 .profile-controls {
@@ -372,7 +378,7 @@ main {
   border-radius: var(--radius-sm);
   background: var(--field);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -389,14 +395,6 @@ main {
   pointer-events: none;
 }
 
-.coverage-tracks {
-  --tone: var(--cyan);
-  border-color: color-mix(in srgb, var(--tone) 45%, var(--line));
-  background: color-mix(in srgb, var(--tone) 12%, var(--field));
-}
-
-.coverage-tracks,
-.coverage-tracks b,
 .coverage-liked b {
   color: color-mix(in srgb, var(--tone) 55%, var(--text));
 }
@@ -409,7 +407,7 @@ main {
 
 .meta {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 
@@ -451,7 +449,8 @@ main {
 }
 
 .guidance-card b {
-  font-size: 15px;
+  font-size: var(--text-md);
+  font-weight: 650;
 }
 
 .guidance-card .meta {
@@ -487,7 +486,8 @@ main {
 .workflow-header b {
   display: block;
   margin-bottom: 2px;
-  font-size: 16px;
+  font-size: var(--text-lg);
+  font-weight: 700;
 }
 
 .workflow-recommendation {
@@ -500,9 +500,12 @@ main {
   background: color-mix(in srgb, var(--tone) 8%, transparent);
 }
 
+.workflow-recommendation b {
+  font-weight: 650;
+}
+
 .workflow-recommendation span {
   color: var(--text);
-  font-size: 14px;
 }
 
 .recipe-builder {
@@ -520,7 +523,7 @@ main {
 }
 
 .recipe-builder-header b {
-  font-size: 15px;
+  font-weight: 650;
 }
 
 .recipe-rack {
@@ -530,6 +533,8 @@ main {
   gap: 8px;
 }
 
+/* The signature: each model is a channel button whose checkbox is a lamp. */
+
 .recipe-slot {
   display: inline-flex;
   align-items: center;
@@ -538,7 +543,6 @@ main {
   border-radius: var(--radius-md);
   background: var(--field);
   color: var(--muted);
-  font-size: 14px;
   box-shadow: var(--highlight);
 }
 
@@ -567,32 +571,46 @@ main {
   display: inline-flex;
   align-self: stretch;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 14px 0 12px;
   color: inherit;
-  font-size: inherit;
+  font-size: var(--text-md);
   font-weight: 600;
   cursor: pointer;
 }
 
 .recipe-slot input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
   margin: 0;
-  accent-color: var(--cyan);
+  border: 1px solid color-mix(in srgb, var(--muted) 55%, var(--line));
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--bg) 80%, transparent);
+  cursor: pointer;
+  appearance: none;
+}
+
+.recipe-slot input[type="checkbox"]:checked {
+  border-color: var(--cyan);
+  background: var(--cyan);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--cyan) 22%, transparent),
+    0 0 10px color-mix(in srgb, var(--cyan) 70%, transparent);
 }
 
 .recipe-slot select {
   min-height: 28px;
   margin-right: 8px;
   padding: 2px 8px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .recipe-line {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -601,7 +619,7 @@ main {
 .benchmark-custom-list code,
 .ladder code {
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .recipe-line code,
@@ -623,7 +641,7 @@ main {
   gap: 4px;
   min-width: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .workflow-variant-select select {
@@ -633,7 +651,7 @@ main {
 
 .workflow-variant-note {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -658,7 +676,7 @@ main {
 }
 
 .workflow-variant-facts .training-info-value {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 
@@ -694,7 +712,7 @@ main {
   justify-content: space-between;
   gap: 12px;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .training-progress-header span {
@@ -719,7 +737,6 @@ main {
   height: 100%;
   border-radius: inherit;
   background: var(--tone);
-  transition: width 160ms ease;
 }
 
 .workflow-steps {
@@ -754,7 +771,7 @@ main {
   border-radius: 999px;
   background: color-mix(in srgb, var(--tone) 10%, var(--field));
   color: color-mix(in srgb, var(--tone) 60%, var(--text));
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -789,7 +806,7 @@ main {
 }
 
 .workflow-step-title b {
-  font-size: 15px;
+  font-weight: 650;
 }
 
 .workflow-step-action {
@@ -833,7 +850,7 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .benchmark-strategy select {
@@ -843,7 +860,7 @@ main {
 
 .benchmark-plan-hint {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .benchmark-plan-hint.warning {
@@ -864,7 +881,7 @@ main {
 .ladder button {
   min-height: 30px;
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .benchmark-custom-list {
@@ -895,7 +912,7 @@ main {
 .ladder {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .ladder th,
@@ -940,7 +957,7 @@ main {
   padding-top: 0;
   border-top: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .ladder tr.ladder-unavailable td {
@@ -956,7 +973,6 @@ main {
   gap: 14px;
   padding: 18px var(--panel-pad-x);
   border-top: 1px solid var(--line);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--cyan) 4%, transparent), transparent 38%);
 }
 
 .training-info-heading {
@@ -966,7 +982,8 @@ main {
 }
 
 .training-info-heading b {
-  font-size: 16px;
+  font-size: var(--text-lg);
+  font-weight: 700;
 }
 
 .training-info-card .meta {
@@ -995,7 +1012,7 @@ main {
 .training-info-value {
   min-width: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -1015,11 +1032,9 @@ main {
   border-radius: 999px;
   background: color-mix(in srgb, var(--tone) 12%, transparent);
   color: color-mix(in srgb, var(--tone) 60%, var(--text));
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: var(--text-xs);
+  font-weight: 600;
   line-height: 1.2;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -1043,10 +1058,7 @@ main {
 
 .maest-genre-pill {
   --tone: var(--cyan);
-  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 .maest-genre-pill b {
@@ -1055,18 +1067,16 @@ main {
   font-weight: 600;
 }
 
-/* Micro labels: one uppercase label style for headers and field names. */
+/* Field labels: one small semibold style for headers and field names. */
 
 .summary-group-title,
 .training-info-label,
 .status-item b,
 .ladder thead th {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-size: var(--text-xs);
+  font-weight: 600;
   line-height: 1.25;
-  text-transform: uppercase;
 }
 
 /* Tracks */
@@ -1109,7 +1119,7 @@ main {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 .track-title-main {
@@ -1131,7 +1141,7 @@ main {
   height: 18px;
   border-radius: 999px;
   color: var(--bg);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 900;
   line-height: 1;
 }
@@ -1185,11 +1195,6 @@ main {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-}
-
-.badge-separator {
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .syncopated-rhythm-indicator {
@@ -1301,7 +1306,8 @@ audio {
 .tool-panel h2,
 .dialog-form h2 {
   margin: 0 0 4px;
-  font-size: 16px;
+  font-size: var(--text-lg);
+  font-weight: 700;
 }
 
 .tool-panel button[type="submit"],
@@ -1313,7 +1319,7 @@ label {
   display: grid;
   gap: 5px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .label-grid {
@@ -1436,6 +1442,18 @@ menu {
   border-color: var(--amber);
   background: color-mix(in srgb, var(--amber) 14%, var(--field));
   color: color-mix(in srgb, var(--amber) 35%, var(--text));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .training-progress-track span {
+    transition: width 160ms ease;
+  }
+}
+
+@media (forced-colors: active) {
+  .recipe-slot input[type="checkbox"] {
+    appearance: auto;
+  }
 }
 
 @media (max-width: 760px) {

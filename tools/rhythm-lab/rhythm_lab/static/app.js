@@ -2319,7 +2319,7 @@ function updatePager(data) {
 
 function badgeRow(track) {
   const badges = [duplicateBadge(track), syncopatedBadge(track)].filter(Boolean);
-  return badges.length ? `<div class="badge-row">${badges.join('<span class="badge-separator">·</span>')}</div>` : "";
+  return badges.length ? `<div class="badge-row">${badges.join("")}</div>` : "";
 }
 
 function syncopatedBadge(track) {
@@ -2492,7 +2492,7 @@ function positiveScore(track) {
 }
 
 function featureStatusBadge(name, value) {
-  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-no"}">${mark(value)}</span></span>`;
+  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-off"}">${mark(value)}</span></span>`;
 }
 
 function showError(error) {

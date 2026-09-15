@@ -193,8 +193,6 @@ def _upsert_sonara_fingerprint(
     write: SonaraWrite,
 ) -> None:
     fingerprint = write.fingerprint
-    if fingerprint is None:
-        return
     connection.execute(
         """
         INSERT INTO sonara_fingerprints(
@@ -222,8 +220,6 @@ def _upsert_sonara_timeline(
     write: SonaraWrite,
 ) -> None:
     timeline = write.timeline
-    if timeline is None:
-        return
     require_sonara_timeline(connection)
     connection.execute(
         """
@@ -608,14 +604,13 @@ class AnalysisRepository:
                                 connection,
                                 write=write,
                             )
-                            if write.embedding is not None:
-                                write_valid_embedding_in_transaction(
-                                    connection=connection,
-                                    track=_embedding_track(write.target),
-                                    family=write.embedding.family,
-                                    embedding=write.embedding.vector,
-                                    analyzed_at=write.embedding.analyzed_at,
-                                )
+                            write_valid_embedding_in_transaction(
+                                connection=connection,
+                                track=_embedding_track(write.target),
+                                family=write.embedding.family,
+                                embedding=write.embedding.vector,
+                                analyzed_at=write.embedding.analyzed_at,
+                            )
                             _upsert_sonara_fingerprint(
                                 connection,
                                 write=write,

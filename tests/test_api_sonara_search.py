@@ -13,7 +13,6 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     EmbeddingOutput,
     EmbeddingWrite,
-    SonaraWrite,
     current_embedding_spec,
 )
 from dj_track_similarity.analysis.model_runners import (
@@ -22,6 +21,7 @@ from dj_track_similarity.analysis.model_runners import (
 from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
+from sonara_test_support import complete_sonara_write
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -366,7 +366,7 @@ def _add_sonara_track(
     )
     result = db.save_sonara_results(
         (
-            SonaraWrite(target=target, core=SonaraRow(**values)),
+            complete_sonara_write(target, SonaraRow(**values)),
         )
     )[0]
     assert result.ok, result.error

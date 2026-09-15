@@ -21,11 +21,11 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
     MaestGenreScore,
     MaestWrite,
-    SonaraWrite,
     current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
+from sonara_test_support import complete_sonara_write
 from dj_track_similarity.track_models import (
     FileTags,
     ScannedFile,
@@ -998,9 +998,9 @@ def _save_cli_candidate_analysis(
     assert embedding_result[0].ok
     sonara_result = db.save_sonara_results(
         (
-            SonaraWrite(
-                target=target,
-                core=_sonara_row(
+            complete_sonara_write(
+                target,
+                _sonara_row(
                     target,
                     bpm=bpm,
                     energy=energy,

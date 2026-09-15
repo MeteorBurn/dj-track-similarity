@@ -21,10 +21,10 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
     MaestGenreScore,
     MaestWrite,
-    SonaraWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
+from sonara_test_support import complete_sonara_write
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
     ClassifierScoreDetail,
@@ -157,9 +157,9 @@ def test_tracks_endpoint_returns_paginated_typed_current_summaries(
         analyzed_at="2026-09-14T00:00:00Z",
     )
     saved = database.save_sonara_results((
-        SonaraWrite(
-            target=AnalysisTarget(beta.catalog_uuid, beta.track_id, beta.track_uuid),
-            core=SonaraRow(**sonara_values),
+        complete_sonara_write(
+            AnalysisTarget(beta.catalog_uuid, beta.track_id, beta.track_uuid),
+            SonaraRow(**sonara_values),
         ),
     ))
     assert saved[0].ok, saved[0].error

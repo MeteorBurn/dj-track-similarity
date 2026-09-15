@@ -15,11 +15,11 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
     MaestGenreScore,
     MaestWrite,
-    SonaraWrite,
     current_embedding_spec,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
+from sonara_test_support import complete_sonara_write
 from dj_track_similarity.evaluation.seed_sampling import (
     export_seed_sample,
 )
@@ -365,10 +365,7 @@ def _save_sonara_core(
     )
     result = db.save_sonara_results(
         (
-            SonaraWrite(
-                target=target,
-                core=SonaraRow(**values),
-            ),
+            complete_sonara_write(target, SonaraRow(**values)),
         )
     )
     assert result[0].ok

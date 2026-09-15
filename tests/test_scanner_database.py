@@ -13,8 +13,9 @@ from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.analysis_models import AnalysisOutput, SonaraWrite
+from dj_track_similarity.analysis_models import AnalysisOutput
 from dj_track_similarity.db.ddl import SonaraRow
+from sonara_test_support import complete_sonara_write
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
 
 
@@ -238,7 +239,7 @@ def test_analysis_candidates_are_path_ordered_limited_and_skip_missing_tracks(
         spectral_contrast_mean_blob=struct.pack("<7f", *([0.0] * 7)),
     )
     written = database.save_sonara_results(
-        (SonaraWrite(target=target, core=SonaraRow(**values)),),
+        (complete_sonara_write(target, SonaraRow(**values)),),
     )
     assert written[0].ok, written[0].error
     admitted = database.list_analysis_candidates(

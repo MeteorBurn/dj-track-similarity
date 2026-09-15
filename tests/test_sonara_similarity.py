@@ -7,10 +7,10 @@ import pytest
 import dj_track_similarity.db.analysis as db_analysis_module
 from dj_track_similarity.analysis_models import (
     AnalysisTarget,
-    SonaraWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
+from sonara_test_support import complete_sonara_write
 from dj_track_similarity.search.sonara import SonaraSimilaritySearch
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -198,10 +198,7 @@ def _add_sonara_track(
     )
     result = database.save_sonara_results(
         (
-            SonaraWrite(
-                target=target,
-                core=_core_row(target, features),
-            ),
+            complete_sonara_write(target, _core_row(target, features)),
         )
     )[0]
     assert result.ok, result.error
@@ -727,9 +724,9 @@ def test_sonara_feature_rows_refresh_after_typed_core_write(tmp_path: Path) -> N
     first_rows = db.load_sonara_feature_rows(output, targets=(target,))
     result = db.save_sonara_results(
         (
-            SonaraWrite(
-                target=target,
-                core=_core_row(
+            complete_sonara_write(
+                target,
+                _core_row(
                     target,
                     {
                         "energy": 0.9,

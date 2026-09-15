@@ -11,13 +11,13 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
     EmbeddingOutput,
     EmbeddingWrite,
-    SonaraWrite,
 )
 from dj_track_similarity.analysis.model_runners import (
     current_embedding_analysis_output,
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
+from sonara_test_support import complete_sonara_write
 from dj_track_similarity.library_models import TrackSummary
 from dj_track_similarity.search.reference_compare import (
     ReferenceCompareQuery,
@@ -172,9 +172,9 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     ):
         result = database.save_sonara_results(
             (
-                SonaraWrite(
-                    target=target,
-                    core=_sonara_row(
+                complete_sonara_write(
+                    target,
+                    _sonara_row(
                         target,
                         energy=energy,
                         danceability=danceability,

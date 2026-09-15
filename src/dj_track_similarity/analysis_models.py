@@ -619,11 +619,17 @@ def _timeline_spans(
 
 @dataclass(frozen=True)
 class SonaraWrite:
+    """One SONARA run for one track.
+
+    Every output is required and written together, so a track never mixes
+    outputs of different runs.
+    """
+
     target: AnalysisTarget
     core: SonaraRow
-    timeline: TimelineOutput | None = None
-    embedding: EmbeddingOutput | None = None
-    fingerprint: FingerprintOutput | None = None
+    timeline: TimelineOutput
+    embedding: EmbeddingOutput
+    fingerprint: FingerprintOutput
 
     def __post_init__(self) -> None:
         if self.core.track_id != self.target.track_id:
@@ -644,26 +650,23 @@ class SonaraWrite:
             dim=7,
             field_name="core.spectral_contrast_mean_blob",
         )
-        if self.embedding is not None and self.embedding.family != "sonara":
-            raise ValueError("SONARA embedding output must use family='sonara'")
-        if self.fingerprint is not None and not isinstance(
-            self.fingerprint,
-            FingerprintOutput,
-        ):
-            raise TypeError("SONARA fingerprint output must be a FingerprintOutput")
-        if self.timeline is not None and not isinstance(self.timeline, TimelineOutput):
+        if not isinstance(self.timeline, TimelineOutput):
             raise TypeError("SONARA timeline output must be a TimelineOutput")
+        if not isinstance(self.embedding, EmbeddingOutput):
+            raise TypeError("SONARA embedding output must be an EmbeddingOutput")
+        if self.embedding.family != "sonara":
+            raise ValueError("SONARA embedding output must use family='sonara'")
+        if not isinstance(self.fingerprint, FingerprintOutput):
+            raise TypeError("SONARA fingerprint output must be a FingerprintOutput")
 
     @property
     def outputs(self) -> tuple[AnalysisOutput, ...]:
-        outputs = [AnalysisOutput("sonara", "core")]
-        if self.timeline is not None:
-            outputs.append(AnalysisOutput("sonara", "timeline"))
-        if self.embedding is not None:
-            outputs.append(AnalysisOutput("sonara", "embedding"))
-        if self.fingerprint is not None:
-            outputs.append(AnalysisOutput("sonara", "fingerprint"))
-        return tuple(outputs)
+        return (
+            AnalysisOutput("sonara", "core"),
+            AnalysisOutput("sonara", "timeline"),
+            AnalysisOutput("sonara", "embedding"),
+            AnalysisOutput("sonara", "fingerprint"),
+        )
 
 
 @dataclass(frozen=True)

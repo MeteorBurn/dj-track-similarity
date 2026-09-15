@@ -19,7 +19,7 @@ export function MertV2LayerSelect({ state }: { state: MertV2LayerState }) {
           const count = state.layers?.find(row => row.layer === layer)?.track_count ?? 0;
           const itemHint = authorHints[layer];
           return <option key={layer} value={layer} disabled={count === 0} title={itemHint ? `${hintMeaning} ${itemHint.tasks}.` : undefined}>
-            L{layer}{itemHint ? ` — ${itemHint.label}` : ""} · {state.loading ? "…" : count}
+            L{layer}{itemHint ? ` – ${itemHint.label}` : ""}
           </option>;
         })}
       </select>

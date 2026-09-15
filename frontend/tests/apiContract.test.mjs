@@ -313,7 +313,6 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
   const preview = await api.previewInfo(7, { signal: controller.signal });
   assert.equal(preview.duration_seconds, 120.25);
   await api.mertV2Layers({ signal: controller.signal });
-  await api.embeddingMap({ catalog_uuid: "catalog", analysis_family: "mert_v2", cluster_count: 8, mert_v2_layer: 12 }, { signal: controller.signal });
 
   assert.deepEqual(
     calls.map(({ path }) => path),
@@ -325,8 +324,7 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
       "/api/search/random-track",
       "/api/search/text",
       "/api/tracks/7/preview-info",
-      "/api/library/mert-v2/layers",
-      "/api/library/embedding-map"
+      "/api/library/mert-v2/layers"
     ]
   );
   assert.deepEqual(JSON.parse(calls[2].options.body), sonaraPayload);
@@ -340,9 +338,6 @@ test("detail, preview metadata and generic search clients forward AbortSignal un
   });
   assert.equal(JSON.parse(calls[1].options.body).mert_v2_layer, 12);
   assert.equal(calls[7].options.body, undefined);
-  assert.deepEqual(JSON.parse(calls[8].options.body), {
-    catalog_uuid: "catalog", analysis_family: "mert_v2", cluster_count: 8, mert_v2_layer: 12,
-  });
   for (const call of calls) {
     assert.equal(call.options.signal, controller.signal);
   }

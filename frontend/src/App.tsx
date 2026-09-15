@@ -661,15 +661,6 @@ export function App() {
     setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
-  function addMapTracksToPlaylist(tracks: Track[]) {
-    if (busy || tracks.some(track => track.catalog_uuid !== databaseCatalogUuidRef.current)) return;
-    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
-    const added = nextPlaylist.length - playlist.length;
-    setPlaylist(nextPlaylist);
-    appendActivity("ok", "Группа MERT-v2 добавлена в сет", `${added} новых · в группе ${tracks.length}`);
-    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
-  }
-
   async function handleAnalyzeClassifier(classifier: PromotedClassifier) {
     if (librarySummary.sonara < 1) {
       const message = "Сначала выполните SONARA-анализ хотя бы одного трека";
@@ -1450,7 +1441,6 @@ export function App() {
         <SearchPlaylistPanel
           mertV2Layers={mertV2Layers}
           activeSearchTab={activeSearchTab}
-          catalogUuid={databaseCatalogUuid}
           collapsed={searchCollapsed}
           onToggleCollapsed={() => togglePanel("search")}
           seedTracks={seedTracks}
@@ -1542,7 +1532,6 @@ export function App() {
           toggleLiked={handleToggleTrackLiked}
           togglePlaylist={togglePlaylist}
           onAddPromptCandidates={addPromptCandidatesToPlaylist}
-          onAddMapTracks={addMapTracksToPlaylist}
           playingTrackId={playingTrackId}
           previewTrackId={preview?.track_id ?? null}
           setPreview={togglePreview}

@@ -11,6 +11,7 @@ from .route_utils import query_classifier_min_scores, valid_classifier_min_score
 from .schemas import (
     FilteredTracksRequest,
     LibrarySummaryResponse,
+    MertV2LayersResponse,
     RelocateLibraryRequest,
     ScanRequest,
     TagRefreshRequest,
@@ -22,7 +23,7 @@ from .schemas import (
     TrackPreviewInfoResponse,
     TrackSummaryResponse,
 )
-from .state import AppDatabaseState
+from .state import AppDatabaseState, DatabaseBusy
 from ..track_models import TrackIdentity
 
 
@@ -178,6 +179,19 @@ def register_library_routes(
     @app.get("/api/library/summary", response_model=LibrarySummaryResponse)
     def library_summary():
         return state.require_db().library_summary()
+
+    @app.get("/api/library/mert-v2/layers", response_model=MertV2LayersResponse)
+    def mert_v2_layers() -> dict[str, object]:
+        database, generation = state.capture_db()
+        try:
+            with state.captured_db(database, generation):
+                counts = database.mert_v2_layer_counts()
+                return {
+                    "catalog_uuid": database.catalog_uuid,
+                    "layers": [{"layer": layer, "track_count": counts[layer]} for layer in range(1, 25)],
+                }
+        except (DatabaseBusy, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     def media_path(track_id: int) -> Path:
         try:

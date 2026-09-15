@@ -17,8 +17,6 @@ import type {
   DatabaseSelection,
   DatabaseValidationJobStatus,
   EmbeddingRandomTrackPayload,
-  EmbeddingMapRequest,
-  EmbeddingMapResponse,
   MertV2LayersResponse,
   EmbeddingSearchPayload,
   GenreTagJobStatus,
@@ -343,12 +341,6 @@ const analysisApi = {
 const searchApi = {
   mertV2Layers: (options?: { signal?: AbortSignal }) =>
     request<MertV2LayersResponse>("/api/library/mert-v2/layers", { signal: options?.signal }),
-  embeddingMap: (payload: EmbeddingMapRequest, options?: { signal?: AbortSignal }) =>
-    request<EmbeddingMapResponse>("/api/library/embedding-map", {
-      method: "POST",
-      body: JSON.stringify(payload),
-      signal: options?.signal,
-    }),
   search: (payload: EmbeddingSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search", {
       method: "POST",

@@ -13,7 +13,6 @@ import {
 } from "./classifierCompatibility";
 import type { TextPromptAxis, TextPromptPreset } from "./textPromptPresets";
 import { SimilaritySearchTab } from "./SimilaritySearchTab";
-import { MertV2ExplorePanel } from "./MertV2ExplorePanel";
 import type { MertV2LayerState } from "./useMertV2Layers";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
@@ -60,8 +59,7 @@ const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: s
   similarity: { label: "SIMILARITY", title: "Seed similarity search (SONARA, MAEST, MERT, MuQ, MuQ-MuLan)" },
   text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
   class: { label: "CLASSIFIER", title: "Classifier controls" },
-  lab: { label: "LAB", title: "Reference Compare model groups" },
-  map: { label: "MAP", title: "Карта коллекции и группы MERT-v2" }
+  lab: { label: "LAB", title: "Reference Compare model groups" }
 };
 
 function searchResultOriginLabel(origin: GenericSearchTab) {
@@ -105,7 +103,6 @@ function PromptCandidatesAddButton({ results, playlist, busy, modelLabel, onAdd 
 export function SearchPlaylistPanel({
   mertV2Layers,
   activeSearchTab,
-  catalogUuid,
   collapsed,
   onToggleCollapsed,
   seedTracks,
@@ -163,7 +160,6 @@ export function SearchPlaylistPanel({
   toggleLiked,
   togglePlaylist,
   onAddPromptCandidates,
-  onAddMapTracks,
   playingTrackId,
   previewTrackId,
   setPreview,
@@ -172,7 +168,6 @@ export function SearchPlaylistPanel({
 }: {
   mertV2Layers: MertV2LayerState;
   activeSearchTab: PrimarySearchTab;
-  catalogUuid: string | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   seedTracks: Track[];
@@ -249,7 +244,6 @@ export function SearchPlaylistPanel({
   toggleLiked: (track: Track) => Promise<Track | null>;
   togglePlaylist: (track: Track) => void;
   onAddPromptCandidates: (tracks: Track[], modelLabel: string) => void;
-  onAddMapTracks: (tracks: Track[]) => void;
   playingTrackId: number | null;
   previewTrackId: number | null;
   setPreview: (track: Track) => void;
@@ -381,15 +375,6 @@ export function SearchPlaylistPanel({
             </button>
           ))}
         </div>
-        {activeSearchTab === "map" && (
-          <div id="search-panel-map" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-map">
-            <MertV2ExplorePanel key={databaseIdentity} databaseIdentity={databaseIdentity} catalogUuid={catalogUuid}
-              layerState={mertV2Layers}
-              busy={busy} seedSet={seedSet} playlistSet={playlistSet} playingTrackId={playingTrackId} previewTrackId={previewTrackId}
-              onSeed={addSeed} onToggleLiked={toggleLiked} onTogglePlaylist={togglePlaylist} onAddTracks={onAddMapTracks}
-              onPreview={setPreview} onSeekPreview={onSeekPreview} onDetails={setMetadataTrack} />
-          </div>
-        )}
         {activeSearchTab === "lab" && (
           <div id="search-panel-lab" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-lab">
             <ReferenceComparePanel

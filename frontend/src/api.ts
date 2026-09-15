@@ -49,28 +49,9 @@ export type TrackMutationIdentity = {
   track_uuid: string;
 };
 
-export type EmbeddingMapRequest = {
-  catalog_uuid: string;
-  analysis_family: "mert_v2";
-  cluster_count: number;
-  mert_v2_layer?: number;
-};
-
 export type MertV2LayersResponse = {
   catalog_uuid: string;
   layers: { layer: number; track_count: number }[];
-};
-
-export type EmbeddingMapResponse = {
-  catalog_uuid: string;
-  analysis_family: "mert_v2";
-  mert_v2_layer: number;
-  eligible_count: number;
-  requested_cluster_count: number;
-  cluster_count: number;
-  projection: { method: "pca"; explained_variance_ratio: [number, number] };
-  clusters: { id: number; count: number; representative_track_id: number }[];
-  points: { track: Track; x: number; y: number; cluster: number }[];
 };
 
 export type MaestMelExportRequest = TrackMutationIdentity & {

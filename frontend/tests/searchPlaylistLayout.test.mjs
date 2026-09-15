@@ -46,7 +46,6 @@ test("seed results share SIMILARITY while preserving source and request identity
   assert.equal(searchTabForResultOrigin("mert_v2"), "similarity");
   assert.equal(genericSearchResultIsCurrent("similarity", "mert_v2", "key", "key"), true);
   assert.equal(genericSearchResultIsCurrent("similarity", "mert_v2", "old-catalog", "key"), false);
-  assert.equal(genericSearchResultIsCurrent("map", "mert_v2", "key", "key"), false);
   assert.equal(searchTabForResultOrigin("text"), "text");
   assert.equal(genericSearchResultIsCurrent("similarity", "muq", "key", "key"), true);
   assert.equal(genericSearchResultIsCurrent("text", "muq", "key", "key"), false);

@@ -1,4 +1,4 @@
-export type PrimarySearchTab = "similarity" | "text" | "class" | "lab" | "map";
+export type PrimarySearchTab = "similarity" | "text" | "class" | "lab";
 export type SeedEmbeddingFamily = "maest" | "mert" | "mert_v2" | "muq" | "mulan" | "clap";
 export type SeedSearchModel = "sonara" | SeedEmbeddingFamily;
 export type GenericSearchTab = "text" | SeedSearchModel;
@@ -8,8 +8,7 @@ export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "lab",
   "similarity",
   "text",
-  "class",
-  "map"
+  "class"
 ];
 
 export const seedEmbeddingFamilies: readonly SeedEmbeddingFamily[] = ["maest", "mert", "mert_v2", "muq", "mulan", "clap"];

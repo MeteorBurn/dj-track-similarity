@@ -326,15 +326,6 @@ class EmbeddingRandomTrackRequest(BaseModel):
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
 
 
-class EmbeddingMapRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    catalog_uuid: str = Field(min_length=1)
-    analysis_family: Literal["mert_v2"] = "mert_v2"
-    mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
-    cluster_count: int = Field(default=8, ge=1, le=32)
-
-
 class SonaraMixerWeights(BaseModel):
     timbre: float = Field(default=1.0, ge=0.0, le=5.0)
     rhythm: float = Field(default=1.0, ge=0.0, le=5.0)
@@ -949,36 +940,6 @@ class SimilaritySearchResultResponse(_ResponseModel):
     score_breakdown: dict[str, float] | None = None
     # Per-label contribution, present only when the request named the banks.
     preset_scores: dict[str, float] | None = None
-
-
-class EmbeddingMapProjectionResponse(_ResponseModel):
-    method: Literal["pca"]
-    explained_variance_ratio: tuple[float, float]
-
-
-class EmbeddingMapClusterResponse(_ResponseModel):
-    id: int
-    count: int
-    representative_track_id: int
-
-
-class EmbeddingMapPointResponse(_ResponseModel):
-    track: TrackSummaryResponse
-    x: float
-    y: float
-    cluster: int
-
-
-class EmbeddingMapResponse(_ResponseModel):
-    catalog_uuid: str
-    analysis_family: Literal["mert_v2"]
-    mert_v2_layer: int = Field(ge=1, le=24)
-    eligible_count: int
-    requested_cluster_count: int
-    cluster_count: int
-    projection: EmbeddingMapProjectionResponse
-    clusters: list[EmbeddingMapClusterResponse]
-    points: list[EmbeddingMapPointResponse]
 
 
 class MertV2LayerCountResponse(_ResponseModel):

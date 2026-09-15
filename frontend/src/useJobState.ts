@@ -98,7 +98,7 @@ export function useJobState({
     setDatabaseOptimizationJob(job);
     if (job.state === "completed") {
       setNotice({ kind: "ok", text: `Оптимизация БД завершена: ${formatMegabytes(job.size_before)} → ${formatMegabytes(job.size_after)}` });
-      appendActivity("ok", "Оптимизация БД завершена", job.files.map((file) => basename(file.backup_path)).join(", "));
+      appendActivity("ok", "Оптимизация БД завершена", job.files.map((file) => file.backup_path ? basename(file.backup_path) : "бэкап удалён").join(", "));
       void refreshLibrarySummary();
     } else if (job.state === "failed") {
       setNotice({ kind: "error", text: `Оптимизация БД не удалась: ${job.error ?? "ошибка"}` });

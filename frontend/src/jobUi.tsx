@@ -290,7 +290,7 @@ function DatabaseOptimizationProcessStatus({ job }: { job: DatabaseOptimizationJ
       {running && <span className="analysis-current">Сейчас: {optimizationPhaseLabel(job)}</span>}
       {job.files.map((file) => (
         <span className="analysis-muted" key={file.role}>
-          {file.role}: {basename(file.backup_path)}{file.checkpoint === "incomplete" ? " · checkpoint не завершён" : ""}
+          {file.role}: {file.backup_path ? basename(file.backup_path) : "проверено, бэкап удалён"}{file.checkpoint === "incomplete" ? " · checkpoint не завершён" : ""}
         </span>
       ))}
       {job.error && <span className="analysis-error">{job.error}</span>}

@@ -164,6 +164,13 @@ change starts with a new test: admit a test only under the rules below.
 
 ## DOCUMENTATION WORKFLOW
 
+- The docs site (`docs/dj-track-similarity/`) is temporarily unmaintained as of
+  2026-09-15. Do not edit it, audit it for staleness, or delegate a pass over
+  it, even on explicit request, until the user says to resume; report that it
+  is paused instead. It is never a source of truth for your own work regardless
+  of pause state: verify behavior against executable source and tests, not
+  against this site. The maintained instruction set is this file, `README.md`,
+  and `docs/agent-guides/`.
 - Update documentation only when requested in the current session. A code
   change does not authorize a docs pass; do not plan/delegate one, report a gap,
   or offer to close it. Instruction-file maintenance does not imply a docs-site

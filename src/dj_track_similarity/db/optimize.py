@@ -11,7 +11,10 @@ The run, in order:
    ``VACUUM``, plus the ``VACUUM`` temporary copy when the SQLite temp
    directory shares the drive.
 3. Back up every file through the SQLite backup API, then verify the copy.
-   A backup that has not been checked is not a rollback point.
+   A backup that has not been checked is not a rollback point. The backup is
+   temporary: once a file verifies again after optimization, its backup is
+   removed. A file that fails that verification keeps its backup as the
+   rollback point.
 4. Optimize each file: merge FTS5 index segments, ``VACUUM``, ``ANALYZE``,
    and fold the WAL back with ``PRAGMA wal_checkpoint(TRUNCATE)``.
 5. Verify every file again and report the sizes.
@@ -96,7 +99,9 @@ class DatabaseInspection:
 class OptimizedDatabaseFile:
     role: str
     path: Path
-    backup_path: Path
+    backup_path: Path | None
+    """The verified backup, kept only when post-optimization verification
+    failed. ``None`` means the file re-verified ok and its backup was removed."""
     journal_mode: str
     size_before: int
     size_after: int
@@ -113,11 +118,11 @@ class OptimizationSummary:
     files: tuple[OptimizedDatabaseFile, ...]
 
     @property
-    def backup_path(self) -> Path:
+    def backup_path(self) -> Path | None:
         return self.files[0].backup_path
 
     @property
-    def backup_paths(self) -> tuple[Path, ...]:
+    def backup_paths(self) -> tuple[Path | None, ...]:
         return tuple(item.backup_path for item in self.files)
 
     @property
@@ -224,17 +229,19 @@ def optimize_database(
             backup_path=backups[item.role],
         )
         size_after = _on_disk_size(item.path)
+        _remove_sqlite_files(backups[item.role])
         _emit(
             on_event,
             "ok",
-            f"Verified {item.role} after optimization: {item.size} -> {size_after} bytes",
+            f"Verified {item.role} after optimization: {item.size} -> {size_after} bytes; "
+            "temporary backup removed",
             item.path,
         )
         files.append(
             OptimizedDatabaseFile(
                 role=item.role,
                 path=item.path,
-                backup_path=backups[item.role],
+                backup_path=None,
                 journal_mode=item.journal_mode,
                 size_before=item.size,
                 size_after=size_after,

@@ -46,7 +46,7 @@ class DatabaseOptimizationEvent:
 class OptimizedFileSummary:
     role: str
     path: str
-    backup_path: str
+    backup_path: str | None
     journal_mode: str
     size_before: int
     size_after: int
@@ -142,7 +142,7 @@ class DatabaseOptimizationJobManager:
                 OptimizedFileSummary(
                     role=item.role,
                     path=str(item.path),
-                    backup_path=str(item.backup_path),
+                    backup_path=None if item.backup_path is None else str(item.backup_path),
                     journal_mode=item.journal_mode,
                     size_before=item.size_before,
                     size_after=item.size_after,
@@ -157,7 +157,7 @@ class DatabaseOptimizationJobManager:
             job_id,
             summary.size_before,
             summary.size_after,
-            ", ".join(str(path) for path in summary.backup_paths),
+            ", ".join(str(path) for path in summary.backup_paths if path is not None) or "none (all verified, removed)",
         )
 
     def get(self, job_id: str) -> DatabaseOptimizationJobStatus:

@@ -501,7 +501,7 @@ export type DatabaseOptimizationJobStatus = {
   files: Array<{
     role: string;
     path: string;
-    backup_path: string;
+    backup_path: string | null;
     journal_mode: string;
     size_before: number;
     size_after: number;

@@ -68,7 +68,8 @@ are relative to this file. These guides are read by task, not imported as a batc
   the requested behavior changes a shared contract.
 - Do not expand, redesign, or remove Model Listening Lab without a new request.
 - Keep CLAP text scores separate from audio-to-audio CLAP signals. Never
-  substitute MuQ, MERT, MAEST, CLAP, MuQ-MuLan, or SONARA evidence for another.
+  substitute MuQ, MERT, MERT-v2, MAEST, CLAP, MuQ-MuLan, or SONARA evidence
+  for another.
 - Zero-shot text tags are additional evidence, not replacements for MAEST or
   classifier scores; never write them to `classifier_scores` or audio files.
 - Browser search tabs are rank-only: use `Limit`, preserve descending scores,

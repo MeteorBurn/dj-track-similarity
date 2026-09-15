@@ -30,9 +30,10 @@ enforces.
 The only files they produce are the reports you ask for, one `.npz` sidecar from
 `clap_checkpoint_embed.py`, and the throwaway database `benchmark_search.py` builds for itself.
 
-One caution. `scripts/` also holds `optimize_database.py`, which backs up and vacuums a real
-database, and `run_server_launcher.py`, which starts processes. Neither is read-only, so the
-guarantee above covers the nine scripts on this page rather than the directory.
+One caution. `scripts/` also holds `run_server_launcher.py`, which starts processes and is not
+read-only, so the guarantee above covers the nine scripts on this page rather than the directory.
+Database optimization is not a script here; it is the `dj-sim optimize-database` CLI command (see
+[Optimize database](./optimize-database.md)).
 
 ## qa_database.py
 

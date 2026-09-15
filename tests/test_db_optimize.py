@@ -33,7 +33,7 @@ def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
     summary = optimize_database(db_path)
 
     assert [item.role for item in summary.files] == ["library", "evaluation"]
-    assert all(path.exists() for path in summary.backup_paths)
+    assert all(path is None for path in summary.backup_paths)
     assert summary.database_kind == "library"
     assert summary.integrity_before == "ok"
     assert summary.integrity_after == "ok"
@@ -90,7 +90,7 @@ def test_optimize_database_keeps_generic_sqlite_file_and_its_journal_mode(
 
     assert summary.database_kind == "sqlite"
     assert [item.role for item in summary.files] == ["sqlite"]
-    assert summary.backup_path.exists()
+    assert summary.backup_path is None
     assert summary.files[0].journal_mode == "delete"
     assert summary.files[0].checkpoint is None
     with sqlite3.connect(db_path) as connection:
@@ -116,3 +116,35 @@ def test_optimize_database_refuses_a_database_that_fails_verification(
     assert db_path.stat().st_size == size_before
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT value FROM values_table").fetchone()[0] == -1
+
+
+def test_optimize_database_keeps_the_backup_when_post_optimize_verification_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The backup is the rollback point exactly when it is needed: a file that
+    still verifies fine before optimizing but fails its second, post-optimize
+    check must not have its backup removed."""
+
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+
+    from dj_track_similarity.db import optimize as optimize_module
+
+    real_integrity_check = optimize_module._integrity_check
+    calls = {"count": 0}
+
+    def flaky_integrity_check(connection, label):
+        calls["count"] += 1
+        if calls["count"] > 2:  # 1: pre-check, 2: backup verify, 3: post-optimize verify
+            raise OptimizationError(f"{label} integrity_check failed: simulated post-optimize corruption")
+        return real_integrity_check(connection, label)
+
+    monkeypatch.setattr(optimize_module, "_integrity_check", flaky_integrity_check)
+
+    with pytest.raises(OptimizationError, match="simulated post-optimize corruption"):
+        optimize_database(db_path)
+
+    backups = sorted(tmp_path.glob("*.bak-*"))
+    assert len(backups) == 1
+    assert backups[0].exists()

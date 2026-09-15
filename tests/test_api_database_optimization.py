@@ -41,7 +41,7 @@ def test_optimization_job_api_backs_up_and_reports_the_library(
     assert payload["size_before"] > 0 and payload["size_after"] > 0
     assert [item["role"] for item in payload["files"]] == ["library"]
     library_file = payload["files"][0]
-    assert Path(library_file["backup_path"]).is_file()
+    assert library_file["backup_path"] is None
     assert library_file["journal_mode"] == "wal"
     assert library_file["checkpoint"] == "complete"
     assert any(event["level"] == "ok" and "Backup of library verified" in event["message"] for event in payload["events"])

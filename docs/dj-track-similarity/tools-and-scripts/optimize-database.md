@@ -3,10 +3,11 @@
 SQLite maintenance that takes a verified backup before it touches anything.
 
 ```powershell
-python scripts\optimize_database.py --db .\data\library.sqlite
+uv run --no-sync dj-sim optimize-database --db .\database\library.sqlite
 ```
 
-`--db` is the only argument, and it is required.
+`--db` is required. Add `--dry-run` to inspect the database and report free space
+without writing anything.
 
 ## The run, in order
 
@@ -14,47 +15,51 @@ python scripts\optimize_database.py --db .\data\library.sqlite
    Anything else is a generic `sqlite` file.
 2. Builds the file set. A library is maintained together with its adjacent `*.evaluation.sqlite`
    sidecar when that file exists. A generic file is maintained alone.
-3. Runs `PRAGMA integrity_check` on every file. A failure here stops the run before any write.
-4. Backs up every file to `<name>.bak-<timestamp>` beside the original, through the SQLite backup
-   API rather than a file copy. A name collision gets a numeric suffix.
-5. Runs the maintenance statements on each file: `PRAGMA journal_mode = WAL`,
-   `PRAGMA synchronous = NORMAL`, `VACUUM`, `ANALYZE`, `PRAGMA optimize`, and
-   `PRAGMA wal_checkpoint(TRUNCATE)`. The busy timeout is 30 seconds.
-6. Runs `PRAGMA integrity_check` again. A failure here raises rather than reporting success.
+3. Runs `PRAGMA integrity_check` and `PRAGMA foreign_key_check` on every file. A failure here
+   stops the run before any write.
+4. Checks free space on the database drive for the backup, the `VACUUM` temporary copy, and WAL
+   growth. Refuses to start if there is not enough.
+5. Backs up every file to `<name>.bak-<timestamp>` beside the original, through the SQLite backup
+   API rather than a file copy, then verifies the copy. A name collision gets a numeric suffix.
+6. Runs the maintenance statements on each file: merges FTS5 index segments, `VACUUM`, `ANALYZE`,
+   and, for a WAL-mode file, `PRAGMA wal_checkpoint(TRUNCATE)`. The run keeps whatever journal mode
+   it found; it does not set `journal_mode` or `synchronous`.
+7. Runs `PRAGMA integrity_check` and `PRAGMA foreign_key_check` again on each file. A failure here
+   raises rather than reporting success, and that file's backup is kept as the rollback point. Once
+   a file verifies clean, its backup is removed.
 
-The script imposes no fixed table, column, or index list, so a future library addition does not make
+The tool imposes no fixed table, column, or index list, so a future library addition does not make
 optimization fail.
 
 ## Printed summary
 
-Six summary lines, then two lines per maintained file:
+`--dry-run` prints the inspection and stops before any write:
 
 ```text
-database=<the path you passed>
-database_kind=library
-integrity_before=ok
-integrity_after=ok
+database_kind=<library or sqlite>
+size=<bytes>
+compacted_estimate=<bytes>
+free_bytes=<bytes, or unknown>
+required_free_bytes=<bytes>
+free_space_ok=<True or False>
+```
+
+A real run prints one line per step (backing up, running maintenance, verifying), then a summary:
+
+```text
+database_kind=<library or sqlite>
 size_before=<bytes>
 size_after=<bytes>
-library.database=<library path>
-library.backup=<library backup path>
-evaluation.database=<sidecar path>
-evaluation.backup=<sidecar backup path>
+integrity_before=ok
+integrity_after=ok
+library: size <before>-><after> journal=wal backup=removed (verified)
 ```
 
-`database_kind` is `library` or `sqlite`. The `integrity_before` and `integrity_after` values are
-`ok` only when every file in the set passed. The two size values are the sum across the set, in
-bytes, so a library with a sidecar reports the combined total. The per-file lines use the role name
-as a prefix: `library`, `evaluation`, or `sqlite` for a generic file.
-
-## Maintaining the Rhythm Lab database
-
-The Rhythm Lab labels database is a generic SQLite file to this script, so it reports
-`database_kind=sqlite` and one `sqlite.database` and `sqlite.backup` pair.
-
-```powershell
-python scripts\optimize_database.py --db tools\rhythm-lab\database\rhythm_lab.sqlite
-```
+The `integrity_before`/`integrity_after` values are `ok` only when every file in the set passed.
+The size values are the sum across the set, so a library with a sidecar reports the combined total.
+Each per-file line is prefixed with its role (`library`, `evaluation`, or `sqlite` for a generic
+file); `backup=` names the kept backup path instead of `removed (verified)` when that file's
+post-optimization check failed.
 
 ## Before the run
 
@@ -62,7 +67,9 @@ Stop the main app when practical, because `VACUUM` rewrites the whole file. Keep
 Evaluation sidecar with the library backup when it exists, since the two belong together. Neither
 the maintenance nor the backup changes source audio files.
 
-The backups stay on disk. Delete them yourself once you are satisfied with the result.
+The backup this run makes is temporary, not a retained copy: it exists only to protect the file
+while `VACUUM` rewrites it, and is removed as soon as the file verifies again afterward. It is kept
+only when that final check fails, so there is something to restore from.
 
 ## Related pages
 

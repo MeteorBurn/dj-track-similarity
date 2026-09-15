@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, Protocol, TypeAlias
+from typing import Literal, TypeAlias, get_args
 import hashlib
 import json
 import math
@@ -17,6 +17,7 @@ import numpy as np
 from dj_track_similarity.analysis_models import (
     current_embedding_spec,
 )
+from dj_track_similarity.db.analysis_candidates import table_for_output
 from dj_track_similarity.db.connection import connect_database, write_lock_for_path
 from dj_track_similarity.db.schema import validate_library_schema
 from dj_track_similarity.library_models import (
@@ -25,31 +26,24 @@ from dj_track_similarity.library_models import (
     MaestAnalysis,
     MaestGenre,
 )
+from dj_track_similarity.rhythm_lab_collections import sonara_content_key
 
 
+# Family order is owner-mandated and mirrored by features.SUPPORTED_FEATURE_SOURCES and the UI.
 EmbeddingFamily: TypeAlias = Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"]
 AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"]
 OutputKind: TypeAlias = Literal["core", "analysis", "embedding"]
-FeatureSource: TypeAlias = Literal["sonara", "mert", "mert_v2", "maest", "clap", "muq", "mulan"]
+FeatureSource: TypeAlias = Literal["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"]
 FeatureStateStatus: TypeAlias = Literal["current", "missing"]
 
-_EMBEDDING_TABLES: Mapping[EmbeddingFamily, str] = MappingProxyType(
-    {
-        "maest": "maest_embeddings",
-        "mert": "mert_embeddings",
-        "mert_v2": "mert_v2_embeddings",
-        "muq": "muq_embeddings",
-        "mulan": "mulan_embeddings",
-        "clap": "clap_embeddings",
-    }
-)
 _OUTPUT_KEYS = frozenset(
     {
         ("sonara", "core"),
         ("maest", "analysis"),
-        *(family_output for family_output in ((family, "embedding") for family in _EMBEDDING_TABLES)),
+        *((family, "embedding") for family in get_args(EmbeddingFamily)),
     }
 )
+_COVERAGE_FIELDS = frozenset(item.name for item in fields(AnalysisCoverage))
 _READ_CHUNK_SIZE = 800
 
 
@@ -114,25 +108,46 @@ SOURCE_OUTPUTS = (
 FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
     {
         "sonara": SONARA_CORE_OUTPUT,
+        "maest": MAEST_EMBEDDING_OUTPUT,
         "mert": MERT_EMBEDDING_OUTPUT,
         "mert_v2": MERT_V2_EMBEDDING_OUTPUT,
-        "maest": MAEST_EMBEDDING_OUTPUT,
-        "clap": CLAP_EMBEDDING_OUTPUT,
         "muq": MUQ_EMBEDDING_OUTPUT,
         "mulan": MULAN_EMBEDDING_OUTPUT,
+        "clap": CLAP_EMBEDDING_OUTPUT,
     }
 )
-_FEATURE_TABLES: Mapping[FeatureSource, str] = MappingProxyType(
-    {
-        "sonara": "sonara_features",
-        "mert": "mert_embeddings",
-        "mert_v2": "mert_v2_embeddings",
-        "maest": "maest_embeddings",
-        "clap": "clap_embeddings",
-        "muq": "muq_embeddings",
-        "mulan": "mulan_embeddings",
-    }
-)
+# MERT-v2 stores 24 layers per track; a bare "mert_v2" source token reads this one.
+MERT_V2_DEFAULT_LAYER = 24
+
+
+def _source_table(output: SourceOutput) -> str:
+    """Library table storing one output, from the main app's output registry."""
+
+    table = table_for_output(output)  # type: ignore[arg-type]
+    if table is None:
+        raise ValueError(f"No library table registered for {output.analysis_family}/{output.output_kind}")
+    return table
+
+
+def _coverage_attribute(output: SourceOutput) -> str:
+    """``AnalysisCoverage`` field for one output.
+
+    A family with a single coverage field uses its own name (``mert``); a family
+    with several uses ``<family>_<kind>`` (``sonara_core``, ``maest_embedding``).
+    """
+
+    family, kind = output.key
+    attribute = family if family in _COVERAGE_FIELDS else f"{family}_{kind}"
+    if attribute not in _COVERAGE_FIELDS:
+        raise AttributeError(f"AnalysisCoverage has no field for {family}/{kind}")
+    return attribute
+
+
+for _output in SOURCE_OUTPUTS:
+    # Fail at import if the main app's table registry or AnalysisCoverage drifts.
+    _source_table(_output)
+    _coverage_attribute(_output)
+del _output
 
 
 @dataclass(frozen=True)
@@ -209,7 +224,12 @@ class SourceSonaraFeatures:
 
 @dataclass(frozen=True)
 class SourceTrack:
-    """One current Core track and its stable catalog identity."""
+    """One current Core track, its catalog identity and its content key.
+
+    ``content_key`` is :func:`sonara_content_key` of the track's stored SONARA
+    fingerprint, or ``None`` for a track that was never fingerprinted; only
+    keyed tracks can be labelled, predicted or collected.
+    """
 
     catalog_uuid: str
     track_id: int
@@ -226,12 +246,7 @@ class SourceTrack:
     feature_status: Mapping[str, SourceFeatureState] = field(
         default_factory=lambda: MappingProxyType({})
     )
-
-
-class TrackIdentityLike(Protocol):
-    catalog_uuid: str
-    track_uuid: str
-    file_path: str
+    content_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -257,11 +272,11 @@ class SourceDatabase:
     ) -> None:
         selected = Path(_clean_path_text(path)).expanduser()
         if not str(selected).strip() or not selected.name:
-            raise ValueError("Source database path is required")
+            raise ValueError("Укажите путь к базе библиотеки")
         if not selected.exists():
-            raise FileNotFoundError(f"Source database does not exist: {selected}")
+            raise FileNotFoundError(f"База библиотеки не найдена: {selected}")
         if not selected.is_file():
-            raise ValueError("Source database path must be an existing file")
+            raise ValueError("Путь к базе библиотеки должен указывать на существующий файл")
         self.path = selected.resolve(strict=True)
         clean_expected = _optional_non_empty_text(
             expected_catalog_uuid,
@@ -274,6 +289,7 @@ class SourceDatabase:
         self._feature_inventory_lock = threading.RLock()
         self._feature_inventory_signature: tuple[tuple[int, int], ...] | None = None
         self._feature_inventory_counts: Mapping[str, int] | None = None
+        self._feature_inventory_layers: tuple[int, ...] = ()
 
     def _validate_library(self, *, expected_catalog_uuid: str | None) -> str:
         with closing(_readonly_connection(self.path)) as connection:
@@ -297,11 +313,22 @@ class SourceDatabase:
                 _stable_random_rank,
                 deterministic=True,
             )
+            connection.create_function(
+                "rhythm_lab_content_key",
+                2,
+                sonara_content_key,
+                deterministic=True,
+            )
             connection.execute("PRAGMA query_only = ON")
             return connection
         except BaseException:
             connection.close()
             raise
+
+    def storage_signature(self) -> tuple[tuple[int, int], ...]:
+        """Cheap change detector: mtime/size of the library file and its WAL."""
+
+        return _storage_change_signature(self.path)
 
     def feature_states(self) -> Mapping[str, SourceFeatureState]:
         """Return availability for all feature sources."""
@@ -314,25 +341,64 @@ class SourceDatabase:
     ) -> tuple[Mapping[str, int], Mapping[str, SourceFeatureState]]:
         """Return stored row counts and states, cached until storage changes."""
 
+        counts, _layers = self._load_feature_inventory()
+        return counts, _feature_source_states(counts)
+
+    def mert_v2_stored_layers(self) -> tuple[int, ...]:
+        """MERT-v2 layers with rows for current tracks, ascending; empty without the table."""
+
+        _counts, layers = self._load_feature_inventory()
+        return layers
+
+    def _load_feature_inventory(
+        self,
+    ) -> tuple[Mapping[str, int], tuple[int, ...]]:
         with self._feature_inventory_lock:
             before = _storage_change_signature(self.path)
             if (
                 self._feature_inventory_counts is not None
                 and before == self._feature_inventory_signature
             ):
-                counts = self._feature_inventory_counts
-                return counts, _feature_source_states(counts)
+                return self._feature_inventory_counts, self._feature_inventory_layers
             with closing(self.connect()) as connection:
                 loaded = _feature_counts(connection)
+                layers = _mert_v2_layers(connection)
             counts = MappingProxyType(dict(loaded))
             after = _storage_change_signature(self.path)
             if before == after:
                 self._feature_inventory_signature = after
                 self._feature_inventory_counts = counts
+                self._feature_inventory_layers = layers
             else:
                 self._feature_inventory_signature = None
                 self._feature_inventory_counts = None
-            return counts, _feature_source_states(counts)
+                self._feature_inventory_layers = ()
+            return counts, layers
+
+    def _required_source_tokens(
+        self,
+        required_sources: Iterable[str] | None,
+    ) -> tuple[str, ...] | None:
+        """Normalize a recipe's source tokens; ``None`` when one is not stored here.
+
+        Without an explicit recipe every family with stored rows is required.
+        """
+
+        counts = self.feature_counts()
+        if required_sources is None:
+            return tuple(source for source in FEATURE_SOURCE_OUTPUTS if counts.get(source, 0) > 0)
+        tokens = tuple(dict.fromkeys(str(token).strip().lower() for token in required_sources))
+        if not tokens:
+            raise ValueError("required_sources must name at least one feature source")
+        layers = self.mert_v2_stored_layers()
+        for token in tokens:
+            family, layer = _split_source_token(token)
+            if layer is None:
+                if counts.get(family, 0) == 0:
+                    return None
+            elif layer not in layers:
+                return None
+        return tokens
 
     def count_tracks(self) -> int:
         with closing(self.connect()) as connection:
@@ -354,38 +420,32 @@ class SourceDatabase:
             ).fetchall()
         return tuple(int(row[0]) for row in rows)
 
-    def rhythm_lab_track_ids(self) -> tuple[int, ...]:
-        counts = self.feature_counts()
+    def rhythm_lab_track_ids(
+        self,
+        required_sources: Iterable[str] | None = None,
+    ) -> tuple[int, ...]:
+        """Current fingerprinted tracks with stored rows for every required source.
+
+        Without a recipe every family stored in this library is required.
+        """
+
+        tokens = self._required_source_tokens(required_sources)
+        if tokens is None:
+            return ()
+        conditions = [
+            "t.missing_since IS NULL",
+            _FINGERPRINTED_CONDITION,
+            *_ready_source_conditions(tokens, "t"),
+        ]
         with closing(self.connect()) as connection:
-            current_count = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM tracks WHERE missing_since IS NULL"
-                ).fetchone()[0]
-            )
-            if all(count == current_count for count in counts.values()):
-                rows = connection.execute(
-                    """
-                    SELECT track_id
-                    FROM tracks
-                    WHERE missing_since IS NULL
-                    ORDER BY track_id
-                    """
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    """
-                    SELECT t.track_id
-                    FROM tracks AS t
-                    JOIN sonara_features AS sonara USING(track_id)
-                    JOIN mert_embeddings AS mert USING(track_id)
-                    JOIN maest_embeddings AS maest USING(track_id)
-                    JOIN clap_embeddings AS clap USING(track_id)
-                    JOIN muq_embeddings AS muq USING(track_id)
-                    JOIN mulan_embeddings AS mulan USING(track_id)
-                    WHERE t.missing_since IS NULL
-                    ORDER BY t.track_id
-                    """
-                ).fetchall()
+            rows = connection.execute(
+                f"""
+                SELECT t.track_id
+                FROM tracks AS t
+                WHERE {' AND '.join(conditions)}
+                ORDER BY t.track_id
+                """
+            ).fetchall()
         return tuple(int(row[0]) for row in rows)
 
     def count_embeddings(self, family: EmbeddingFamily) -> int:
@@ -418,100 +478,42 @@ class SourceDatabase:
         clean_id = _positive_track_id(track_id)
         track = self.tracks_by_ids((clean_id,)).get(clean_id)
         if track is None:
-            raise KeyError(f"Unknown current track id: {clean_id}")
+            raise KeyError(f"Нет текущего трека с id {clean_id}")
         return track
 
     def tracks_by_ids(
         self,
         track_ids: Iterable[int],
+        *,
+        required_sources: Iterable[str] | None = None,
     ) -> dict[int, SourceTrack]:
+        """Current tracks by id, in input order; unknown ids are absent.
+
+        With ``required_sources`` only tracks storing every named source are
+        returned; ``None`` applies no source filter.
+        """
+
         unique_ids = list(
             dict.fromkeys(_positive_track_id(track_id) for track_id in track_ids)
         )
         if not unique_ids:
             return {}
+        ready_sql = ""
+        if required_sources is not None:
+            tokens = self._required_source_tokens(required_sources)
+            if tokens is None:
+                return {}
+            ready_sql = "".join(
+                f" AND {condition}" for condition in _ready_source_conditions(tokens, "t")
+            )
         with closing(self.connect()) as connection:
             tracks = _load_tracks(
                 connection,
                 catalog_uuid=self.catalog_uuid,
                 track_ids=unique_ids,
+                ready_sql=ready_sql,
             )
         return {track.track_id: track for track in tracks}
-
-    def tracks_by_identities(
-        self,
-        identities: Iterable[TrackIdentityLike],
-    ) -> list[SourceTrack]:
-        """Resolve exact current track identities without scanning all tracks."""
-
-        requested = list(
-            dict.fromkeys(
-                (
-                    str(identity.catalog_uuid),
-                    str(identity.track_uuid),
-                    str(identity.file_path),
-                )
-                for identity in identities
-                if str(identity.catalog_uuid) == self.catalog_uuid
-            )
-        )
-        if not requested:
-            return []
-        requested_set = set(requested)
-        requested_uuids = list(dict.fromkeys(key[1] for key in requested))
-        track_ids_by_identity: dict[tuple[str, str, str], int] = {}
-        with closing(self.connect()) as connection:
-            for start in range(0, len(requested_uuids), _READ_CHUNK_SIZE):
-                chunk = requested_uuids[start : start + _READ_CHUNK_SIZE]
-                placeholders = ", ".join("?" for _ in chunk)
-                rows = connection.execute(
-                    f"""
-                    SELECT t.track_id, t.track_uuid, t.file_path
-                    FROM tracks AS t
-                    WHERE t.missing_since IS NULL
-                      AND t.track_uuid IN ({placeholders})
-                      AND EXISTS (
-                          SELECT 1 FROM sonara_features AS data
-                          WHERE data.track_id = t.track_id
-                      )
-                      AND EXISTS (
-                          SELECT 1 FROM mert_embeddings AS data
-                          WHERE data.track_id = t.track_id
-                      )
-                      AND EXISTS (
-                          SELECT 1 FROM maest_embeddings AS data
-                          WHERE data.track_id = t.track_id
-                      )
-                      AND EXISTS (
-                          SELECT 1 FROM clap_embeddings AS data
-                          WHERE data.track_id = t.track_id
-                      )
-                      AND EXISTS (
-                          SELECT 1 FROM muq_embeddings AS data
-                          WHERE data.track_id = t.track_id
-                      )
-                      AND EXISTS (
-                          SELECT 1 FROM mulan_embeddings AS data
-                          WHERE data.track_id = t.track_id
-                      )
-                    """,
-                    chunk,
-                ).fetchall()
-                for row in rows:
-                    key = (
-                        self.catalog_uuid,
-                        str(row["track_uuid"]),
-                        str(row["file_path"]),
-                    )
-                    if key in requested_set:
-                        track_ids_by_identity[key] = int(row["track_id"])
-        tracks_by_id = self.tracks_by_ids(track_ids_by_identity.values())
-        return [
-            tracks_by_id[track_ids_by_identity[key]]
-            for key in requested
-            if key in track_ids_by_identity
-            and track_ids_by_identity[key] in tracks_by_id
-        ]
 
     def list_tracks(self) -> list[SourceTrack]:
         with closing(self.connect()) as connection:
@@ -536,8 +538,13 @@ class SourceDatabase:
         family: EmbeddingFamily,
         *,
         track_ids: Iterable[int] | None = None,
+        layer: int | None = None,
     ) -> SourceEmbeddingMatrix:
+        """Load one family's vectors; ``layer`` selects a stored MERT-v2 layer (default 24)."""
+
         clean_family = _embedding_family(family)
+        if layer is not None and clean_family != "mert_v2":
+            raise ValueError(f"{clean_family.upper()} не хранит слои эмбеддинга")
         spec = current_embedding_spec(clean_family)
         selected_ids = (
             None
@@ -563,6 +570,7 @@ class SourceDatabase:
                 connection,
                 family=clean_family,
                 track_ids=[track.track_id for track in tracks],
+                layer=layer,
             )
 
         ready_tracks = tuple(
@@ -623,7 +631,7 @@ class SourceDatabase:
                     ).fetchone()
                     if row is None:
                         raise SourceTrackNotCurrentError(
-                            "Like target is not the current track ID/UUID"
+                            "Лайк адресован не текущему треку: ID/UUID не совпадают"
                         )
                     track_id = int(row[0])
                     if liked:
@@ -666,11 +674,15 @@ class SourceDatabase:
         seed: int = 0,
         limit: int = 100,
         offset: int = 0,
+        required_sources: Iterable[str] | None = None,
     ) -> dict[str, object]:
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         clean_classifier = _non_empty_text(classifier_key, "classifier_key")
         labels_path = _labels_database_path(labels_db_path)
+        tokens = self._required_source_tokens(required_sources)
+        if tokens is None:
+            return {"items": [], "total": 0, "limit": bounded_limit, "offset": bounded_offset}
         params: dict[str, object] = {
             "classifier_key": clean_classifier,
             "catalog_uuid": self.catalog_uuid,
@@ -699,11 +711,9 @@ class SourceDatabase:
                 collection_join = """
                     JOIN labels.review_collection_tracks AS rct
                       ON rct.collection_id = :collection_id
-                     AND rct.catalog_uuid = :catalog_uuid
-                     AND rct.track_uuid = t.track_uuid
+                     AND rct.content_key = sg.content_key
                     JOIN labels.review_collections AS rc
                       ON rc.id = rct.collection_id
-                     AND rc.catalog_uuid = rct.catalog_uuid
                 """
             joins = _track_page_joins(collection_join)
             where_parts = _track_page_filters(
@@ -715,6 +725,7 @@ class SourceDatabase:
                 liked=liked,
                 label=label,
                 label_keys=label_keys,
+                required_sources=tokens,
             )
             where_sql = f"WHERE {' AND '.join(where_parts)}"
             order_sql = _track_page_order_sql(
@@ -795,10 +806,14 @@ class SourceDatabase:
         min_positive: float = 0.0,
         limit: int = 100,
         offset: int = 0,
+        required_sources: Iterable[str] | None = None,
     ) -> dict[str, object]:
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         labels_path = _labels_database_path(labels_db_path)
+        tokens = self._required_source_tokens(required_sources)
+        if tokens is None:
+            return {"items": [], "total": 0, "limit": bounded_limit, "offset": bounded_offset}
         params: dict[str, object] = {
             "classifier_key": _non_empty_text(
                 classifier_key,
@@ -831,7 +846,7 @@ class SourceDatabase:
                 min_positive=min_positive,
                 profile_type=profile_type,
             )
-            cte_sql = _prediction_page_cte(trained_members)
+            cte_sql = _prediction_page_cte(trained_members, tokens)
             rows = connection.execute(
                 f"""
                 {cte_sql}
@@ -976,7 +991,15 @@ _SONARA_SELECT = """
 """
 
 
+_FINGERPRINTED_CONDITION = (
+    "EXISTS (SELECT 1 FROM sonara_fingerprints AS fp "
+    "WHERE fp.track_id = t.track_id AND fp.track_uuid = t.track_uuid)"
+)
+
+
 def _base_track_query(id_clause: str) -> str:
+    # The content key is hashed here, per loaded track, never in a page's
+    # WHERE/JOIN; pages resolve identity through labels.track_sightings.
     return f"""
         SELECT
             t.track_id,
@@ -1001,7 +1024,10 @@ def _base_track_query(id_clause: str) -> str:
             {_SONARA_SELECT},
             ms.syncopated_rhythm AS maest_syncopated_rhythm,
             ms.genres_json AS maest_genres_json,
-            ms.analyzed_at AS maest_analyzed_at
+            ms.analyzed_at AS maest_analyzed_at,
+            CASE WHEN fp.track_id IS NULL THEN NULL
+                 ELSE rhythm_lab_content_key(fp.fingerprint_version, fp.fingerprint_base64)
+            END AS content_key
         FROM tracks AS t
         LEFT JOIN tags AS ft ON ft.track_id = t.track_id
         LEFT JOIN likes AS l ON l.track_id = t.track_id
@@ -1009,6 +1035,8 @@ def _base_track_query(id_clause: str) -> str:
           ON s.track_id = t.track_id
         LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
+        LEFT JOIN sonara_fingerprints AS fp
+          ON fp.track_id = t.track_id AND fp.track_uuid = t.track_uuid
         WHERE t.missing_since IS NULL
           {id_clause}
         ORDER BY COALESCE(ft.artist, ''), COALESCE(ft.title, ''), t.file_path,
@@ -1021,10 +1049,11 @@ def _load_tracks(
     *,
     catalog_uuid: str,
     track_ids: Iterable[int] | None = None,
+    ready_sql: str = "",
 ) -> tuple[SourceTrack, ...]:
     rows: list[sqlite3.Row] = []
     if track_ids is None:
-        rows.extend(connection.execute(_base_track_query("")))
+        rows.extend(connection.execute(_base_track_query(ready_sql)))
     else:
         clean_ids = list(dict.fromkeys(_positive_track_id(value) for value in track_ids))
         for start in range(0, len(clean_ids), _READ_CHUNK_SIZE):
@@ -1032,7 +1061,7 @@ def _load_tracks(
             placeholders = ", ".join("?" for _ in chunk)
             rows.extend(
                 connection.execute(
-                    _base_track_query(f"AND t.track_id IN ({placeholders})"),
+                    _base_track_query(f"AND t.track_id IN ({placeholders}){ready_sql}"),
                     chunk,
                 )
             )
@@ -1083,12 +1112,10 @@ def _source_track_from_row(
     coverage = AnalysisCoverage(
         sonara_core=sonara is not None,
         maest_analysis=maest is not None,
-        maest_embedding=track_id in ready_embeddings.get("maest", set()),
-        mert=track_id in ready_embeddings.get("mert", set()),
-        mert_v2=track_id in ready_embeddings.get("mert_v2", set()),
-        muq=track_id in ready_embeddings.get("muq", set()),
-        mulan=track_id in ready_embeddings.get("mulan", set()),
-        clap=track_id in ready_embeddings.get("clap", set()),
+        **{
+            _coverage_attribute(output): track_id in ready_embeddings.get(family, set())
+            for family, output in EMBEDDING_OUTPUTS.items()
+        },
     )
     return SourceTrack(
         catalog_uuid=catalog_uuid,
@@ -1110,6 +1137,7 @@ def _source_track_from_row(
             coverage,
             source_states,
         ),
+        content_key=_optional_text(row["content_key"]),
     )
 
 
@@ -1285,15 +1313,16 @@ def _ready_embedding_vectors(
     *,
     family: EmbeddingFamily,
     track_ids: Iterable[int] | None = None,
+    layer: int | None = None,
 ) -> dict[int, np.ndarray]:
-    table = _EMBEDDING_TABLES[family]
+    table = _source_table(EMBEDDING_OUTPUTS[family])
     spec = current_embedding_spec(family)
     base_clauses = [
         "t.missing_since IS NULL",
         "a.track_uuid = t.track_uuid",
     ]
     if family == "mert_v2":
-        base_clauses.append("a.layer = 24")
+        base_clauses.append(f"a.layer = {_mert_v2_layer(layer)}")
     chunks: list[list[int] | None]
     if track_ids is not None:
         clean_ids = list(dict.fromkeys(_positive_track_id(value) for value in track_ids))
@@ -1313,17 +1342,23 @@ def _ready_embedding_vectors(
             placeholders = ", ".join("?" for _ in chunk)
             clauses.append(f"a.track_id IN ({placeholders})")
             params.extend(chunk)
-        rows = connection.execute(
-            f"""
-            SELECT a.track_id, a.track_uuid,
-                   a.dim, a.normalization, a.embedding_blob
-            FROM {table} AS a
-            JOIN tracks AS t ON t.track_id = a.track_id
-            WHERE {' AND '.join(clauses)}
-            ORDER BY a.track_id
-            """,
-            params,
-        ).fetchall()
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT a.track_id, a.track_uuid,
+                       a.dim, a.normalization, a.embedding_blob
+                FROM {table} AS a
+                JOIN tracks AS t ON t.track_id = a.track_id
+                WHERE {' AND '.join(clauses)}
+                ORDER BY a.track_id
+                """,
+                params,
+            ).fetchall()
+        except sqlite3.OperationalError as error:
+            if _is_missing_table_error(error):
+                # Libraries analyzed before this family existed have no table.
+                return {}
+            raise
         for row in rows:
             vector = _embedding_vector(
                 row,
@@ -1373,12 +1408,14 @@ def _track_page_joins(collection_join: str) -> str:
           ON s.track_id = t.track_id
         LEFT JOIN maest_genres AS ms
           ON ms.track_id = t.track_id
+        LEFT JOIN labels.track_sightings AS sg
+          ON sg.catalog_uuid = :catalog_uuid
+         AND sg.track_uuid = t.track_uuid
+         AND sg.track_id = t.track_id
         {collection_join}
         LEFT JOIN labels.classifier_labels AS rl
           ON rl.classifier_key = :classifier_key
-         AND rl.catalog_uuid = :catalog_uuid
-         AND rl.track_uuid = t.track_uuid
-         AND rl.selected_path = t.file_path
+         AND rl.content_key = sg.content_key
     """
 
 
@@ -1392,19 +1429,12 @@ def _track_page_filters(
     liked: str,
     label: str,
     label_keys: tuple[str, ...],
+    required_sources: Iterable[str],
 ) -> list[str]:
     where = [
         "t.missing_since IS NULL",
-        "EXISTS (SELECT 1 FROM sonara_features AS ready_sonara "
-        "WHERE ready_sonara.track_id = t.track_id)",
-        "EXISTS (SELECT 1 FROM mert_embeddings AS ready_mert "
-        "WHERE ready_mert.track_id = t.track_id)",
-        "EXISTS (SELECT 1 FROM maest_embeddings AS ready_maest "
-        "WHERE ready_maest.track_id = t.track_id)",
-        "EXISTS (SELECT 1 FROM clap_embeddings AS ready_clap "
-        "WHERE ready_clap.track_id = t.track_id)",
-        "EXISTS (SELECT 1 FROM muq_embeddings AS ready_muq "
-        "WHERE ready_muq.track_id = t.track_id)",
+        "sg.content_key IS NOT NULL",
+        *_ready_source_conditions(required_sources, "t"),
     ]
     needle = query.strip().casefold()
     if needle:
@@ -1429,7 +1459,7 @@ def _track_page_filters(
             "ms.track_id IS NOT NULL AND ms.syncopated_rhythm = 0"
         )
     elif syncopated != "all":
-        raise ValueError(f"Unknown syncopated filter: {syncopated}")
+        raise ValueError(f"Неизвестный фильтр синкопы: {syncopated}")
     if bpm_min is not None:
         params["bpm_min"] = float(bpm_min)
         where.append("s.detected_bpm >= :bpm_min")
@@ -1441,14 +1471,14 @@ def _track_page_filters(
     elif liked == "no":
         where.append("l.track_id IS NULL")
     elif liked != "all":
-        raise ValueError(f"Unknown liked filter: {liked}")
+        raise ValueError(f"Неизвестный фильтр лайков: {liked}")
     if label == "unlabeled":
         where.append("rl.label IS NULL")
     elif label in set(label_keys):
         params["label_filter"] = label
         where.append("rl.label = :label_filter")
     elif label != "all":
-        raise ValueError(f"Unknown label filter: {label}")
+        raise ValueError(f"Неизвестный фильтр метки: {label}")
     return where
 
 
@@ -1473,7 +1503,7 @@ def _track_page_order_sql(
             "ORDER BY rhythm_lab_random_rank(:random_seed, t.track_id), "
             f"{path_order}"
         )
-    raise ValueError(f"Unknown library order: {order}")
+    raise ValueError(f"Неизвестный порядок сортировки: {order}")
 
 
 def _track_page_item(
@@ -1488,6 +1518,7 @@ def _track_page_item(
         "catalog_uuid": track.catalog_uuid,
         "track_id": track.track_id,
         "track_uuid": track.track_uuid,
+        "content_key": track.content_key,
         "file_path": track.file_path,
         "artist": tags.artist if tags is not None else None,
         "title": tags.title if tags is not None else None,
@@ -1515,11 +1546,28 @@ def _track_page_item(
     }
 
 
-def _prediction_page_cte(trained_members: str) -> str:
+def _prediction_page_cte(
+    trained_members: str,
+    required_sources: Iterable[str],
+) -> str:
+    ready_sql = "".join(
+        f" AND {condition}"
+        for condition in _ready_source_conditions(required_sources, "t")
+    )
+    # Predictions are keyed by content; each content resolves to one
+    # representative track of the active catalog (its lowest sighted track_id),
+    # so duplicates within a library surface once.
     return f"""
-        WITH ranked_predictions AS (
+        WITH representative AS (
+            SELECT sg.content_key, MIN(sg.track_id) AS track_id
+            FROM labels.track_sightings AS sg
+            WHERE sg.catalog_uuid = :catalog_uuid
+            GROUP BY sg.content_key
+        ),
+        ranked_predictions AS (
             SELECT
                 p.rowid AS prediction_rowid,
+                p.content_key,
                 p.catalog_uuid,
                 p.track_uuid,
                 p.selected_path,
@@ -1544,14 +1592,13 @@ def _prediction_page_cte(trained_members: str) -> str:
                     ) AS REAL
                 ) AS negative_probability,
                 ROW_NUMBER() OVER (
-                    PARTITION BY p.catalog_uuid, p.track_uuid, p.selected_path
+                    PARTITION BY p.content_key
                     ORDER BY COALESCE(p.updated_at, '') DESC,
                              p.rowid DESC,
                              p.model_artifact DESC
                 ) AS prediction_rank
             FROM labels.classifier_predictions AS p
             WHERE p.classifier_key = :classifier_key
-              AND p.catalog_uuid = :catalog_uuid
         ),
         latest_predictions AS (
             SELECT *
@@ -1575,31 +1622,12 @@ def _prediction_page_cte(trained_members: str) -> str:
                      AND rl.updated_at <= cp.updated_at
                      THEN 1 ELSE 0 END AS classifier_label_trained
             FROM latest_predictions AS p
+            LEFT JOIN representative AS r
+              ON r.content_key = p.content_key
             LEFT JOIN tracks AS t
-              ON p.catalog_uuid = :catalog_uuid
-             AND t.track_uuid = p.track_uuid
-             AND t.file_path = p.selected_path
+              ON t.track_id = r.track_id
              AND t.missing_since IS NULL
-             AND EXISTS (
-                 SELECT 1 FROM sonara_features AS ready_sonara
-                 WHERE ready_sonara.track_id = t.track_id
-             )
-             AND EXISTS (
-                 SELECT 1 FROM mert_embeddings AS ready_mert
-                 WHERE ready_mert.track_id = t.track_id
-             )
-             AND EXISTS (
-                 SELECT 1 FROM maest_embeddings AS ready_maest
-                 WHERE ready_maest.track_id = t.track_id
-             )
-             AND EXISTS (
-                 SELECT 1 FROM clap_embeddings AS ready_clap
-                 WHERE ready_clap.track_id = t.track_id
-             )
-             AND EXISTS (
-                 SELECT 1 FROM muq_embeddings AS ready_muq
-                 WHERE ready_muq.track_id = t.track_id
-             )
+             {ready_sql}
             LEFT JOIN tags AS ft ON ft.track_id = t.track_id
             LEFT JOIN sonara_features AS s
               ON s.track_id = t.track_id
@@ -1607,9 +1635,7 @@ def _prediction_page_cte(trained_members: str) -> str:
               ON ms.track_id = t.track_id
             LEFT JOIN labels.classifier_labels AS rl
              ON rl.classifier_key = :classifier_key
-             AND rl.catalog_uuid = p.catalog_uuid
-             AND rl.track_uuid = p.track_uuid
-             AND rl.selected_path = p.selected_path
+             AND rl.content_key = p.content_key
             LEFT JOIN labels.classifier_training_checkpoints AS cp
               ON cp.classifier_key = :classifier_key
         )
@@ -1661,7 +1687,7 @@ def _prediction_page_filter_sql(
             )
         )
     elif syncopated != "all":
-        raise ValueError(f"Unknown syncopated filter: {syncopated}")
+        raise ValueError(f"Неизвестный фильтр синкопы: {syncopated}")
     if bpm_min is not None:
         params["bpm_min"] = float(bpm_min)
         where.extend(
@@ -1684,7 +1710,7 @@ def _prediction_page_filter_sql(
         params["label_filter"] = label
         where.append("classifier_label = :label_filter")
     elif label != "all":
-        raise ValueError(f"Unknown label filter: {label}")
+        raise ValueError(f"Неизвестный фильтр метки: {label}")
     if predicted != "all":
         params["predicted_filter"] = predicted
         where.append("predicted_label = :predicted_filter")
@@ -1740,9 +1766,14 @@ def _prediction_page_item(
     positive_probability = probabilities.get(positive_label)
     negative_probability = probabilities.get(negative_label)
     return {
-        "catalog_uuid": str(row["catalog_uuid"]),
+        "content_key": str(row["content_key"]),
+        "catalog_uuid": (
+            track.catalog_uuid if track is not None else str(row["catalog_uuid"])
+        ),
         "track_id": track.track_id if track is not None else None,
-        "track_uuid": str(row["track_uuid"]),
+        "track_uuid": (
+            track.track_uuid if track is not None else str(row["track_uuid"])
+        ),
         "selected_path": (
             track.file_path if track is not None else str(row["selected_path"])
         ),
@@ -1804,7 +1835,7 @@ def _feature_source_states(
                 reason=(
                     None
                     if int(counts.get(source, 0)) > 0
-                    else f"No stored current-track {source.upper()} data is available."
+                    else f"В библиотеке нет сохранённых данных {source.upper()} для текущих треков."
                 ),
             )
             for source in FEATURE_SOURCE_OUTPUTS
@@ -1812,19 +1843,18 @@ def _feature_source_states(
     )
 
 
+def _coverage_by_source(coverage: AnalysisCoverage) -> dict[str, bool]:
+    return {
+        source: bool(getattr(coverage, _coverage_attribute(output)))
+        for source, output in FEATURE_SOURCE_OUTPUTS.items()
+    }
+
+
 def _track_feature_states(
     coverage: AnalysisCoverage,
     source_states: Mapping[str, SourceFeatureState],
 ) -> Mapping[str, SourceFeatureState]:
-    coverage_by_source = {
-        "sonara": coverage.sonara_core,
-        "mert": coverage.mert,
-        "mert_v2": coverage.mert_v2,
-        "maest": coverage.maest_embedding,
-        "clap": coverage.clap,
-        "muq": coverage.muq,
-        "mulan": coverage.mulan,
-    }
+    coverage_by_source = _coverage_by_source(coverage)
     return MappingProxyType(
         {
             source: (
@@ -1836,8 +1866,8 @@ def _track_feature_states(
                     else SourceFeatureState(
                         status="missing",
                         reason=(
-                            f"Current {source.upper()} output is missing for "
-                            "this track."
+                            f"У этого трека нет текущего результата "
+                            f"{source.upper()}."
                         ),
                     )
                 )
@@ -1855,7 +1885,7 @@ def _feature_status_payload(
             {
                 source: SourceFeatureState(
                     status="missing",
-                    reason="The prediction no longer resolves to current track content.",
+                    reason="Предсказание больше не соответствует текущему содержимому трека.",
                 )
                 for source in FEATURE_SOURCE_OUTPUTS
             }
@@ -1866,7 +1896,6 @@ def _feature_status_payload(
             for source, state in track.feature_status.items()
         }
     else:
-        coverage = track.analysis_coverage
         states = MappingProxyType(
             {
                 source: SourceFeatureState(
@@ -1874,17 +1903,12 @@ def _feature_status_payload(
                     reason=(
                         None
                         if ready
-                        else f"Current {source.upper()} output is missing for this track."
+                        else f"У этого трека нет текущего результата {source.upper()}."
                     ),
                 )
-                for source, ready in {
-                    "sonara": coverage.sonara_core,
-                    "mert": coverage.mert,
-                    "mert_v2": coverage.mert_v2,
-                    "maest": coverage.maest_embedding,
-                    "clap": coverage.clap,
-                    "muq": coverage.muq,
-                }.items()
+                for source, ready in _coverage_by_source(
+                    track.analysis_coverage
+                ).items()
             }
         )
     return {source: state.payload() for source, state in states.items()}
@@ -1902,6 +1926,7 @@ def _attach_labels(
 
 _COLLECTION_COLUMNS = {
     "collection_id",
+    "content_key",
     "catalog_uuid",
     "track_uuid",
     "selected_path",
@@ -1923,17 +1948,7 @@ def _require_collection_identity_schema(
     }
     if columns != _COLLECTION_COLUMNS:
         raise SourceDatabaseIntegrityError(
-            "Review collection rows do not use the exact source identity"
-        )
-    collection_columns = {
-        str(row["name"])
-        for row in connection.execute(
-            "PRAGMA labels.table_info(review_collections)"
-        )
-    }
-    if "catalog_uuid" not in collection_columns:
-        raise SourceDatabaseIntegrityError(
-            "Review collections are not bound to a source catalog"
+            "Строки коллекций не привязаны к контентной идентичности; выполните миграцию базы Rhythm Lab"
         )
 
 
@@ -2038,27 +2053,102 @@ def _storage_change_signature(path: Path) -> tuple[tuple[int, int], ...]:
 
 def _feature_counts(connection: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
-    for source, table in _FEATURE_TABLES.items():
-        row = connection.execute(
-            f"""
-            SELECT COUNT(*)
-            FROM {table} AS data
-            JOIN tracks AS t USING(track_id)
-            WHERE t.missing_since IS NULL
-              {"AND data.layer = 24" if source == "mert_v2" else ""}
-            """
-        ).fetchone()
+    for source, output in FEATURE_SOURCE_OUTPUTS.items():
+        table = _source_table(output)
+        layer_sql = (
+            f"AND data.layer = {MERT_V2_DEFAULT_LAYER}" if source == "mert_v2" else ""
+        )
+        try:
+            row = connection.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table} AS data
+                JOIN tracks AS t USING(track_id)
+                WHERE t.missing_since IS NULL
+                  {layer_sql}
+                """
+            ).fetchone()
+        except sqlite3.OperationalError as error:
+            if _is_missing_table_error(error):
+                # Libraries analyzed before this family existed have no table.
+                counts[source] = 0
+                continue
+            raise
         assert row is not None
         counts[source] = int(row[0])
     return counts
 
 
+def _mert_v2_layers(connection: sqlite3.Connection) -> tuple[int, ...]:
+    try:
+        rows = connection.execute(
+            f"""
+            SELECT DISTINCT data.layer
+            FROM {_source_table(MERT_V2_EMBEDDING_OUTPUT)} AS data
+            JOIN tracks AS t USING(track_id)
+            WHERE t.missing_since IS NULL
+            ORDER BY data.layer
+            """
+        ).fetchall()
+    except sqlite3.OperationalError as error:
+        if _is_missing_table_error(error):
+            return ()
+        raise
+    return tuple(int(row[0]) for row in rows)
+
+
+def _is_missing_table_error(error: sqlite3.OperationalError) -> bool:
+    return "no such table" in str(error).lower()
+
+
+def _mert_v2_layer(layer: int | None) -> int:
+    if layer is None:
+        return MERT_V2_DEFAULT_LAYER
+    if isinstance(layer, bool) or int(layer) < 1:
+        raise ValueError("Слой MERT_V2 должен быть положительным целым числом")
+    return int(layer)
+
+
+def _split_source_token(token: str) -> tuple[str, int | None]:
+    """``"mert_v2@12"`` -> ``("mert_v2", 12)``; bare tokens -> layer ``None``."""
+
+    family, _separator, layer_text = str(token).strip().lower().partition("@")
+    if family not in FEATURE_SOURCE_OUTPUTS:
+        raise ValueError(f"Неподдерживаемый источник признаков: {family or token}")
+    if not layer_text:
+        return family, None
+    if family != "mert_v2":
+        raise ValueError(f"{family.upper()} не хранит слои эмбеддинга: {token}")
+    if not layer_text.isdigit():
+        raise ValueError(f"Слой MERT_V2 должен быть положительным целым числом: {token}")
+    return family, _mert_v2_layer(int(layer_text))
+
+
+def _ready_source_conditions(
+    sources: Iterable[str],
+    alias: str = "t",
+) -> list[str]:
+    """One ``EXISTS`` clause per recipe source, built from ``FEATURE_SOURCE_OUTPUTS``."""
+
+    conditions: list[str] = []
+    for token in dict.fromkeys(sources):
+        family, layer = _split_source_token(token)
+        layer_sql = ""
+        if family == "mert_v2":
+            layer_sql = f" AND ready.layer = {_mert_v2_layer(layer)}"
+        conditions.append(
+            f"EXISTS (SELECT 1 FROM {_source_table(FEATURE_SOURCE_OUTPUTS[family])} AS ready "
+            f"WHERE ready.track_id = {alias}.track_id{layer_sql})"
+        )
+    return conditions
+
+
 def _embedding_family(value: object) -> EmbeddingFamily:
     clean = str(value).strip().lower()
-    if clean not in _EMBEDDING_TABLES:
+    if clean not in EMBEDDING_OUTPUTS:
         raise ValueError(
             "Embedding family must be one of: "
-            + ", ".join(sorted(_EMBEDDING_TABLES))
+            + ", ".join(sorted(EMBEDDING_OUTPUTS))
         )
     return clean  # type: ignore[return-value]
 
@@ -2119,25 +2209,25 @@ def _optional_finite_float(
 
 def _positive_track_id(value: object) -> int:
     if isinstance(value, bool):
-        raise ValueError("track_id must be a positive integer")
+        raise ValueError("track_id должен быть положительным целым числом")
     try:
         clean = int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError("track_id must be a positive integer") from error
+        raise ValueError("track_id должен быть положительным целым числом") from error
     if clean <= 0:
-        raise ValueError("track_id must be a positive integer")
+        raise ValueError("track_id должен быть положительным целым числом")
     return clean
 
 
 def _positive_collection_id(value: object) -> int:
     if isinstance(value, bool):
-        raise ValueError("collection_id must be a positive integer")
+        raise ValueError("collection_id должен быть положительным целым числом")
     try:
         clean = int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError("collection_id must be a positive integer") from error
+        raise ValueError("collection_id должен быть положительным целым числом") from error
     if clean <= 0:
-        raise ValueError("collection_id must be a positive integer")
+        raise ValueError("collection_id должен быть положительным целым числом")
     return clean
 
 

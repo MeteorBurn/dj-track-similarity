@@ -17,7 +17,7 @@ from dj_track_similarity.rhythm_lab_collections import (
 
 def _selection(
     catalog_uuid: str,
-    *tracks: tuple[str, str],
+    *tracks: tuple[str, str, str],
 ) -> RhythmLabCollectionSelection:
     return RhythmLabCollectionSelection(
         catalog_uuid=catalog_uuid,
@@ -26,10 +26,27 @@ def _selection(
                 catalog_uuid=catalog_uuid,
                 track_uuid=track_uuid,
                 selected_path=selected_path,
+                content_key=content_key,
             )
-            for track_uuid, selected_path in tracks
+            for track_uuid, selected_path, content_key in tracks
         ),
     )
+
+
+_V1_LABELS_DDL = """
+    CREATE TABLE classifier_labels (
+        classifier_key TEXT NOT NULL,
+        catalog_uuid TEXT NOT NULL,
+        track_uuid TEXT NOT NULL,
+        selected_path TEXT NOT NULL,
+        file_size_bytes INTEGER NOT NULL,
+        file_modified_ns INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        note TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(classifier_key, catalog_uuid, track_uuid, selected_path)
+    )
+"""
 
 
 def test_default_rhythm_lab_labels_path_is_stable_current() -> None:
@@ -45,24 +62,13 @@ def test_collection_repository_rejects_legacy_labels_without_mutation(
 ) -> None:
     legacy_path = tmp_path / "rhythm_lab.sqlite"
     with sqlite3.connect(legacy_path) as connection:
-        connection.execute(
-            """
-            CREATE TABLE classifier_labels (
-                classifier_key TEXT NOT NULL,
-                source_track_id INTEGER NOT NULL,
-                path TEXT NOT NULL,
-                label TEXT NOT NULL
-            )
-            """
-        )
+        connection.execute(_V1_LABELS_DDL)
         connection.execute(
             """
             INSERT INTO classifier_labels (
-                classifier_key,
-                source_track_id,
-                path,
-                label
-            ) VALUES ('legacy-profile', 17, 'C:/Music/legacy.wav', 'positive')
+                classifier_key, catalog_uuid, track_uuid, selected_path,
+                file_size_bytes, file_modified_ns, label
+            ) VALUES ('legacy-profile', 'catalog-old', 'uuid-17', 'C:/Music/legacy.wav', 1, 2, 'positive')
             """
         )
     wal_path = Path(f"{legacy_path}-wal")
@@ -76,7 +82,7 @@ def test_collection_repository_rejects_legacy_labels_without_mutation(
 
     with pytest.raises(
         RuntimeError,
-        match=r"legacy track identity.*migrate",
+        match=r"legacy track identity.*migrate-content-identity",
     ):
         RhythmLabCollections(legacy_path)
 
@@ -95,9 +101,7 @@ def test_collection_repository_rejects_partial_current_labels_before_ddl(
             """
             CREATE TABLE classifier_labels (
                 classifier_key TEXT NOT NULL,
-                catalog_uuid TEXT NOT NULL,
-                track_uuid TEXT NOT NULL,
-                selected_path TEXT NOT NULL,
+                content_key TEXT NOT NULL,
                 label TEXT NOT NULL
             )
             """
@@ -145,24 +149,13 @@ def test_collection_repository_rejects_wal_visible_legacy_identity_before_ddl(
         writer = sqlite3.connect(legacy_path)
         try:
             writer.execute("PRAGMA wal_autocheckpoint = 0")
-            writer.execute(
-                """
-                CREATE TABLE classifier_labels (
-                    classifier_key TEXT NOT NULL,
-                    source_track_id INTEGER NOT NULL,
-                    path TEXT NOT NULL,
-                    label TEXT NOT NULL
-                )
-                """
-            )
+            writer.execute(_V1_LABELS_DDL)
             writer.execute(
                 """
                 INSERT INTO classifier_labels (
-                    classifier_key,
-                    source_track_id,
-                    path,
-                    label
-                ) VALUES ('wal-profile', 31, 'C:/Music/wal.wav', 'positive')
+                    classifier_key, catalog_uuid, track_uuid, selected_path,
+                    file_size_bytes, file_modified_ns, label
+                ) VALUES ('wal-profile', 'catalog-old', 'uuid-31', 'C:/Music/wal.wav', 1, 2, 'positive')
                 """
             )
             writer.commit()
@@ -179,7 +172,7 @@ def test_collection_repository_rejects_wal_visible_legacy_identity_before_ddl(
         }
         shm_size_before = shm_path.stat().st_size
 
-        with pytest.raises(RuntimeError, match="legacy track identity"):
+        with pytest.raises(RuntimeError, match="legacy track identity.*migrate-content-identity"):
             RhythmLabCollections(legacy_path)
 
         # The SHM file is SQLite's transient WAL index; validation reads may
@@ -211,8 +204,8 @@ def test_collection_append_never_rebinds_and_replace_is_explicit(
     collections = RhythmLabCollections(labels_path)
     first = _selection(
         "catalog-a",
-        ("uuid-a", "C:/Music/A.wav"),
-        ("uuid-b", "C:/Music/B.wav"),
+        ("uuid-a", "C:/Music/A.wav", "sfp1:a"),
+        ("uuid-b", "C:/Music/B.wav", "sfp1:b"),
     )
 
     saved = collections.save_collection(
@@ -224,28 +217,31 @@ def test_collection_append_never_rebinds_and_replace_is_explicit(
     assert saved.catalog_uuid == "catalog-a"
     assert saved.track_count == 2
 
+    # The same content under another path or uuid is already in the set.
     append = _selection(
         "catalog-a",
-        ("uuid-a", "D:/Relocated/A.wav"),
-        ("uuid-c", "C:/Music/C.wav"),
+        ("uuid-a", "D:/Relocated/A.wav", "sfp1:a"),
+        ("uuid-a2", "D:/Copy/A.wav", "sfp1:a"),
+        ("uuid-c", "C:/Music/C.wav", "sfp1:c"),
     )
     appended = collections.append_tracks(saved.id, append)
     assert [
         (
+            track.content_key,
             track.track_uuid,
             track.selected_path,
             track.position,
         )
         for track in appended.tracks
     ] == [
-        ("uuid-a", "C:/Music/A.wav", 1),
-        ("uuid-b", "C:/Music/B.wav", 2),
-        ("uuid-c", "C:/Music/C.wav", 3),
+        ("sfp1:a", "uuid-a", "C:/Music/A.wav", 1),
+        ("sfp1:b", "uuid-b", "C:/Music/B.wav", 2),
+        ("sfp1:c", "uuid-c", "C:/Music/C.wav", 3),
     ]
 
     replacement = _selection(
         "catalog-a",
-        ("uuid-a", "D:/Relocated/A.wav"),
+        ("uuid-a", "D:/Relocated/A.wav", "sfp1:a"),
     )
     replaced = collections.replace_tracks(saved.id, replacement)
     assert [
@@ -265,13 +261,14 @@ def test_collection_append_never_rebinds_and_replace_is_explicit(
         }
     assert "source_track_id" not in columns
     assert {
+        "content_key",
         "catalog_uuid",
         "track_uuid",
         "selected_path",
     } <= columns
 
 
-def test_collection_catalog_mismatch_is_fail_closed(
+def test_collection_keeps_origin_catalog_and_accepts_content_from_another(
     tmp_path: Path,
 ) -> None:
     collections = RhythmLabCollections(tmp_path / "rhythm_lab.sqlite")
@@ -279,24 +276,27 @@ def test_collection_catalog_mismatch_is_fail_closed(
         "Bound set",
         _selection(
             "catalog-a",
-            ("uuid-a", "C:/Music/A.wav"),
+            ("uuid-a", "C:/Music/A.wav", "sfp1:a"),
         ),
         mode="replace",
     )
 
-    with pytest.raises(RuntimeError, match="different catalog"):
-        collections.save_collection(
-            "Bound set",
-            _selection(
-                "catalog-b",
-                ("uuid-b", "C:/Music/B.wav"),
-            ),
-            mode="append",
-        )
+    collections.save_collection(
+        "Bound set",
+        _selection(
+            "catalog-b",
+            ("uuid-b", "C:/Music/B.wav", "sfp1:b"),
+            ("uuid-a-in-b", "E:/Music/A.wav", "sfp1:a"),
+        ),
+        mode="append",
+    )
 
     current = collections.get_collection(original.id)
     assert current.catalog_uuid == "catalog-a"
-    assert [track.track_uuid for track in current.tracks] == ["uuid-a"]
+    assert [(track.content_key, track.catalog_uuid) for track in current.tracks] == [
+        ("sfp1:a", "catalog-a"),
+        ("sfp1:b", "catalog-b"),
+    ]
 
 
 def test_legacy_collection_schema_is_rejected_without_rewrite(
@@ -308,6 +308,7 @@ def test_legacy_collection_schema_is_rejected_without_rewrite(
             """
             CREATE TABLE review_collections (
                 id INTEGER PRIMARY KEY,
+                catalog_uuid TEXT NOT NULL,
                 name TEXT NOT NULL UNIQUE,
                 source TEXT NOT NULL,
                 note TEXT,
@@ -316,17 +317,23 @@ def test_legacy_collection_schema_is_rejected_without_rewrite(
             );
             CREATE TABLE review_collection_tracks (
                 collection_id INTEGER NOT NULL,
-                source_track_id INTEGER NOT NULL,
+                catalog_uuid TEXT NOT NULL,
+                track_uuid TEXT NOT NULL,
+                selected_path TEXT NOT NULL,
                 position INTEGER NOT NULL,
                 score REAL,
                 note TEXT,
-                added_at TEXT NOT NULL
+                added_at TEXT NOT NULL,
+                PRIMARY KEY(collection_id, catalog_uuid, track_uuid)
             );
             """
         )
+    before = labels_path.read_bytes()
 
-    with pytest.raises(RuntimeError, match="migrate the database"):
+    with pytest.raises(RuntimeError, match=r"migrate-content-identity.*migrate the database"):
         RhythmLabCollections(labels_path)
+
+    assert labels_path.read_bytes() == before
 
 
 def test_launcher_passes_verified_catalog_binding_without_opening_database(
@@ -384,7 +391,7 @@ def test_launcher_passes_verified_catalog_binding_without_opening_database(
     assert command[catalog_index + 1] == "catalog-a"
 
 
-def test_launcher_refuses_unverified_or_different_running_source(
+def test_launcher_switches_managed_source_and_refuses_unverified(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -398,26 +405,43 @@ def test_launcher_refuses_unverified_or_different_running_source(
         source_db=tmp_path / "second.sqlite",
         catalog_uuid="catalog-b",
     )
+    switch_requests: list[launcher.RhythmLabSourceBinding] = []
+    switch_refusal: list[str] = []
+
+    def fake_switch(binding: launcher.RhythmLabSourceBinding) -> dict[str, object]:
+        switch_requests.append(binding)
+        if switch_refusal:
+            raise RuntimeError(switch_refusal[0])
+        return {"catalog_uuid": binding.catalog_uuid, "path": str(binding.source_db)}
+
     monkeypatch.setattr(launcher, "_pid_path", lambda: pid_path)
+    monkeypatch.setattr(launcher, "_start_log_mirror", lambda *_args: None)
+    monkeypatch.setattr(launcher, "_port_is_open", lambda *_args: True)
+    monkeypatch.setattr(launcher, "_managed_process_id", lambda pid: pid)
+    monkeypatch.setattr(launcher, "_live_source", lambda: active.as_payload())
+    monkeypatch.setattr(launcher, "_request_source_switch", fake_switch)
     launcher._write_source_binding(active)
-    monkeypatch.setattr(
-        launcher,
-        "_port_is_open",
-        lambda *_args: True,
-    )
-    monkeypatch.setattr(
-        launcher,
-        "_managed_process_id",
-        lambda pid: pid,
-    )
 
-    with pytest.raises(RuntimeError, match="different database or catalog"):
-        launcher.launch_rhythm_lab(requested)
+    # A managed lab on another library is asked to switch; the binding follows.
+    result = launcher.launch_rhythm_lab(requested)
+    assert result["already_running"] is True
+    assert result["switched"] is True
+    assert result["switch_error"] is None
+    assert result["source"] == requested.as_payload()
+    assert switch_requests == [requested]
+    assert launcher._read_source_binding() == requested
 
-    monkeypatch.setattr(
-        launcher,
-        "_managed_process_id",
-        lambda _pid: None,
-    )
+    # A refusal is reported, not raised; the binding stays with the live source.
+    launcher._write_source_binding(active)
+    switch_refusal.append("Cannot switch the source while a train operation is running")
+    result = launcher.launch_rhythm_lab(requested)
+    assert result["switched"] is False
+    assert result["switch_error"] == switch_refusal[0]
+    assert result["source"] == active.as_payload()
+    assert launcher._read_source_binding() == active
+
+    # An unmanaged listener is never switched.
+    monkeypatch.setattr(launcher, "_managed_process_id", lambda _pid: None)
     with pytest.raises(RuntimeError, match="cannot be verified"):
-        launcher.launch_rhythm_lab(active)
+        launcher.launch_rhythm_lab(requested)
+    assert len(switch_requests) == 2

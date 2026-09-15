@@ -483,6 +483,36 @@ class TrackRepository:
             for row in (rows_by_id[track_id],)
         )
 
+    def get_sonara_fingerprints_by_ids(
+        self,
+        track_ids: Sequence[int],
+    ) -> dict[int, tuple[int, str]]:
+        """``track_id -> (fingerprint_version, fingerprint_base64)`` for current identities.
+
+        Ids without a fingerprint bound to the track's current UUID are absent;
+        the caller decides whether that is an error.
+        """
+
+        ordered_ids = _validated_track_ids(track_ids)
+        if not ordered_ids:
+            return {}
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT fp.track_id, fp.fingerprint_version, fp.fingerprint_base64
+                FROM sonara_fingerprints AS fp
+                JOIN tracks AS t
+                  ON t.track_id = fp.track_id
+                 AND t.track_uuid = fp.track_uuid
+                WHERE fp.track_id IN (
+                      SELECT CAST(value AS INTEGER)
+                      FROM json_each(?)
+                  )
+                """,
+                (json.dumps(list(ordered_ids), separators=(",", ":")),),
+            ).fetchall()
+        return {int(row[0]): (int(row[1]), str(row[2])) for row in rows}
+
     def get_track_file_state(
         self,
         path: str | Path,

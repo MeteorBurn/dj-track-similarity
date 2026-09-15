@@ -11,10 +11,7 @@ from uuid import uuid4
 import numpy as np
 
 from .artifact_io import artifact_sha256
-from .features import (
-    DEFAULT_TRAINING_FEATURE_SET,
-    build_labeled_feature_matrix,
-)
+from .features import build_labeled_feature_matrix
 from .lab_db import RhythmLabDatabase
 from .source_db import SourceDatabase, SourceDatabaseError
 
@@ -83,8 +80,8 @@ def train_feature_set(
     )
     if calibrate and calibration_gate["status"] != "ready":
         raise ValueError(
-            "Calibration requested but usable training rows do not satisfy "
-            f"the calibration gate: {calibration_gate['reason']} "
+            "Запрошена калибровка, но пригодные обучающие строки не проходят "
+            f"порог калибровки: {calibration_gate['reason']} "
             f"(total={calibration_gate['actual_labels']}, "
             f"positive={calibration_gate['actual_positive']}, "
             f"negative={calibration_gate['actual_negative']})"
@@ -96,7 +93,7 @@ def train_feature_set(
         random_state=random_state,
         stratify=labels,
     )
-    _report_progress(progress_callback, "Fitting holdout model", 0, 8)
+    _report_progress(progress_callback, "Обучение модели на обучающей части", 0, 8)
     if calibration_gate["status"] == "ready":
         cv_folds = min(3, *(label_counts[label] for label in ordered_labels))
         evaluation_model = CalibratedClassifierCV(
@@ -123,7 +120,7 @@ def train_feature_set(
     )
     report = classification_report(test_y, predictions, labels=ordered_labels, output_dict=True, zero_division=0)
     confusion = confusion_matrix(test_y, predictions, labels=ordered_labels).tolist()
-    _report_progress(progress_callback, "Scoring holdout", 1, 8)
+    _report_progress(progress_callback, "Оценка на отложенной выборке", 1, 8)
 
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -151,7 +148,7 @@ def train_feature_set(
         feature_names=feature_names,
         progress_callback=lambda completed, total: _report_progress(
             progress_callback,
-            f"Cross-validation fold {completed}/{total}",
+            f"Кросс-валидация, фолд {completed}/{total}",
             1 + completed,
             8,
         ),
@@ -180,9 +177,9 @@ def train_feature_set(
             random_state,
             feature_names=feature_names,
         )
-    _report_progress(progress_callback, "Fitting production model", 6, 8)
+    _report_progress(progress_callback, "Обучение итоговой модели", 6, 8)
     production_model.fit(matrix, labels)
-    _report_progress(progress_callback, "Writing model artifact", 7, 8)
+    _report_progress(progress_callback, "Запись артефакта модели", 7, 8)
     payload["model"] = production_model
     payload["production_calibration"] = production_calibration
     payload["source_catalog_uuid"] = clean_source_catalog_uuid
@@ -211,7 +208,7 @@ def train_feature_set(
         "production_calibration": production_calibration,
     }
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    _report_progress(progress_callback, "Model artifact saved", 8, 8)
+    _report_progress(progress_callback, "Артефакт модели сохранён", 8, 8)
     return TrainResult(
         feature_set,
         production_model,
@@ -228,7 +225,7 @@ def benchmark_lab_database(
     artifact_dir: str | Path,
     *,
     classifier_key: str,
-    feature_sets: tuple[str, ...] = (DEFAULT_TRAINING_FEATURE_SET,),
+    feature_sets: tuple[str, ...],
     random_state: int = 42,
     calibrate: bool = False,
     progress_callback: TrainingProgressCallback | None = None,
@@ -244,7 +241,7 @@ def benchmark_lab_database(
         try:
             _report_progress(
                 progress_callback,
-                f"Building {feature_set} feature matrix",
+                f"Построение матрицы признаков {feature_set}",
                 progress_base,
                 total_progress_steps,
             )
@@ -256,7 +253,7 @@ def benchmark_lab_database(
             )
             _report_progress(
                 progress_callback,
-                f"Training {feature_set}",
+                f"Обучение {feature_set}",
                 progress_base + 1,
                 total_progress_steps,
             )
@@ -283,7 +280,7 @@ def benchmark_lab_database(
             )
             _report_progress(
                 progress_callback,
-                f"Saved {feature_set} model",
+                f"Модель {feature_set} сохранена",
                 progress_base + 10,
                 total_progress_steps,
             )
@@ -334,14 +331,14 @@ def _validate_training_data(matrix: np.ndarray, labels: list[str], *, label_orde
     if matrix.shape[0] != len(labels):
         raise ValueError("Training matrix row count must match label count")
     if matrix.shape[0] < 4:
-        raise ValueError("At least four labeled rows are required for train/test split")
+        raise ValueError("Для разбиения на обучение и проверку нужно не меньше четырёх размеченных строк")
     counts = {label: labels.count(label) for label in label_order}
     missing = [label for label, count in counts.items() if count < 2]
     if missing:
-        raise ValueError(f"At least two rows are required for each training label: {', '.join(missing)}")
+        raise ValueError(f"Для каждой обучающей метки нужно не меньше двух строк: {', '.join(missing)}")
     unsupported = sorted(set(labels) - set(label_order))
     if unsupported:
-        raise ValueError(f"Unsupported labels for training: {', '.join(unsupported)}")
+        raise ValueError(f"Неподдерживаемые метки для обучения: {', '.join(unsupported)}")
 
 
 def _test_size(row_count: int) -> float:

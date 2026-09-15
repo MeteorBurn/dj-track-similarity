@@ -2,14 +2,18 @@
 
 Core track ids are accepted only at the main-app boundary and are resolved
 through :class:`TrackRepository` into stable current identities. Persisted
-collection membership is keyed by catalog UUID and track UUID, with the
-selected path retained as an immutable audit snapshot.
+collection membership is keyed by the track's SONARA content key
+(:func:`sonara_content_key`), so the same file in two libraries is one entry;
+the catalog UUID, track UUID and selected path of the first sighting are
+retained as an immutable audit snapshot.
 """
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Sequence
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 import sqlite3
 from typing import Protocol
@@ -22,6 +26,35 @@ COLLECTION_MODES = {"append", "replace"}
 DEFAULT_RHYTHM_LAB_LABELS_FILENAME = "rhythm_lab.sqlite"
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SQLITE_CACHE_SIZE_KIB = -32_768
+CONTENT_IDENTITY_MIGRATION_COMMAND = "python -m rhythm_lab.cli migrate-content-identity"
+
+
+def sonara_content_key(fingerprint_version: int, fingerprint_base64: str) -> str:
+    """Content identity of one track: ``"sfp<v>:" + sha256("sfp:<v>:" + fingerprint bytes)``.
+
+    The SONARA fingerprint is byte-identical for one file in every library, so
+    this key survives rescans and library switches. It is the only identity the
+    Rhythm Lab database persists per track.
+    """
+
+    if (
+        isinstance(fingerprint_version, bool)
+        or not isinstance(fingerprint_version, int)
+        or fingerprint_version <= 0
+    ):
+        raise ValueError("fingerprint_version must be a positive integer")
+    if (
+        not isinstance(fingerprint_base64, str)
+        or not fingerprint_base64
+        or len(fingerprint_base64) % 4 != 0
+    ):
+        raise ValueError("fingerprint_base64 must be non-empty base64 text")
+    payload = base64.b64decode(fingerprint_base64, validate=True)
+    if not payload:
+        raise ValueError("fingerprint_base64 must decode to at least one byte")
+    digest = hashlib.sha256(f"sfp:{fingerprint_version}:".encode("ascii") + payload)
+    return f"sfp{fingerprint_version}:{digest.hexdigest()}"
+
 
 RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
     "classifier_profiles": frozenset(
@@ -33,6 +66,7 @@ RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
             "artifact_dir",
             "artifact_prefix",
             "training_min_added",
+            "training_min_labels",
             "positive_label",
             "negative_label",
             "archived_at",
@@ -55,20 +89,20 @@ RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
     "classifier_labels": frozenset(
         {
             "classifier_key",
-            "catalog_uuid",
-            "track_uuid",
-            "selected_path",
-            "file_size_bytes",
-            "file_modified_ns",
+            "content_key",
             "label",
             "note",
             "updated_at",
+            "last_catalog_uuid",
+            "last_track_uuid",
+            "last_selected_path",
         }
     ),
     "classifier_label_queue": frozenset(
         {
             "id",
             "classifier_key",
+            "content_key",
             "catalog_uuid",
             "track_uuid",
             "selected_path",
@@ -84,6 +118,7 @@ RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
     "classifier_predictions": frozenset(
         {
             "classifier_key",
+            "content_key",
             "catalog_uuid",
             "track_uuid",
             "selected_path",
@@ -105,6 +140,20 @@ RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
             "updated_at",
         }
     ),
+    "track_sightings": frozenset(
+        {
+            "content_key",
+            "catalog_uuid",
+            "track_id",
+            "track_uuid",
+            "selected_path",
+            "file_size_bytes",
+            "file_modified_ns",
+            "fingerprint_version",
+            "fingerprint_analyzed_at",
+            "seen_at",
+        }
+    ),
 }
 
 _COLLECTION_COLUMNS = {
@@ -118,6 +167,7 @@ _COLLECTION_COLUMNS = {
 }
 _COLLECTION_TRACK_COLUMNS = {
     "collection_id",
+    "content_key",
     "catalog_uuid",
     "track_uuid",
     "selected_path",
@@ -147,6 +197,13 @@ class RhythmLabTrackRepository(Protocol):
         include_missing: bool = False,
     ) -> tuple[_TrackFileState, ...]: ...
 
+    def get_sonara_fingerprints_by_ids(
+        self,
+        track_ids: Sequence[int],
+    ) -> dict[int, tuple[int, str]]:
+        """``track_id -> (fingerprint_version, fingerprint_base64)``; unfingerprinted ids are absent."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class RhythmLabTrackSelection:
@@ -155,6 +212,7 @@ class RhythmLabTrackSelection:
     catalog_uuid: str
     track_uuid: str
     selected_path: str
+    content_key: str
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -168,6 +226,11 @@ class RhythmLabTrackSelection:
             _required_text(self.track_uuid, field="track_uuid"),
         )
         _nonempty_path(self.selected_path)
+        object.__setattr__(
+            self,
+            "content_key",
+            _required_text(self.content_key, field="content_key"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +263,7 @@ class RhythmLabCollectionSelection:
 @dataclass(frozen=True, slots=True)
 class ReviewCollectionTrack:
     collection_id: int
+    content_key: str
     catalog_uuid: str
     track_uuid: str
     selected_path: str
@@ -271,6 +335,9 @@ def build_rhythm_lab_collection_selection_exact(
         raise RuntimeError(
             "Track identity is stale; refresh the current catalog"
         )
+    fingerprints = repository.get_sonara_fingerprints_by_ids(
+        tuple(identity.track_id for identity in expected),
+    )
 
     selected: list[RhythmLabTrackSelection] = []
     for identity in expected:
@@ -283,11 +350,18 @@ def build_rhythm_lab_collection_selection_exact(
             raise RuntimeError(
                 "Track identity is stale; refresh the current catalog"
             )
+        fingerprint = fingerprints.get(identity.track_id)
+        if fingerprint is None:
+            raise ValueError(
+                "Track has no SONARA fingerprint; analyze it in the main app "
+                f"first: track_id={identity.track_id}"
+            )
         selected.append(
             RhythmLabTrackSelection(
                 catalog_uuid=identity.catalog_uuid,
                 track_uuid=identity.track_uuid,
                 selected_path=str(state.file_path),
+                content_key=sonara_content_key(*fingerprint),
             )
         )
     return RhythmLabCollectionSelection(
@@ -296,53 +370,56 @@ def build_rhythm_lab_collection_selection_exact(
     )
 
 
+# One statement per entry: executed with ``execute`` so a caller's open
+# transaction (the content-identity migration) is never implicitly committed.
+REVIEW_COLLECTION_SCHEMA_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS review_collections (
+        id INTEGER PRIMARY KEY,
+        catalog_uuid TEXT NOT NULL,
+        name TEXT NOT NULL UNIQUE,
+        source TEXT NOT NULL DEFAULT 'manual',
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS review_collection_tracks (
+        collection_id INTEGER NOT NULL,
+        content_key TEXT NOT NULL,
+        catalog_uuid TEXT NOT NULL,
+        track_uuid TEXT NOT NULL,
+        selected_path TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK(position >= 1),
+        score REAL,
+        note TEXT,
+        added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(collection_id, content_key),
+        FOREIGN KEY(collection_id)
+            REFERENCES review_collections(id)
+            ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_review_collection_tracks_order
+    ON review_collection_tracks(collection_id, position, content_key)
+    """,
+)
+
+
 def ensure_review_collection_schema(connection: sqlite3.Connection) -> None:
     """Create the review collection tables in a Lab database.
 
-    A legacy ``source_track_id`` schema is rejected instead of being
-    interpreted as current identity. Recovery/import is a separate explicit
-    workflow.
+    A layout keyed by anything other than ``content_key`` is rejected instead
+    of being interpreted as current identity; ``migrate-content-identity`` is
+    the explicit recovery workflow.
     """
 
     validate_review_collection_schema(connection)
     connection.execute("PRAGMA foreign_keys = ON")
-    connection.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS review_collections (
-            id INTEGER PRIMARY KEY,
-            catalog_uuid TEXT NOT NULL,
-            name TEXT NOT NULL UNIQUE,
-            source TEXT NOT NULL DEFAULT 'manual',
-            note TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(id, catalog_uuid)
-        );
-
-        CREATE TABLE IF NOT EXISTS review_collection_tracks (
-            collection_id INTEGER NOT NULL,
-            catalog_uuid TEXT NOT NULL,
-            track_uuid TEXT NOT NULL,
-            selected_path TEXT NOT NULL,
-            position INTEGER NOT NULL CHECK(position >= 1),
-            score REAL,
-            note TEXT,
-            added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(collection_id, catalog_uuid, track_uuid),
-            FOREIGN KEY(collection_id, catalog_uuid)
-                REFERENCES review_collections(id, catalog_uuid)
-                ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_review_collection_tracks_order
-        ON review_collection_tracks(
-            collection_id,
-            position,
-            catalog_uuid,
-            track_uuid
-        );
-        """
-    )
+    for statement in REVIEW_COLLECTION_SCHEMA_STATEMENTS:
+        connection.execute(statement)
     _require_exact_columns(
         connection,
         table="review_collections",
@@ -360,12 +437,12 @@ def validate_review_collection_schema(
 ) -> None:
     """Validate existing review tables without creating or changing them."""
 
-    _reject_noncanonical_table(
+    reject_noncanonical_table(
         connection,
         table="review_collections",
         expected_columns=_COLLECTION_COLUMNS,
     )
-    _reject_noncanonical_table(
+    reject_noncanonical_table(
         connection,
         table="review_collection_tracks",
         expected_columns=_COLLECTION_TRACK_COLUMNS,
@@ -378,7 +455,7 @@ def validate_rhythm_lab_classifier_schema(
     """Validate every existing Lab classifier table without changing it."""
 
     for table, expected_columns in RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS.items():
-        _reject_noncanonical_table(
+        reject_noncanonical_table(
             connection,
             table=table,
             expected_columns=expected_columns,
@@ -424,12 +501,11 @@ class RhythmLabCollections:
                     c.note,
                     c.created_at,
                     c.updated_at,
-                    COUNT(t.track_uuid) AS track_count
+                    COUNT(t.content_key) AS track_count
                 FROM review_collections c
                 LEFT JOIN review_collection_tracks t
                   ON t.collection_id = c.id
-                 AND t.catalog_uuid = c.catalog_uuid
-                GROUP BY c.id, c.catalog_uuid
+                GROUP BY c.id
                 ORDER BY c.updated_at DESC, LOWER(c.name), c.id
                 """
             ).fetchall()
@@ -448,13 +524,12 @@ class RhythmLabCollections:
                     c.note,
                     c.created_at,
                     c.updated_at,
-                    COUNT(t.track_uuid) AS track_count
+                    COUNT(t.content_key) AS track_count
                 FROM review_collections c
                 LEFT JOIN review_collection_tracks t
                   ON t.collection_id = c.id
-                 AND t.catalog_uuid = c.catalog_uuid
                 WHERE c.id = ?
-                GROUP BY c.id, c.catalog_uuid
+                GROUP BY c.id
                 """,
                 (clean_id,),
             ).fetchone()
@@ -501,43 +576,32 @@ class RhythmLabCollections:
         clean_id = _positive_int(collection_id, field="collection_id")
         selected = _validated_selection(selection)
         with self.connect() as connection:
-            _require_collection_catalog(
-                connection,
-                clean_id,
-                selected.catalog_uuid,
-            )
+            _require_collection(connection, clean_id)
             next_position = int(
                 connection.execute(
                     """
                     SELECT COALESCE(MAX(position), 0) + 1
                     FROM review_collection_tracks
                     WHERE collection_id = ?
-                      AND catalog_uuid = ?
                     """,
-                    (clean_id, selected.catalog_uuid),
+                    (clean_id,),
                 ).fetchone()[0]
             )
             existing = {
-                str(row["track_uuid"])
+                str(row["content_key"])
                 for row in connection.execute(
                     """
-                    SELECT track_uuid
+                    SELECT content_key
                     FROM review_collection_tracks
                     WHERE collection_id = ?
-                      AND catalog_uuid = ?
                     """,
-                    (clean_id, selected.catalog_uuid),
+                    (clean_id,),
                 ).fetchall()
             }
-            new_tracks = [
-                track
-                for track in selected.tracks
-                if track.track_uuid not in existing
-            ]
             _insert_collection_tracks(
                 connection,
                 clean_id,
-                new_tracks,
+                _unique_content(selected.tracks, seen=existing),
                 start_position=next_position,
             )
             connection.execute(
@@ -545,9 +609,8 @@ class RhythmLabCollections:
                 UPDATE review_collections
                 SET updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-                  AND catalog_uuid = ?
                 """,
-                (clean_id, selected.catalog_uuid),
+                (clean_id,),
             )
         return self.get_collection(clean_id)
 
@@ -559,23 +622,18 @@ class RhythmLabCollections:
         clean_id = _positive_int(collection_id, field="collection_id")
         selected = _validated_selection(selection)
         with self.connect() as connection:
-            _require_collection_catalog(
-                connection,
-                clean_id,
-                selected.catalog_uuid,
-            )
+            _require_collection(connection, clean_id)
             connection.execute(
                 """
                 DELETE FROM review_collection_tracks
                 WHERE collection_id = ?
-                  AND catalog_uuid = ?
                 """,
-                (clean_id, selected.catalog_uuid),
+                (clean_id,),
             )
             _insert_collection_tracks(
                 connection,
                 clean_id,
-                selected.tracks,
+                _unique_content(selected.tracks, seen=set()),
                 start_position=1,
             )
             connection.execute(
@@ -583,9 +641,8 @@ class RhythmLabCollections:
                 UPDATE review_collections
                 SET updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-                  AND catalog_uuid = ?
                 """,
-                (clean_id, selected.catalog_uuid),
+                (clean_id,),
             )
         return self.get_collection(clean_id)
 
@@ -642,20 +699,34 @@ class RhythmLabCollections:
                     clean_note,
                 ),
             )
+            # The catalog on an existing header is the collection's origin and
+            # stays as it was; content from any library may be added to it.
             row = connection.execute(
                 """
-                SELECT id, catalog_uuid
+                SELECT id
                 FROM review_collections
                 WHERE name = ?
                 """,
                 (clean_name,),
             ).fetchone()
             assert row is not None
-            if str(row["catalog_uuid"]) != clean_catalog:
-                raise RuntimeError(
-                    "Review collection belongs to a different catalog"
-                )
             return int(row["id"])
+
+
+def _unique_content(
+    tracks: Sequence[RhythmLabTrackSelection],
+    *,
+    seen: set[str],
+) -> list[RhythmLabTrackSelection]:
+    """Drop tracks whose content is already in ``seen``; a collection holds each content once."""
+
+    unique: list[RhythmLabTrackSelection] = []
+    for track in tracks:
+        if track.content_key in seen:
+            continue
+        seen.add(track.content_key)
+        unique.append(track)
+    return unique
 
 
 def _collection_tracks(
@@ -666,6 +737,7 @@ def _collection_tracks(
         """
         SELECT
             collection_id,
+            content_key,
             catalog_uuid,
             track_uuid,
             selected_path,
@@ -675,13 +747,14 @@ def _collection_tracks(
             added_at
         FROM review_collection_tracks
         WHERE collection_id = ?
-        ORDER BY position, catalog_uuid, track_uuid
+        ORDER BY position, content_key
         """,
         (collection_id,),
     ).fetchall()
     return tuple(
         ReviewCollectionTrack(
             collection_id=int(row["collection_id"]),
+            content_key=str(row["content_key"]),
             catalog_uuid=str(row["catalog_uuid"]),
             track_uuid=str(row["track_uuid"]),
             selected_path=str(row["selected_path"]),
@@ -708,6 +781,7 @@ def _insert_collection_tracks(
     rows = (
         (
             collection_id,
+            track.content_key,
             track.catalog_uuid,
             track.track_uuid,
             track.selected_path,
@@ -722,12 +796,13 @@ def _insert_collection_tracks(
         """
         INSERT INTO review_collection_tracks(
             collection_id,
+            content_key,
             catalog_uuid,
             track_uuid,
             selected_path,
             position
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -751,25 +826,16 @@ def _collection_from_row(
     )
 
 
-def _require_collection_catalog(
+def _require_collection(
     connection: sqlite3.Connection,
     collection_id: int,
-    catalog_uuid: str,
 ) -> None:
     row = connection.execute(
-        """
-        SELECT catalog_uuid
-        FROM review_collections
-        WHERE id = ?
-        """,
+        "SELECT 1 FROM review_collections WHERE id = ?",
         (collection_id,),
     ).fetchone()
     if row is None:
         raise KeyError(f"Review collection not found: {collection_id}")
-    if str(row["catalog_uuid"]) != catalog_uuid:
-        raise RuntimeError(
-            "Review collection belongs to a different catalog"
-        )
 
 
 def _validated_selection(
@@ -861,31 +927,31 @@ def _configure_collection_connection(connection: sqlite3.Connection) -> None:
         )
 
 
-def _reject_noncanonical_table(
+def reject_noncanonical_table(
     connection: sqlite3.Connection,
     *,
     table: str,
     expected_columns: set[str] | frozenset[str],
 ) -> None:
+    """Fail closed, before any DDL, on an existing table with another layout.
+
+    A per-track table without ``content_key`` is the pre-content-identity
+    layout; the message names the explicit migration that converts it.
+    """
+
     columns = _table_columns(connection, table)
-    if columns is not None and columns != expected_columns:
-        required_identity = {
-            "catalog_uuid",
-            "track_uuid",
-            "selected_path",
-        }
-        if (
-            table == "classifier_labels"
-            and not required_identity.issubset(columns)
-        ):
-            raise RuntimeError(
-                "Rhythm Lab table 'classifier_labels' uses legacy track identity; "
-                "migrate the database to current track identities before opening it"
-            )
+    if columns is None or columns == expected_columns:
+        return
+    if "content_key" in expected_columns and "content_key" not in columns:
         raise RuntimeError(
-            f"Rhythm Lab table {table!r} is not the canonical structure; "
-            "migrate the database before opening it"
+            f"Rhythm Lab table {table!r} uses legacy track identity; run "
+            f"`{CONTENT_IDENTITY_MIGRATION_COMMAND}` to migrate the database "
+            "before opening it"
         )
+    raise RuntimeError(
+        f"Rhythm Lab table {table!r} is not the canonical structure; "
+        "migrate the database before opening it"
+    )
 
 
 def _require_exact_columns(

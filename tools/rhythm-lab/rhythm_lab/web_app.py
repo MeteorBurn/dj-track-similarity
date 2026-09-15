@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -22,20 +23,36 @@ from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabTrackSelection,
 )
 
-from .ablation import ABLATION_FEATURE_SETS, run_ablation_benchmark
-from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
+from .ablation import (
+    DEFAULT_BENCHMARK_STRATEGY,
+    benchmark_plan,
+    planned_run_count,
+    run_ablation_benchmark,
+)
+from .cli import (
+    DEFAULT_CLASSIFIER_TARGET_ROOT,
+    PromotionError,
+    artifact_feature_set,
+    canonical_artifact_feature_set,
+    promote_profile_model,
+)
 from .features import (
-    DEFAULT_TRAINING_FEATURE_SET,
-    FEATURE_RECIPE_OPTIONS,
-    SONARA_FEATURE_NAMES,
     SUPPORTED_FEATURE_SOURCES,
+    artifact_feature_compatibility,
+    artifact_source_readiness,
+    available_feature_sources,
     build_labeled_feature_matrix_from_sources,
+    canonical_feature_set,
+    default_feature_set,
     feature_recipe_readiness,
     feature_sources,
+    split_feature_source,
+    stored_mert_v2_layers,
 )
-from .lab_db import ClassifierProfile, RhythmLabDatabase
+from .lab_db import DEFAULT_TRAINING_MIN_LABELS, ClassifierProfile, RhythmLabDatabase
 from .predictions import apply_model_to_lab
 from .source_db import (
+    MERT_V2_DEFAULT_LAYER,
     SourceDatabase,
     SourceDatabaseError,
     SourceTrackNotCurrentError,
@@ -55,6 +72,10 @@ TRAIN_REFRESH_MIN_ADDED = 50
 MIN_TRAINING_ROWS_PER_LABEL = 2
 KEEP_JOBLIB_PER_FEATURE = 3
 KEEP_METRICS_PER_FEATURE = 10
+_NO_SOURCE_DATA_DETAIL = (
+    "В выбранной библиотеке нет ни одного источника признаков; "
+    "выполните анализ в основном приложении и перезагрузите источник."
+)
 
 
 class LabelRequest(BaseModel):
@@ -99,6 +120,7 @@ class ProfileRequest(BaseModel):
     description: str = ""
     artifact_prefix: str | None = None
     training_min_added: int = TRAIN_REFRESH_MIN_ADDED
+    training_min_labels: int = DEFAULT_TRAINING_MIN_LABELS
     labels: list[ProfileLabelRequest]
 
 
@@ -108,6 +130,7 @@ class ProfilePatchRequest(BaseModel):
     description: str | None = None
     artifact_prefix: str | None = None
     training_min_added: int | None = None
+    training_min_labels: int | None = None
     labels: list[ProfileLabelRequest] | None = None
 
 
@@ -131,7 +154,12 @@ class CalibrateRequest(BaseModel):
 
 
 class TrainRefreshRequest(BaseModel):
-    feature_set: str = DEFAULT_TRAINING_FEATURE_SET
+    feature_set: str | None = None
+
+
+class BenchmarkRequest(BaseModel):
+    strategy: str = DEFAULT_BENCHMARK_STRATEGY
+    feature_sets: list[str] = []
 
 
 class PredictionRefreshRequest(BaseModel):
@@ -144,44 +172,86 @@ class SourceDatabaseState:
         source_path: str | Path | None = None,
         *,
         expected_catalog_uuid: str | None = None,
+        labels_db: RhythmLabDatabase,
+        busy_check: Callable[[], str | None] | None = None,
     ) -> None:
         self._lock = threading.RLock()
-        self.expected_catalog_uuid = (
+        self._labels_db = labels_db
+        self._busy_check = busy_check
+        # The launcher's catalog pin applies to the initial open only; later
+        # switches are user choices validated as libraries, not as this catalog.
+        self.launched_catalog_uuid = (
             str(expected_catalog_uuid).strip()
             if expected_catalog_uuid is not None
             else None
         )
         self.path: Path | None = None
-        self.source: SourceDatabase | None = None
-        if source_path is not None and Path(source_path).expanduser().exists():
-            self.switch(source_path)
+        self._source: SourceDatabase | None = None
+        if source_path is None:
+            return
+        if Path(source_path).expanduser().exists():
+            self._open(source_path, expected_catalog_uuid=self.launched_catalog_uuid)
+        else:
+            LOGGER.warning(
+                "Source database does not exist; starting without a source: %s",
+                source_path,
+            )
+
+    @property
+    def source(self) -> SourceDatabase | None:
+        """The selected library, with its track sightings re-synced when its file changed."""
+
+        with self._lock:
+            if self._source is not None:
+                self._labels_db.sync_track_sightings(self._source)
+            return self._source
 
     def current(self) -> dict[str, object]:
         with self._lock:
+            source = self._source
+            inventory = _SourceInventory.load(source)
+            available = inventory.available
             return {
                 "path": str(self.path) if self.path is not None else None,
-                "selected": self.source is not None,
-                "catalog_uuid": (
-                    self.source.catalog_uuid if self.source is not None else None
-                ),
-                "expected_catalog_uuid": self.expected_catalog_uuid,
+                "selected": source is not None,
+                "catalog_uuid": source.catalog_uuid if source is not None else None,
+                "launched_catalog_uuid": self.launched_catalog_uuid,
+                "track_count": inventory.track_count,
+                "feature_sources": inventory.features_payload(),
+                "available_feature_sources": list(available),
+                "default_feature_set": default_feature_set(available),
+                "mert_v2_layers": list(inventory.mert_v2_layers),
             }
 
     def switch(self, path: str | Path) -> dict[str, object]:
-        selected = SourceDatabase(
-            path,
-            expected_catalog_uuid=self.expected_catalog_uuid,
-        )
+        """Open another library for the user; refused while a profile operation runs."""
+
+        with self._lock:
+            running = self._busy_check() if self._busy_check is not None else None
+            if running is not None:
+                raise RuntimeError(
+                    f"Нельзя переключить библиотеку, пока выполняется операция {running}"
+                )
+            return self._open(path, expected_catalog_uuid=None)
+
+    def _open(
+        self,
+        path: str | Path,
+        *,
+        expected_catalog_uuid: str | None,
+    ) -> dict[str, object]:
+        selected = SourceDatabase(path, expected_catalog_uuid=expected_catalog_uuid)
+        self._labels_db.sync_track_sightings(selected)
         with self._lock:
             self.path = selected.path
-            self.source = selected
+            self._source = selected
             return self.current()
 
     def require_source(self) -> SourceDatabase:
-        with self._lock:
-            if self.source is None:
-                raise ValueError("Source database is not selected")
-            return self.source
+        source = self.source
+        if source is None:
+            raise ValueError("Библиотека не выбрана")
+        return source
 
 
 class TrainingProgress:
@@ -195,7 +265,7 @@ class TrainingProgress:
         with self._lock:
             existing = self._states.get(profile_key)
             if existing is not None and existing.get("status") == "running":
-                raise RuntimeError("Training is already running for this profile")
+                raise RuntimeError("Для этого профиля уже выполняется операция")
             self._states[profile_key] = {
                 "operation": operation,
                 "status": "running",
@@ -224,7 +294,7 @@ class TrainingProgress:
             state = self._states.get(profile_key)
             if state is None:
                 return
-            state.update({"status": "failed", "stage": "Training failed", "error": str(error)})
+            state.update({"status": "failed", "stage": "Операция не выполнена", "error": str(error)})
 
     def snapshot(self, profile_key: str) -> dict[str, object]:
         with self._lock:
@@ -239,13 +309,22 @@ class TrainingProgress:
                 }
             return dict(state)
 
+    def running_operation(self) -> str | None:
+        """Operation currently running for any profile, or ``None`` when idle."""
+
+        with self._lock:
+            for state in self._states.values():
+                if state.get("status") == "running":
+                    return str(state.get("operation"))
+            return None
+
 
 def open_existing_database_file_dialog() -> Path | None:
     try:
         import tkinter as tk
         from tkinter import filedialog
     except Exception as error:  # pragma: no cover - depends on local Python GUI support.
-        raise RuntimeError("Native database file dialog is unavailable") from error
+        raise RuntimeError("Системный диалог выбора файла недоступен") from error
 
     root = tk.Tk()
     root.withdraw()
@@ -273,12 +352,14 @@ def create_app(
     labels_path = Path(labels_db_path)
     labels_db = RhythmLabDatabase(labels_path)
     collections_repository = RhythmLabCollections(labels_path)
+    training_progress = TrainingProgress()
     source_state = SourceDatabaseState(
         source_db_path,
         expected_catalog_uuid=source_catalog_uuid,
+        labels_db=labels_db,
+        busy_check=training_progress.running_operation,
     )
     target_root = Path(classifier_target_root) if classifier_target_root is not None else DEFAULT_CLASSIFIER_TARGET_ROOT
-    training_progress = TrainingProgress()
     app = FastAPI(title="Rhythm Lab")
     app.router.on_startup.append(install_rhythm_lab_asyncio_exception_logging)
 
@@ -309,7 +390,15 @@ def create_app(
         tracks_by_id = source.tracks_by_ids(track_ids)
         if len(tracks_by_id) != len(set(track_ids)):
             missing = sorted(set(track_ids) - set(tracks_by_id))
-            raise ValueError(f"Unknown current source track ids: {missing}")
+            raise ValueError(f"Нет текущих треков с id: {missing}")
+        unfingerprinted = sorted(
+            track_id for track_id, track in tracks_by_id.items() if track.content_key is None
+        )
+        if unfingerprinted:
+            raise ValueError(
+                "Треки без отпечатка SONARA нельзя добавить в коллекцию; сначала "
+                f"проанализируйте их в основном приложении: {unfingerprinted}"
+            )
         return RhythmLabCollectionSelection(
             catalog_uuid=source.catalog_uuid,
             tracks=tuple(
@@ -317,6 +406,7 @@ def create_app(
                     catalog_uuid=track.catalog_uuid,
                     track_uuid=track.track_uuid,
                     selected_path=track.file_path,
+                    content_key=str(track.content_key),
                 )
                 for track_id in track_ids
                 for track in (tracks_by_id[track_id],)
@@ -328,6 +418,16 @@ def create_app(
             return profile_db(profile_key).get_profile(profile_key)
         except (KeyError, ValueError) as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    def page_required_sources(feature_set: str | None) -> tuple[str, ...] | None:
+        """Sources a page must have stored; ``None`` means every family stored here."""
+
+        if feature_set is None or not feature_set.strip():
+            return None
+        try:
+            return feature_sources(feature_set)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/")
     def index():
@@ -342,7 +442,7 @@ def create_app(
         target = (STATIC_DIR / asset_path).resolve(strict=False)
         static_root = STATIC_DIR.resolve(strict=False)
         if static_root not in target.parents or not target.is_file():
-            raise HTTPException(status_code=404, detail="Static asset not found")
+            raise HTTPException(status_code=404, detail="Статический файл не найден")
         return FileResponse(target)
 
     @app.post("/api/shutdown")
@@ -446,7 +546,7 @@ def create_app(
     def delete_review_collection(collection_id: int):
         deleted = collections_db().delete_collection(collection_id)
         if not deleted:
-            raise HTTPException(status_code=404, detail=f"Review collection not found: {collection_id}")
+            raise HTTPException(status_code=404, detail=f"Коллекция не найдена: {collection_id}")
         return {"id": collection_id, "deleted": True}
 
     @app.post("/api/profiles")
@@ -459,6 +559,7 @@ def create_app(
                 description=request.description,
                 artifact_prefix=request.artifact_prefix,
                 training_min_added=request.training_min_added,
+                training_min_labels=request.training_min_labels,
                 labels=[label.model_dump() for label in request.labels],
             )
         except ValueError as error:
@@ -475,6 +576,7 @@ def create_app(
                 description=request.description,
                 artifact_prefix=request.artifact_prefix,
                 training_min_added=request.training_min_added,
+                training_min_labels=request.training_min_labels,
                 labels=[label.model_dump() for label in request.labels] if request.labels is not None else None,
             )
         except (KeyError, ValueError) as error:
@@ -496,7 +598,7 @@ def create_app(
             if confirmation not in {profile.classifier_key, profile.name}:
                 raise HTTPException(
                     status_code=400,
-                    detail="Delete confirmation must exactly match the profile key or profile name.",
+                    detail="Подтверждение удаления должно точно совпадать с ключом или именем профиля.",
                 )
             deleted = labels_db.delete_profile(classifier_key=profile.classifier_key)
             artifact_cleanup = delete_profile_artifacts(
@@ -539,17 +641,11 @@ def create_app(
             "labels": scoped.label_counts(
                 catalog_uuid=str(source.catalog_uuid) if source is not None else None
             ),
-            "sonara": 0,
-            "mert": 0,
-            "mert_v2": 0,
-            "maest": 0,
-            "clap": 0,
-            "muq": 0,
-            "mulan": 0,
+            **{source_name: 0 for source_name in SUPPORTED_FEATURE_SOURCES},
             "feature_states": {
                 source_name: {
                     "status": "missing",
-                    "reason": "Source database is not selected.",
+                    "reason": "Библиотека не выбрана.",
                 }
                 for source_name in SUPPORTED_FEATURE_SOURCES
             },
@@ -584,14 +680,16 @@ def create_app(
         seed: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
+        feature_set: str | None = None,
     ):
         profile = profile_or_404(profile_key)
+        required_sources = page_required_sources(feature_set)
         source = source_state.source
         if source is None:
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         try:
-            bpm_min_value = _bpm_bound_value(bpm_min, "BPM from")
-            bpm_max_value = _bpm_bound_value(bpm_max, "BPM to")
+            bpm_min_value = _bpm_bound_value(bpm_min, "BPM от")
+            bpm_max_value = _bpm_bound_value(bpm_max, "BPM до")
             return source.list_tracks_page(
                 labels_db_path=labels_path,
                 classifier_key=profile.classifier_key,
@@ -608,6 +706,7 @@ def create_app(
                 seed=seed,
                 limit=limit,
                 offset=offset,
+                required_sources=required_sources,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -618,7 +717,7 @@ def create_app(
             source = source_state.require_source()
             if request.catalog_uuid != source.catalog_uuid:
                 raise SourceTrackNotCurrentError(
-                    "Like target catalog UUID is not the selected source catalog"
+                    "Лайк адресован другой библиотеке: catalog UUID не совпадает с выбранной"
                 )
             updated = source.set_track_liked(
                 track_id=track_id,
@@ -662,16 +761,18 @@ def create_app(
         min_positive: str = "0",
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
+        feature_set: str | None = None,
     ):
         profile = profile_or_404(profile_key)
+        required_sources = page_required_sources(feature_set)
         if label not in {"all", "unlabeled", *profile.label_keys}:
-            raise HTTPException(status_code=400, detail=f"Unknown label filter: {label}")
+            raise HTTPException(status_code=400, detail=f"Неизвестный фильтр метки: {label}")
         if predicted not in {"all", *profile.training_label_keys}:
-            raise HTTPException(status_code=400, detail=f"Unknown predicted label filter: {predicted}")
+            raise HTTPException(status_code=400, detail=f"Неизвестный фильтр предсказанной метки: {predicted}")
         try:
             min_positive_value = _probability_filter_value(min_positive)
-            bpm_min_value = _bpm_bound_value(bpm_min, "BPM from")
-            bpm_max_value = _bpm_bound_value(bpm_max, "BPM to")
+            bpm_min_value = _bpm_bound_value(bpm_min, "BPM от")
+            bpm_max_value = _bpm_bound_value(bpm_max, "BPM до")
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         source = source_state.source
@@ -696,6 +797,7 @@ def create_app(
                 min_positive=min_positive_value,
                 limit=limit,
                 offset=offset,
+                required_sources=required_sources,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -708,7 +810,7 @@ def create_app(
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Source database is not selected")
+            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
         scoped = profile_db(profile.classifier_key)
         requested_feature_set = request.feature_set if request is not None else None
         try:
@@ -717,10 +819,10 @@ def create_app(
                 artifact_dir=Path(profile.artifact_dir),
                 profile=profile,
                 source=source,
-                feature_set=requested_feature_set or DEFAULT_TRAINING_FEATURE_SET,
+                feature_set=requested_feature_set,
             )
             selected_feature_set, selected_option = _selected_artifact_option(
-                readiness.get("artifact_summary"),
+                readiness,
                 requested_feature_set,
             )
         except ValueError as error:
@@ -729,8 +831,8 @@ def create_app(
             raise HTTPException(
                 status_code=404,
                 detail=(
-                    f"No {selected_feature_set} {profile.name} model artifact "
-                    f"found in {profile.artifact_dir}"
+                    f"У профиля {profile.name} нет артефакта модели для рецепта "
+                    f"{selected_feature_set} в {profile.artifact_dir}"
                 ),
             )
         if selected_option.get("source_data_ready") is not True:
@@ -739,8 +841,8 @@ def create_app(
                 detail=str(
                     selected_option.get("source_data_reason")
                     or (
-                        f"{selected_feature_set} artifact is not ready for "
-                        "the current source data."
+                        f"Артефакт {selected_feature_set} не готов для данных "
+                        "текущей библиотеки."
                     )
                 ),
             )
@@ -749,17 +851,17 @@ def create_app(
             training_progress.start(
                 profile.classifier_key,
                 operation="refresh",
-                stage="Preparing candidate refresh",
+                stage="Подготовка обновления кандидатов",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
         def report_prediction_progress(completed: int, total: int) -> None:
             if total <= 0:
-                stage = "Refreshing candidates"
+                stage = "Обновление кандидатов"
                 percent = 5
             else:
-                stage = f"Refreshing candidates: {completed:,}/{total:,}"
+                stage = f"Обновление кандидатов: {completed:,}/{total:,}"
                 percent = 5 + round(90 * completed / total)
             training_progress.update(
                 profile.classifier_key,
@@ -777,7 +879,7 @@ def create_app(
             )
             training_progress.update(
                 profile.classifier_key,
-                stage="Publishing refreshed candidates",
+                stage="Публикация обновлённых кандидатов",
                 percent=97,
             )
             deleted = int(result.get("deleted_old_predictions", 0))
@@ -787,14 +889,14 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Candidate refresh complete",
+            stage="Обновление кандидатов завершено",
         )
         return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
 
     @app.get("/api/profiles/{profile_key}/training/readiness")
     def profile_training_readiness(
         profile_key: str,
-        feature_set: str = DEFAULT_TRAINING_FEATURE_SET,
+        feature_set: str | None = None,
     ):
         profile = profile_or_404(profile_key)
         try:
@@ -825,10 +927,8 @@ def create_app(
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Source database is not selected")
-        selected_feature_set = (
-            request.feature_set if request is not None else DEFAULT_TRAINING_FEATURE_SET
-        )
+            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
+        requested_feature_set = request.feature_set if request is not None else None
         scoped = profile_db(profile.classifier_key)
         try:
             readiness = _training_readiness(
@@ -836,10 +936,14 @@ def create_app(
                 artifact_dir=Path(profile.artifact_dir),
                 profile=profile,
                 source=source,
-                feature_set=selected_feature_set,
+                feature_set=requested_feature_set,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        if requested_feature_set is None and readiness["default_feature_set"] is None:
+            raise HTTPException(status_code=409, detail=_NO_SOURCE_DATA_DETAIL)
+        _require_label_threshold(readiness)
+        selected_feature_set = str(readiness["feature_recipe"]["feature_set"])
         if readiness["ready"] is not True:
             recipe = readiness["feature_recipe"]
             if recipe["ready"] is not True:
@@ -850,7 +954,7 @@ def create_app(
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"{selected_feature_set} feature recipe is not ready. "
+                        f"Рецепт признаков {selected_feature_set} не готов. "
                         f"{blocking}"
                     ),
                 )
@@ -861,13 +965,13 @@ def create_app(
                     readiness["missing_training_rows"],
                 ),
             )
-        counts = dict(readiness["current"])
+        counts = dict(readiness["total"])
         artifact_dir = Path(profile.artifact_dir)
         try:
             training_progress.start(
                 profile.classifier_key,
                 operation="train-refresh",
-                stage="Preparing training data",
+                stage="Подготовка обучающих данных",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -882,7 +986,7 @@ def create_app(
         def report_prediction_progress(completed: int, total: int) -> None:
             training_progress.update(
                 profile.classifier_key,
-                stage=f"Refreshing candidates: {completed:,}/{total:,}",
+                stage=f"Обновление кандидатов: {completed:,}/{total:,}",
                 percent=70 + round(28 * completed / max(1, total)),
             )
 
@@ -900,7 +1004,7 @@ def create_app(
                 error = (
                     trained.get("error")
                     if isinstance(trained, dict)
-                    else "feature recipe was not trained"
+                    else "рецепт признаков не был обучен"
                 )
                 raise RuntimeError(str(error))
             artifact = _trained_artifact_path(
@@ -911,7 +1015,7 @@ def create_app(
             )
             training_progress.update(
                 profile.classifier_key,
-                stage="Refreshing candidate predictions",
+                stage="Обновление предсказаний кандидатов",
                 percent=70,
             )
             result = apply_model_to_lab(
@@ -934,7 +1038,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Training and candidate refresh complete",
+            stage="Обучение и обновление кандидатов завершены",
         )
         return {
             "training": training,
@@ -947,15 +1051,37 @@ def create_app(
         }
 
     @app.post("/api/profiles/{profile_key}/training/benchmark")
-    def profile_training_benchmark(profile_key: str):
+    def profile_training_benchmark(profile_key: str, request: BenchmarkRequest | None = None):
         profile = profile_or_404(profile_key)
-        if source_state.path is None:
-            raise HTTPException(status_code=400, detail="Source database is not selected")
+        source = source_state.source
+        if source is None or source_state.path is None:
+            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
+        strategy = request.strategy if request is not None else DEFAULT_BENCHMARK_STRATEGY
+        feature_sets = tuple(request.feature_sets) if request is not None else ()
+        available = available_feature_sources(source.feature_states())
+        layers = stored_mert_v2_layers(source)
+        try:
+            plan = benchmark_plan(available, strategy, feature_sets, mert_v2_layers=layers)
+            planned_runs = planned_run_count(available, strategy, feature_sets, mert_v2_layers=layers)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        if not plan:
+            raise HTTPException(status_code=409, detail=_NO_SOURCE_DATA_DETAIL)
+        try:
+            readiness = _training_readiness(
+                profile_db(profile.classifier_key),
+                artifact_dir=Path(profile.artifact_dir),
+                profile=profile,
+                source=source,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        _require_label_threshold(readiness)
         try:
             training_progress.start(
                 profile.classifier_key,
                 operation="benchmark",
-                stage="Preparing benchmark",
+                stage="Подготовка бенчмарка",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -972,7 +1098,8 @@ def create_app(
                 source_state.path,
                 labels_path,
                 profile_keys=(profile.classifier_key,),
-                feature_sets=ABLATION_FEATURE_SETS,
+                strategy=strategy,
+                feature_sets=feature_sets,
                 artifacts_root=None,
                 progress_callback=report_benchmark_progress,
             )
@@ -980,7 +1107,7 @@ def create_app(
             training_progress.fail(profile.classifier_key, error=error)
             LOGGER.exception("%s benchmark failed", profile.name)
             raise HTTPException(status_code=500, detail=str(error)) from error
-        training_progress.complete(profile.classifier_key, stage="Benchmark complete")
+        training_progress.complete(profile.classifier_key, stage="Бенчмарк завершён")
         profile_report = next(
             (
                 row
@@ -991,6 +1118,9 @@ def create_app(
         )
         return {
             "classifier_key": profile.classifier_key,
+            "strategy": report.get("strategy", strategy),
+            "feature_sets": list(report.get("feature_sets", plan)),
+            "planned_runs": int(report.get("planned_runs", planned_runs)),
             "output_path": report.get("output_path"),
             "winner": profile_report.get("winner") if isinstance(profile_report, dict) else None,
             "profile": profile_report,
@@ -1001,24 +1131,24 @@ def create_app(
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Source database is not selected")
+            raise HTTPException(status_code=400, detail="Библиотека не выбрана")
         scoped = profile_db(profile.classifier_key)
         requested_feature_set = request.feature_set if request is not None else None
-        selected_for_readiness = requested_feature_set or DEFAULT_TRAINING_FEATURE_SET
         try:
             readiness = _training_readiness(
                 scoped,
                 artifact_dir=Path(profile.artifact_dir),
                 profile=profile,
                 source=source,
-                feature_set=selected_for_readiness,
+                feature_set=requested_feature_set,
             )
             selected_feature_set, selected_option = _selected_artifact_option(
-                readiness.get("artifact_summary"),
+                readiness,
                 requested_feature_set,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        _require_label_threshold(readiness)
         if readiness["calibration_ready"] is not True:
             calibration_readiness = readiness["calibration_readiness"]
             raise HTTPException(
@@ -1026,7 +1156,7 @@ def create_app(
                 detail=str(
                     calibration_readiness.get("reason")
                     if isinstance(calibration_readiness, Mapping)
-                    else "Calibration requirements are not satisfied."
+                    else "Требования к калибровке не выполнены."
                 ),
             )
         if readiness["labels_ready"] is not True:
@@ -1040,7 +1170,7 @@ def create_app(
         if selected_option is None or not selected_option.get("latest_model"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Train a {selected_feature_set} model before calibrating {profile.name}.",
+                detail=f"Сначала обучите модель {selected_feature_set} профиля {profile.name}, затем калибруйте.",
             )
         if selected_option.get("source_data_ready") is not True:
             raise HTTPException(
@@ -1048,8 +1178,8 @@ def create_app(
                 detail=str(
                     selected_option.get("source_data_reason")
                     or (
-                        f"{selected_feature_set} artifact is not ready for "
-                        "the current source data."
+                        f"Артефакт {selected_feature_set} не готов для данных "
+                        "текущей библиотеки."
                     )
                 ),
             )
@@ -1057,7 +1187,7 @@ def create_app(
             training_progress.start(
                 profile.classifier_key,
                 operation="calibrate",
-                stage="Preparing calibration",
+                stage="Подготовка калибровки",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1090,7 +1220,7 @@ def create_app(
             error = (
                 trained.get("error")
                 if isinstance(trained, dict)
-                else "feature recipe was not calibrated"
+                else "рецепт признаков не был откалиброван"
             )
             training_progress.fail(
                 profile.classifier_key, error=RuntimeError(str(error))
@@ -1118,8 +1248,8 @@ def create_app(
         metrics = _read_metrics(metrics_path)
         calibration_status = _metric_summary(metrics).get("calibration_status")
         if calibration_status != "calibrated":
-            reason = _metric_summary(metrics).get("calibration_reason") or "calibration gate was not satisfied"
-            detail = f"Calibration did not produce a calibrated artifact: {reason}"
+            reason = _metric_summary(metrics).get("calibration_reason") or "порог калибровки не пройден"
+            detail = f"Калибровка не дала откалиброванный артефакт: {reason}"
             training_progress.fail(
                 profile.classifier_key, error=RuntimeError(detail)
             )
@@ -1128,7 +1258,7 @@ def create_app(
                 detail=detail,
             )
         scoped.record_training_checkpoint(
-            dict(readiness["current"]),
+            dict(readiness["total"]),
             model_artifact=artifact,
         )
         try:
@@ -1143,7 +1273,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Calibration complete",
+            stage="Калибровка завершена",
         )
         return {
             "classifier_key": profile.classifier_key,
@@ -1167,10 +1297,10 @@ def create_app(
                 artifact_dir=Path(profile.artifact_dir),
                 profile=profile,
                 source=source,
-                feature_set=requested_feature_set or DEFAULT_TRAINING_FEATURE_SET,
+                feature_set=requested_feature_set,
             )
             selected_feature_set, selected_option = _selected_artifact_option(
-                readiness.get("artifact_summary"),
+                readiness,
                 requested_feature_set,
             )
         except ValueError as error:
@@ -1178,16 +1308,16 @@ def create_app(
         if selected_option is None or not selected_option.get("latest_model"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Train a {selected_feature_set} model before promoting {profile.name}.",
+                detail=f"Сначала обучите модель {selected_feature_set} профиля {profile.name}, затем продвигайте.",
             )
-        if selected_option.get("source_data_ready") is not True:
+        if selected_option.get("spec_compatible") is not True:
             raise HTTPException(
                 status_code=409,
                 detail=str(
-                    selected_option.get("source_data_reason")
+                    selected_option.get("spec_reason")
                     or (
-                        f"{selected_feature_set} artifact is not ready for "
-                        "the current source data."
+                        f"Артефакт {selected_feature_set} не соответствует "
+                        "текущей спецификации признаков."
                     )
                 ),
             )
@@ -1198,15 +1328,15 @@ def create_app(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"Calibrate the {selected_feature_set} model before promoting "
-                    f"{profile.name}."
+                    f"Сначала откалибруйте модель {selected_feature_set} профиля "
+                    f"{profile.name}, затем продвигайте."
                 ),
             )
         try:
             training_progress.start(
                 profile.classifier_key,
                 operation="promote",
-                stage="Preparing promotion",
+                stage="Подготовка продвижения",
             )
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -1227,9 +1357,6 @@ def create_app(
                 target_root=target_root,
                 require_calibration=not allow_uncalibrated,
                 allow_uncalibrated=allow_uncalibrated,
-                expected_source_catalog_uuid=(
-                    source.catalog_uuid if source is not None else None
-                ),
                 progress_callback=report_promotion_progress,
             )
         except PromotionError as error:
@@ -1238,7 +1365,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(error)) from error
         training_progress.complete(
             profile.classifier_key,
-            stage="Promotion complete",
+            stage="Продвижение завершено",
         )
         return {
             "classifier_key": profile.classifier_key,
@@ -1256,7 +1383,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(error)) from error
         path = Path(track.file_path)
         if not path.is_file():
-            raise HTTPException(status_code=404, detail="Audio file is missing")
+            raise HTTPException(status_code=404, detail="Аудиофайл отсутствует")
         if requires_browser_preview_transcode(path):
             try:
                 configure_shared_ffmpeg_runtime()
@@ -1268,26 +1395,32 @@ def create_app(
     return app
 
 
-def _default_promotion_feature_set(artifact_summary: object) -> str:
-    if isinstance(artifact_summary, dict):
-        latest = artifact_summary.get("latest_promotable")
-        if isinstance(latest, dict) and latest.get("feature_set"):
-            return str(latest["feature_set"])
-    return DEFAULT_TRAINING_FEATURE_SET
+def _require_label_threshold(readiness: Mapping[str, object]) -> None:
+    """409 for train-refresh, benchmark and calibrate when the open library holds too few labels."""
+
+    if readiness.get("label_threshold_ready") is not True:
+        raise HTTPException(status_code=409, detail=str(readiness.get("label_threshold_reason")))
 
 
 def _selected_artifact_option(
-    artifact_summary: object,
+    readiness: Mapping[str, object],
     requested_feature_set: str | None,
 ) -> tuple[str, dict[str, object] | None]:
+    """Pick the artifact row for the requested recipe, else the latest promotable, else the readiness recipe."""
+
+    artifact_summary = readiness.get("artifact_summary")
     selected_feature_set = (
-        str(requested_feature_set).strip()
-        if requested_feature_set is not None
-        else _default_promotion_feature_set(artifact_summary)
+        canonical_feature_set(feature_sources(requested_feature_set))
+        if requested_feature_set is not None and requested_feature_set.strip()
+        else None
     )
-    if not selected_feature_set:
-        selected_feature_set = _default_promotion_feature_set(artifact_summary)
-    feature_sources(selected_feature_set)
+    if selected_feature_set is None and isinstance(artifact_summary, dict):
+        latest = artifact_summary.get("latest_promotable")
+        if isinstance(latest, dict) and latest.get("feature_set"):
+            selected_feature_set = str(latest["feature_set"])
+    if selected_feature_set is None:
+        recipe = readiness.get("feature_recipe")
+        selected_feature_set = str(recipe["feature_set"]) if isinstance(recipe, Mapping) else ""
     options = (
         artifact_summary.get("promotion_options")
         if isinstance(artifact_summary, dict)
@@ -1318,6 +1451,7 @@ def _profile_payload(profile: ClassifierProfile) -> dict[str, object]:
         "artifact_dir": profile.artifact_dir,
         "artifact_prefix": profile.artifact_prefix,
         "training_min_added": profile.training_min_added,
+        "training_min_labels": profile.training_min_labels,
         "positive_label": profile.positive_label,
         "negative_label": profile.negative_label,
         "archived_at": profile.archived_at,
@@ -1347,6 +1481,7 @@ def _collection_payload(collection: object, *, include_tracks: bool = False) -> 
     if include_tracks:
         payload["tracks"] = [
             {
+                "content_key": track.content_key,
                 "catalog_uuid": track.catalog_uuid,
                 "track_uuid": track.track_uuid,
                 "selected_path": track.selected_path,
@@ -1361,9 +1496,8 @@ def _collection_payload(collection: object, *, include_tracks: bool = False) -> 
 
 
 def _latest_feature_artifact(artifact_dir: Path, artifact_prefix: str, feature_set: str) -> Path | None:
-    artifacts = list(artifact_dir.glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
-    artifacts.sort(key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
-    return artifacts[0] if artifacts else None
+    files = _artifact_groups(artifact_dir, suffix=".joblib", artifact_prefix=artifact_prefix).get(feature_set)
+    return files[0] if files else None
 
 
 def cleanup_training_artifacts(
@@ -1445,7 +1579,8 @@ def _artifact_groups(
 ) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = {}
     for path in artifact_dir.glob(f"{artifact_prefix}-*{suffix}"):
-        feature = _artifact_feature(path.name, suffix=suffix, artifact_prefix=artifact_prefix)
+        # Group by canonical recipe: files named under an older family order join it.
+        feature = canonical_artifact_feature_set(path.name, suffix=suffix, artifact_prefix=artifact_prefix)
         if feature is None:
             continue
         groups.setdefault(feature, []).append(path)
@@ -1463,42 +1598,31 @@ def _trained_artifact_path(
     artifact_value = trained.get("artifact_path")
     if not artifact_value:
         raise RuntimeError(
-            f"Training did not return the {feature_set} artifact path."
+            f"Обучение не вернуло путь к артефакту {feature_set}."
         )
     try:
         artifact = Path(str(artifact_value)).expanduser().resolve(strict=True)
     except OSError as error:
         raise RuntimeError(
-            f"Training returned a missing {feature_set} artifact: "
+            f"Обучение вернуло несуществующий артефакт {feature_set}: "
             f"{artifact_value}"
         ) from error
     root = artifact_dir.expanduser().resolve(strict=False)
     if artifact.parent != root:
         raise RuntimeError(
-            f"Training returned an artifact outside {root}: {artifact}"
+            f"Обучение вернуло артефакт вне каталога {root}: {artifact}"
         )
-    artifact_feature = _artifact_feature(
+    artifact_feature = artifact_feature_set(
         artifact.name,
         suffix=".joblib",
         artifact_prefix=artifact_prefix,
     )
     if artifact_feature != feature_set:
         raise RuntimeError(
-            f"Training returned a {artifact_feature or 'malformed'} artifact "
-            f"for requested recipe {feature_set}."
+            f"Обучение вернуло артефакт рецепта {artifact_feature or '<не распознан>'} "
+            f"вместо запрошенного {feature_set}."
         )
     return artifact
-
-
-def _artifact_feature(name: str, *, suffix: str, artifact_prefix: str) -> str | None:
-    prefix = f"{artifact_prefix}-"
-    if not name.startswith(prefix) or not name.endswith(suffix):
-        return None
-    stem = name[len(prefix) : -len(suffix)]
-    parts = stem.split("-")
-    if len(parts) < 2:
-        return None
-    return parts[0]
 
 
 def _calibration_readiness(
@@ -1514,23 +1638,21 @@ def _calibration_readiness(
     total_count = positive_count + negative_count
     reason: str | None = None
     if profile.profile_type != "binary":
-        reason = "Probability calibration is currently available only for binary profiles."
+        reason = "Калибровка вероятностей пока доступна только для бинарных профилей."
     elif total_count < MIN_CALIBRATION_LABELS:
         reason = (
-            f"Need at least {MIN_CALIBRATION_LABELS} total training labels "
-            f"for calibration; current total is {total_count}."
+            f"Для калибровки нужно не меньше {MIN_CALIBRATION_LABELS} обучающих "
+            f"меток; сейчас {total_count}."
         )
     elif positive_count < MIN_CALIBRATION_POSITIVE:
         reason = (
-            f"Need at least {MIN_CALIBRATION_POSITIVE} "
-            f"{profile.positive_label} labels for calibration; current count "
-            f"is {positive_count}."
+            f"Для калибровки нужно не меньше {MIN_CALIBRATION_POSITIVE} меток "
+            f"{profile.positive_label}; сейчас {positive_count}."
         )
     elif negative_count < MIN_CALIBRATION_NEGATIVE:
         reason = (
-            f"Need at least {MIN_CALIBRATION_NEGATIVE} non-"
-            f"{profile.positive_label} labels for calibration; current count "
-            f"is {negative_count}."
+            f"Для калибровки нужно не меньше {MIN_CALIBRATION_NEGATIVE} меток, "
+            f"отличных от {profile.positive_label}; сейчас {negative_count}."
         )
     return {
         "ready": reason is None,
@@ -1544,22 +1666,93 @@ def _calibration_readiness(
     }
 
 
+@dataclass(frozen=True)
+class _SourceInventory:
+    """Stored-family availability of one library, shared by readiness and ``/api/source/current``."""
+
+    states: Mapping[str, object]
+    counts: Mapping[str, int]
+    track_count: int
+    mert_v2_layers: tuple[int, ...]
+
+    @classmethod
+    def load(cls, source: SourceDatabase | None) -> _SourceInventory:
+        if source is None:
+            return cls(
+                states={
+                    source_name: {
+                        "status": "missing",
+                        "reason": "Библиотека не выбрана.",
+                    }
+                    for source_name in SUPPORTED_FEATURE_SOURCES
+                },
+                counts={},
+                track_count=0,
+                mert_v2_layers=(),
+            )
+        states: dict[str, object] = dict(source.feature_states())
+        counts = dict(source.feature_counts())
+        for source_name, count in counts.items():
+            state = states[source_name]
+            if state.status == "current" and count == 0:
+                states[source_name] = {
+                    "status": "missing",
+                    "reason": (
+                        f"Нет текущих результатов {source_name.upper()} ни для "
+                        "одного трека."
+                    ),
+                }
+        return cls(
+            states=states,
+            counts=counts,
+            track_count=source.count_tracks(),
+            mert_v2_layers=stored_mert_v2_layers(source),
+        )
+
+    @property
+    def available(self) -> tuple[str, ...]:
+        return available_feature_sources(self.states)
+
+    def features_payload(self) -> dict[str, dict[str, object]]:
+        return {
+            source_name: {
+                **_feature_state_payload(self.states.get(source_name)),
+                "count": int(self.counts.get(source_name, 0)),
+                "track_count": self.track_count,
+            }
+            for source_name in SUPPORTED_FEATURE_SOURCES
+        }
+
+
 def _training_readiness(
     labels_db: RhythmLabDatabase,
     *,
     artifact_dir: Path,
     profile: ClassifierProfile | None = None,
     source: SourceDatabase | None = None,
-    feature_set: str = DEFAULT_TRAINING_FEATURE_SET,
+    feature_set: str | None = None,
 ) -> dict[str, object]:
     profile = profile or labels_db.get_profile()
-    feature_sources(feature_set)
+    if source is not None:
+        # "current" counts are scoped to content sighted in this library;
+        # "total" counts and the training checkpoint are global across catalogs.
+        labels_db.sync_track_sightings(source)
+    inventory = _SourceInventory.load(source)
+    source_states = inventory.states
+    available = inventory.available
+    default_recipe = default_feature_set(available)
+    if feature_set is not None and feature_set.strip():
+        feature_set = canonical_feature_set(feature_sources(feature_set))
+    else:
+        # With nothing stored, report every family as blocking rather than nothing.
+        feature_set = default_recipe or canonical_feature_set(SUPPORTED_FEATURE_SOURCES)
     counts = _training_label_counts(
         labels_db.label_counts(
             catalog_uuid=str(source.catalog_uuid) if source is not None else None
         ),
         profile=profile,
     )
+    total_counts = _training_label_counts(labels_db.label_counts(), profile=profile)
     checkpoint = labels_db.training_checkpoint()
     checkpoint_counts = dict(checkpoint["counts"])
     checkpoint_artifact = checkpoint["model_artifact"]
@@ -1569,12 +1762,12 @@ def _training_readiness(
         feature_set,
     )
     if checkpoint_artifact is None and latest_artifact is not None:
-        labels_db.record_training_checkpoint(counts, model_artifact=latest_artifact)
+        labels_db.record_training_checkpoint(total_counts, model_artifact=latest_artifact)
         checkpoint = labels_db.training_checkpoint()
-        checkpoint_counts = dict(counts)
+        checkpoint_counts = dict(total_counts)
         checkpoint_artifact = str(latest_artifact)
     added = {
-        label: max(0, counts[label] - int(checkpoint_counts.get(label, 0)))
+        label: max(0, total_counts[label] - int(checkpoint_counts.get(label, 0)))
         for label in profile.training_label_keys
     }
     minimum_training_rows = {
@@ -1582,7 +1775,7 @@ def _training_readiness(
         for label in profile.training_label_keys
     }
     checkpoint_feature_set = (
-        _artifact_feature(
+        canonical_artifact_feature_set(
             Path(str(checkpoint_artifact)).name,
             suffix=".joblib",
             artifact_prefix=profile.artifact_prefix,
@@ -1602,27 +1795,6 @@ def _training_readiness(
             for label in profile.training_label_keys
         )
     )
-    if source is not None:
-        source_states: dict[str, object] = dict(source.feature_states())
-        ready_counts = source.feature_counts()
-        for source_name, count in ready_counts.items():
-            state = source_states[source_name]
-            if state.status == "current" and count == 0:
-                source_states[source_name] = {
-                    "status": "missing",
-                    "reason": (
-                        f"No current {source_name.upper()} track outputs are "
-                        "available."
-                    ),
-                }
-    else:
-        source_states = {
-            source_name: {
-                "status": "missing",
-                "reason": "Source database is not selected.",
-            }
-            for source_name in SUPPORTED_FEATURE_SOURCES
-        }
     recipe = feature_recipe_readiness(feature_set, source_states)
     usable_counts = dict(counts)
     skipped_training_rows = 0
@@ -1658,23 +1830,30 @@ def _training_readiness(
         missing_training_rows[label] == 0
         for label in profile.training_label_keys
     )
-    ready = labels_ready and recipe["ready"] is True
+    label_threshold_ready, label_threshold_reason = _label_threshold_readiness(
+        profile, counts, total_counts
+    )
+    ready = labels_ready and label_threshold_ready and recipe["ready"] is True
     artifact_summary = _bind_artifact_source_readiness(
         _artifact_summary(artifact_dir, profile.artifact_prefix),
         source_states,
-        active_catalog_uuid=(
-            str(source.catalog_uuid) if source is not None else None
-        ),
     )
     return {
         "ready": ready,
         "labels_ready": labels_ready,
+        "label_threshold": profile.training_min_labels,
+        "label_threshold_ready": label_threshold_ready,
+        "label_threshold_reason": label_threshold_reason,
         "calibration_ready": calibration_readiness["ready"],
         "calibration_readiness": calibration_readiness,
         "features_ready": recipe["ready"],
         "feature_recipe": recipe,
-        "available_feature_sets": list(FEATURE_RECIPE_OPTIONS),
+        "available_feature_sources": list(available),
+        "default_feature_set": default_recipe,
+        "source_features": inventory.features_payload(),
+        "mert_v2_layers": list(inventory.mert_v2_layers),
         "current": counts,
+        "total": total_counts,
         "usable": usable_counts,
         "unusable": unusable_counts,
         "usable_rows_evaluated": usable_rows_evaluated,
@@ -1704,6 +1883,28 @@ def _training_readiness(
             feature_set=str(recipe["feature_set"]),
         ),
     }
+
+
+def _label_threshold_readiness(
+    profile: ClassifierProfile,
+    counts: Mapping[str, int],
+    total_counts: Mapping[str, int],
+) -> tuple[bool, str | None]:
+    """The profile's per-class label minimum, checked against labels resolvable in the open library."""
+
+    threshold = profile.training_min_labels
+    if all(int(counts.get(label, 0)) >= threshold for label in profile.training_label_keys):
+        return True, None
+    current = ", ".join(
+        f"{label} — {int(counts.get(label, 0))} (всего {int(total_counts.get(label, 0))})"
+        for label in profile.training_label_keys
+    )
+    return (
+        False,
+        f"Для обучения нужно не меньше {threshold} меток на класс в открытой "
+        f"библиотеке. Сейчас: {current}. Откройте библиотеку, где размечен "
+        "профиль, или измените порог в настройках профиля.",
+    )
 
 
 def _promoted_model_summary(
@@ -1758,9 +1959,13 @@ def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, obj
 def _bind_artifact_source_readiness(
     summary: dict[str, object],
     source_states: Mapping[str, object],
-    *,
-    active_catalog_uuid: str | None = None,
 ) -> dict[str, object]:
+    """Annotate artifact rows with spec compatibility (promotion) and source data readiness (refresh).
+
+    ``source_catalog_uuid`` on a row is provenance only; artifacts are gated by
+    their feature spec, never by the library they were trained on.
+    """
+
     annotated: list[dict[str, object]] = []
     raw_rows = summary.get("by_feature")
     if isinstance(raw_rows, list):
@@ -1768,19 +1973,28 @@ def _bind_artifact_source_readiness(
             if not isinstance(value, dict):
                 continue
             row = dict(value)
-            ready, reason = _artifact_source_data_readiness(
-                row,
-                source_states,
-                active_catalog_uuid=active_catalog_uuid,
+            feature_set = str(row.get("feature_set") or "")
+            compatible, reason = artifact_feature_compatibility(
+                feature_set=feature_set,
+                feature_names=row.get("feature_names"),
+            )
+            if compatible:
+                compatible, reason = _main_app_spec_compatibility(feature_set)
+            row["spec_compatible"] = compatible
+            row["spec_reason"] = reason
+            ready, data_reason = artifact_source_readiness(
+                feature_set=feature_set,
+                feature_names=row.get("feature_names"),
+                feature_states=source_states,
             )
             row["source_data_ready"] = ready
-            row["source_data_reason"] = reason
+            row["source_data_reason"] = data_reason
             annotated.append(row)
     promotion_options = _promotion_options(annotated)
     promotable = [
         row
         for row in promotion_options
-        if row.get("source_data_ready") is True
+        if row.get("spec_compatible") is True
     ]
     return {
         **summary,
@@ -1793,62 +2007,27 @@ def _bind_artifact_source_readiness(
     }
 
 
-def _artifact_source_data_readiness(
-    row: Mapping[str, object],
-    source_states: Mapping[str, object],
-    *,
-    active_catalog_uuid: str | None = None,
-) -> tuple[bool, str | None]:
-    if active_catalog_uuid is not None:
-        artifact_catalog_uuid = str(row.get("source_catalog_uuid") or "").strip()
-        if not artifact_catalog_uuid:
-            return False, "Artifact is not bound to a source catalog UUID."
-        if artifact_catalog_uuid != active_catalog_uuid:
+def _main_app_spec_compatibility(feature_set: str) -> tuple[bool, str | None]:
+    """The main app scores only the stored default MERT-v2 layer (db/classifier_storage.py)."""
+
+    for token in feature_sources(feature_set):
+        family, layer = split_feature_source(token)
+        if family == "mert_v2" and layer is not None:
             return (
                 False,
-                f"Artifact catalog {artifact_catalog_uuid} does not match "
-                f"active catalog {active_catalog_uuid}.",
-            )
-    feature_set = str(row.get("feature_set") or "")
-    try:
-        required_sources = feature_sources(feature_set)
-    except ValueError as error:
-        return False, str(error)
-    feature_names = row.get("feature_names")
-    if (
-        not isinstance(feature_names, list)
-        or not feature_names
-        or any(not isinstance(name, str) or ":" not in name for name in feature_names)
-    ):
-        return False, "Artifact does not declare valid ordered feature_names."
-    actual_sources = tuple(
-        dict.fromkeys(str(name).partition(":")[0] for name in feature_names)
-    )
-    if actual_sources != required_sources:
-        return False, "Artifact feature_names do not match the selected feature recipe."
-    if "sonara" in required_sources:
-        artifact_sonara_features = tuple(
-            name for name in feature_names if name.startswith("sonara:")
-        )
-        if artifact_sonara_features != SONARA_FEATURE_NAMES:
-            return False, "Artifact was trained with an older SONARA recipe; retrain it."
-    for source_name in required_sources:
-        state = source_states.get(source_name)
-        if isinstance(state, Mapping):
-            status = str(state.get("status") or "missing")
-            state_reason = state.get("reason")
-        else:
-            status = str(getattr(state, "status", "missing"))
-            state_reason = getattr(state, "reason", None)
-        if status != "current":
-            return (
-                False,
-                str(
-                    state_reason
-                    or f"{source_name.upper()} source data is {status}."
-                ),
+                f"Основное приложение скорит только слой {MERT_V2_DEFAULT_LAYER} "
+                f"MERT-v2; артефакты слоя {layer} остаются лабораторными",
             )
     return True, None
+
+
+def _feature_state_payload(state: object) -> dict[str, object]:
+    if isinstance(state, Mapping):
+        return {"status": str(state.get("status") or "missing"), "reason": state.get("reason")}
+    return {
+        "status": str(getattr(state, "status", "missing")),
+        "reason": getattr(state, "reason", None),
+    }
 
 
 def _artifact_feature_summary(feature_set: str, *, latest_model: Path | None, latest_metrics: Path | None) -> dict[str, object]:
@@ -2011,9 +2190,9 @@ def _probability_filter_value(value: object) -> float:
     try:
         probability = float(text)
     except ValueError as error:
-        raise ValueError("Minimum probability must be a number between 0 and 1") from error
+        raise ValueError("Минимальная вероятность должна быть числом от 0 до 1") from error
     if probability < 0.0 or probability > 1.0:
-        raise ValueError("Minimum probability must be a number between 0 and 1")
+        raise ValueError("Минимальная вероятность должна быть числом от 0 до 1")
     return probability
 
 
@@ -2024,9 +2203,9 @@ def _bpm_bound_value(value: object, label: str) -> float | None:
     try:
         bpm = float(text)
     except ValueError as error:
-        raise ValueError(f"{label} must be a positive number") from error
+        raise ValueError(f"Значение «{label}» должно быть положительным числом") from error
     if bpm <= 0:
-        raise ValueError(f"{label} must be a positive number")
+        raise ValueError(f"Значение «{label}» должно быть положительным числом")
     return bpm
 
 
@@ -2044,12 +2223,12 @@ def _training_readiness_error(
             for label in profile.training_label_keys
         )
         return (
-            "Need at least two labeled tracks for each multiclass training "
-            f"class. Missing: {counts}."
+            "Нужно не меньше двух размеченных треков на каждый класс. "
+            f"Не хватает: {counts}."
         )
     return (
-        f"Need at least two {profile.positive_label} and two "
-        f"{profile.negative_label} labeled tracks. Missing: "
+        f"Нужно не меньше двух треков с меткой {profile.positive_label} и двух "
+        f"с меткой {profile.negative_label}. Не хватает: "
         f"{profile.positive_label} {int(missing.get(profile.positive_label, 0))}, "
         f"{profile.negative_label} {int(missing.get(profile.negative_label, 0))}."
     )

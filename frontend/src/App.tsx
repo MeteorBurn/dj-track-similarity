@@ -1255,9 +1255,17 @@ export function App() {
         source: result.source
       });
       const opened = openRhythmLabWindow(result, pendingWindow);
-      const status = result.already_running ? "Rhythm Lab уже запущен" : "Rhythm Lab запущен";
-      setNotice({ kind: "ok", text: opened ? status : `${status}: ${result.url}` });
-      appendActivity("ok", status, result.source ? `source ${result.source.database_path}` : result.url);
+      const status = result.switched
+        ? "Rhythm Lab переключён на текущую библиотеку"
+        : result.already_running ? "Rhythm Lab уже запущен" : "Rhythm Lab запущен";
+      const statusText = opened ? status : `${status}: ${result.url}`;
+      if (result.switch_error) {
+        setNotice({ kind: "warn", text: `${statusText}. Библиотека не переключена: ${result.switch_error}` });
+        appendActivity("warn", "Rhythm Lab не переключил библиотеку", result.switch_error);
+      } else {
+        setNotice({ kind: "ok", text: statusText });
+        appendActivity("ok", status, result.source ? `source ${result.source.database_path}` : result.url);
+      }
     } catch (error) {
       pendingWindow?.close();
       const message = errorText(error);

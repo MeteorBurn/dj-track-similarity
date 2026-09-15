@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import csv
 from datetime import datetime, timezone
 import json
@@ -17,13 +17,28 @@ from dj_track_similarity.rhythm_lab_collections import (
     default_rhythm_lab_labels_path,
 )
 
-from .ablation import ABLATION_FEATURE_SETS, cli_summary, run_ablation_benchmark
+from .ablation import (
+    BENCHMARK_STRATEGIES,
+    DEFAULT_BENCHMARK_STRATEGY,
+    cli_summary,
+    run_ablation_benchmark,
+)
 from .artifact_io import (
     ArtifactIntegrityError,
     load_verified_artifact,
     publish_promoted_artifact,
 )
-from .features import DEFAULT_TRAINING_FEATURE_SET, feature_sources
+from .content_identity_migration import (
+    MigrationError,
+    migrate_content_identity,
+    write_migration_report,
+)
+from .features import (
+    available_feature_sources,
+    canonical_feature_set,
+    default_feature_set,
+    feature_sources,
+)
 from .lab_db import RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
 from .source_db import SourceDatabase
@@ -57,8 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--artifacts", type=Path, default=None)
     train_parser.add_argument(
         "--feature-set",
-        default=DEFAULT_TRAINING_FEATURE_SET,
-        help="Feature recipe to train. Defaults to the current full recipe.",
+        default=None,
+        help="Feature recipe to train, such as sonara+muq. Defaults to every source stored in the library.",
     )
     train_parser.add_argument("--calibrate", action="store_true", help="Fit a calibrated classifier when label gates are satisfied.")
     train_parser.set_defaults(func=_train)
@@ -66,7 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     ablation_parser = subcommands.add_parser("benchmark-ablation", help="Run per-profile feature-combination ablation benchmarks.")
     _add_data_options(ablation_parser)
     ablation_parser.add_argument("--profile", action="append", default=None, help="Classifier profile key. Repeat to benchmark multiple profiles; omit for all trainable active profiles.")
-    ablation_parser.add_argument("--feature-set", action="append", default=None, help="Feature set to evaluate, such as sonara+muq or sonara+mert+maest+clap+muq+mulan. Repeat to override the default ablation matrix.")
+    ablation_parser.add_argument("--strategy", choices=BENCHMARK_STRATEGIES, default=DEFAULT_BENCHMARK_STRATEGY, help="Which feature sets to train: singles, singles+all, greedy forward selection, the full 2^n-1 grid, or custom sets.")
+    ablation_parser.add_argument("--feature-set", action="append", default=None, help="Feature set to evaluate, such as sonara+muq. Repeat for several; implies --strategy custom.")
     ablation_parser.add_argument("--artifacts-root", type=Path, default=None, help="Override profile artifact directories with <root>/<artifact-prefix>.")
     ablation_parser.add_argument("--output", type=Path, default=None, help="Write the combined JSON report to this path.")
     ablation_parser.add_argument("--random-state", type=int, default=42)
@@ -93,14 +109,8 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--artifacts", type=Path, default=None)
     promote_parser.add_argument(
         "--feature-set",
-        default=DEFAULT_TRAINING_FEATURE_SET,
-        help="Promote the latest artifact for this feature recipe.",
-    )
-    promote_parser.add_argument(
-        "--source",
-        type=Path,
-        required=True,
-        help="Active source database whose catalog UUID must match the artifact.",
+        default=None,
+        help="Promote the latest artifact for this feature recipe. Defaults to the profile's last trained recipe.",
     )
     promote_parser.add_argument("--target", type=Path, default=DEFAULT_CLASSIFIER_TARGET_ROOT)
     promote_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
@@ -122,7 +132,8 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_parser.add_argument("--artifact", type=Path, default=None)
     calibration_parser.add_argument(
         "--feature-set",
-        default=DEFAULT_TRAINING_FEATURE_SET,
+        default=None,
+        help="Feature recipe whose latest artifact to report. Defaults to the profile's last trained recipe.",
     )
     calibration_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     calibration_parser.set_defaults(func=_calibration_report)
@@ -185,6 +196,25 @@ def build_parser() -> argparse.ArgumentParser:
     delete_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     delete_parser.set_defaults(func=_delete_profile)
 
+    migrate_parser = subcommands.add_parser(
+        "migrate-content-identity",
+        help="Re-key a pre-content-identity Rhythm Lab database by SONARA content (dry-run unless --apply).",
+    )
+    migrate_parser.add_argument("--lab-db", type=Path, default=DEFAULT_LABELS_DB)
+    migrate_parser.add_argument(
+        "--library-db",
+        type=Path,
+        action="append",
+        required=True,
+        help="Library holding one catalog the lab database references. Repeat for every catalog.",
+    )
+    migrate_parser.add_argument("--report", type=Path, default=None, help="Write the JSON report to this path.")
+    migrate_parser.add_argument("--apply", action="store_true", help="Back up and rewrite the lab database; without it nothing changes.")
+    migrate_parser.add_argument("--skip-unresolved", action="store_true", help="Drop rows whose track no library resolves instead of refusing.")
+    migrate_parser.add_argument("--force", action="store_true", help="Overwrite an existing --report file.")
+    migrate_parser.add_argument("--rekey", action="store_true", help="Reserved for a fingerprint version change; not implemented yet.")
+    migrate_parser.set_defaults(func=_migrate_content_identity)
+
     serve_parser = subcommands.add_parser("serve", help="Start the minimal labeling web app.")
     serve_parser.add_argument("--source", type=Path, default=None)
     serve_parser.add_argument(
@@ -214,12 +244,20 @@ def _add_data_options(parser: argparse.ArgumentParser) -> None:
 def _train(args: argparse.Namespace) -> None:
     profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
     artifact_dir = args.artifacts or Path(profile.artifact_dir)
+    if args.feature_set:
+        feature_set = canonical_feature_set(feature_sources(args.feature_set))
+    else:
+        feature_set = default_feature_set(
+            available_feature_sources(SourceDatabase(args.source).feature_states())
+        )
+        if feature_set is None:
+            raise SystemExit("No feature source is stored in this library; run analysis first.")
     results = benchmark_lab_database(
         args.source,
         args.labels,
         artifact_dir,
         classifier_key=args.profile,
-        feature_sets=(args.feature_set,),
+        feature_sets=(feature_set,),
         calibrate=args.calibrate,
     )
     print(json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True))
@@ -230,7 +268,8 @@ def _benchmark_ablation(args: argparse.Namespace) -> None:
         args.source,
         args.labels,
         profile_keys=args.profile,
-        feature_sets=tuple(args.feature_set or ABLATION_FEATURE_SETS),
+        strategy="custom" if args.feature_set else args.strategy,
+        feature_sets=tuple(args.feature_set or ()),
         artifacts_root=args.artifacts_root,
         output_path=args.output,
         random_state=args.random_state,
@@ -261,11 +300,12 @@ def promote_profile_model(
     target_root: str | Path = DEFAULT_CLASSIFIER_TARGET_ROOT,
     require_calibration: bool = False,
     allow_uncalibrated: bool = False,
-    expected_source_catalog_uuid: str | None = None,
     progress_callback: PromotionProgressCallback | None = None,
 ) -> dict[str, object]:
     labels_db = RhythmLabDatabase(labels_path, classifier_key=profile_key)
     profile = labels_db.get_profile()
+    if feature_set is not None:
+        feature_set = canonical_feature_set(feature_sources(feature_set))
     if artifact_path is not None:
         artifact = Path(artifact_path)
     else:
@@ -274,49 +314,38 @@ def promote_profile_model(
         artifact = _latest_feature_artifact(
             artifact_dir,
             profile.artifact_prefix,
-            feature_set or DEFAULT_TRAINING_FEATURE_SET,
+            feature_set or _profile_feature_set(labels_db, artifact_dir),
             calibration=calibration_filter,
         )
-    _report_promotion_progress(progress_callback, "Reading model artifact", 5)
+    _report_promotion_progress(progress_callback, "Чтение артефакта модели", 5)
     try:
         verified_artifact = load_verified_artifact(artifact)
     except ArtifactIntegrityError as error:
         raise PromotionError(str(error)) from error
     payload = verified_artifact.payload
-    _report_promotion_progress(progress_callback, "Checking model compatibility", 20)
+    _report_promotion_progress(progress_callback, "Проверка совместимости модели", 20)
     classifier_key = str(payload.get("classifier_key") or "")
     if classifier_key != profile.classifier_key:
         raise PromotionError(
-            f"Expected artifact for profile {profile.classifier_key!r}, got classifier_key={classifier_key!r}"
+            f"Ожидался артефакт профиля {profile.classifier_key!r}, получен classifier_key={classifier_key!r}"
         )
-    artifact_feature_set = str(payload.get("feature_set") or "")
-    if feature_set is not None and artifact_feature_set != feature_set:
-        raise PromotionError(f"Expected a {feature_set!r} artifact, got feature_set={artifact_feature_set!r}")
-    feature_sources(artifact_feature_set)
+    # Older artifacts carry the recipe under a previous family order; compare canonically.
+    payload_feature_set = canonical_feature_set(
+        feature_sources(str(payload.get("feature_set") or ""))
+    )
+    if feature_set is not None and payload_feature_set != feature_set:
+        raise PromotionError(f"Ожидался артефакт рецепта {feature_set!r}, получен feature_set={payload_feature_set!r}")
+    # Provenance only: the main app scores by feature spec, not by catalog.
     artifact_source_catalog_uuid = str(
         payload.get("source_catalog_uuid") or ""
     ).strip()
-    if expected_source_catalog_uuid is not None:
-        expected_catalog_uuid = str(expected_source_catalog_uuid).strip()
-        if not expected_catalog_uuid:
-            raise PromotionError(
-                "expected_source_catalog_uuid must be non-empty when provided"
-            )
-        if artifact_source_catalog_uuid != expected_catalog_uuid:
-            actual = artifact_source_catalog_uuid or "<missing>"
-            raise PromotionError(
-                f"Artifact source catalog {actual} does not match active "
-                f"catalog {expected_catalog_uuid}"
-            )
     feature_names = _validated_feature_names(payload.get("feature_names"))
     production_calibration = _artifact_calibration_payload(payload)
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
-        raise PromotionError(f"Artifact calibration is required but not available: {reason}")
-    if not artifact_source_catalog_uuid:
-        raise PromotionError("Artifact is not bound to a source catalog UUID")
+        raise PromotionError(f"Требуется откалиброванный артефакт, но калибровки нет: {reason}")
 
-    _report_promotion_progress(progress_callback, "Preparing production manifest", 35)
+    _report_promotion_progress(progress_callback, "Подготовка манифеста для основного приложения", 35)
     target = Path(target_root) / profile.artifact_prefix
     artifact_hash = verified_artifact.artifact_hash
     promoted_at = datetime.now(timezone.utc)
@@ -326,7 +355,7 @@ def promote_profile_model(
         "profile_name": profile.name,
         "profile_description": profile.description,
         "profile_type": profile.profile_type,
-        "feature_set": artifact_feature_set,
+        "feature_set": payload_feature_set,
         "feature_count": len(feature_names),
         "feature_names": feature_names,
         "source_catalog_uuid": artifact_source_catalog_uuid or None,
@@ -354,7 +383,7 @@ def promote_profile_model(
         )
     except (ArtifactIntegrityError, OSError, TypeError, ValueError) as error:
         raise PromotionError(
-            f"Cannot publish promoted classifier atomically: {error}"
+            f"Не удалось атомарно опубликовать классификатор: {error}"
         ) from error
     return {
         "model_path": published.model_path,
@@ -375,7 +404,6 @@ def _report_promotion_progress(
 
 def _promote_profile(args: argparse.Namespace) -> None:
     try:
-        active_catalog_uuid = SourceDatabase(args.source).catalog_uuid
         require_calibration = bool(
             args.require_calibration or not args.allow_uncalibrated
         )
@@ -387,7 +415,6 @@ def _promote_profile(args: argparse.Namespace) -> None:
             target_root=args.target,
             require_calibration=require_calibration,
             allow_uncalibrated=args.allow_uncalibrated,
-            expected_source_catalog_uuid=active_catalog_uuid,
         )
     except (FileNotFoundError, PromotionError, ValueError) as error:
         raise SystemExit(str(error)) from error
@@ -395,17 +422,22 @@ def _promote_profile(args: argparse.Namespace) -> None:
 
 
 def _calibration_report(args: argparse.Namespace) -> None:
-    profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
-    artifact = (
-        Path(args.artifact)
-        if args.artifact is not None
-        else _latest_feature_artifact(
-            args.artifacts or profile.artifact_dir,
-            profile.artifact_prefix,
-            args.feature_set,
-            calibration="any",
+    labels_db = RhythmLabDatabase(args.labels, classifier_key=args.profile)
+    profile = labels_db.get_profile()
+    artifact_dir = Path(args.artifacts or profile.artifact_dir)
+    try:
+        artifact = (
+            Path(args.artifact)
+            if args.artifact is not None
+            else _latest_feature_artifact(
+                artifact_dir,
+                profile.artifact_prefix,
+                args.feature_set or _profile_feature_set(labels_db, artifact_dir),
+                calibration="any",
+            )
         )
-    )
+    except (PromotionError, ValueError) as error:
+        raise SystemExit(str(error)) from error
     payload = _load_artifact_payload(artifact)
     report = _artifact_calibration_payload(payload)
     print(json.dumps({"profile": profile.classifier_key, "artifact": str(artifact), "calibration": report}, ensure_ascii=False, indent=2, sort_keys=True))
@@ -422,12 +454,53 @@ def _suggest_labels(args: argparse.Namespace) -> None:
         random_seed=int(args.random_seed),
     )
     if args.write_queue:
-        written = labels_db.upsert_label_queue_items(
-            mode=mode,
-            items=_queue_items_from_suggestions(report.get("suggestions", [])),
+        source = SourceDatabase(args.source)
+        labels_db.sync_track_sightings(source)
+        suggestions = report.get("suggestions", [])
+        content_keys = labels_db.content_keys_for_tracks(
+            source.catalog_uuid,
+            _suggested_track_uuids(suggestions),
         )
-        report["queue_written"] = written
+        items, unresolved = _queue_items_from_suggestions(suggestions, content_keys=content_keys)
+        report["queue_written"] = labels_db.upsert_label_queue_items(mode=mode, items=items)
+        report["queue_unresolved"] = unresolved
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _migrate_content_identity(args: argparse.Namespace) -> None:
+    try:
+        report = migrate_content_identity(
+            args.lab_db,
+            args.library_db,
+            apply=args.apply,
+            skip_unresolved=args.skip_unresolved,
+            rekey=args.rekey,
+        )
+        if args.report is not None:
+            report["report_path"] = str(write_migration_report(report, args.report, force=args.force))
+    except (FileNotFoundError, MigrationError, ValueError) as error:
+        raise SystemExit(str(error)) from error
+    print(json.dumps(_migration_summary(report), ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _migration_summary(report: dict[str, object]) -> dict[str, object]:
+    labels = report.get("labels") if isinstance(report.get("labels"), dict) else {}
+    return {
+        "mode": report.get("mode"),
+        "lab_db": report.get("lab_db"),
+        "libraries": report.get("libraries"),
+        "before": report.get("before"),
+        "after": report.get("after"),
+        "labels_before": labels.get("before"),
+        "labels_after": labels.get("after"),
+        "merged_groups": labels.get("merged_groups"),
+        "conflicts": len(labels.get("conflicts") or ()),
+        "unresolved": len(labels.get("unresolved") or ()),
+        "backup": report.get("backup"),
+        "integrity": report.get("integrity"),
+        "report_path": report.get("report_path"),
+        "elapsed_seconds": report.get("elapsed_seconds"),
+    }
 
 
 def _queue_list(args: argparse.Namespace) -> None:
@@ -462,6 +535,14 @@ def _collection_save(args: argparse.Namespace) -> None:
     if len(tracks_by_id) != len(set(track_ids)):
         missing = sorted(set(track_ids) - set(tracks_by_id))
         raise SystemExit(f"Unknown current source track ids: {missing}")
+    unfingerprinted = sorted(
+        track_id for track_id, track in tracks_by_id.items() if track.content_key is None
+    )
+    if unfingerprinted:
+        raise SystemExit(
+            "Tracks without a SONARA fingerprint cannot be collected; analyze them "
+            f"in the main app first: {unfingerprinted}"
+        )
     selection = RhythmLabCollectionSelection(
         catalog_uuid=source_db.catalog_uuid,
         tracks=tuple(
@@ -469,6 +550,7 @@ def _collection_save(args: argparse.Namespace) -> None:
                 catalog_uuid=track.catalog_uuid,
                 track_uuid=track.track_uuid,
                 selected_path=track.file_path,
+                content_key=str(track.content_key),
             )
             for track_id in track_ids
             for track in (tracks_by_id[track_id],)
@@ -517,6 +599,57 @@ def _collection_track_ids_from_args(args: argparse.Namespace) -> list[int]:
     return values
 
 
+def artifact_feature_set(name: str, *, suffix: str, artifact_prefix: str) -> str | None:
+    """Recipe encoded in ``<prefix>-<feature_set>-<stamp><suffix>``, or ``None``."""
+
+    prefix = f"{artifact_prefix}-"
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    stem = name[len(prefix) : -len(suffix)]
+    parts = stem.split("-")
+    if len(parts) < 2:
+        return None
+    return parts[0]
+
+
+def canonical_artifact_feature_set(name: str, *, suffix: str, artifact_prefix: str) -> str | None:
+    """``artifact_feature_set`` in canonical family order; ``None`` for foreign or invalid names."""
+
+    feature_set = artifact_feature_set(name, suffix=suffix, artifact_prefix=artifact_prefix)
+    if feature_set is None:
+        return None
+    try:
+        return canonical_feature_set(feature_sources(feature_set))
+    except ValueError:
+        return None
+
+
+def _profile_feature_set(labels_db: RhythmLabDatabase, artifact_dir: Path) -> str:
+    """Recipe of the profile's last training checkpoint, else of its newest artifact."""
+
+    profile = labels_db.get_profile()
+    checkpoint_artifact = labels_db.training_checkpoint()["model_artifact"]
+    candidates = (
+        [Path(str(checkpoint_artifact))] if checkpoint_artifact else []
+    ) + sorted(
+        Path(artifact_dir).glob(f"{profile.artifact_prefix}-*.joblib"),
+        key=lambda path: (path.stat().st_mtime, path.name),
+        reverse=True,
+    )
+    for candidate in candidates:
+        feature_set = canonical_artifact_feature_set(
+            candidate.name,
+            suffix=".joblib",
+            artifact_prefix=profile.artifact_prefix,
+        )
+        if feature_set:
+            return feature_set
+    raise PromotionError(
+        f"No trained {profile.classifier_key} artifacts in {artifact_dir}; "
+        "train first or pass --feature-set"
+    )
+
+
 def _latest_feature_artifact(
     artifact_dir: str | Path,
     artifact_prefix: str,
@@ -524,9 +657,17 @@ def _latest_feature_artifact(
     *,
     calibration: str = "uncalibrated",
 ) -> Path:
-    feature_sources(feature_set)
-    artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
-    artifacts.reverse()
+    feature_set = canonical_feature_set(feature_sources(feature_set))
+    artifacts = sorted(
+        (
+            path
+            for path in Path(artifact_dir).glob(f"{artifact_prefix}-*.joblib")
+            if canonical_artifact_feature_set(path.name, suffix=".joblib", artifact_prefix=artifact_prefix)
+            == feature_set
+        ),
+        key=lambda path: (path.stat().st_mtime, path.name),
+        reverse=True,
+    )
     for artifact in artifacts:
         if _artifact_matches_calibration_filter(artifact, calibration):
             return artifact
@@ -562,7 +703,7 @@ def _validated_feature_names(value: object) -> list[str]:
         or len(set(value)) != len(value)
     ):
         raise PromotionError(
-            "Artifact must declare a non-empty ordered feature_names list"
+            "Артефакт должен содержать непустой упорядоченный список feature_names"
         )
     return list(value)
 
@@ -619,10 +760,29 @@ def _manifest_limitations(calibration: dict[str, object]) -> list[str]:
     ]
 
 
-def _queue_items_from_suggestions(suggestions: object) -> list[dict[str, object]]:
+def _suggested_track_uuids(suggestions: object) -> list[str]:
     if not isinstance(suggestions, list):
         return []
+    return [
+        str(suggestion["track"]["track_uuid"])
+        for suggestion in suggestions
+        if isinstance(suggestion, dict)
+        and isinstance(suggestion.get("track"), dict)
+        and suggestion["track"].get("track_uuid")
+    ]
+
+
+def _queue_items_from_suggestions(
+    suggestions: object,
+    *,
+    content_keys: Mapping[str, str],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Queue rows for suggestions whose track resolves to a content key, plus the rest."""
+
+    if not isinstance(suggestions, list):
+        return [], []
     items: list[dict[str, object]] = []
+    unresolved: list[dict[str, object]] = []
     total = len(suggestions)
     for suggestion in suggestions:
         if not isinstance(suggestion, dict):
@@ -631,8 +791,13 @@ def _queue_items_from_suggestions(suggestions: object) -> list[dict[str, object]
         if not isinstance(track, dict):
             continue
         rank = int(suggestion.get("rank") or len(items) + 1)
+        content_key = content_keys.get(str(track.get("track_uuid")))
+        if content_key is None:
+            unresolved.append({"rank": rank, "track": dict(track), "reason": "no content key"})
+            continue
         items.append(
             {
+                "content_key": content_key,
                 "catalog_uuid": track.get("catalog_uuid"),
                 "track_uuid": track.get("track_uuid"),
                 "selected_path": track.get("file_path"),
@@ -646,13 +811,14 @@ def _queue_items_from_suggestions(suggestions: object) -> list[dict[str, object]
                 },
             }
         )
-    return items
+    return items, unresolved
 
 
 def _write_queue_csv(path: Path, rows: list[dict[str, object]]) -> None:
     fieldnames = [
         "id",
         "classifier_key",
+        "content_key",
         "catalog_uuid",
         "track_uuid",
         "selected_path",
@@ -672,6 +838,7 @@ def _write_queue_csv(path: Path, rows: list[dict[str, object]]) -> None:
                 {
                     "id": row["id"],
                     "classifier_key": row["classifier_key"],
+                    "content_key": row["content_key"],
                     "catalog_uuid": row["catalog_uuid"],
                     "track_uuid": row["track_uuid"],
                     "selected_path": row["selected_path"],
@@ -691,6 +858,16 @@ def _serve(args: argparse.Namespace) -> None:
 
     from .web_app import create_app
 
+    if (
+        args.source is not None
+        and args.source_catalog_uuid
+        and not Path(args.source).expanduser().exists()
+    ):
+        # A launcher-bound source must exist; an unbound missing path only warns.
+        raise FileNotFoundError(
+            f"Source database bound to catalog {args.source_catalog_uuid} "
+            f"does not exist: {args.source}"
+        )
     uvicorn.run(
         create_app(
             args.source,
@@ -701,3 +878,7 @@ def _serve(args: argparse.Namespace) -> None:
         port=args.port,
         log_config=uvicorn_log_config(),
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

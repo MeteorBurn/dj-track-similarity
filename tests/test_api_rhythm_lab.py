@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+from contextlib import closing
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -12,6 +14,7 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabCollections,
     default_rhythm_lab_labels_path,
+    sonara_content_key,
 )
 from dj_track_similarity.rhythm_lab_launcher import RhythmLabSourceBinding
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
@@ -117,6 +120,20 @@ def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeyp
         (tmp_path / "first.wav").as_posix(),
         (tmp_path / "second.wav").as_posix(),
     ]
+    assert [track.content_key for track in stored.tracks] == [
+        sonara_content_key(1, _fingerprint_base64("first.wav")),
+        sonara_content_key(1, _fingerprint_base64("second.wav")),
+    ]
+
+    # A track without a SONARA fingerprint has no content identity: 400, nothing written.
+    unfingerprinted = _add_track(db, tmp_path, "third.wav", "Artist", "Third", fingerprint=False)
+    rejected = client.post(
+        "/api/rhythm-lab/collections",
+        json={"name": "Main UI set", "tracks": [_identity_payload(unfingerprinted)], "mode": "append"},
+    )
+    assert rejected.status_code == 400
+    assert "SONARA fingerprint" in rejected.json()["detail"]
+    assert RhythmLabCollections(labels_path).collection_by_name("Main UI set").track_count == 2
 
 
 def test_rhythm_lab_collection_save_rejects_legacy_numeric_only_body(
@@ -153,17 +170,23 @@ def _identity_payload(identity: TrackIdentity) -> dict[str, object]:
     }
 
 
+def _fingerprint_base64(filename: str) -> str:
+    return base64.b64encode(filename.encode("ascii").ljust(8, b"=")[:8]).decode("ascii")
+
+
 def _add_track(
     db: LibraryDatabase,
     tmp_path: Path,
     filename: str,
     artist: str,
     title: str,
+    *,
+    fingerprint: bool = True,
 ) -> TrackIdentity:
     path = tmp_path / filename
     path.write_bytes(b"audio")
     stat = path.stat()
-    return db.upsert_scanned_track(
+    identity = db.upsert_scanned_track(
         file=ScannedFile(
             file_path=str(path),
             file_size_bytes=stat.st_size,
@@ -184,6 +207,18 @@ def _add_track(
             genres=("House",),
         ),
     ).identity
+    if fingerprint:
+        with closing(db.connect()) as connection:
+            connection.execute(
+                """
+                INSERT INTO sonara_fingerprints(
+                    track_id, track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
+                ) VALUES (?, ?, 1, ?, '2026-07-24T10:00:00.000000Z')
+                """,
+                (identity.track_id, identity.track_uuid, _fingerprint_base64(filename)),
+            )
+            connection.commit()
+    return identity
 
 
 def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_path: Path) -> None:
@@ -373,18 +408,38 @@ def test_rhythm_lab_launcher_reuses_running_server(monkeypatch, tmp_path: Path) 
         lambda pid: pid if pid == 12345 else None,
     )
     rhythm_lab_launcher._write_source_binding(binding)
+    monkeypatch.setattr(rhythm_lab_launcher, "_live_source", lambda: binding.as_payload())
     monkeypatch.setattr(
         rhythm_lab_launcher.subprocess,
         "Popen",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Rhythm Lab should not be launched twice")),
+    )
+    monkeypatch.setattr(
+        rhythm_lab_launcher,
+        "_request_source_switch",
+        lambda _binding: (_ for _ in ()).throw(AssertionError("A matching source must not be switched")),
     )
 
     result = rhythm_lab_launcher.launch_rhythm_lab(binding)
 
     assert result["already_running"] is True
     assert result["managed"] is True
+    assert result["switched"] is False
+    assert result["switch_error"] is None
     assert result["source"] == binding.as_payload()
     assert mirrors == [(log_path, log_path.stat().st_size, None)]
+
+    # Status reports what the running lab says, not the binding file.
+    live = RhythmLabSourceBinding(
+        source_db=tmp_path / "other.sqlite",
+        catalog_uuid="catalog-live",
+    )
+    monkeypatch.setattr(rhythm_lab_launcher, "_live_source", lambda: live.as_payload())
+    status = rhythm_lab_launcher.rhythm_lab_status()
+    assert status["running"] is True
+    assert status["managed"] is True
+    assert status["source"] == live.as_payload()
+    assert status["source_live"] is True
 
 
 def test_rhythm_lab_log_mirror_prints_new_lines_with_prefix(tmp_path: Path, capsys) -> None:

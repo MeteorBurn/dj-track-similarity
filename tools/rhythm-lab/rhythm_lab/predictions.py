@@ -8,12 +8,16 @@ from tempfile import TemporaryDirectory
 import numpy as np
 
 from .artifact_io import load_verified_artifact
-from .features import build_feature_matrix
+from .features import (
+    artifact_source_readiness,
+    build_feature_matrix,
+    canonical_feature_set,
+    feature_sources,
+)
 from .lab_db import (
     PredictionStage,
     RhythmLabDatabase,
     prepare_prediction_write,
-    track_identity,
 )
 from .source_db import SourceDatabase
 
@@ -32,26 +36,24 @@ def apply_model_to_lab(
 ) -> dict[str, int | str]:
     artifact = Path(artifact_path)
     payload = load_verified_artifact(artifact).payload
-    artifact_catalog_uuid = str(payload.get("source_catalog_uuid") or "").strip()
-    if not artifact_catalog_uuid:
-        raise ValueError("Artifact is not bound to a source catalog UUID")
     source = SourceDatabase(source_db_path)
-    active_catalog_uuid = source.catalog_uuid
-    if artifact_catalog_uuid != active_catalog_uuid:
-        raise ValueError(
-            f"Artifact catalog {artifact_catalog_uuid} does not match "
-            f"active catalog {active_catalog_uuid}"
-        )
+    feature_set = canonical_feature_set(feature_sources(str(payload["feature_set"])))
+    ready, reason = artifact_source_readiness(
+        feature_set=feature_set,
+        feature_names=payload.get("feature_names"),
+        feature_states=source.feature_states(),
+    )
+    if not ready:
+        raise ValueError(str(reason))
     resolved_classifier_key = str(classifier_key or payload.get("classifier_key") or "").strip()
     if not resolved_classifier_key:
-        raise ValueError("classifier_key is required for prediction artifacts that do not declare one")
+        raise ValueError("Артефакт не содержит classifier_key; укажите профиль явно")
     model = payload["model"]
-    feature_set = str(payload["feature_set"])
     label_order = [str(label) for label in payload.get("label_order", getattr(model, "classes_", []))]
     labels_db = RhythmLabDatabase(labels_db_path, classifier_key=resolved_classifier_key)
     predicted_count = 0
     skipped_count = 0
-    track_ids = source.rhythm_lab_track_ids()
+    track_ids = source.rhythm_lab_track_ids(feature_sources(feature_set))
     if progress_callback is not None:
         progress_callback(0, len(track_ids))
     with TemporaryDirectory(prefix="rhythm-lab-predictions-") as stage_root:
@@ -64,10 +66,11 @@ def apply_model_to_lab(
                     tracks_by_id[track_id]
                     for track_id in batch_ids
                     if track_id in tracks_by_id
+                    and tracks_by_id[track_id].content_key is not None
                 )
                 skipped_count += len(batch_ids) - len(tracks)
                 labels_by_identity = {
-                    track_identity(track): "" for track in tracks
+                    str(track.content_key): "" for track in tracks
                 }
                 features = build_feature_matrix(
                     source,
@@ -135,6 +138,7 @@ def export_predictions_csv(
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     fields = [
+        "content_key",
         "catalog_uuid",
         "track_uuid",
         "label",
@@ -153,6 +157,7 @@ def export_predictions_csv(
         for row in rows:
             writer.writerow(
                 {
+                    "content_key": row["content_key"],
                     "catalog_uuid": row["catalog_uuid"],
                     "track_uuid": row["track_uuid"],
                     "label": row["label"],
@@ -170,12 +175,9 @@ def export_predictions_csv(
 
 
 def latest_predictions_by_track(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    latest: dict[tuple[str, str], dict[str, object]] = {}
+    latest: dict[str, dict[str, object]] = {}
     for row in rows:
-        identity = (
-            str(row["catalog_uuid"]),
-            str(row["track_uuid"]),
-        )
+        identity = str(row["content_key"])
         current = latest.get(identity)
         if current is None or _prediction_sort_key(row) > _prediction_sort_key(current):
             latest[identity] = row

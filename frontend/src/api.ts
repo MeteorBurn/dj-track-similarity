@@ -523,12 +523,15 @@ export type RhythmLabStatus = {
   managed: boolean;
   url: string;
   source?: RhythmLabSourceBinding | null;
+  source_live?: boolean;
 };
 
 export type RhythmLabLaunchResult = RhythmLabStatus & {
   already_running: boolean;
   pid?: number | null;
   source: RhythmLabSourceBinding | null;
+  switched?: boolean;
+  switch_error?: string | null;
 };
 
 export type ServerShutdownResult = {

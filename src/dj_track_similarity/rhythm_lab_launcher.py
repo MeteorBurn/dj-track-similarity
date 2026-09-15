@@ -9,6 +9,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,9 @@ from .rhythm_lab_collections import default_rhythm_lab_labels_path
 RHYTHM_LAB_HOST = "127.0.0.1"
 RHYTHM_LAB_PORT = 8777
 RHYTHM_LAB_URL = f"http://{RHYTHM_LAB_HOST}:{RHYTHM_LAB_PORT}/"
+LIVE_SOURCE_TIMEOUT_SECONDS = 1.0
+# A switch syncs track sightings for the whole library before it answers.
+SOURCE_SWITCH_TIMEOUT_SECONDS = 120.0
 _LOG_MIRROR_LOCK = threading.Lock()
 _LOG_MIRROR_THREADS: dict[Path, threading.Thread] = {}
 
@@ -76,27 +81,39 @@ def launch_rhythm_lab(
             if pid is not None
             else None
         )
-        active_source = (
-            _read_source_binding()
-            if managed_pid is not None
-            else None
-        )
-        if selected_source is not None:
-            if managed_pid is None or active_source is None:
-                raise RuntimeError(
-                    "Rhythm Lab is already running, but its source "
-                    "binding cannot be verified"
-                )
-            if active_source != selected_source:
-                raise RuntimeError(
-                    "Rhythm Lab is already running for a different "
-                    "database or catalog"
-                )
+        if selected_source is not None and managed_pid is None:
+            raise RuntimeError(
+                "Rhythm Lab is already running, but its source "
+                "binding cannot be verified"
+            )
+        active_source: RhythmLabSourceBinding | None = None
+        switched = False
+        switch_error: str | None = None
+        if managed_pid is not None:
+            active_source = (
+                _binding_from_payload(_live_source()) or _read_source_binding()
+            )
+            if selected_source is not None and active_source != selected_source:
+                # A managed lab follows the main app's library; a refusal
+                # (busy, not a library) is reported, not raised.
+                try:
+                    _request_source_switch(selected_source)
+                except RuntimeError as error:
+                    switch_error = str(error)
+                    active_source = (
+                        _binding_from_payload(_live_source()) or active_source
+                    )
+                else:
+                    _write_source_binding(selected_source)
+                    active_source = selected_source
+                    switched = True
         _start_log_mirror(log_path, _file_size(log_path), None)
         return {
             "url": RHYTHM_LAB_URL,
             "already_running": True,
             "managed": managed_pid is not None,
+            "switched": switched,
+            "switch_error": switch_error,
             "source": _source_payload(active_source),
         }
 
@@ -172,6 +189,8 @@ def launch_rhythm_lab(
         "url": RHYTHM_LAB_URL,
         "already_running": False,
         "managed": True,
+        "switched": False,
+        "switch_error": None,
         "pid": process.pid,
         "source": _source_payload(selected_source),
     }
@@ -187,12 +206,16 @@ def rhythm_lab_status() -> dict[str, Any]:
     )
     if not running and pid is not None:
         _clear_pid()
-    source = _read_source_binding() if managed else None
+    live_source = _binding_from_payload(_live_source()) if managed else None
+    source = live_source
+    if source is None and managed:
+        source = _read_source_binding()
     return {
         "running": running,
         "managed": managed,
         "url": RHYTHM_LAB_URL,
         "source": _source_payload(source),
+        "source_live": live_source is not None,
     }
 
 
@@ -311,6 +334,10 @@ def _read_source_binding() -> RhythmLabSourceBinding | None:
         )
     except (OSError, json.JSONDecodeError):
         return None
+    return _binding_from_payload(payload)
+
+
+def _binding_from_payload(payload: object) -> RhythmLabSourceBinding | None:
     if not isinstance(payload, dict):
         return None
     try:
@@ -320,6 +347,73 @@ def _read_source_binding() -> RhythmLabSourceBinding | None:
         )
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _live_source() -> dict[str, str] | None:
+    """Source reported by the running Rhythm Lab, or ``None`` when it cannot be asked."""
+
+    request = urllib.request.Request(
+        RHYTHM_LAB_URL + "api/source/current",
+        headers={"Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=LIVE_SOURCE_TIMEOUT_SECONDS,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    catalog_uuid = payload.get("catalog_uuid")
+    database_path = payload.get("path")
+    if not catalog_uuid or not database_path:
+        return None
+    return {
+        "catalog_uuid": str(catalog_uuid),
+        "database_path": str(database_path),
+    }
+
+
+def _request_source_switch(binding: RhythmLabSourceBinding) -> dict[str, Any]:
+    """Ask the running Rhythm Lab to open ``binding``; ``RuntimeError`` carries its refusal."""
+
+    request = urllib.request.Request(
+        RHYTHM_LAB_URL + "api/source/switch",
+        data=json.dumps({"path": str(binding.source_db)}).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(
+            request,
+            timeout=SOURCE_SWITCH_TIMEOUT_SECONDS,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(_http_error_detail(error)) from error
+    except (OSError, ValueError) as error:
+        raise RuntimeError(f"Rhythm Lab source switch failed: {error}") from error
+    if not isinstance(payload, dict) or payload.get("catalog_uuid") != binding.catalog_uuid:
+        raise RuntimeError(
+            "Rhythm Lab opened a different catalog than the selected library"
+        )
+    return payload
+
+
+def _http_error_detail(error: urllib.error.HTTPError) -> str:
+    try:
+        body = json.loads(error.read().decode("utf-8", errors="replace"))
+    except (OSError, ValueError):
+        body = None
+    detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, str) and detail.strip():
+        return detail
+    return f"Rhythm Lab refused the source switch: HTTP {error.code} {error.reason}"
 
 
 def _read_pid() -> int | None:

@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260814-label-status-v1" />
-  <script src="/static/app.js?v=rhythm-lab-20260814-label-status-v1" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260915-ru-v1" />
+  <script src="/static/app.js?v=rhythm-lab-20260915-ru-v1" defer></script>
   <title>Rhythm Lab</title>
 </head>
 <body>
@@ -13,7 +13,7 @@
     <section class="top-bar">
       <div>
         <strong>Rhythm Lab</strong>
-        <button id="shutdownLab" type="button" class="icon-button rhythm-lab-stop-button" title="Stop Rhythm Lab" aria-label="Stop Rhythm Lab">
+        <button id="shutdownLab" type="button" class="icon-button rhythm-lab-stop-button" title="Остановить Rhythm Lab" aria-label="Остановить Rhythm Lab">
           <svg class="lucide lucide-power" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2v10" />
             <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
@@ -21,20 +21,20 @@
         </button>
       </div>
       <div class="profile-controls">
-        <select id="profileSelect" title="Active classifier profile"></select>
-        <button id="newProfile" type="button">New profile</button>
-        <button id="settingsTab" type="button">Profile Settings</button>
-        <button id="deleteProfile" type="button">Delete</button>
+        <select id="profileSelect" title="Активный профиль классификатора"></select>
+        <button id="newProfile" type="button">Новый профиль</button>
+        <button id="settingsTab" type="button">Настройки профиля</button>
+        <button id="deleteProfile" type="button">Удалить</button>
       </div>
     </section>
 
     <section class="source-row">
-      <input id="sourcePath" class="source-path" placeholder="C:\db\abstracted.sqlite" title="Existing dj-track-similarity SQLite database. Opened read-only." />
-      <button id="chooseSource" type="button" title="Choose existing SQLite database">Browse</button>
-      <button id="loadSource" type="button" title="Load selected source database">Load database</button>
+      <input id="sourcePath" class="source-path" placeholder="C:\db\abstracted.sqlite" title="Существующая база dj-track-similarity (SQLite). Открывается только для чтения." />
+      <button id="chooseSource" type="button" title="Выбрать существующую базу SQLite">Обзор</button>
+      <button id="loadSource" type="button" title="Загрузить выбранную базу-источник">Загрузить базу</button>
       <div class="source-actions">
         <button id="trainingTab" type="button" class="tab-button">
-          Training
+          Обучение
         </button>
       </div>
     </section>
@@ -46,7 +46,7 @@
           <path d="M7 3v18" />
           <path d="M20.4 18.9c.2.7-.2 1.4-.9 1.6l-3.7 1c-.7.2-1.4-.2-1.6-.9L9.1 5.1c-.2-.7.2-1.4.9-1.6l3.7-1c.7-.2 1.4.2 1.6.9Z" />
         </svg>
-        Library
+        Библиотека
       </button>
       <button id="candidatesTab" type="button" class="tab-button">
         <svg class="lucide lucide-sparkles" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -55,7 +55,7 @@
           <path d="M22 4h-4" />
           <circle cx="4" cy="20" r="2" />
         </svg>
-        Candidates
+        Кандидаты
       </button>
       <button id="collectionTab" type="button" class="tab-button">
         <svg class="lucide lucide-list-checks" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -65,11 +65,11 @@
           <path d="M13 18h8" />
           <path d="m3 7 2 2 4-4" />
         </svg>
-        Collection
+        Коллекция
       </button>
       <span id="collectionControls" class="collection-controls" hidden>
-        <select id="collectionSelect" title="Review collection"></select>
-        <button id="deleteCollection" type="button" class="icon-button delete-collection" title="Delete selected collection. Labels remain in the active profile." aria-label="Delete selected collection">
+        <select id="collectionSelect" title="Коллекция для ревью"></select>
+        <button id="deleteCollection" type="button" class="icon-button delete-collection" title="Удалить выбранную коллекцию. Метки останутся в активном профиле." aria-label="Удалить выбранную коллекцию">
           <svg class="lucide lucide-trash-2" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10 11v6" />
             <path d="M14 11v6" />
@@ -83,18 +83,18 @@
     </nav>
 
     <section id="commonFilters" class="filters">
-      <input id="query" placeholder="search path/title/artist" />
-      <input id="bpmMin" type="number" min="0" step="0.1" placeholder="BPM from" title="Minimum Sonara BPM. Leave blank for no lower bound." />
-      <input id="bpmMax" type="number" min="0" step="0.1" placeholder="BPM to" title="Maximum Sonara BPM. Leave blank for no upper bound." />
+      <input id="query" placeholder="поиск по пути, названию, исполнителю" />
+      <input id="bpmMin" type="number" min="0" step="0.1" placeholder="BPM от" title="Минимальный BPM по SONARA. Пусто — без нижней границы." />
+      <input id="bpmMax" type="number" min="0" step="0.1" placeholder="BPM до" title="Максимальный BPM по SONARA. Пусто — без верхней границы." />
       <select id="label"></select>
     </section>
 
     <section id="candidateFilters" class="filters candidate-filters-placeholder">
-      <select id="libraryOrder" title="Library order">
-        <option value="normal" selected>Normal order</option>
-        <option value="random">Random</option>
+      <select id="libraryOrder" title="Порядок библиотеки">
+        <option value="normal" selected>Обычный порядок</option>
+        <option value="random">Случайный</option>
       </select>
-      <button id="shuffleLibraryOrder" type="button" class="icon-button shuffle-library-order" title="Shuffle random library order" aria-label="Shuffle random library order">
+      <button id="shuffleLibraryOrder" type="button" class="icon-button shuffle-library-order" title="Перемешать случайный порядок" aria-label="Перемешать случайный порядок">
         <svg class="lucide lucide-shuffle" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="m18 14 4 4-4 4" />
           <path d="m18 2 4 4-4 4" />
@@ -105,11 +105,11 @@
       </button>
       <select id="candidatePredicted"></select>
       <select id="candidateMinBroken">
-        <option value="positive_highest" selected>highest positive probability</option>
-        <option value="negative_highest">highest negative probability</option>
-        <option value="balanced">uncertain / balanced</option>
+        <option value="positive_highest" selected>наибольшая положительная вероятность</option>
+        <option value="negative_highest">наибольшая отрицательная вероятность</option>
+        <option value="balanced">неуверенные / пограничные</option>
       </select>
-      <input id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0" title="Minimum positive probability" />
+      <input id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0" title="Минимальная положительная вероятность" />
     </section>
 
     <section class="pager">
@@ -119,10 +119,10 @@
         <option value="200">200</option>
         <option value="500">500</option>
       </select>
-      <button id="prevPage" type="button">Prev</button>
-      <button id="nextPage" type="button">Next</button>
-      <input id="pageNumber" class="page-number" type="number" min="1" step="1" value="1" title="Page number" />
-      <button id="load" type="button">Load</button>
+      <button id="prevPage" type="button">Назад</button>
+      <button id="nextPage" type="button">Вперёд</button>
+      <input id="pageNumber" class="page-number" type="number" min="1" step="1" value="1" title="Номер страницы" />
+      <button id="load" type="button">Загрузить</button>
       <span id="pageInfo" class="meta"></span>
       <span id="summary" class="summary-strip">
         <span id="summaryCoverage"></span>
@@ -136,19 +136,20 @@
     <section id="settingsPanel" class="settings-panel" hidden>
       <div class="settings-grid">
         <form id="profileForm" class="tool-panel">
-          <h2>Profile</h2>
-          <label>Name <input id="profileNameInput" /></label>
-          <label>Description <textarea id="profileDescriptionInput"></textarea></label>
-          <label>Artifact prefix <input id="profileArtifactPrefixInput" /></label>
-          <label>New labels to train <input id="profileTrainingMinAddedInput" type="number" min="1" step="1" value="50" /></label>
-          <button type="submit">Save profile</button>
+          <h2>Профиль</h2>
+          <label>Название <input id="profileNameInput" /></label>
+          <label>Описание <textarea id="profileDescriptionInput"></textarea></label>
+          <label>Префикс артефактов <input id="profileArtifactPrefixInput" /></label>
+          <label>Новых меток для обучения <input id="profileTrainingMinAddedInput" type="number" min="1" step="1" value="50" /></label>
+          <label>Минимум меток на класс для обучения <input id="profileTrainingMinLabelsInput" type="number" min="2" step="1" value="100" /></label>
+          <button type="submit">Сохранить профиль</button>
         </form>
         <form id="renameLabelForm" class="tool-panel">
-          <h2>Rename label key</h2>
-          <label>Current label <select id="renameLabelSelect"></select></label>
-          <label>New key <input id="renameLabelKeyInput" placeholder="lead_vocal" /></label>
-          <label>Display name <input id="renameLabelNameInput" placeholder="Lead Vocal" /></label>
-          <button type="submit">Rename label</button>
+          <h2>Переименовать ключ метки</h2>
+          <label>Текущая метка <select id="renameLabelSelect"></select></label>
+          <label>Новый ключ <input id="renameLabelKeyInput" placeholder="lead_vocal" /></label>
+          <label>Отображаемое имя <input id="renameLabelNameInput" placeholder="Ведущий вокал" /></label>
+          <button type="submit">Переименовать метку</button>
         </form>
       </div>
     </section>
@@ -158,43 +159,44 @@
 
   <dialog id="profileDialog">
     <form id="newProfileForm" method="dialog" class="dialog-form">
-      <h2>New classifier profile</h2>
-      <label>Key <input id="newProfileKey" placeholder="vocal_presence" required /></label>
-      <label>Name <input id="newProfileName" placeholder="Vocal Presence" required /></label>
-      <label>Type
+      <h2>Новый профиль классификатора</h2>
+      <label>Ключ <input id="newProfileKey" placeholder="vocal_presence" required /></label>
+      <label>Название <input id="newProfileName" placeholder="Наличие вокала" required /></label>
+      <label>Тип
         <select id="newProfileType">
-          <option value="binary" selected>Binary</option>
-          <option value="multiclass">Multiclass</option>
+          <option value="binary" selected>Бинарный</option>
+          <option value="multiclass">Мультикласс</option>
         </select>
       </label>
-      <label>Description <textarea id="newProfileDescription" placeholder="What this classifier should detect"></textarea></label>
-      <label>New labels to train <input id="newProfileTrainingMinAdded" type="number" min="1" step="1" value="50" required /></label>
+      <label>Описание <textarea id="newProfileDescription" placeholder="Что должен распознавать этот классификатор"></textarea></label>
+      <label>Новых меток для обучения <input id="newProfileTrainingMinAdded" type="number" min="1" step="1" value="50" required /></label>
+      <label>Минимум меток на класс для обучения <input id="newProfileTrainingMinLabels" type="number" min="2" step="1" value="100" required /></label>
       <div id="binaryLabelGrid" class="label-grid">
-        <label>Positive key <input id="newPositiveKey" placeholder="vocal" required /></label>
-        <label>Positive name <input id="newPositiveName" placeholder="Vocal" required /></label>
-        <label>Negative key <input id="newNegativeKey" placeholder="instrumental" required /></label>
-        <label>Negative name <input id="newNegativeName" placeholder="Instrumental" required /></label>
-        <label>Review key <input id="newReviewKey" placeholder="uncertain" /></label>
-        <label>Review name <input id="newReviewName" placeholder="Uncertain" /></label>
+        <label>Ключ положительной метки <input id="newPositiveKey" placeholder="vocal" required /></label>
+        <label>Название положительной <input id="newPositiveName" placeholder="Вокал" required /></label>
+        <label>Ключ отрицательной метки <input id="newNegativeKey" placeholder="instrumental" required /></label>
+        <label>Название отрицательной <input id="newNegativeName" placeholder="Инструментал" required /></label>
+        <label>Ключ метки для ревью <input id="newReviewKey" placeholder="uncertain" /></label>
+        <label>Название метки для ревью <input id="newReviewName" placeholder="Неуверенно" /></label>
       </div>
       <div id="multiclassLabelEditor" class="multiclass-label-editor" hidden>
         <div id="multiclassLabelRows" class="multiclass-label-rows">
           <div class="multiclass-label-row">
-            <label>Class key <input class="multiclass-label-key" placeholder="euphoric" /></label>
-            <label>Class name <input class="multiclass-label-name" placeholder="Euphoric" /></label>
-            <label>Description <textarea class="multiclass-label-description" placeholder="Bright, uplifting, hands-in-the-air mood"></textarea></label>
+            <label>Ключ класса <input class="multiclass-label-key" placeholder="euphoric" /></label>
+            <label>Название класса <input class="multiclass-label-name" placeholder="Эйфория" /></label>
+            <label>Описание <textarea class="multiclass-label-description" placeholder="Яркое, приподнятое настроение, руки вверх"></textarea></label>
           </div>
           <div class="multiclass-label-row">
-            <label>Class key <input class="multiclass-label-key" placeholder="dark" /></label>
-            <label>Class name <input class="multiclass-label-name" placeholder="Dark" /></label>
-            <label>Description <textarea class="multiclass-label-description" placeholder="Darker, tense, low-light mood"></textarea></label>
+            <label>Ключ класса <input class="multiclass-label-key" placeholder="dark" /></label>
+            <label>Название класса <input class="multiclass-label-name" placeholder="Тёмный" /></label>
+            <label>Описание <textarea class="multiclass-label-description" placeholder="Тёмное, напряжённое, приглушённое настроение"></textarea></label>
           </div>
         </div>
-        <button id="addMulticlassLabel" type="button">Add class</button>
+        <button id="addMulticlassLabel" type="button">Добавить класс</button>
       </div>
       <menu>
-        <button id="cancelProfileButton" type="button" value="cancel">Cancel</button>
-        <button id="createProfileButton" type="submit" value="default">Create</button>
+        <button id="cancelProfileButton" type="button" value="cancel">Отмена</button>
+        <button id="createProfileButton" type="submit" value="default">Создать</button>
       </menu>
     </form>
   </dialog>

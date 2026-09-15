@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from itertools import combinations
 import json
 from pathlib import Path
 import time
@@ -9,11 +10,16 @@ from collections.abc import Sequence
 import numpy as np
 
 from .features import (
-    ABLATION_FEATURE_SETS,
+    MERT_V2_DEFAULT_LAYER,
+    available_feature_sources,
     build_feature_matrix,
+    canonical_feature_set,
+    default_feature_set,
     feature_sources,
+    source_availability_error,
+    stored_mert_v2_layers,
 )
-from .lab_db import ClassifierProfile, RhythmLabDatabase, TrackIdentity
+from .lab_db import ClassifierProfile, RhythmLabDatabase
 from .source_db import SourceDatabase, SourceTrack
 from .training import TrainingProgressCallback, train_feature_set
 
@@ -23,7 +29,76 @@ MODEL_FAMILY = (
     "StandardScaler + source-balanced feature blocks + "
     'LogisticRegression(class_weight="balanced")'
 )
+BENCHMARK_STRATEGIES = ("singles", "singles+all", "greedy", "full", "layers", "layers+all", "custom")
+DEFAULT_BENCHMARK_STRATEGY = "singles+all"
 LAB_ROOT = Path(__file__).resolve().parents[1]
+
+
+def benchmark_plan(
+    available: Sequence[str],
+    strategy: str,
+    feature_sets: Sequence[str] = (),
+    *,
+    mert_v2_layers: Sequence[int] = (),
+) -> tuple[str, ...]:
+    """Feature sets a strategy trains up front, given the library's available sources.
+
+    ``available`` holds bare family tokens; ``mert_v2_layers`` lists the stored
+    MERT-v2 layers. ``greedy`` returns its opening round (the singles); later
+    rounds depend on metrics. ``layers`` needs MERT-v2 and trains one set per
+    stored layer; ``layers+all`` adds each layer joined with every other
+    available family. ``custom`` requires every set to be trainable here.
+    """
+
+    clean_strategy = _benchmark_strategy(strategy)
+    sources = feature_sources(canonical_feature_set(available)) if available else ()
+    layers = tuple(sorted({int(layer) for layer in mert_v2_layers}))
+    if clean_strategy == "custom":
+        plan = _normalize_feature_sets(feature_sets)
+        for feature_set in plan:
+            error = _availability_error(feature_set, sources, layers)
+            if error is not None:
+                raise ValueError(error)
+        return tuple(plan)
+    if clean_strategy in {"layers", "layers+all"}:
+        if "mert_v2" not in sources or not layers:
+            raise ValueError("Данные MERT_V2 не сохранены в этой библиотеке")
+        layer_tokens = tuple(
+            "mert_v2" if layer == MERT_V2_DEFAULT_LAYER else f"mert_v2@{layer}"
+            for layer in layers
+        )
+        others = tuple(source for source in sources if source != "mert_v2")
+        if clean_strategy == "layers" or not others:
+            return layer_tokens
+        return (
+            *layer_tokens,
+            *(canonical_feature_set((*others, token)) for token in layer_tokens),
+        )
+    if clean_strategy == "full":
+        return tuple(
+            canonical_feature_set(combo)
+            for size in range(len(sources), 0, -1)
+            for combo in combinations(sources, size)
+        )
+    singles = tuple(sources)
+    if clean_strategy == "singles+all":
+        everything = default_feature_set(sources)
+        if everything is not None and everything not in singles:
+            return (*singles, everything)
+    return singles
+
+
+def planned_run_count(
+    available: Sequence[str],
+    strategy: str,
+    feature_sets: Sequence[str] = (),
+    *,
+    mert_v2_layers: Sequence[int] = (),
+) -> int:
+    """Exact run count for fixed strategies; the n(n+1)/2 upper bound for greedy."""
+
+    plan = benchmark_plan(available, strategy, feature_sets, mert_v2_layers=mert_v2_layers)
+    return _planned_runs(plan, strategy)
 
 
 def run_ablation_benchmark(
@@ -31,7 +106,8 @@ def run_ablation_benchmark(
     labels_db_path: str | Path,
     *,
     profile_keys: Sequence[str] | None = None,
-    feature_sets: Sequence[str] = ABLATION_FEATURE_SETS,
+    strategy: str = DEFAULT_BENCHMARK_STRATEGY,
+    feature_sets: Sequence[str] = (),
     artifacts_root: str | Path | None = None,
     output_path: str | Path | None = None,
     random_state: int = 42,
@@ -39,7 +115,12 @@ def run_ablation_benchmark(
     progress_callback: TrainingProgressCallback | None = None,
 ) -> dict[str, object]:
     labels_path = Path(labels_db_path)
-    selected_feature_sets = tuple(_normalize_feature_sets(feature_sets))
+    clean_strategy = _benchmark_strategy(strategy)
+    source = SourceDatabase(source_db_path)
+    available = available_feature_sources(source.feature_states())
+    layers = stored_mert_v2_layers(source)
+    plan = _run_plan(available, clean_strategy, feature_sets, layers)
+    planned_runs = _planned_runs(plan, clean_strategy)
     profiles, skipped_profiles = _selected_profiles(labels_path, profile_keys)
     generated_at = datetime.now(timezone.utc)
     report: dict[str, object] = {
@@ -48,12 +129,16 @@ def run_ablation_benchmark(
         "labels_db": str(labels_path.expanduser().resolve(strict=False)),
         "selection_metric": SELECTION_METRIC,
         "model_family": MODEL_FAMILY,
-        "feature_sets": list(selected_feature_sets),
+        "strategy": clean_strategy,
+        "available_sources": list(available),
+        "available_mert_v2_layers": list(layers),
+        "feature_sets": list(plan),
+        "planned_runs": planned_runs,
         "calibrate_finalists": bool(calibrate_finalists),
         "skipped_profiles": skipped_profiles,
         "profiles": [],
     }
-    profile_steps = max(1, len(selected_feature_sets) * 10 + (10 if calibrate_finalists else 0))
+    profile_steps = max(1, planned_runs * 10 + (10 if calibrate_finalists else 0))
     total_progress_steps = max(1, len(profiles) * profile_steps + 1)
     for profile_index, profile in enumerate(profiles):
         artifact_dir = _profile_artifact_dir(profile, artifacts_root)
@@ -62,13 +147,15 @@ def run_ablation_benchmark(
             labels_path,
             profile.classifier_key,
             artifact_dir=artifact_dir,
-            feature_sets=selected_feature_sets,
+            strategy=clean_strategy,
+            feature_sets=feature_sets,
             random_state=random_state,
             calibrate_finalist=calibrate_finalists,
             progress_callback=lambda stage, completed, total: _report_progress(
                 progress_callback,
                 f"{profile.name}: {stage}",
-                profile_index * profile_steps + completed,
+                profile_index * profile_steps
+                + round(profile_steps * completed / max(1, total)),
                 total_progress_steps,
             ),
         )
@@ -81,14 +168,14 @@ def run_ablation_benchmark(
     )
     _report_progress(
         progress_callback,
-        "Writing benchmark report",
+        "Запись отчёта бенчмарка",
         total_progress_steps - 1,
         total_progress_steps,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     report["output_path"] = str(output.expanduser().resolve(strict=False))
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    _report_progress(progress_callback, "Benchmark complete", total_progress_steps, total_progress_steps)
+    _report_progress(progress_callback, "Бенчмарк завершён", total_progress_steps, total_progress_steps)
     return report
 
 
@@ -98,24 +185,47 @@ def benchmark_profile_ablation(
     profile_key: str,
     *,
     artifact_dir: str | Path,
-    feature_sets: Sequence[str] = ABLATION_FEATURE_SETS,
+    strategy: str = DEFAULT_BENCHMARK_STRATEGY,
+    feature_sets: Sequence[str] = (),
     random_state: int = 42,
     calibrate_finalist: bool = False,
     progress_callback: TrainingProgressCallback | None = None,
 ) -> dict[str, object]:
+    clean_strategy = _benchmark_strategy(strategy)
     labels_db = RhythmLabDatabase(labels_db_path, classifier_key=profile_key)
     profile = labels_db.get_profile()
     label_counts = labels_db.label_counts()
-    labels_by_identity = labels_db.training_labels()
     source = SourceDatabase(source_db_path)
-    tracks = tuple(source.tracks_by_identities(labels_by_identity))
+    labels_db.sync_track_sightings(source)
+    labels_by_identity = labels_db.training_labels(catalog_uuid=source.catalog_uuid)
+    available = available_feature_sources(source.feature_states())
+    layers = stored_mert_v2_layers(source)
+    plan = _run_plan(available, clean_strategy, feature_sets, layers)
+    # One shared pool for every recipe: representatives that store every
+    # available family, so rows are comparable across the benchmark.
+    representatives = labels_db.representative_sightings(
+        source.catalog_uuid,
+        labels_by_identity,
+    )
+    tracks = tuple(
+        source.tracks_by_ids(
+            representatives.values(),
+            required_sources=available or None,
+        ).values()
+    )
     embedding_cache: dict[str, tuple[int, dict[int, np.ndarray]]] = {}
     result_rows: list[dict[str, object]] = []
     artifact_root = Path(artifact_dir)
-    total_progress_steps = max(1, len(feature_sets) * 10 + (10 if calibrate_finalist else 0))
-    for feature_index, feature_set in enumerate(feature_sets):
-        result_rows.append(
-            _train_feature_set_row(
+    calibration_steps = 10 if calibrate_finalist else 0
+    runs_done = 0
+
+    def train(feature_set: str, *, planned_runs: int, calibrate: bool = False) -> dict[str, object]:
+        nonlocal runs_done
+        error = _availability_error(feature_set, available, layers)
+        if error is not None:
+            row = _unavailable_row(feature_set, error)
+        else:
+            row = _train_feature_set_row(
                 source,
                 labels_by_identity,
                 tracks,
@@ -124,28 +234,45 @@ def benchmark_profile_ablation(
                 artifact_root,
                 feature_set,
                 random_state=random_state,
-                calibrate=False,
+                calibrate=calibrate,
                 progress_callback=progress_callback,
-                progress_completed=feature_index * 10,
-                progress_total=total_progress_steps,
+                progress_completed=runs_done * 10,
+                progress_total=max(1, planned_runs * 10 + calibration_steps),
             )
-        )
+        runs_done += 1
+        return row
+
+    if clean_strategy == "greedy":
+        for feature_set in plan:
+            result_rows.append(train(feature_set, planned_runs=len(plan)))
+        best = _select_winner(result_rows)
+        while best is not None:
+            best_sources = feature_sources(str(best["feature_set"]))
+            candidates = [source_name for source_name in available if source_name not in best_sources]
+            if not candidates:
+                break
+            round_rows = [
+                train(
+                    canonical_feature_set((*best_sources, source_name)),
+                    planned_runs=runs_done + len(candidates),
+                )
+                for source_name in candidates
+            ]
+            result_rows.extend(round_rows)
+            challenger = _select_winner(round_rows)
+            if challenger is None or not _beats_noise(challenger, best):
+                break
+            best = challenger
+    else:
+        for feature_set in plan:
+            result_rows.append(train(feature_set, planned_runs=len(plan)))
     winner = _select_winner(result_rows)
     calibrated_finalist = None
     if calibrate_finalist and winner is not None:
-        calibrated_finalist = _train_feature_set_row(
-            source,
-            labels_by_identity,
-            tracks,
-            embedding_cache,
-            profile,
-            artifact_root,
+        calibrated_finalist = train(
             str(winner["feature_set"]),
-            random_state=random_state,
+            planned_runs=runs_done,
             calibrate=True,
-            progress_callback=progress_callback,
-            progress_completed=len(feature_sets) * 10,
-            progress_total=total_progress_steps,
         )
     return {
         "classifier_key": profile.classifier_key,
@@ -181,15 +308,91 @@ def cli_summary(report: dict[str, object]) -> dict[str, object]:
     return {
         "output_path": report.get("output_path"),
         "selection_metric": report.get("selection_metric"),
+        "strategy": report.get("strategy"),
+        "available_sources": report.get("available_sources", []),
         "feature_sets": report.get("feature_sets", []),
+        "planned_runs": report.get("planned_runs"),
         "profiles": profiles,
         "skipped_profiles": report.get("skipped_profiles", []),
     }
 
 
+def _benchmark_strategy(strategy: str) -> str:
+    clean = str(strategy or "").strip().lower()
+    if clean not in BENCHMARK_STRATEGIES:
+        raise ValueError(f"Неподдерживаемая стратегия бенчмарка: {strategy!r}")
+    return clean
+
+
+def _run_plan(
+    available: Sequence[str],
+    strategy: str,
+    feature_sets: Sequence[str],
+    mert_v2_layers: Sequence[int],
+) -> tuple[str, ...]:
+    # Custom keeps sets with unavailable sources so the report can mark them
+    # "unavailable" instead of failing the whole benchmark.
+    if strategy == "custom":
+        return tuple(_normalize_feature_sets(feature_sets))
+    return benchmark_plan(available, strategy, mert_v2_layers=mert_v2_layers)
+
+
+def _planned_runs(plan: Sequence[str], strategy: str) -> int:
+    if _benchmark_strategy(strategy) == "greedy":
+        return len(plan) * (len(plan) + 1) // 2
+    return len(plan)
+
+
+def _availability_error(
+    feature_set: str,
+    available: Sequence[str],
+    mert_v2_layers: Sequence[int],
+) -> str | None:
+    for source in feature_sources(feature_set):
+        error = source_availability_error(source, available, mert_v2_layers)
+        if error is not None:
+            return error
+    return None
+
+
+def _unavailable_row(feature_set: str, error: str) -> dict[str, object]:
+    return {
+        "feature_set": feature_set,
+        "feature_sources": list(feature_sources(feature_set)),
+        "status": "unavailable",
+        "error": error,
+        "available_rows": 0,
+        "skipped_rows": 0,
+        "feature_count": 0,
+        "calibrated": False,
+        "elapsed_seconds": 0.0,
+    }
+
+
+def _beats_noise(challenger: dict[str, object], incumbent: dict[str, object]) -> bool:
+    """True when the challenger's CV macro-F1 improves on the incumbent at all.
+
+    The 2026-09-15 strategy study showed a one-sigma gate stops greedy at single
+    sources (0/20 full-grid winners); any strict improvement reaches the full-grid
+    winner's noise band in 20/20 cells at about a quarter of the grid cost.
+    """
+
+    incumbent_mean = _cv_metric(incumbent, "macro_f1_mean")
+    challenger_mean = _cv_metric(challenger, "macro_f1_mean")
+    if challenger_mean is None or incumbent_mean is None:
+        return False
+    return challenger_mean > incumbent_mean
+
+
+def _cv_metric(row: dict[str, object], key: str) -> float | None:
+    metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+    cross_validation = metrics.get("cross_validation") if isinstance(metrics.get("cross_validation"), dict) else {}
+    return _optional_float(cross_validation.get(key))
+
+
 def _train_feature_set_row(
     source: SourceDatabase,
-    labels_by_identity: dict[TrackIdentity, str],
+    labels_by_identity: dict[str, str],
     tracks: tuple[SourceTrack, ...],
     embedding_cache: dict[str, tuple[int, dict[int, np.ndarray]]],
     profile: ClassifierProfile,
@@ -207,7 +410,7 @@ def _train_feature_set_row(
     try:
         _report_progress(
             progress_callback,
-            f"Building {feature_set} feature matrix",
+            f"Построение матрицы признаков {feature_set}",
             progress_completed,
             progress_total,
         )
@@ -220,7 +423,7 @@ def _train_feature_set_row(
         )
         _report_progress(
             progress_callback,
-            f"Training {feature_set}",
+            f"Обучение {feature_set}",
             progress_completed + 1,
             progress_total,
         )
@@ -259,7 +462,7 @@ def _train_feature_set_row(
         }
     _report_progress(
         progress_callback,
-        f"Saved {feature_set} model",
+        f"Модель {feature_set} сохранена",
         progress_completed + 10,
         progress_total,
     )
@@ -390,12 +593,11 @@ def _profile_artifact_dir(profile: ClassifierProfile, artifacts_root: str | Path
 def _normalize_feature_sets(feature_sets: Sequence[str]) -> list[str]:
     clean: list[str] = []
     for feature_set in feature_sets:
-        value = str(feature_set).strip().lower()
-        feature_sources(value)
+        value = canonical_feature_set(feature_sources(feature_set))
         if value not in clean:
             clean.append(value)
     if not clean:
-        raise ValueError("At least one feature set is required")
+        raise ValueError("Укажите хотя бы один набор признаков")
     return clean
 
 

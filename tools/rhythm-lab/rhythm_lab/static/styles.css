@@ -524,6 +524,7 @@ main {
 
 .classifier-workflow-card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   padding: 14px;
   background: var(--panel-strong);
@@ -650,7 +651,7 @@ main {
 }
 
 .workflow-variant-facts .training-info-line {
-  grid-template-columns: minmax(76px, 92px) minmax(0, 1fr);
+  grid-template-columns: minmax(112px, 150px) minmax(0, 1fr);
   gap: 7px;
   padding: 6px 8px;
   border: 0;
@@ -664,7 +665,9 @@ main {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.03em;
+  line-height: 1.25;
   text-transform: uppercase;
+  white-space: normal;
 }
 
 .workflow-variant-facts .training-info-value {
@@ -675,11 +678,12 @@ main {
 
 .workflow-steps {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   border-top: 1px solid var(--line);
 }
 
 .workflow-step {
-  grid-template-columns: 34px minmax(0, 1fr) 168px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   padding: 12px 0;
   border-bottom: 1px solid rgba(38, 49, 61, 0.78);
 }
@@ -708,6 +712,7 @@ main {
 
 .workflow-step-copy {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
 }
 
@@ -756,12 +761,13 @@ main {
 }
 
 .workflow-action-button {
-  width: 168px;
+  min-width: 168px;
   min-height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  padding-inline: 14px;
   white-space: nowrap;
 }
 
@@ -1172,6 +1178,258 @@ menu {
   margin: 6px 0 0;
 }
 
+.recipe-builder {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.recipe-builder-header {
+  display: grid;
+  gap: 2px;
+}
+
+.recipe-rack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.recipe-slot {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.recipe-slot:has(input:checked) {
+  border-color: var(--cyan);
+  background: var(--panel-strong);
+  color: var(--cyan);
+}
+
+.recipe-slot:hover {
+  border-color: var(--cyan);
+}
+
+.recipe-slot:focus-within {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.recipe-slot label {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 8px;
+  padding: 0 10px;
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.recipe-slot input {
+  margin: 0;
+  accent-color: var(--cyan);
+}
+
+.recipe-slot select {
+  margin-right: 8px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.recipe-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.recipe-line code,
+.benchmark-custom-list code {
+  color: var(--text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ladder code {
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.label-hint {
+  align-self: center;
+  text-align: right;
+}
+
+.duplicate-badge {
+  border: 1px solid rgba(240, 184, 74, 0.45);
+  background: rgba(240, 184, 74, 0.14);
+  color: var(--amber);
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.workflow-variant-note {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.workflow-step.workflow-step-wide {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.training-panel button:focus-visible,
+.training-panel select:focus-visible,
+.training-panel input:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.benchmark-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.benchmark-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.benchmark-strategy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.benchmark-strategy select {
+  width: min(320px, 100%);
+}
+
+.benchmark-plan-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.benchmark-plan-hint.warning {
+  color: var(--amber);
+}
+
+.benchmark-row .workflow-action-button {
+  margin-left: auto;
+}
+
+.benchmark-custom {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.benchmark-custom button,
+.ladder button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.benchmark-custom-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.benchmark-custom-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.ladder-scroll {
+  overflow-x: auto;
+}
+
+.ladder {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ladder th,
+.ladder td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ladder th {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.ladder .ladder-rank {
+  width: 28px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ladder .ladder-recipe {
+  white-space: nowrap;
+}
+
+.ladder .ladder-number {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ladder .ladder-action {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ladder tr.ladder-band td:first-child {
+  border-left: 2px solid var(--cyan);
+}
+
+.ladder tr.ladder-band-caption td {
+  padding-top: 0;
+  border-top: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ladder tr.ladder-unavailable td {
+  color: var(--muted);
+}
+
+.ladder-note {
+  margin: 4px 0 0;
+}
+
 @media (max-width: 760px) {
   .top-bar,
   .source-row {
@@ -1229,7 +1487,7 @@ menu {
   .workflow-header,
   .workflow-variant-row,
   .workflow-step {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .workflow-variant-facts {

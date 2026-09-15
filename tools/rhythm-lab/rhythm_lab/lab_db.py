@@ -10,14 +10,16 @@ from collections.abc import Iterable, Mapping
 from typing import Literal
 
 from dj_track_similarity.rhythm_lab_collections import (
-    DEFAULT_RHYTHM_LAB_LABELS_FILENAME,
+    CONTENT_IDENTITY_MIGRATION_COMMAND,
     RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS,
     ensure_review_collection_schema,
+    reject_noncanonical_table,
+    sonara_content_key,
     validate_review_collection_schema,
     validate_rhythm_lab_classifier_schema,
 )
 
-from .source_db import SourceTrack
+from .source_db import SourceDatabase, SourceDatabaseIntegrityError, SourceTrack
 
 
 ClassifierLabelName = Literal["broken", "straight", "ambiguous"]
@@ -58,48 +60,40 @@ _CLASSIFIER_PREDICTION_COLUMNS = set(
 _TRAINING_CHECKPOINT_COLUMNS = set(
     RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["classifier_training_checkpoints"]
 )
+_SIGHTING_COLUMNS = set(RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["track_sightings"])
 DEFAULT_TRAINING_MIN_ADDED = 50
+DEFAULT_TRAINING_MIN_LABELS = 100
+# One definition for CREATE TABLE and for adding the column to a legacy
+# profiles table during the content-identity migration.
+TRAINING_MIN_LABELS_COLUMN_SQL = (
+    f"training_min_labels INTEGER NOT NULL DEFAULT {DEFAULT_TRAINING_MIN_LABELS} "
+    "CHECK(training_min_labels >= 2)"
+)
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 LABEL_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SQLITE_CACHE_SIZE_KIB = -32_768
+_KEY_CHUNK_SIZE = 800
 
 
-@dataclass(frozen=True)
-class TrackIdentity:
-    catalog_uuid: str
-    track_uuid: str
-    file_path: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "catalog_uuid",
-            _required_identity_text(self.catalog_uuid, "catalog_uuid"),
-        )
-        object.__setattr__(
-            self,
-            "track_uuid",
-            _required_identity_text(self.track_uuid, "track_uuid"),
-        )
-        object.__setattr__(
-            self,
-            "file_path",
-            _required_identity_text(self.file_path, "file_path"),
-        )
+class ContentKeyVersionChanged(RuntimeError):
+    """The library carries a SONARA fingerprint version the stored sightings do not."""
 
 
 @dataclass(frozen=True)
 class ClassifierLabel:
-    identity: TrackIdentity
-    selected_path: str
+    content_key: str
     label: str
     note: str | None = None
     updated_at: str | None = None
+    last_catalog_uuid: str | None = None
+    last_track_uuid: str | None = None
+    last_selected_path: str | None = None
 
 
 @dataclass(frozen=True)
 class ClassifierPredictionWrite:
+    content_key: str
     catalog_uuid: str
     track_uuid: str
     selected_path: str
@@ -111,7 +105,11 @@ class ClassifierPredictionWrite:
 
 
 class PredictionStage:
-    """Task-scoped disk staging for one complete candidate refresh."""
+    """Task-scoped disk staging for one complete candidate refresh.
+
+    Rows are keyed by content, so duplicate files in one library stage once
+    (the first track seen wins).
+    """
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser().resolve(strict=False)
@@ -124,6 +122,7 @@ class PredictionStage:
         connection.execute(
             """
             CREATE TABLE staged_predictions(
+                content_key TEXT PRIMARY KEY,
                 catalog_uuid TEXT NOT NULL,
                 track_uuid TEXT NOT NULL,
                 selected_path TEXT NOT NULL,
@@ -131,12 +130,7 @@ class PredictionStage:
                 title TEXT,
                 label TEXT NOT NULL,
                 confidence REAL NOT NULL,
-                probabilities_json TEXT NOT NULL,
-                PRIMARY KEY(
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path
-                )
+                probabilities_json TEXT NOT NULL
             ) WITHOUT ROWID
             """
         )
@@ -151,6 +145,7 @@ class PredictionStage:
             raise RuntimeError("Prediction stage is not open")
         values = [
             (
+                prediction.content_key,
                 prediction.catalog_uuid,
                 prediction.track_uuid,
                 prediction.selected_path,
@@ -165,7 +160,8 @@ class PredictionStage:
         if values:
             self._connection.executemany(
                 """
-                INSERT INTO staged_predictions(
+                INSERT OR IGNORE INTO staged_predictions(
+                    content_key,
                     catalog_uuid,
                     track_uuid,
                     selected_path,
@@ -174,7 +170,7 @@ class PredictionStage:
                     label,
                     confidence,
                     probabilities_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 values,
             )
@@ -219,6 +215,9 @@ class ClassifierProfile:
     positive_label: str
     negative_label: str
     labels: tuple[ClassifierProfileLabel, ...]
+    # Labels per training class that must resolve in the open library before
+    # train-refresh, benchmark and calibrate are allowed.
+    training_min_labels: int = DEFAULT_TRAINING_MIN_LABELS
     archived_at: str | None = None
 
     @property
@@ -238,6 +237,8 @@ class RhythmLabDatabase:
     def __init__(self, path: str | Path, *, classifier_key: str | None = None) -> None:
         self.path = Path(path).expanduser().resolve(strict=False)
         self.classifier_key = _validate_profile_key(classifier_key) if classifier_key is not None else None
+        # catalog_uuid -> library storage signature at the last sightings sync.
+        self._sighting_signatures: dict[str, tuple[tuple[int, int], ...]] = {}
         if self.path.exists():
             _validate_existing_lab_schema_read_only(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -247,6 +248,7 @@ class RhythmLabDatabase:
         scoped = object.__new__(type(self))
         scoped.path = self.path
         scoped.classifier_key = _validate_profile_key(classifier_key)
+        scoped._sighting_signatures = self._sighting_signatures
         return scoped
 
     def connect(self) -> sqlite3.Connection:
@@ -264,60 +266,111 @@ class RhythmLabDatabase:
             # This second pass sees committed WAL frames that immutable
             # main-file preflight intentionally ignores.
             _validate_lab_schema_tables(connection)
-            _ensure_profile_tables(connection)
-            _ensure_classifier_tables(connection)
-            ensure_review_collection_schema(connection)
-            connection.executescript(
-                """
-                CREATE INDEX IF NOT EXISTS idx_classifier_labels_lookup
-                ON classifier_labels(
-                    classifier_key,
-                    label,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path
-                );
+            create_lab_schema(connection)
 
-                CREATE INDEX IF NOT EXISTS idx_classifier_predictions_lookup
-                ON classifier_predictions(
-                    classifier_key,
-                    label,
-                    confidence,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path
-                );
+    def sync_track_sightings(self, source: SourceDatabase) -> dict[str, object]:
+        """Record which current tracks of ``source`` carry which content key.
 
-                CREATE INDEX IF NOT EXISTS idx_classifier_predictions_latest
-                ON classifier_predictions(
-                    classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path,
-                    updated_at DESC,
-                    model_artifact DESC
-                );
+        Incremental: only tracks that are new or whose identity, path or file
+        facts changed since the last sync are re-hashed; sightings of tracks
+        that are no longer current are dropped. A library whose fingerprint
+        version differs from the stored sightings is refused before any write.
+        Repeated calls are no-ops until the library file or its WAL changes.
+        """
 
-                CREATE INDEX IF NOT EXISTS idx_classifier_predictions_model
-                ON classifier_predictions(
-                    classifier_key,
-                    feature_set,
-                    model_artifact
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_state
-                ON classifier_label_queue(classifier_key, state, priority DESC, updated_at);
-
-                CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_identity
-                ON classifier_label_queue(
-                    classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path,
-                    mode
-                );
-                """
+        signature = source.storage_signature()
+        catalog_uuid = source.catalog_uuid
+        if self._sighting_signatures.get(catalog_uuid) == signature:
+            return {"catalog_uuid": catalog_uuid, "changed": False, "upserted": 0, "deleted": 0}
+        connection = sqlite3.connect(self.path.as_uri(), uri=True, timeout=30)
+        try:
+            _configure_lab_connection(connection)
+            connection.create_function(
+                "rhythm_lab_content_key",
+                2,
+                sonara_content_key,
+                deterministic=True,
             )
+            connection.execute(
+                "ATTACH DATABASE ? AS src",
+                (f"{source.path.as_uri()}?mode=ro",),
+            )
+            try:
+                require_fingerprint_table(connection, "src")
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    upserted, deleted = upsert_track_sightings(
+                        connection,
+                        alias="src",
+                        catalog_uuid=catalog_uuid,
+                    )
+                    connection.commit()
+                except BaseException:
+                    if connection.in_transaction:
+                        connection.rollback()
+                    raise
+            finally:
+                connection.execute("DETACH DATABASE src")
+        finally:
+            connection.close()
+        self._sighting_signatures[catalog_uuid] = signature
+        return {
+            "catalog_uuid": catalog_uuid,
+            "changed": True,
+            "upserted": upserted,
+            "deleted": deleted,
+        }
+
+    def representative_sightings(
+        self,
+        catalog_uuid: str,
+        content_keys: Iterable[str],
+    ) -> dict[str, int]:
+        """``content_key -> lowest current track_id`` in one catalog; unseen keys are absent."""
+
+        clean_catalog = _required_identity_text(catalog_uuid, "catalog_uuid")
+        keys = list(dict.fromkeys(str(key) for key in content_keys))
+        result: dict[str, int] = {}
+        with self.connect() as connection:
+            for start in range(0, len(keys), _KEY_CHUNK_SIZE):
+                chunk = keys[start : start + _KEY_CHUNK_SIZE]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = connection.execute(
+                    f"""
+                    SELECT content_key, MIN(track_id) AS track_id
+                    FROM track_sightings
+                    WHERE catalog_uuid = ? AND content_key IN ({placeholders})
+                    GROUP BY content_key
+                    """,
+                    (clean_catalog, *chunk),
+                ).fetchall()
+                result.update({str(row["content_key"]): int(row["track_id"]) for row in rows})
+        return result
+
+    def content_keys_for_tracks(
+        self,
+        catalog_uuid: str,
+        track_uuids: Iterable[str],
+    ) -> dict[str, str]:
+        """``track_uuid -> content_key`` from the synced sightings of one catalog."""
+
+        clean_catalog = _required_identity_text(catalog_uuid, "catalog_uuid")
+        uuids = list(dict.fromkeys(str(value) for value in track_uuids))
+        result: dict[str, str] = {}
+        with self.connect() as connection:
+            for start in range(0, len(uuids), _KEY_CHUNK_SIZE):
+                chunk = uuids[start : start + _KEY_CHUNK_SIZE]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = connection.execute(
+                    f"""
+                    SELECT track_uuid, content_key
+                    FROM track_sightings
+                    WHERE catalog_uuid = ? AND track_uuid IN ({placeholders})
+                    """,
+                    (clean_catalog, *chunk),
+                ).fetchall()
+                result.update({str(row["track_uuid"]): str(row["content_key"]) for row in rows})
+        return result
 
     def list_profiles(self, *, include_archived: bool = False) -> list[ClassifierProfile]:
         where = "" if include_archived else "WHERE archived_at IS NULL"
@@ -350,6 +403,7 @@ class RhythmLabDatabase:
         artifact_dir: str | Path | None = None,
         artifact_prefix: str | None = None,
         training_min_added: int = DEFAULT_TRAINING_MIN_ADDED,
+        training_min_labels: int = DEFAULT_TRAINING_MIN_LABELS,
         labels: list[dict[str, object] | ClassifierProfileLabel],
     ) -> ClassifierProfile:
         key = _validate_profile_key(classifier_key)
@@ -358,21 +412,22 @@ class RhythmLabDatabase:
         positive_label, negative_label = _training_labels_from_specs(label_specs, profile_type=clean_type)
         clean_name = name.strip()
         if not clean_name:
-            raise ValueError("Classifier profile name is required")
+            raise ValueError("Укажите имя профиля")
         artifact_path = _normalize_artifact_dir(artifact_dir or _default_artifact_dir(key))
         prefix = (artifact_prefix or key.replace("_", "-")).strip()
         if not prefix:
-            raise ValueError("Artifact prefix is required")
+            raise ValueError("Укажите префикс артефактов")
         min_added = _validate_training_min_added(training_min_added)
+        min_labels = _validate_training_min_labels(training_min_labels)
         with self.connect() as connection:
             try:
                 connection.execute(
                     """
                     INSERT INTO classifier_profiles(
                         classifier_key, profile_type, name, description, artifact_dir, artifact_prefix,
-                        training_min_added, positive_label, negative_label
+                        training_min_added, training_min_labels, positive_label, negative_label
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         key,
@@ -382,6 +437,7 @@ class RhythmLabDatabase:
                         artifact_path,
                         prefix,
                         min_added,
+                        min_labels,
                         positive_label,
                         negative_label,
                     ),
@@ -390,8 +446,8 @@ class RhythmLabDatabase:
             except sqlite3.IntegrityError as error:
                 message = str(error).lower()
                 if "profile_name" in message or "index" in message:
-                    raise ValueError(f"Classifier profile name already exists: {clean_name}") from error
-                raise ValueError(f"Classifier profile already exists or is invalid: {key}") from error
+                    raise ValueError(f"Профиль с таким именем уже существует: {clean_name}") from error
+                raise ValueError(f"Профиль уже существует или задан некорректно: {key}") from error
         return self.get_profile(key)
 
     def update_profile(
@@ -404,6 +460,7 @@ class RhythmLabDatabase:
         artifact_dir: str | Path | None = None,
         artifact_prefix: str | None = None,
         training_min_added: int | None = None,
+        training_min_labels: int | None = None,
         labels: list[dict[str, object] | ClassifierProfileLabel] | None = None,
     ) -> ClassifierProfile:
         key = _validate_profile_key(classifier_key)
@@ -411,7 +468,7 @@ class RhythmLabDatabase:
             current_profile = _get_profile(connection, key)
             clean_type = _validate_profile_type(profile_type) if profile_type is not None else current_profile.profile_type
             if profile_type is not None and clean_type != current_profile.profile_type and labels is None:
-                raise ValueError("Changing classifier profile type requires replacing the profile labels")
+                raise ValueError("Смена типа профиля требует заменить его метки")
             assignments: list[str] = []
             params: list[object] = []
             if profile_type is not None and clean_type != current_profile.profile_type:
@@ -420,7 +477,7 @@ class RhythmLabDatabase:
             if name is not None:
                 clean_name = name.strip()
                 if not clean_name:
-                    raise ValueError("Classifier profile name is required")
+                    raise ValueError("Укажите имя профиля")
                 assignments.append("name = ?")
                 params.append(clean_name)
             if description is not None:
@@ -432,12 +489,15 @@ class RhythmLabDatabase:
             if artifact_prefix is not None:
                 prefix = artifact_prefix.strip()
                 if not prefix:
-                    raise ValueError("Artifact prefix is required")
+                    raise ValueError("Укажите префикс артефактов")
                 assignments.append("artifact_prefix = ?")
                 params.append(prefix)
             if training_min_added is not None:
                 assignments.append("training_min_added = ?")
                 params.append(_validate_training_min_added(training_min_added))
+            if training_min_labels is not None:
+                assignments.append("training_min_labels = ?")
+                params.append(_validate_training_min_labels(training_min_labels))
             if assignments:
                 assignments.append("updated_at = CURRENT_TIMESTAMP")
                 try:
@@ -448,7 +508,7 @@ class RhythmLabDatabase:
                 except sqlite3.IntegrityError as error:
                     message = str(error).lower()
                     if "profile_name" in message or "index" in message:
-                        raise ValueError(f"Classifier profile name already exists: {name.strip() if name else ''}") from error
+                        raise ValueError(f"Профиль с таким именем уже существует: {name.strip() if name else ''}") from error
                     raise
             if labels is not None:
                 label_specs = _normalize_profile_labels(labels, profile_type=clean_type)
@@ -456,7 +516,7 @@ class RhythmLabDatabase:
                 missing = sorted(existing - {label.key for label in label_specs})
                 if missing:
                     raise ValueError(
-                        "Cannot remove labels that are already used; rename or clear them first: "
+                        "Нельзя удалить метки, которые уже используются; сначала переименуйте или очистите их: "
                         + ", ".join(missing)
                     )
                 positive_label, negative_label = _training_labels_from_specs(label_specs, profile_type=clean_type)
@@ -549,7 +609,7 @@ class RhythmLabDatabase:
                 (profile_key, old_label),
             ).fetchone()
             if label_row is None:
-                raise KeyError(f"Unknown label for profile {profile_key}: {old_label}")
+                raise KeyError(f"У профиля {profile_key} нет метки {old_label}")
             conflict = connection.execute(
                 """
                 SELECT 1 FROM classifier_profile_labels
@@ -558,7 +618,7 @@ class RhythmLabDatabase:
                 (profile_key, new_label),
             ).fetchone()
             if conflict is not None:
-                raise ValueError(f"Label already exists for profile {profile_key}: {new_label}")
+                raise ValueError(f"У профиля {profile_key} уже есть метка {new_label}")
             new_name = display_name.strip() if display_name is not None else str(label_row["display_name"])
             new_description = description.strip() if description is not None else str(label_row["description"] or "")
             connection.execute(
@@ -599,123 +659,83 @@ class RhythmLabDatabase:
         note: str | None = None,
     ) -> ClassifierLabel | None:
         profile_key = self._active_profile_key()
-        identity = track_identity(track)
+        content_key = track_content_key(track)
         if label is None or not label.strip():
             with self.connect() as connection:
                 connection.execute(
                     """
                     DELETE FROM classifier_labels
-                    WHERE classifier_key = ?
-                      AND catalog_uuid = ?
-                      AND track_uuid = ?
-                      AND selected_path = ?
+                    WHERE classifier_key = ? AND content_key = ?
                     """,
-                    (
-                        profile_key,
-                        identity.catalog_uuid,
-                        identity.track_uuid,
-                        identity.file_path,
-                    ),
+                    (profile_key, content_key),
                 )
             return None
         label = label.strip()
         profile = self.get_profile()
         if label not in profile.label_keys:
-            raise ValueError(f"Unsupported classifier label: {label}")
+            raise ValueError(f"Неподдерживаемая метка: {label}")
         with self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO classifier_labels(
                     classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path,
-                    file_size_bytes,
-                    file_modified_ns,
+                    content_key,
                     label,
-                    note
+                    note,
+                    last_catalog_uuid,
+                    last_track_uuid,
+                    last_selected_path
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(
-                    classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path
-                ) DO UPDATE SET
-                    file_size_bytes = excluded.file_size_bytes,
-                    file_modified_ns = excluded.file_modified_ns,
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(classifier_key, content_key) DO UPDATE SET
                     label = excluded.label,
                     note = excluded.note,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_catalog_uuid = excluded.last_catalog_uuid,
+                    last_track_uuid = excluded.last_track_uuid,
+                    last_selected_path = excluded.last_selected_path
                 """,
                 (
                     profile_key,
-                    identity.catalog_uuid,
-                    identity.track_uuid,
-                    identity.file_path,
-                    track.file_size_bytes,
-                    track.file_modified_ns,
+                    content_key,
                     label,
                     note,
+                    track.catalog_uuid,
+                    track.track_uuid,
+                    track.file_path,
                 ),
             )
-        return self.label_for_track(identity)
+        return self.label_for_track(track)
 
-    def label_for_track(self, identity: TrackIdentity) -> ClassifierLabel | None:
+    def label_for_track(self, track: SourceTrack) -> ClassifierLabel | None:
         profile_key = self._active_profile_key()
-        clean_identity = _require_track_identity(identity)
+        content_key = track_content_key(track)
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT catalog_uuid, track_uuid, selected_path, label, note, updated_at
+                SELECT content_key, label, note, updated_at,
+                       last_catalog_uuid, last_track_uuid, last_selected_path
                 FROM classifier_labels
-                WHERE classifier_key = ?
-                  AND catalog_uuid = ?
-                  AND track_uuid = ?
-                  AND selected_path = ?
+                WHERE classifier_key = ? AND content_key = ?
                 """,
-                (
-                    profile_key,
-                    clean_identity.catalog_uuid,
-                    clean_identity.track_uuid,
-                    clean_identity.file_path,
-                ),
+                (profile_key, content_key),
             ).fetchone()
         if row is None:
             return None
         return _classifier_label_from_row(row)
 
-    def labels_by_identity(self) -> dict[TrackIdentity, ClassifierLabel]:
-        profile_key = self._active_profile_key()
-        with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT catalog_uuid, track_uuid, selected_path, label, note, updated_at
-                FROM classifier_labels
-                WHERE classifier_key = ?
-                """,
-                (profile_key,),
-            ).fetchall()
-        return {
-            label.identity: label
-            for row in rows
-            for label in (_classifier_label_from_row(row),)
-        }
-
     def label_counts(self, *, catalog_uuid: str | None = None) -> dict[str, int]:
+        """Labels per key; with ``catalog_uuid`` only content sighted in that catalog."""
+
         profile_key = self._active_profile_key()
-        where = "classifier_key = ?"
-        params: list[object] = [profile_key]
-        if catalog_uuid is not None:
-            where += " AND catalog_uuid = ?"
-            params.append(catalog_uuid)
+        where, params = _label_scope(profile_key, catalog_uuid)
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT label, COUNT(*) AS count
-                FROM classifier_labels
+                SELECT l.label, COUNT(*) AS count
+                FROM classifier_labels AS l
                 WHERE {where}
-                GROUP BY label
+                GROUP BY l.label
                 """,
                 params,
             ).fetchall()
@@ -726,7 +746,7 @@ class RhythmLabDatabase:
         clean_mode = _validate_queue_mode(mode)
         rows: list[tuple[object, ...]] = []
         for item in items:
-            identity = _identity_from_mapping(item)
+            sighting = _queue_sighting_from_mapping(item)
             priority = _validate_queue_priority(item.get("priority", 0.0))
             score = _optional_queue_score(item.get("score"))
             reason = item.get("reason", item.get("reason_json", {}))
@@ -734,9 +754,7 @@ class RhythmLabDatabase:
             rows.append(
                 (
                     profile_key,
-                    identity.catalog_uuid,
-                    identity.track_uuid,
-                    identity.file_path,
+                    *sighting,
                     clean_mode,
                     score,
                     priority,
@@ -750,6 +768,7 @@ class RhythmLabDatabase:
                 """
                 INSERT INTO classifier_label_queue(
                     classifier_key,
+                    content_key,
                     catalog_uuid,
                     track_uuid,
                     selected_path,
@@ -758,14 +777,11 @@ class RhythmLabDatabase:
                     priority,
                     reason_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(
-                    classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path,
-                    mode
-                ) DO UPDATE SET
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(classifier_key, content_key, mode) DO UPDATE SET
+                    catalog_uuid = excluded.catalog_uuid,
+                    track_uuid = excluded.track_uuid,
+                    selected_path = excluded.selected_path,
                     score = excluded.score,
                     priority = excluded.priority,
                     reason_json = excluded.reason_json,
@@ -785,14 +801,13 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT id, classifier_key, catalog_uuid, track_uuid,
+                SELECT id, classifier_key, content_key, catalog_uuid, track_uuid,
                        selected_path, mode, score, priority,
                        reason_json, state, created_at, updated_at
                 FROM classifier_label_queue
                 WHERE classifier_key = ?
                   {state_clause}
-                ORDER BY priority DESC, updated_at DESC,
-                         catalog_uuid, track_uuid
+                ORDER BY priority DESC, updated_at DESC, content_key
                 """,
                 tuple(params),
             ).fetchall()
@@ -817,7 +832,7 @@ class RhythmLabDatabase:
                 )
             row = connection.execute(
                 """
-                SELECT id, classifier_key, catalog_uuid, track_uuid,
+                SELECT id, classifier_key, content_key, catalog_uuid, track_uuid,
                        selected_path, mode, score, priority,
                        reason_json, state, created_at, updated_at
                 FROM classifier_label_queue
@@ -842,35 +857,26 @@ class RhythmLabDatabase:
         self,
         *,
         catalog_uuid: str | None = None,
-    ) -> dict[TrackIdentity, str]:
+    ) -> dict[str, str]:
+        """``content_key -> training label``; with ``catalog_uuid`` only content sighted there."""
+
         profile_key = self._active_profile_key()
         training_keys = self.get_profile().training_label_keys
         if not training_keys:
             return {}
         placeholders = ", ".join("?" for _ in training_keys)
-        where = f"classifier_key = ? AND label IN ({placeholders})"
-        params: list[object] = [profile_key, *training_keys]
-        if catalog_uuid is not None:
-            where += " AND catalog_uuid = ?"
-            params.append(catalog_uuid)
+        scope, params = _label_scope(profile_key, catalog_uuid)
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT catalog_uuid, track_uuid, selected_path, label
-                FROM classifier_labels
-                WHERE {where}
-                ORDER BY catalog_uuid, track_uuid
+                SELECT l.content_key, l.label
+                FROM classifier_labels AS l
+                WHERE {scope} AND l.label IN ({placeholders})
+                ORDER BY l.content_key
                 """,
-                params,
+                (*params, *training_keys),
             ).fetchall()
-        return {
-            TrackIdentity(
-                catalog_uuid=str(row["catalog_uuid"]),
-                track_uuid=str(row["track_uuid"]),
-                file_path=str(row["selected_path"]),
-            ): str(row["label"])
-            for row in rows
-        }
+        return {str(row["content_key"]): str(row["label"]) for row in rows}
 
     def save_prediction(
         self,
@@ -919,7 +925,11 @@ class RhythmLabDatabase:
         feature_set: str,
         model_artifact: str | Path,
     ) -> int:
-        """Atomically swap one complete disk-staged candidate set into view."""
+        """Atomically swap the profile's complete disk-staged candidate set into view.
+
+        Predictions are the cache of the last refresh, keyed by content, so the
+        whole profile set is replaced regardless of which library produced it.
+        """
 
         profile_key = self._active_profile_key()
         allowed_labels = set(self.get_profile().training_label_keys)
@@ -948,7 +958,7 @@ class RhythmLabDatabase:
                 unsupported = sorted(staged_labels - allowed_labels)
                 if unsupported:
                     raise ValueError(
-                        "Unsupported predicted classifier label: "
+                        "Неподдерживаемая предсказанная метка: "
                         + ", ".join(unsupported)
                     )
                 connection.execute("BEGIN IMMEDIATE")
@@ -964,6 +974,7 @@ class RhythmLabDatabase:
                     """
                     INSERT INTO classifier_predictions(
                         classifier_key,
+                        content_key,
                         catalog_uuid,
                         track_uuid,
                         selected_path,
@@ -975,7 +986,7 @@ class RhythmLabDatabase:
                         confidence,
                         probabilities_json
                     )
-                    SELECT ?, catalog_uuid, track_uuid,
+                    SELECT ?, content_key, catalog_uuid, track_uuid,
                            selected_path, artist, title, ?, ?, label,
                            confidence, probabilities_json
                     FROM prediction_stage.staged_predictions
@@ -1005,7 +1016,7 @@ class RhythmLabDatabase:
         )
         if unsupported:
             raise ValueError(
-                "Unsupported predicted classifier label: "
+                "Неподдерживаемая предсказанная метка: "
                 + ", ".join(unsupported)
             )
         clean_feature_set = _required_identity_text(feature_set, "feature_set")
@@ -1016,6 +1027,7 @@ class RhythmLabDatabase:
         values = [
             (
                 profile_key,
+                prediction.content_key,
                 prediction.catalog_uuid,
                 prediction.track_uuid,
                 prediction.selected_path,
@@ -1036,6 +1048,7 @@ class RhythmLabDatabase:
                 """
                 INSERT INTO classifier_predictions(
                     classifier_key,
+                    content_key,
                     catalog_uuid,
                     track_uuid,
                     selected_path,
@@ -1047,15 +1060,16 @@ class RhythmLabDatabase:
                     confidence,
                     probabilities_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(
                     classifier_key,
-                    catalog_uuid,
-                    track_uuid,
-                    selected_path,
+                    content_key,
                     feature_set,
                     model_artifact
                 ) DO UPDATE SET
+                    catalog_uuid = excluded.catalog_uuid,
+                    track_uuid = excluded.track_uuid,
+                    selected_path = excluded.selected_path,
                     artist = excluded.artist,
                     title = excluded.title,
                     label = excluded.label,
@@ -1071,7 +1085,7 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT rowid AS prediction_rowid, catalog_uuid, track_uuid,
+                SELECT rowid AS prediction_rowid, content_key, catalog_uuid, track_uuid,
                        selected_path, feature_set,
                        model_artifact, label, confidence, probabilities_json,
                        artist, title, updated_at
@@ -1090,6 +1104,7 @@ class RhythmLabDatabase:
             result.append(
                 {
                     "prediction_rowid": int(row["prediction_rowid"]),
+                    "content_key": str(row["content_key"]),
                     "catalog_uuid": str(row["catalog_uuid"]),
                     "track_uuid": str(row["track_uuid"]),
                     "feature_set": str(row["feature_set"]),
@@ -1166,14 +1181,14 @@ class RhythmLabDatabase:
             )
 
 
-def track_identity(track: SourceTrack) -> TrackIdentity:
+def track_content_key(track: SourceTrack) -> str:
+    """The persisted identity of a current source track; unfingerprinted tracks have none."""
+
     if not isinstance(track, SourceTrack):
         raise TypeError("track must be a SourceTrack")
-    return TrackIdentity(
-        catalog_uuid=track.catalog_uuid,
-        track_uuid=track.track_uuid,
-        file_path=track.file_path,
-    )
+    if not track.content_key:
+        raise ValueError("У трека нет отпечатка SONARA; сначала проанализируйте его в основном приложении")
+    return track.content_key
 
 
 def prepare_prediction_write(
@@ -1183,7 +1198,7 @@ def prepare_prediction_write(
     confidence: float,
     probabilities: Mapping[str, float],
 ) -> ClassifierPredictionWrite:
-    identity = track_identity(track)
+    content_key = track_content_key(track)
     confidence_value = _finite_number(confidence, "confidence")
     clean_probabilities = {
         str(key): _finite_number(value, f"probabilities[{key!r}]")
@@ -1191,9 +1206,10 @@ def prepare_prediction_write(
     }
     tags = track.file_tags
     return ClassifierPredictionWrite(
-        catalog_uuid=identity.catalog_uuid,
-        track_uuid=identity.track_uuid,
-        selected_path=identity.file_path,
+        content_key=content_key,
+        catalog_uuid=track.catalog_uuid,
+        track_uuid=track.track_uuid,
+        selected_path=track.file_path,
         artist=tags.artist if tags is not None else None,
         title=tags.title if tags is not None else None,
         label=str(label),
@@ -1202,19 +1218,230 @@ def prepare_prediction_write(
     )
 
 
+def require_fingerprint_table(connection: sqlite3.Connection, alias: str) -> None:
+    """Refuse a library that was never fingerprinted; content identity needs it."""
+
+    row = connection.execute(
+        f"SELECT 1 FROM {alias}.sqlite_master WHERE type = 'table' AND name = 'sonara_fingerprints'"
+    ).fetchone()
+    if row is None:
+        raise SourceDatabaseIntegrityError(
+            "В библиотеке нет таблицы sonara_fingerprints; сначала выполните анализ SONARA в основном приложении"
+        )
+
+
+def upsert_track_sightings(
+    connection: sqlite3.Connection,
+    *,
+    alias: str,
+    catalog_uuid: str,
+) -> tuple[int, int]:
+    """Bring ``main.track_sightings`` for one catalog in line with the attached library.
+
+    ``rhythm_lab_content_key`` must be registered on ``connection`` and the
+    caller owns the transaction. Only tracks that are new or changed against
+    the stored sighting are read from ``sonara_fingerprints`` and hashed.
+    Returns ``(upserted, deleted)``.
+    """
+
+    connection.execute("DROP TABLE IF EXISTS temp.sighting_candidates")
+    connection.execute("DROP TABLE IF EXISTS temp.sighting_rows")
+    connection.execute(
+        """
+        CREATE TEMP TABLE sighting_candidates(
+            track_id INTEGER NOT NULL,
+            track_uuid TEXT NOT NULL,
+            selected_path TEXT NOT NULL,
+            file_size_bytes INTEGER NOT NULL,
+            file_modified_ns INTEGER NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        f"""
+        INSERT INTO temp.sighting_candidates(
+            track_id, track_uuid, selected_path, file_size_bytes, file_modified_ns
+        )
+        SELECT t.track_id, t.track_uuid, t.file_path, t.file_size_bytes, t.file_modified_ns
+        FROM {alias}.tracks AS t
+        LEFT JOIN main.track_sightings AS sg
+          ON sg.catalog_uuid = ? AND sg.track_uuid = t.track_uuid
+        WHERE t.missing_since IS NULL
+          AND (
+              sg.track_uuid IS NULL
+              OR sg.track_id != t.track_id
+              OR sg.selected_path != t.file_path
+              OR sg.file_size_bytes != t.file_size_bytes
+              OR sg.file_modified_ns != t.file_modified_ns
+          )
+        """,
+        (catalog_uuid,),
+    )
+    connection.execute(
+        """
+        CREATE TEMP TABLE sighting_rows(
+            content_key TEXT NOT NULL,
+            track_id INTEGER NOT NULL,
+            track_uuid TEXT NOT NULL,
+            selected_path TEXT NOT NULL,
+            file_size_bytes INTEGER NOT NULL,
+            file_modified_ns INTEGER NOT NULL,
+            fingerprint_version INTEGER NOT NULL,
+            fingerprint_analyzed_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        f"""
+        INSERT INTO temp.sighting_rows(
+            content_key, track_id, track_uuid, selected_path, file_size_bytes,
+            file_modified_ns, fingerprint_version, fingerprint_analyzed_at
+        )
+        SELECT rhythm_lab_content_key(fp.fingerprint_version, fp.fingerprint_base64),
+               c.track_id, c.track_uuid, c.selected_path, c.file_size_bytes,
+               c.file_modified_ns, fp.fingerprint_version, fp.analyzed_at
+        FROM temp.sighting_candidates AS c
+        JOIN {alias}.sonara_fingerprints AS fp
+          ON fp.track_id = c.track_id AND fp.track_uuid = c.track_uuid
+        """
+    )
+    stored_versions = {
+        int(row[0])
+        for row in connection.execute(
+            "SELECT DISTINCT fingerprint_version FROM main.track_sightings"
+        )
+    }
+    incoming_versions = {
+        int(row[0])
+        for row in connection.execute(
+            "SELECT DISTINCT fingerprint_version FROM temp.sighting_rows"
+        )
+    }
+    if stored_versions and incoming_versions - stored_versions:
+        raise ContentKeyVersionChanged(
+            "Версия отпечатка SONARA изменилась "
+            f"(в базе меток {sorted(stored_versions)}, в библиотеке {sorted(incoming_versions)}); "
+            "метки привязаны к сохранённой версии. Перед синхронизацией этой библиотеки "
+            f"перекодируйте их командой `{CONTENT_IDENTITY_MIGRATION_COMMAND} --rekey`"
+        )
+    cursor = connection.execute(
+        """
+        INSERT INTO main.track_sightings(
+            content_key, catalog_uuid, track_id, track_uuid, selected_path,
+            file_size_bytes, file_modified_ns, fingerprint_version,
+            fingerprint_analyzed_at
+        )
+        SELECT content_key, ?, track_id, track_uuid, selected_path,
+               file_size_bytes, file_modified_ns, fingerprint_version,
+               fingerprint_analyzed_at
+        FROM temp.sighting_rows
+        WHERE true
+        ON CONFLICT(catalog_uuid, track_uuid) DO UPDATE SET
+            content_key = excluded.content_key,
+            track_id = excluded.track_id,
+            selected_path = excluded.selected_path,
+            file_size_bytes = excluded.file_size_bytes,
+            file_modified_ns = excluded.file_modified_ns,
+            fingerprint_version = excluded.fingerprint_version,
+            fingerprint_analyzed_at = excluded.fingerprint_analyzed_at,
+            seen_at = CURRENT_TIMESTAMP
+        """,
+        (catalog_uuid,),
+    )
+    upserted = int(cursor.rowcount)
+    cursor = connection.execute(
+        f"""
+        DELETE FROM main.track_sightings
+        WHERE catalog_uuid = ?
+          AND NOT EXISTS (
+              SELECT 1 FROM {alias}.tracks AS t
+              WHERE t.track_uuid = track_sightings.track_uuid
+                AND t.track_id = track_sightings.track_id
+                AND t.missing_since IS NULL
+          )
+        """,
+        (catalog_uuid,),
+    )
+    deleted = int(cursor.rowcount)
+    connection.execute("DROP TABLE temp.sighting_rows")
+    connection.execute("DROP TABLE temp.sighting_candidates")
+    return upserted, deleted
+
+
+_LAB_INDEX_STATEMENTS = (
+    """
+    CREATE INDEX IF NOT EXISTS idx_classifier_labels_lookup
+    ON classifier_labels(classifier_key, label, content_key)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_classifier_predictions_lookup
+    ON classifier_predictions(classifier_key, label, confidence, content_key)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_classifier_predictions_latest
+    ON classifier_predictions(
+        classifier_key,
+        content_key,
+        updated_at DESC,
+        model_artifact DESC
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_classifier_predictions_model
+    ON classifier_predictions(classifier_key, feature_set, model_artifact)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_state
+    ON classifier_label_queue(classifier_key, state, priority DESC, updated_at)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_track_sightings_content
+    ON track_sightings(content_key, catalog_uuid, track_id)
+    """,
+)
+
+
+def create_lab_schema(connection: sqlite3.Connection) -> None:
+    """Create every missing lab table and index with single statements.
+
+    Existing tables must already carry the current layout. No ``executescript``
+    is used, so a caller's open transaction stays open.
+    """
+
+    _ensure_profile_tables(connection)
+    _ensure_classifier_tables(connection)
+    ensure_review_collection_schema(connection)
+    for statement in _LAB_INDEX_STATEMENTS:
+        connection.execute(statement)
+
+
+def _label_scope(profile_key: str, catalog_uuid: str | None) -> tuple[str, list[object]]:
+    """WHERE fragment over ``classifier_labels AS l``: the profile, optionally one catalog's sightings."""
+
+    where = "l.classifier_key = ?"
+    params: list[object] = [profile_key]
+    if catalog_uuid is not None:
+        where += (
+            " AND EXISTS (SELECT 1 FROM track_sightings AS sg"
+            " WHERE sg.content_key = l.content_key AND sg.catalog_uuid = ?)"
+        )
+        params.append(_required_identity_text(catalog_uuid, "catalog_uuid"))
+    return where, params
+
+
 def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
-    _reject_noncanonical_table(
+    reject_noncanonical_table(
         connection,
         table="classifier_profiles",
         expected_columns=_PROFILE_COLUMNS,
     )
-    _reject_noncanonical_table(
+    reject_noncanonical_table(
         connection,
         table="classifier_profile_labels",
         expected_columns=_PROFILE_LABEL_COLUMNS,
     )
-    connection.executescript(
-        """
+    connection.execute(
+        f"""
         CREATE TABLE IF NOT EXISTS classifier_profiles (
             classifier_key TEXT PRIMARY KEY,
             profile_type TEXT NOT NULL DEFAULT 'binary' CHECK(profile_type IN ('binary', 'multiclass')),
@@ -1223,13 +1450,17 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
             artifact_dir TEXT NOT NULL,
             artifact_prefix TEXT NOT NULL,
             training_min_added INTEGER NOT NULL DEFAULT 50 CHECK(training_min_added >= 1),
+            {TRAINING_MIN_LABELS_COLUMN_SQL},
             positive_label TEXT NOT NULL,
             negative_label TEXT NOT NULL,
             archived_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
+        )
+        """
+    )
+    connection.execute(
+        """
         CREATE TABLE IF NOT EXISTS classifier_profile_labels (
             classifier_key TEXT NOT NULL,
             label_key TEXT NOT NULL,
@@ -1241,7 +1472,7 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(classifier_key, label_key),
             FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
-        );
+        )
         """
     )
     _ensure_unique_profile_names(connection)
@@ -1276,8 +1507,9 @@ def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
         ("classifier_label_queue", _CLASSIFIER_QUEUE_COLUMNS),
         ("classifier_predictions", _CLASSIFIER_PREDICTION_COLUMNS),
         ("classifier_training_checkpoints", _TRAINING_CHECKPOINT_COLUMNS),
+        ("track_sightings", _SIGHTING_COLUMNS),
     ):
-        _reject_noncanonical_table(
+        reject_noncanonical_table(
             connection,
             table=table,
             expected_columns=columns,
@@ -1286,6 +1518,7 @@ def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_classifier_label_queue_table_sql("classifier_label_queue"))
     connection.execute(_classifier_predictions_table_sql("classifier_predictions"))
     connection.execute(_classifier_training_checkpoints_table_sql("classifier_training_checkpoints"))
+    connection.execute(_track_sightings_table_sql("track_sightings"))
 
 
 def _validate_existing_lab_schema_read_only(path: Path) -> None:
@@ -1316,6 +1549,8 @@ def _configure_lab_connection(connection: sqlite3.Connection) -> None:
 
 
 def _validate_lab_schema_tables(connection: sqlite3.Connection) -> None:
+    """Reject foreign layouts before any DDL; every table is judged by its column set."""
+
     validate_rhythm_lab_classifier_schema(connection)
     validate_review_collection_schema(connection)
 
@@ -1324,14 +1559,14 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
     row = connection.execute(
         """
         SELECT classifier_key, profile_type, name, description, artifact_dir, artifact_prefix,
-               training_min_added, positive_label, negative_label, archived_at
+               training_min_added, training_min_labels, positive_label, negative_label, archived_at
         FROM classifier_profiles
         WHERE classifier_key = ?
         """,
         (classifier_key,),
     ).fetchone()
     if row is None:
-        raise KeyError(f"Unknown classifier profile: {classifier_key}")
+        raise KeyError(f"Неизвестный профиль: {classifier_key}")
     label_rows = connection.execute(
         """
         SELECT label_key, display_name, description, role, position
@@ -1362,6 +1597,7 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
         positive_label=str(row["positive_label"]),
         negative_label=str(row["negative_label"]),
         labels=labels,
+        training_min_labels=int(row["training_min_labels"]),
         archived_at=row["archived_at"],
     )
 
@@ -1369,7 +1605,7 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
 def _get_profile_by_name(connection: sqlite3.Connection, name: str) -> ClassifierProfile:
     clean_name = name.strip()
     if not clean_name:
-        raise ValueError("Classifier profile name is required")
+        raise ValueError("Укажите имя профиля")
     row = connection.execute(
         """
         SELECT classifier_key
@@ -1389,7 +1625,7 @@ def _normalize_profile_labels(
     profile_type: str = "binary",
 ) -> tuple[ClassifierProfileLabel, ...]:
     if not labels:
-        raise ValueError("At least two training labels are required")
+        raise ValueError("Нужно не меньше двух обучающих меток")
     clean_type = _validate_profile_type(profile_type)
     result: list[ClassifierProfileLabel] = []
     seen: set[str] = set()
@@ -1406,11 +1642,11 @@ def _normalize_profile_labels(
             description = str(raw.get("description") or "").strip()
         key = _validate_label_key(key)
         if key in seen:
-            raise ValueError(f"Duplicate label key: {key}")
+            raise ValueError(f"Ключ метки повторяется: {key}")
         if role not in PROFILE_LABEL_ROLES:
-            raise ValueError(f"Unsupported label role: {role}")
+            raise ValueError(f"Неподдерживаемая роль метки: {role}")
         if not name:
-            raise ValueError(f"Display name is required for label: {key}")
+            raise ValueError(f"Укажите отображаемое имя метки: {key}")
         seen.add(key)
         result.append(ClassifierProfileLabel(key=key, name=name, role=role, description=description, position=position))
     _training_labels_from_specs(tuple(result), profile_type=clean_type)
@@ -1423,17 +1659,17 @@ def _training_labels_from_specs(labels: tuple[ClassifierProfileLabel, ...], *, p
         classes = [label.key for label in labels if label.role == "class"]
         unsupported = [label.role for label in labels if label.role != "class"]
         if unsupported:
-            raise ValueError("Multiclass profiles support only class labels")
+            raise ValueError("Мультиклассовый профиль допускает только метки-классы")
         if len(classes) < 2:
-            raise ValueError("At least two class labels are required for a multiclass profile")
+            raise ValueError("Мультиклассовому профилю нужно не меньше двух меток-классов")
         return classes[0], classes[1]
     positive = [label.key for label in labels if label.role == "positive"]
     negative = [label.key for label in labels if label.role == "negative"]
     class_labels = [label.key for label in labels if label.role == "class"]
     if class_labels:
-        raise ValueError("Class labels require a multiclass profile")
+        raise ValueError("Метки-классы допустимы только в мультиклассовом профиле")
     if len(positive) != 1 or len(negative) != 1:
-        raise ValueError("Exactly one positive and one negative training label are required")
+        raise ValueError("Нужны ровно одна положительная и одна отрицательная обучающая метка")
     return positive[0], negative[0]
 
 
@@ -1477,8 +1713,7 @@ def _rename_prediction_probability_key(
 ) -> None:
     rows = connection.execute(
         """
-        SELECT classifier_key, catalog_uuid, track_uuid,
-               selected_path, feature_set, model_artifact, probabilities_json
+        SELECT classifier_key, content_key, feature_set, model_artifact, probabilities_json
         FROM classifier_predictions
         WHERE classifier_key = ?
         """,
@@ -1498,18 +1733,14 @@ def _rename_prediction_probability_key(
             UPDATE classifier_predictions
             SET probabilities_json = ?, updated_at = CURRENT_TIMESTAMP
             WHERE classifier_key = ?
-              AND catalog_uuid = ?
-              AND track_uuid = ?
-              AND selected_path = ?
+              AND content_key = ?
               AND feature_set = ?
               AND model_artifact = ?
             """,
             (
                 _canonical_json(probabilities),
                 row["classifier_key"],
-                row["catalog_uuid"],
-                row["track_uuid"],
-                row["selected_path"],
+                row["content_key"],
                 row["feature_set"],
                 row["model_artifact"],
             ),
@@ -1553,7 +1784,7 @@ def _training_counts_payload(counts: dict[str, object], training_keys: tuple[str
 def _validate_profile_type(profile_type: str) -> str:
     value = str(profile_type or "").strip()
     if value not in PROFILE_TYPES:
-        raise ValueError(f"Unsupported classifier profile type: {value}")
+        raise ValueError(f"Неподдерживаемый тип профиля: {value}")
     return value
 
 
@@ -1561,29 +1792,39 @@ def _validate_training_min_added(value: object) -> int:
     try:
         number = int(value)
     except (TypeError, ValueError) as error:
-        raise ValueError("Training refresh label threshold must be a positive integer") from error
+        raise ValueError("Порог новых меток для переобучения должен быть положительным целым числом") from error
     if number < 1:
-        raise ValueError("Training refresh label threshold must be at least 1")
+        raise ValueError("Порог новых меток для переобучения должен быть не меньше 1")
+    return number
+
+
+def _validate_training_min_labels(value: object) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Минимум меток на класс должен быть целым числом") from error
+    if number < 2:
+        raise ValueError("Минимум меток на класс должен быть не меньше 2")
     return number
 
 
 def _validate_profile_key(key: str) -> str:
     value = str(key or "").strip()
     if not PROFILE_KEY_PATTERN.match(value):
-        raise ValueError("Classifier profile key must use lowercase letters, numbers, and underscores")
+        raise ValueError("Ключ профиля может содержать только строчные латинские буквы, цифры и подчёркивания")
     return value
 
 
 def _required_profile_key(key: str | None) -> str:
     if key is None or not str(key).strip():
-        raise ValueError("Classifier profile key is required")
+        raise ValueError("Укажите ключ профиля")
     return _validate_profile_key(key)
 
 
 def _validate_label_key(key: str) -> str:
     value = str(key or "").strip()
     if not LABEL_KEY_PATTERN.match(value):
-        raise ValueError("Label key must use lowercase letters, numbers, and underscores")
+        raise ValueError("Ключ метки может содержать только строчные латинские буквы, цифры и подчёркивания")
     return value
 
 
@@ -1631,6 +1872,7 @@ def _queue_row_payload(row: sqlite3.Row) -> dict[str, object]:
     return {
         "id": int(row["id"]),
         "classifier_key": str(row["classifier_key"]),
+        "content_key": str(row["content_key"]),
         "catalog_uuid": str(row["catalog_uuid"]),
         "track_uuid": str(row["track_uuid"]),
         "selected_path": str(row["selected_path"]),
@@ -1652,30 +1894,6 @@ def _normalize_artifact_dir(path: str | Path) -> str:
     return str(Path(path).expanduser().resolve(strict=False))
 
 
-def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    row = connection.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table,),
-    ).fetchone()
-    if row is None:
-        return set()
-    return {str(info["name"]) for info in connection.execute(f"PRAGMA table_info({table})").fetchall()}
-
-
-def _reject_noncanonical_table(
-    connection: sqlite3.Connection,
-    *,
-    table: str,
-    expected_columns: set[str],
-) -> None:
-    columns = _columns(connection, table)
-    if columns and columns != expected_columns:
-        raise RuntimeError(
-            f"Rhythm Lab database table {table!r} is not the current structure; "
-            f"migrate {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r} before opening it."
-        )
-
-
 def _required_identity_text(value: object, field_name: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -1683,36 +1901,31 @@ def _required_identity_text(value: object, field_name: str) -> str:
     return text
 
 
-def _require_track_identity(identity: TrackIdentity) -> TrackIdentity:
-    if not isinstance(identity, TrackIdentity):
-        raise TypeError("identity must be a TrackIdentity")
-    return identity
+def _queue_sighting_from_mapping(item: Mapping[str, object]) -> tuple[str, str, str, str]:
+    """``(content_key, catalog_uuid, track_uuid, selected_path)`` of one queue item."""
 
-
-def _identity_from_mapping(item: Mapping[str, object]) -> TrackIdentity:
     if not isinstance(item, Mapping):
         raise TypeError("queue item must be a mapping")
-    return TrackIdentity(
-        catalog_uuid=_required_identity_text(item.get("catalog_uuid"), "catalog_uuid"),
-        track_uuid=_required_identity_text(item.get("track_uuid"), "track_uuid"),
-        file_path=_required_identity_text(
+    return (
+        _required_identity_text(item.get("content_key"), "content_key"),
+        _required_identity_text(item.get("catalog_uuid"), "catalog_uuid"),
+        _required_identity_text(item.get("track_uuid"), "track_uuid"),
+        _required_identity_text(
             item.get("selected_path", item.get("file_path")),
-            "file_path",
+            "selected_path",
         ),
     )
 
 
 def _classifier_label_from_row(row: sqlite3.Row) -> ClassifierLabel:
     return ClassifierLabel(
-        identity=TrackIdentity(
-            catalog_uuid=str(row["catalog_uuid"]),
-            track_uuid=str(row["track_uuid"]),
-            file_path=str(row["selected_path"]),
-        ),
-        selected_path=str(row["selected_path"]),
+        content_key=str(row["content_key"]),
         label=str(row["label"]),
         note=row["note"],
         updated_at=row["updated_at"],
+        last_catalog_uuid=row["last_catalog_uuid"],
+        last_track_uuid=row["last_track_uuid"],
+        last_selected_path=row["last_selected_path"],
     )
 
 
@@ -1755,17 +1968,14 @@ def _classifier_labels_table_sql(table: str) -> str:
     return f"""
         CREATE TABLE IF NOT EXISTS {table} (
             classifier_key TEXT NOT NULL,
-            catalog_uuid TEXT NOT NULL,
-            track_uuid TEXT NOT NULL,
-            selected_path TEXT NOT NULL,
-            file_size_bytes INTEGER NOT NULL CHECK(file_size_bytes >= 0),
-            file_modified_ns INTEGER NOT NULL CHECK(file_modified_ns >= 0),
+            content_key TEXT NOT NULL,
             label TEXT NOT NULL,
             note TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(
-                classifier_key, catalog_uuid, track_uuid, selected_path
-            ),
+            last_catalog_uuid TEXT NOT NULL,
+            last_track_uuid TEXT NOT NULL,
+            last_selected_path TEXT NOT NULL,
+            PRIMARY KEY(classifier_key, content_key),
             FOREIGN KEY(classifier_key)
                 REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
@@ -1779,6 +1989,7 @@ def _classifier_label_queue_table_sql(table: str) -> str:
         CREATE TABLE IF NOT EXISTS {table} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             classifier_key TEXT NOT NULL,
+            content_key TEXT NOT NULL,
             catalog_uuid TEXT NOT NULL,
             track_uuid TEXT NOT NULL,
             selected_path TEXT NOT NULL,
@@ -1789,9 +2000,7 @@ def _classifier_label_queue_table_sql(table: str) -> str:
             state TEXT NOT NULL DEFAULT 'suggested' CHECK(state IN ('{states}')),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(
-                classifier_key, catalog_uuid, track_uuid, selected_path, mode
-            ),
+            UNIQUE(classifier_key, content_key, mode),
             FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
     """
@@ -1801,6 +2010,7 @@ def _classifier_predictions_table_sql(table: str) -> str:
     return f"""
         CREATE TABLE IF NOT EXISTS {table} (
             classifier_key TEXT NOT NULL,
+            content_key TEXT NOT NULL,
             catalog_uuid TEXT NOT NULL,
             track_uuid TEXT NOT NULL,
             selected_path TEXT NOT NULL,
@@ -1812,13 +2022,28 @@ def _classifier_predictions_table_sql(table: str) -> str:
             confidence REAL NOT NULL,
             probabilities_json TEXT NOT NULL CHECK(json_valid(probabilities_json)),
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(
-                classifier_key, catalog_uuid, track_uuid, selected_path,
-                feature_set, model_artifact
-            ),
+            PRIMARY KEY(classifier_key, content_key, feature_set, model_artifact),
             FOREIGN KEY(classifier_key)
                 REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
+    """
+
+
+def _track_sightings_table_sql(table: str) -> str:
+    return f"""
+        CREATE TABLE IF NOT EXISTS {table} (
+            content_key TEXT NOT NULL,
+            catalog_uuid TEXT NOT NULL,
+            track_id INTEGER NOT NULL CHECK(track_id > 0),
+            track_uuid TEXT NOT NULL,
+            selected_path TEXT NOT NULL,
+            file_size_bytes INTEGER NOT NULL CHECK(file_size_bytes >= 0),
+            file_modified_ns INTEGER NOT NULL CHECK(file_modified_ns >= 0),
+            fingerprint_version INTEGER NOT NULL CHECK(fingerprint_version > 0),
+            fingerprint_analyzed_at TEXT NOT NULL,
+            seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(catalog_uuid, track_uuid)
+        ) WITHOUT ROWID
     """
 
 

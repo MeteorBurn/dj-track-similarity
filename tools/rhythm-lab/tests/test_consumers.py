@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -34,6 +35,7 @@ from dj_track_similarity.db.analysis import AnalysisRepository  # noqa: E402
 from dj_track_similarity.db.ddl import create_library_schema  # noqa: E402
 from dj_track_similarity.db.library_queries import LibraryQueryRepository  # noqa: E402
 from dj_track_similarity.db.schema import insert_library  # noqa: E402
+from dj_track_similarity.rhythm_lab_collections import sonara_content_key  # noqa: E402
 from rhythm_lab.cli import promote_profile_model  # noqa: E402
 from rhythm_lab.artifact_io import (  # noqa: E402
     ArtifactIntegrityError,
@@ -90,6 +92,29 @@ def _mert_output() -> AnalysisOutput:
     return AnalysisOutput("mert", "embedding")
 
 
+def _fingerprint_base64(index: int) -> str:
+    """Deterministic valid base64 of 8 bytes; the same index means the same content."""
+
+    return base64.b64encode(bytes([index % 256, 9]) * 4).decode("ascii")
+
+
+def _insert_fingerprint(
+    connection: sqlite3.Connection,
+    *,
+    track_id: int,
+    track_uuid: str,
+    index: int,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO sonara_fingerprints(
+            track_id, track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
+        ) VALUES (?, ?, 1, ?, ?)
+        """,
+        (track_id, track_uuid, _fingerprint_base64(index), NOW),
+    )
+
+
 def _insert_track(
     repository: Repository,
     output: AnalysisOutput,
@@ -108,6 +133,7 @@ def _insert_track(
             (track_uuid, f"C:/music/{index}.wav", index + 1, NOW, NOW, NOW),
         )
         track_id = int(cursor.lastrowid)
+        _insert_fingerprint(core, track_id=track_id, track_uuid=track_uuid, index=index)
     specification = current_embedding_spec(output.analysis_family)
     vector = np.zeros(specification.dimension, dtype=np.float32)
     vector[index] = 1.0
@@ -136,16 +162,18 @@ def _insert_track_without_embedding(
     *,
     index: int,
 ) -> None:
+    track_uuid = str(uuid.uuid4())
     with repository.connect() as core:
-        core.execute(
+        cursor = core.execute(
             """
             INSERT INTO tracks(
                 track_uuid, file_path, file_size_bytes, file_modified_ns,
                 last_scanned_at, created_at, updated_at
             ) VALUES (?, ?, 1024, ?, ?, ?, ?)
             """,
-            (str(uuid.uuid4()), f"C:/music/{index}.wav", index + 1, NOW, NOW, NOW),
+            (track_uuid, f"C:/music/{index}.wav", index + 1, NOW, NOW, NOW),
         )
+        _insert_fingerprint(core, track_id=int(cursor.lastrowid), track_uuid=track_uuid, index=index)
 
 
 def _insert_complete_rhythm_lab_rows(
@@ -287,6 +315,8 @@ def _create_focused_profile(
         name="Focused",
         description="Focused classifier description.",
         artifact_dir=artifact_dir,
+        # Fixtures label a handful of tracks; the product default is 100 per class.
+        training_min_labels=2,
         labels=[
             {"key": "yes", "name": "Yes", "role": "positive"},
             {"key": "no", "name": "No", "role": "negative"},
@@ -318,6 +348,7 @@ def test_web_profile_creation_uses_canonical_profiles_directory(
         "profiles",
         "voice-presence",
     )
+    assert response.json()["training_min_labels"] == 100
 
 
 def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
@@ -388,6 +419,7 @@ def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
 
     lab_path = tmp_path / "rhythm_lab.sqlite"
     _create_focused_profile(lab_path)
+    RhythmLabDatabase(lab_path).sync_track_sightings(source)
     page = source.list_tracks_page(
         labels_db_path=lab_path,
         classifier_key="focused",
@@ -397,6 +429,7 @@ def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
     assert page["total"] == 1
     assert len(page["items"]) == 1
     item = page["items"][0]
+    assert item["content_key"] == track.content_key == sonara_content_key(1, _fingerprint_base64(0))
     assert item["title"] == "Current title"
     assert item["artist"] == "Current artist"
     assert item["album"] == "Current album"
@@ -440,6 +473,7 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
         ],
     )
     scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    scoped.sync_track_sightings(source)
     for index, track in enumerate(tracks):
         scoped.set_label(track, "yes" if index < 2 else "no")
     scoped.save_prediction(
@@ -481,6 +515,7 @@ def test_source_features_lab_training_and_promotion_use_current_structure(
     )
     assert prediction_page["total"] == 1
     prediction = prediction_page["items"][0]
+    assert prediction["content_key"] == tracks[0].content_key
     assert prediction["track_uuid"] == tracks[0].track_uuid
     assert prediction["selected_path"] == tracks[0].file_path
     assert prediction["track_id"] == tracks[0].track_id
@@ -562,7 +597,7 @@ def test_source_feature_states_distinguish_current_and_missing(
 
     assert states["mert"].status == "current"
     assert states["muq"].status == "missing"
-    assert "stored current-track" in str(states["muq"].reason)
+    assert "нет сохранённых данных MUQ" in str(states["muq"].reason)
     assert states["clap"].status == "missing"
     assert states["mert_v2"].status == "missing"
 
@@ -638,7 +673,7 @@ def test_source_feature_inventory_is_cached_until_storage_changes(
     assert refreshed_counts["mert"] == first_counts["mert"] + 1
 
 
-def test_rhythm_lab_track_ids_exclude_tracks_missing_any_source(
+def test_rhythm_lab_track_ids_follow_the_requested_recipe(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
@@ -660,7 +695,15 @@ def test_rhythm_lab_track_ids_exclude_tracks_missing_any_source(
 
     source = SourceDatabase(repository.path)
 
+    # Default pool: every family stored in this library, so the MERT gap excludes track 2.
     assert source.rhythm_lab_track_ids() == (track_ids[0],)
+    assert source.rhythm_lab_track_ids(("sonara", "mert")) == (track_ids[0],)
+    # A recipe without MERT keeps it.
+    assert source.rhythm_lab_track_ids(("sonara", "maest")) == tuple(track_ids)
+    # A family with no rows here (mert_v2) yields an empty pool instead of a query error.
+    assert source.rhythm_lab_track_ids(("sonara", "mert_v2")) == ()
+    assert source.rhythm_lab_track_ids(("mert_v2@12",)) == ()
+    assert source.mert_v2_stored_layers() == ()
 
 
 def test_source_feature_counts_trust_existing_rows_without_blob_validation(
@@ -706,7 +749,7 @@ def test_source_feature_counts_trust_existing_rows_without_blob_validation(
     assert source.count_sonara_features() == 1
 
 
-def test_rhythm_lab_track_page_excludes_tracks_missing_any_source(
+def test_rhythm_lab_track_page_follows_the_requested_recipe(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
@@ -728,19 +771,29 @@ def test_rhythm_lab_track_page_excludes_tracks_missing_any_source(
     )
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
+    source = SourceDatabase(repository.path)
+    RhythmLabDatabase(labels_path).sync_track_sightings(source)
 
-    page = SourceDatabase(repository.path).list_tracks_page(
-        labels_db_path=labels_path,
-        classifier_key="focused",
-        label_keys=("yes", "no"),
-        training_label_keys=("yes", "no"),
-    )
+    def page(required_sources: tuple[str, ...] | None) -> list[int]:
+        result = source.list_tracks_page(
+            labels_db_path=labels_path,
+            classifier_key="focused",
+            label_keys=("yes", "no"),
+            training_label_keys=("yes", "no"),
+            required_sources=required_sources,
+        )
+        assert result["total"] == len(result["items"])
+        return [item["track_id"] for item in result["items"]]
 
-    assert page["total"] == 1
-    assert [item["track_id"] for item in page["items"]] == [track_ids[0]]
+    # Default pool requires every stored family; only track 1 has all of them.
+    assert page(None) == [track_ids[0]]
+    # A MERT-only recipe shows both tracks; a subset without MERT shows track 1.
+    assert page(("mert",)) == track_ids
+    assert page(("sonara", "muq")) == [track_ids[0]]
+    assert page(("mert_v2",)) == []
 
 
-def test_labeled_features_exclude_tracks_missing_any_rhythm_lab_source(
+def test_labeled_features_exclude_tracks_missing_a_recipe_source(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
@@ -761,16 +814,24 @@ def test_labeled_features_exclude_tracks_missing_any_rhythm_lab_source(
     scoped.set_label(tracks[0], "yes")
     scoped.set_label(tracks[1], "no")
 
-    features = build_labeled_feature_matrix(
+    # The training pool follows the recipe: both tracks store MERT, only one stores MAEST.
+    mert_only = build_labeled_feature_matrix(
         repository.path,
         labels_path,
         "mert",
         classifier_key="focused",
     )
+    with_maest = build_labeled_feature_matrix(
+        repository.path,
+        labels_path,
+        "mert+maest",
+        classifier_key="focused",
+    )
 
-    assert [track.track_id for track in features.tracks] == [tracks[0].track_id]
-    assert len(features.skipped_identities) == 1
-    assert features.skipped_identities[0].track_uuid == tracks[1].track_uuid
+    assert {track.track_id for track in mert_only.tracks} == {track.track_id for track in tracks}
+    assert mert_only.skipped_identities == ()
+    assert [track.track_id for track in with_maest.tracks] == [tracks[0].track_id]
+    assert with_maest.skipped_identities == (tracks[1].content_key,)
 
 
 def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
@@ -819,9 +880,23 @@ def test_labels_from_another_catalog_are_not_counted_or_trained(
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
     scoped = RhythmLabDatabase(labels_path, classifier_key="focused")
+    # The same file labelled from another library: same content, one label.
+    scoped.set_label(
+        replace(track, catalog_uuid=str(uuid.uuid4()), track_uuid=str(uuid.uuid4())),
+        "yes",
+    )
     scoped.set_label(track, "yes")
-    # The same file labelled under the catalog of an earlier scan.
-    scoped.set_label(replace(track, catalog_uuid=str(uuid.uuid4())), "no")
+    # Content this library never sighted is not current here.
+    scoped.set_label(
+        replace(
+            track,
+            catalog_uuid=str(uuid.uuid4()),
+            track_uuid=str(uuid.uuid4()),
+            content_key=sonara_content_key(1, _fingerprint_base64(77)),
+        ),
+        "no",
+    )
+    assert scoped.label_counts() == {"yes": 1, "no": 1}
     app = create_app(
         repository.path,
         labels_db_path=labels_path,
@@ -848,19 +923,21 @@ def test_labels_from_another_catalog_are_not_counted_or_trained(
     assert readiness["current"] == {"yes": 1, "no": 0}
 
 
-def test_prediction_page_hides_track_after_any_source_row_is_removed(
+def test_prediction_page_hides_track_only_when_a_required_source_row_is_removed(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
     output = _mert_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
+    _insert_track(repository, output, index=1)
     _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
     source = SourceDatabase(repository.path)
     track = source.list_tracks()[0]
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
     scoped = RhythmLabDatabase(labels_path, classifier_key="focused")
+    scoped.sync_track_sightings(source)
     scoped.save_prediction(
         track,
         feature_set="mert",
@@ -869,26 +946,33 @@ def test_prediction_page_hides_track_after_any_source_row_is_removed(
         confidence=0.8,
         probabilities={"yes": 0.8, "no": 0.2},
     )
+    # The other track keeps MERT stored, so the family stays available library-wide.
     with repository.connect() as connection:
         connection.execute(
             "DELETE FROM mert_embeddings WHERE track_id = ?",
             (track.track_id,),
         )
 
-    page = source.list_predictions_page(
-        labels_db_path=labels_path,
-        classifier_key="focused",
-        profile_type="binary",
-        positive_label="yes",
-        negative_label="no",
-        label_keys=("yes", "no"),
-        training_label_keys=("yes", "no"),
-        label="all",
-        predicted="all",
-    )
+    def page(required_sources: tuple[str, ...] | None) -> int:
+        result = source.list_predictions_page(
+            labels_db_path=labels_path,
+            classifier_key="focused",
+            profile_type="binary",
+            positive_label="yes",
+            negative_label="no",
+            label_keys=("yes", "no"),
+            training_label_keys=("yes", "no"),
+            label="all",
+            predicted="all",
+            required_sources=required_sources,
+        )
+        assert result["total"] == len(result["items"])
+        return result["total"]
 
-    assert page["items"] == []
-    assert page["total"] == 0
+    assert page(None) == 0
+    assert page(("mert",)) == 0
+    # Removing an unrelated family's row does not hide the prediction.
+    assert page(("sonara", "muq")) == 1
 
 
 def test_embedding_reads_are_bounded_by_track_id_chunks() -> None:
@@ -923,27 +1007,55 @@ def test_embedding_reads_are_bounded_by_track_id_chunks() -> None:
 
 def test_web_uses_current_track_identity_and_recipe_readiness(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Repository(tmp_path)
     mert = _mert_output()
     repository.register_analysis_outputs((mert,))
-    for index in range(2):
+    for index in range(4):
         _insert_track(repository, mert, index=index)
     _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    # Libraries analyzed before MERT-v2 existed have no table at all; the lab
+    # must report the family as missing instead of failing on the query.
+    with repository.connect() as connection:
+        connection.execute("DROP TABLE mert_v2_embeddings")
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path)
+    # Two labels per class satisfy the fixture threshold, so benchmarks may start.
+    scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
+    for index, track in enumerate(SourceDatabase(repository.path).list_tracks()):
+        scoped.set_label(track, "yes" if index < 2 else "no")
     app = create_app(
         repository.path,
         labels_db_path=lab_path,
         classifier_target_root=tmp_path / "promoted",
         source_catalog_uuid=repository.catalog_uuid,
     )
+    benchmark_calls: list[dict[str, object]] = []
+
+    def fake_benchmark(*_args: object, **kwargs: object) -> dict[str, object]:
+        benchmark_calls.append(kwargs)
+        return {"strategy": kwargs["strategy"], "feature_sets": ["sonara+mert"], "planned_runs": 1, "profiles": []}
+
+    monkeypatch.setattr(web_app_module, "run_ablation_benchmark", fake_benchmark)
+    stored_families = ["sonara", "maest", "mert", "muq", "mulan", "clap"]
 
     with TestClient(app) as client:
         current = client.get("/api/source/current")
         assert current.status_code == 200
         assert current.json()["catalog_uuid"] == repository.catalog_uuid
-        assert current.json()["expected_catalog_uuid"] == repository.catalog_uuid
+        assert current.json()["launched_catalog_uuid"] == repository.catalog_uuid
+        assert current.json()["track_count"] == 4
+        assert current.json()["available_feature_sources"] == stored_families
+        assert current.json()["default_feature_set"] == "+".join(stored_families)
+        assert current.json()["feature_sources"]["mert"] == {
+            "status": "current",
+            "reason": None,
+            "count": 4,
+            "track_count": 4,
+        }
+        assert current.json()["feature_sources"]["mert_v2"]["status"] == "missing"
+        assert current.json()["mert_v2_layers"] == []
 
         tracks_response = client.get(
             "/api/profiles/focused/tracks",
@@ -951,8 +1063,11 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         )
         assert tracks_response.status_code == 200
         tracks = tracks_response.json()["items"]
-        first, second = tracks
+        assert len(tracks) == 4
+        first, second = tracks[:2]
         assert first["track_id"] > 0
+        assert first["content_key"].startswith("sfp1:")
+        assert first["content_key"] != second["content_key"]
         assert first["file_path"].endswith(".wav")
         assert set(first["feature_status"]) == {
             "sonara",
@@ -967,6 +1082,15 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert first["feature_status"]["mert_v2"]["status"] == "missing"
         assert first["feature_status"]["muq"]["status"] == "current"
         assert first["feature_status"]["mulan"]["status"] == "current"
+        # Pages take an optional recipe; an unstored family yields an empty page.
+        assert client.get(
+            "/api/profiles/focused/tracks",
+            params={"label": "all", "feature_set": "mert_v2"},
+        ).json()["total"] == 0
+        assert client.get(
+            "/api/profiles/focused/tracks",
+            params={"feature_set": "combined"},
+        ).status_code == 400
 
         mert_readiness = client.get(
             "/api/profiles/focused/training/readiness",
@@ -974,26 +1098,69 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         ).json()
         sonara_mert_maest_readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "sonara+mert+maest"},
+            params={"feature_set": "maest+mert+sonara"},
         ).json()
         muq_readiness = client.get(
             "/api/profiles/focused/training/readiness",
             params={"feature_set": "muq"},
         ).json()
+        default_readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+        ).json()
         assert mert_readiness["features_ready"] is True
         assert mert_readiness["promoted_model"]["status"] == "not_promoted"
         assert mert_readiness["trained_model"]["feature_set"] is None
-        assert mert_readiness["labels_ready"] is False
+        assert mert_readiness["labels_ready"] is True
+        assert mert_readiness["label_threshold_ready"] is True
         assert mert_readiness["calibration_ready"] is False
         assert "100" in mert_readiness["calibration_readiness"]["reason"]
+        assert mert_readiness["available_feature_sources"] == stored_families
+        assert mert_readiness["default_feature_set"] == "+".join(stored_families)
+        assert mert_readiness["mert_v2_layers"] == []
+        assert "available_feature_sets" not in mert_readiness
+        source_features = mert_readiness["source_features"]
+        assert set(source_features) == set(first["feature_status"])
+        assert source_features["mert"] == {
+            "status": "current",
+            "reason": None,
+            "count": 4,
+            "track_count": 4,
+        }
+        assert source_features["mert_v2"]["status"] == "missing"
+        assert source_features["mert_v2"]["count"] == 0
+        # Requested recipes come back canonical; the default is every stored family.
         assert sonara_mert_maest_readiness["features_ready"] is True
+        assert sonara_mert_maest_readiness["feature_recipe"]["feature_set"] == "sonara+maest+mert"
         assert sonara_mert_maest_readiness["feature_recipe"]["required_sources"] == [
             "sonara",
-            "mert",
             "maest",
+            "mert",
         ]
+        assert "total" in mert_readiness and "current" in mert_readiness
         assert muq_readiness["features_ready"] is True
         assert muq_readiness["feature_recipe"]["blocking"] == []
+        assert default_readiness["feature_recipe"]["feature_set"] == "+".join(stored_families)
+        assert default_readiness["features_ready"] is True
+
+        # Benchmarks are planned from the stored families before any training starts.
+        benchmark = client.post(
+            "/api/profiles/focused/training/benchmark",
+            json={"strategy": "custom", "feature_sets": ["mert+sonara"]},
+        )
+        assert benchmark.status_code == 200, benchmark.text
+        assert benchmark.json()["planned_runs"] == 1
+        assert benchmark.json()["feature_sets"] == ["sonara+mert"]
+        assert benchmark_calls[-1]["strategy"] == "custom"
+        assert benchmark_calls[-1]["feature_sets"] == ("mert+sonara",)
+        assert client.post(
+            "/api/profiles/focused/training/benchmark",
+            json={"strategy": "layers"},
+        ).status_code == 400
+        assert client.post(
+            "/api/profiles/focused/training/benchmark",
+            json={"strategy": "custom", "feature_sets": ["mert_v2"]},
+        ).status_code == 400
+        assert len(benchmark_calls) == 1
 
         liked_payload = {
             "catalog_uuid": first["catalog_uuid"],
@@ -1032,6 +1199,59 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             json={"liked": False},
         )
         assert incomplete.status_code == 422
+
+        # The launcher switches libraries without the launch-time catalog pin:
+        # another library opens and reports its own stored families, while a
+        # non-library file (the lab's own labels database) is refused.
+        other_root = tmp_path / "other"
+        other_root.mkdir()
+        other = Repository(other_root)
+        other.register_analysis_outputs((mert,))
+        _insert_track(other, mert, index=5)
+        switched = client.post("/api/source/switch", json={"path": str(other.path)})
+        assert switched.status_code == 200, switched.text
+        assert switched.json()["catalog_uuid"] == other.catalog_uuid
+        assert switched.json()["launched_catalog_uuid"] == repository.catalog_uuid
+        assert switched.json()["track_count"] == 1
+        assert switched.json()["available_feature_sources"] == ["mert"]
+        assert switched.json()["default_feature_set"] == "mert"
+        assert client.post("/api/source/switch", json={"path": str(lab_path)}).status_code == 409
+        assert client.get("/api/source/current").json()["catalog_uuid"] == other.catalog_uuid
+
+        # The profile is labeled in the first library only: here none of its
+        # labels resolve, so training-type operations are refused server-side.
+        foreign = client.post("/api/profiles/focused/training/benchmark", json={"strategy": "singles"})
+        assert foreign.status_code == 409, foreign.text
+        assert "yes — 0 (всего 2), no — 0 (всего 2)" in foreign.json()["detail"]
+        assert client.post("/api/source/switch", json={"path": str(repository.path)}).status_code == 200
+
+        # While a profile operation runs, the source stays put.
+        benchmark_started = threading.Event()
+        benchmark_release = threading.Event()
+        benchmark_status: list[int] = []
+
+        def blocking_benchmark(*_args: object, **kwargs: object) -> dict[str, object]:
+            benchmark_started.set()
+            assert benchmark_release.wait(timeout=10)
+            return {"strategy": kwargs["strategy"], "feature_sets": ["mert"], "planned_runs": 1, "profiles": []}
+
+        monkeypatch.setattr(web_app_module, "run_ablation_benchmark", blocking_benchmark)
+        benchmark_thread = threading.Thread(
+            target=lambda: benchmark_status.append(
+                client.post("/api/profiles/focused/training/benchmark", json={"strategy": "singles"}).status_code
+            ),
+        )
+        benchmark_thread.start()
+        try:
+            assert benchmark_started.wait(timeout=10)
+            busy = client.post("/api/source/switch", json={"path": str(other.path)})
+            assert busy.status_code == 409
+            assert "benchmark" in busy.json()["detail"]
+        finally:
+            benchmark_release.set()
+            benchmark_thread.join(timeout=10)
+        assert benchmark_status == [200]
+        assert client.post("/api/source/switch", json={"path": str(other.path)}).status_code == 200
 
 
 def test_web_reuses_lab_database_repository_for_profile_requests(
@@ -1230,6 +1450,23 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
     )
 
     with TestClient(app) as client:
+        # The profile's per-class label minimum gates training, benchmarking and
+        # calibration on the server: 4 labels cannot satisfy 3 per class.
+        raised = client.patch("/api/profiles/focused", json={"training_min_labels": 3})
+        assert raised.status_code == 200, raised.text
+        assert raised.json()["training_min_labels"] == 3
+        for path, body in (
+            ("training/train-refresh", {"feature_set": "mert"}),
+            ("training/benchmark", {"strategy": "singles"}),
+            ("training/calibrate", {"feature_set": "mert"}),
+        ):
+            blocked = client.post(f"/api/profiles/focused/{path}", json=body)
+            assert blocked.status_code == 409, blocked.text
+            assert "не меньше 3 меток на класс" in blocked.json()["detail"]
+        readiness = client.get("/api/profiles/focused/training/readiness", params={"feature_set": "mert"}).json()
+        assert (readiness["label_threshold"], readiness["label_threshold_ready"]) == (3, False)
+        assert client.patch("/api/profiles/focused", json={"training_min_labels": 2}).status_code == 200
+
         response = client.post(
             "/api/profiles/focused/training/train-refresh",
             json={"feature_set": "mert"},
@@ -1275,7 +1512,7 @@ def test_prediction_refresh_uses_requested_feature_recipe(
     assert response.json()["predicted"] == 4
 
 
-def test_prediction_rejects_artifact_from_another_source_catalog(
+def test_prediction_applies_artifacts_by_feature_spec_not_source_catalog(
     tmp_path: Path,
 ) -> None:
     first_repository = Repository(tmp_path)
@@ -1293,16 +1530,31 @@ def test_prediction_rejects_artifact_from_another_source_catalog(
         catalog_uuid=first_repository.catalog_uuid,
     )
 
-    with pytest.raises(ValueError, match="does not match active catalog"):
+    # Trained on another library, compatible spec: the artifact applies here.
+    applied = apply_model_to_lab(
+        other_repository.path,
+        lab_path,
+        artifact,
+        classifier_key="focused",
+    )
+    assert applied["predicted"] == 1
+
+    # A recipe family with no stored data here is refused before any prediction.
+    muq_artifact = _write_promotable_artifact(
+        tmp_path / "artifacts",
+        output=AnalysisOutput("muq", "embedding"),
+        catalog_uuid=other_repository.catalog_uuid,
+    )
+    with pytest.raises(ValueError, match="данных MUQ"):
         apply_model_to_lab(
             other_repository.path,
             lab_path,
-            artifact,
+            muq_artifact,
             classifier_key="focused",
         )
 
 
-def test_prediction_rejects_artifact_without_source_catalog_binding(
+def test_prediction_and_promotion_accept_artifact_without_source_catalog_binding(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
@@ -1317,20 +1569,23 @@ def test_prediction_rejects_artifact_without_source_catalog_binding(
         catalog_uuid=None,
     )
 
-    with pytest.raises(ValueError, match="not bound to a source catalog"):
-        apply_model_to_lab(
-            repository.path,
-            lab_path,
-            artifact,
-            classifier_key="focused",
-        )
-    with pytest.raises(PromotionError, match="not bound to a source catalog"):
-        promote_profile_model(
-            lab_path,
-            "focused",
-            artifact_path=artifact,
-            target_root=tmp_path / "promoted",
-        )
+    applied = apply_model_to_lab(
+        repository.path,
+        lab_path,
+        artifact,
+        classifier_key="focused",
+    )
+    promoted = promote_profile_model(
+        lab_path,
+        "focused",
+        artifact_path=artifact,
+        target_root=tmp_path / "promoted",
+    )
+    metadata = json.loads(Path(promoted["metadata_path"]).read_text(encoding="utf-8"))
+
+    assert applied["predicted"] == 1
+    # The catalog stays provenance only, so an unbound artifact records None.
+    assert metadata["source_catalog_uuid"] is None
 
 
 def test_prediction_refresh_failure_leaves_previous_candidate_set_untouched(
@@ -1486,7 +1741,7 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
         assert calibration_progress == {
             "operation": "calibrate",
             "status": "completed",
-            "stage": "Calibration complete",
+            "stage": "Калибровка завершена",
             "percent": 100,
             "error": None,
         }
@@ -1608,7 +1863,7 @@ def test_promote_replaces_the_root_model_pair(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("invalid_case", "expected_error"),
     [
-        ("empty_features", "non-empty ordered feature_names list"),
+        ("empty_features", "непустой упорядоченный список feature_names"),
         ("unusable_model", "must implement predict_proba"),
     ],
 )

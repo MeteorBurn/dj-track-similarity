@@ -5,7 +5,7 @@
 
 **Build DJ sets as stories from your own local music library.**
 
-<p align="center"><img src="img/dj-track-similarity-banner.png" alt="DJ Track Similarity" width="100%"></p>
+<p align="center"><img src="img/dj-track-similarity-hero.png" alt="DJ Track Similarity" width="100%"></p>
 
 `dj-track-similarity` is a local-first workbench for large music folders. It scans them into a SQLite library and runs audio-model analysis on your own machine. Search ranks candidates around seed tracks or text prompts, and the set you assemble by ear exports as M3U or CSV. The server binds to `127.0.0.1` by default, and model assets load only from the local `models/` directory with downloads disabled. Model scores are ranking evidence for listening, not DJ decisions.
 

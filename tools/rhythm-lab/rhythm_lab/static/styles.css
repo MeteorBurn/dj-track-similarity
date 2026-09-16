@@ -294,6 +294,9 @@ body[data-view="training"] .summary-strip, body[data-view="settings"] .summary-s
 .training-coverage > .training-state { flex: 1.1; min-width: 13rem; font-size: .82rem; }
 .training-coverage > .coverage-item { flex: 1.15; margin: 0; min-width: 11rem; border-left: 1px solid var(--border-strong); padding-left: 1.7rem; }
 .training-coverage > .meta { flex: .9; border-left: 1px solid var(--border-strong); padding-left: 1.7rem; font-size: .8rem; }
+.cross-library-labels { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .4rem; text-align: right; }
+.cross-library-labels > span:first-child { margin-right: .6rem; }
+.cross-library-label { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .5rem; border: 1px solid color-mix(in srgb, var(--label-color) 35%, var(--border)); border-radius: var(--radius); background: color-mix(in srgb, var(--label-color) 8%, var(--surface)); color: var(--label-color); line-height: 1.35; white-space: nowrap; }
 .coverage-item.compact { display: grid; grid-template-columns: auto minmax(4rem, 1fr) auto; gap: .6rem; align-items: center; }
 .coverage-item.compact .coverage-label { display: contents; font-size: .78rem; }
 .coverage-item.compact .coverage-label > span:last-child { grid-column: 3; grid-row: 1; justify-self: end; font-size: .7rem; }

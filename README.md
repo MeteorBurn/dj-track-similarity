@@ -56,19 +56,34 @@ The author claims no ML or music-information-retrieval expertise. Model outputs 
 
 [install.ps1](install.ps1) installs the application and analysis stack together. Compatible tools are reused. The tool versions below are the installer's downloads when a suitable installation is unavailable. Python packages follow [pyproject.toml](pyproject.toml) and [uv.lock](uv.lock). Frontend packages follow [frontend/package-lock.json](frontend/package-lock.json).
 
-| Component | Version or source | Purpose |
-| --- | --- | --- |
-| Project | [DJ Track Similarity, dev branch](https://github.com/MeteorBurn/dj-track-similarity/tree/dev) | Download first. Includes the application, installer, and launchers |
-| [Python](https://www.python.org/) and [uv](https://docs.astral.sh/uv/) | CPython **3.10.20** / uv **0.11.12** | Shared Python environment and dependency installation |
-| [Node.js](https://nodejs.org/en) and npm | Node.js **24.15.0**, with its bundled npm | Frontend installation and build |
-| Frontend | React **19.2.5**, Vite **7.3.6**, TypeScript **5.9.3** | Browser interface |
-| PyTorch / TorchAudio / TorchVision | **2.11.0+cu130 / 2.11.0+cu130 / 0.26.0+cu130** ([version matrix](https://pytorch.org/get-started/previous-versions/#v2-11-0)) | ML inference with CUDA 13.0 binaries |
-| [TorchCodec](https://github.com/meta-pytorch/torchcodec) | **0.16.0+cu130** | Audio decoding for ML |
-| [FFmpeg](https://ffmpeg.org/) and [PyAV](https://pyav.org/) | FFmpeg **8.1.1 full shared** / PyAV **17.1.0** | Shared audio libraries and decode recovery |
-| Microsoft Visual C++ runtime | [x64 Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist), installer package **14.51.36247.0** | Native runtime DLLs, installed if missing |
-| Model packages | Transformers **5.13.0**, Hugging Face Hub **1.22.0**, MAEST Infer **0.2.0**, MuQ **0.1.0**, LAION CLAP **1.1.7** | Model loading and inference |
-| Scientific packages | NumPy **1.26.4**, SciPy **1.15.3**, scikit-learn **1.7.2**, joblib **1.5.3** | Features, classifiers, and numerical processing |
-| Web and metadata packages | FastAPI **0.139.0**, Uvicorn **0.51.0**, Pydantic **2.13.4**, Mutagen **1.48.1** | Local server, validation, and audio tags |
+- **[DJ Track Similarity, dev branch](https://github.com/MeteorBurn/dj-track-similarity/tree/dev)** - Download first. Includes the application, installer, and launchers.
+- **[Python](https://www.python.org/) 3.10.20** - CPython for the shared environment.
+- **[uv](https://docs.astral.sh/uv/) 0.11.12** - Python dependency installation.
+- **[Node.js](https://nodejs.org/en) 24.15.0** - Frontend installation and build runtime.
+- **npm (bundled with Node.js)** - Frontend package installation.
+- **React 19.2.5** - Browser interface.
+- **Vite 7.3.6** - Builds the browser interface.
+- **TypeScript 5.9.3** - Frontend type checking.
+- **[PyTorch](https://pytorch.org/get-started/previous-versions/#v2-11-0) 2.11.0+cu130** - ML inference with CUDA 13.0 binaries.
+- **TorchAudio 2.11.0+cu130** - Audio utilities for ML inference.
+- **TorchVision 0.26.0+cu130** - Vision utilities for ML dependencies.
+- **[TorchCodec](https://github.com/meta-pytorch/torchcodec) 0.16.0+cu130** - Audio decoding for ML.
+- **[FFmpeg](https://ffmpeg.org/) 8.1.1 full shared** - Shared audio libraries.
+- **[PyAV](https://pyav.org/) 17.1.0** - Audio decode recovery.
+- **[Microsoft Visual C++ x64 runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 14.51.36247.0** - Native runtime DLLs, installed if missing.
+- **Transformers 5.13.0** - Model loading and inference.
+- **Hugging Face Hub 1.22.0** - Model asset handling.
+- **MAEST Infer 0.2.0** - MAEST inference.
+- **MuQ 0.1.0** - MuQ and MuQ-MuLan inference.
+- **LAION CLAP 1.1.7** - CLAP inference.
+- **NumPy 1.26.4** - Numerical processing.
+- **SciPy 1.15.3** - Scientific processing.
+- **scikit-learn 1.7.2** - Classifiers and feature processing.
+- **joblib 1.5.3** - Model persistence.
+- **FastAPI 0.139.0** - Handles local web requests.
+- **Uvicorn 0.51.0** - Local server runtime.
+- **Pydantic 2.13.4** - Data validation.
+- **Mutagen 1.48.1** - Audio tags.
 
 > [!NOTE]
 > **🔧 Runtime setup:** FFmpeg includes the shared DLLs. An executable alone is insufficient. Downloaded portable tools stay inside the project, and the installer does not change your user or system `PATH`.

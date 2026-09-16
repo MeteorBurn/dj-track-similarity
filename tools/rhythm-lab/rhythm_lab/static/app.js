@@ -2086,10 +2086,9 @@ function trackMarkup(track) {
 }
 
 function renderTrackState(track) {
-  if (activeView === "liked") return `<span class="track-state-primary ${track.label_trained ? "ready" : "muted"}"><span class="status-dot"></span>${track.label_trained ? "Trained" : "Not trained"}</span><span class="meta">${track.label_trained_at ? escapeHtml(formatHumanDate(track.label_trained_at)) : "—"}</span>`;
-  const known = requiredFeatureSources().length > 0;
-  const ready = known && featuresReady(track);
-  return `<span class="track-state-primary ${ready ? "ready" : known ? "blocked" : "muted"}" title="${escapeHtml(known && !ready ? missingFeatures(track).join(", ") : "")}"><span class="status-dot"></span>${known ? ready ? "Ready" : "Missing features" : "Checking features"}</span><span class="meta">${track.label_trained ? "Trained" : "Not trained"}</span>`;
+  const status = `<span class="track-state-primary ${track.label_trained ? "ready" : "warning"}"><span class="status-dot" aria-hidden="true"></span>${track.label_trained ? "Trained" : "Not trained"}</span>`;
+  if (activeView !== "liked") return status;
+  return `${status}<span class="meta">${track.label_trained_at ? escapeHtml(formatHumanDate(track.label_trained_at)) : "—"}</span>`;
 }
 
 function refreshVisibleTrackStates() {

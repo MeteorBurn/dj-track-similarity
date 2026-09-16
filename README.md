@@ -69,7 +69,7 @@ Hold a reflective mood across a long, steady-tempo plateau. Gentle changes in te
 
 > [!WARNING]
 > **🎮 GPU analysis needs a compatible NVIDIA GPU and driver.** The selected PyTorch binaries include the **CUDA 13.0 runtime**, so you do not need to install a separate CUDA Toolkit or cuDNN. The installer checks CUDA availability but does not install a graphics driver. See the [NVIDIA CUDA guide for Windows](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-installation-guide-microsoft-windows/index.html), [driver compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html), and [PyTorch binary guidance](https://discuss.pytorch.org/t/should-i-install-the-extra-cudatoolkit-and-cudnn/194528). CPU inference is available. CUDA is recommended for full-library ML analysis.
-> **💾 Storage and downloads.** Have an internet connection and enough free space for **about 11.2 GB of model assets**, plus the Python environment, tools, download caches, and your library database.
+> Have an internet connection and enough free space for **about 11.2 GB of model assets**, plus the Python environment, tools, download caches, and your library database.
 
 > [!TIP]
 > **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your Windows version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.

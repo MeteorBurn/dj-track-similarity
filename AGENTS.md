@@ -113,7 +113,8 @@ work unverified rather than inventing its instructions.
   user decides otherwise. For authorized Git delivery, use `dev`: fetch before
   committing, compare ancestry with `origin/dev`, and account for parallel
   worktrees. New branches start from `origin/dev` (default prefix `codex/`).
-  Update `main` only on a separate explicit user request.
+  Update `main` only on a separate explicit user request, using fast-forward
+  after ancestry and worktree checks. Keep `dev` as the working branch.
 - Inspect `git status` and the scoped diff before delivery. Do not stage local
   databases, audio, logs, reports, model artifacts, or generated output.
 - Executable sources and tests beat prose when they disagree.
@@ -229,6 +230,16 @@ change starts with a new test: admit a test only under the rules below.
   source and tests. Maintained docs can lag the code.
 - Document current behavior, not plans. Docs do not block implementation,
   verification, or authorized Git delivery.
+- Keep `README.md` concise and UI-first, without CLI/API command recipes.
+  Use emoji headings/callouts, meaningful images, and working links.
+  Installation order: prerequisites/warnings; one short installation procedure;
+  dependencies grouped by role, one package per line with bold name/version and
+  a short purpose; Audio Features Extraction Engine (patched SONARA fork and
+  original citation); models and disk sizes. Model-specific packages remain
+  actual dependencies but appear in their model block, not the general list.
+  Verify installer/runtime/launcher claims against executable sources.
+  When the user reports GitHub edits, fetch and integrate them before updating
+  README; preserve user wording outside the requested scope.
 - Documentation is English. Translate Russian UI labels in prose; only
   `docs/dj-track-similarity/help/ui-language.md` may contain Cyrillic to map
   on-screen labels to English.

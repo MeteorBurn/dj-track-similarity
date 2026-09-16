@@ -1,5 +1,5 @@
 > [!WARNING]
-> **Early development.** This is a personal enthusiast project under active development. Schemas, commands, defaults, and UI structure change often. Expect incomplete features and breaking changes.
+> **⚠️ Early development.** This is a personal enthusiast project under active development. Schemas, commands, defaults, and UI structure change often. Expect incomplete features and breaking changes.
 
 # 🎧 DJ Track Similarity
 
@@ -8,6 +8,8 @@
 <p align="center"><img src="img/dj-track-similarity-banner.png" alt="DJ Track Similarity" width="100%"></p>
 
 `dj-track-similarity` is a local-first workbench for large music folders. It scans them into a SQLite library and runs audio-model analysis on your own machine. Search ranks candidates around seed tracks or text prompts, and the set you assemble by ear exports as M3U or CSV. The server binds to `127.0.0.1` by default, and model assets load only from the local `models/` directory with downloads disabled. Model scores are ranking evidence for listening, not DJ decisions.
+
+---
 
 ## ✨ The core idea
 
@@ -27,99 +29,143 @@ Large personal libraries hide music you forgot you own. A typical loop with the 
 
 The author claims no ML or music-information-retrieval expertise. Model outputs are stored separately per model so you can inspect them. The full background and the feature/direction boundary live in the [project idea](docs/dj-track-similarity/concepts/project-idea.md) page.
 
+---
+
 ## ✅ What the project can do today
 
-- Scan a local music folder into one SQLite library (tags read with Mutagen) and browse it in server-side pages.
-- Analyze tracks with SONARA, MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those seven models.
-- Search from text prompts with CLAP or MuQ-MuLan once that family's audio embeddings exist (see workflow 4 for A/B comparison and feedback).
-- Train personal classifiers in Rhythm Lab (label, train, benchmark, promote) and filter the library by promoted scores in the CLASSIFIER tab.
-- Keep a manual current set, export it as M3U or CSV, and remove a confirmed track from the catalog without touching its audio file.
-- Run report-first Audio Doctor and Audio Dedup and backup-first database optimization (see [Maintenance tools](#-maintenance-tools)).
+- **📂 Browse your library.** Scan a local music folder into one SQLite library (tags read with Mutagen) and browse it in server-side pages.
+- **🎧 Find similar tracks.** Analyze tracks with SONARA, MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those seven models.
+- **💬 Search by text.** Search from text prompts with CLAP or MuQ-MuLan once that family's audio embeddings exist (see workflow 4 for A/B comparison and feedback).
+- **🧪 Train personal classifiers.** Use Rhythm Lab to label, train, benchmark, and promote classifiers, then filter the library by their scores in the CLASSIFIER tab.
+- **🎚️ Build a set.** Keep a manual current set, export it as M3U or CSV, and remove a confirmed track from the catalog without touching its audio file.
+- **🛠️ Maintain the library.** Review duplicate candidates with Audio Dedup and check or compact the selected database (see [Maintenance tools](#-maintenance-tools)).
 
-## 🚀 Quick start
+---
 
-Use Windows x64 with 64-bit PowerShell 7, Git, and an internet connection. Run the following three steps in PowerShell. The model assets alone need about 11.2 GB, with additional space for the Python environment, tools, and download caches.
+## 🚀 Installation
 
-### Step 1 - get the project
+> [!IMPORTANT]
+> **🪟 Windows x64 and 64-bit PowerShell 7 are required for the supplied installer.** The dependency sources and launchers are configured for this platform. Linux and macOS need adaptation. Codex or Claude Code can help review the project and select compatible packages and launch methods for your system.
 
-```powershell
-git clone --branch dev https://github.com/MeteorBurn/dj-track-similarity.git
-cd dj-track-similarity
+> **💾 Storage and downloads.** Have an internet connection and enough free space for **about 11.2 GB of model assets**, plus the Python environment, tools, download caches, and your library database.
+
+> [!WARNING]
+> **🎮 GPU analysis needs a compatible NVIDIA GPU and driver.** The selected PyTorch binaries include the **CUDA 13.0 runtime**, so you do not need to install a separate CUDA Toolkit or cuDNN. The installer checks CUDA availability but does not install a graphics driver. See the [NVIDIA CUDA guide for Windows](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-installation-guide-microsoft-windows/index.html), [driver compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html), and [PyTorch binary guidance](https://discuss.pytorch.org/t/should-i-install-the-extra-cudatoolkit-and-cudnn/194528). CPU inference is available. CUDA is recommended for full-library ML analysis.
+
+### 📦 What the installer prepares
+
+[install.ps1](install.ps1) installs the application and analysis stack together. Compatible tools are reused. The tool versions below are the installer's downloads when a suitable installation is unavailable. Python packages follow [pyproject.toml](pyproject.toml) and [uv.lock](uv.lock). Frontend packages follow [frontend/package-lock.json](frontend/package-lock.json).
+
+| Component | Version or source | Purpose |
+| --- | --- | --- |
+| 📂 Project | [DJ Track Similarity, dev branch](https://github.com/MeteorBurn/dj-track-similarity/tree/dev) | Download first. Includes the application, installer, and launchers |
+| 🐍 [Python](https://www.python.org/) and [uv](https://docs.astral.sh/uv/) | CPython **3.10.20** / uv **0.11.12** | Shared Python environment and dependency installation |
+| 📦 [Node.js](https://nodejs.org/en) and npm | Node.js **24.15.0**, with its bundled npm | Frontend installation and build |
+| 🖥️ Frontend | React **19.2.5**, Vite **7.3.6**, TypeScript **5.9.3** | Browser interface |
+| 🔥 PyTorch / TorchAudio / TorchVision | **2.11.0+cu130 / 2.11.0+cu130 / 0.26.0+cu130** ([version matrix](https://pytorch.org/get-started/previous-versions/#v2-11-0)) | ML inference with CUDA 13.0 binaries |
+| 🔊 [TorchCodec](https://github.com/meta-pytorch/torchcodec) | **0.16.0+cu130** | Audio decoding for ML |
+| 🎞️ [FFmpeg](https://ffmpeg.org/) and [PyAV](https://pyav.org/) | FFmpeg **8.1.1 full shared** / PyAV **17.1.0** | Shared audio libraries and decode recovery |
+| 🪟 Microsoft Visual C++ runtime | [x64 Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist), installer package **14.51.36247.0** | Native runtime DLLs, installed if missing |
+| 🧠 Model packages | Transformers **5.13.0**, Hugging Face Hub **1.22.0**, MAEST Infer **0.2.0**, MuQ **0.1.0**, LAION CLAP **1.1.7** | Model loading and inference |
+| 🧮 Scientific packages | NumPy **1.26.4**, SciPy **1.15.3**, scikit-learn **1.7.2**, joblib **1.5.3** | Features, classifiers, and numerical processing |
+| 🌐 Web and metadata packages | FastAPI **0.139.0**, Uvicorn **0.51.0**, Pydantic **2.13.4**, Mutagen **1.48.1** | Local server, validation, and audio tags |
+
+> [!NOTE]
+> **🔧 Runtime setup:** FFmpeg includes the shared DLLs. An executable alone is insufficient. Downloaded portable tools stay inside the project, and the installer does not change your user or system `PATH`.
+>
+> **🪟 Windows runtime.** Installing the Microsoft runtime may request administrator approval or report that Windows needs a restart. The installer never restarts the computer itself.
+
+### 🎛️ Audio Features Extraction Engine
+
+This engine extracts audio features such as BPM, key, energy, rhythm, and timbre, together with an acoustic fingerprint. CPU analysis provides the track data required before ML processing.
+
+The installer includes **SONARA 0.3.6** with decoder patches from the [MeteorBurn/sonara fork](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.6-meteorburn.1). It is installed as a Python package and needs no separate model checkpoint download.
+
+> **📚 Citation:** original [SONARA project by kkollsga](https://github.com/kkollsga/sonara).
+
+### 🧠 Installed models
+
+The installer downloads the ML assets below into `models/` and verifies their SHA-256 hashes. Valid existing files are kept, and interrupted downloads can resume when the server supports it. Analysis reads the local files without automatic model downloads.
+
+| Model | Local assets | Approximate size |
+| --- | --- | ---: |
+| 🧠 [MAEST](https://github.com/palonso/MAEST) | Checkpoint | 0.34 GB |
+| 🧠 [MERT-v1-95M](https://huggingface.co/m-a-p/MERT-v1-95M) | Weights and configuration | 0.38 GB |
+| 🧠 [MERT-v2-FullSong](https://huggingface.co/m-a-p/MERT-v2-FullSong) | Weights and configuration | 2.53 GB |
+| 🧠 [MuQ-large-msd-iter](https://huggingface.co/OpenMuQ/MuQ-large-msd-iter) | Weights and configuration | 1.33 GB |
+| 🧠 [MuQ-MuLan-large](https://huggingface.co/OpenMuQ/MuQ-MuLan-large) | Audio/text assets, including XLM-RoBERTa | 3.78 GB |
+| 🧠 [CLAP music_audioset](https://huggingface.co/lukewys/laion_clap) | Audio/text assets, including RoBERTa | 2.85 GB |
+| **💾 Total** | **Downloaded ML assets** | **11.22 GB** |
+
+> **💾 Size notes.** Sizes use decimal GB and are rounded independently. MuQ-MuLan also uses the MuQ files listed above, counted once in the total.
+
+### 💾 Install the project
+
+1. Open the [dev branch on GitHub](https://github.com/MeteorBurn/dj-track-similarity/tree/dev), choose **Code → Download ZIP**, and extract it into a folder where you can keep the application and its models.
+2. Close any running application or server windows. Open the project folder in **PowerShell 7** and run **install.ps1**. Installation covers the Python environment and browser interface plus model downloads. It also checks the audio and ML runtime.
+3. Wait for the installer to finish, then use the launchers below. **run_server.cmd** and **run_rhythm-lab.cmd** are included in the repository.
+
+> [!TIP]
+> **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your Windows version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
+
+---
+
+## ▶️ Start the application
+
+### 🖥️ Main application
+
+Open **[run_server.cmd](run_server.cmd)**. Its console guides you through database selection and network access:
+
+**🆕 First library**
+
+When `database/` contains no `.sqlite` libraries, the console shows:
+
+```text
+Database path [<project>\database\volumes.sqlite]:
 ```
 
-### Step 2 - install everything
+Press **Enter** for the default, or type a path such as `database/my-library.sqlite`. A new file is created when the server starts. Here, `<project>` is your extracted project folder.
 
-```powershell
-.\install.ps1
+**📂 Existing libraries**
+
+When libraries are available, the console lists them by number:
+
+```text
+Database [1-N, default K, or a path]:
 ```
 
-The installer prepares the root `.venv` with all Python dependencies, including the patched SONARA build, every ML family, scikit-learn, and the development and tool packages. Scikit-learn is a shared dependency available throughout the project. It also installs and builds the frontend, downloads every pinned model asset, and checks the audio and ML runtime.
+Enter a number, press **Enter** for the indicated default, or type a path to select or create another library. `N` and `K` are the numbers printed by the launcher.
 
-Compatible uv, Node.js/npm, and FFmpeg installations are reused. Missing tools are downloaded as verified portable archives under `.tools/install/`; the shared FFmpeg runtime is placed in `libs/ffmpeg/bin/`. The installer does not change the user or system `PATH`. Existing model files with matching hashes are retained, and interrupted model downloads resume when supported by the server.
+**🌐 Local or network access**
 
-If the required Microsoft Visual C++ x64 runtime is missing, the installer verifies and runs the signed Microsoft package. Windows may request administrator approval. If a restart is required, the installer reports it without restarting the computer.
-
-### Step 3 - start the project
-
-```powershell
-.\run_server.cmd
+```text
+Choose server mode:
+1. Local only http://127.0.0.1:5173/
+2. Local network http://<this-computer-lan-ip>:5173/
+Mode [1/2, default 1]:
 ```
 
-Choose a database and mode in the launcher, keep its window open, and open the `Open UI` address it prints. Local mode uses backend `127.0.0.1:8765` and browser UI `http://127.0.0.1:5173/`. Choose or create a library in `database/`, then scan your music folder from the browser. Source audio stays in place. Ctrl+C or the top-bar power button stops the servers.
+Press **Enter** or **1** for Local only at [http://127.0.0.1:5173/](http://127.0.0.1:5173/). Choose **2** for Local network so other devices on that network can connect. The launcher prints your computer's LAN address. Choose this mode only when you want network access.
 
-### Installed audio and ML runtime
+Keep the console window open and follow the **Open UI** address it prints. In the browser, scan your music folder into the selected library. Source files stay in place. **Ctrl+C** or the top-bar power button stops the servers.
 
-The Windows x64 installation uses this pinned stack:
+### 🧪 Rhythm Lab
 
-| Component | Version or source |
-| --- | --- |
-| Python | CPython `3.10.20` from `.python-version` |
-| SONARA | Patched `0.3.6` wheel from [MeteorBurn/sonara](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.6-meteorburn.1) |
-| PyTorch / TorchAudio / TorchVision | `2.11.0+cu130` / `2.11.0+cu130` / `0.26.0+cu130` |
-| TorchCodec | `0.16.0+cu130` |
-| FFmpeg | `8.1.1` full shared build, including its DLLs |
-| PyAV | `17.1.0` |
+Prefer the **Rhythm Lab** button in the main interface. It opens the lab for the selected library at [http://127.0.0.1:8777/](http://127.0.0.1:8777/), managed in the main server's console window.
 
-The CUDA 13.0 runtime comes with the selected PyTorch binaries; a separate CUDA Toolkit installation is unnecessary. GPU inference needs a compatible NVIDIA GPU and driver. The installer reports CUDA availability and leaves driver installation to the system owner. See the [PyTorch version matrix](https://pytorch.org/get-started/previous-versions/#v2-11-0) and [PyTorch binary runtime guidance](https://discuss.pytorch.org/t/should-i-install-the-extra-cudatoolkit-and-cudnn/194528/2).
+For an independent session without the main application, open **[run_rhythm-lab.cmd](run_rhythm-lab.cmd)** and select an existing library. This launcher does not create a new source library. If the main application is already running, the launcher hands the request to it. Close an independent lab session before starting the main application, then reopen the lab with its button.
 
-FFmpeg must be the full shared `8.1.1` build: `ffmpeg.exe` alone is insufficient. The installer checks an existing runtime and obtains the pinned build when needed. An explicit `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` must point to a valid shared-build `bin` directory. TorchCodec's [installation requirements](https://github.com/meta-pytorch/torchcodec/blob/v0.16.0/README.md#installing-torchcodec) explain the shared-library requirement.
+---
 
-## 🧠 Add model-backed analysis
+## 🧠 First analysis
 
-The complete installation includes the analysis packages and model assets. SONARA comes from the public patched release selected in `pyproject.toml`, with its wheel hash recorded in `uv.lock`.
+Start with **SONARA** analysis in the browser after scanning. SONARA is a CPU stage. The separate **ML** stage accepts only tracks with current SONARA analysis. Reruns fill missing outputs. Check the job status for individual file failures.
 
-### Local model assets
+Choose the SONARA BPM range in its settings before the first run. That range belongs to the library, and changing it later requires a SONARA analysis reset. For ML, select the models and CPU or CUDA device in the analysis settings.
 
-The installer runs [download_models.py](scripts/download_models.py) to fetch all pinned weights, configurations, and tokenizers into `models/` and verify their SHA-256 hashes. Downloads use pinned upstream revisions or release assets. Inference loads these local files with automatic downloads and Hub caches disabled. The existing model adapters own the required file names and digests.
+Each job warms up its selected models before decoding tracks. **Direct Mode** reads the original files in place. **Staged Mode** can help with slow disks by analyzing temporary copies in a folder you choose. The original audio is unchanged. The staging folder must be selected again in each browser session.
 
-| Family | Required directories under `models/` |
-| --- | --- |
-| MAEST | `maest/` |
-| MERT | `mert/` |
-| MERT-v2 | `mert-v2/` |
-| MuQ | `muq/` |
-| MuQ-MuLan | `mulan/`, `mulan/text/`, `muq/` |
-| CLAP | `clap/`, `clap/text/` |
-
-### Run analysis
-
-With the selected dependencies and assets available, run a small first pass:
-
-```powershell
-& .\.venv\Scripts\dj-sim.exe analyze --models sonara --limit 25 --db ./database/library.sqlite
-& .\.venv\Scripts\dj-sim.exe analyze --models maest,mert,mert_v2,muq,mulan,clap --limit 25 --db ./database/library.sqlite
-```
-
-Omit `--limit` to analyze the whole library. Each run is one stage: SONARA alone on the CPU, or ML models only. Run SONARA first, because an ML run refuses to start when no track has current SONARA analysis and analyzes only the tracks that have it. Reruns target only tracks with missing outputs, and per-file failures are kept in the job status without stopping the run. CUDA is recommended for full-library ML runs. The full option table is in the [CLI reference](docs/dj-track-similarity/reference/commands.md#dj-sim-analyze). Useful options:
-
-- `--sonara-batch-size 1..16` (default `8`) for the SONARA job
-- `--sonara-bpm-range` takes a preset (`rekordbox`, `virtual-dj`, `mixed-in-key`) or `MIN-MAX` such as `70-140`, where MAX is at least twice MIN. Without it the run uses the library's claimed range, or `mixed-in-key` (79 to 192) when the library has none, and ML runs refuse the flag. The first SONARA run claims the range, so choose it here or in the browser SONARA settings dialog, because changing it later needs a SONARA analysis reset
-- `--device auto|cpu|cuda` for ML inference
-- `--top-k 1..10` for MAEST labels
-- `--track-batch-size 1..64` (default `8`) and `--inference-batch-size 1..128` (default `16`) for ML batching
-- `--ml-staged --ml-staging-path <folder>` runs ML Staged Mode with an existing staging folder, tuned by `--ml-copy-workers 1..16` (default `4`), `--ml-decode-workers 1..32` (default `8`), and `--ml-stage-size 1..512` (default `64`); SONARA Staged Mode is available only in the browser and the HTTP API
-
-Every job loads its selected models first and reports that as a warm-up phase. A missing or invalid local asset fails the job before any track is decoded. In the browser, SONARA and ML each offer a Direct Mode that reads source files in place and an optional Staged Mode for libraries on slow disks, which copies selected files into a user-selected temporary folder without touching the source and gives the analyzer only the staging paths. Tuning values persist in browser `localStorage`. The staging folder does not, because it receives temporary copies of your audio, so every session asks for it again. See [Model warm-up](docs/dj-track-similarity/reference/analysis-families.md#model-warm-up) and [Direct and Staged Mode](docs/dj-track-similarity/reference/analysis-families.md#direct-and-staged-mode).
+---
 
 ## 🎚️ Main workflows
 
@@ -141,35 +187,27 @@ Preview candidates and add rows to the shared current set. Any result list adds 
 
 After CLAP or MuQ-MuLan audio embeddings exist, the PROMPT tab searches your library from a prompt bank composed of presets. Each preset carries its own wording per model plus optional negative prompts you can switch off.
 
-A/B runs MuQ-MuLan and CLAP side by side. Approve or reject results to save feedback for that exact query and model. Later PROMPT-tab searches of the same query apply it automatically once at least three usable approvals exist, while the CLI does not use feedback. The results show the executed query and whether feedback applied.
+A/B runs MuQ-MuLan and CLAP side by side. Approve or reject results to save feedback for that exact query and model. Later PROMPT-tab searches of the same query apply it automatically once at least three usable approvals exist. The results show the executed query and whether feedback applied.
 
-The first search loads the text model, which stays cached until about ten minutes pass without a search. Text-search scores are prompt evidence inside one model's score space and are not comparable to seed-search scores or to the other text model. See [Text search](docs/dj-track-similarity/user-guide/text-search.md). Free-form prompts are available from the CLI:
-
-```powershell
-& .\.venv\Scripts\dj-sim.exe text-search "dark hypnotic techno, rolling bass, low light, late night tension" --model clap --db ./database/library.sqlite
-```
+The first search loads the text model, which stays cached until about ten minutes pass without a search. Text-search scores are prompt evidence inside one model's score space and are not comparable to seed-search scores or to the other text model. See [Text search](docs/dj-track-similarity/user-guide/text-search.md).
 
 ### 5. 🧪 Train personal classifiers
 
 <p align="center"><img src="img/rhythm-lab-banner.png" alt="Rhythm Lab" width="100%"></p>
 
-Rhythm Lab is a separate local app that turns listening decisions into classifier scores. Launch it from the main app. The backend starts it at `127.0.0.1:8777` on the selected library, with labels in `tools/rhythm-lab/database/rhythm_lab.sqlite`. Rhythm Lab can switch libraries while it runs, and when a managed instance is already running, the main app's Rhythm Lab button asks it to switch to the selected library (refused while a profile operation runs). A new labels database has no built-in profile, so create or select the one you want to train. See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASSIFIER tab](docs/dj-track-similarity/user-guide/class-tab.md). The loop:
+Rhythm Lab is a separate local app that turns listening decisions into classifier scores. Launch it from the main app. The backend starts it at [http://127.0.0.1:8777/](http://127.0.0.1:8777/) on the selected library, with labels in `tools/rhythm-lab/database/rhythm_lab.sqlite`. Rhythm Lab can switch libraries while running. The main app's Rhythm Lab button asks an existing managed instance to switch to the selected library. Switching is unavailable during a profile operation. A new labels database has no built-in profile, so create or select the one you want to train. See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASSIFIER tab](docs/dj-track-similarity/user-guide/class-tab.md). The loop:
 
 1. Label examples in Rhythm Lab.
 2. Train and review the profile.
-3. Promote one artifact into `models/classifiers/<profile-slug>/` (the profile key with hyphens, such as `live-instrumentation`).
-4. Score the library with `dj-sim analyze-classifier`.
+3. Promote the trained classifier for use in the main app.
+4. Score the library with the promoted classifier from the CLASSIFIER tab.
 5. Filter by the scores in the CLASSIFIER tab.
 
-Labels are keyed by content: each track's `content_key` is derived from its SONARA fingerprint, so a label follows the same audio into every library that holds it, and a track needs a SONARA fingerprint before it can be labeled. A training recipe is any set of stored sources, written in the order `sonara`, `maest`, `mert`, `mert_v2`, `muq`, `mulan`, `clap` (for example `sonara+muq`). `mert_v2@N` selects a stored MERT-v2 layer, and bare `mert_v2` is layer 24, the only layer main-app classifier scoring reads. Benchmark strategies are `singles`, `singles+all` (the default), `greedy`, `full`, `layers`, `layers+all`, and `custom`. In the Rhythm Lab app, training, benchmark, and calibration stay blocked until every class reaches the profile's minimum labels per class (`training_min_labels`, default 100, at least 2) in the open library. `migrate-content-identity` converts an older lab database: it is a dry run unless `--apply`, which backs up first, takes a repeatable `--library-db` for every catalog the lab references, and accepts `--skip-unresolved` and `--report`.
+Labels follow the audio through its SONARA fingerprint, including across libraries that contain the same content. Analyze tracks with SONARA before labeling them. A profile chooses which stored model outputs to use. Training, benchmarking, and calibration become available when every class meets that profile's minimum label count in the open library.
 
-Scoring is database-only. It reads the stored SONARA, MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, and CLAP inputs the promoted manifest names, and tracks missing a required input are left out of the job. From PowerShell, replace `live_instrumentation` with your profile key. CLI `promote` requires a calibrated artifact unless you pass `--allow-uncalibrated`, and `train` calibrates only with `--calibrate`, which fails when the labels do not satisfy the calibration gate:
+Scoring reads stored analysis and writes classifier results to the database. It skips tracks missing an input required by the promoted classifier and does not change the audio files.
 
-```powershell
-& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --calibrate --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-& .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-& .\.venv\Scripts\dj-sim.exe analyze-classifier live_instrumentation --db ./database/library.sqlite
-```
+---
 
 ## 🧩 How the pieces fit
 
@@ -183,9 +221,9 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate and never folds them into one score scale. A file genre tag, a MAEST genre label, a CLAP text score, and a duplicate score answer different questions ([Similarity scores](docs/dj-track-similarity/concepts/similarity-scores.md)).
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores measured Core features (BPM, key, duration, energy, rhythm, dynamics, timbre, tonal signals), a timeline (beats, downbeats, chord events, segments, and energy, loudness, and tempo curves), a 48-dimensional embedding, and a versioned acoustic fingerprint. A SONARA write needs all four outputs and stores them together. Startup never adds the `sonara_timeline` table to an older library, which gets an explicit error instead. The BPM analysis range is a library-wide setting claimed by the first SONARA run. Every later run has to reuse it, and switching requires a SONARA analysis reset. The library rejects an upper bound below twice the lower one. Presets are Rekordbox 70 to 180, VirtualDJ 80 to 240, and Mixed In Key 79 to 192.
+- **SONARA** stores measured Core features (BPM, key, duration, energy, rhythm, dynamics, timbre, tonal signals), a timeline (beats, downbeats, chord events, segments, and energy, loudness, and tempo curves), a 48-dimensional embedding, and a versioned acoustic fingerprint. A SONARA write needs all four outputs and stores them together. Startup reports an error if an older library lacks the `sonara_timeline` table. It never adds the table automatically. The first SONARA run claims the library's BPM analysis range. Later runs reuse that range. A different range requires a SONARA analysis reset. The library rejects an upper bound below twice the lower one. Presets are Rekordbox 70 to 180, VirtualDJ 80 to 240, and Mixed In Key 79 to 192.
 - **MAEST** stores genre labels and an audio embedding.
-- **MERT**, **MERT-v2**, **MuQ**, **MuQ-MuLan**, and **CLAP** each store their own audio embedding in a separate seed-search space; MERT-v2 stores all 24 transformer layers instead of one vector. CLAP and MuQ-MuLan also serve text-to-track search. MuQ-MuLan does not reuse MuQ embeddings.
+- **MERT**, **MERT-v2**, **MuQ**, **MuQ-MuLan**, and **CLAP** each store their own audio embedding in a separate seed-search space. MERT-v2 stores all 24 transformer layers instead of one vector. CLAP and MuQ-MuLan also serve text-to-track search. MuQ-MuLan does not reuse MuQ embeddings.
 - **Rhythm Lab classifiers** score from stored inputs only and save results under a classifier key (see workflow 5).
 
 The ML families share one in-process decode per track: TorchCodec `0.16` over the shared FFmpeg `8.1.1` libraries, with a per-family PyAV `17.1.0` retry that discards malformed packets and keeps the valid audio around them. SONARA decodes natively and uses the same PyAV retry. The retry recovers a readable file. It does not repair a damaged one. Decoding never launches `ffmpeg.exe`, and the runtime check reads the release version from `libavutil` without starting a process. Only the Audio Dedup spectral check runs `ffmpeg` from `PATH`. The CPU or CUDA device applies to inference only. See [Analysis families](docs/dj-track-similarity/reference/analysis-families.md).
@@ -194,70 +232,52 @@ Tempo comparisons weight SONARA BPM by its confidence and beat-grid stability. U
 
 The SONARA fingerprint feeds Audio Dedup and the Rhythm Lab `content_key`. No search, classifier, dedup, or Rhythm Lab workflow reads the SONARA embedding or timeline yet. Mood, true peak, and ReplayGain are stored for inspection and Rhythm Lab feature sets, not for similarity scoring. In SIMILARITY search with the SONARA model, the Aggression modifier uses the stored aggression score and shrinks its directional push by SONARA's aggression confidence. See [Features, embeddings, and tags](docs/dj-track-similarity/concepts/features-embeddings-tags.md).
 
+---
+
 ## 🔗 Upstream models and licenses
 
 Optional analysis uses upstream projects and downloaded checkpoints: [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights. Upstream code and weights carry different licenses, so check their terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md).
 
+---
+
 ## 🛠️ Maintenance tools
 
-- **Audio Doctor** inspects audio metadata and container issues and is dry-run by default. `--apply` writes repairs without a further prompt. By default it backs up each file first, verifies the result, restores the backup on failure, and deletes the backup after a verified write or a successful restore; `--no-backup` (not combinable with `--backup-dir`) skips the backup, so no rollback is possible. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
-- **Audio Dedup** reports duplicate candidates under a required `--root` from stored SONARA fingerprints and MERT, MAEST, MuQ, and CLAP embeddings, and the CLI `--db` defaults to `database/volumes.sqlite`. The default `--fingerprint` mode leaves every candidate for manual review. Only `--embedding` mode can mark safe delete candidates, and those require MERT and MAEST evidence. A spectral check runs `ffmpeg` from `PATH` on duplicate-group files to flag suspected transcodes and steer the keeper toward full-band audio; it is skipped when `ffmpeg` is missing or with `--skip-spectral`. Deletion needs the phrase `APPLY DELETE`. The CLI asks you to type it and permanently deletes only safe candidates inside `--root`. The browser review dialog sends it once you confirm, then moves the copies you mark to the recycle bin (the default) or deletes them permanently. Both paths recheck the report's track identity and file facts and never delete a group's last copy on disk. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
-- **Database validation** (`dj-sim validate-database` or the browser) checks SQLite integrity, track identities, and stored analysis data without changing the library.
-- **Database optimization** (`dj-sim optimize-database --db ... [--dry-run]` or the browser) is backup-first: `VACUUM`, `ANALYZE`, and an FTS merge run against a database that already has a verified backup. A second integrity check follows; if it passes, that backup is removed, and if it fails, the backup stays as the rollback point. `--dry-run` writes nothing, reports free space, and exits with code 1 when it is insufficient. The browser offers optimization after a validation with zero errors, scoped to the selected database. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
-- **Legacy database migration.** Startup never rewrites a legacy split (core + artifacts) database pair. Stop every database user, then run `& .\.venv\Scripts\dj-sim.exe migrate-database --db ./database/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`. It creates a timestamped backup and verifies the merged file. No analysis starts.
+- **🔍 Audio Dedup** finds duplicate candidates from stored fingerprints and embeddings. Review the report in the browser and choose which copies to remove. Deletion requires confirmation, uses the recycle bin by default, rechecks file identity, and keeps at least one copy on disk per group. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
+- **✅ Database validation** checks SQLite integrity, track identities, and stored analysis without changing the library.
+- **🗃️ Database optimization** is available after validation reports zero errors. A verified backup protects the database during compaction and index maintenance. Verification then checks the result. The temporary backup is removed after success and kept if verification fails. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
 
-```powershell
-& .\.venv\Scripts\python.exe tools/audio-doctor/audio_doctor_cli.py --db ./database/library.sqlite
-& .\.venv\Scripts\python.exe tools/audio-dedup/audio_dedup_cli.py --db ./database/library.sqlite --root D:/Music --preset safe
-& .\.venv\Scripts\dj-sim.exe validate-database --db ./database/library.sqlite
-& .\.venv\Scripts\dj-sim.exe optimize-database --db ./database/library.sqlite --dry-run
-```
+Older database formats need an explicit migration. Starting the app never converts them automatically.
+
+---
 
 ## 🛡 Safety model
 
 Normal workflows read source audio and never modify it. Scan, Refresh Tags, analysis, search, browser preview, analysis reset, database clear, confirmed single-track catalog removal, relocation preview, export, and classifier scoring write only SQLite rows, logs, reports, Rhythm Lab's temporary preview WAV files (the main app streams its preview without a file), temporary Staged Mode copies in the staging folder you choose, or exported M3U and CSV files.
 
-Only three workflows touch source audio, and each one is explicit (gates and backups are described under [Maintenance tools](#-maintenance-tools)):
+Only three workflows touch source audio, and each one is explicit:
 
-- **MAEST genre tag apply** writes the standard genre field of tracks with stored MAEST genres.
-- **Audio Doctor `--apply`** rewrites repairable files in place.
-- **Audio Dedup deletion** removes confirmed duplicate copies after an explicit confirmation.
+- **🏷️ MAEST genre tag apply** writes the standard genre field of tracks with stored MAEST genres.
+- **🩺 Audio Doctor repair** rewrites repairable files in place. It backs up and verifies each file by default.
+- **🗑️ Audio Dedup deletion** removes confirmed duplicate copies after an explicit confirmation.
 
-`dj-sim relocate-library OLD_ROOT NEW_ROOT` previews a library relocation, and `--apply` rewrites stored SQLite paths only. It never moves, copies, deletes, or retags files.
+Library relocation updates stored database paths only. It never moves, copies, deletes, or retags files.
 
 SQLite databases, logs, reports, and promoted classifier artifacts reveal library paths and listening decisions, so `.gitignore` excludes them. [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md) holds the full write-path table.
 
+---
+
 ## 📚 Documentation
 
-The docs site starts at the [project guide](docs/dj-track-similarity/project-guide.md).
+The docs site starts at the [project guide](docs/dj-track-similarity/project-guide.md). It is temporarily unmaintained and may describe older behavior. Use this README for current installation guidance.
 
 | Topic | Pages |
 | --- | --- |
-| Getting started | [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md), [Install](docs/dj-track-similarity/getting-started/install.md), [First library](docs/dj-track-similarity/getting-started/first-library.md), [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md) |
-| Everyday use | [Browse library](docs/dj-track-similarity/user-guide/browse-library.md), [Analyze library](docs/dj-track-similarity/user-guide/analyze-library.md), [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md), [Text search](docs/dj-track-similarity/user-guide/text-search.md), [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md) |
-| Reference and maintenance | [CLI reference](docs/dj-track-similarity/reference/commands.md), [API reference](docs/dj-track-similarity/reference/api.md), [Configuration](docs/dj-track-similarity/reference/configuration.md), [Database](docs/dj-track-similarity/reference/database.md), [SONARA integration](docs/dj-track-similarity/reference/sonara-integration.md), [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md), [Migrate and reanalyze SONARA storage](docs/dj-track-similarity/workflows/reanalyze-sonara-split-storage.md) |
+| 🚀 Getting started | [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md), [Install](docs/dj-track-similarity/getting-started/install.md), [First library](docs/dj-track-similarity/getting-started/first-library.md), [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md) |
+| 🎚️ Everyday use | [Browse library](docs/dj-track-similarity/user-guide/browse-library.md), [Analyze library](docs/dj-track-similarity/user-guide/analyze-library.md), [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md), [Text search](docs/dj-track-similarity/user-guide/text-search.md), [Export playlists](docs/dj-track-similarity/user-guide/export-playlists.md) |
+| 🛠️ Reference and maintenance | [Configuration](docs/dj-track-similarity/reference/configuration.md), [Database](docs/dj-track-similarity/reference/database.md), [SONARA integration](docs/dj-track-similarity/reference/sonara-integration.md), [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md) |
 
-## 🧪 Development checks
-
-[AGENTS.md](AGENTS.md) owns project instructions, the working-branch policy, and verification routing. Check it and the live Git state before starting work. Use the smallest check that covers the change. Root Pytest collects only `tests/`, so name each tool suite explicitly:
-
-```powershell
-& .\.venv\Scripts\python.exe -m pytest tests/test_sonara_features.py
-& .\.venv\Scripts\python.exe -m pytest tools/audio-doctor/tests
-& .\.venv\Scripts\python.exe -m pytest tools/audio-dedup/tests
-& .\.venv\Scripts\python.exe -m pytest tools/audio-online/tests
-& .\.venv\Scripts\python.exe -m pytest tools/rhythm-lab/tests/test_rhythm_lab.py
-```
-
-Frontend runtime or build changes need type checking, the Node tests and, before a commit, the static bundle build. Maintained documentation changes run the docs check. Run `npm --prefix .\docs\dj-track-similarity run vale:sync` once after a fresh checkout or when `.vale.ini` packages change.
-
-```powershell
-npm --prefix .\frontend run typecheck
-npm --prefix .\frontend test
-npm --prefix .\frontend run build
-npm --prefix .\docs\dj-track-similarity run check
-```
+---
 
 ## 🤖 Optional coding-agent setup
 
-The application does not require an agent plugin. For Codex or Claude Code, the shared agents and skills live in [.djts/](.djts/). The one-time setup `.\.djts\scripts\bootstrap.ps1` registers the plugin for the available CLIs and generates the Codex agent launchers. [AGENT LAYER](docs/agent-guides/agent-layer.md#agent-layer) covers regeneration, plugin updates, and verification of the installed copy.
+The application does not require an agent plugin. For Codex or Claude Code, the shared agents and skills live in [.djts/](.djts/). [AGENTS.md](AGENTS.md) routes project instructions and verification, and [Agent setup](docs/agent-guides/agent-layer.md#agent-layer) explains the optional integration.

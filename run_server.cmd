@@ -58,7 +58,7 @@ if not exist "%PROJECT_ROOT%\.venv\Scripts\activate.bat" (
     echo         %PROJECT_ROOT%\.venv
     echo.
     echo Create it and install the project first:
-    echo   uv sync --locked --extra dev
+    echo   pwsh -NoProfile -File install.ps1
     goto :setup_error
 )
 
@@ -70,17 +70,19 @@ if errorlevel 1 (
     echo [ERROR] dj-sim is not available in the activated environment.
     echo.
     echo Install the project first:
-    echo   uv sync --locked --extra dev
+    echo   pwsh -NoProfile -File install.ps1
     goto :setup_error
 )
+
+if exist "%PROJECT_ROOT%\libs\ffmpeg\bin\ffmpeg.exe" set "PATH=%PATH%;%PROJECT_ROOT%\libs\ffmpeg\bin"
+if exist "%PROJECT_ROOT%\.tools\install\node\npm.cmd" set "PATH=%PROJECT_ROOT%\.tools\install\node;%PATH%"
 
 where npm >nul 2>nul
 if errorlevel 1 (
     echo [ERROR] npm is not available on PATH.
     echo.
-    echo The launcher starts the live Vite UI so frontend changes are visible
-    echo immediately. Install Node.js/npm or start dj-sim serve manually to use
-    echo the last built frontend/dist bundle.
+    echo Run the complete installer first:
+    echo   pwsh -NoProfile -File install.ps1
     goto :setup_error
 )
 

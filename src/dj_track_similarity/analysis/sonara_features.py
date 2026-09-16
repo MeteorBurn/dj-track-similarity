@@ -320,7 +320,6 @@ def _import_sonara() -> Any:
         import sonara
     except ImportError as error:
         raise RuntimeError(
-            "sonara is not installed. Install it with: "
-            "uv sync --locked --extra sonara --extra dev"
+            "sonara is not installed. Run install.ps1 from the project root."
         ) from error
     return sonara

@@ -79,7 +79,7 @@ echo [ERROR] Local virtual environment was not found:
 echo         %PROJECT_ROOT%\.venv
 echo.
 echo Create it and install the project first:
-echo   uv sync --locked --extra dev
+echo   pwsh -NoProfile -File install.ps1
 goto :setup_error
 
 :prompt_database

@@ -38,89 +38,59 @@ The author claims no ML or music-information-retrieval expertise. Model outputs 
 
 ## 🚀 Quick start
 
-Development is verified on Windows. Run these PowerShell examples from the repository root. `uv run --no-sync` and the root `.venv` interpreter need no activation.
+Use Windows x64 with 64-bit PowerShell 7, Git, and an internet connection. Run the following three steps in PowerShell. The model assets alone need about 11.2 GB, with additional space for the Python environment, tools, and download caches.
 
-### What you need
-
-- **`uv`**, the only Python-side prerequisite. `.python-version` pins CPython `3.10.20`, which `uv sync` downloads when the machine lacks it.
-- **FFmpeg `8.1.1` as a full shared build.** The version is checked exactly, any other release is refused, and `ffmpeg.exe` without the shared libraries next to it is never enough.
-- **Node.js** for the browser UI (the launcher starts Vite, and a clone has no built `frontend/dist`) and for the docs site. Pure CLI use does not need it.
-- **A local folder of audio files.** Source files stay in place. See the [Safety model](#-safety-model).
-
-### Step 1 - install the prerequisites
+### Step 1 - get the project
 
 ```powershell
-winget install --id astral-sh.uv --exact
-winget install --id OpenJS.NodeJS.LTS --exact
-winget install --id Gyan.FFmpeg.Shared --exact --version 8.1.1
+git clone --branch dev https://github.com/MeteorBurn/dj-track-similarity.git
+cd dj-track-similarity
 ```
 
-Keep `--version 8.1.1`, because the runtime accepts no other release. A hand-extracted `8.1.1` full shared archive also works. Reopen the terminal afterwards so any `PATH` change is visible, and use Step 2 if the runtime still cannot find the `bin` directory.
-
-### Step 2 - make FFmpeg discoverable
-
-The runtime needs the `bin` directory of the shared build. When `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` is set, only that directory is tried. Otherwise the first `PATH` entry holding a complete `8.1.1` build wins. To set it for this and future terminals:
+### Step 2 - install everything
 
 ```powershell
-$env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = "C:\path\to\ffmpeg\bin"
-[Environment]::SetEnvironmentVariable(
-  "DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR", $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR, "User")
+.\install.ps1
 ```
 
-### Step 3 - install the project
+The installer prepares the root `.venv` with all Python dependencies, including the patched SONARA build, every ML family, scikit-learn, and the development and tool packages. Scikit-learn is a shared dependency available throughout the project. It also installs and builds the frontend, downloads every pinned model asset, and checks the audio and ML runtime.
 
-The base installation includes scikit-learn as a required, shared dependency available throughout the project.
+Compatible uv, Node.js/npm, and FFmpeg installations are reused. Missing tools are downloaded as verified portable archives under `.tools/install/`; the shared FFmpeg runtime is placed in `libs/ffmpeg/bin/`. The installer does not change the user or system `PATH`. Existing model files with matching hashes are retained, and interrupted model downloads resume when supported by the server.
 
-The base `uv sync` covers scan, serving, a fresh library database, and set export. The frontend and the docs site are separate npm installs. The third command below is needed only to build or check documentation (that package has no lockfile). Model analysis needs extras, described in [Add model-backed analysis](#-add-model-backed-analysis).
+If the required Microsoft Visual C++ x64 runtime is missing, the installer verifies and runs the signed Microsoft package. Windows may request administrator approval. If a restart is required, the installer reports it without restarting the computer.
 
-```powershell
-uv sync --locked --extra dev
-npm --prefix .\frontend ci
-npm --prefix .\docs\dj-track-similarity install --no-package-lock
-```
-
-### Step 4 - verify
+### Step 3 - start the project
 
 ```powershell
-uv run --no-sync dj-sim doctor
-& .\.venv\Scripts\python.exe -c 'from dj_track_similarity.audio.ffmpeg_runtime import inspect_audio_runtime; print(inspect_audio_runtime())'
-```
-
-`doctor` prints the interpreter and Torch status, then the resolved FFmpeg directory, version, and PyAV binding. Without the `ml` extra it reports `torch=missing` (plus an install hint when a CUDA driver is detected) and skips the audio runtime check, so the second command checks the audio runtime on a base install. When the runtime is refused, the output lists every directory that holds FFmpeg libraries and why it was rejected.
-
-### First run
-
-Scan your music folder (replace `D:/Music`) into a new library. Keeping it under `database/` lets the interactive launcher find it:
-
-```powershell
-uv run --no-sync dj-sim scan D:/Music --db ./database/library.sqlite
-```
-
-Start the backend (`127.0.0.1:8765`) and the live Vite UI with the Windows launcher, keep its window open, and open the `Open UI` address it prints (`http://127.0.0.1:5173/`) in a browser. The window shows the output, and Ctrl+C stops the servers. Run it without arguments to pick a database from `database/` (or type a path to create one) and then choose the mode:
-
-```powershell
-.\run_server.cmd local --db .\database\library.sqlite
-.\run_server.cmd lan --db .\database\library.sqlite
 .\run_server.cmd
 ```
 
-`local` binds `127.0.0.1`, and `lan` binds `0.0.0.0` and prints a LAN URL. Naming a mode skips the prompts. `--db` opens an existing compatible library or creates a new one at that path. Without it the server creates no SQLite file and waits for the database picker. The top-bar power button stops the backend, a managed Rhythm Lab, and the launcher's Vite child. Launcher prompts and shutdown details are in the [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md).
+Choose a database and mode in the launcher, keep its window open, and open the `Open UI` address it prints. Local mode uses backend `127.0.0.1:8765` and browser UI `http://127.0.0.1:5173/`. Choose or create a library in `database/`, then scan your music folder from the browser. Source audio stays in place. Ctrl+C or the top-bar power button stops the servers.
+
+### Installed audio and ML runtime
+
+The Windows x64 installation uses this pinned stack:
+
+| Component | Version or source |
+| --- | --- |
+| Python | CPython `3.10.20` from `.python-version` |
+| SONARA | Patched `0.3.6` wheel from [MeteorBurn/sonara](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.6-meteorburn.1) |
+| PyTorch / TorchAudio / TorchVision | `2.11.0+cu130` / `2.11.0+cu130` / `0.26.0+cu130` |
+| TorchCodec | `0.16.0+cu130` |
+| FFmpeg | `8.1.1` full shared build, including its DLLs |
+| PyAV | `17.1.0` |
+
+The CUDA 13.0 runtime comes with the selected PyTorch binaries; a separate CUDA Toolkit installation is unnecessary. GPU inference needs a compatible NVIDIA GPU and driver. The installer reports CUDA availability and leaves driver installation to the system owner. See the [PyTorch version matrix](https://pytorch.org/get-started/previous-versions/#v2-11-0) and [PyTorch binary runtime guidance](https://discuss.pytorch.org/t/should-i-install-the-extra-cudatoolkit-and-cudnn/194528/2).
+
+FFmpeg must be the full shared `8.1.1` build: `ffmpeg.exe` alone is insufficient. The installer checks an existing runtime and obtains the pinned build when needed. An explicit `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` must point to a valid shared-build `bin` directory. TorchCodec's [installation requirements](https://github.com/meta-pytorch/torchcodec/blob/v0.16.0/README.md#installing-torchcodec) explain the shared-library requirement.
 
 ## 🧠 Add model-backed analysis
 
-Model jobs need optional extras on top of the base install:
+The complete installation includes the analysis packages and model assets. SONARA comes from the public patched release selected in `pyproject.toml`, with its wheel hash recorded in `uv.lock`.
 
-```powershell
-uv sync --locked --extra sonara --extra ml --extra dev
-```
+### Local model assets
 
-`sonara` and `ml` carry the analysis stacks, `dev` adds the test dependencies, and `audio-online` adds the two packages the [Audio Online](docs/dj-track-similarity/tools-and-scripts/audio-online.md) tool needs. Name every extra you keep in one `uv sync`, because its default exact sync removes the others.
-
-`sonara` and the Torch packages in `ml` resolve through `[tool.uv.sources]`. `sonara` points at a patched SONARA `0.3.6` wheel at a local path that a fresh clone lacks. Build or obtain the matching wheel from the SONARA sources, point the source entry at it, then run `uv lock` before a locked sync. On Windows AMD64 with Python 3.10, `ml` selects `torch`, `torchaudio`, and `torchvision` from the CUDA 13.0 index plus the exact TorchCodec `0.16.0+cu130` wheel. Other supported environments select TorchCodec `0.16.0`.
-
-### Prepare local model assets
-
-The `ml` extra installs packages, not weights. Adapters load pinned assets only from this checkout's `models/` directory and verify their SHA-256 hashes, with automatic downloads and Hub caches disabled. A fresh clone needs these assets before ML analysis or text search can load a model. File names and digests are declared in [analysis_models.py](src/dj_track_similarity/analysis_models.py).
+The installer runs [download_models.py](scripts/download_models.py) to fetch all pinned weights, configurations, and tokenizers into `models/` and verify their SHA-256 hashes. Downloads use pinned upstream revisions or release assets. Inference loads these local files with automatic downloads and Hub caches disabled. The existing model adapters own the required file names and digests.
 
 | Family | Required directories under `models/` |
 | --- | --- |
@@ -136,8 +106,8 @@ The `ml` extra installs packages, not weights. Adapters load pinned assets only 
 With the selected dependencies and assets available, run a small first pass:
 
 ```powershell
-uv run --no-sync dj-sim analyze --models sonara --limit 25 --db ./database/library.sqlite
-uv run --no-sync dj-sim analyze --models maest,mert,mert_v2,muq,mulan,clap --limit 25 --db ./database/library.sqlite
+& .\.venv\Scripts\dj-sim.exe analyze --models sonara --limit 25 --db ./database/library.sqlite
+& .\.venv\Scripts\dj-sim.exe analyze --models maest,mert,mert_v2,muq,mulan,clap --limit 25 --db ./database/library.sqlite
 ```
 
 Omit `--limit` to analyze the whole library. Each run is one stage: SONARA alone on the CPU, or ML models only. Run SONARA first, because an ML run refuses to start when no track has current SONARA analysis and analyzes only the tracks that have it. Reruns target only tracks with missing outputs, and per-file failures are kept in the job status without stopping the run. CUDA is recommended for full-library ML runs. The full option table is in the [CLI reference](docs/dj-track-similarity/reference/commands.md#dj-sim-analyze). Useful options:
@@ -176,7 +146,7 @@ A/B runs MuQ-MuLan and CLAP side by side. Approve or reject results to save feed
 The first search loads the text model, which stays cached until about ten minutes pass without a search. Text-search scores are prompt evidence inside one model's score space and are not comparable to seed-search scores or to the other text model. See [Text search](docs/dj-track-similarity/user-guide/text-search.md). Free-form prompts are available from the CLI:
 
 ```powershell
-uv run --no-sync dj-sim text-search "dark hypnotic techno, rolling bass, low light, late night tension" --model clap --db ./database/library.sqlite
+& .\.venv\Scripts\dj-sim.exe text-search "dark hypnotic techno, rolling bass, low light, late night tension" --model clap --db ./database/library.sqlite
 ```
 
 ### 5. 🧪 Train personal classifiers
@@ -198,7 +168,7 @@ Scoring is database-only. It reads the stored SONARA, MAEST, MERT, MERT-v2, MuQ,
 ```powershell
 & .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --calibrate --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite
 & .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --labels tools/rhythm-lab/database/rhythm_lab.sqlite
-uv run --no-sync dj-sim analyze-classifier live_instrumentation --db ./database/library.sqlite
+& .\.venv\Scripts\dj-sim.exe analyze-classifier live_instrumentation --db ./database/library.sqlite
 ```
 
 ## 🧩 How the pieces fit
@@ -234,13 +204,13 @@ Optional analysis uses upstream projects and downloaded checkpoints: [SONARA](ht
 - **Audio Dedup** reports duplicate candidates under a required `--root` from stored SONARA fingerprints and MERT, MAEST, MuQ, and CLAP embeddings, and the CLI `--db` defaults to `database/volumes.sqlite`. The default `--fingerprint` mode leaves every candidate for manual review. Only `--embedding` mode can mark safe delete candidates, and those require MERT and MAEST evidence. A spectral check runs `ffmpeg` from `PATH` on duplicate-group files to flag suspected transcodes and steer the keeper toward full-band audio; it is skipped when `ffmpeg` is missing or with `--skip-spectral`. Deletion needs the phrase `APPLY DELETE`. The CLI asks you to type it and permanently deletes only safe candidates inside `--root`. The browser review dialog sends it once you confirm, then moves the copies you mark to the recycle bin (the default) or deletes them permanently. Both paths recheck the report's track identity and file facts and never delete a group's last copy on disk. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
 - **Database validation** (`dj-sim validate-database` or the browser) checks SQLite integrity, track identities, and stored analysis data without changing the library.
 - **Database optimization** (`dj-sim optimize-database --db ... [--dry-run]` or the browser) is backup-first: `VACUUM`, `ANALYZE`, and an FTS merge run against a database that already has a verified backup. A second integrity check follows; if it passes, that backup is removed, and if it fails, the backup stays as the rollback point. `--dry-run` writes nothing, reports free space, and exits with code 1 when it is insufficient. The browser offers optimization after a validation with zero errors, scoped to the selected database. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
-- **Legacy database migration.** Startup never rewrites a legacy split (core + artifacts) database pair. Stop every database user, then run `uv run --no-sync dj-sim migrate-database --db ./database/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`. It creates a timestamped backup and verifies the merged file. No analysis starts.
+- **Legacy database migration.** Startup never rewrites a legacy split (core + artifacts) database pair. Stop every database user, then run `& .\.venv\Scripts\dj-sim.exe migrate-database --db ./database/library.sqlite --confirm 'MIGRATE SINGLE LIBRARY'`. It creates a timestamped backup and verifies the merged file. No analysis starts.
 
 ```powershell
 & .\.venv\Scripts\python.exe tools/audio-doctor/audio_doctor_cli.py --db ./database/library.sqlite
 & .\.venv\Scripts\python.exe tools/audio-dedup/audio_dedup_cli.py --db ./database/library.sqlite --root D:/Music --preset safe
-uv run --no-sync dj-sim validate-database --db ./database/library.sqlite
-uv run --no-sync dj-sim optimize-database --db ./database/library.sqlite --dry-run
+& .\.venv\Scripts\dj-sim.exe validate-database --db ./database/library.sqlite
+& .\.venv\Scripts\dj-sim.exe optimize-database --db ./database/library.sqlite --dry-run
 ```
 
 ## 🛡 Safety model

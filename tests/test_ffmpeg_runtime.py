@@ -21,11 +21,13 @@ def _write_required_libraries(directory: Path) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _no_executable_probe(monkeypatch):
+def _no_executable_probe(monkeypatch, tmp_path: Path):
     def forbidden_process(*_args, **_kwargs):
         pytest.fail("FFmpeg runtime validation must use shared libraries, not an executable")
 
     monkeypatch.setattr(subprocess, "Popen", forbidden_process)
+    monkeypatch.setattr(ffmpeg_runtime, "_PROJECT_FFMPEG_DIRECTORY", tmp_path / "project")
+    monkeypatch.setattr(ffmpeg_runtime, "_DLL_DIRECTORY_HANDLES", {})
 
 
 def _mock_avutil(monkeypatch, version: bytes = b"8.1.1-full_build") -> list[Path]:
@@ -62,6 +64,8 @@ def test_configure_shared_runtime_prefers_explicit_environment_over_path(
 
 def test_configure_shared_runtime_registers_path_dll_directory(monkeypatch, tmp_path: Path) -> None:
     _write_required_libraries(tmp_path)
+    project_runtime = ffmpeg_runtime._PROJECT_FFMPEG_DIRECTORY
+    _write_required_libraries(project_runtime)
     monkeypatch.delenv(FFMPEG_SHARED_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv("PATH", str(tmp_path))
     loaded = _mock_avutil(monkeypatch)
@@ -71,6 +75,11 @@ def test_configure_shared_runtime_registers_path_dll_directory(monkeypatch, tmp_
     assert configure_shared_ffmpeg_runtime() == tmp_path
     assert registered == [str(tmp_path)]
     assert loaded == [tmp_path / "avutil-60.dll"]
+
+    monkeypatch.setenv("PATH", "")
+    assert configure_shared_ffmpeg_runtime() == project_runtime
+    assert registered == [str(tmp_path), str(project_runtime)]
+    assert loaded == [tmp_path / "avutil-60.dll", project_runtime / "avutil-60.dll"]
 
 
 @pytest.mark.parametrize("failure", ["missing", "wrong-version", "unloadable"])

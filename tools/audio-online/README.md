@@ -13,12 +13,9 @@ the exact local file path.
 
 ## Install and configure
 
-Its Python dependencies are the project's `audio-online` extra, so they arrive
-with the same `uv sync` as everything else. Run this from the repository root:
-
-```powershell
-uv sync --locked --extra audio-online
-```
+Its Python dependencies are included in the root project installation. Follow
+the [project quick start](../../README.md#-quick-start), which installs them in
+the shared `.venv` through `install.ps1`.
 
 Every command below is written from the repository root and runs the project
 interpreter, which is where those dependencies live. Copy the configuration

@@ -37,6 +37,10 @@ work unverified rather than inventing its instructions.
 - Work from the repository root in PowerShell 7. Use the verified root `uv`
   `.venv`, never an unverified system Python. Read the environment guide before
   project commands; do not sync, upgrade or recreate environments for inspection.
+- For requested full installation, use `.\install.ps1`. It prepares the shared
+  environment, frontend, audio runtime and pinned model assets. All Python
+  dependencies are required by the root `pyproject.toml`; preserve the locked
+  SONARA fork and CUDA package sources. See the environment guide for details.
 - scikit-learn is a required project-wide dependency managed in the root
   `pyproject.toml`. Prefer its existing tools for feature analysis, clustering,
   evaluation and classical ML when they fit the task.

@@ -20,6 +20,7 @@ REQUIRED_FFMPEG_LIBRARIES = {
     "swscale": 9,
 }
 REQUIRED_PYAV_VERSION = "17.1.0"
+_PROJECT_FFMPEG_DIRECTORY = Path(__file__).resolve().parents[3] / "libs" / "ffmpeg" / "bin"
 _DLL_DIRECTORY_HANDLES: dict[Path, object] = {}
 
 
@@ -112,6 +113,9 @@ def _configured_or_path_shared_directory() -> Path:
         path_runtime = _validated_candidate(Path(entry), "PATH", rejected)
         if path_runtime is not None:
             return path_runtime
+    project_runtime = _validated_candidate(_PROJECT_FFMPEG_DIRECTORY, "project", rejected)
+    if project_runtime is not None:
+        return project_runtime
     raise RuntimeError(_missing_runtime_message(rejected))
 
 
@@ -142,7 +146,7 @@ def _missing_runtime_message(rejected: list[str]) -> str:
     detail = f" Rejected candidates: {'; '.join(rejected)}." if rejected else ""
     return (
         f"FFmpeg {REQUIRED_FFMPEG_VERSION} full shared build is required "
-        f"({required}). Put its library directory on PATH, set "
+        f"({required}). Run install.ps1, put its library directory on PATH, or set "
         f"{FFMPEG_SHARED_DIR_ENV_VAR}. "
         f"ffmpeg.exe alone is not sufficient.{detail}"
     )

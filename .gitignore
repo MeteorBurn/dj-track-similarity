@@ -76,6 +76,7 @@ docs/superpowers/
 
 # Local repository automation
 /.github/workflows/
+/.tools/install/
 
 # Local Graphify artifacts
 graphify-out/*

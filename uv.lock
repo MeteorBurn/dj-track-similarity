@@ -491,32 +491,23 @@ source = { editable = "." }
 dependencies = [
     { name = "av" },
     { name = "fastapi" },
-    { name = "joblib" },
-    { name = "mutagen" },
-    { name = "numpy" },
-    { name = "pydantic" },
-    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "send2trash" },
-    { name = "typer" },
-    { name = "uvicorn" },
-]
-
-[package.optional-dependencies]
-audio-online = [
-    { name = "openpyxl" },
-    { name = "tomli", marker = "python_full_version < '3.11'" },
-]
-dev = [
     { name = "httpx2" },
-    { name = "pytest" },
-]
-ml = [
     { name = "huggingface-hub" },
+    { name = "joblib" },
     { name = "laion-clap" },
     { name = "maest-infer" },
     { name = "muq" },
+    { name = "mutagen" },
     { name = "nnaudio" },
+    { name = "numpy" },
+    { name = "openpyxl" },
+    { name = "pydantic" },
+    { name = "pytest" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "send2trash" },
+    { name = "sonara" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or platform_machine != 'AMD64' or sys_platform != 'win32'" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'" },
     { name = "torchaudio", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or platform_machine != 'AMD64' or sys_platform != 'win32'" },
@@ -526,52 +517,42 @@ ml = [
     { name = "torchvision", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or platform_machine != 'AMD64' or sys_platform != 'win32'" },
     { name = "torchvision", version = "0.26.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'" },
     { name = "transformers" },
-]
-sonara = [
-    { name = "sonara" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
+    { name = "typer" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "av", specifier = "==17.1.0" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.0.0" },
-    { name = "huggingface-hub", marker = "extra == 'ml'", specifier = "==1.22.0" },
+    { name = "httpx2", specifier = ">=2.0.0" },
+    { name = "huggingface-hub", specifier = "==1.22.0" },
     { name = "joblib", specifier = ">=1.3" },
-    { name = "laion-clap", marker = "extra == 'ml'", specifier = "==1.1.7" },
-    { name = "maest-infer", marker = "extra == 'ml'", specifier = "==0.2.0" },
-    { name = "muq", marker = "extra == 'ml'", specifier = "==0.1.0" },
+    { name = "laion-clap", specifier = "==1.1.7" },
+    { name = "maest-infer", specifier = "==0.2.0" },
+    { name = "muq", specifier = "==0.1.0" },
     { name = "mutagen", specifier = ">=1.47" },
-    { name = "nnaudio", marker = "extra == 'ml'" },
+    { name = "nnaudio" },
     { name = "numpy", specifier = ">=1.26,<2.0" },
-    { name = "openpyxl", marker = "extra == 'audio-online'", specifier = ">=3.1,<4" },
+    { name = "openpyxl", specifier = ">=3.1,<4" },
     { name = "pydantic", specifier = ">=2" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
+    { name = "pytest", specifier = ">=9.1.1" },
     { name = "scikit-learn", specifier = ">=1.4" },
     { name = "send2trash", specifier = ">=1.8" },
-    { name = "sonara", marker = "extra == 'sonara'", path = "E:/Rust/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" },
-    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'audio-online'", specifier = ">=2.0,<3" },
-    { name = "torch", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'ml'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torch", marker = "(python_full_version != '3.10.*' and extra == 'ml') or (platform_machine != 'AMD64' and extra == 'ml') or (sys_platform != 'win32' and extra == 'ml')", specifier = "==2.11.0" },
-    { name = "torchaudio", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'ml'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torchaudio", marker = "(python_full_version != '3.10.*' and extra == 'ml') or (platform_machine != 'AMD64' and extra == 'ml') or (sys_platform != 'win32' and extra == 'ml')", specifier = "==2.11.0" },
-    { name = "torchcodec", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'ml'", url = "https://download.pytorch.org/whl/cu130/torchcodec-0.16.0%2Bcu130-cp310-cp310-win_amd64.whl" },
-    { name = "torchcodec", marker = "(python_full_version != '3.10.*' and extra == 'ml') or (platform_machine != 'AMD64' and extra == 'ml') or (sys_platform != 'win32' and extra == 'ml')", specifier = "==0.16.0" },
-    { name = "torchvision", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'ml'", specifier = "==0.26.0", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torchvision", marker = "(python_full_version != '3.10.*' and extra == 'ml') or (platform_machine != 'AMD64' and extra == 'ml') or (sys_platform != 'win32' and extra == 'ml')", specifier = "==0.26.0" },
-    { name = "transformers", marker = "extra == 'ml'", specifier = "==5.13.0" },
+    { name = "sonara", url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0,<3" },
+    { name = "torch", marker = "python_full_version != '3.10.*' or platform_machine != 'AMD64' or sys_platform != 'win32'", specifier = "==2.11.0" },
+    { name = "torch", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torchaudio", marker = "python_full_version != '3.10.*' or platform_machine != 'AMD64' or sys_platform != 'win32'", specifier = "==2.11.0" },
+    { name = "torchaudio", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torchcodec", marker = "python_full_version != '3.10.*' or platform_machine != 'AMD64' or sys_platform != 'win32'", specifier = "==0.16.0" },
+    { name = "torchcodec", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'", url = "https://download.pytorch.org/whl/cu130/torchcodec-0.16.0%2Bcu130-cp310-cp310-win_amd64.whl" },
+    { name = "torchvision", marker = "python_full_version != '3.10.*' or platform_machine != 'AMD64' or sys_platform != 'win32'", specifier = "==0.26.0" },
+    { name = "torchvision", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'", specifier = "==0.26.0", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "transformers", specifier = "==5.13.0" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["sonara", "ml", "audio-online", "dev"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.1.1" }]
 
 [[package]]
 name = "easydict"
@@ -2562,12 +2543,12 @@ wheels = [
 [[package]]
 name = "sonara"
 version = "0.3.6"
-source = { path = "E:/Rust/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
+source = { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
 dependencies = [
     { name = "numpy" },
 ]
 wheels = [
-    { filename = "sonara-0.3.6-cp310-abi3-win_amd64.whl", hash = "sha256:c7717fdbab524d0facc6e993a55695c5c5ccf9ec247045ceee317d9cafa72db8" },
+    { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl", hash = "sha256:1e59d1b87a742563a5ff0222712af99ca94abe353760624ccbec46c53bbd7908" },
 ]
 
 [package.metadata]

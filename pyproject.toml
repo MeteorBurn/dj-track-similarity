@@ -18,13 +18,7 @@ dependencies = [
   "scikit-learn>=1.4",
   "av==17.1.0",
   "send2trash>=1.8",
-]
-
-[project.optional-dependencies]
-sonara = [
   "sonara==0.3.6",
-]
-ml = [
   "torch==2.11.0",
   "torchaudio==2.11.0",
   "torchvision==0.26.0",
@@ -36,19 +30,15 @@ ml = [
   "laion-clap==1.1.7",
   "maest-infer==0.2.0",
   "muq==0.1.0",
-]
-audio-online = [
   "openpyxl>=3.1,<4",
   # The pinned interpreter is 3.10, which has no stdlib tomllib.
   "tomli>=2.0,<3 ; python_version < '3.11'",
-]
-dev = [
   "httpx2>=2.0.0",
-  "pytest>=7.4",
+  "pytest>=9.1.1",
 ]
 
 [tool.uv.sources]
-sonara = { path = "E:/Rust/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
+sonara = { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
 torch = [
   { index = "pytorch-cu130", marker = "python_version == '3.10' and sys_platform == 'win32' and platform_machine == 'AMD64'" },
 ]
@@ -78,12 +68,7 @@ include = ["dj_track_similarity*"]
 testpaths = ["tests"]
 addopts = "-q"
 markers = [
-  "ml: requires torch / optional ML stack",
+  "ml: exercises the ML stack",
   "slow: long-running integration/benchmark tests",
   "evaluation: retrieval/evaluation layer",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=9.1.1",
 ]

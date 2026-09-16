@@ -495,6 +495,8 @@ dependencies = [
     { name = "mutagen" },
     { name = "numpy" },
     { name = "pydantic" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "send2trash" },
     { name = "typer" },
     { name = "uvicorn" },
@@ -525,10 +527,6 @@ ml = [
     { name = "torchvision", version = "0.26.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'" },
     { name = "transformers" },
 ]
-rhythm-lab = [
-    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-]
 sonara = [
     { name = "sonara" },
 ]
@@ -554,7 +552,7 @@ requires-dist = [
     { name = "openpyxl", marker = "extra == 'audio-online'", specifier = ">=3.1,<4" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
-    { name = "scikit-learn", marker = "extra == 'rhythm-lab'", specifier = ">=1.4" },
+    { name = "scikit-learn", specifier = ">=1.4" },
     { name = "send2trash", specifier = ">=1.8" },
     { name = "sonara", marker = "extra == 'sonara'", path = "E:/Rust/sonara/locals/builds/0.3.6-sym061-hound-riff-padding-15fb81d-20260818/artifacts/wheels/sonara-0.3.6-cp310-abi3-win_amd64.whl" },
     { name = "tomli", marker = "python_full_version < '3.11' and extra == 'audio-online'", specifier = ">=2.0,<3" },
@@ -570,7 +568,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["sonara", "ml", "rhythm-lab", "audio-online", "dev"]
+provides-extras = ["sonara", "ml", "audio-online", "dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]

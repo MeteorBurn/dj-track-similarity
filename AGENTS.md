@@ -37,6 +37,9 @@ work unverified rather than inventing its instructions.
 - Work from the repository root in PowerShell 7. Use the verified root `uv`
   `.venv`, never an unverified system Python. Read the environment guide before
   project commands; do not sync, upgrade or recreate environments for inspection.
+- scikit-learn is a required project-wide dependency managed in the root
+  `pyproject.toml`. Prefer its existing tools for feature analysis, clustering,
+  evaluation and classical ML when they fit the task.
 - Source text uses LF, `.cmd`/`.bat` use CRLF; new text is UTF-8 without BOM.
   Follow `.gitattributes` and preserve unrelated formatting.
 - `database/`, `logs/`, and `reports/` are local user state, never test fixtures.

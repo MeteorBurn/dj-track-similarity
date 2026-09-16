@@ -69,6 +69,8 @@ $env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR = "C:\path\to\ffmpeg\bin"
 
 ### Step 3 - install the project
 
+The base installation includes scikit-learn as a required, shared dependency available throughout the project.
+
 The base `uv sync` covers scan, serving, a fresh library database, and set export. The frontend and the docs site are separate npm installs. The third command below is needed only to build or check documentation (that package has no lockfile). Model analysis needs extras, described in [Add model-backed analysis](#-add-model-backed-analysis).
 
 ```powershell
@@ -109,10 +111,10 @@ Start the backend (`127.0.0.1:8765`) and the live Vite UI with the Windows launc
 Model jobs need optional extras on top of the base install:
 
 ```powershell
-uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev
+uv sync --locked --extra sonara --extra ml --extra dev
 ```
 
-`sonara`, `ml`, and `rhythm-lab` carry the analysis stacks, `dev` adds the test dependencies, and `audio-online` adds the two packages the [Audio Online](docs/dj-track-similarity/tools-and-scripts/audio-online.md) tool needs. Name every extra you keep in one `uv sync`, because its default exact sync removes the others.
+`sonara` and `ml` carry the analysis stacks, `dev` adds the test dependencies, and `audio-online` adds the two packages the [Audio Online](docs/dj-track-similarity/tools-and-scripts/audio-online.md) tool needs. Name every extra you keep in one `uv sync`, because its default exact sync removes the others.
 
 `sonara` and the Torch packages in `ml` resolve through `[tool.uv.sources]`. `sonara` points at a patched SONARA `0.3.6` wheel at a local path that a fresh clone lacks. Build or obtain the matching wheel from the SONARA sources, point the source entry at it, then run `uv lock` before a locked sync. On Windows AMD64 with Python 3.10, `ml` selects `torch`, `torchaudio`, and `torchvision` from the CUDA 13.0 index plus the exact TorchCodec `0.16.0+cu130` wheel. Other supported environments select TorchCodec `0.16.0`.
 
@@ -191,7 +193,7 @@ Rhythm Lab is a separate local app that turns listening decisions into classifie
 
 Labels are keyed by content: each track's `content_key` is derived from its SONARA fingerprint, so a label follows the same audio into every library that holds it, and a track needs a SONARA fingerprint before it can be labeled. A training recipe is any set of stored sources, written in the order `sonara`, `maest`, `mert`, `mert_v2`, `muq`, `mulan`, `clap` (for example `sonara+muq`). `mert_v2@N` selects a stored MERT-v2 layer, and bare `mert_v2` is layer 24, the only layer main-app classifier scoring reads. Benchmark strategies are `singles`, `singles+all` (the default), `greedy`, `full`, `layers`, `layers+all`, and `custom`. In the Rhythm Lab app, training, benchmark, and calibration stay blocked until every class reaches the profile's minimum labels per class (`training_min_labels`, default 100, at least 2) in the open library. `migrate-content-identity` converts an older lab database: it is a dry run unless `--apply`, which backs up first, takes a repeatable `--library-db` for every catalog the lab references, and accepts `--skip-unresolved` and `--report`.
 
-Scoring is database-only. It reads the stored SONARA, MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, and CLAP inputs the promoted manifest names, and tracks missing a required input are left out of the job. From PowerShell, with the `rhythm-lab` extra installed, replace `live_instrumentation` with your profile key. CLI `promote` requires a calibrated artifact unless you pass `--allow-uncalibrated`, and `train` calibrates only with `--calibrate`, which fails when the labels do not satisfy the calibration gate:
+Scoring is database-only. It reads the stored SONARA, MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, and CLAP inputs the promoted manifest names, and tracks missing a required input are left out of the job. From PowerShell, replace `live_instrumentation` with your profile key. CLI `promote` requires a calibrated artifact unless you pass `--allow-uncalibrated`, and `train` calibrates only with `--calibrate`, which fails when the labels do not satisfy the calibration gate:
 
 ```powershell
 & .\.venv\Scripts\python.exe tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --calibrate --source ./database/library.sqlite --labels tools/rhythm-lab/database/rhythm_lab.sqlite

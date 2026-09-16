@@ -23,7 +23,7 @@ are relative to this file. These guides are read by task, not imported as a batc
   pip does not apply uv's interpreter/source selection. Do not introduce a
   separate pip installation workflow.
 - For model-backed or Rhythm Lab development, use
-  `uv sync --locked --extra sonara --extra ml --extra rhythm-lab --extra dev`.
+  `uv sync --locked --extra sonara --extra ml --extra dev`.
   Add `--extra audio-online` for that tool. Project scripts and Python tools
   share the root `.venv`; extra tool dependencies belong in `pyproject.toml`.
   Do not add private tool environments or requirements files.

@@ -15,6 +15,7 @@ dependencies = [
   "fastapi>=0.115",
   "uvicorn>=0.30",
   "joblib>=1.3",
+  "scikit-learn>=1.4",
   "av==17.1.0",
   "send2trash>=1.8",
 ]
@@ -35,9 +36,6 @@ ml = [
   "laion-clap==1.1.7",
   "maest-infer==0.2.0",
   "muq==0.1.0",
-]
-rhythm-lab = [
-  "scikit-learn>=1.4",
 ]
 audio-online = [
   "openpyxl>=3.1,<4",

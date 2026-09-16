@@ -52,35 +52,57 @@ The author claims no ML or music-information-retrieval expertise. Model outputs 
 > [!WARNING]
 > **🎮 GPU analysis needs a compatible NVIDIA GPU and driver.** The selected PyTorch binaries include the **CUDA 13.0 runtime**, so you do not need to install a separate CUDA Toolkit or cuDNN. The installer checks CUDA availability but does not install a graphics driver. See the [NVIDIA CUDA guide for Windows](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-installation-guide-microsoft-windows/index.html), [driver compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html), and [PyTorch binary guidance](https://discuss.pytorch.org/t/should-i-install-the-extra-cudatoolkit-and-cudnn/194528). CPU inference is available. CUDA is recommended for full-library ML analysis.
 
+### 💾 Install the project
+
+1. Open the [dev branch on GitHub](https://github.com/MeteorBurn/dj-track-similarity/tree/dev), choose **Code → Download ZIP**, and extract the archive.
+2. Close running application or server windows. Open the project folder in **PowerShell 7** and run **[install.ps1](install.ps1)**.
+3. Wait for installation to finish, then open **[run_server.cmd](run_server.cmd)** for the Web UI.
+
+> [!TIP]
+> **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your Windows version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
+
 ### 📦 What the installer prepares
 
-[install.ps1](install.ps1) installs the application and analysis stack together. Compatible tools are reused. The tool versions below are the installer's downloads when a suitable installation is unavailable. Python packages follow [pyproject.toml](pyproject.toml) and [uv.lock](uv.lock). Frontend packages follow [frontend/package-lock.json](frontend/package-lock.json).
+Package versions and sources follow [pyproject.toml](pyproject.toml), [uv.lock](uv.lock), and [frontend/package-lock.json](frontend/package-lock.json). Compatible tools are reused. The listed tool versions are downloaded when needed.
 
-- **[DJ Track Similarity, dev branch](https://github.com/MeteorBurn/dj-track-similarity/tree/dev)** - Download first. Includes the application, installer, and launchers.
+**🐍 Python and Windows runtime**
+
 - **[Python](https://www.python.org/) 3.10.20** - CPython for the shared environment.
 - **[uv](https://docs.astral.sh/uv/) 0.11.12** - Python dependency installation.
+- **[Microsoft Visual C++ x64 runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 14.51.36247.0** - Native runtime DLLs, installed if missing.
+
+**🌐 Web UI and server**
+
 - **[Node.js](https://nodejs.org/en) 24.15.0** - Frontend installation and build runtime.
 - **npm (bundled with Node.js)** - Frontend package installation.
 - **React 19.2.5** - Browser interface.
 - **Vite 7.3.6** - Builds the browser interface.
 - **TypeScript 5.9.3** - Frontend type checking.
+- **FastAPI 0.139.0** - Handles local web requests.
+- **Uvicorn 0.51.0** - Local server runtime.
+- **Pydantic 2.13.4** - Data validation.
+
+**🔥 PyTorch and ML runtime**
+
 - **[PyTorch](https://pytorch.org/get-started/previous-versions/#v2-11-0) 2.11.0+cu130** - ML inference with CUDA 13.0 binaries.
 - **TorchAudio 2.11.0+cu130** - Audio utilities for ML inference.
 - **TorchVision 0.26.0+cu130** - Vision utilities for ML dependencies.
 - **[TorchCodec](https://github.com/meta-pytorch/torchcodec) 0.16.0+cu130** - Audio decoding for ML.
-- **[FFmpeg](https://ffmpeg.org/) 8.1.1 full shared** - Shared audio libraries.
-- **[PyAV](https://pyav.org/) 17.1.0** - Audio decode recovery.
-- **[Microsoft Visual C++ x64 runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 14.51.36247.0** - Native runtime DLLs, installed if missing.
 - **Transformers 5.13.0** - Model loading and inference.
 - **Hugging Face Hub 1.22.0** - Model asset handling.
+
+**🔊 Audio**
+
+- **[FFmpeg](https://ffmpeg.org/) 8.1.1 full shared** - Shared audio libraries.
+- **[PyAV](https://pyav.org/) 17.1.0** - Audio decode recovery.
+- **Mutagen 1.48.1** - Audio tags.
+
+**🧮 Numerical and classifier utilities**
+
 - **NumPy 1.26.4** - Numerical processing.
 - **SciPy 1.15.3** - Scientific processing.
 - **scikit-learn 1.7.2** - Classifiers and feature processing.
 - **joblib 1.5.3** - Model persistence.
-- **FastAPI 0.139.0** - Handles local web requests.
-- **Uvicorn 0.51.0** - Local server runtime.
-- **Pydantic 2.13.4** - Data validation.
-- **Mutagen 1.48.1** - Audio tags.
 
 > [!NOTE]
 > **🔧 Runtime setup:** FFmpeg includes the shared DLLs. An executable alone is insufficient. Downloaded portable tools stay inside the project, and the installer does not change your user or system `PATH`.
@@ -101,7 +123,7 @@ The installer downloads the ML assets below into `models/` and verifies their SH
 
 | Model | Local assets | Approximate size |
 | --- | --- | ---: |
-| 🧠 [MAEST](https://github.com/palonso/MAEST) | Checkpoint | 0.34 GB |
+| 🧠 [MAEST Infer](https://github.com/openmirlab/maest-infer) | Checkpoint | 0.34 GB |
 | 🧠 [MERT-v1-95M](https://huggingface.co/m-a-p/MERT-v1-95M) | Weights and configuration | 0.38 GB |
 | 🧠 [MERT-v2-FullSong](https://huggingface.co/m-a-p/MERT-v2-FullSong) | Weights and configuration | 2.53 GB |
 | 🧠 [MuQ-large-msd-iter](https://huggingface.co/OpenMuQ/MuQ-large-msd-iter) | Weights and configuration | 1.33 GB |
@@ -110,15 +132,6 @@ The installer downloads the ML assets below into `models/` and verifies their SH
 | **💾 Total** | **Downloaded ML assets** | **11.22 GB** |
 
 > **💾 Size notes.** Sizes use decimal GB and are rounded independently. MuQ-MuLan also uses the MuQ files listed above, counted once in the total.
-
-### 💾 Install the project
-
-1. Open the [dev branch on GitHub](https://github.com/MeteorBurn/dj-track-similarity/tree/dev), choose **Code → Download ZIP**, and extract it into a folder where you can keep the application and its models.
-2. Close any running application or server windows. Open the project folder in **PowerShell 7** and run **install.ps1**. Installation covers the Python environment and browser interface plus model downloads. It also checks the audio and ML runtime.
-3. Wait for the installer to finish, then use the launchers below. **run_server.cmd** and **run_rhythm-lab.cmd** are included in the repository.
-
-> [!TIP]
-> **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your Windows version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
 
 ---
 

@@ -72,7 +72,7 @@ Hold a reflective mood across a long, steady-tempo plateau. Gentle changes in te
 > Have an internet connection and enough free space for **about 11.2 GB of model assets**, plus the Python environment, tools, download caches, and your library database.
 
 > [!TIP]
-> **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your Windows version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
+> **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your OS version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
 
 ### 🚀 Install the project
 

@@ -1,6 +1,8 @@
 const tracksEl = document.getElementById("tracks");
 const queryEl = document.getElementById("query");
 const sourcePathEl = document.getElementById("sourcePath");
+const changeSourceEl = document.getElementById("changeSource");
+const sourcePickerEl = document.getElementById("sourcePicker");
 const profileSelectEl = document.getElementById("profileSelect");
 const shutdownLabEl = document.getElementById("shutdownLab");
 const libraryTabEl = document.getElementById("libraryTab");
@@ -101,6 +103,16 @@ let workflowStatusText = "";
 const player = createRhythmPlayer({ onChange: updatePlayingRows });
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
+changeSourceEl.addEventListener("click", () => setSourcePickerOpen(sourcePickerEl.hidden));
+document.addEventListener("click", event => {
+  if (!sourcePickerEl.hidden && !changeSourceEl.parentElement.contains(event.target)) setSourcePickerOpen(false);
+});
+sourcePickerEl.addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    setSourcePickerOpen(false);
+  }
+});
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
 document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(showError));
 document.getElementById("newProfile").addEventListener("click", () => { document.getElementById("newProfileError").hidden = true; updateNewProfilePreview(); profileDialogEl.showModal(); });
@@ -478,6 +490,13 @@ function trainingLabels() {
   return activeProfile.labels.filter(label => label.role === "positive" || label.role === "negative");
 }
 
+function setSourcePickerOpen(open) {
+  sourcePickerEl.hidden = !open;
+  changeSourceEl.setAttribute("aria-expanded", String(open));
+  if (open) sourcePathEl.focus();
+  else if (sourcePickerEl.contains(document.activeElement)) changeSourceEl.focus();
+}
+
 async function chooseSource() {
   const response = await fetch("/api/source/dialog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
   const data = await parseJsonResponse(response);
@@ -501,7 +520,7 @@ async function switchSource(path) {
     });
     const data = await parseJsonResponse(response);
     applySourceState(data);
-    sourcePathEl.closest("details").open = false;
+    setSourcePickerOpen(false);
     // Stored families and recipe evidence belong to the newly selected library.
     latestTrainingReadiness = null;
     selectedTrainingFeatureSet = null;

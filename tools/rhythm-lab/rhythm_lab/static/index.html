@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg?v=20260915" />
-  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-workbench-20260915-13" />
+  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-workbench-20260916-5" />
   <script src="/static/player.js?v=rhythm-lab-workbench-20260915-3" defer></script>
-  <script src="/static/app.js?v=rhythm-lab-workbench-20260915-8" defer></script>
+  <script src="/static/app.js?v=rhythm-lab-workbench-20260916-1" defer></script>
   <title>Rhythm Lab</title>
 </head>
 <body data-view="library">
@@ -21,6 +21,7 @@
       <symbol id="icon-settings" viewBox="0 0 24 24"><path d="m9 3 1-2h4l1 2 2 1 2-.2 2 3-1 2v3l1 2-2 3-2-.2-2 1-1 2h-4l-1-2-2-1-2 .2-2-3 1-2V9L3 7l2-3 2 .2Z" transform="translate(0 1)"/><circle cx="12" cy="11" r="3"/></symbol>
       <symbol id="icon-power" viewBox="0 0 24 24"><path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
       <symbol id="icon-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/></symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z"/></symbol>
       <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
       <symbol id="icon-close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 4v6h-6M4 20v-6h6M5.5 8a7 7 0 0 1 12-3L20 10M4 14l2.5 5a7 7 0 0 0 12-3"/></symbol>
@@ -51,14 +52,14 @@
           <svg class="source-icon" aria-hidden="true"><use href="#icon-database"/></svg>
           <strong id="sourceName">No library loaded</strong>
           <span id="sourceStatus" class="source-status" role="status">Choose a library</span>
-          <details class="source-change">
-            <summary>Change library</summary>
-            <div class="source-picker">
+          <div class="source-change">
+            <button id="changeSource" type="button" aria-expanded="false" aria-controls="sourcePicker"><svg aria-hidden="true"><use href="#icon-folder"/></svg>Change library</button>
+            <div id="sourcePicker" class="source-picker" hidden>
               <label for="sourcePath">Library database</label>
               <input id="sourcePath" class="source-path" placeholder="C:\db\library.sqlite" aria-label="Library database" />
               <div class="source-picker-actions"><button id="chooseSource" type="button">Browse</button><button id="loadSource" type="button" class="primary-button">Load library</button></div>
             </div>
-          </details>
+          </div>
         </div>
         <div class="navigation-row">
           <nav class="tabs" aria-label="Rhythm Lab views">

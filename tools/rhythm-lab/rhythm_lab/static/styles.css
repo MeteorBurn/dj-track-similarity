@@ -85,7 +85,7 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .brand strong { font-size: 1.65rem; letter-spacing: -.03em; }
 .brand svg { width: 2.65rem; height: 2rem; color: var(--accent); stroke-width: 1.5; }
 .profile-controls { display: flex; align-items: center; gap: .85rem; height: 100%; }
-#profileSelect { width: 12.1rem; }
+#profileSelect { width: 18rem; flex-shrink: 0; }
 .header-button { height: 2.55rem; background: transparent; border-color: transparent; border-left-color: var(--border); border-radius: 0; box-shadow: none; }
 #settingsTab { border-color: transparent; border-left-color: var(--border); border-radius: 0; }
 .header-button.active { color: var(--accent); border-color: transparent; border-bottom: 2px solid var(--accent); border-radius: 0; }
@@ -100,11 +100,10 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .source-status { display: flex; align-items: center; gap: .6rem; color: var(--green); font-size: .95rem; }
 .source-status::before { content: ""; width: .8rem; height: .8rem; flex-shrink: 0; border-radius: 50%; background: currentColor; }
 .source-change { position: relative; margin-left: .3rem; }
-.source-change > summary { list-style: none; padding: .4rem .85rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); color: var(--text-muted); font-size: .86rem; cursor: pointer; }
-.source-change > summary::-webkit-details-marker { display: none; }
+.source-change > button { padding: .4rem .85rem; font-size: .86rem; }
 .source-picker { position: absolute; top: calc(100% + .5rem); left: 0; z-index: 8; width: 28rem; max-width: 65vw; display: grid; gap: .65rem; padding: 1rem; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); box-shadow: 0 .6rem 2rem var(--shadow); }
 .source-picker-actions { display: flex; justify-content: flex-end; gap: .6rem; }
-.navigation-row { display: flex; justify-content: space-between; align-items: stretch; min-height: 2.75rem; gap: .7rem; padding: 0 .85rem; border-bottom: 1px solid var(--border); }
+.navigation-row { display: flex; justify-content: space-between; align-items: stretch; min-height: 2.75rem; gap: .7rem; margin-top: .5rem; padding: 0 .85rem .5rem; border-bottom: 1px solid var(--border); }
 .tabs { display: flex; align-items: stretch; gap: .6rem; }
 .tabs button { min-height: 2.75rem; gap: .7rem; padding: .35rem .9rem; border: 0; border-bottom: .16rem solid transparent; border-radius: 0; background: transparent; box-shadow: none; font-size: 1rem; }
 .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -302,10 +301,10 @@ body[data-view="training"] .summary-strip, body[data-view="settings"] .summary-s
 .training-columns { display: grid; grid-template-columns: minmax(0, 29.5fr) minmax(0, 38.5fr) minmax(0, 31fr); gap: .65rem; align-items: start; flex: 1; }
 .tool-panel { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); padding: 1rem; min-width: 0; }
 .tool-panel > .section-kicker { margin-bottom: .7rem; }
-.training-workflow { padding: .85rem .8rem; min-height: 100%; }
+.training-workflow { --workflow-action-width: 10rem; padding: .85rem .8rem; min-height: 100%; }
 .workflow-step { padding: .58rem 0; border-bottom: 1px solid var(--border); }
 .workflow-step:last-child { border-bottom: 0; }
-.workflow-step-main { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) auto minmax(6rem, 8.4rem); gap: .7rem; align-items: center; }
+.workflow-step-main { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) auto var(--workflow-action-width); gap: .7rem; align-items: center; }
 .workflow-step-main:not(:has(.workflow-step-action)) { grid-template-columns: 2.5rem minmax(0, 1fr) auto; }
 .workflow-step-index { display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-raised); font-size: 1.05rem; }
 .workflow-step-copy { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
@@ -313,8 +312,8 @@ body[data-view="training"] .summary-strip, body[data-view="settings"] .summary-s
 .workflow-step-copy .meta { font-size: .76rem; }
 .workflow-state-chip { font-size: .75rem; white-space: nowrap; }
 .workflow-state-chip::before { content: "●"; font-size: .8em; margin-right: .3rem; }
-.workflow-step-action button { width: 100%; min-height: 2.5rem; padding: .35rem .55rem; font-size: .78rem; }
-.workflow-step-action button svg { display: none; }
+.training-workflow .workflow-action-button { width: var(--workflow-action-width); min-height: 2.5rem; padding: .35rem .55rem; gap: .4rem; font-size: .78rem; }
+.training-workflow .workflow-action-button svg { width: 1rem; height: 1rem; }
 .workflow-action-button:not(:disabled) { border-color: var(--accent); }
 .workflow-step-details { margin: .15rem 0 0 3.2rem; }
 details > summary { color: var(--text-muted); cursor: pointer; font-size: .83rem; }
@@ -376,7 +375,8 @@ td, th { padding: .65rem .65rem; text-align: left; border-bottom: 1px solid var(
 .model-date { margin: .6rem 0; padding-bottom: .6rem; border-bottom: 1px solid var(--border); }
 .promoted-model > .meta:last-child { font-size: .72rem; }
 .training-details { padding: .6rem 1rem; }
-.workflow-variant-select { display: grid; gap: .4rem; margin-top: .7rem; font-size: .8rem; }
+.training-details > :not(summary) { margin-top: .85rem; }
+.workflow-variant-select { display: grid; gap: .6rem; font-size: .8rem; }
 .workflow-variant-select select { width: 100%; font-size: .78rem; }
 .training-info-line { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: .6rem; margin-top: .55rem; font-size: .75rem; overflow-wrap: anywhere; }
 .training-info-label { font-weight: 550; }
@@ -390,12 +390,10 @@ td, th { padding: .65rem .65rem; text-align: left; border-bottom: 1px solid var(
 .training-progress-track { height: .4rem; margin-top: .5rem; background: var(--meter-track); border-radius: .3rem; overflow: hidden; }
 .training-progress-track > span { display: block; height: 100%; background: var(--cyan); }
 .benchmark-controls { margin: .6rem 0 0 3.2rem; }
-.benchmark-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .45rem; }
-.benchmark-strategy { display: flex; flex-direction: column; gap: .2rem; color: var(--text-muted); font-size: .65rem; flex: 1; min-width: 8rem; }
-.benchmark-strategy select { width: 100%; font-size: .75rem; padding: .3rem .5rem; min-height: 2.4rem; }
-.benchmark-row > button { min-height: 2.4rem; font-size: .73rem; padding: .4rem .5rem; }
-.benchmark-row > button svg { display: none; }
-.benchmark-plan-hint { font-size: .65rem; line-height: 1.2; color: var(--text-muted); flex: 1 1 100%; order: 3; }
+.benchmark-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--workflow-action-width); align-items: end; gap: .45rem; }
+.benchmark-strategy { display: flex; flex-direction: column; gap: .2rem; color: var(--text-muted); font-size: .65rem; min-width: 0; }
+.benchmark-strategy select { width: 100%; font-size: .75rem; padding: .3rem .5rem; min-height: 2.5rem; }
+.benchmark-plan-hint { font-size: .65rem; line-height: 1.2; color: var(--text-muted); grid-column: 1 / -1; order: 3; }
 .benchmark-plan-hint.warning { color: var(--accent); }
 .benchmark-result-details { margin-top: .4rem; }
 .benchmark-result-details summary { font-size: .65rem; color: var(--text-soft); }
@@ -515,8 +513,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   .profile-roles .label-legend { margin-top: .3rem; }
   .training-columns { grid-template-columns: minmax(0, 30fr) minmax(0, 39fr) minmax(0, 31fr); }
   .workflow-step-main { grid-template-columns: 2.4rem minmax(0, 1fr) auto; }
-  .workflow-step-action { grid-column: 2 / -1; justify-self: stretch; }
-  .workflow-step-action button { width: 100%; }
+  .workflow-step-action { grid-column: 2 / -1; justify-self: end; }
   .training-coverage { flex-wrap: wrap; gap: .65rem 1rem; }
   .training-coverage > .training-state { min-width: 16rem; }
   .training-coverage > .coverage-item { padding-left: 1rem; }
@@ -528,7 +525,6 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   :root { --header-height: 4.5rem; }
   .workspace { grid-template-columns: minmax(0, 1fr) 24%; }
   .profile-controls { gap: .35rem; }
-  #profileSelect { width: 10rem; }
   .header-button { padding-right: .65rem; padding-left: .65rem; }
   .brand { gap: .4rem; }
   .brand strong { font-size: 1.3rem; }
@@ -537,7 +533,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   .summary-liked { padding-left: .55rem; }
   .tabs { gap: .15rem; }
   .tabs button { gap: .4rem; padding-right: .6rem; padding-left: .6rem; }
-  .navigation-row { padding: 0 .45rem; }
+  .navigation-row { padding-right: .45rem; padding-left: .45rem; }
   .filter-toolbar { flex-wrap: wrap; gap: .5rem; padding: .75rem; }
   .common-filters { flex-basis: calc(100% - 3.1rem); grid-template-columns: minmax(10rem, 2fr) minmax(5rem, .9fr) minmax(5rem, .9fr) minmax(7rem, 1.2fr); }
   body[data-view="library"] #candidateFilters { order: 3; width: 100%; }
@@ -556,7 +552,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   .training-columns { grid-template-columns: minmax(0, 43fr) minmax(0, 57fr); }
   .training-models { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .training-coverage > .meta { flex-basis: 100%; border: 0; padding-left: 0; }
-  .workflow-step-main { grid-template-columns: 2.4rem minmax(0, 1fr) auto minmax(6rem, 8rem); }
+  .workflow-step-main { grid-template-columns: 2.4rem minmax(0, 1fr) auto var(--workflow-action-width); }
   .workflow-step-action { grid-column: auto; }
   .settings-grid { grid-template-columns: minmax(0, 58fr) minmax(0, 42fr); }
   .settings-grid .tool-panel { padding: 1rem; }

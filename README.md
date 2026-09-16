@@ -58,17 +58,17 @@ The author claims no ML or music-information-retrieval expertise. Model outputs 
 
 | Component | Version or source | Purpose |
 | --- | --- | --- |
-| 📂 Project | [DJ Track Similarity, dev branch](https://github.com/MeteorBurn/dj-track-similarity/tree/dev) | Download first. Includes the application, installer, and launchers |
-| 🐍 [Python](https://www.python.org/) and [uv](https://docs.astral.sh/uv/) | CPython **3.10.20** / uv **0.11.12** | Shared Python environment and dependency installation |
-| 📦 [Node.js](https://nodejs.org/en) and npm | Node.js **24.15.0**, with its bundled npm | Frontend installation and build |
-| 🖥️ Frontend | React **19.2.5**, Vite **7.3.6**, TypeScript **5.9.3** | Browser interface |
-| 🔥 PyTorch / TorchAudio / TorchVision | **2.11.0+cu130 / 2.11.0+cu130 / 0.26.0+cu130** ([version matrix](https://pytorch.org/get-started/previous-versions/#v2-11-0)) | ML inference with CUDA 13.0 binaries |
-| 🔊 [TorchCodec](https://github.com/meta-pytorch/torchcodec) | **0.16.0+cu130** | Audio decoding for ML |
-| 🎞️ [FFmpeg](https://ffmpeg.org/) and [PyAV](https://pyav.org/) | FFmpeg **8.1.1 full shared** / PyAV **17.1.0** | Shared audio libraries and decode recovery |
-| 🪟 Microsoft Visual C++ runtime | [x64 Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist), installer package **14.51.36247.0** | Native runtime DLLs, installed if missing |
-| 🧠 Model packages | Transformers **5.13.0**, Hugging Face Hub **1.22.0**, MAEST Infer **0.2.0**, MuQ **0.1.0**, LAION CLAP **1.1.7** | Model loading and inference |
-| 🧮 Scientific packages | NumPy **1.26.4**, SciPy **1.15.3**, scikit-learn **1.7.2**, joblib **1.5.3** | Features, classifiers, and numerical processing |
-| 🌐 Web and metadata packages | FastAPI **0.139.0**, Uvicorn **0.51.0**, Pydantic **2.13.4**, Mutagen **1.48.1** | Local server, validation, and audio tags |
+| Project | [DJ Track Similarity, dev branch](https://github.com/MeteorBurn/dj-track-similarity/tree/dev) | Download first. Includes the application, installer, and launchers |
+| [Python](https://www.python.org/) and [uv](https://docs.astral.sh/uv/) | CPython **3.10.20** / uv **0.11.12** | Shared Python environment and dependency installation |
+| [Node.js](https://nodejs.org/en) and npm | Node.js **24.15.0**, with its bundled npm | Frontend installation and build |
+| Frontend | React **19.2.5**, Vite **7.3.6**, TypeScript **5.9.3** | Browser interface |
+| PyTorch / TorchAudio / TorchVision | **2.11.0+cu130 / 2.11.0+cu130 / 0.26.0+cu130** ([version matrix](https://pytorch.org/get-started/previous-versions/#v2-11-0)) | ML inference with CUDA 13.0 binaries |
+| [TorchCodec](https://github.com/meta-pytorch/torchcodec) | **0.16.0+cu130** | Audio decoding for ML |
+| [FFmpeg](https://ffmpeg.org/) and [PyAV](https://pyav.org/) | FFmpeg **8.1.1 full shared** / PyAV **17.1.0** | Shared audio libraries and decode recovery |
+| Microsoft Visual C++ runtime | [x64 Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist), installer package **14.51.36247.0** | Native runtime DLLs, installed if missing |
+| Model packages | Transformers **5.13.0**, Hugging Face Hub **1.22.0**, MAEST Infer **0.2.0**, MuQ **0.1.0**, LAION CLAP **1.1.7** | Model loading and inference |
+| Scientific packages | NumPy **1.26.4**, SciPy **1.15.3**, scikit-learn **1.7.2**, joblib **1.5.3** | Features, classifiers, and numerical processing |
+| Web and metadata packages | FastAPI **0.139.0**, Uvicorn **0.51.0**, Pydantic **2.13.4**, Mutagen **1.48.1** | Local server, validation, and audio tags |
 
 > [!NOTE]
 > **🔧 Runtime setup:** FFmpeg includes the shared DLLs. An executable alone is insufficient. Downloaded portable tools stay inside the project, and the installer does not change your user or system `PATH`.
@@ -77,9 +77,9 @@ The author claims no ML or music-information-retrieval expertise. Model outputs 
 
 ### 🎛️ Audio Features Extraction Engine
 
-This engine extracts audio features such as BPM, key, energy, rhythm, and timbre, together with an acoustic fingerprint. CPU analysis provides the track data required before ML processing.
+SONARA engine extracts audio features such as BPM, key, energy, rhythm, timbre, together with an acoustic fingerprint. CPU analysis provides the track data required before ML processing.
 
-The installer includes **SONARA 0.3.6** with decoder patches from the [MeteorBurn/sonara fork](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.6-meteorburn.1). It is installed as a Python package and needs no separate model checkpoint download.
+The installer includes **SONARA 0.3.6** with decoder patches (RIFF-chunk padding) from the [MeteorBurn/sonara fork](https://github.com/MeteorBurn/sonara/releases/tag/v0.3.6-meteorburn.1). It is installed as a Python package and needs no separate model checkpoint download.
 
 > **📚 Citation:** original [SONARA project by kkollsga](https://github.com/kkollsga/sonara).
 

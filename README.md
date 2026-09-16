@@ -193,7 +193,17 @@ The first search loads the text model, which stays cached until about ten minute
 
 ### 5. 🧪 Train personal classifiers
 
-<p align="center"><img src="img/rhythm-lab-banner.png" alt="Rhythm Lab" width="100%"></p>
+**🧪 Training (Break Energy profile)**
+
+<p align="center"><img src="img/rhythm-lab-training.png" alt="Rhythm Lab training workspace with the Break Energy profile" width="100%"></p>
+
+**⚡ Library (Break Energy profile)**
+
+<p align="center"><img src="img/rhythm-lab-break-energy.png" alt="Rhythm Lab library workspace with the Break Energy profile" width="100%"></p>
+
+**🎨 Library (Abstract Edge profile)**
+
+<p align="center"><img src="img/rhythm-lab-abstract-edge.png" alt="Rhythm Lab library workspace with the Abstract Edge profile" width="100%"></p>
 
 Rhythm Lab is a separate local app that turns listening decisions into classifier scores. Launch it from the main app. The backend starts it at [http://127.0.0.1:8777/](http://127.0.0.1:8777/) on the selected library, with labels in `tools/rhythm-lab/database/rhythm_lab.sqlite`. Rhythm Lab can switch libraries while running. The main app's Rhythm Lab button asks an existing managed instance to switch to the selected library. Switching is unavailable during a profile operation. A new labels database has no built-in profile, so create or select the one you want to train. See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASSIFIER tab](docs/dj-track-similarity/user-guide/class-tab.md). The loop:
 

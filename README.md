@@ -73,9 +73,6 @@ The author claims no ML or music-information-retrieval expertise. Model outputs 
 - **[Microsoft Visual C++ x64 runtime](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) 14.51.36247.0** - Native runtime DLLs, installed if missing.
 - **Transformers 5.13.0** - Model loading and inference.
 - **Hugging Face Hub 1.22.0** - Model asset handling.
-- **MAEST Infer 0.2.0** - MAEST inference.
-- **MuQ 0.1.0** - MuQ and MuQ-MuLan inference.
-- **LAION CLAP 1.1.7** - CLAP inference.
 - **NumPy 1.26.4** - Numerical processing.
 - **SciPy 1.15.3** - Scientific processing.
 - **scikit-learn 1.7.2** - Classifiers and feature processing.

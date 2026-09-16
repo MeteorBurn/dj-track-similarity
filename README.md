@@ -62,7 +62,7 @@ Hold a reflective mood across a long, steady-tempo plateau. Gentle changes in te
 
 ---
 
-## 🚀 Installation
+## 💾 Installation
 
 > [!IMPORTANT]
 > **🪟 Windows x64 and 64-bit PowerShell 7 are required for the supplied installer.** The dependency sources and launchers are configured for this platform. Linux and macOS need adaptation. Codex or Claude Code can help review the project and select compatible packages and launch methods for your system.
@@ -72,14 +72,14 @@ Hold a reflective mood across a long, steady-tempo plateau. Gentle changes in te
 > [!WARNING]
 > **🎮 GPU analysis needs a compatible NVIDIA GPU and driver.** The selected PyTorch binaries include the **CUDA 13.0 runtime**, so you do not need to install a separate CUDA Toolkit or cuDNN. The installer checks CUDA availability but does not install a graphics driver. See the [NVIDIA CUDA guide for Windows](https://docs.nvidia.com/cuda/archive/13.0.0/cuda-installation-guide-microsoft-windows/index.html), [driver compatibility](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html), and [PyTorch binary guidance](https://discuss.pytorch.org/t/should-i-install-the-extra-cudatoolkit-and-cudnn/194528). CPU inference is available. CUDA is recommended for full-library ML analysis.
 
-### 💾 Install the project
+> [!TIP]
+> **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your Windows version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
+
+### 🚀 Install the project
 
 1. Open the [dev branch on GitHub](https://github.com/MeteorBurn/dj-track-similarity/tree/dev), choose **Code → Download ZIP**, and extract the archive.
 2. Close running application or server windows. Open the project folder in **PowerShell 7** and run **[install.ps1](install.ps1)**.
 3. Wait for installation to finish, then open **[run_server.cmd](run_server.cmd)** for the Web UI.
-
-> [!TIP]
-> **🤖 Installation help:** If installation fails, keep the installer output and ask **Codex or Claude Code** to inspect it together with [AGENTS.md](AGENTS.md), [install.ps1](install.ps1), and the dependency files. Include your Windows version, GPU, and driver version so the agent can distinguish a download failure from a runtime or hardware problem.
 
 ### 📦 What the installer prepares
 

@@ -1442,7 +1442,6 @@ export function App() {
           onToggleLiked={(track) => void handleToggleTrackLiked(track)}
           onTogglePlaylist={togglePlaylist}
           onPreview={togglePreview}
-          onSeekPreview={seekPreview}
           onDetails={(track) => void handleTrackDetails(track)}
         />
 
@@ -1541,9 +1540,7 @@ export function App() {
           togglePlaylist={togglePlaylist}
           onAddPromptCandidates={addPromptCandidatesToPlaylist}
           playingTrackId={playingTrackId}
-          previewTrackId={preview?.track_id ?? null}
           setPreview={togglePreview}
-          onSeekPreview={seekPreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
         />
       </section>

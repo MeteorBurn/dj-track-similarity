@@ -1,7 +1,6 @@
 import { Heart, Minus, Pause, Play, Plus, Search, Tags, ThumbsDown, ThumbsUp } from "lucide-react";
 import type { Track } from "./api";
 import { libraryTrackIdentityKey } from "./libraryLoading";
-import { previewPositionForTrack, usePreviewPosition } from "./previewPosition";
 import { displayTrack, formatTrackFileInfo } from "./trackDisplay";
 
 type TrackActions = {
@@ -24,7 +23,6 @@ export function TrackList({
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
-  onSeekPreview,
   onDetails
 }: TrackActions & {
   tracks: Track[];
@@ -32,7 +30,6 @@ export function TrackList({
   seedSet: Set<number>;
   playlistSet: Set<number>;
   previewTrackId: number | null;
-  onSeekPreview: (track: Track, seconds: number) => void;
 }) {
   return (
     <div className="track-list">
@@ -57,12 +54,6 @@ export function TrackList({
             <span className="library-track-duration">{track.audio_duration_seconds != null ? formatPlaybackTime(track.audio_duration_seconds) : "—"}</span>
             <span className="library-track-bpm">{track.sonara_bpm?.toFixed(2) ?? "—"}</span>
             <span className="library-track-key">{track.sonara_key_camelot || "—"}</span>
-            {trackPreviewSelected ? (
-              <PlaybackSeekControl
-                track={track}
-                onSeek={onSeekPreview}
-              />
-            ) : null}
             {onToggleLiked && (
               <button
                 className={`icon-button track-liked-button ${track.liked ? "active intent-liked" : ""}`}
@@ -100,42 +91,6 @@ function formatPlaybackTime(seconds: number) {
   return `${minutes}:${String(rounded % 60).padStart(2, "0")}`;
 }
 
-function PlaybackSeekControl({
-  track,
-  onSeek,
-  className = "",
-}: {
-  track: Track;
-  onSeek: (track: Track, seconds: number) => void;
-  className?: string;
-}) {
-  const { currentTime, duration } = previewPositionForTrack(
-    usePreviewPosition(),
-    track.track_id
-  );
-  const normalizedDuration = Math.max(duration, 0);
-  const progress = normalizedDuration > 0
-    ? Math.min(Math.max((currentTime / normalizedDuration) * 100, 0), 100)
-    : 0;
-
-  return (
-    <div className={`track-row-playback ${className}`.trim()}>
-      <input
-        aria-label={`Позиция воспроизведения ${displayTrack(track)}`}
-        disabled={normalizedDuration <= 0}
-        max={100}
-        min={0}
-        onChange={(event) => onSeek(track, (Number(event.target.value) / 100) * normalizedDuration)}
-        step={0.01}
-        title="Перемотать preview"
-        type="range"
-        value={progress}
-      />
-      <span>{formatPlaybackTime(currentTime)} / {duration > 0 ? formatPlaybackTime(duration) : "—"}</span>
-    </div>
-  );
-}
-
 export function ResultRow({
   track,
   score,
@@ -145,14 +100,12 @@ export function ResultRow({
   classifierScores,
   transition,
   playingTrackId,
-  previewTrackId,
   isSeed,
   inPlaylist,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
-  onSeekPreview,
   onDetails,
   rowIndex,
   selected = false,
@@ -173,14 +126,12 @@ export function ResultRow({
     key_relation?: string;
     confidence: number;
   };
-  previewTrackId: number | null;
   isSeed: boolean;
   inPlaylist: boolean;
   selected?: boolean;
   onSelect?: (track: Track) => void;
   selectTitle?: string;
   rowIndex?: number;
-  onSeekPreview: (track: Track, seconds: number) => void;
   /** +1 relevant / -1 irrelevant verdict stored for the active preset bank. */
   feedbackVerdict?: 1 | -1 | null;
   onFeedback?: (track: Track, verdict: 1 | -1) => void;
@@ -188,7 +139,6 @@ export function ResultRow({
   const breakdownTitle = scoreBreakdownTitle(scoreBreakdown, sonaraGroups, classifierScores, transition);
   const contrast = contrastParts(scoreBreakdown);
   const trackPreviewActive = playingTrackId === track.track_id;
-  const trackPreviewSelected = previewTrackId === track.track_id;
   const selectableClass = onSelect ? "selectable" : "";
   const selectedClass = selected ? "selected" : "";
   return (
@@ -215,36 +165,26 @@ export function ResultRow({
           <span className="result-reason-chip" title={breakdownTitle}>{reason.replaceAll("_", " ")}</span>
         ) : null}
       </div>
-      {trackPreviewSelected ? (
-        <PlaybackSeekControl
-          track={track}
-          onSeek={onSeekPreview}
-          className="result-row-playback"
-        />
-      ) : (
-        <>
-          <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
-          <span className="similarity-score" title={breakdownTitle}>
-            {score.toFixed(3)}
-            {contrast ? (
-              <span className="similarity-contrast">
-                <span
-                  className="contrast-positive"
-                  title="Совпадение с банком позитивных промптов"
-                >
-                  {contrast.positive.toFixed(2)}
-                </span>
-                <span
-                  className="contrast-negative"
-                  title="Совпадение с ближайшим негативом. Вычитается из позитива с весом, показанным в поле Negative."
-                >
-                  {contrast.negative.toFixed(2)}
-                </span>
-              </span>
-            ) : null}
+      <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
+      <span className="similarity-score" title={breakdownTitle}>
+        {score.toFixed(3)}
+        {contrast ? (
+          <span className="similarity-contrast">
+            <span
+              className="contrast-positive"
+              title="Совпадение с банком позитивных промптов"
+            >
+              {contrast.positive.toFixed(2)}
+            </span>
+            <span
+              className="contrast-negative"
+              title="Совпадение с ближайшим негативом. Вычитается из позитива с весом, показанным в поле Negative."
+            >
+              {contrast.negative.toFixed(2)}
+            </span>
           </span>
-        </>
-      )}
+        ) : null}
+      </span>
       {onFeedback && (
         <>
           <button

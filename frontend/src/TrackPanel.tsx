@@ -51,7 +51,6 @@ export function TrackPanel({
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
-  onSeekPreview,
   onDetails
 }: {
   collapsed: boolean;
@@ -91,7 +90,6 @@ export function TrackPanel({
   onToggleLiked: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
-  onSeekPreview: (track: Track, seconds: number) => void;
   onDetails: (track: Track) => void;
 }) {
   const pageCount = libraryPageCount(total, libraryPageSize);
@@ -314,7 +312,6 @@ export function TrackPanel({
           onToggleLiked={onToggleLiked}
           onTogglePlaylist={onTogglePlaylist}
           onPreview={onPreview}
-          onSeekPreview={onSeekPreview}
           onDetails={onDetails}
         />
       ) : null}

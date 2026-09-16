@@ -161,9 +161,7 @@ export function SearchPlaylistPanel({
   togglePlaylist,
   onAddPromptCandidates,
   playingTrackId,
-  previewTrackId,
   setPreview,
-  onSeekPreview,
   setMetadataTrack
 }: {
   mertV2Layers: MertV2LayerState;
@@ -245,9 +243,7 @@ export function SearchPlaylistPanel({
   togglePlaylist: (track: Track) => void;
   onAddPromptCandidates: (tracks: Track[], modelLabel: string) => void;
   playingTrackId: number | null;
-  previewTrackId: number | null;
   setPreview: (track: Track) => void;
-  onSeekPreview: (track: Track, seconds: number) => void;
   setMetadataTrack: (track: Track) => void;
 }) {
   const [embeddingSearchPending, setEmbeddingSearchPending] = useState<Partial<Record<EmbeddingSource, boolean>>>({});
@@ -384,12 +380,10 @@ export function SearchPlaylistPanel({
               seedSet={seedSet}
               playlistSet={playlistSet}
               playingTrackId={playingTrackId}
-              previewTrackId={previewTrackId}
               onSeed={addSeed}
               onToggleLiked={toggleLiked}
               onTogglePlaylist={togglePlaylist}
               onPreview={setPreview}
-              onSeekPreview={onSeekPreview}
               onDetails={setMetadataTrack}
             />
           </div>
@@ -603,14 +597,12 @@ export function SearchPlaylistPanel({
                         classifierScores={classifier_scores}
                         transition={transition}
                         playingTrackId={playingTrackId}
-                        previewTrackId={previewTrackId}
                         isSeed={seedSet.has(track.track_id)}
                         inPlaylist={playlistSet.has(track.track_id)}
                         onSeed={addSeed}
                         onToggleLiked={toggleLiked}
                         onTogglePlaylist={togglePlaylist}
                         onPreview={setPreview}
-                        onSeekPreview={onSeekPreview}
                         onDetails={setMetadataTrack}
                         feedbackVerdict={column.verdicts[track.track_uuid] ?? null}
                         onFeedback={column.pending[track.track_uuid] ? undefined : column.onVerdict}
@@ -654,14 +646,12 @@ export function SearchPlaylistPanel({
                   classifierScores={classifier_scores}
                   transition={transition}
                   playingTrackId={playingTrackId}
-                  previewTrackId={previewTrackId}
                   isSeed={seedSet.has(track.track_id)}
                   inPlaylist={playlistSet.has(track.track_id)}
                   onSeed={addSeed}
                   onToggleLiked={toggleLiked}
                   onTogglePlaylist={togglePlaylist}
                   onPreview={setPreview}
-                  onSeekPreview={onSeekPreview}
                   onDetails={setMetadataTrack}
                   feedbackVerdict={textFeedback ? textFeedback.verdicts[track.track_uuid] ?? null : null}
                   onFeedback={textFeedback && !textFeedback.pending[track.track_uuid] ? textFeedback.onVerdict : undefined}

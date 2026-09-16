@@ -23,12 +23,10 @@ type ReferenceComparePanelProps = {
   seedSet: Set<number>;
   playlistSet: Set<number>;
   playingTrackId: number | null;
-  previewTrackId: number | null;
   onSeed: (track: TrackSummary) => void;
   onToggleLiked: (track: TrackSummary) => void;
   onTogglePlaylist: (track: TrackSummary) => void;
   onPreview: (track: TrackSummary) => void;
-  onSeekPreview: (track: TrackSummary, seconds: number) => void;
   onDetails: (track: TrackSummary) => void;
 };
 
@@ -58,12 +56,10 @@ export function ReferenceComparePanel({
   seedSet,
   playlistSet,
   playingTrackId,
-  previewTrackId,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
-  onSeekPreview,
   onDetails,
 }: ReferenceComparePanelProps) {
   const [limit, setLimit] = useState(10);
@@ -322,12 +318,10 @@ export function ReferenceComparePanel({
               seedSet={seedSet}
               playlistSet={playlistSet}
               playingTrackId={playingTrackId}
-              previewTrackId={previewTrackId}
               onSeed={onSeed}
               onToggleLiked={onToggleLiked}
               onTogglePlaylist={onTogglePlaylist}
               onPreview={onPreview}
-              onSeekPreview={onSeekPreview}
               onDetails={onDetails}
               onVerdict={(result, verdict) => void saveVerdict(group, result, verdict)}
             />
@@ -347,12 +341,10 @@ function ReferenceCompareGroupCard({
   seedSet,
   playlistSet,
   playingTrackId,
-  previewTrackId,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
-  onSeekPreview,
   onDetails,
   onVerdict,
 }: {
@@ -364,12 +356,10 @@ function ReferenceCompareGroupCard({
   seedSet: Set<number>;
   playlistSet: Set<number>;
   playingTrackId: number | null;
-  previewTrackId: number | null;
   onSeed: (track: TrackSummary) => void;
   onToggleLiked: (track: TrackSummary) => void;
   onTogglePlaylist: (track: TrackSummary) => void;
   onPreview: (track: TrackSummary) => void;
-  onSeekPreview: (track: TrackSummary, seconds: number) => void;
   onDetails: (track: TrackSummary) => void;
   onVerdict: (result: SearchResult, verdict: ReferenceCompareVerdict) => void;
 }) {
@@ -391,14 +381,12 @@ function ReferenceCompareGroupCard({
               score={result.score}
               scoreBreakdown={result.score_breakdown}
               playingTrackId={playingTrackId}
-              previewTrackId={previewTrackId}
               isSeed={seedSet.has(result.track.track_id)}
               inPlaylist={playlistSet.has(result.track.track_id)}
               onSeed={onSeed}
               onToggleLiked={onToggleLiked}
               onTogglePlaylist={onTogglePlaylist}
               onPreview={onPreview}
-              onSeekPreview={onSeekPreview}
               onDetails={onDetails}
             />
             <div

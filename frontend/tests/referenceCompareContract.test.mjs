@@ -197,8 +197,8 @@ function panelHarness() {
   });
   const props = {
     seedTracks: [{ track_id: 7, catalog_uuid: "catalog-a", track_uuid: "seed-a", title: "Seed" }],
-    busy: false, seedSet: new Set(), playlistSet: new Set(), playingTrackId: null, previewTrackId: null,
-    onSeed() {}, onToggleLiked() {}, onTogglePlaylist() {}, onPreview() {}, onSeekPreview() {}, onDetails() {}, onActivity() {},
+    busy: false, seedSet: new Set(), playlistSet: new Set(), playingTrackId: null,
+    onSeed() {}, onToggleLiked() {}, onTogglePlaylist() {}, onPreview() {}, onDetails() {}, onActivity() {},
   };
   function render() {
     cursor = 0;

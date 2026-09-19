@@ -11,7 +11,6 @@ from pathlib import Path
 import numpy as np
 
 from ..analysis_models import (
-    MULAN_ADAPTER_REVISION,
     MULAN_CHECKPOINT_ID,
     MULAN_MODEL_NAME,
     MULAN_MODEL_REVISION,
@@ -37,7 +36,6 @@ from ..runtime import select_torch_device
 
 class MuqMulanEmbeddingAdapter:
     embedding_key = "mulan"
-    adapter_revision = MULAN_ADAPTER_REVISION
     model_name = MULAN_MODEL_NAME
     model_revision = MULAN_MODEL_REVISION
     model_version = model_revision
@@ -89,7 +87,6 @@ class MuqMulanEmbeddingAdapter:
 
     def runtime_parameters(self) -> dict[str, object]:
         return {
-            "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "clip_seconds": self.clip_seconds,
             "inference_batch_size": self.inference_batch_size,

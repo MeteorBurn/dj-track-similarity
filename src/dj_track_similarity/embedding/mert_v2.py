@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ..analysis_models import (
-    MERT_V2_ADAPTER_REVISION,
     MERT_V2_CHECKPOINT_ID,
     MERT_V2_EMBEDDING_DIM,
     MERT_V2_MODEL_NAME,
@@ -32,7 +31,6 @@ _LAYER_COUNT = 24
 
 class MertV2EmbeddingAdapter:
     embedding_key = "mert_v2"
-    adapter_revision = MERT_V2_ADAPTER_REVISION
     model_name = MERT_V2_MODEL_NAME
     model_revision = MERT_V2_MODEL_REVISION
     model_version = model_revision
@@ -73,7 +71,6 @@ class MertV2EmbeddingAdapter:
 
     def runtime_parameters(self) -> dict[str, object]:
         return {
-            "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "chunk_seconds": self.chunk_seconds,
             "pooling": self.pooling,

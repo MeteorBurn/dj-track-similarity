@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ..analysis_models import (
-    MERT_ADAPTER_REVISION,
     MERT_CHECKPOINT_ID,
     MERT_MODEL_NAME,
     MERT_MODEL_REVISION,
@@ -30,7 +29,6 @@ _MINIMUM_SAMPLES = 400
 
 class MertEmbeddingAdapter:
     embedding_key = "mert"
-    adapter_revision = MERT_ADAPTER_REVISION
     model_name = MERT_MODEL_NAME
     model_revision = MERT_MODEL_REVISION
     model_version = model_revision
@@ -72,7 +70,6 @@ class MertEmbeddingAdapter:
 
     def runtime_parameters(self) -> dict[str, object]:
         return {
-            "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "window_seconds": self.window_seconds,
             "hidden_layers": self.hidden_layers,

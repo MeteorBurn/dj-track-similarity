@@ -12,7 +12,6 @@ from pathlib import Path
 import numpy as np
 
 from ..analysis_models import (
-    CLAP_ADAPTER_REVISION,
     CLAP_CHECKPOINT_ID,
     CLAP_MODEL_NAME,
     CLAP_MODEL_REVISION,
@@ -38,7 +37,6 @@ class ClapEmbeddingAdapter:
     embedding_key = "clap"
     checkpoint_repo = "lukewys/laion_clap"
     checkpoint_filename = "music_audioset_epoch_15_esc_90.14.pt"
-    adapter_revision = CLAP_ADAPTER_REVISION
     model_name = CLAP_MODEL_NAME
     model_revision = CLAP_MODEL_REVISION
     model_version = model_revision
@@ -79,7 +77,6 @@ class ClapEmbeddingAdapter:
 
     def runtime_parameters(self) -> dict[str, object]:
         return {
-            "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "clip_seconds": self.clip_seconds,
             "inference_batch_size": self.inference_batch_size,

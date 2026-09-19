@@ -52,13 +52,6 @@ MULAN_TEXT_MODEL_NAME = "xlm-roberta-base"
 CLAP_MODEL_NAME = "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
 CLAP_TEXT_MODEL_NAME = "roberta-base"
 
-MAEST_ADAPTER_REVISION = "maest-adapter-v2"
-MERT_ADAPTER_REVISION = "mert-adapter-v1"
-MERT_V2_ADAPTER_REVISION = "mert-v2-adapter-v1"
-MUQ_ADAPTER_REVISION = "muq-adapter-v1"
-MULAN_ADAPTER_REVISION = "mulan-adapter-v2"
-CLAP_ADAPTER_REVISION = "clap-adapter-v3"
-
 MAEST_MODEL_VERSION = "v0.0.0-beta"
 MERT_MODEL_REVISION = "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5"
 MERT_V2_MODEL_REVISION = "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42"
@@ -188,12 +181,12 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
     ),
 )
 
-MAEST_PREPROCESSING = "shared-mono/maest-16khz-native-full-track-v2"
-MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows-v1"
-MERT_V2_PREPROCESSING = "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted-v1"
-MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-consecutive-windows-v1"
-MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track-v2"
-CLAP_PREPROCESSING = "shared-mono/clap-48khz-native-full-signal-v2"
+MAEST_PREPROCESSING = "shared-mono/maest-16khz-native-full-track"
+MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows"
+MERT_V2_PREPROCESSING = "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted"
+MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-consecutive-windows"
+MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track"
+CLAP_PREPROCESSING = "shared-mono/clap-48khz-native-full-signal"
 
 MAEST_EMBEDDING_DIM = 768
 MERT_EMBEDDING_DIM = 768

@@ -79,7 +79,7 @@
       "is_flash": false
     },
     "adapter": {
-      "window_seconds": 10.0,
+      "window_seconds": 30.0,
       "window_selection": "Consecutive full-track windows with a final window aligned to the track end.",
       "short_audio": "Right-zero-pad to one window.",
       "pooling": "Mean final hidden state over time; L2-normalize each window vector; mean window vectors; final L2 normalization."

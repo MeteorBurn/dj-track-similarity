@@ -98,7 +98,7 @@
       "hidden_state_source": "last_hidden_state, the final Conformer block",
       "default_inference_batch_size": 1,
       "device_precision": "Float32 weights and mel frontend; native bfloat16 forward autocast on supported CUDA devices, float32 otherwise.",
-      "preprocessing_identity": "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted-v1"
+      "preprocessing_identity": "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted"
     },
     "processor": {
       "do_normalize": false,

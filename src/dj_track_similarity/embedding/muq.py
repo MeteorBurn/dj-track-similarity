@@ -7,7 +7,6 @@ import warnings
 import numpy as np
 
 from ..analysis_models import (
-    MUQ_ADAPTER_REVISION,
     MUQ_CHECKPOINT_ID,
     MUQ_MODEL_NAME,
     MUQ_MODEL_REVISION,
@@ -26,7 +25,6 @@ _MUQ_WEIGHT_NORM_WARNING_SILENCED = False
 
 class MuqEmbeddingAdapter:
     embedding_key = "muq"
-    adapter_revision = MUQ_ADAPTER_REVISION
     model_name = MUQ_MODEL_NAME
     model_revision = MUQ_MODEL_REVISION
     model_version = model_revision
@@ -46,7 +44,7 @@ class MuqEmbeddingAdapter:
     def __init__(
         self,
         device: str | None = None,
-        window_seconds: float = 10.0,
+        window_seconds: float = 30.0,
         inference_batch_size: int = 8,
     ) -> None:
         self.requested_device = device or "auto"
@@ -61,7 +59,6 @@ class MuqEmbeddingAdapter:
 
     def runtime_parameters(self) -> dict[str, object]:
         return {
-            "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "window_seconds": self.window_seconds,
             "pooling": self.pooling,

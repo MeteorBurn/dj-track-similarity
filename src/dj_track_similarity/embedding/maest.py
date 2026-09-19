@@ -15,7 +15,6 @@ import numpy as np
 if TYPE_CHECKING:
     from torch import Tensor
 from ..analysis_models import (
-    MAEST_ADAPTER_REVISION,
     MAEST_CHECKPOINT_ID,
     MAEST_MODEL_NAME,
     MAEST_MODEL_VERSION,
@@ -46,7 +45,6 @@ class MaestMelSpectrogram:
 
 class MaestEmbeddingAdapter:
     embedding_key = "maest"
-    adapter_revision = MAEST_ADAPTER_REVISION
     model_name = MAEST_MODEL_NAME
     checkpoint_release = "v0.0.0-beta"
     checkpoint_filename = "discogs-maest-30s-pw-129e-519l-swa.ckpt"
@@ -83,7 +81,6 @@ class MaestEmbeddingAdapter:
 
     def runtime_parameters(self) -> dict[str, object]:
         return {
-            "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "audio_input": "full-track",
             "top_k": self.top_k,

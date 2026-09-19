@@ -105,7 +105,10 @@ work unverified rather than inventing its instructions.
 - Treat requested behavior as the new source of truth. Add compatibility or
   migrations only for persisted data, external consumers, or explicit requests.
 - Prefer one discoverable source of truth. Do not add aliases, duplicate
-  registries, version gates, or hidden legacy branches. TEST POLICY governs what
+  registries, version gates, version labels, or hidden legacy branches. Nothing
+  is a fixed passport yet: model, adapter and preprocessing identities carry no
+  version suffix, and upstream identities (checkpoint hashes, model revisions,
+  external format versions) are not ours to number. TEST POLICY governs what
   the suite is allowed to pin.
 - Inspect `git status --short` and the relevant existing diff before editing.
   Preserve unrelated work. Create branches, commits, or PRs and push only when
@@ -147,9 +150,8 @@ work unverified rather than inventing its instructions.
   recoverable workflows; reanalysis remains a separate user choice.
 - Package, loader and lifetime refactors preserve existing schema, saved rows,
   model/output identities, vector formats and analysis readiness. They must not
-  introduce data rewrites, schema or model/adapter revision bumps, or requirements
-  to reanalyze, rescore or retrain merely because source paths or in-memory
-  ownership changed.
+  introduce data rewrites or requirements to reanalyze, rescore or retrain merely
+  because source paths or in-memory ownership changed.
 - Rhythm Lab labels, predictions, the label queue and review collections are
   keyed by `content_key` = `"sfp<version>:" + sha256("sfp:<version>:" +
   SONARA fingerprint bytes)`, so fingerprint bytes and version are preserved

@@ -11,6 +11,7 @@ import {
   fileSpecCells,
   fileSpectralBadge,
   formatSimilarity,
+  groupBestCutoff,
   groupFingerprintLine,
   groupReviewReasons,
   groupSelectionOutcome,
@@ -24,6 +25,7 @@ function FileCard({
   file,
   groupReasons,
   differingSpecs,
+  bestCutoffHz,
   selected,
   playing,
   onToggle,
@@ -32,13 +34,14 @@ function FileCard({
   file: AudioDedupFile;
   groupReasons: string[];
   differingSpecs: Set<string>;
+  bestCutoffHz: number | null;
   selected: boolean;
   playing: boolean;
   onToggle: () => void;
   onPreview: () => void;
 }) {
   const details = copyDetailReasons(file, groupReasons);
-  const spectral = fileSpectralBadge(file);
+  const spectral = fileSpectralBadge(file, bestCutoffHz);
   const quality = fileQualityLine(file);
   const isKeeper = file.role === "keeper";
   const className = [
@@ -157,6 +160,7 @@ export function AudioDedupGroupCard({
   const reviewReasons = groupReviewReasons(group);
   const files = orderedGroupFiles(group.files);
   const differingSpecs = differingSpecKeys(group.files);
+  const bestCutoffHz = groupBestCutoff(group.files);
   const outcome = groupSelectionOutcome(group, selectedTrackIds);
 
   return (
@@ -234,6 +238,7 @@ export function AudioDedupGroupCard({
             file={file}
             groupReasons={group.review_reasons}
             differingSpecs={differingSpecs}
+            bestCutoffHz={bestCutoffHz}
             selected={selectedTrackIds.includes(file.track_id)}
             playing={playingTrackId === file.track_id}
             onToggle={() => onToggleFile(group.group_id, file.track_id)}

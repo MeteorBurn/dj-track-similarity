@@ -163,7 +163,8 @@ const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> =
   ],
   [
     /^candidate spectrum looks transcoded \((.+)\); the keeper holds the wider band$/i,
-    (m) => `Спектр копии похож на транскод (${m[1]}) — у сохраняемой полоса шире`
+    (m) =>
+      `Спектр копии похож на транскод (${spectralNoteText(m[1])}) — у сохраняемой полоса шире`
   ],
   [
     /^ambiguous chain: not every copy matched the keeper's fingerprint directly$/i,
@@ -595,21 +596,102 @@ export function fileQualityLine(file: AudioDedupFile) {
   return parts.join(" · ");
 }
 
+/** Why a copy carries no spectral measurement, in Russian. */
+const spectralSkipTranslations: Record<string, string> = {
+  "ffmpeg unavailable": "ffmpeg не найден",
+  "track not loaded": "трек не загружен",
+  "file not reachable": "файл недоступен",
+  "unknown sample rate": "частота дискретизации неизвестна",
+  "decode failed": "не удалось декодировать",
+  "decoded segment too short": "фрагмент слишком короткий",
+  "decoded segment is silent or invalid": "тишина или битые данные",
+  "reference band missing": "нет опорной полосы 1–8 кГц",
+  "no band above floor": "сигнал ниже порога"
+};
+
+/** The detector's bitrate class as the screen prints it: "~160 kbps", "≤112 kbps". */
+function bitrateClassText(label: string) {
+  return label.replace("<=", "≤");
+}
+
+/**
+ * The detector's English note as the short Russian phrase the screen carries.
+ *
+ * The cutoff already leads the chip, so the frequency inside the note is not
+ * repeated. The declared-bitrate clause exists only on a lossy copy and can
+ * follow any of the three shapes, so it is split off first. An unrecognised
+ * note passes through untouched, as a review reason does.
+ */
+export function spectralNoteText(note: string) {
+  const skipped = spectralSkipTranslations[note];
+  if (skipped) return skipped;
+  const declared = note.match(/^(.*), (matches|below) declared (\d+) kbps$/i);
+  const shape = declared ? declared[1] : note;
+  let relation = "";
+  if (declared) {
+    relation =
+      declared[2].toLowerCase() === "below"
+        ? `, ниже заявленных ${declared[3]} kbps`
+        : ", как заявлено";
+  }
+  if (/^full band$/i.test(shape)) return `полная полоса${relation}`;
+  if (/^rolls off near [\d.]+ kHz$/i.test(shape)) return `плавный спад${relation}`;
+  const wall = shape.match(/^brickwall at [\d.]+ kHz(?: \((.+) class\))?$/i);
+  if (wall) return `стена${wall[1] ? ` ${bitrateClassText(wall[1])}` : ""}${relation}`;
+  return note;
+}
+
+/** The widest measured band among a group's copies, which the others are read against. */
+export function groupBestCutoff(files: AudioDedupFile[]): number | null {
+  let best: number | null = null;
+  for (const file of files) {
+    const cutoff = file.spectral_cutoff_hz;
+    if (cutoff !== null && (best === null || cutoff > best)) best = cutoff;
+  }
+  return best;
+}
+
+/** Two cutoffs closer than this are one band measured twice, not a narrower copy. */
+const SPECTRAL_SHORTFALL_MIN_HZ = 100;
+
 export type DedupSpectralBadge = { text: string; tone: "warn" | "ok" | "muted" };
 
 /**
  * The spectral verdict, which is the fake-bitrate evidence.
  *
  * A brickwall well under the container's ceiling means the audio was once lossy,
- * whatever the extension claims, so it leads rather than sits in a list.
+ * whatever the extension claims, so it leads rather than sits in a list. The
+ * flagged copy names which fake it is and the bitrate its band gives away; an
+ * unflagged one states how much band it lacks against the group's widest copy,
+ * because the copies are one recording and that gap is the comparison itself.
  */
-export function fileSpectralBadge(file: AudioDedupFile): DedupSpectralBadge {
+export function fileSpectralBadge(
+  file: AudioDedupFile,
+  bestCutoffHz: number | null = null
+): DedupSpectralBadge {
+  const note = file.spectral_note ?? "";
   if (file.spectral_cutoff_hz === null) {
-    return { text: file.spectral_note || "спектр не проверен", tone: "muted" };
+    return { text: note ? spectralNoteText(note) : "спектр не проверен", tone: "muted" };
   }
   const cutoff = `срез ${formatCutoff(file.spectral_cutoff_hz)}`;
-  if (file.suspected_transcode) return { text: `${cutoff} · фейк-битрейт`, tone: "warn" };
-  return { text: `${cutoff}${file.spectral_note ? ` · ${file.spectral_note}` : ""}`, tone: "ok" };
+  if (file.suspected_transcode) {
+    // Only a lossy copy is judged against its declared bitrate, so that clause
+    // tells a re-encode at a higher rate from lossy audio in a lossless container.
+    const kind = /below declared/i.test(note) ? "пережат" : "транскод";
+    const source = note.match(/\((.+) class\)/i);
+    return {
+      text: `${cutoff} · ${kind}${source ? ` из ${bitrateClassText(source[1])}` : ""}`,
+      tone: "warn"
+    };
+  }
+  const shortfall = bestCutoffHz === null ? 0 : bestCutoffHz - file.spectral_cutoff_hz;
+  // A wall names the bitrate its band looks like, which says more than the gap
+  // the two chips already show side by side. Without a wall the note would call
+  // the narrower copy "full band", so the gap is stated in its place.
+  if (shortfall >= SPECTRAL_SHORTFALL_MIN_HZ && !/^brickwall /i.test(note)) {
+    return { text: `${cutoff} · −${formatCutoff(shortfall)} к лучшей копии`, tone: "ok" };
+  }
+  return { text: `${cutoff}${note ? ` · ${spectralNoteText(note)}` : ""}`, tone: "ok" };
 }
 
 export const dedupConfidenceOptions = ["high", "medium", "review"] as const;

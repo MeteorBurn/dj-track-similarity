@@ -11,7 +11,7 @@ export const helpText = {
   muqAnalyze: "MuQ строит fp32 аудио-эмбеддинги из 24 kHz сигнала для seed-поиска и совместимых classifier feature sets. Декодирование и resampling выполняет backend.",
   clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги. Text-to-audio поиск использует текстовый запрос отдельно от сохранённого audio-to-audio CLAP evidence для совместимых classifier feature sets.",
   audioDedupPathFilter: "Часть пути папки. Применяется кнопкой или по Enter.",
-  audioDedupDetectFakeBitrate: "Ищет транскоды по спектру. Нужен ffmpeg, прогон дольше.",
+  audioDedupDetectFakeBitrate: "Ищет по спектру пережатые и транскодированные копии. Нужен ffmpeg, прогон дольше.",
   audioDedupConfidence: "Насколько совпали отпечатки: высокая от 0.95, средняя от 0.70.",
   audioDedupFingerprintFloor: "Своя граница совпадения — только на уровне «ручная».",
   audioDedupMarkCandidates: "Отметить лишние копии во всех группах на странице.",

@@ -21,6 +21,13 @@ import {
   suggestedGroupSelection
 } from "./audioDedupView";
 
+/** What the spectral chip's wording means, for the readings that need saying. */
+const spectralHints = {
+  recompressed: helpText.audioDedupSpectralRecompressed,
+  transcoded: helpText.audioDedupSpectralTranscoded,
+  wall: helpText.audioDedupSpectralWall
+};
+
 function FileCard({
   file,
   groupReasons,
@@ -99,7 +106,10 @@ function FileCard({
             </span>
           ))}
         </span>
-        <span className={`dedup-spectral dedup-spectral-${spectral.tone}`}>
+        <span
+          className={`dedup-spectral dedup-spectral-${spectral.tone}`}
+          title={spectral.kind ? spectralHints[spectral.kind] : undefined}
+        >
           {spectral.tone === "warn" ? <AlertTriangle size={12} /> : null}
           {spectral.text}
         </span>

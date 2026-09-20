@@ -111,7 +111,13 @@ const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> =
     (m) =>
       `${keeperKeyStatements[m[1].toLowerCase()] ?? m[1]}: ${keeperValueText(m[2])}`
   ],
-  [/^Full-band spectrum in group$/i, () => "Полный спектр, в отличие от других копий"],
+  [
+    // The key behind this line is the transcode flag, not the band: it wins when
+    // this copy is unflagged and every other one is flagged. The kept copy can
+    // still end at a 320-class wall, so the wording claims no full band.
+    /^Full-band spectrum in group$/i,
+    () => "Не помечена как фейк-битрейт, в отличие от других копий"
+  ],
   [/^Lossless in group$/i, () => "Единственная копия без потерь"],
   [
     /^Every compared fact ties; newest file in group$/i,
@@ -621,24 +627,33 @@ function bitrateClassText(label: string) {
  * repeated. The declared-bitrate clause exists only on a lossy copy and can
  * follow any of the three shapes, so it is split off first. An unrecognised
  * note passes through untouched, as a review reason does.
+ *
+ * The class is worded as the encoder whose wall it resembles, never as a bare
+ * bitrate: the card prints the file's own bitrate beside the chip, and
+ * "~320 kbps" next to a WAV's 1411 kbps read as a contradiction.
  */
 export function spectralNoteText(note: string) {
   const skipped = spectralSkipTranslations[note];
   if (skipped) return skipped;
   const declared = note.match(/^(.*), (matches|below) declared (\d+) kbps$/i);
   const shape = declared ? declared[1] : note;
+  const matches = declared !== null && declared[2].toLowerCase() === "matches";
   let relation = "";
   if (declared) {
-    relation =
-      declared[2].toLowerCase() === "below"
-        ? `, ниже заявленных ${declared[3]} kbps`
-        : ", как заявлено";
+    relation = matches
+      ? `соответствует заявленным ${declared[3]} kbps`
+      : `ниже заявленных ${declared[3]} kbps`;
   }
-  if (/^full band$/i.test(shape)) return `полная полоса${relation}`;
-  if (/^rolls off near [\d.]+ kHz$/i.test(shape)) return `плавный спад${relation}`;
   const wall = shape.match(/^brickwall at [\d.]+ kHz(?: \((.+) class\))?$/i);
-  if (wall) return `стена${wall[1] ? ` ${bitrateClassText(wall[1])}` : ""}${relation}`;
-  return note;
+  // A lossy copy walled where its own bitrate puts the wall is the encoder at
+  // work, so the match is the whole statement.
+  if (wall && matches) return relation;
+  let base: string | null = null;
+  if (/^full band$/i.test(shape)) base = "полная полоса";
+  else if (/^rolls off near [\d.]+ kHz$/i.test(shape)) base = "плавный спад";
+  else if (wall) base = wall[1] ? `стена как у MP3 ${bitrateClassText(wall[1])}` : "стена";
+  if (base === null) return note;
+  return relation ? `${base}, ${relation}` : base;
 }
 
 /** The widest measured band among a group's copies, which the others are read against. */
@@ -654,7 +669,21 @@ export function groupBestCutoff(files: AudioDedupFile[]): number | null {
 /** Two cutoffs closer than this are one band measured twice, not a narrower copy. */
 const SPECTRAL_SHORTFALL_MIN_HZ = 100;
 
-export type DedupSpectralBadge = { text: string; tone: "warn" | "ok" | "muted" };
+/**
+ * The cutoff the reviewer allows, the same level as the "allow cutoffs above"
+ * setting of the checker they calibrate against. A wall at or above it is an
+ * ordinary master or an honest 320 kbps source, which the spectrum cannot tell
+ * apart, so the chip says nothing about bitrate there. Naming "~320 kbps" on a
+ * 1411 kbps WAV with a 20.2 kHz cutoff read as an accusation the tool cannot make.
+ */
+const SPECTRAL_ALLOWED_CUTOFF_HZ = 19_600;
+
+export type DedupSpectralBadge = {
+  text: string;
+  tone: "warn" | "ok" | "muted";
+  /** Which explanation the chip's tooltip carries; absent where the text needs none. */
+  kind?: "recompressed" | "transcoded" | "wall";
+};
 
 /**
  * The spectral verdict, which is the fake-bitrate evidence.
@@ -677,20 +706,32 @@ export function fileSpectralBadge(
   if (file.suspected_transcode) {
     // Only a lossy copy is judged against its declared bitrate, so that clause
     // tells a re-encode at a higher rate from lossy audio in a lossless container.
-    const kind = /below declared/i.test(note) ? "пережат" : "транскод";
+    const recompressed = /below declared/i.test(note);
     const source = note.match(/\((.+) class\)/i);
     return {
-      text: `${cutoff} · ${kind}${source ? ` из ${bitrateClassText(source[1])}` : ""}`,
-      tone: "warn"
+      text:
+        `${cutoff} · ${recompressed ? "пережат" : "транскод"}`
+        + (source ? ` из ${bitrateClassText(source[1])}` : ""),
+      tone: "warn",
+      kind: recompressed ? "recompressed" : "transcoded"
     };
   }
+  // A lossy copy that matches its declared rate states exactly that and nothing
+  // else: its wall is the encoder at work and its gap to a lossless copy is expected.
+  if (/matches declared/i.test(note)) {
+    return { text: `${cutoff} · ${spectralNoteText(note)}`, tone: "ok" };
+  }
+  const walled = /^brickwall /i.test(note);
+  if (walled && file.spectral_cutoff_hz < SPECTRAL_ALLOWED_CUTOFF_HZ) {
+    return { text: `${cutoff} · ${spectralNoteText(note)}`, tone: "ok", kind: "wall" };
+  }
   const shortfall = bestCutoffHz === null ? 0 : bestCutoffHz - file.spectral_cutoff_hz;
-  // A wall names the bitrate its band looks like, which says more than the gap
-  // the two chips already show side by side. Without a wall the note would call
-  // the narrower copy "full band", so the gap is stated in its place.
-  if (shortfall >= SPECTRAL_SHORTFALL_MIN_HZ && !/^brickwall /i.test(note)) {
+  // The note would call a narrower copy "full band", so the gap is stated in its place.
+  if (shortfall >= SPECTRAL_SHORTFALL_MIN_HZ) {
     return { text: `${cutoff} · −${formatCutoff(shortfall)} к лучшей копии`, tone: "ok" };
   }
+  // An allowed wall has nothing to add to its cutoff.
+  if (walled) return { text: cutoff, tone: "ok" };
   return { text: `${cutoff}${note ? ` · ${spectralNoteText(note)}` : ""}`, tone: "ok" };
 }
 

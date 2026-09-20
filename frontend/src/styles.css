@@ -1202,6 +1202,13 @@ h2 {
   padding-top: 10px;
 }
 
+/* The panel title already rules off the header, so the first section starts
+   without a second line of its own. */
+.library-panel-body > .stage-section-description:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
 .stage-section-description span {
   font-size: 13px;
   font-weight: 760;

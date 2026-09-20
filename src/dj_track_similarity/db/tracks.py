@@ -411,6 +411,31 @@ class TrackRepository:
             if track_id in rows_by_id
         }
 
+    def existing_track_ids(self, track_ids: Sequence[int]) -> set[int]:
+        """Which of these ids the library still holds, tolerating ids it lost.
+
+        A saved report outlives the rows it describes, and a reader that only
+        needs to know which of thousands of tracks survived should not pay for
+        the strict per-track read that fails closed on the first deleted one.
+        """
+
+        ordered_ids = _validated_track_ids(track_ids)
+        if not ordered_ids:
+            return set()
+        with closing(self.connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT track_id
+                FROM tracks
+                WHERE track_id IN (
+                      SELECT CAST(value AS INTEGER)
+                      FROM json_each(?)
+                  )
+                """,
+                (json.dumps(list(ordered_ids), separators=(",", ":")),),
+            ).fetchall()
+        return {int(row[0]) for row in rows}
+
     def get_track_file_states_by_ids(
         self,
         track_ids: Sequence[int],

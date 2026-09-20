@@ -563,6 +563,24 @@ export function scanStateLabel(state: string) {
   return scanStateTranslations[state] ?? state;
 }
 
+/**
+ * Why a reported copy no longer matches the library, in Russian.
+ *
+ * The report keeps the engine's English because it is the record the CLI
+ * writes; the screen says it in the language of the review.
+ */
+const staleReasonTranslations: Record<string, string> = {
+  "track is no longer in the library": "трека больше нет в базе",
+  "report identity is stale": "идентичность трека изменилась после отчёта",
+  "report file facts are missing": "в отчёте нет фактов файла",
+  "report file facts are stale": "файл изменился после отчёта",
+  "file is missing on disk": "файла нет на диске"
+};
+
+export function staleReasonLabel(reason: string) {
+  return staleReasonTranslations[reason] ?? reason;
+}
+
 /** The copy that survives leads the group, whatever order the report kept. */
 export function orderedGroupFiles(files: AudioDedupFile[]) {
   return [...files].sort((left, right) => {

@@ -307,6 +307,7 @@ def group_page(
             path_filter=path_filter,
         )
     ]
+    matching = _groups_still_worth_reviewing(database, matching)
     # Reviewing means walking a folder, so the pages run in path order. A
     # report written before that rule is ordered here rather than left
     # scattered across the list.
@@ -349,6 +350,36 @@ def _group_inside_filter(group: dict, path_filter: str) -> bool:
         path_filter in str(entry.get("path", "")).replace("\\", "/").lower()
         for entry in members
     )
+
+
+def _groups_still_worth_reviewing(
+    database: LibraryDatabase,
+    matching: list[tuple[dict, str]],
+) -> list[tuple[dict, str]]:
+    """Drop the groups a deletion already settled.
+
+    A report is a record of the run, not of the library, so it keeps naming
+    copies that have since been deleted. A group down to one surviving track
+    has nothing left to decide, and leaving it in the list only pads the pages
+    and the counts. Only the database is consulted here: whether each file is
+    still on disk costs a stat per copy and is answered for the visible page.
+    """
+    track_ids = [
+        _int(entry.get("track_id"), default=-1)
+        for group, _ in matching
+        for entry in _members(group)
+    ]
+    live = database.existing_track_ids([track_id for track_id in track_ids if track_id > 0])
+    return [
+        (group, group_confidence)
+        for group, group_confidence in matching
+        if sum(
+            1
+            for entry in _members(group)
+            if _int(entry.get("track_id"), default=-1) in live
+        )
+        >= 2
+    ]
 
 
 def _group_path_key(group: dict) -> str:

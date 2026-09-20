@@ -17,6 +17,7 @@ import {
   groupSelectionOutcome,
   groupSurvivesSelection,
   orderedGroupFiles,
+  staleReasonLabel,
   suggestedGroupSelection
 } from "./audioDedupView";
 
@@ -107,7 +108,7 @@ function FileCard({
       {file.stale && file.stale_reason ? (
         <p className="dedup-copy-stale-note">
           <AlertTriangle size={12} />
-          Отчёт устарел: {file.stale_reason}
+          Отчёт устарел: {staleReasonLabel(file.stale_reason)}
         </p>
       ) : null}
 

@@ -14,9 +14,11 @@ DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "database" / "rhyth
 DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
 SUPPORTED_EMBEDDINGS = ("mert_v2", "maest", "muq", "clap")
 FINGERPRINT_REVIEW_MIN_SIMILARITY = 0.45
-MODE_FINGERPRINT = "fingerprint"
+SONARA_DUPLICATE_MIN_SIMILARITY = 0.30
+MODE_FINGERPRINT_SCAN = "fingerprint_scan"
+MODE_FINGERPRINT_LSH = "fingerprint_lsh"
 MODE_EMBEDDING = "embedding"
-SEARCH_MODES = (MODE_FINGERPRINT, MODE_EMBEDDING)
+SEARCH_MODES = (MODE_FINGERPRINT_SCAN, MODE_FINGERPRINT_LSH, MODE_EMBEDDING)
 DELETION_MODE_PERMANENT = "permanent"
 DELETION_MODE_TRASH = "trash"
 DELETION_MODES = (DELETION_MODE_PERMANENT, DELETION_MODE_TRASH)
@@ -62,7 +64,7 @@ SCORE_SEMANTICS = {
     "fingerprint_similarity": {
         "kind": "sonara_native_fingerprint_match",
         "range": "0..1",
-        "notes": "Exact native SONARA fingerprint comparison, run only after version-separated fingerprint LSH retrieval. A score of 0.45 or above creates a manual-review candidate; it never independently authorizes deletion.",
+        "notes": "Exact native SONARA fingerprint comparison. fingerprint_scan follows the upstream SONARA recipe and treats a score above 0.30 as the same recording; fingerprint_lsh and embedding run the same comparison after version-separated LSH retrieval and need 0.45 to raise a manual-review candidate. No fingerprint score independently authorizes deletion.",
     },
 }
 

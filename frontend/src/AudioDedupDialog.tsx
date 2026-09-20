@@ -42,7 +42,7 @@ export function AudioDedupDialog({
 }) {
   const dedup = useAudioDedup({ open });
   const [root, setRoot] = useState("");
-  const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint");
+  const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint_scan");
   const [skipSpectral, setSkipSpectral] = useState(false);
   const [deletionMode, setDeletionMode] = useState<AudioDedupDeletionMode>("trash");
   const [draftFilters, setDraftFilters] = useState<AudioDedupFilters>(dedup.filters);
@@ -163,8 +163,9 @@ export function AudioDedupDialog({
                 <span>Корень поиска</span>
                 <div className="dedup-path-row">
                   <input
+                    name="dedup-root"
                     value={root}
-                    placeholder="M:/Volumes"
+                    title={helpText.audioDedupDedupRoot}
                     disabled={dedup.scanRunning}
                     onChange={(event) => setRoot(event.target.value)}
                   />
@@ -183,13 +184,15 @@ export function AudioDedupDialog({
               <label className="dedup-control">
                 <span>Режим</span>
                 <select
+                  name="dedup-search-mode"
                   value={searchMode}
-                  title={helpText.audioDedupSearchMode}
+                  title={helpText.audioDedupSearchMode[searchMode]}
                   disabled={dedup.scanRunning}
                   onChange={(event) => setSearchMode(event.target.value as AudioDedupSearchMode)}
                 >
-                  <option value="fingerprint">Отпечатки</option>
-                  <option value="embedding">Эмбеддинги + отпечатки</option>
+                  <option value="fingerprint_scan">Fingerprints</option>
+                  <option value="fingerprint_lsh">Fingerprints + LSH</option>
+                  <option value="embedding">Fingerprints + Embeddings</option>
                 </select>
               </label>
               <label
@@ -197,6 +200,7 @@ export function AudioDedupDialog({
                 title={helpText.audioDedupSkipSpectral}
               >
                 <input
+                  name="dedup-skip-spectral"
                   type="checkbox"
                   checked={skipSpectral}
                   disabled={dedup.scanRunning}
@@ -216,7 +220,7 @@ export function AudioDedupDialog({
                 <button
                   className="dedup-primary-button"
                   type="button"
-                  disabled={!root.trim() || dedup.busy}
+                  disabled={dedup.busy}
                   onClick={() =>
                     void dedup.startScan({
                       root: root.trim(),
@@ -257,6 +261,7 @@ export function AudioDedupDialog({
               <label className="dedup-control dedup-control-grow">
                 <span>Отчёт</span>
                 <select
+                  name="dedup-report"
                   value={dedup.reportId ?? ""}
                   disabled={dedup.reports.length === 0}
                   onChange={(event) => dedup.selectReport(event.target.value)}
@@ -266,7 +271,7 @@ export function AudioDedupDialog({
                   ) : null}
                   {dedup.reports.map((report) => (
                     <option key={report.report_id} value={report.report_id}>
-                      {report.generated_at.replace("T", " ")} · {report.root} · групп{" "}
+                      {report.generated_at.replace("T", " ")} · {report.root || "вся база"} · групп{" "}
                       {report.group_count}
                     </option>
                   ))}
@@ -288,6 +293,7 @@ export function AudioDedupDialog({
               <label className="dedup-control">
                 <span>Уверенность</span>
                 <select
+                  name="dedup-confidence"
                   value={draftFilters.confidence[0] ?? ""}
                   onChange={(event) =>
                     updateFilters({
@@ -307,6 +313,7 @@ export function AudioDedupDialog({
               <label className="dedup-control dedup-control-narrow">
                 <span>Отпечаток ≥</span>
                 <input
+                  name="dedup-min-fingerprint"
                   type="number"
                   min={0}
                   max={1}
@@ -323,6 +330,7 @@ export function AudioDedupDialog({
               </label>
               <label className="dedup-toggle" title={helpText.audioDedupFakeBitrate}>
                 <input
+                  name="dedup-fake-bitrate-only"
                   type="checkbox"
                   checked={draftFilters.fakeBitrateOnly}
                   onChange={(event) =>
@@ -337,6 +345,7 @@ export function AudioDedupDialog({
               <label className="dedup-control dedup-control-grow">
                 <span>Путь содержит</span>
                 <input
+                  name="dedup-path-contains"
                   value={draftFilters.pathContains}
                   placeholder="vinyl"
                   onChange={(event) =>
@@ -448,6 +457,7 @@ export function AudioDedupDialog({
           <label className="dedup-control">
             <span>Куда</span>
             <select
+              name="dedup-deletion-mode"
               value={deletionMode}
               onChange={(event) => setDeletionMode(event.target.value as AudioDedupDeletionMode)}
             >

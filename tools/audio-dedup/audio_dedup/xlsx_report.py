@@ -70,7 +70,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Root", payload["root"], "Only stored track paths inside this root were considered.", "", ""],
         ["Path filter", path_filter or "(none)", "Optional case-insensitive path substring filters.", "", ""],
         ["Mode", payload.get("mode", "report-only"), "Report-only writes evidence and does not delete audio.", "", ""],
-        ["Search mode", payload.get("search_mode", ""), "fingerprint: exact SONARA matches decide duplicates, everything stays manual-review. embedding: weighted embedding score decides and can mark safe delete candidates.", "", ""],
+        ["Search mode", payload.get("search_mode", ""), "fingerprint_scan: upstream SONARA recipe, greedy first match above 0.30 inside rounded-duration buckets. fingerprint_lsh: same exact match after LSH retrieval, threshold 0.45. Both stay manual-review. embedding: weighted embedding score decides and can mark safe delete candidates.", "", ""],
         ["Preset", payload["preset"], "safe is conservative; balanced/aggressive widen review scope.", "", ""],
         ["Sources", source_text, "Enabled audio embedding families.", "", ""],
         ["Source weights", weight_text, "Raw weights are renormalized over available enabled evidence.", "", ""],

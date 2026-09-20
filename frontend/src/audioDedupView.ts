@@ -278,7 +278,7 @@ export function copyDetailReasons(
   for (const raw of [...file.reasons, ...file.blocked_reasons]) {
     const reason = raw.replace(/^manual review required:\s*/i, "").replace(/\.$/, "").trim();
     if (!reason || isEmptyReason(reason)) continue;
-    if (searchMode === "fingerprint" && isEmbeddingAbsence(reason)) continue;
+    if (searchMode !== "embedding" && isEmbeddingAbsence(reason)) continue;
     const key = reason.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

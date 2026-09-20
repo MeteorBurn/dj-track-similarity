@@ -9,6 +9,7 @@ from dj_track_similarity.database import LibraryDatabase
 from .fingerprints import (
     fingerprint_match_scores,
     load_fingerprint_sketches,
+    sonara_duplicate_clusters,
 )
 from .spectral import (
     SpectralResult,
@@ -33,7 +34,7 @@ def run_report(
     *,
     db_path: Path | None = None,
     database: LibraryDatabase | None = None,
-    root: Path,
+    root: Path | None,
     path_contains: list[str],
     preset_name: str,
     min_score: float | None,
@@ -42,7 +43,7 @@ def run_report(
     out_dir: Path,
     sources: Iterable[str] | None = None,
     weights: Mapping[str, float] | None = None,
-    mode: str = config_module.MODE_FINGERPRINT,
+    mode: str = config_module.MODE_FINGERPRINT_SCAN,
     skip_spectral: bool = False,
     progress_callback: models_module.ProgressCallback | None = None,
     should_cancel: models_module.CancelCheck | None = None,
@@ -50,7 +51,11 @@ def run_report(
     config = config_module.resolve_preset(preset_name, min_score=min_score, min_similarity=min_similarity)
     if mode not in config_module.SEARCH_MODES:
         raise ValueError(f"Unsupported search mode: {mode}")
-    fingerprint_mode = mode == config_module.MODE_FINGERPRINT
+    scan_mode = mode == config_module.MODE_FINGERPRINT_SCAN
+    fingerprint_mode = mode in (
+        config_module.MODE_FINGERPRINT_SCAN,
+        config_module.MODE_FINGERPRINT_LSH,
+    )
     if fingerprint_mode:
         if sources is not None or weights is not None:
             raise ValueError(
@@ -83,75 +88,114 @@ def run_report(
         for track in tracks
         if track.track_uuid
     }
-    progress_module._report_progress(progress_callback, 0, max(1, len(tracks)), "Loading saved SONARA fingerprint sketches")
-    connection = selected_database.connect()
-    try:
-        fingerprint_load = load_fingerprint_sketches(
-            connection,
-            track_uuids,
-            progress_callback=lambda completed, total: progress_module._report_progress(
-                progress_callback,
-                completed,
-                total,
-                "Loading saved SONARA fingerprint sketches",
+    if scan_mode:
+        progress_module._report_progress(progress_callback, 0, max(1, len(tracks)), "Matching SONARA fingerprints")
+        connection = selected_database.connect()
+        try:
+            scan = sonara_duplicate_clusters(
+                connection,
+                track_uuids,
+                {track.track_id: track.duration for track in tracks},
+                progress_callback=lambda completed, total: progress_module._report_progress(
+                    progress_callback,
+                    completed,
+                    total,
+                    "Matching SONARA fingerprints",
+                ),
+                cancel_hook=cancel_hook,
+            )
+        finally:
+            connection.close()
+        progress_module._raise_if_cancelled(should_cancel)
+        fingerprint_retrieval = {
+            "valid_stored_fingerprint_count": scan.valid_fingerprint_count,
+            "rejected_stored_fingerprint_count": scan.rejected_rows,
+            "scan_duration_bucket_count": scan.duration_bucket_count,
+            "scan_comparison_count": scan.comparison_count,
+            "fingerprint_review_pair_count": sum(
+                len(cluster.pair_scores) for cluster in scan.clusters
             ),
-            cancel_hook=cancel_hook,
+            "fingerprint_review_min_similarity": config_module.SONARA_DUPLICATE_MIN_SIMILARITY,
+        }
+        groups = scoring_module.groups_from_fingerprint_clusters(
+            scan.clusters,
+            tracks,
+            config,
+            source_config=source_config,
+            limit_groups=limit_groups,
+            progress_callback=progress_callback,
+            should_cancel=should_cancel,
         )
-    finally:
-        connection.close()
-    candidate_sources = candidates_module._candidate_pair_sources(
-        tracks,
-        config,
-        source_config,
-        fingerprint_sketches=fingerprint_load.sketches,
-        fingerprint_only=fingerprint_mode,
-    )
-    fingerprint_lsh_pairs = {
-        pair
-        for pair, sources_for_pair in candidate_sources.items()
-        if "fingerprint_lsh" in sources_for_pair
-    }
-    fingerprint_exact_pairs = candidates_module._fingerprint_exact_candidate_pairs(candidate_sources)
-    progress_module._raise_if_cancelled(should_cancel)
-    progress_module._report_progress(progress_callback, 0, max(1, len(fingerprint_exact_pairs)), "Verifying SONARA fingerprint candidates")
-    connection = selected_database.connect()
-    try:
-        fingerprint_scores = fingerprint_match_scores(
-            connection,
-            fingerprint_exact_pairs,
-            track_uuids,
-            progress_callback=lambda completed, total: progress_module._report_progress(
-                progress_callback,
-                completed,
-                total,
-                "Verifying SONARA fingerprint candidates",
+    else:
+        progress_module._report_progress(progress_callback, 0, max(1, len(tracks)), "Loading saved SONARA fingerprint sketches")
+        connection = selected_database.connect()
+        try:
+            fingerprint_load = load_fingerprint_sketches(
+                connection,
+                track_uuids,
+                progress_callback=lambda completed, total: progress_module._report_progress(
+                    progress_callback,
+                    completed,
+                    total,
+                    "Loading saved SONARA fingerprint sketches",
+                ),
+                cancel_hook=cancel_hook,
+            )
+        finally:
+            connection.close()
+        candidate_sources = candidates_module._candidate_pair_sources(
+            tracks,
+            config,
+            source_config,
+            fingerprint_sketches=fingerprint_load.sketches,
+            fingerprint_only=fingerprint_mode,
+        )
+        fingerprint_lsh_pairs = {
+            pair
+            for pair, sources_for_pair in candidate_sources.items()
+            if "fingerprint_lsh" in sources_for_pair
+        }
+        fingerprint_exact_pairs = candidates_module._fingerprint_exact_candidate_pairs(candidate_sources)
+        progress_module._raise_if_cancelled(should_cancel)
+        progress_module._report_progress(progress_callback, 0, max(1, len(fingerprint_exact_pairs)), "Verifying SONARA fingerprint candidates")
+        connection = selected_database.connect()
+        try:
+            fingerprint_scores = fingerprint_match_scores(
+                connection,
+                fingerprint_exact_pairs,
+                track_uuids,
+                progress_callback=lambda completed, total: progress_module._report_progress(
+                    progress_callback,
+                    completed,
+                    total,
+                    "Verifying SONARA fingerprint candidates",
+                ),
+                cancel_hook=cancel_hook,
+            )
+        finally:
+            connection.close()
+        fingerprint_retrieval = {
+            "valid_stored_fingerprint_count": len(fingerprint_load.sketches),
+            "rejected_stored_fingerprint_count": fingerprint_load.rejected_rows,
+            "fingerprint_lsh_candidate_pair_count": len(fingerprint_lsh_pairs),
+            "fingerprint_exact_candidate_pair_count": len(fingerprint_exact_pairs),
+            "exact_fingerprint_pair_count": len(fingerprint_scores),
+            "fingerprint_review_pair_count": sum(
+                score >= config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY
+                for score in fingerprint_scores.values()
             ),
-            cancel_hook=cancel_hook,
+            "fingerprint_review_min_similarity": config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY,
+        }
+        groups = scoring_module.find_duplicate_groups(
+            tracks,
+            config,
+            limit_groups=limit_groups,
+            source_config=source_config,
+            candidate_sources=candidate_sources,
+            fingerprint_scores=fingerprint_scores,
+            progress_callback=progress_callback,
+            should_cancel=should_cancel,
         )
-    finally:
-        connection.close()
-    fingerprint_retrieval = {
-        "valid_stored_fingerprint_count": len(fingerprint_load.sketches),
-        "rejected_stored_fingerprint_count": fingerprint_load.rejected_rows,
-        "fingerprint_lsh_candidate_pair_count": len(fingerprint_lsh_pairs),
-        "fingerprint_exact_candidate_pair_count": len(fingerprint_exact_pairs),
-        "exact_fingerprint_pair_count": len(fingerprint_scores),
-        "fingerprint_review_pair_count": sum(
-            score >= config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY
-            for score in fingerprint_scores.values()
-        ),
-        "fingerprint_review_min_similarity": config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY,
-    }
-    groups = scoring_module.find_duplicate_groups(
-        tracks,
-        config,
-        limit_groups=limit_groups,
-        source_config=source_config,
-        candidate_sources=candidate_sources,
-        fingerprint_scores=fingerprint_scores,
-        progress_callback=progress_callback,
-        should_cancel=should_cancel,
-    )
     progress_module._raise_if_cancelled(should_cancel)
     spectral_results = _spectral_results_for_groups(
         groups,

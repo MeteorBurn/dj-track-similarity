@@ -18,6 +18,7 @@ from audio_dedup.fingerprints import (  # noqa: E402
     fingerprint_match_scores,
     fingerprint_sketch,
     load_fingerprint_sketches,
+    sonara_duplicate_clusters,
 )
 from audio_dedup import candidates as candidates_module  # noqa: E402
 from audio_dedup import config as config_module  # noqa: E402
@@ -112,6 +113,79 @@ def test_stored_fingerprint_loader_rejects_stale_identity_and_matches_only_same_
     assert {sketch.track_id for sketch in loaded.sketches} == {1, 2, 4}
     assert loaded.rejected_rows == 1
     assert scores == {(1, 2): 0.88}
+
+
+def test_fingerprint_scan_matches_representatives_only_above_the_upstream_threshold() -> (
+    None
+):
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.executescript(
+        """
+        CREATE TABLE sonara_fingerprints (
+            track_id INTEGER PRIMARY KEY,
+            track_uuid TEXT NOT NULL,
+            fingerprint_version INTEGER NOT NULL,
+            fingerprint_base64 TEXT NOT NULL,
+            analyzed_at TEXT NOT NULL
+        );
+        """
+    )
+    versions = {1: 1, 2: 1, 3: 1, 4: 1, 5: 2, 6: 1}
+    values = {
+        track_id: _fingerprint_base64(np.arange(128, dtype=np.uint32) + track_id)
+        for track_id in versions
+    }
+    connection.executemany(
+        """
+        INSERT INTO sonara_fingerprints (
+            track_id, track_uuid, fingerprint_version, fingerprint_base64, analyzed_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (track_id, f"current-{track_id}", versions[track_id], values[track_id], "2026-09-20T00:00:00+00:00")
+            for track_id in versions
+        ],
+    )
+    identities = {track_id: f"current-{track_id}" for track_id in versions}
+    durations = {1: 300.2, 2: 300.4, 3: 300.1, 4: 302.0, 5: 300.3, 6: 299.9}
+    ids_by_value = {value: track_id for track_id, value in values.items()}
+    scores = {
+        frozenset((1, 2)): 0.9,
+        frozenset((1, 3)): 0.3,
+        frozenset((2, 3)): 0.8,
+        frozenset((1, 4)): 0.99,
+        frozenset((1, 5)): 0.99,
+        frozenset((1, 6)): 0.95,
+        frozenset((2, 6)): 0.7,
+    }
+    compared: list[frozenset[int]] = []
+
+    def matcher(left: str, right: str) -> float:
+        pair = frozenset((ids_by_value[left], ids_by_value[right]))
+        compared.append(pair)
+        return scores.get(pair, 0.0)
+
+    result = sonara_duplicate_clusters(
+        connection,
+        identities,
+        durations,
+        matcher=matcher,
+    )
+
+    assert [cluster.representative_id for cluster in result.clusters] == [1]
+    cluster = result.clusters[0]
+    assert cluster.member_ids == (1, 2, 6)
+    assert cluster.pair_scores == {(1, 2): 0.9, (1, 6): 0.95, (2, 6): 0.7}
+    # 3 is only ever offered to representative 1, and 0.30 is not above 0.30.
+    assert frozenset((2, 3)) not in compared
+    assert frozenset((1, 3)) in compared
+    # A different rounded duration and a different fingerprint version are never
+    # compared at all, however high their score would have been.
+    assert frozenset((1, 4)) not in compared
+    assert frozenset((1, 5)) not in compared
+    assert result.valid_fingerprint_count == 6
+    assert result.duration_bucket_count == 2
 
 
 def test_missing_fingerprint_table_disables_only_the_fingerprint_signal() -> None:

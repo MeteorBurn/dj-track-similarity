@@ -52,6 +52,9 @@ class ConsoleProgressReporter:
 def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     args = parse_args(argv)
+    if args.apply and args.root is None:
+        print("audio_dedup failed: --apply needs --root to delete inside", file=sys.stderr)
+        return 2
     progress_reporter = ConsoleProgressReporter()
     try:
         result = core_module.run_report(
@@ -71,9 +74,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         progress_reporter.finish()
         retrieval = result.payload.get("fingerprint_retrieval", {})
-        if args.mode == config_module.MODE_FINGERPRINT and not retrieval.get("valid_stored_fingerprint_count"):
+        if args.mode != config_module.MODE_EMBEDDING and not retrieval.get("valid_stored_fingerprint_count"):
             print(
-                "Warning: fingerprint mode found 0 valid stored SONARA fingerprints in scope, "
+                f"Warning: {args.mode} mode found 0 valid stored SONARA fingerprints in scope, "
                 "so this empty report does not prove the scope has no duplicates. "
                 "Analyze SONARA fingerprints first or rerun with --embedding."
             )
@@ -124,7 +127,14 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         )
     )
     parser.add_argument("--db", type=Path, default=config_module.DEFAULT_DB, help="Project SQLite database. Default: <repo>/database/volumes.sqlite.")
-    parser.add_argument("--root", type=Path, required=True, help="Only include DB tracks inside this stored path root.")
+    parser.add_argument(
+        "--root",
+        type=Path,
+        help=(
+            "Only include DB tracks inside this stored path root. Omit it to search the "
+            "whole database; --apply still requires a root to delete inside."
+        ),
+    )
     parser.add_argument(
         "--path-contains",
         action="append",
@@ -151,16 +161,31 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
-        "--fingerprint",
+        "--fingerprint-scan",
         dest="mode",
         action="store_const",
-        const=config_module.MODE_FINGERPRINT,
-        default=config_module.MODE_FINGERPRINT,
+        const=config_module.MODE_FINGERPRINT_SCAN,
+        default=config_module.MODE_FINGERPRINT_SCAN,
         help=(
-            "Primary mode, also the default. Search duplicates exclusively from stored SONARA "
-            "fingerprints: no embeddings are loaded, candidates come from fingerprint LSH only, "
-            "and only the exact native match score forms groups. Every reported candidate stays "
+            "Primary mode, also the default. The upstream SONARA duplicate recipe over stored "
+            "fingerprints: each track is matched against the representatives seen so far and "
+            "joins the first one scoring above "
+            f"{config_module.SONARA_DUPLICATE_MIN_SIMILARITY:g}, with candidates bucketed by "
+            "rounded duration. No embeddings are loaded and every reported candidate stays "
             "manual-review."
+        ),
+    )
+    mode_group.add_argument(
+        "--fingerprint-lsh",
+        dest="mode",
+        action="store_const",
+        const=config_module.MODE_FINGERPRINT_LSH,
+        help=(
+            "Same stored fingerprints, but candidates come from version-separated fingerprint "
+            "LSH instead of duration buckets, so copies with different durations still pair up. "
+            "The exact native match needs "
+            f"{config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY:g} to form a group, and every "
+            "reported candidate stays manual-review."
         ),
     )
     mode_group.add_argument(
@@ -169,10 +194,9 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_const",
         const=config_module.MODE_EMBEDDING,
         help=(
-            "Secondary mode. Score duplicates from the enabled embedding families with the "
-            "preset score and similarity gates; exact fingerprint checks still add manual-review "
-            "pairs, and this is the only mode that can produce safe delete candidates for "
-            "--apply."
+            "Score duplicates from the enabled embedding families with the preset score and "
+            "similarity gates; exact fingerprint checks still add manual-review pairs, and this "
+            "is the only mode that can produce safe delete candidates for --apply."
         ),
     )
     parser.add_argument(

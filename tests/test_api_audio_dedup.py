@@ -96,7 +96,7 @@ def _write_report(
         "preset": "safe",
         "min_score": 0.965,
         "min_similarity": 0.985,
-        "search_mode": "fingerprint",
+        "search_mode": "fingerprint_scan",
         "database_track_count": 2,
         "scoped_track_count": 2,
         "track_count": 2,
@@ -191,7 +191,7 @@ def test_audio_dedup_report_groups_expose_evidence_and_live_staleness(tmp_path, 
     assert page.status_code == 200
     body = page.json()
     assert body["total_groups"] == 1
-    assert body["search_mode"] == "fingerprint"
+    assert body["search_mode"] == "fingerprint_scan"
     group = body["groups"][0]
     assert group["fingerprint_similarity"] == 1.0
     files = {item["track_id"]: item for item in group["files"]}
@@ -244,6 +244,30 @@ def test_audio_dedup_delete_rejects_a_track_outside_its_group(tmp_path, monkeypa
     assert duplicate_path.exists()
 
 
+def test_audio_dedup_delete_refuses_a_whole_database_report(tmp_path, monkeypatch) -> None:
+    """A rootless scan is report-only: deletion has no root to stay inside."""
+    db_path, out_dir, _, _, duplicate, keeper_path, duplicate_path, report_id = _fixture(tmp_path)
+    report_path = out_dir / f"{report_id}.json"
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    payload["root"] = ""
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
+    client = _client(monkeypatch, db_path, out_dir)
+
+    response = client.post(
+        f"/api/audio-dedup/reports/{report_id}/delete",
+        json={
+            "selections": [{"group_id": 1, "track_ids": [duplicate.track_id]}],
+            "deletion_mode": "permanent",
+            "confirmation": "APPLY DELETE",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "root" in response.json()["detail"]
+    assert keeper_path.exists()
+    assert duplicate_path.exists()
+
+
 def test_audio_dedup_delete_removes_the_confirmed_selection(tmp_path, monkeypatch) -> None:
     db_path, out_dir, _, _, duplicate, keeper_path, duplicate_path, report_id = _fixture(tmp_path)
     client = _client(monkeypatch, db_path, out_dir)
@@ -271,7 +295,7 @@ def test_audio_dedup_scan_rejects_sources_without_embedding_mode(tmp_path, monke
 
     response = client.post(
         "/api/audio-dedup/jobs",
-        json={"root": str(audio_dir), "search_mode": "fingerprint", "sources": ["mert_v2"]},
+        json={"root": str(audio_dir), "search_mode": "fingerprint_scan", "sources": ["mert_v2"]},
     )
 
     assert response.status_code == 400

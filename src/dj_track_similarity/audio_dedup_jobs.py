@@ -62,7 +62,7 @@ class AudioDedupJobStatus:
 
 @dataclass(frozen=True)
 class AudioDedupJobPayload:
-    root: Path
+    root: Path | None
     path_contains: list[str]
     search_mode: str
     preset: str
@@ -115,9 +115,7 @@ class AudioDedupJobManager:
     ) -> str:
         config_module = load_audio_dedup_module("config")
         root_text = str(root).strip()
-        if not root_text:
-            raise ValueError("Root path is required")
-        selected_mode = search_mode or config_module.MODE_FINGERPRINT
+        selected_mode = search_mode or config_module.MODE_FINGERPRINT_SCAN
         if selected_mode not in config_module.SEARCH_MODES:
             raise ValueError(f"Unsupported search mode: {selected_mode}")
         if limit_groups is not None and limit_groups < 1:
@@ -125,7 +123,7 @@ class AudioDedupJobManager:
         # Validate before queueing so a bad preset, source, or weight is a request
         # error instead of a job that dies inside its own thread.
         config_module.resolve_preset(preset, min_score=min_score, min_similarity=min_similarity)
-        if selected_mode == config_module.MODE_FINGERPRINT:
+        if selected_mode != config_module.MODE_EMBEDDING:
             if sources or weights:
                 raise ValueError("Sources and weights require the embedding search mode")
             selected_sources: list[str] = []
@@ -157,7 +155,7 @@ class AudioDedupJobManager:
                 skip_spectral=skip_spectral,
             )
             payload = AudioDedupJobPayload(
-                root=Path(root_text),
+                root=Path(root_text) if root_text else None,
                 path_contains=selected_path_contains,
                 search_mode=selected_mode,
                 preset=preset,
@@ -171,7 +169,7 @@ class AudioDedupJobManager:
             )
             self._cancel_flags[job_id] = threading.Event()
             self._store.add(job_id, status, payload=payload)
-        self._append_event(job_id, "info", f"Audio dedup queued: {root_text}")
+        self._append_event(job_id, "info", f"Audio dedup queued: {root_text or 'whole database'}")
         return job_id
 
     def run_job(self, job_id: str) -> AudioDedupJobStatus:

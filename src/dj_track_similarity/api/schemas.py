@@ -117,7 +117,7 @@ class AudioDedupScanRequest(BaseModel):
 
     root: str
     path_contains: list[str] = Field(default_factory=list)
-    search_mode: Literal["fingerprint", "embedding"] = "fingerprint"
+    search_mode: Literal["fingerprint_scan", "fingerprint_lsh", "embedding"] = "fingerprint_scan"
     preset: Literal["safe", "balanced", "aggressive"] = "safe"
     min_score: float | None = None
     min_similarity: float | None = None

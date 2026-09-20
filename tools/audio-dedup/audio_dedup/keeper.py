@@ -555,7 +555,7 @@ def _candidate_safety(pair: models_module.PairEvidence | None, config: models_mo
     if pair is None:
         reasons.append("weak direct keeper match")
     else:
-        if pair.candidate_sources == ("fingerprint_lsh",):
+        if pair.candidate_sources in {("fingerprint_lsh",), ("fingerprint_scan",)}:
             if pair.fingerprint_similarity is not None:
                 reasons.append(
                     f"SONARA fingerprint-only candidate: exact fingerprint match "

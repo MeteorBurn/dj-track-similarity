@@ -586,7 +586,7 @@ export type AnalysisPipelineRequest = {
   ml?: MlPipelineSettings;
 };
 
-export type AudioDedupSearchMode = "fingerprint" | "embedding";
+export type AudioDedupSearchMode = "fingerprint_scan" | "fingerprint_lsh" | "embedding";
 
 export type AudioDedupDeletionMode = "trash" | "permanent";
 

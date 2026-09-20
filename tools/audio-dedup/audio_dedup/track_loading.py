@@ -20,7 +20,7 @@ EMBEDDING_LOAD_CHUNK_SIZE = 200
 def load_tracks(
     database: LibraryDatabase | Path,
     *,
-    root: Path,
+    root: Path | None,
     path_contains: list[str],
     sources: Iterable[str] | None = None,
     progress_callback: models_module.ProgressCallback | None = None,
@@ -30,7 +30,7 @@ def load_tracks(
         if isinstance(database, LibraryDatabase)
         else _resolve_database(database=None, db_path=database)
     )
-    root_text = canonical_file_path(root)
+    root_text = canonical_file_path(root) if root is not None else ""
     contains = [ordinal_path_key(item) for item in path_contains if item.strip()]
     selected_sources = tuple(config_module.SUPPORTED_EMBEDDINGS if sources is None else sources)
     unsupported_sources = set(selected_sources) - set(config_module.SUPPORTED_EMBEDDINGS)
@@ -266,8 +266,10 @@ def _attach_embeddings(
         )
 
 def _path_matches(path: str, root: str, contains: list[str]) -> bool:
+    """An empty root means the whole database; deletion never passes one."""
     key = canonical_file_path(path)
-    root_key = canonical_file_path(root).rstrip("/")
-    if key != root_key and not key.startswith(root_key + "/"):
-        return False
+    if root:
+        root_key = canonical_file_path(root).rstrip("/")
+        if key != root_key and not key.startswith(root_key + "/"):
+            return False
     return all(item in key for item in contains)

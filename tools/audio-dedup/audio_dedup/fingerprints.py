@@ -9,6 +9,8 @@ import numpy as np
 
 from dj_track_similarity.analysis_models import FingerprintOutput
 
+from . import config as config_module
+
 
 FINGERPRINT_LSH_BANDS = 8
 FINGERPRINT_LSH_BITS_PER_BAND = 12
@@ -185,6 +187,145 @@ def fingerprint_match_scores(
         if progress_callback is not None:
             progress_callback(completed_pairs, total_pairs)
     return scores
+
+
+@dataclass(frozen=True)
+class FingerprintCluster:
+    """A representative and every track that matched it in the upstream scan."""
+
+    representative_id: int
+    member_ids: tuple[int, ...]
+    pair_scores: dict[tuple[int, int], float]
+
+
+@dataclass(frozen=True)
+class FingerprintScanResult:
+    clusters: tuple[FingerprintCluster, ...]
+    valid_fingerprint_count: int
+    rejected_rows: int
+    duration_bucket_count: int
+    comparison_count: int
+
+
+def sonara_duplicate_clusters(
+    connection: sqlite3.Connection,
+    track_uuids: Mapping[int, str],
+    durations: Mapping[int, float | None],
+    *,
+    min_similarity: float = config_module.SONARA_DUPLICATE_MIN_SIMILARITY,
+    matcher: Callable[[str, str], float] | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    cancel_hook: Callable[[], None] | None = None,
+) -> FingerprintScanResult:
+    """Run the upstream SONARA duplicate recipe against stored fingerprints.
+
+    Each track is compared with `sonara.fingerprint_match` against the
+    representatives seen so far and joins the first one it scores above
+    `min_similarity`; otherwise it becomes a representative itself. Candidates
+    are bucketed by rounded duration, the scaling step the SONARA docs
+    prescribe for large libraries, and fingerprints of different versions are
+    never compared.
+    """
+    total_tracks = len(track_uuids)
+    if not _has_fingerprint_table(connection):
+        if progress_callback is not None:
+            progress_callback(total_tracks, total_tracks)
+        return FingerprintScanResult((), 0, 0, 0, 0)
+    selected_matcher = matcher or _native_fingerprint_match
+    buckets: dict[float | None, list[int]] = {}
+    for track_id in sorted(track_uuids):
+        buckets.setdefault(_duration_bucket(durations.get(track_id)), []).append(track_id)
+    clusters: list[FingerprintCluster] = []
+    valid_count = 0
+    rejected_rows = 0
+    comparison_count = 0
+    processed_tracks = 0
+    for bucket_key in sorted(buckets, key=lambda value: (value is None, value)):
+        if cancel_hook is not None:
+            cancel_hook()
+        bucket_ids = buckets[bucket_key]
+        values: dict[int, tuple[int, str]] = {}
+        for row in _fingerprint_rows(connection, bucket_ids):
+            track_id = int(row["track_id"])
+            value = _valid_fingerprint_value(row, track_uuids.get(track_id))
+            if value is None:
+                rejected_rows += 1
+                continue
+            values[track_id] = value
+        valid_count += len(values)
+        seen: list[tuple[int, int, str]] = []
+        members: dict[int, list[int]] = {}
+        pair_scores: dict[int, dict[tuple[int, int], float]] = {}
+        for track_id in bucket_ids:
+            if cancel_hook is not None:
+                cancel_hook()
+            value = values.get(track_id)
+            if value is None:
+                continue
+            version, fingerprint = value
+            representative_id = None
+            for seen_id, seen_version, seen_fingerprint in seen:
+                if seen_version != version:
+                    continue
+                comparison_count += 1
+                score = _clamped_match(selected_matcher, fingerprint, seen_fingerprint)
+                if score is not None and score > min_similarity:
+                    representative_id = seen_id
+                    pair_scores[seen_id][_ordered_pair(track_id, seen_id)] = score
+                    break
+            if representative_id is None:
+                seen.append((track_id, version, fingerprint))
+                members[track_id] = [track_id]
+                pair_scores[track_id] = {}
+                continue
+            for member_id in members[representative_id]:
+                if member_id == representative_id:
+                    continue
+                comparison_count += 1
+                score = _clamped_match(selected_matcher, fingerprint, values[member_id][1])
+                if score is not None:
+                    pair_scores[representative_id][_ordered_pair(track_id, member_id)] = score
+            members[representative_id].append(track_id)
+        for representative_id, member_ids in members.items():
+            if len(member_ids) < 2:
+                continue
+            clusters.append(
+                FingerprintCluster(
+                    representative_id=representative_id,
+                    member_ids=tuple(member_ids),
+                    pair_scores=dict(pair_scores[representative_id]),
+                )
+            )
+        processed_tracks += len(bucket_ids)
+        if progress_callback is not None:
+            progress_callback(processed_tracks, total_tracks)
+    return FingerprintScanResult(
+        clusters=tuple(clusters),
+        valid_fingerprint_count=valid_count,
+        rejected_rows=rejected_rows,
+        duration_bucket_count=len(buckets),
+        comparison_count=comparison_count,
+    )
+
+
+def _duration_bucket(duration: float | None) -> float | None:
+    if duration is None:
+        return None
+    value = float(duration)
+    if not np.isfinite(value) or value <= 0:
+        return None
+    return float(round(value))
+
+
+def _clamped_match(
+    matcher: Callable[[str, str], float],
+    left: str,
+    right: str,
+) -> float | None:
+    score = float(matcher(left, right))
+    if not np.isfinite(score):
+        return None
+    return max(0.0, min(1.0, score))
 
 
 def _fingerprint_descriptor(bits: np.ndarray) -> np.ndarray:

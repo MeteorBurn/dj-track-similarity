@@ -99,6 +99,56 @@ def find_duplicate_groups(
     return groups
 
 
+def groups_from_fingerprint_clusters(
+    clusters: Iterable[object],
+    tracks: list[models_module.TrackRecord],
+    config: models_module.PresetConfig,
+    *,
+    source_config: models_module.SourceConfig,
+    limit_groups: int | None = None,
+    progress_callback: models_module.ProgressCallback | None = None,
+    should_cancel: models_module.CancelCheck | None = None,
+) -> list[models_module.DuplicateGroup]:
+    """Turn upstream-scan clusters into report groups without re-deciding membership."""
+    by_id = {track.track_id: track for track in tracks}
+    selected_clusters = [
+        cluster
+        for cluster in clusters
+        if all(track_id in by_id for track_id in cluster.member_ids)
+    ]
+    cluster_total = len(selected_clusters)
+    if cluster_total == 0:
+        progress_module._report_progress(progress_callback, 1, 1, "No fingerprint duplicates")
+        return []
+    groups: list[models_module.DuplicateGroup] = []
+    for index, cluster in enumerate(selected_clusters, start=1):
+        progress_module._raise_if_cancelled(should_cancel)
+        evidence = [
+            score_pair(
+                by_id[left_id],
+                by_id[right_id],
+                config,
+                source_config=source_config,
+                fingerprint_similarity=score,
+                candidate_sources=("fingerprint_scan",),
+            )
+            for (left_id, right_id), score in sorted(cluster.pair_scores.items())
+        ]
+        if not evidence:
+            continue
+        groups.append(
+            models_module.DuplicateGroup(
+                len(groups) + 1,
+                tuple(sorted(cluster.member_ids)),
+                tuple(sorted(evidence, key=lambda item: (-item.score, item.left_id, item.right_id))),
+            )
+        )
+        progress_module._report_progress(progress_callback, index, cluster_total, "Building duplicate groups")
+        if limit_groups is not None and len(groups) >= max(0, limit_groups):
+            break
+    return groups
+
+
 def score_pair(
     left: models_module.TrackRecord,
     right: models_module.TrackRecord,

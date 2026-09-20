@@ -146,6 +146,19 @@ export function AudioDedupDialog({
     }
   }
 
+  function requestReportDelete() {
+    if (!activeReport) return;
+    requestConfirmation({
+      title: "Удалить отчёт?",
+      message:
+        `${activeReport.generated_at.replace("T", " ")} · ${activeReport.root || "вся база"} · `
+        + `${activeReport.group_count} `
+        + `${pluralRu(activeReport.group_count, "группа", "группы", "групп")}. `
+        + "Будут удалены файлы отчёта: JSON, XLSX и лог. Сами копии на диске останутся.",
+      onConfirm: () => void dedup.deleteReport()
+    });
+  }
+
   function requestDelete() {
     requestConfirmation({
       title:
@@ -377,6 +390,18 @@ export function AudioDedupDialog({
                   XLSX
                   <Download size={13} />
                 </a>
+              ) : null}
+              {activeReport ? (
+                <button
+                  className="icon-button intent-remove"
+                  type="button"
+                  disabled={dedup.busy}
+                  title="Удалить отчёт"
+                  aria-label="Удалить отчёт"
+                  onClick={requestReportDelete}
+                >
+                  <Trash2 size={15} />
+                </button>
               ) : null}
             </div>
             <div className="dedup-filter-row">

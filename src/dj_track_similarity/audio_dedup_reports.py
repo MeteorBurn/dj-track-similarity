@@ -176,6 +176,22 @@ def report_xlsx_path(out_dir: Path, report_id: str) -> Path:
     return xlsx_path
 
 
+def delete_report(out_dir: Path, report_id: str) -> list[str]:
+    """Remove one report and whatever it wrote beside its JSON.
+
+    A report is disposable output: the scan can be run again, and nothing here
+    touches audio files or database rows. The id is resolved through
+    report_json_path, so only a file inside the report directory can be removed.
+    """
+    json_path = report_json_path(out_dir, report_id)
+    removed: list[str] = []
+    for path in (json_path, json_path.with_suffix(".xlsx"), json_path.with_suffix(".log")):
+        if path.is_file():
+            path.unlink()
+            removed.append(path.name)
+    return removed
+
+
 def load_report_payload(out_dir: Path, report_id: str) -> dict:
     return _CACHE.load(report_json_path(out_dir, report_id))
 

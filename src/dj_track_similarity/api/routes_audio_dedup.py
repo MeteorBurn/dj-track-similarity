@@ -10,6 +10,7 @@ from .state import AppDatabaseState
 from ..audio_dedup_bridge import load_audio_dedup_module
 from ..audio_dedup_reports import (
     DEFAULT_GROUP_PAGE_LIMIT,
+    delete_report,
     group_page,
     list_reports,
     load_report_payload,
@@ -123,6 +124,16 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             filename=xlsx_path.name,
         )
+
+    @app.delete("/api/audio-dedup/reports/{report_id}")
+    def delete_audio_dedup_report(report_id: str):
+        manager = state.require_audio_dedup_jobs()
+        try:
+            return {"report_id": report_id, "removed": delete_report(manager.out_dir, report_id)}
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/audio-dedup/reports/{report_id}/delete")
     def delete_audio_dedup_duplicates(report_id: str, request: AudioDedupDeleteRequest):

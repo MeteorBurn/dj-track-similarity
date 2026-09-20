@@ -468,6 +468,11 @@ const audioDedupApi = {
       `/api/audio-dedup/reports/${encodeURIComponent(reportId)}/groups${query ? `?${query}` : ""}`
     );
   },
+  deleteAudioDedupReport: (reportId: string) =>
+    request<{ report_id: string; removed: string[] }>(
+      `/api/audio-dedup/reports/${encodeURIComponent(reportId)}`,
+      { method: "DELETE" }
+    ),
   audioDedupDelete: (reportId: string, payload: AudioDedupDeleteRequest) =>
     request<AudioDedupDeleteResult>(
       `/api/audio-dedup/reports/${encodeURIComponent(reportId)}/delete`,

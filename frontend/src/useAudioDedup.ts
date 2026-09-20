@@ -252,6 +252,29 @@ export function useAudioDedup({
     [filters, loadGroups, offset, page, reportId, selection]
   );
 
+  /**
+   * Delete the report currently under review.
+   *
+   * Only the report files go: the copies they describe stay on disk. The
+   * refreshed listing decides what to review next, because reconcileReportId
+   * falls back to the newest report once the current one is gone.
+   */
+  const deleteReport = useCallback(async (): Promise<boolean> => {
+    if (!reportId) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.deleteAudioDedupReport(reportId);
+      await refreshReports();
+      return true;
+    } catch (cause) {
+      setError(errorText(cause));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [refreshReports, reportId]);
+
   const scanRunning = useMemo(
     () => Boolean(job && activeJobStates.includes(job.state)),
     [job]
@@ -274,6 +297,7 @@ export function useAudioDedup({
     startScan,
     cancelScan,
     selectReport: selectReportId,
+    deleteReport,
     applyFilters,
     setOffset,
     toggleFile,

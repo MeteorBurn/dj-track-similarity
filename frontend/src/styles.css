@@ -4953,6 +4953,9 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 }
 
 .dedup-dialog {
+  /* The natural width of the widest search mode, shared with the run button in
+     the row below so the two read as one column instead of two ragged edges. */
+  --dedup-run-control-width: 241px;
   background: var(--surface);
   border: 1px solid var(--button-border);
   border-radius: 10px;
@@ -5062,6 +5065,13 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 
 .dedup-control-grow {
   flex: 1 1 220px;
+}
+
+.dedup-mode-control,
+.dedup-run-button {
+  flex: 0 0 var(--dedup-run-control-width);
+  justify-content: center;
+  width: var(--dedup-run-control-width);
 }
 
 .dedup-control-narrow {
@@ -5243,7 +5253,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   flex: 1 1 auto;
   flex-direction: column;
   gap: 10px;
-  min-height: 320px;
+  min-height: 360px;
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-color: var(--border-strong) transparent;

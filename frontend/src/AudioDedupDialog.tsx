@@ -227,45 +227,7 @@ export function AudioDedupDialog({
               ) : null}
             </div>
             <div className="dedup-scan-grid">
-              <label
-                className={`dedup-toggle ${dedup.scanRunning ? "disabled" : ""}`}
-                title={helpText.audioDedupWholeLibrary}
-              >
-                <input
-                  name="dedup-whole-library"
-                  type="checkbox"
-                  checked={wholeLibrary}
-                  disabled={dedup.scanRunning}
-                  onChange={(event) => setWholeLibrary(event.target.checked)}
-                />
-                <span>Вся база</span>
-              </label>
-              <label className="dedup-control dedup-control-grow">
-                <span>Корень поиска</span>
-                <div className="dedup-path-row">
-                  <input
-                    name="dedup-root"
-                    value={root}
-                    title={helpText.audioDedupDedupRoot}
-                    placeholder={wholeLibrary ? "Вся база" : "M:/Volumes/Abstracted"}
-                    disabled={dedup.scanRunning || wholeLibrary}
-                    onChange={(event) => setRoot(event.target.value)}
-                  />
-                  <button
-                    className="icon-button"
-                    type="button"
-                    title="Выбрать папку"
-                    aria-label="Выбрать папку"
-                    disabled={dedup.scanRunning || wholeLibrary}
-                    onClick={() => void chooseRoot()}
-                  >
-                    <FolderOpen size={16} />
-                  </button>
-                </div>
-              </label>
-            </div>
-            <div className="dedup-scan-grid">
-              <label className="dedup-control">
+              <label className="dedup-control dedup-mode-control">
                 <span>Режим</span>
                 <select
                   name="dedup-search-mode"
@@ -292,11 +254,47 @@ export function AudioDedupDialog({
                 />
                 <span>Определение поддельного битрейта</span>
               </label>
+              <label
+                className={`dedup-toggle ${dedup.scanRunning ? "disabled" : ""}`}
+                title={helpText.audioDedupWholeLibrary}
+              >
+                <input
+                  name="dedup-whole-library"
+                  type="checkbox"
+                  checked={wholeLibrary}
+                  disabled={dedup.scanRunning}
+                  onChange={(event) => setWholeLibrary(event.target.checked)}
+                />
+                <span>Вся база</span>
+              </label>
+              <label className="dedup-control dedup-control-grow">
+                <span>Корень поиска</span>
+                <div className="dedup-path-row">
+                  <input
+                    name="dedup-root"
+                    value={root}
+                    title={helpText.audioDedupDedupRoot}
+                    placeholder={wholeLibrary ? "Вся база" : "Папка, внутри которой искать дубликаты"}
+                    disabled={dedup.scanRunning || wholeLibrary}
+                    onChange={(event) => setRoot(event.target.value)}
+                  />
+                  <button
+                    className="icon-button"
+                    type="button"
+                    title="Выбрать папку"
+                    aria-label="Выбрать папку"
+                    disabled={dedup.scanRunning || wholeLibrary}
+                    onClick={() => void chooseRoot()}
+                  >
+                    <FolderOpen size={16} />
+                  </button>
+                </div>
+              </label>
             </div>
             <div className="dedup-scan-grid">
               {dedup.scanRunning ? (
                 <button
-                  className="dedup-secondary-button"
+                  className="dedup-secondary-button dedup-run-button"
                   type="button"
                   onClick={() => void dedup.cancelScan()}
                 >
@@ -304,7 +302,7 @@ export function AudioDedupDialog({
                 </button>
               ) : (
                 <button
-                  className="dedup-primary-button"
+                  className="dedup-primary-button dedup-run-button"
                   type="button"
                   disabled={dedup.busy || rootMissing}
                   title={

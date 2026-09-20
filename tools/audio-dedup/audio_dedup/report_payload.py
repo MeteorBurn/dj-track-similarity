@@ -115,6 +115,14 @@ def build_report(
                 "pairwise_evidence": [pair_payload(pair) for pair in group.pair_evidence],
             }
         )
+    # Groups come out of the search in scan order, which is the order the tracks
+    # happened to be added to the library: two groups from one folder end up far
+    # apart in a report of thousands. Reviewing means walking a folder, so the
+    # report is ordered by the path of the copy that would survive, and the
+    # numbers follow that order instead of the scan's.
+    report_groups.sort(key=_keeper_path_key)
+    for number, group_payload in enumerate(report_groups, start=1):
+        group_payload["group_id"] = number
     stats = report_statistics(report_groups)
     return {
         "search_mode": mode,
@@ -142,6 +150,13 @@ def build_report(
         "statistics": stats,
         "groups": report_groups,
     }
+
+
+def _keeper_path_key(group_payload: dict[str, object]) -> str:
+    """Where a group sits in the report: the folder of the copy that survives."""
+    keeper = group_payload.get("suggested_keeper")
+    path = str(keeper.get("path", "")) if isinstance(keeper, dict) else ""
+    return path.replace("\\", "/").lower()
 
 
 def track_payload(

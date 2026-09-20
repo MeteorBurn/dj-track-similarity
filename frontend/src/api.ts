@@ -695,7 +695,6 @@ export type AudioDedupGroup = {
   stale_file_count: number;
   // Copies the review's path filter kept out of `files`. They are still on disk
   // and still survive a deletion, so a partly shown group is marked differently.
-  hidden_file_count: number;
   files: AudioDedupFile[];
   pairs: AudioDedupPair[];
   review_reasons: string[];

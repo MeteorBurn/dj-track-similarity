@@ -97,10 +97,6 @@ class AudioDedupGroup:
     fingerprint_similarity: float | None
     suspected_transcode_count: int
     stale_file_count: int
-    # Copies the path filter kept out of `files`. They still exist on disk and
-    # still count as survivors, so the review must know the group is only
-    # partly on screen before marking everything it can see.
-    hidden_file_count: int = 0
     files: list[AudioDedupFile] = field(default_factory=list)
     pairs: list[AudioDedupPair] = field(default_factory=list)
     review_reasons: list[str] = field(default_factory=list)
@@ -311,26 +307,25 @@ def group_page(
             path_filter=path_filter,
         )
     ]
+    # Reviewing means walking a folder, so the pages run in path order. A
+    # report written before that rule is ordered here rather than left
+    # scattered across the list.
+    matching.sort(key=lambda item: _group_path_key(item[0]))
     selected_limit = max(1, min(int(limit), MAX_GROUP_PAGE_LIMIT))
     selected_offset = max(0, int(offset))
     window = matching[selected_offset : selected_offset + selected_limit]
-    live_states = _file_states(
-        database,
-        _window_track_ids([group for group, _ in window], path_filter=path_filter),
-    )
+    live_states = _file_states(database, _window_track_ids([group for group, _ in window]))
     return AudioDedupGroupPage(
         report_id=report_id,
         search_mode=str(payload.get("search_mode", "")),
         generated_at=str(payload.get("generated_at", "")),
         total_groups=len(raw_groups),
         filtered_groups=len(matching),
-        filtered_copies=sum(
-            len(_selected_members(group, path_filter)) for group, _ in matching
-        ),
+        filtered_copies=sum(len(_members(group)) for group, _ in matching),
         offset=selected_offset,
         limit=selected_limit,
         groups=[
-            _group(group, live_states, confidence=group_confidence, path_filter=path_filter)
+            _group(group, live_states, confidence=group_confidence)
             for group, group_confidence in window
         ],
     )
@@ -347,22 +342,28 @@ def path_filter_key(text: str) -> str:
     return str(text).strip().replace("\\", "/").lower()
 
 
-def _selected_members(group: dict, path_filter: str) -> list[dict]:
-    """Group members the filter shows; without a filter, every member."""
+def _group_inside_filter(group: dict, path_filter: str) -> bool:
+    """Whether every copy of this group lives under the filter."""
     members = _members(group)
-    if not path_filter:
-        return members
-    return [
-        entry
+    return bool(members) and all(
+        path_filter in str(entry.get("path", "")).replace("\\", "/").lower()
         for entry in members
-        if path_filter in str(entry.get("path", "")).replace("\\", "/").lower()
+    )
+
+
+def _group_path_key(group: dict) -> str:
+    """Where a group sits in the list: the earliest path it holds."""
+    paths = [
+        str(entry.get("path", "")).replace("\\", "/").lower()
+        for entry in _members(group)
     ]
+    return min(paths) if paths else ""
 
 
-def _window_track_ids(groups: list[dict], *, path_filter: str = "") -> list[int]:
+def _window_track_ids(groups: list[dict]) -> list[int]:
     track_ids: list[int] = []
     for group in groups:
-        for entry in _selected_members(group, path_filter):
+        for entry in _members(group):
             track_id = _int(entry.get("track_id"), default=-1)
             if track_id > 0:
                 track_ids.append(track_id)
@@ -402,7 +403,6 @@ def _group(
     live_states: dict[int, TrackFileState],
     *,
     confidence: str,
-    path_filter: str = "",
 ) -> AudioDedupGroup:
     keeper = _mapping(group.get("suggested_keeper"))
     keeper_id = _int(keeper.get("track_id"), default=-1)
@@ -410,11 +410,9 @@ def _group(
         _int(entry.get("track_id"), default=-1): entry
         for entry in _entries(group, "candidate_deletes")
     }
-    members = _members(group)
-    selected = _selected_members(group, path_filter)
     files = [
         _file(entry, keeper=keeper, candidate=candidates.get(_int(entry.get("track_id"), default=-1)), keeper_id=keeper_id, live_states=live_states)
-        for entry in selected
+        for entry in _members(group)
     ]
     pairs = [_pair(entry) for entry in _entries(group, "pairwise_evidence")]
     fingerprint_scores = [
@@ -426,7 +424,6 @@ def _group(
         fingerprint_similarity=max(fingerprint_scores) if fingerprint_scores else None,
         suspected_transcode_count=sum(1 for item in files if item.suspected_transcode),
         stale_file_count=sum(1 for item in files if item.stale),
-        hidden_file_count=len(members) - len(selected),
         files=files,
         pairs=pairs,
         review_reasons=_strings(group.get("review_reasons")),
@@ -549,7 +546,10 @@ def _group_matches(
         best = max((score for score in scores if score is not None), default=None)
         if best is None or best < min_fingerprint:
             return False
-    if path_filter and not _selected_members(group, path_filter):
+    # The filter keeps whole groups: every copy of the group has to live under
+    # it. A group split across the filter is not the reviewer's to settle here,
+    # and half of it on screen has nothing to compare against.
+    if path_filter and not _group_inside_filter(group, path_filter):
         return False
     return True
 

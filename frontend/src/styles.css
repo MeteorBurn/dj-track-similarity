@@ -5570,24 +5570,20 @@ button.dedup-play-button {
    fact: "1,411 kbps", "192,000 Hz", "1.42 GB". */
 .dedup-spec-main {
   color: var(--text-muted);
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  gap: 3px 12px;
-  /* Three tracks over two rows rather than six across: six columns of this
-     type do not fit the narrowest card, where the last fact would be clipped
-     away. Capped tracks keep the positions identical on a wide card too. */
-  grid-template-columns: repeat(3, minmax(0, 116px));
-  justify-content: start;
+  gap: 0 6px;
   letter-spacing: 0.01em;
-  width: 100%;
 }
 
-.dedup-spec-cell {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* One compact line, the facts separated the way the track details read. */
+.dedup-spec-cell + .dedup-spec-cell::before {
+  color: var(--text-disabled);
+  content: "/";
+  margin-right: 6px;
 }
 
 /* Only the facts that disagree between the copies of this group carry full

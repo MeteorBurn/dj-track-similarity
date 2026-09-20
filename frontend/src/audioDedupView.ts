@@ -289,27 +289,21 @@ export function selectionGroupCount(selection: DedupSelection) {
  *
  * The server decides for real, including whether the surviving file is still on
  * disk. This mirrors the rule so an impossible choice is refused while the
- * reviewer is still making it — but only where the screen holds the whole
- * group: a copy the filter kept off screen survives whatever is marked here.
+ * reviewer is still making it. The filter keeps whole groups, so the screen
+ * always holds every copy that is at stake.
  */
 export function groupSurvivesSelection(group: AudioDedupGroup, trackIds: number[]) {
-  if (group.hidden_file_count > 0) return true;
   return group.files.some((file) => !trackIds.includes(file.track_id));
 }
 
 /**
- * The tool's own recommendation for the copies on screen.
+ * The tool's own recommendation: keep the suggested keeper, drop the rest.
  *
- * With the whole group visible it is the usual one: keep the suggested keeper,
- * drop the rest. Under a filter that hid part of the group the keeper on screen
- * is a copy like any other, because what survives is off screen, so every shown
- * copy may be marked. A stale row is left out either way: the report no longer
- * describes the file behind it.
+ * A stale row is left out — the report no longer describes the file behind it.
  */
 export function suggestedGroupSelection(group: AudioDedupGroup): number[] {
-  const partlyHidden = group.hidden_file_count > 0;
   return group.files
-    .filter((file) => !file.stale && (partlyHidden || file.role === "duplicate"))
+    .filter((file) => !file.stale && file.role === "duplicate")
     .map((file) => file.track_id);
 }
 
@@ -580,7 +574,7 @@ export function orderedGroupFiles(files: AudioDedupFile[]) {
 /** What this group's current marks amount to: what goes, what is left. */
 export function groupSelectionOutcome(group: AudioDedupGroup, trackIds: number[]) {
   const marked = group.files.filter((file) => trackIds.includes(file.track_id)).length;
-  return { marked, surviving: group.files.length - marked + group.hidden_file_count };
+  return { marked, surviving: group.files.length - marked };
 }
 
 /**

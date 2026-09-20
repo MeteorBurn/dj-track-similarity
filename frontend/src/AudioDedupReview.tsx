@@ -85,8 +85,8 @@ function FileCard({
       </p>
 
       <div className="dedup-copy-specs">
-        {/* Same six positions on every card, so two copies compare column by
-            column; the tokens that disagree are the only ones lifted. */}
+        {/* One line, the facts in the same order on every card; the tokens
+            that disagree between the copies are the only ones lifted. */}
         <span className="dedup-spec-main">
           {fileSpecCells(file).map((cell) => (
             <span
@@ -160,7 +160,6 @@ export function AudioDedupGroupCard({
   const survives = groupSurvivesSelection(group, selectedTrackIds);
   const fingerprintLine = groupFingerprintLine(group);
   const reviewReasons = groupReviewReasons(group);
-  const hiddenCopies = group.hidden_file_count;
   const files = orderedGroupFiles(group.files);
   const differingSpecs = differingSpecKeys(group.files);
   const outcome = groupSelectionOutcome(group, selectedTrackIds);
@@ -188,7 +187,7 @@ export function AudioDedupGroupCard({
           </span>
         ) : null}
         {/* The outcome of the marks, where the marks are made: how many copies
-            leave and how many stay, counting the ones the filter hides. */}
+            leave and how many stay. */}
         {outcome.marked > 0 ? (
           <span className="dedup-chip dedup-chip-outcome">
             удалить {outcome.marked} · останется {outcome.surviving}
@@ -198,11 +197,7 @@ export function AudioDedupGroupCard({
           <button
             className="dedup-ghost-button"
             type="button"
-            title={
-              hiddenCopies > 0
-                ? "Пометить все показанные копии — вне фильтра остаются другие"
-                : "Пометить всё, кроме предложенной к сохранению копии"
-            }
+            title="Пометить всё, кроме предложенной к сохранению копии"
             onClick={() => onSetGroup(group.group_id, suggestedGroupSelection(group))}
           >
             По рекомендации
@@ -220,14 +215,6 @@ export function AudioDedupGroupCard({
       </header>
 
       {fingerprintLine ? <p className="dedup-group-fingerprint">{fingerprintLine}</p> : null}
-
-      {/* The filter shows part of the group. The rest is still on disk and
-          still survives, which is why everything visible here may be marked. */}
-      {hiddenCopies > 0 ? (
-        <p className="dedup-group-hidden">
-          Ещё {hiddenCopies} {copiesWord(hiddenCopies)} вне фильтра — они останутся на диске.
-        </p>
-      ) : null}
 
       {/* What holds for the whole group, stated once above the cards rather
           than repeated on each copy it applies to. */}

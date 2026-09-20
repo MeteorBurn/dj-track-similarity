@@ -184,6 +184,9 @@ def keeper_keys(
     def format_preference(track: models_module.TrackRecord) -> int:
         return 0 if ambiguous_codec else format_rank(track.path)
 
+    def show_format(track: models_module.TrackRecord) -> str:
+        suffix = Path(track.path).suffix.casefold().lstrip(".")
+        return suffix.upper() if suffix else "no extension"
 
     def show_bandwidth(track: models_module.TrackRecord) -> str:
         result = verdicts.get(track.track_id)
@@ -245,9 +248,11 @@ def keeper_keys(
             _statement("loudness range", lambda track: f"{loudness_range(track)} LU"),
         ),
         KeeperKey(
-            "format rank",
+            # The rank orders the key; the line names the format, because a bare
+            # number answers nothing without the table it came from.
+            "format",
             format_preference,
-            _statement("format rank", lambda track: f"{format_preference(track)}"),
+            _statement("format", show_format),
         ),
         KeeperKey(
             "file size",

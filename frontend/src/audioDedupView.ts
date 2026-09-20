@@ -59,7 +59,7 @@ const keeperKeyStatements: Record<string, string> = {
   "true peak": "Лучший в группе пик",
   "dynamic range": "Самый широкий в группе динамический диапазон",
   "loudness range": "Самый широкий в группе разброс громкости",
-  "format rank": "Лучший в группе ранг формата",
+  format: "Лучший в группе формат",
   "file size": "Самый большой в группе файл",
   "tag completeness": "Лучшая в группе полнота тегов",
   "dj tags": "Лучшие в группе DJ-теги"

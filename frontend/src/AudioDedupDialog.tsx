@@ -348,20 +348,6 @@ export function AudioDedupDialog({
                   }
                 />
               </label>
-              <label className="dedup-toggle" title={helpText.audioDedupFakeBitrate}>
-                <input
-                  name="dedup-fake-bitrate-only"
-                  type="checkbox"
-                  checked={draftFilters.fakeBitrateOnly}
-                  onChange={(event) =>
-                    updateFilters({
-                      ...draftFilters,
-                      fakeBitrateOnly: event.target.checked
-                    })
-                  }
-                />
-                <span>Только фейк-битрейт</span>
-              </label>
               <label className="dedup-control dedup-control-grow">
                 <span>Путь содержит</span>
                 <input

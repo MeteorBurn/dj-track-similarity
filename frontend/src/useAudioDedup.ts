@@ -26,14 +26,12 @@ const groupPageSize = 25;
 export type AudioDedupFilters = {
   confidence: string[];
   minFingerprint: number | null;
-  fakeBitrateOnly: boolean;
   pathContains: string;
 };
 
 export const emptyAudioDedupFilters: AudioDedupFilters = {
   confidence: [],
   minFingerprint: null,
-  fakeBitrateOnly: false,
   pathContains: ""
 };
 
@@ -122,7 +120,6 @@ export function useAudioDedup({ open }: { open: boolean }) {
           limit: groupPageSize,
           confidence: targetFilters.confidence,
           min_fingerprint: targetFilters.minFingerprint,
-          fake_bitrate_only: targetFilters.fakeBitrateOnly,
           path_contains: targetFilters.pathContains
         });
         if (groupRequestRef.current !== token) return;

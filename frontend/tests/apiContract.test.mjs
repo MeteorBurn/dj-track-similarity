@@ -398,7 +398,6 @@ test("audio dedup client serializes review filters and the confirmed delete batc
     limit: 25,
     confidence: ["high", "medium"],
     min_fingerprint: 0.9,
-    fake_bitrate_only: true,
     path_contains: "vinyl"
   });
   await api.audioDedupDelete("audio_dedup_report_20260827_120000", {
@@ -412,7 +411,6 @@ test("audio dedup client serializes review filters and the confirmed delete batc
   assert.equal(groupsUrl.searchParams.get("offset"), "25");
   assert.deepEqual(groupsUrl.searchParams.getAll("confidence"), ["high", "medium"]);
   assert.equal(groupsUrl.searchParams.get("min_fingerprint"), "0.9");
-  assert.equal(groupsUrl.searchParams.get("fake_bitrate_only"), "true");
   assert.equal(groupsUrl.searchParams.get("path_contains"), "vinyl");
 
   assert.equal(

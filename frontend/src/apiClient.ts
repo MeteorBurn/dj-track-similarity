@@ -462,7 +462,6 @@ const audioDedupApi = {
     if (filters.min_fingerprint !== undefined && filters.min_fingerprint !== null) {
       params.set("min_fingerprint", String(filters.min_fingerprint));
     }
-    if (filters.fake_bitrate_only) params.set("fake_bitrate_only", "true");
     if (filters.path_contains) params.set("path_contains", filters.path_contains);
     const query = params.toString();
     return request<AudioDedupGroupPage>(

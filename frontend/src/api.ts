@@ -734,7 +734,6 @@ export type AudioDedupGroupFilters = {
   limit?: number;
   confidence?: string[];
   min_fingerprint?: number | null;
-  fake_bitrate_only?: boolean;
   path_contains?: string;
 };
 

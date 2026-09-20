@@ -116,7 +116,7 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
             xlsx_path = report_xlsx_path(manager.out_dir, report_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        except (OSError, ValueError) as error:
+        except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return FileResponse(
             xlsx_path,

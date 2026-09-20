@@ -5876,17 +5876,21 @@ button.dedup-play-button {
 .text-preset-axis-labels { gap: 6px; }
 .text-preset-axis-block { gap: 9px; }
 .text-preset-chip { border-radius: 999px; }
-.player-dock { display: flex; gap: 18px; align-items: center; height: 76px; margin-top: 10px; padding: 10px 16px; border: 1px solid var(--warning-soft-border); border-radius: 9px; background: var(--surface); box-shadow: inset 0 1px 15px var(--shadow-soft); }
+.player-dock { display: flex; gap: 18px; align-items: center; height: 76px; margin-top: 10px; padding: 10px 16px; border: 2px solid transparent; border-radius: 9px; background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--player-edge) border-box; box-shadow: inset 0 1px 15px var(--shadow-soft), 0 0 24px -6px var(--player-glow-violet), -24px 0 34px -12px var(--player-glow-warm), 24px 0 34px -12px var(--player-glow-cool); background-size: auto, 200% 100%; animation: player-edge-travel 14s linear infinite; }
+@keyframes player-edge-travel { from { background-position: 0 0, 0 0; } to { background-position: 0 0, 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .player-dock { animation: none; } }
 .player-dock input[type="range"] { border: 0; padding: 0; }
 .player-artwork { display: grid; place-items: center; width: 50px; height: 50px; flex-shrink: 0; color: var(--preset-texture-text); border: 1px solid var(--preset-texture-border); border-radius: 6px; background: var(--preset-texture-bg); }
-.player-track-info { display: flex; flex-direction: column; gap: 6px; width: 420px; min-width: 0; }
+.player-track-info { display: flex; flex-direction: column; gap: 6px; width: clamp(420px, 24vw, 520px); min-width: 0; }
 .player-track-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .player-track-info span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-play { display: grid; place-items: center; width: 49px; height: 49px; min-width: 49px; border-radius: 50%; color: var(--accent-active-text); border: 1px solid var(--accent); background: var(--accent-deep-bg); box-shadow: 0 0 15px var(--accent-soft-bg); }
 .player-timeline { flex: 1; display: flex; gap: 18px; align-items: center; min-width: 100px; }
 .player-timeline input { width: 100%; accent-color: var(--accent); }
 .player-timeline span { color: var(--text-muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.player-bpm, .player-key { display: flex; flex-direction: column; justify-content: center; gap: 3px; height: 50px; min-width: 62px; text-align: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; }
+/* Bare heart, like the library rows: the frame would compete with the BPM/KEY boxes. */
+.player-dock > button.icon-button.track-liked-button { width: 40px; min-height: 40px; background: transparent; border-color: transparent; }
+.player-bpm, .player-key { display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 40px; min-width: 62px; text-align: center; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px; }
 .player-bpm span, .player-key span { color: var(--text-muted); font-size: 9px; letter-spacing: .1em; }
 .player-key strong { color: var(--preset-texture-text); }
 .player-volume { display: flex; align-items: center; gap: 12px; color: var(--text-muted); }
@@ -5921,6 +5925,12 @@ button.dedup-play-button {
 
 /* Shared workbench treatment for search tabs, preset picker and dialogs. */
 :root {
+  /* Player dock edge: the spectrum twice over, so a one-width shift loops seamlessly. */
+  --player-edge: linear-gradient(90deg, #f43f5e, #fb923c, #facc15, #4ade80, #22d3ee, #6366f1, #d946ef,
+    #f43f5e, #fb923c, #facc15, #4ade80, #22d3ee, #6366f1, #d946ef, #f43f5e);
+  --player-glow-warm: rgba(244, 63, 94, 0.62);
+  --player-glow-cool: rgba(34, 211, 238, 0.62);
+  --player-glow-violet: rgba(217, 70, 239, 0.34);
   --workbench-radius: 6px;
   --workbench-dialog-radius: 9px;
   --workbench-control-height: 34px;

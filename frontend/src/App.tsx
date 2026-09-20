@@ -327,7 +327,7 @@ export function App() {
 
   const {
     preview, playingTrackId, previewAudioRef, sourceKey, sourceUrl,
-    togglePreview, seekPreview, stopPreview,
+    togglePreview, seekPreview, stopPreview, updatePreviewTrack,
   } = useAudioPreview({
     databaseKey: databaseCatalogUuid,
     onEnded: handleLibraryPreviewEnded,
@@ -1243,6 +1243,7 @@ export function App() {
         sameTrackIdentity(item.track, updated) ? { ...item, track: updated } : item
       )));
       setSeedTracks((current) => current.map((item) => (sameTrackIdentity(item, updated) ? updated : item)));
+      updatePreviewTrack(updated);
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
       return updated;
     } catch (error) {
@@ -1580,7 +1581,7 @@ export function App() {
           handleExport={(format) => void handleExport(format)}
         />
       </section>
-      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} />
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} onToggleLiked={(track) => void handleToggleTrackLiked(track)} />
       {sourceUrl ? (
         <audio
           key={sourceKey}

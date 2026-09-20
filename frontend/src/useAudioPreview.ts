@@ -41,6 +41,8 @@ export function useAudioPreview(options: {
   const nextId = useRef(0);
   const [stream, setStream] = useState<Stream | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
+  // The selection owns the previewed track; this only re-reads it after a mutation.
+  const [, rereadPreviewTrack] = useState(0);
 
   function isCurrent(value: Stream) {
     return current.current === value
@@ -145,6 +147,14 @@ export function useAudioPreview(options: {
     });
   }
 
+  // Keeps the dock in step when the app refreshes the track that is playing.
+  function updatePreviewTrack(track: PreviewTarget) {
+    const value = current.current;
+    if (!value || !isCurrent(value) || value.selection.track.track_id !== track.track_id) return;
+    value.selection.track = track;
+    rereadPreviewTrack((revision) => revision + 1);
+  }
+
   function seekPreview(track: PreviewTarget, seconds: number) {
     const value = current.current;
     if (!value || !isCurrent(value) || value.selection.track.track_id !== track.track_id
@@ -215,5 +225,6 @@ export function useAudioPreview(options: {
     togglePreview,
     seekPreview,
     stopPreview,
+    updatePreviewTrack,
   };
 }

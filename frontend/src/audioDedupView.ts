@@ -60,6 +60,9 @@ const keeperKeyStatements: Record<string, string> = {
   "dynamic range": "Самый широкий в группе динамический диапазон",
   "loudness range": "Самый широкий в группе разброс громкости",
   format: "Лучший в группе формат",
+  // Reports written before the key was renamed still say "format rank", and a
+  // scan takes the better part of an hour, so their sentence keeps its wording.
+  "format rank": "Лучший в группе ранг формата",
   "file size": "Самый большой в группе файл",
   "tag completeness": "Лучшая в группе полнота тегов",
   "dj tags": "Лучшие в группе DJ-теги"

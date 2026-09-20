@@ -36,6 +36,21 @@ function file(trackId, role) {
   return { track_id: trackId, role, size: 1024, stale: false };
 }
 
+test("the fingerprint band survives a report that predates the confidence bands", () => {
+  const { fingerprintBandText } = loadAudioDedupView();
+  const scan = {
+    fingerprint_min_similarity: 0.3,
+    fingerprint_confidence_high: 0.95,
+    fingerprint_confidence_medium: 0.7
+  };
+
+  assert.equal(fingerprintBandText("medium", scan), "0.70 – 0.95");
+  // Reports and backends older than these fields leave them out entirely, and
+  // the review has to keep rendering rather than take the whole page down.
+  assert.equal(fingerprintBandText("medium", { fingerprint_min_similarity: 0.45 }), "≥ 0.45");
+  assert.equal(fingerprintBandText("medium", {}), "—");
+});
+
 test("a delete batch carries the confirmation phrase the delete endpoint requires", () => {
   const { applyDeleteConfirmation, buildDeleteRequest } = loadAudioDedupView();
   const groups = [group(1, [file(10, "keeper"), file(11, "duplicate")])];

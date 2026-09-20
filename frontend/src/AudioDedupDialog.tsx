@@ -25,6 +25,7 @@ import {
   confidenceLabel,
   copiesWord,
   dedupConfidenceOptions,
+  fingerprintBandText,
   formatBytes,
   pluralRu,
   selectionSummary
@@ -113,6 +114,10 @@ export function AudioDedupDialog({
   // the delete endpoint refuses it. Say so here instead of letting the reviewer
   // mark copies and collect a 400.
   const rootMissing = !wholeLibrary && root.trim() === "";
+  // Manual review is the one filter that goes through what the tool would not
+  // decide by itself, so it is the one that hands the boundary back.
+  const manualConfidence = draftFilters.confidence.includes("review");
+  const fingerprintBand = fingerprintBandText(draftFilters.confidence[0] ?? "", activeReport);
   const rootlessReport = activeReport !== null && !activeReport.root;
   const canDelete = summary.files > 0 && !dedup.busy && !rootlessReport;
   const selectionText =
@@ -407,6 +412,7 @@ export function AudioDedupDialog({
                 <span>Уверенность</span>
                 <select
                   name="dedup-confidence"
+                  title={helpText.audioDedupConfidence}
                   value={draftFilters.confidence[0] ?? ""}
                   onChange={(event) =>
                     updateFilters({
@@ -423,14 +429,24 @@ export function AudioDedupDialog({
                   ))}
                 </select>
               </label>
-              <label className="dedup-control dedup-control-narrow">
-                <span>Отпечаток ≥</span>
+              <label className="dedup-control dedup-fingerprint-control">
+                <span>Отпечаток</span>
                 <input
                   name="dedup-min-fingerprint"
                   title={helpText.audioDedupFingerprintFloor}
-                  value={dedup.fingerprintFloor == null ? "—" : dedup.fingerprintFloor.toFixed(2)}
-                  readOnly
-                  disabled
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  placeholder={fingerprintBand}
+                  disabled={!manualConfidence}
+                  value={manualConfidence ? draftFilters.minFingerprint ?? "" : ""}
+                  onChange={(event) =>
+                    updateFilters({
+                      ...draftFilters,
+                      minFingerprint: event.target.value === "" ? null : Number(event.target.value)
+                    })
+                  }
                 />
               </label>
               <label className="dedup-control dedup-control-grow">

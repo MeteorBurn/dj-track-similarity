@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, Crown, Pause, Play, ShieldAlert, Trash2 } from "lucide-react";
 import type { AudioDedupFile, AudioDedupGroup, AudioDedupSearchMode } from "./api";
+import { helpText } from "./helpText";
 import {
   confidenceLabel,
   copiesWord,
@@ -122,7 +123,7 @@ function FileCard({
           onClick={onToggle}
         >
           <Trash2 size={14} />
-          {selected ? "Помечена на удаление" : "Удалить эту копию"}
+          {selected ? "Помечена на удаление" : "Отметить на удаление"}
         </button>
       </footer>
     </article>
@@ -156,7 +157,10 @@ export function AudioDedupGroupCard({
         <span className="dedup-group-count">
           {group.files.length} {copiesWord(group.files.length)}
         </span>
-        <span className={`dedup-chip dedup-chip-${group.confidence || "review"}`}>
+        <span
+          className={`dedup-chip dedup-chip-${group.confidence || "review"}`}
+          title={helpText.audioDedupConfidence}
+        >
           {confidenceLabel(group.confidence)}
         </span>
         <span className="dedup-chip dedup-chip-score" title="Точный матч отпечатков SONARA">

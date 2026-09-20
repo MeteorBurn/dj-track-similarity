@@ -25,13 +25,33 @@ const groupPageSize = 25;
 
 export type AudioDedupFilters = {
   confidence: string[];
+  minFingerprint: number | null;
   pathContains: string;
 };
 
 export const emptyAudioDedupFilters: AudioDedupFilters = {
   confidence: [],
+  minFingerprint: null,
   pathContains: ""
 };
+
+/**
+ * The boundary a group page is read with.
+ *
+ * The report's own boundary is the one its search mode qualified groups by, so
+ * it holds everywhere except in manual review: that filter exists to go through
+ * what the tool would not decide alone, and there a reviewer may dig with a
+ * boundary of their own.
+ */
+export function effectiveFingerprintFloor(
+  filters: AudioDedupFilters,
+  reportFloor: number | null
+): number | null {
+  if (filters.confidence.includes("review") && filters.minFingerprint !== null) {
+    return filters.minFingerprint;
+  }
+  return reportFloor;
+}
 
 function isMissingReport(error: unknown) {
   return error instanceof ApiError && error.status === 404;
@@ -164,7 +184,7 @@ export function useAudioDedup({
           offset: targetOffset,
           limit: groupPageSize,
           confidence: targetFilters.confidence,
-          min_fingerprint: fingerprintFloor,
+          min_fingerprint: effectiveFingerprintFloor(targetFilters, fingerprintFloor),
           path_contains: targetFilters.pathContains
         });
         if (groupRequestRef.current !== token) return;

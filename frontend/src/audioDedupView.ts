@@ -431,6 +431,35 @@ export function formatSeconds(seconds: number | null) {
   return `${minutes}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/**
+ * The fingerprint band behind the chosen confidence level.
+ *
+ * Where confidence is read from the fingerprint, a level is a band of that
+ * score, so the field shows the band rather than a number that looks like a
+ * filter the reviewer set. Reports whose confidence comes from the weighted
+ * score carry no bands, and there the field only states the report's own floor.
+ */
+export function fingerprintBandText(
+  confidence: string,
+  report: AudioDedupReportSummary | null
+): string {
+  // A report written before a field existed, or served by a backend that does
+  // not send it yet, arrives with it missing rather than null.
+  const floor = report?.fingerprint_min_similarity ?? null;
+  const high = report?.fingerprint_confidence_high ?? null;
+  const medium = report?.fingerprint_confidence_medium ?? null;
+  if (floor === null) return "—";
+  if (high === null || medium === null) return `≥ ${formatBand(floor)}`;
+  if (confidence === "high") return `${formatBand(high)} – 1.00`;
+  if (confidence === "medium") return `${formatBand(medium)} – ${formatBand(high)}`;
+  if (confidence === "review") return `${formatBand(floor)} – ${formatBand(medium)}`;
+  return `${formatBand(floor)} – 1.00`;
+}
+
+function formatBand(score: number) {
+  return score.toFixed(2);
+}
+
 export function formatSimilarity(score: number | null) {
   if (score === null || !Number.isFinite(score)) return "—";
   const rounded = score.toFixed(3);

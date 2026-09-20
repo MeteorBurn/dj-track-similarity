@@ -19,6 +19,7 @@ from pathlib import Path
 import re
 import threading
 
+from .audio_dedup_bridge import load_audio_dedup_module
 from .database import LibraryDatabase
 from .db.tracks import canonical_file_path
 from .track_models import TrackFileState
@@ -43,6 +44,8 @@ class AudioDedupReportSummary:
     review_candidate_count: int
     fake_bitrate_candidate_count: int
     fingerprint_min_similarity: float | None
+    fingerprint_confidence_high: float | None
+    fingerprint_confidence_medium: float | None
     database_path: str | None
     modified_at: float
     has_xlsx: bool
@@ -224,6 +227,50 @@ def list_reports(out_dir: Path) -> list[AudioDedupReportSummary]:
     return summaries
 
 
+def _is_fingerprint_scan(payload: dict) -> bool:
+    config_module = load_audio_dedup_module("config")
+    return str(payload.get("search_mode", "")) == config_module.MODE_FINGERPRINT_SCAN
+
+
+def _confidence_bands(payload: dict) -> tuple[float | None, float | None]:
+    """The fingerprint bands a scan report's confidence levels stand for.
+
+    A run records its own bands. Reports written before it did are still read
+    with the same rule below, so they get the bands in force now rather than
+    leaving the review with levels it cannot explain.
+    """
+    retrieval = _mapping(payload.get("fingerprint_retrieval"))
+    high = _float_or_none(retrieval.get("fingerprint_confidence_high"))
+    medium = _float_or_none(retrieval.get("fingerprint_confidence_medium"))
+    if high is not None and medium is not None:
+        return high, medium
+    if not _is_fingerprint_scan(payload):
+        return None, None
+    config_module = load_audio_dedup_module("config")
+    return (
+        float(config_module.FINGERPRINT_CONFIDENCE_HIGH),
+        float(config_module.FINGERPRINT_CONFIDENCE_MEDIUM),
+    )
+
+
+def _resolved_confidence(group: dict, *, scan_mode: bool) -> str:
+    """The confidence the review shows for one group.
+
+    In a fingerprint scan the fingerprint decides it, and deriving it here means
+    a report written before that rule reads the same way as one written after,
+    instead of the level depending on the day its scan ran.
+    """
+    if not scan_mode:
+        return str(group.get("confidence", ""))
+    keeper_module = load_audio_dedup_module("keeper")
+    scores = [
+        _float_or_none(entry.get("fingerprint_similarity"))
+        for entry in _entries(group, "pairwise_evidence")
+    ]
+    best = max((score for score in scores if score is not None), default=None)
+    return str(keeper_module.fingerprint_confidence_category(best))
+
+
 def _summary(json_path: Path, payload: dict) -> AudioDedupReportSummary:
     statistics = _mapping(payload.get("statistics"))
     return AudioDedupReportSummary(
@@ -243,6 +290,10 @@ def _summary(json_path: Path, payload: dict) -> AudioDedupReportSummary:
         fingerprint_min_similarity=_float_or_none(
             _mapping(payload.get("fingerprint_retrieval")).get("fingerprint_review_min_similarity")
         ),
+        # Present only where confidence is read from the fingerprint, which is
+        # what lets the review show the band behind a confidence level.
+        fingerprint_confidence_high=_confidence_bands(payload)[0],
+        fingerprint_confidence_medium=_confidence_bands(payload)[1],
         database_path=_text_or_none(payload.get("database_path")),
         modified_at=json_path.stat().st_mtime,
         has_xlsx=json_path.with_suffix(".xlsx").is_file(),
@@ -267,11 +318,14 @@ def group_page(
     path_contains: str = "",
 ) -> AudioDedupGroupPage:
     raw_groups = _groups(payload)
+    scan_mode = _is_fingerprint_scan(payload)
+    resolved = [(group, _resolved_confidence(group, scan_mode=scan_mode)) for group in raw_groups]
     matching = [
-        group
-        for group in raw_groups
+        (group, group_confidence)
+        for group, group_confidence in resolved
         if _group_matches(
             group,
+            group_confidence=group_confidence,
             confidence=confidence,
             min_fingerprint=min_fingerprint,
             fake_bitrate_only=fake_bitrate_only,
@@ -281,7 +335,7 @@ def group_page(
     selected_limit = max(1, min(int(limit), MAX_GROUP_PAGE_LIMIT))
     selected_offset = max(0, int(offset))
     window = matching[selected_offset : selected_offset + selected_limit]
-    live_states = _file_states(database, _window_track_ids(window))
+    live_states = _file_states(database, _window_track_ids([group for group, _ in window]))
     return AudioDedupGroupPage(
         report_id=report_id,
         root=str(payload.get("root", "")),
@@ -291,7 +345,10 @@ def group_page(
         filtered_groups=len(matching),
         offset=selected_offset,
         limit=selected_limit,
-        groups=[_group(group, live_states) for group in window],
+        groups=[
+            _group(group, live_states, confidence=group_confidence)
+            for group, group_confidence in window
+        ],
     )
 
 
@@ -333,7 +390,12 @@ def _file_states(
     return resolved
 
 
-def _group(group: dict, live_states: dict[int, TrackFileState]) -> AudioDedupGroup:
+def _group(
+    group: dict,
+    live_states: dict[int, TrackFileState],
+    *,
+    confidence: str,
+) -> AudioDedupGroup:
     keeper = _mapping(group.get("suggested_keeper"))
     keeper_id = _int(keeper.get("track_id"), default=-1)
     candidates = {
@@ -350,7 +412,7 @@ def _group(group: dict, live_states: dict[int, TrackFileState]) -> AudioDedupGro
     ]
     return AudioDedupGroup(
         group_id=_int(group.get("group_id")),
-        confidence=str(group.get("confidence", "")),
+        confidence=confidence,
         score=_float_or_none(group.get("score")),
         fingerprint_similarity=max(fingerprint_scores) if fingerprint_scores else None,
         suspected_transcode_count=sum(1 for item in files if item.suspected_transcode),
@@ -465,12 +527,13 @@ def _pair(entry: dict) -> AudioDedupPair:
 def _group_matches(
     group: dict,
     *,
+    group_confidence: str,
     confidence: tuple[str, ...],
     min_fingerprint: float | None,
     fake_bitrate_only: bool,
     path_contains: str,
 ) -> bool:
-    if confidence and str(group.get("confidence", "")) not in confidence:
+    if confidence and group_confidence not in confidence:
         return False
     if fake_bitrate_only and not any(
         bool(entry.get("suspected_transcode", False)) for entry in _members(group)

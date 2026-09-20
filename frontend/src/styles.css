@@ -5078,6 +5078,20 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   min-width: 104px;
 }
 
+/* Wide enough for a band like "0.70 - 0.95", and fixed, so the field keeps its
+   place when the confidence level switches it between a band and an entry. */
+.dedup-fingerprint-control {
+  flex: 0 0 136px;
+  width: 136px;
+}
+
+/* The band a locked level stands for reads as ordinary field text, not as the
+   faint hint a placeholder normally is. */
+.dedup-fingerprint-control input:disabled::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
 .dedup-control > span {
   color: var(--text-muted);
   font-size: 11px;
@@ -5348,9 +5362,9 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 }
 
 .dedup-chip-medium {
-  background: var(--surface-subtle);
-  border-color: var(--border-strong);
-  color: var(--text-muted);
+  background: var(--blue-bg-active);
+  border-color: var(--blue-border-active);
+  color: var(--blue-text-active);
 }
 
 .dedup-chip-review {

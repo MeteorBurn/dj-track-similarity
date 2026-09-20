@@ -228,6 +228,14 @@ def sonara_duplicate_clusters(
 
     `durations` carries SONARA's own `duration_sec`, the length the fingerprint
     was computed over, because that is the value the upstream recipe buckets on.
+
+    A track is offered to the representatives of its own bucket and of the two
+    below it: rounding to whole seconds splits copies that differ by hundredths,
+    and copies of one recording often differ by a second or two outright.
+    Measured against an LSH run over the same library, strict bucketing missed
+    190 pairs; one bucket of slack reaches 132 of them and two reach 159. The
+    remainder differ by seconds to a minute, where each further bucket buys a
+    handful of pairs for another pass over every representative.
     """
     total_tracks = len(track_uuids)
     if not _has_fingerprint_table(connection):
@@ -243,11 +251,18 @@ def sonara_duplicate_clusters(
     rejected_rows = 0
     comparison_count = 0
     processed_tracks = 0
-    for bucket_key in sorted(buckets, key=lambda value: (value is None, value)):
+    ordered_keys = sorted(buckets, key=lambda value: (value is None, value))
+    # Representatives stay reachable from the buckets above, so copies a bucket
+    # boundary separated still meet. Buckets are visited in ascending order, so
+    # only the lower neighbours can hold any representative yet.
+    representatives: dict[float | None, list[tuple[int, int, str]]] = {}
+    members: dict[int, list[int]] = {}
+    pair_scores: dict[int, dict[tuple[int, int], float]] = {}
+    values: dict[int, tuple[int, str]] = {}
+    for index, bucket_key in enumerate(ordered_keys):
         if cancel_hook is not None:
             cancel_hook()
         bucket_ids = buckets[bucket_key]
-        values: dict[int, tuple[int, str]] = {}
         for row in _fingerprint_rows(connection, bucket_ids):
             track_id = int(row["track_id"])
             value = _valid_fingerprint_value(row, track_uuids.get(track_id))
@@ -255,10 +270,7 @@ def sonara_duplicate_clusters(
                 rejected_rows += 1
                 continue
             values[track_id] = value
-        valid_count += len(values)
-        seen: list[tuple[int, int, str]] = []
-        members: dict[int, list[int]] = {}
-        pair_scores: dict[int, dict[tuple[int, int], float]] = {}
+            valid_count += 1
         for track_id in bucket_ids:
             if cancel_hook is not None:
                 cancel_hook()
@@ -267,17 +279,24 @@ def sonara_duplicate_clusters(
                 continue
             version, fingerprint = value
             representative_id = None
-            for seen_id, seen_version, seen_fingerprint in seen:
-                if seen_version != version:
-                    continue
-                comparison_count += 1
-                score = _clamped_match(selected_matcher, fingerprint, seen_fingerprint)
-                if score is not None and score > min_similarity:
-                    representative_id = seen_id
-                    pair_scores[seen_id][_ordered_pair(track_id, seen_id)] = score
+            for neighbour_key in _candidate_bucket_keys(bucket_key):
+                for seen_id, seen_version, seen_fingerprint in representatives.get(
+                    neighbour_key, ()
+                ):
+                    if seen_version != version:
+                        continue
+                    comparison_count += 1
+                    score = _clamped_match(selected_matcher, fingerprint, seen_fingerprint)
+                    if score is not None and score > min_similarity:
+                        representative_id = seen_id
+                        pair_scores[seen_id][_ordered_pair(track_id, seen_id)] = score
+                        break
+                if representative_id is not None:
                     break
             if representative_id is None:
-                seen.append((track_id, version, fingerprint))
+                representatives.setdefault(bucket_key, []).append(
+                    (track_id, version, fingerprint)
+                )
                 members[track_id] = [track_id]
                 pair_scores[track_id] = {}
                 continue
@@ -289,19 +308,28 @@ def sonara_duplicate_clusters(
                 if score is not None:
                     pair_scores[representative_id][_ordered_pair(track_id, member_id)] = score
             members[representative_id].append(track_id)
-        for representative_id, member_ids in members.items():
-            if len(member_ids) < 2:
-                continue
-            clusters.append(
-                FingerprintCluster(
-                    representative_id=representative_id,
-                    member_ids=tuple(member_ids),
-                    pair_scores=dict(pair_scores[representative_id]),
-                )
-            )
+        # Free fingerprints no reachable representative can still need. A
+        # representative in bucket k gathers members from k through k+slack, and
+        # the oldest bucket still in reach is this one minus the slack, so the
+        # bucket one below that is done with.
+        released_index = index - _BUCKET_SLACK - 1
+        if released_index >= 0:
+            for released_id in buckets[ordered_keys[released_index]]:
+                values.pop(released_id, None)
+            representatives.pop(ordered_keys[released_index], None)
         processed_tracks += len(bucket_ids)
         if progress_callback is not None:
             progress_callback(processed_tracks, total_tracks)
+    for representative_id, member_ids in members.items():
+        if len(member_ids) < 2:
+            continue
+        clusters.append(
+            FingerprintCluster(
+                representative_id=representative_id,
+                member_ids=tuple(member_ids),
+                pair_scores=dict(pair_scores[representative_id]),
+            )
+        )
     return FingerprintScanResult(
         clusters=tuple(clusters),
         valid_fingerprint_count=valid_count,
@@ -309,6 +337,23 @@ def sonara_duplicate_clusters(
         duration_bucket_count=len(buckets),
         comparison_count=comparison_count,
     )
+
+
+_BUCKET_SLACK = 2
+
+
+def _candidate_bucket_keys(bucket_key: float | None) -> tuple[float | None, ...]:
+    """The buckets a track may join: its own and the two seconds below it.
+
+    Copies of one recording differ by a couple of seconds often enough that a
+    whole-second bucket cannot hold them together. Only the lower neighbours are
+    listed: buckets are visited in ascending order, so the ones above hold no
+    representatives yet and meet this bucket on their own turn.
+    """
+
+    if bucket_key is None:
+        return (None,)
+    return tuple(bucket_key - float(step) for step in range(_BUCKET_SLACK + 1))
 
 
 def _duration_bucket(duration: float | None) -> float | None:

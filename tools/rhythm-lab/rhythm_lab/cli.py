@@ -28,11 +28,6 @@ from .artifact_io import (
     load_verified_artifact,
     publish_promoted_artifact,
 )
-from .content_identity_migration import (
-    MigrationError,
-    migrate_content_identity,
-    write_migration_report,
-)
 from .features import (
     available_feature_sources,
     canonical_feature_set,
@@ -195,25 +190,6 @@ def build_parser() -> argparse.ArgumentParser:
     delete_parser.add_argument("--confirm", required=True, help="Must exactly match the profile key or name being deleted.")
     delete_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     delete_parser.set_defaults(func=_delete_profile)
-
-    migrate_parser = subcommands.add_parser(
-        "migrate-content-identity",
-        help="Re-key a pre-content-identity Rhythm Lab database by SONARA content (dry-run unless --apply).",
-    )
-    migrate_parser.add_argument("--lab-db", type=Path, default=DEFAULT_LABELS_DB)
-    migrate_parser.add_argument(
-        "--library-db",
-        type=Path,
-        action="append",
-        required=True,
-        help="Library holding one catalog the lab database references. Repeat for every catalog.",
-    )
-    migrate_parser.add_argument("--report", type=Path, default=None, help="Write the JSON report to this path.")
-    migrate_parser.add_argument("--apply", action="store_true", help="Back up and rewrite the lab database; without it nothing changes.")
-    migrate_parser.add_argument("--skip-unresolved", action="store_true", help="Drop rows whose track no library resolves instead of refusing.")
-    migrate_parser.add_argument("--force", action="store_true", help="Overwrite an existing --report file.")
-    migrate_parser.add_argument("--rekey", action="store_true", help="Reserved for a fingerprint version change; not implemented yet.")
-    migrate_parser.set_defaults(func=_migrate_content_identity)
 
     serve_parser = subcommands.add_parser("serve", help="Start the minimal labeling web app.")
     serve_parser.add_argument("--source", type=Path, default=None)
@@ -465,42 +441,6 @@ def _suggest_labels(args: argparse.Namespace) -> None:
         report["queue_written"] = labels_db.upsert_label_queue_items(mode=mode, items=items)
         report["queue_unresolved"] = unresolved
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
-
-
-def _migrate_content_identity(args: argparse.Namespace) -> None:
-    try:
-        report = migrate_content_identity(
-            args.lab_db,
-            args.library_db,
-            apply=args.apply,
-            skip_unresolved=args.skip_unresolved,
-            rekey=args.rekey,
-        )
-        if args.report is not None:
-            report["report_path"] = str(write_migration_report(report, args.report, force=args.force))
-    except (FileNotFoundError, MigrationError, ValueError) as error:
-        raise SystemExit(str(error)) from error
-    print(json.dumps(_migration_summary(report), ensure_ascii=False, indent=2, sort_keys=True))
-
-
-def _migration_summary(report: dict[str, object]) -> dict[str, object]:
-    labels = report.get("labels") if isinstance(report.get("labels"), dict) else {}
-    return {
-        "mode": report.get("mode"),
-        "lab_db": report.get("lab_db"),
-        "libraries": report.get("libraries"),
-        "before": report.get("before"),
-        "after": report.get("after"),
-        "labels_before": labels.get("before"),
-        "labels_after": labels.get("after"),
-        "merged_groups": labels.get("merged_groups"),
-        "conflicts": len(labels.get("conflicts") or ()),
-        "unresolved": len(labels.get("unresolved") or ()),
-        "backup": report.get("backup"),
-        "integrity": report.get("integrity"),
-        "report_path": report.get("report_path"),
-        "elapsed_seconds": report.get("elapsed_seconds"),
-    }
 
 
 def _queue_list(args: argparse.Namespace) -> None:

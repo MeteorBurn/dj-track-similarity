@@ -10,7 +10,6 @@ from collections.abc import Iterable, Mapping
 from typing import Literal
 
 from dj_track_similarity.rhythm_lab_collections import (
-    CONTENT_IDENTITY_MIGRATION_COMMAND,
     RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS,
     ensure_review_collection_schema,
     reject_noncanonical_table,
@@ -1352,8 +1351,8 @@ def upsert_track_sightings(
         raise ContentKeyVersionChanged(
             "SONARA fingerprint version changed "
             f"(labels database {sorted(stored_versions)}, library {sorted(incoming_versions)}); "
-            "labels are bound to the stored version. Before syncing this library, "
-            f"rekey them with `{CONTENT_IDENTITY_MIGRATION_COMMAND} --rekey`"
+            "labels are bound to the stored version, so this library is not synced. "
+            "Re-keying them to a new fingerprint version is not implemented"
         )
     cursor = connection.execute(
         """

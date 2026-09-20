@@ -146,8 +146,12 @@ work unverified rather than inventing its instructions.
 - Preserve existing catalog/track UUID, missing-state and selected-database
   generation checks for deferred operations. A numeric track ID alone is not
   sufficient authority to write results after the underlying identity changes.
-- Startup must not silently migrate old databases. Migrations are explicit,
-  recoverable workflows; reanalysis remains a separate user choice.
+- Startup must not silently migrate old databases. A migration is an explicit,
+  recoverable workflow run once against a named database; reanalysis remains a
+  separate user choice. The repository does not keep migration code after the
+  migration has been performed: delete the module, its command and its tests in
+  the same change, and do not maintain them for a source layout no longer on
+  disk. Write a new one if a future schema change needs it.
 - Package, loader and lifetime refactors preserve existing schema, saved rows,
   model/output identities, vector formats and analysis readiness. They must not
   introduce data rewrites or requirements to reanalyze, rescore or retrain merely
@@ -155,10 +159,10 @@ work unverified rather than inventing its instructions.
 - Rhythm Lab labels, predictions, the label queue and review collections are
   keyed by `content_key` = `"sfp<version>:" + sha256("sfp:<version>:" +
   SONARA fingerprint bytes)`, so fingerprint bytes and version are preserved
-  identities. Rhythm Lab `migrate-content-identity` is the explicit re-key
-  (dry-run unless `--apply`, which backs up the lab database first). A
-  fingerprint version change blocks sighting sync; `--rekey` is reserved and
-  not implemented.
+  identities. SONARA supplies `fingerprint_version`; the project never assigns
+  it. A library whose version differs from the stored sightings is refused
+  rather than synced, and re-keying labels onto a new version is not
+  implemented. A pre-content-identity lab database is rejected on open.
 - Keep launcher subprocess arguments list-based with `shell=False`. Local mode
   binds `127.0.0.1`; LAN exposure must be explicit.
 - Audio Doctor is dry-run unless `--apply`; there is no interactive prompt.

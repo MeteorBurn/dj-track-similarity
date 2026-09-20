@@ -26,7 +26,6 @@ COLLECTION_MODES = {"append", "replace"}
 DEFAULT_RHYTHM_LAB_LABELS_FILENAME = "rhythm_lab.sqlite"
 SQLITE_BUSY_TIMEOUT_MS = 30_000
 SQLITE_CACHE_SIZE_KIB = -32_768
-CONTENT_IDENTITY_MIGRATION_COMMAND = "python -m rhythm_lab.cli migrate-content-identity"
 
 
 def sonara_content_key(fingerprint_version: int, fingerprint_base64: str) -> str:
@@ -412,8 +411,7 @@ def ensure_review_collection_schema(connection: sqlite3.Connection) -> None:
     """Create the review collection tables in a Lab database.
 
     A layout keyed by anything other than ``content_key`` is rejected instead
-    of being interpreted as current identity; ``migrate-content-identity`` is
-    the explicit recovery workflow.
+    of being interpreted as current identity.
     """
 
     validate_review_collection_schema(connection)
@@ -935,8 +933,8 @@ def reject_noncanonical_table(
 ) -> None:
     """Fail closed, before any DDL, on an existing table with another layout.
 
-    A per-track table without ``content_key`` is the pre-content-identity
-    layout; the message names the explicit migration that converts it.
+    A per-track table without ``content_key`` is the retired
+    pre-content-identity layout, which this code no longer reads.
     """
 
     columns = _table_columns(connection, table)
@@ -944,9 +942,9 @@ def reject_noncanonical_table(
         return
     if "content_key" in expected_columns and "content_key" not in columns:
         raise RuntimeError(
-            f"Rhythm Lab table {table!r} uses legacy track identity; run "
-            f"`{CONTENT_IDENTITY_MIGRATION_COMMAND}` to migrate the database "
-            "before opening it"
+            f"Rhythm Lab table {table!r} uses the retired pre-content-identity "
+            "layout, which is no longer supported; open a content-keyed database "
+            "instead"
         )
     raise RuntimeError(
         f"Rhythm Lab table {table!r} is not the canonical structure; "

@@ -822,7 +822,7 @@ def test_explicit_legacy_labels_path_fails_closed_without_mutation(
 
     with pytest.raises(
         RuntimeError,
-        match=r"legacy track identity.*migrate-content-identity.*migrate the database",
+        match=r"retired pre-content-identity layout.*no longer supported",
     ):
         RhythmLabDatabase(legacy_path)
 
@@ -905,7 +905,7 @@ def test_wal_visible_legacy_schema_is_rejected_before_any_ddl(
         }
         shm_size_before = shm_path.stat().st_size
 
-        with pytest.raises(RuntimeError, match="legacy track identity.*migrate-content-identity"):
+        with pytest.raises(RuntimeError, match="retired pre-content-identity layout"):
             RhythmLabDatabase(legacy_path)
 
         # The SHM file is SQLite's transient WAL index; validation reads may
@@ -1613,16 +1613,6 @@ def test_cli_training_promotion_and_calibration_default_to_current_recipe(
     assert "expected_source_catalog_uuid" not in captured
     assert captured["require_calibration"] is True
 
-    # The content-identity migration is a dry run unless --apply is given.
-    migrate = parser.parse_args(["migrate-content-identity", "--library-db", str(source)])
-    assert (migrate.lab_db, migrate.apply, migrate.skip_unresolved, migrate.rekey) == (
-        cli_module.DEFAULT_LABELS_DB,
-        False,
-        False,
-        False,
-    )
-    assert migrate.library_db == [source]
-
 
 def _v1_lab_database(path: Path) -> None:
     """A pre-content-identity lab database with rows in every per-track table."""
@@ -1735,71 +1725,6 @@ def _v1_lab_database(path: Path) -> None:
             VALUES ('focused', '{{"yes": 2, "no": 1}}', 'old.joblib');
             """
         )
-
-
-def test_content_identity_migration_dry_run_backup_dedupe_and_conflicts(
-    tmp_path: Path,
-) -> None:
-    lab_path = tmp_path / "rhythm_lab.sqlite"
-    _v1_lab_database(lab_path)
-    # Content 1 lives in both libraries under different uuids; 2 only in A, 3 only in B.
-    library_a = _fake_library(tmp_path / "a.sqlite", [(1, "a1", 1), (2, "a2", 2)], catalog_uuid="catalog-a")
-    library_b = _fake_library(tmp_path / "b.sqlite", [(1, "b1", 1), (2, "b3", 3)], catalog_uuid="catalog-b")
-    parser = build_parser()
-    common = ["migrate-content-identity", "--lab-db", str(lab_path), "--library-db", str(library_a), "--library-db", str(library_b)]
-    before_bytes = lab_path.read_bytes()
-
-    dry = parser.parse_args([*common, "--report", str(tmp_path / "dry.json")])
-    dry.func(dry)
-
-    report = json.loads((tmp_path / "dry.json").read_text(encoding="utf-8"))
-    assert report["mode"] == "dry-run"
-    assert (report["labels"]["before"], report["labels"]["after"]) == (5, 3)
-    assert report["labels"]["merged_groups"] == 2
-    assert report["labels"]["unresolved"] == []
-    [conflict] = report["labels"]["conflicts"]
-    assert (conflict["classifier_key"], conflict["content_key"]) == ("focused", _content_key(1))
-    assert conflict["winner"]["label"] == "no"
-    assert [loser["label"] for loser in conflict["losers"]] == ["yes"]
-    assert report["after"]["classifier_predictions"] == 0
-    assert report["after"]["track_sightings"] == 4
-    assert lab_path.read_bytes() == before_bytes
-    assert not list(tmp_path.glob("rhythm_lab.sqlite.content-identity-backup-*"))
-    with pytest.raises(SystemExit, match="already exists"):
-        dry.func(dry)
-
-    applied = parser.parse_args([*common, "--apply", "--report", str(tmp_path / "apply.json")])
-    applied.func(applied)
-
-    [backup_dir] = tmp_path.glob("rhythm_lab.sqlite.content-identity-backup-*")
-    assert (backup_dir / "rhythm_lab.sqlite").read_bytes() == before_bytes
-    report = json.loads((tmp_path / "apply.json").read_text(encoding="utf-8"))
-    assert report["integrity"] == {"foreign_key_check": [], "integrity_check": "ok"}
-    assert report["after"]["classifier_labels"] == 3
-    assert report["after"]["classifier_label_queue"] == 0
-    assert report["after"]["classifier_training_checkpoints"] == 0
-    with sqlite3.connect(lab_path) as connection:
-        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-        # Profiles carry over in place and gain the current DDL's column.
-        assert "training_min_labels" in {
-            row[1] for row in connection.execute("PRAGMA table_info(classifier_profiles)")
-        }
-    focused = RhythmLabDatabase(lab_path, classifier_key="focused")
-    other = focused.scoped("other")
-    assert focused.get_profile().training_min_labels == 100
-    assert focused.label_counts() == {"no": 1, "yes": 1}
-    assert focused.label_counts(catalog_uuid="catalog-a") == {"no": 1, "yes": 1}
-    assert focused.label_counts(catalog_uuid="catalog-b") == {"no": 1}
-    winner = focused.label_for_track(_track(1))
-    assert (winner.label, winner.note, winner.last_track_uuid) == ("no", "later", "b1")
-    merged = other.label_for_track(_track(1))
-    assert (merged.label, merged.note, merged.updated_at) == ("yes", "keep", "2026-03-01 00:00:00")
-    assert focused.predictions() == []
-    assert focused.label_queue_items() == []
-    assert focused.training_checkpoint()["model_artifact"] is None
-
-    with pytest.raises(SystemExit, match="already uses content identity"):
-        applied.func(parser.parse_args([*common, "--apply"]))
 
 
 def _write_artifact(artifact_dir: Path, name: str) -> Path:

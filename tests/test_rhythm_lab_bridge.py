@@ -82,7 +82,7 @@ def test_collection_repository_rejects_legacy_labels_without_mutation(
 
     with pytest.raises(
         RuntimeError,
-        match=r"legacy track identity.*migrate-content-identity",
+        match=r"retired pre-content-identity layout.*no longer supported",
     ):
         RhythmLabCollections(legacy_path)
 
@@ -172,7 +172,7 @@ def test_collection_repository_rejects_wal_visible_legacy_identity_before_ddl(
         }
         shm_size_before = shm_path.stat().st_size
 
-        with pytest.raises(RuntimeError, match="legacy track identity.*migrate-content-identity"):
+        with pytest.raises(RuntimeError, match="retired pre-content-identity layout"):
             RhythmLabCollections(legacy_path)
 
         # The SHM file is SQLite's transient WAL index; validation reads may
@@ -330,7 +330,7 @@ def test_legacy_collection_schema_is_rejected_without_rewrite(
         )
     before = labels_path.read_bytes()
 
-    with pytest.raises(RuntimeError, match=r"migrate-content-identity.*migrate the database"):
+    with pytest.raises(RuntimeError, match=r"retired pre-content-identity layout.*no longer supported"):
         RhythmLabCollections(labels_path)
 
     assert labels_path.read_bytes() == before

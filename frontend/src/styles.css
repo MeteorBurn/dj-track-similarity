@@ -5636,10 +5636,8 @@ button.dedup-play-button {
   color: var(--text-muted);
 }
 
-/* The verdict and the stale note share one shape: a tinted line that says in
-   one glance what the fingerprint found against the kept copy, or why this one
-   can no longer be acted on. Everything under it explains that line. */
-.dedup-verdict,
+/* A tinted line that says in one glance why this copy can no longer be acted
+   on. Everything under it explains that line. */
 .dedup-copy-stale-note {
   align-items: flex-start;
   border-radius: 5px;
@@ -5652,7 +5650,6 @@ button.dedup-play-button {
   padding: 4px 7px;
 }
 
-.dedup-verdict > svg,
 .dedup-copy-stale-note > svg {
   flex: 0 0 auto;
   margin-top: 2px;
@@ -5661,11 +5658,6 @@ button.dedup-play-button {
 .dedup-copy-stale-note {
   background: var(--danger-soft-bg);
   color: var(--danger-text);
-}
-
-.dedup-verdict-manual {
-  background: var(--surface-subtle);
-  color: var(--text-muted);
 }
 
 .dedup-copy-details {

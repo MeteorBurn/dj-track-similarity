@@ -195,40 +195,20 @@ export function groupFingerprintLine(group: AudioDedupGroup): string | null {
       + " — так бывает у винил-рипа против цифры и у ремастеров.";
 }
 
-/**
- * What this copy's fingerprint says against the kept one, and who decides.
- *
- * The tool deletes nothing by itself: the fingerprint is the evidence and the
- * reviewer is the one who acts on it, so the line states the match and names
- * whose call the deletion is instead of issuing a verdict of its own.
- */
-export function copyVerdict(file: AudioDedupFile): string | null {
-  if (file.role === "keeper") return null;
-  const match = file.fingerprint_vs_keeper;
-  const evidence =
-    match === null
-      ? "Прямого совпадения отпечатков с сохраняемой копией нет"
-      : `Отпечаток против сохраняемой копии ${formatSimilarity(match)}`;
-  return `${evidence} — удаление только по вашей отметке.`;
-}
-
 function normalizeReason(reason: string) {
   // The keeper's `why_keep` lines end in a period and the review lines do not,
   // and they are the same sentences to whoever reads them.
   return reason.replace(/\.$/, "").trim();
 }
 
-/** The one review line `copyVerdict` already opens a duplicate's card with. */
-const verdictReason = /^no direct fingerprint match with the keeper$/i;
-
 /**
  * The report's own wording about this copy, deduplicated.
  *
  * The keeper carries its `why_keep` lines and a duplicate carries the reasons
  * the group still needs a look, so the two lists are read together. What the
- * group or the verdict already states is dropped: the report repeats a
- * quality-comparison note on every copy it applies to, and printing it once per
- * card buried the lines that are about that copy alone.
+ * group already states is dropped: the report repeats a quality-comparison note
+ * on every copy it applies to, and printing it once per card buried the lines
+ * that are about that copy alone.
  */
 export function copyDetailReasons(file: AudioDedupFile, groupReasons: string[] = []): string[] {
   const seen = new Set(groupReasons.map((reason) => normalizeReason(reason).toLowerCase()));
@@ -236,7 +216,6 @@ export function copyDetailReasons(file: AudioDedupFile, groupReasons: string[] =
   for (const raw of [...file.reasons, ...file.review_reasons]) {
     const reason = normalizeReason(raw);
     if (!reason || isEmptyReason(reason)) continue;
-    if (file.role === "duplicate" && verdictReason.test(reason)) continue;
     const key = reason.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

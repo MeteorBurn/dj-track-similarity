@@ -6,7 +6,6 @@ import {
   copiesWord,
   copyDetailReasons,
   copyDirectory,
-  copyVerdict,
   differingSpecKeys,
   fileQualityLine,
   fileSpecCells,
@@ -38,7 +37,6 @@ function FileCard({
   onToggle: () => void;
   onPreview: () => void;
 }) {
-  const verdict = copyVerdict(file);
   const details = copyDetailReasons(file, groupReasons);
   const spectral = fileSpectralBadge(file);
   const quality = fileQualityLine(file);
@@ -112,12 +110,8 @@ function FileCard({
         </p>
       ) : null}
 
-      {verdict ? <p className="dedup-verdict dedup-verdict-manual">{verdict}</p> : null}
-
       {details.length > 0 ? (
         <div className="dedup-copy-details">
-          {/* The verdict above states the fingerprint rather than titling this
-              list, so the evidence under it is labelled on every card. */}
           <span className="dedup-copy-details-title">Подробности</span>
           <ul>
             {details.map((reason) => (

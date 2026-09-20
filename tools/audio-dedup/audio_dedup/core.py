@@ -116,6 +116,10 @@ def run_report(
                 len(cluster.pair_scores) for cluster in scan.clusters
             ),
             "fingerprint_review_min_similarity": config_module.SONARA_DUPLICATE_MIN_SIMILARITY,
+            # The bands this mode reads group confidence from, so the review can
+            # show them without keeping its own copy of the numbers.
+            "fingerprint_confidence_high": config_module.FINGERPRINT_CONFIDENCE_HIGH,
+            "fingerprint_confidence_medium": config_module.FINGERPRINT_CONFIDENCE_MEDIUM,
         }
         groups = scoring_module.groups_from_fingerprint_clusters(
             scan.clusters,
@@ -209,6 +213,7 @@ def run_report(
         groups,
         tracks,
         config,
+        mode=mode,
         db_path=selected_db,
         database_track_count=database_track_count,
         root=root,
@@ -217,7 +222,6 @@ def run_report(
         fingerprint_retrieval=fingerprint_retrieval,
         spectral_results=spectral_results,
     )
-    payload["search_mode"] = mode
     payload["rhythm_lab"] = rhythm_lab_module.rhythm_lab_impact_payload(
         config_module.DEFAULT_RHYTHM_LAB_DB,
         report_selection_module.safe_delete_candidates(payload),

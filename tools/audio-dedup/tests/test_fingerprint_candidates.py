@@ -255,6 +255,7 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
         groups,
         tracks,
         config,
+        mode=config_module.MODE_FINGERPRINT_LSH,
         root=Path("C:/music"),
         path_contains=[],
     )
@@ -268,6 +269,75 @@ def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding
     assert group_payload["pairwise_evidence"][0]["candidate_sources"] == [
         "fingerprint_lsh"
     ]
+
+
+def test_fingerprint_scan_confidence_reads_the_fingerprint_not_the_weighted_score() -> (
+    None
+):
+    """The scan mode has only the fingerprint, so the fingerprint sets confidence.
+
+    No embeddings are loaded there, which leaves the weighted score with nothing
+    to weigh but SONARA features and duration. A pair whose fingerprints match
+    exactly scores low on that and would read as manual review, which says
+    nothing about the evidence that actually formed the group.
+    """
+    tracks = [
+        models_module.TrackRecord(
+            track_id=1,
+            path="C:/music/one.flac",
+            size=100,
+            mtime=1.0,
+            artist=None,
+            title=None,
+            album=None,
+            bpm=None,
+            musical_key=None,
+            duration=None,
+            metadata={},
+            embeddings={},
+        ),
+        models_module.TrackRecord(
+            track_id=2,
+            path="C:/music/two.flac",
+            size=90,
+            mtime=1.0,
+            artist=None,
+            title=None,
+            album=None,
+            bpm=None,
+            musical_key=None,
+            duration=None,
+            metadata={},
+            embeddings={},
+        ),
+    ]
+    config = config_module.resolve_preset("safe", min_score=None)
+    groups = scoring_module.find_duplicate_groups(
+        tracks,
+        config,
+        limit_groups=None,
+        candidate_sources={(1, 2): ("fingerprint_lsh",)},
+        fingerprint_scores={(1, 2): 1.0},
+    )
+    arguments = {"root": Path("C:/music"), "path_contains": []}
+    scan_group = report_payload_module.build_report(
+        groups,
+        tracks,
+        config,
+        mode=config_module.MODE_FINGERPRINT_SCAN,
+        **arguments,
+    )["groups"][0]
+    lsh_group = report_payload_module.build_report(
+        groups,
+        tracks,
+        config,
+        mode=config_module.MODE_FINGERPRINT_LSH,
+        **arguments,
+    )["groups"][0]
+
+    assert scan_group["score"] < config.min_score
+    assert scan_group["confidence"] == "high"
+    assert lsh_group["confidence"] == "review"
 
 
 def test_fingerprint_mode_candidates_come_only_from_fingerprint_lsh() -> None:

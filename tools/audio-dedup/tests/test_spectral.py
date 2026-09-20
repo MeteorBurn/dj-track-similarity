@@ -183,6 +183,7 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
         groups,
         tracks,
         config,
+        mode=config_module.MODE_FINGERPRINT_LSH,
         root=Path("C:/music"),
         path_contains=[],
         spectral_results=spectral_map,
@@ -269,6 +270,7 @@ def test_group_the_comparator_cannot_judge_is_review_only() -> None:
         groups,
         [original, remaster],
         config,
+        mode=config_module.MODE_FINGERPRINT_LSH,
         root=Path("C:/music"),
         path_contains=[],
     )

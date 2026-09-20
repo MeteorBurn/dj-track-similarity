@@ -15,6 +15,12 @@ DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
 SUPPORTED_EMBEDDINGS = ("mert_v2", "maest", "muq", "clap")
 FINGERPRINT_REVIEW_MIN_SIMILARITY = 0.45
 SONARA_DUPLICATE_MIN_SIMILARITY = 0.30
+# Upstream SONARA's own reading of a fingerprint score: its tests put a
+# gain-changed copy of the same file above 0.95 ("essentially identical"),
+# its README puts genuine duplicates above 0.7, and 0.30 is the threshold it
+# calls a safe decision for "same recording".
+FINGERPRINT_CONFIDENCE_HIGH = 0.95
+FINGERPRINT_CONFIDENCE_MEDIUM = 0.70
 MODE_FINGERPRINT_SCAN = "fingerprint_scan"
 MODE_FINGERPRINT_LSH = "fingerprint_lsh"
 MODE_EMBEDDING = "embedding"
@@ -64,7 +70,7 @@ SCORE_SEMANTICS = {
     "fingerprint_similarity": {
         "kind": "sonara_native_fingerprint_match",
         "range": "0..1",
-        "notes": "Exact native SONARA fingerprint comparison. fingerprint_scan follows the upstream SONARA recipe and treats a score above 0.30 as the same recording; fingerprint_lsh and embedding run the same comparison after version-separated LSH retrieval and need 0.45 to raise a manual-review candidate. No fingerprint score independently authorizes deletion.",
+        "notes": "Exact native SONARA fingerprint comparison. fingerprint_scan follows the upstream SONARA recipe and treats a score above 0.30 as the same recording, and its group confidence reads this score: high from 0.95, medium from 0.70, manual review below. fingerprint_lsh and embedding run the same comparison after version-separated LSH retrieval and need 0.45 to raise a manual-review candidate, with confidence from the weighted duplicate score instead. No fingerprint score independently authorizes deletion.",
     },
 }
 

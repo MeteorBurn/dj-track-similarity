@@ -19,6 +19,7 @@ def build_report(
     tracks: list[models_module.TrackRecord],
     config: models_module.PresetConfig,
     *,
+    mode: str,
     db_path: Path | None = None,
     database_track_count: int | None = None,
     root: Path | None,
@@ -94,6 +95,14 @@ def build_report(
                 }
             )
         best_score = max((pair.score for pair in group.pair_evidence), default=0.0)
+        best_fingerprint = max(
+            (
+                pair.fingerprint_similarity
+                for pair in group.pair_evidence
+                if pair.fingerprint_similarity is not None
+            ),
+            default=None,
+        )
         keeper_payload = track_payload(
             keeper,
             include_keeper_reasons=True,
@@ -107,7 +116,11 @@ def build_report(
             {
                 "group_id": group.group_id,
                 "score": values_module._round_float(best_score),
-                "confidence": keeper_module.confidence_category(best_score, config),
+                "confidence": (
+                    keeper_module.fingerprint_confidence_category(best_fingerprint)
+                    if mode == config_module.MODE_FINGERPRINT_SCAN
+                    else keeper_module.confidence_category(best_score, config)
+                ),
                 "preset": config.name,
                 "min_score": config.min_score,
                 "min_similarity": config.min_similarity,
@@ -131,6 +144,7 @@ def build_report(
     stats = report_statistics(report_groups, tracks)
     return {
         "mode": "report-only",
+        "search_mode": mode,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "database_path": str(db_path) if db_path is not None else None,
         "root": values_module.normalize_path_text(root) if root is not None else "",

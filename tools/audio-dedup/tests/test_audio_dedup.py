@@ -516,6 +516,7 @@ def test_high_muq_only_report_candidate_is_never_safe_to_delete(
         groups,
         tracks,
         config,
+        mode=config_module.MODE_EMBEDDING,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
         source_config=source_config,
@@ -610,6 +611,7 @@ def test_weighting_requires_substantive_corroboration(
         groups,
         tracks,
         config,
+        mode=config_module.MODE_EMBEDDING,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
         source_config=source_config,
@@ -752,7 +754,7 @@ def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
     config = config_module.resolve_preset("safe", min_score=0.925, min_similarity=0.8)
     tracks = track_loading_module.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
     groups = scoring_module.find_duplicate_groups(tracks, config, limit_groups=None)
-    payload = report_payload_module.build_report(groups, tracks, config, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    payload = report_payload_module.build_report(groups, tracks, config, mode=config_module.MODE_EMBEDDING, root=Path("M:/Volumes/Abstracted"), path_contains=[])
 
     group = payload["groups"][0]
     assert {track["track_id"] for track in group["candidate_deletes"]} == {2, 3}

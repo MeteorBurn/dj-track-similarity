@@ -9,6 +9,7 @@ from .spectral import (
     SpectralResult,
 )
 
+from . import config as config_module
 from . import models as models_module
 from . import scoring as scoring_module
 from . import values as values_module
@@ -467,6 +468,25 @@ def metadata_completeness(track: models_module.TrackRecord) -> int:
     if track.metadata.get("genre") or track.metadata.get("genres"):
         count += 1
     return count
+
+
+def fingerprint_confidence_category(fingerprint: float | None) -> str:
+    """Confidence for a scan whose evidence is the fingerprint itself.
+
+    The weighted score has nothing to weigh in that mode - no embeddings are
+    loaded, so it collapses to SONARA features and duration - while the
+    fingerprint is what put the group together in the first place. The bands
+    come from upstream: a gain-changed copy lands above 0.95, genuine
+    duplicates above 0.70, and below that the pair is only above the threshold
+    for being the same recording at all.
+    """
+    if fingerprint is None:
+        return "review"
+    if fingerprint >= config_module.FINGERPRINT_CONFIDENCE_HIGH:
+        return "high"
+    if fingerprint >= config_module.FINGERPRINT_CONFIDENCE_MEDIUM:
+        return "medium"
+    return "review"
 
 
 def confidence_category(score: float, config: models_module.PresetConfig) -> str:

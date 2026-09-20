@@ -45,7 +45,7 @@ export function AudioDedupDialog({
   const dedup = useAudioDedup({ open });
   const [root, setRoot] = useState("");
   const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint_scan");
-  const [skipSpectral, setSkipSpectral] = useState(false);
+  const [detectFakeBitrate, setDetectFakeBitrate] = useState(false);
   const [deletionMode, setDeletionMode] = useState<AudioDedupDeletionMode>("trash");
   const [draftFilters, setDraftFilters] = useState<AudioDedupFilters>(dedup.filters);
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } =
@@ -203,16 +203,16 @@ export function AudioDedupDialog({
               </label>
               <label
                 className={`dedup-toggle ${dedup.scanRunning ? "disabled" : ""}`}
-                title={helpText.audioDedupSkipSpectral}
+                title={helpText.audioDedupDetectFakeBitrate}
               >
                 <input
-                  name="dedup-skip-spectral"
+                  name="dedup-detect-fake-bitrate"
                   type="checkbox"
-                  checked={skipSpectral}
+                  checked={detectFakeBitrate}
                   disabled={dedup.scanRunning}
-                  onChange={(event) => setSkipSpectral(event.target.checked)}
+                  onChange={(event) => setDetectFakeBitrate(event.target.checked)}
                 />
-                <span>Без спектра</span>
+                <span>Детект фейк-битрейта</span>
               </label>
               {dedup.scanRunning ? (
                 <button
@@ -231,7 +231,7 @@ export function AudioDedupDialog({
                     void dedup.startScan({
                       root: root.trim(),
                       search_mode: searchMode,
-                      skip_spectral: skipSpectral
+                      detect_fake_bitrate: detectFakeBitrate
                     })
                   }
                 >

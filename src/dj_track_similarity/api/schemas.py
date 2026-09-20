@@ -124,7 +124,7 @@ class AudioDedupScanRequest(BaseModel):
     limit_groups: int | None = None
     sources: list[EmbeddingSource] | None = None
     weights: dict[str, float] | None = None
-    skip_spectral: bool = False
+    detect_fake_bitrate: bool = False
 
 
 class AudioDedupGroupSelection(BaseModel):

@@ -44,7 +44,7 @@ class AudioDedupJobStatus:
     min_score: float | None = None
     min_similarity: float | None = None
     limit_groups: int | None = None
-    skip_spectral: bool = False
+    detect_fake_bitrate: bool = False
     total: int = 0
     processed: int = 0
     groups: int = 0
@@ -71,7 +71,7 @@ class AudioDedupJobPayload:
     limit_groups: int | None
     sources: list[str]
     weights: dict[str, float]
-    skip_spectral: bool
+    detect_fake_bitrate: bool
     out_dir: Path
 
 
@@ -110,7 +110,7 @@ class AudioDedupJobManager:
         limit_groups: int | None = None,
         sources: list[str] | None = None,
         weights: Mapping[str, float] | None = None,
-        skip_spectral: bool = False,
+        detect_fake_bitrate: bool = False,
         out_dir: str | Path | None = None,
     ) -> str:
         config_module = load_audio_dedup_module("config")
@@ -152,7 +152,7 @@ class AudioDedupJobManager:
                 min_score=min_score,
                 min_similarity=min_similarity,
                 limit_groups=limit_groups,
-                skip_spectral=skip_spectral,
+                detect_fake_bitrate=detect_fake_bitrate,
             )
             payload = AudioDedupJobPayload(
                 root=Path(root_text) if root_text else None,
@@ -164,7 +164,7 @@ class AudioDedupJobManager:
                 limit_groups=limit_groups,
                 sources=selected_sources,
                 weights=selected_weights,
-                skip_spectral=skip_spectral,
+                detect_fake_bitrate=detect_fake_bitrate,
                 out_dir=selected_out_dir,
             )
             self._cancel_flags[job_id] = threading.Event()
@@ -194,7 +194,7 @@ class AudioDedupJobManager:
                 sources=payload.sources or None,
                 weights=payload.weights or None,
                 mode=payload.search_mode,
-                skip_spectral=payload.skip_spectral,
+                detect_fake_bitrate=payload.detect_fake_bitrate,
                 progress_callback=lambda processed, total, message: self._store.update(
                     job_id,
                     processed=processed,

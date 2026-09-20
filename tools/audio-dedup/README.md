@@ -22,14 +22,17 @@ Two search modes exist:
   checks of embedding-shortlisted pairs still add manual-review pairs. This is
   the only mode that can produce safe delete candidates for `--apply`.
 
-In both modes the report step decodes each duplicate-group file with FFmpeg and
+`--detect-fake-bitrate` adds a spectral check to the report step of both modes.
+It is off by default because it decodes every file in every duplicate group.
+With the flag it decodes each duplicate-group file with FFmpeg and
 measures its spectral cutoff. A brickwall below ~19.5 kHz marks the copy as a
 suspected transcode (fake bitrate): keeper choice then prefers full-band copies
 over any format rank, and the verdict lands in the report columns. Thresholds
 are calibrated against a 1000-file Fakin' The Funk reference (10 false alarms,
 5 misses, all misses in the ~224-256 kbps class); a transcode buried under
-dense vinyl crackle can still evade the check. Unreachable files are skipped;
-`--skip-spectral` disables the check.
+dense vinyl crackle can still evade the check. Unreachable files are skipped.
+Without the flag nothing is decoded: the report carries no spectral columns or
+verdicts, and keeper choice falls back to the declared file facts.
 
 The same detector also runs standalone over arbitrary files, directories, or a
 `--list` of paths — no library database needed, file facts come from ffprobe —

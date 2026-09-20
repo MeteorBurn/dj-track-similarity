@@ -600,7 +600,7 @@ export type AudioDedupScanRequest = {
   limit_groups?: number | null;
   sources?: EmbeddingSource[] | null;
   weights?: Record<string, number> | null;
-  skip_spectral?: boolean;
+  detect_fake_bitrate?: boolean;
 };
 
 export type AudioDedupJobEvent = {
@@ -622,7 +622,7 @@ export type AudioDedupJobStatus = {
   min_score: number | null;
   min_similarity: number | null;
   limit_groups: number | null;
-  skip_spectral: boolean;
+  detect_fake_bitrate: boolean;
   total: number;
   processed: number;
   groups: number;

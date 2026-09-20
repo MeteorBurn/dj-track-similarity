@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             sources=args.sources,
             weights=config_module.parse_weight_arguments(args.weights),
             mode=args.mode,
-            skip_spectral=args.skip_spectral,
+            detect_fake_bitrate=args.detect_fake_bitrate,
             progress_callback=progress_reporter,
         )
         progress_reporter.finish()
@@ -200,11 +200,12 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--skip-spectral",
+        "--detect-fake-bitrate",
         action="store_true",
         help=(
-            "Skip the ffmpeg spectral check of duplicate-group files that flags suspected "
-            "transcodes (fake-bitrate copies) and steers keeper choice toward full-band audio."
+            "Run the ffmpeg spectral check of duplicate-group files that flags suspected "
+            "transcodes (fake-bitrate copies) and steers keeper choice toward full-band audio. "
+            "Off by default because it decodes every file in every group."
         ),
     )
     parser.add_argument("--limit-groups", type=int, help="Write at most N duplicate groups.")

@@ -44,7 +44,7 @@ def run_report(
     sources: Iterable[str] | None = None,
     weights: Mapping[str, float] | None = None,
     mode: str = config_module.MODE_FINGERPRINT_SCAN,
-    skip_spectral: bool = False,
+    detect_fake_bitrate: bool = False,
     progress_callback: models_module.ProgressCallback | None = None,
     should_cancel: models_module.CancelCheck | None = None,
 ) -> models_module.ReportResult:
@@ -200,7 +200,7 @@ def run_report(
     spectral_results = _spectral_results_for_groups(
         groups,
         tracks,
-        skip_spectral=skip_spectral,
+        detect_fake_bitrate=detect_fake_bitrate,
         progress_callback=progress_callback,
         should_cancel=should_cancel,
     )
@@ -237,11 +237,11 @@ def _spectral_results_for_groups(
     groups: list[models_module.DuplicateGroup],
     tracks: list[models_module.TrackRecord],
     *,
-    skip_spectral: bool,
+    detect_fake_bitrate: bool,
     progress_callback: models_module.ProgressCallback | None = None,
     should_cancel: models_module.CancelCheck | None = None,
 ) -> dict[int, SpectralResult]:
-    if skip_spectral:
+    if not detect_fake_bitrate:
         return {}
     group_track_ids = sorted({track_id for group in groups for track_id in group.track_ids})
     if not group_track_ids:

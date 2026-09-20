@@ -35,7 +35,7 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
                     limit_groups=request.limit_groups,
                     sources=list(request.sources) if request.sources else None,
                     weights=dict(request.weights) if request.weights else None,
-                    skip_spectral=request.skip_spectral,
+                    detect_fake_bitrate=request.detect_fake_bitrate,
                 )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

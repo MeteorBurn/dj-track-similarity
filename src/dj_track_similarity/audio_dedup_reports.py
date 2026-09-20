@@ -160,9 +160,10 @@ def report_json_path(out_dir: Path, report_id: str) -> Path:
     if not REPORT_ID_PATTERN.match(report_id):
         raise ValueError(f"Invalid report id: {report_id}")
     resolved_dir = Path(out_dir).expanduser().resolve(strict=False)
-    candidate = (resolved_dir / f"{report_id}.json").resolve(strict=False)
-    if candidate.parent != resolved_dir:
+    report_dir = (resolved_dir / report_id).resolve(strict=False)
+    if report_dir.parent != resolved_dir:
         raise ValueError(f"Invalid report id: {report_id}")
+    candidate = report_dir / f"{report_id}.json"
     if not candidate.is_file():
         raise KeyError(f"Unknown audio dedup report: {report_id}")
     return candidate
@@ -189,6 +190,11 @@ def delete_report(out_dir: Path, report_id: str) -> list[str]:
         if path.is_file():
             path.unlink()
             removed.append(path.name)
+    report_dir = json_path.parent
+    # The directory goes only once it is empty. Whatever else was put in there
+    # is not part of the report and is not ours to remove.
+    if not any(report_dir.iterdir()):
+        report_dir.rmdir()
     return removed
 
 
@@ -201,8 +207,10 @@ def list_reports(out_dir: Path) -> list[AudioDedupReportSummary]:
     if not resolved_dir.is_dir():
         return []
     summaries: list[AudioDedupReportSummary] = []
-    for json_path in sorted(resolved_dir.glob("*.json")):
-        if json_path.name.startswith("~"):
+    for json_path in sorted(resolved_dir.glob("*/*.json")):
+        # A report is its directory: the id names both, and anything else that
+        # ends up in there is not a report of ours to list.
+        if json_path.stem != json_path.parent.name:
             continue
         try:
             payload = _CACHE.load(json_path)

@@ -671,7 +671,7 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     finally:
         connection.close()
     db_path.rename(tmp_path / "library-renamed.sqlite")
-    report_paths = sorted(out_dir.glob("audio_dedup_report_*.json"))
+    report_paths = sorted(out_dir.glob("audio_dedup_report_*/audio_dedup_report_*.json"))
     assert len(report_paths) == 1
     payload = json.loads(report_paths[0].read_text(encoding="utf-8"))
     assert payload["mode"] == "report-only"
@@ -920,7 +920,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "Tracks inside selected root" in summary_xml
     assert "muq=0.12" in summary_xml
     assert "muq_similarity" in result.log_path.read_text(encoding="utf-8")
-    assert not list(out_dir.glob("audio_dedup_report_*.png"))
+    assert not list(out_dir.glob("audio_dedup_report_*/*.png"))
 
 
 def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

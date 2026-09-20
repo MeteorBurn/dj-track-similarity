@@ -151,7 +151,9 @@ def _write_report(
             }
         ],
     }
-    (out_dir / f"{report_id}.json").write_text(
+    report_dir = out_dir / report_id
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / f"{report_id}.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -234,7 +236,7 @@ def test_audio_dedup_reports_list_only_the_selected_database(tmp_path, monkeypat
 
     assert listing.status_code == 200
     assert [item["report_id"] for item in listing.json()] == [report_id]
-    assert (out_dir / f"{other_report_id}.json").is_file()
+    assert (out_dir / other_report_id / f"{other_report_id}.json").is_file()
 
 
 def test_audio_dedup_delete_requires_the_confirmation_phrase(tmp_path, monkeypatch) -> None:
@@ -276,7 +278,7 @@ def test_audio_dedup_delete_rejects_a_track_outside_its_group(tmp_path, monkeypa
 def test_audio_dedup_delete_refuses_a_whole_database_report(tmp_path, monkeypatch) -> None:
     """A rootless scan is report-only: deletion has no root to stay inside."""
     db_path, out_dir, _, _, duplicate, keeper_path, duplicate_path, report_id = _fixture(tmp_path)
-    report_path = out_dir / f"{report_id}.json"
+    report_path = out_dir / report_id / f"{report_id}.json"
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     payload["root"] = ""
     report_path.write_text(json.dumps(payload), encoding="utf-8")

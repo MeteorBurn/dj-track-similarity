@@ -90,11 +90,11 @@ def apply_result_payload(result: models_module.ApplyResult) -> dict[str, object]
     }
 
 
-def _unique_report_path(path: Path) -> Path:
+def _unique_report_dir(path: Path) -> Path:
     if not path.exists():
         return path
     for index in range(1, 10_000):
-        candidate = path.with_name(f"{path.stem}_{index}{path.suffix}")
+        candidate = path.with_name(f"{path.name}_{index}")
         if not candidate.exists():
             return candidate
-    raise RuntimeError(f"Unable to find unique report path for {path}")
+    raise RuntimeError(f"Unable to find unique report directory for {path}")

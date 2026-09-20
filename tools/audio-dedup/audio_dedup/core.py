@@ -222,9 +222,13 @@ def run_report(
         config_module.DEFAULT_RHYTHM_LAB_DB,
         report_selection_module.safe_delete_candidates(payload),
     )
-    out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    json_path = report_files_module._unique_report_path(out_dir / f"audio_dedup_report_{stamp}.json")
+    # One directory per report keeps its JSON, workbook and log together, and
+    # the files keep the report id in their names so each one stays readable
+    # once it is downloaded or moved out on its own.
+    report_dir = report_files_module._unique_report_dir(out_dir / f"audio_dedup_report_{stamp}")
+    report_dir.mkdir(parents=True)
+    json_path = report_dir / f"{report_dir.name}.json"
     xlsx_path = json_path.with_suffix(".xlsx")
     log_path = json_path.with_suffix(".log")
     result = models_module.ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, payload=payload, groups=len(groups))

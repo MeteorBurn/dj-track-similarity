@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  CopyCheck,
+  CopyX,
   Download,
   FileSpreadsheet,
   FolderOpen,
@@ -196,7 +196,7 @@ export function AudioDedupDialog({
         <div className="dedup-title">
           <div className="dedup-title-copy">
             <h2 id="dedup-title">
-              <CopyCheck size={18} />
+              <CopyX size={18} />
               Дубликаты
             </h2>
             <span>

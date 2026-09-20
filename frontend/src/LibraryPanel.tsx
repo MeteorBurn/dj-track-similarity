@@ -1,4 +1,4 @@
-import { ChevronsLeft, ChevronsRight, CopyCheck, Database, FlaskConical, FolderOpen, Minus, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2, Zap } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, CopyX, Database, FlaskConical, FolderOpen, Minus, Plus, RefreshCcw, Save, Settings2, ShieldCheck, Trash2, Zap } from "lucide-react";
 import { AnalysisModel } from "./api";
 import { analysisModelDisplayLabel, mlAnalysisModelOrder, type AnalysisSelection, type StageSelection } from "./analysisSelection";
 
@@ -220,7 +220,7 @@ export function LibraryPanel({
           <button className="icon-button genre-save-button" disabled={stagesDisabled || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={16} />Save Genres</button>
           <button className="icon-button database-validation-button" disabled={stagesDisabled || !hasTracks} title="Проверить базу" aria-label="Проверить базу" onClick={onValidateDatabase} type="button"><ShieldCheck size={16} />Validate DB</button>
           <button className={`icon-button rhythm-lab-button ${rhythmLabRunning ? "active" : ""}`} disabled={busy} title={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"} aria-label={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"} aria-pressed={rhythmLabRunning} onClick={onLaunchRhythmLab} type="button"><FlaskConical size={16} />Rhythm-Lab</button>
-          <button className="icon-button audio-dedup-button" disabled={stagesDisabled || !hasTracks} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyCheck size={16} />Audio Dedup</button>
+          <button className="icon-button audio-dedup-button" disabled={stagesDisabled || !hasTracks} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyX size={16} />Audio Dedup</button>
         </div>
 
         <div className="stage-section-description">

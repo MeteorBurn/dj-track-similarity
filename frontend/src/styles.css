@@ -5606,12 +5606,13 @@ button.dedup-play-button {
   font-variant-numeric: tabular-nums;
 }
 
-/* The rows above and below are plain text, so this row's tint is the only thing
-   that carries a box: 1px of border and 2px/7px of padding, which indented the
-   value and pushed the text out of the 5px rhythm the other rows keep. The
-   negative margin gives back exactly that box, so the value sits on the shared
-   left edge and the same distance from the text above and below it. The tint
-   then comes within two pixels of its neighbours, which is the trade. */
+/* The rows above and below are plain text on the column's left edge, while this
+   one carries a tint, and its border and padding indented the value by eight
+   pixels. The negative inline-start margin gives back exactly that, so the value
+   starts where they do. Only the inline side: pulling the block sides too put
+   the text on the plain rows' 5px rhythm but left the tint two pixels off its
+   neighbours, which reads as crowding. The grid's gap sits equally above and
+   below either way. */
 .dedup-spectral {
   align-items: center;
   border: 1px solid transparent;
@@ -5620,7 +5621,7 @@ button.dedup-play-button {
   font-size: 11px;
   font-weight: 600;
   gap: 4px;
-  margin: -3px -8px;
+  margin-inline-start: -8px;
   padding: 2px 7px;
   width: fit-content;
 }

@@ -623,10 +623,11 @@ function bitrateClassText(label: string) {
 /**
  * The detector's English note as the short Russian phrase the screen carries.
  *
- * The cutoff already leads the chip, so the frequency inside the note is not
- * repeated. The declared-bitrate clause exists only on a lossy copy and can
- * follow any of the three shapes, so it is split off first. An unrecognised
- * note passes through untouched, as a review reason does.
+ * It words the reason a copy went unmeasured and the note a candidate's review
+ * reason quotes; the chip states the copy's cutoff itself, so the frequency
+ * inside the note is not repeated. The declared-bitrate clause exists only on a
+ * lossy copy and can follow any of the three shapes, so it is split off first.
+ * An unrecognised note passes through untouched, as a review reason does.
  *
  * The class is worded as the encoder whose wall it resembles, never as a bare
  * bitrate: the card prints the file's own bitrate beside the chip, and
@@ -682,16 +683,18 @@ export type DedupSpectralBadge = {
   text: string;
   tone: "warn" | "ok" | "muted";
   /** Which explanation the chip's tooltip carries; absent where the text needs none. */
-  kind?: "recompressed" | "transcoded" | "wall";
+  kind?: "recompressed" | "transcoded" | "wall" | "clean";
 };
 
 /**
  * The spectral verdict, which is the fake-bitrate evidence.
  *
- * A brickwall well under the container's ceiling means the audio was once lossy,
- * whatever the extension claims, so it leads rather than sits in a list. The
- * flagged copy names which fake it is and the bitrate its band gives away; an
- * unflagged one states how much band it lacks against the group's widest copy,
+ * Every chip reads the same way: what the spectrum means in plain words, then
+ * how high the audio reaches. A bare cutoff, or the shape of its roll-off, told
+ * the reviewer nothing, so the meaning leads and the number backs it. A flagged
+ * copy names which fake it is and the bitrate its band gives away, a lossy copy
+ * that keeps its promise says so, and a copy the detector has nothing against is
+ * simply in order unless it carries less band than the group's widest copy,
  * because the copies are one recording and that gap is the comparison itself.
  */
 export function fileSpectralBadge(
@@ -702,37 +705,31 @@ export function fileSpectralBadge(
   if (file.spectral_cutoff_hz === null) {
     return { text: note ? spectralNoteText(note) : "спектр не проверен", tone: "muted" };
   }
-  const cutoff = `срез ${formatCutoff(file.spectral_cutoff_hz)}`;
+  const band = `до ${formatCutoff(file.spectral_cutoff_hz)}`;
+  const sourceClass = note.match(/\((.+) class\)/i);
+  const source = sourceClass ? bitrateClassText(sourceClass[1]) : null;
   if (file.suspected_transcode) {
     // Only a lossy copy is judged against its declared bitrate, so that clause
     // tells a re-encode at a higher rate from lossy audio in a lossless container.
     const recompressed = /below declared/i.test(note);
-    const source = note.match(/\((.+) class\)/i);
     return {
-      text:
-        `${cutoff} · ${recompressed ? "пережат" : "транскод"}`
-        + (source ? ` из ${bitrateClassText(source[1])}` : ""),
+      text: `${recompressed ? "пережат" : "транскод"}${source ? ` из ${source}` : ""} · ${band}`,
       tone: "warn",
       kind: recompressed ? "recompressed" : "transcoded"
     };
   }
-  // A lossy copy that matches its declared rate states exactly that and nothing
-  // else: its wall is the encoder at work and its gap to a lossless copy is expected.
-  if (/matches declared/i.test(note)) {
-    return { text: `${cutoff} · ${spectralNoteText(note)}`, tone: "ok" };
-  }
-  const walled = /^brickwall /i.test(note);
-  if (walled && file.spectral_cutoff_hz < SPECTRAL_ALLOWED_CUTOFF_HZ) {
-    return { text: `${cutoff} · ${spectralNoteText(note)}`, tone: "ok", kind: "wall" };
+  // A lossy copy walled where its own bitrate puts the wall is the encoder at
+  // work, and its gap to a lossless copy is expected, so the match is all it says.
+  const honest = note.match(/matches declared (\d+) kbps/i);
+  if (honest) return { text: `честные ${honest[1]} kbps · ${band}`, tone: "ok" };
+  if (/^brickwall /i.test(note) && file.spectral_cutoff_hz < SPECTRAL_ALLOWED_CUTOFF_HZ) {
+    return { text: `похоже на MP3${source ? ` ${source}` : ""} · ${band}`, tone: "ok", kind: "wall" };
   }
   const shortfall = bestCutoffHz === null ? 0 : bestCutoffHz - file.spectral_cutoff_hz;
-  // The note would call a narrower copy "full band", so the gap is stated in its place.
   if (shortfall >= SPECTRAL_SHORTFALL_MIN_HZ) {
-    return { text: `${cutoff} · −${formatCutoff(shortfall)} к лучшей копии`, tone: "ok" };
+    return { text: `−${formatCutoff(shortfall)} к лучшей копии · ${band}`, tone: "ok" };
   }
-  // An allowed wall has nothing to add to its cutoff.
-  if (walled) return { text: cutoff, tone: "ok" };
-  return { text: `${cutoff}${note ? ` · ${spectralNoteText(note)}` : ""}`, tone: "ok" };
+  return { text: `в норме · ${band}`, tone: "ok", kind: "clean" };
 }
 
 export const dedupConfidenceOptions = ["high", "medium", "review"] as const;

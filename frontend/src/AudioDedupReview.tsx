@@ -23,6 +23,7 @@ import {
 
 /** What the spectral chip's wording means, for the readings that need saying. */
 const spectralHints = {
+  clean: helpText.audioDedupSpectralClean,
   recompressed: helpText.audioDedupSpectralRecompressed,
   transcoded: helpText.audioDedupSpectralTranscoded,
   wall: helpText.audioDedupSpectralWall

@@ -29,26 +29,6 @@ Large personal libraries hide music you forgot you own. A typical loop with the 
 
 The author claims no ML or music-information-retrieval expertise. Model outputs are stored separately per model so you can inspect them. The full background and the feature/direction boundary live in the [project idea](docs/dj-track-similarity/concepts/project-idea.md) page.
 
-The following concepts explore listening-led set building with text prompts, audio similarity, and SONARA analysis. The diagrams offer creative directions with illustrative layer choices and transition ideas; track selection and sequencing remain manual.
-
-### 🧿 Hypnotic Loop
-
-Keep the groove and tempo almost steady while small details, textural noise, and modular arpeggios gradually build density. Move from sparse minimalism into an enveloping peak, then let the rhythm dissolve into space.
-
-<p align="center"><img src="img/01-hypnotic-loop-concept.png" alt="Hypnotic Loop concept: growing texture density over a steady groove, followed by a spacious outro" width="100%"></p>
-
-### 🧬 Textural Blend
-
-Bridge a straight Rominimal pulse and a broken RoBreaks groove through a shared atmosphere and continuous sub-bass. Change the percussion while preserving the depth and hypnotic feel.
-
-<p align="center"><img src="img/02-textural-blend-concept.png" alt="Textural Blend concept: a transition from Rominimal to RoBreaks with shared atmosphere and sustained sub-bass" width="100%"></p>
-
-### 🌒 Melancholic Plateau
-
-Hold a reflective mood across a long, steady-tempo plateau. Gentle changes in texture, space, and micro-percussion carry the set through a quiet dip and renewed drive toward a restrained resolution.
-
-<p align="center"><img src="img/03-melancholic-plateau-concept.png" alt="Melancholic Plateau concept: subtle energy changes within a sustained reflective mood at a steady tempo" width="100%"></p>
-
 ---
 
 ## ✅ What the project can do today

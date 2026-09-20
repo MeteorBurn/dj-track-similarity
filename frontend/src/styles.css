@@ -4959,8 +4959,11 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   box-shadow: 0 22px 56px var(--shadow-dialog-deeper);
   display: flex;
   flex-direction: column;
-  height: min(940px, calc(100vh - 32px));
-  max-width: min(1280px, calc(100vw - 32px));
+  /* Reviewing duplicates means reading whole groups of files at once, so the
+     dialog takes the screen it is given instead of stopping at a size that fits
+     barely one group on a tall monitor. */
+  height: calc(100vh - 32px);
+  max-width: min(1680px, calc(100vw - 32px));
   padding: 18px;
   position: relative;
   width: 100%;
@@ -5240,7 +5243,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   flex: 1 1 auto;
   flex-direction: column;
   gap: 10px;
-  min-height: 220px;
+  min-height: 320px;
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-color: var(--border-strong) transparent;

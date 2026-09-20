@@ -823,6 +823,7 @@ async function loadTracks(options = {}) {
   viewOffsets.library = offset;
   tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
+  setRowIndexWidth(data.offset + data.items.length);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderTrack(track));
@@ -856,6 +857,7 @@ async function loadLikedTracks(options = {}) {
   viewOffsets.liked = offset;
   tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
+  setRowIndexWidth(data.offset + data.items.length);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderTrack(track));
@@ -900,6 +902,7 @@ async function loadCollectionTracks(options = {}) {
   viewOffsets.collection = offset;
   tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
+  setRowIndexWidth(data.offset + data.items.length);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderTrack(track));
@@ -947,6 +950,7 @@ async function loadCandidates(options = {}) {
   viewOffsets.candidates = offset;
   tracksEl.innerHTML = data.items.length ? "" : emptyTracksMessage();
   markPageDuplicates(data.items);
+  setRowIndexWidth(data.offset + data.items.length);
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
     tracksEl.appendChild(renderCandidate(track));
@@ -2146,6 +2150,10 @@ function markPageDuplicates(items) {
     if (key !== null) seen.add(key);
   });
   return items;
+}
+
+function setRowIndexWidth(lastRowNumber) {
+  document.documentElement.style.setProperty("--row-index-digits", String(String(Math.max(1, lastRowNumber)).length));
 }
 
 function duplicateBadge(track) {

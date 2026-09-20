@@ -37,7 +37,11 @@
   --gutter: 1.1rem;
   --header-height: 4rem;
   --player-height: 5.5rem;
-  --row-columns: 1.45rem 3.15rem minmax(9rem, 1fr) minmax(max-content, 28rem) 6.4rem minmax(22rem, 26.5rem);
+  --row-padding-x: 1.15rem;
+  --row-gap: .85rem;
+  --row-index-digits: 1;
+  --row-index-width: calc(var(--row-index-digits) * .65rem);
+  --row-columns: var(--row-index-width) 3.15rem minmax(9rem, 1fr) minmax(max-content, 28rem) 6.4rem minmax(22rem, 26.5rem);
 }
 
 * { box-sizing: border-box; }
@@ -126,12 +130,12 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 #libraryOrder { width: 12.3rem; }
 #query { padding-left: 2.95rem; background-image: var(--search-icon); background-position: .9rem center; background-repeat: no-repeat; background-size: 1.3rem; }
 .track-table-scroll { min-height: 0; flex: 1; overflow: auto; scrollbar-gutter: stable; }
-.track-table-header, .track { display: grid; grid-template-columns: var(--row-columns); column-gap: .85rem; align-items: center; min-width: 68rem; padding: 0 1.15rem; }
+.track-table-header, .track { display: grid; grid-template-columns: var(--row-columns); column-gap: var(--row-gap); align-items: center; min-width: 68rem; padding: 0 var(--row-padding-x); }
 .track-table-header { min-height: 2.55rem; font-size: .77rem; color: var(--text-muted); text-transform: uppercase; position: sticky; top: 0; z-index: 2; background: var(--surface-muted); border-bottom: 1px solid var(--border); }
 .track { min-height: 5.2rem; border-bottom: 1px solid var(--border-soft); position: relative; font-size: .92rem; }
 .track.selected { background: var(--accent-active-bg); }
 .track.selected::before { content: ""; position: absolute; inset: 0 auto 0 0; width: .22rem; background: var(--accent); }
-.row-index { color: var(--text-muted); text-align: center; font-variant-numeric: tabular-nums; }
+.row-index { min-width: 0; margin-left: calc(-1 * var(--row-padding-x)); margin-right: calc(-1 * var(--row-gap)); color: var(--text-muted); text-align: center; font-variant-numeric: tabular-nums; }
 .track-play-button { width: 2.65rem; height: 2.65rem; min-height: 2.65rem; padding: .6rem; border-radius: 50%; background: var(--surface-raised); border-color: var(--border-strong); }
 .track-play-button svg { width: 1.6rem; height: 1.6rem; stroke: none; }
 .track.playing .track-play-button { border-color: var(--accent); color: var(--accent); }
@@ -175,7 +179,7 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .keyboard-hints:empty { display: none; }
 .keyboard-hints kbd { color: var(--accent); font: inherit; font-weight: 600; margin-right: .3rem; }
 
-body[data-view="candidates"] { --row-columns: 1.45rem 3.15rem minmax(7rem, 1fr) minmax(max-content, 28rem) 10.5rem 8rem minmax(20rem, 26rem); }
+body[data-view="candidates"] { --row-columns: var(--row-index-width) 3.15rem minmax(7rem, 1fr) minmax(max-content, 28rem) 10.5rem 8rem minmax(20rem, 26rem); }
 body[data-view="candidates"] .filter-toolbar { flex-wrap: wrap; padding-top: .25rem; }
 body[data-view="candidates"] .common-filters { flex-basis: calc(100% - 3.3rem); grid-template-columns: minmax(12rem, 2.55fr) minmax(7rem, 1fr) minmax(7rem, 1fr) minmax(9rem, 1.4fr); }
 body[data-view="candidates"] #candidateFilters { order: 3; width: 100%; }
@@ -192,7 +196,7 @@ body[data-view="candidates"] .track, body[data-view="collection"] .track { min-h
 body[data-view="candidates"] .pager { flex-wrap: wrap; }
 body[data-view="candidates"] .keyboard-hints { order: -1; }
 body[data-view="candidates"] .page-controls { flex: 0 1 auto; margin-left: auto; }
-body[data-view="collection"] { --row-columns: 1.45rem 3.8rem minmax(9rem, 1fr) minmax(max-content, 28rem) minmax(24rem, 30rem); }
+body[data-view="collection"] { --row-columns: var(--row-index-width) 3.8rem minmax(9rem, 1fr) minmax(max-content, 28rem) minmax(24rem, 30rem); }
 body[data-view="collection"] .common-filters, body[data-view="liked"] .common-filters { grid-template-columns: minmax(10rem, 2.7fr) minmax(6rem, 1fr) minmax(6rem, 1fr) minmax(8rem, 2.15fr); }
 body[data-view="liked"] .track-like-button.active { background: transparent; border-color: transparent; box-shadow: none; }
 body[data-view="liked"] .track-like-button.active svg { width: 1.6rem; height: 1.6rem; }
@@ -506,11 +510,10 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
 .dialog-footer .primary-button { min-width: 9.5rem; }
 
 @media (max-width: 1800px) {
-  :root { --gutter: .85rem; }
+  :root { --gutter: .85rem; --row-padding-x: .85rem; --row-gap: .65rem; }
   .top-bar { padding-left: 1.25rem; }
   .profile-controls { gap: .6rem; }
   .brand strong { font-size: 1.5rem; }
-  .track-table-header, .track { column-gap: .65rem; padding-right: .85rem; padding-left: .85rem; }
   .contextual-sidebar { padding-right: 1rem; padding-left: 1rem; }
   .profile-roles { grid-template-columns: 1fr; }
   .profile-roles .label-legend { margin-top: .3rem; }
@@ -570,7 +573,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   .binary-label-group { padding-left: 1.8rem; }
   .binary-label-group .paired-fields { gap: .8rem; }
   .dialog-footer { padding: .75rem 1.35rem; }
-  body[data-view="candidates"] { --row-columns: 1.45rem 2.8rem minmax(0, 1fr) minmax(max-content, 28rem) 7rem 6rem; }
+  body[data-view="candidates"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) minmax(max-content, 28rem) 7rem 6rem; }
   body[data-view="candidates"] .track-table-header,
   body[data-view="candidates"] .track { min-width: 0; }
   body[data-view="candidates"] .track-actions { grid-column: 3 / -1; padding-bottom: .6rem; }
@@ -578,8 +581,8 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
 }
 
 @media (max-width: 1200px) {
-  :root { --row-columns: 1.45rem 2.8rem minmax(0, 1fr) minmax(max-content, 28rem) 6.4rem; }
-  body[data-view="collection"] { --row-columns: 1.45rem 2.8rem minmax(0, 1fr) minmax(max-content, 28rem); }
+  :root { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) minmax(max-content, 28rem) 6.4rem; }
+  body[data-view="collection"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) minmax(max-content, 28rem); }
   .track-table-header, .track { min-width: 0; }
   .track-actions { grid-column: 3 / -1; padding-bottom: .6rem; }
   .track-table-header .track-actions { display: none; }

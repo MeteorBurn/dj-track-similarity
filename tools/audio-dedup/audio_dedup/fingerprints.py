@@ -225,6 +225,9 @@ def sonara_duplicate_clusters(
     are bucketed by rounded duration, the scaling step the SONARA docs
     prescribe for large libraries, and fingerprints of different versions are
     never compared.
+
+    `durations` carries SONARA's own `duration_sec`, the length the fingerprint
+    was computed over, because that is the value the upstream recipe buckets on.
     """
     total_tracks = len(track_uuids)
     if not _has_fingerprint_table(connection):

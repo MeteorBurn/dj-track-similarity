@@ -71,7 +71,7 @@ def run_report(
             scan = sonara_duplicate_clusters(
                 connection,
                 track_uuids,
-                {track.track_id: track.duration for track in tracks},
+                {track.track_id: track.analyzed_duration for track in tracks},
                 progress_callback=lambda completed, total: progress_module._report_progress(
                     progress_callback,
                     completed,

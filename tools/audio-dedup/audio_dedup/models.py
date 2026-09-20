@@ -24,6 +24,10 @@ class TrackRecord:
     catalog_uuid: str = ""
     track_uuid: str = ""
     file_modified_ns: int = 0
+    # SONARA's own duration_sec: the length the fingerprint was computed over,
+    # which is what the upstream duplicate recipe buckets on. `duration` stays
+    # the container value the report and keeper choice read.
+    analyzed_duration: float | None = None
 
 
 @dataclass(frozen=True)

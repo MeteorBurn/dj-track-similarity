@@ -60,7 +60,8 @@ def load_tracks(
                 s.dynamic_range_db,
                 s.loudness_range_lu,
                 s.true_peak_dbtp,
-                s.integrated_loudness_lufs
+                s.integrated_loudness_lufs,
+                s.analyzed_duration_seconds
             FROM tracks AS t
             LEFT JOIN tags AS ft
               ON ft.track_id = t.track_id
@@ -168,6 +169,9 @@ def _track_from_row(
         catalog_uuid=catalog_uuid,
         track_uuid=str(row["track_uuid"]),
         file_modified_ns=modified_ns,
+        analyzed_duration=values_module._float_or_none(
+            row["analyzed_duration_seconds"]
+        ),
     )
 
 

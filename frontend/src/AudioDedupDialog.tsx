@@ -70,7 +70,11 @@ export function AudioDedupDialog({
     () => selectionSummary(dedup.page?.groups ?? [], dedup.selection),
     [dedup.page, dedup.selection]
   );
-  const canDelete = summary.files > 0 && !dedup.busy;
+  // A report written without a search root has no boundary to delete inside, and
+  // the delete endpoint refuses it. Say so here instead of letting the reviewer
+  // mark copies and collect a 400.
+  const rootlessReport = activeReport !== null && !activeReport.root;
+  const canDelete = summary.files > 0 && !dedup.busy && !rootlessReport;
   const selectionText =
     `${summary.files} ${copiesWord(summary.files)}`
     + ` в ${summary.groups} ${pluralRu(summary.groups, "группе", "группах", "группах")}`;
@@ -457,7 +461,11 @@ export function AudioDedupDialog({
 
         <footer className="dedup-footer">
           <div className="dedup-footer-summary">
-            {summary.files > 0 ? (
+            {rootlessReport ? (
+              <span className="dedup-footer-idle">
+                Отчёт по всей базе: удалять можно только из отчёта с корнем поиска
+              </span>
+            ) : summary.files > 0 ? (
               <>
                 <strong>{summary.files}</strong> {copiesWord(summary.files)} в {summary.groups}{" "}
                 {pluralRu(summary.groups, "группе", "группах", "группах")} ·{" "}
@@ -483,9 +491,11 @@ export function AudioDedupDialog({
             type="button"
             disabled={!canDelete}
             title={
-              summary.files === 0
-                ? "Пометьте копии на удаление"
-                : `Удалить ${summary.files} ${pluralRu(summary.files, "копию", "копии", "копий")}`
+              rootlessReport
+                ? "Отчёт построен по всей базе. Удаление держится внутри корня поиска, поэтому повторите поиск, указав корень."
+                : summary.files === 0
+                  ? "Пометьте копии на удаление"
+                  : `Удалить ${summary.files} ${pluralRu(summary.files, "копию", "копии", "копий")}`
             }
             onClick={requestDelete}
           >

@@ -200,7 +200,8 @@ def estimate_cutoff(
             and expected_cutoff is not None
             and cutoff_hz < expected_cutoff
         )
-        if declared_bitrate_bps and brickwall:
+        # Below the table nothing was compared, so the note claims no relation.
+        if expected_cutoff is not None and brickwall:
             relation = "below" if suspected else "matches"
             note = f"{note}, {relation} declared {declared_bitrate_bps // 1000} kbps"
     return SpectralResult(

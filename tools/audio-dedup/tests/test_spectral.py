@@ -80,6 +80,17 @@ def test_estimate_cutoff_flags_brickwall_but_not_full_band_noise() -> None:
     assert fake_lossy.suspected_transcode
     assert "below declared 320 kbps" in fake_lossy.note
 
+    # Under 128 kbps the table holds no expectation: nothing is compared, so the
+    # note must not claim the wall matches the declared rate.
+    unchecked_lossy = estimate_cutoff(
+        walled,
+        sample_rate,
+        container_lossless=False,
+        declared_bitrate_bps=96_000,
+    )
+    assert not unchecked_lossy.suspected_transcode
+    assert "declared" not in unchecked_lossy.note
+
 
 def test_spectral_check_script_reports_verdicts_and_csv(tmp_path: Path) -> None:
     import io

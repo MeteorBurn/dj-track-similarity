@@ -174,7 +174,7 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 #pageSize { width: 10.5rem; flex-shrink: 0; margin-right: auto; }
 #pageInfo { font-size: .85rem; white-space: nowrap; }
 .page-jump { display: flex; align-items: center; gap: .35rem; font-size: .8rem; }
-.page-number { width: 3rem; padding: .3rem !important; text-align: center; }
+.page-number { width: 4.2rem; padding: .3rem !important; text-align: center; }
 .keyboard-hints { display: flex; flex-wrap: wrap; gap: 1rem; color: var(--text-muted); font-size: .75rem; }
 .keyboard-hints:empty { display: none; }
 .keyboard-hints kbd { color: var(--accent); font: inherit; font-weight: 600; margin-right: .3rem; }

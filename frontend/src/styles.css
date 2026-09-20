@@ -5119,6 +5119,10 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   border-color: var(--accent-border-hover);
 }
 
+.dedup-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
 .dedup-toggle.disabled {
   cursor: not-allowed;
   opacity: 0.48;

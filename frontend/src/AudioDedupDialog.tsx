@@ -191,6 +191,8 @@ export function AudioDedupDialog({
                   </button>
                 </div>
               </label>
+            </div>
+            <div className="dedup-scan-grid">
               <label className="dedup-control">
                 <span>Режим</span>
                 <select
@@ -216,8 +218,10 @@ export function AudioDedupDialog({
                   disabled={dedup.scanRunning}
                   onChange={(event) => setDetectFakeBitrate(event.target.checked)}
                 />
-                <span>Детект фейк-битрейта</span>
+                <span>Определение поддельного битрейта</span>
               </label>
+            </div>
+            <div className="dedup-scan-grid">
               {dedup.scanRunning ? (
                 <button
                   className="dedup-secondary-button"

@@ -2828,9 +2828,11 @@ h2 {
      needs a second line is still held at min-height and the second line draws
      over the row below. */
   flex: 0 0 auto;
-  gap: 8px;
+  --row-inline-padding: 6px;
+  --row-column-gap: 8px;
+  gap: var(--row-column-gap);
   min-height: 48px;
-  padding: 6px;
+  padding: var(--row-inline-padding);
   transition: background 120ms ease, border-color 120ms ease;
 }
 
@@ -2842,7 +2844,7 @@ h2 {
 }
 
 .track-row {
-  grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px;
+  grid-template-columns: auto 34px minmax(0, 1fr) 34px 34px 34px 34px;
 }
 
 .track-row.is-playing {
@@ -2854,7 +2856,7 @@ h2 {
 }
 
 .result-row.has-row-index {
-  grid-template-columns: 26px 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
+  grid-template-columns: auto 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
 }
 
 /* Preset feedback puts two more buttons in the trailing group. Without their
@@ -2864,7 +2866,7 @@ h2 {
 }
 
 .result-row.has-row-index.has-feedback {
-  grid-template-columns: 26px 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px 34px 34px;
+  grid-template-columns: auto 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px 34px 34px;
 }
 
 /* The search panel is one third of the workspace, so how much of a row fits
@@ -2886,7 +2888,7 @@ h2 {
   }
 
   .result-row.has-row-index.has-feedback {
-    grid-template-columns: 26px 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
+    grid-template-columns: auto 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
   }
 
   .result-row.has-feedback .result-feedback-button.intent-relevant {
@@ -2912,7 +2914,7 @@ h2 {
   }
 
   .result-row.has-row-index {
-    grid-template-columns: 26px 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
+    grid-template-columns: auto 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
   }
 
   .result-row.has-feedback {
@@ -2920,7 +2922,7 @@ h2 {
   }
 
   .result-row.has-row-index.has-feedback {
-    grid-template-columns: 26px 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
+    grid-template-columns: auto 34px minmax(0, 1fr) minmax(42px, max-content) 34px 34px 34px 34px;
   }
 }
 
@@ -2939,7 +2941,7 @@ h2 {
   .result-row.has-row-index,
   .result-row.has-feedback,
   .result-row.has-row-index.has-feedback {
-    grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px;
+    grid-template-columns: auto 34px minmax(0, 1fr) 34px 34px 34px 34px;
   }
 }
 
@@ -2959,7 +2961,7 @@ h2 {
 }
 
 .playlist-row {
-  grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px;
+  grid-template-columns: auto 34px minmax(0, 1fr) 34px 34px;
 }
 
 .track-title-cell {
@@ -2992,11 +2994,23 @@ h2 {
   white-space: nowrap;
 }
 
+/* Indexes run from one digit to six, since library rows carry the absolute
+   position in a list tens of thousands of tracks long. Centred in a fixed
+   track, a short number floated in the middle of it and a long one spilled over
+   the preview button, so the spacing moved with the digit count. The track is
+   sized by the number instead (see the `auto` leading column on the rows), so
+   the cell is exactly as wide as its digits: the number starts at the row
+   padding and the distance to the button is the row gap, at any length. */
 .row-index {
   color: var(--text-soft);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  text-align: center;
+  /* The slot is sized by the number, so what frames it comes from the row: its
+     inline padding on the left and the column gap on the right. Those two are
+     not the same length, so the cell is pulled back by the difference and both
+     sides end up the column gap, whatever a given list sets them to. */
+  margin-inline-start: calc(var(--row-column-gap) - var(--row-inline-padding));
+  text-align: left;
 }
 
 .seed-strip {
@@ -4897,7 +4911,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   }
 
   .result-row.has-row-index {
-    grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px;
+    grid-template-columns: auto 34px minmax(0, 1fr) 34px 34px 34px 34px;
   }
 
   .result-row.has-feedback {
@@ -4905,7 +4919,7 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   }
 
   .result-row.has-row-index.has-feedback {
-    grid-template-columns: 26px 34px minmax(0, 1fr) 34px 34px 34px 34px 34px 34px;
+    grid-template-columns: auto 34px minmax(0, 1fr) 34px 34px 34px 34px 34px 34px;
   }
 
   .result-row.has-feedback .result-feedback-button.intent-relevant,
@@ -5604,7 +5618,7 @@ button.dedup-play-button {
 .model-search-tab { border-radius: 5px; min-height: 35px; }
 .model-search-tab.active { box-shadow: inset 0 0 12px var(--accent-soft-bg); }
 .track-list { gap: 0; container-type: inline-size; container-name: library-tracks; }
-.track-list .track-row { grid-template-columns: 22px 36px minmax(0, 1fr) 42px 56px 36px repeat(4, 32px); border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0; min-height: 62px; min-width: 0; gap: 6px; padding: 7px; background: var(--surface); transition: none; }
+.track-list .track-row { grid-template-columns: auto 36px minmax(0, 1fr) 42px 56px 36px repeat(4, 32px); border: 0; border-bottom: 1px solid var(--border-soft); border-radius: 0; min-height: 62px; min-width: 0; --row-inline-padding: 7px; --row-column-gap: 6px; gap: var(--row-column-gap); padding: var(--row-inline-padding); background: var(--surface); transition: none; }
 .track-list .track-row:hover { background: var(--surface-raised); border-bottom-color: var(--border); }
 .track-list .track-row.has-playback { background: var(--accent-soft-bg); }
 .track-list .track-row.is-playing { background: linear-gradient(90deg, var(--accent-strong-bg), var(--accent-soft-bg)); border-bottom-color: transparent; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--accent-border); }
@@ -5629,7 +5643,7 @@ button.dedup-play-button {
 .library-track-duration { grid-column: 4; color: var(--text-muted); font-size: 11px; }
 .library-track-bpm, .library-track-key { font-size: 12px; }
 @container library-tracks (max-width: 640px) {
-  .track-list .track-row { grid-template-columns: 22px 36px minmax(0, 1fr) repeat(4, 32px); gap: 6px 4px; }
+  .track-list .track-row { grid-template-columns: auto 36px minmax(0, 1fr) repeat(4, 32px); --row-column-gap: 4px; gap: 6px var(--row-column-gap); }
   .track-list .track-title-cell { grid-column: 3 / -1; }
   .track-list .track-row > .icon-button:not(.track-preview-button) { grid-row: 2; }
   .track-list .track-row > .track-liked-button { grid-column: 4; }
@@ -5921,8 +5935,9 @@ button.dedup-play-button {
   .results-list .result-row.has-feedback,
   .results-list .result-row.has-row-index.has-feedback {
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 8px 4px;
-    padding: 10px 6px;
+    --row-column-gap: 4px;
+    gap: 8px var(--row-column-gap);
+    padding: 10px var(--row-inline-padding);
   }
   .results-list .result-row > .row-index {
     grid-row: 1;
@@ -5950,7 +5965,7 @@ button.dedup-play-button {
   .results-list .result-row.has-feedback > .result-feedback-button.intent-relevant { grid-row: 3; grid-column: 5; }
   .results-list .result-row.has-feedback > .result-feedback-button.intent-irrelevant { grid-row: 3; grid-column: 6; }
   .results-list .result-row > .similarity-score { display: block; grid-row: 3; grid-column: 1 / 3; text-align: left; }
-  .playlist-list .playlist-row { grid-template-columns: 22px 34px minmax(0, 1fr) 34px 34px; gap: 4px; }
+  .playlist-list .playlist-row { grid-template-columns: auto 34px minmax(0, 1fr) 34px 34px; --row-column-gap: 4px; gap: var(--row-column-gap); }
   .playlist-row .track-title-cell strong { white-space: normal; overflow-wrap: anywhere; }
 }
 

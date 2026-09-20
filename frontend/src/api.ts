@@ -630,6 +630,8 @@ export type AudioDedupJobStatus = {
   safe_candidates: number;
   valid_fingerprints: number;
   current_step: string | null;
+  step_started_at: number | null;
+  step_seconds_per_unit: number | null;
   report_id: string | null;
   started_at: number | null;
   finished_at: number | null;

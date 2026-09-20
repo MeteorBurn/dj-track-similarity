@@ -14,17 +14,45 @@ from . import report_selection as report_selection_module
 from . import rhythm_lab as rhythm_lab_module
 
 
+def _format_duration(seconds: float) -> str:
+    total = max(0, int(round(seconds)))
+    hours, rest = divmod(total, 3600)
+    minutes, remaining_seconds = divmod(rest, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    return f"{minutes}m {remaining_seconds:02d}s"
+
+
 class ConsoleProgressReporter:
+    """Rewrite one progress line carrying elapsed time and a step estimate.
+
+    Elapsed time covers the whole run; the estimate covers only the step in
+    flight. Steps count different things - tracks, candidate pairs, clusters -
+    so the rate measured on one says nothing about the ones that follow, and a
+    step that has just started is not estimated at all.
+    """
+
     def __init__(self, *, refresh_seconds: float = 1.0) -> None:
         self.refresh_seconds = max(0.0, float(refresh_seconds))
+        self._started_at = time.monotonic()
         self._last_message: str | None = None
         self._last_rendered_at: float | None = None
+        self._step_started_at = self._started_at
+        self._step_base_processed = 0
+        self._line_width = 0
         self._has_active_line = False
+
+    @property
+    def elapsed_seconds(self) -> float:
+        return time.monotonic() - self._started_at
 
     def __call__(self, processed: int, total: int, message: str) -> None:
         now = time.monotonic()
         completed = total > 0 and processed >= total
         phase_changed = message != self._last_message
+        if phase_changed or processed < self._step_base_processed:
+            self._step_started_at = now
+            self._step_base_processed = processed
         due = (
             self._last_rendered_at is None
             or now - self._last_rendered_at >= self.refresh_seconds
@@ -36,17 +64,34 @@ class ConsoleProgressReporter:
             rendered = f"{message}: {percent:.1f}% ({processed}/{total})"
         else:
             rendered = f"{message}..."
+        rendered += f" | elapsed {_format_duration(now - self._started_at)}"
+        remaining = self._remaining_seconds(now, processed, total)
+        if remaining is not None:
+            rendered += f" | eta ~{_format_duration(remaining)}"
+        # The line is rewritten in place, so a shorter render has to wipe what
+        # the longer one left behind.
+        previous_width = self._line_width
+        self._line_width = len(rendered)
+        rendered = rendered.ljust(previous_width)
         sys.stdout.write(f"\r{rendered}")
         sys.stdout.flush()
         self._last_message = message
         self._last_rendered_at = now
         self._has_active_line = True
 
+    def _remaining_seconds(self, now: float, processed: int, total: int) -> float | None:
+        done = processed - self._step_base_processed
+        step_elapsed = now - self._step_started_at
+        if done <= 0 or step_elapsed <= 0 or total <= processed:
+            return None
+        return (total - processed) * (step_elapsed / done)
+
     def finish(self) -> None:
         if self._has_active_line:
             sys.stdout.write("\n")
             sys.stdout.flush()
             self._has_active_line = False
+            self._line_width = 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
             progress_callback=progress_reporter,
         )
         progress_reporter.finish()
+        scan_seconds = progress_reporter.elapsed_seconds
         retrieval = result.payload.get("fingerprint_retrieval", {})
         if args.mode != config_module.MODE_EMBEDDING and not retrieval.get("valid_stored_fingerprint_count"):
             print(
@@ -105,12 +151,14 @@ def main(argv: list[str] | None = None) -> int:
             "Apply run complete. "
             f"groups={result.groups} deleted={len(apply_result.deleted_track_ids)} "
             f"skipped={len(apply_result.skipped)} failed={len(apply_result.failed)} "
-            f"rhythm_lab_deleted_rows={apply_result.rhythm_lab_deleted_rows}"
+            f"rhythm_lab_deleted_rows={apply_result.rhythm_lab_deleted_rows} "
+            f"scan_elapsed={_format_duration(scan_seconds)}"
         )
     else:
         print(
             "Report-only run complete. "
-            f"groups={result.groups} safe_candidates={report_selection_module._safe_candidate_count(result.payload)}"
+            f"groups={result.groups} safe_candidates={report_selection_module._safe_candidate_count(result.payload)} "
+            f"scan_elapsed={_format_duration(scan_seconds)}"
         )
     print(rhythm_lab_module.rhythm_lab_cli_summary(result.payload))
     print(f"json={result.json_path.resolve()}")

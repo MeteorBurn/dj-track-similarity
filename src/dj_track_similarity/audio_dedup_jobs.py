@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 import threading
 import time
-from typing import Mapping
+from typing import Callable, Mapping
 import uuid
 
 from .audio_dedup_bridge import load_audio_dedup_module
@@ -52,6 +52,8 @@ class AudioDedupJobStatus:
     safe_candidates: int = 0
     valid_fingerprints: int = 0
     current_step: str | None = None
+    step_started_at: float | None = None
+    step_seconds_per_unit: float | None = None
     report_id: str | None = None
     started_at: float | None = None
     finished_at: float | None = None
@@ -195,12 +197,7 @@ class AudioDedupJobManager:
                 weights=payload.weights or None,
                 mode=payload.search_mode,
                 detect_fake_bitrate=payload.detect_fake_bitrate,
-                progress_callback=lambda processed, total, message: self._store.update(
-                    job_id,
-                    processed=processed,
-                    total=total,
-                    current_step=message,
-                ),
+                progress_callback=self._progress_reporter(job_id),
                 should_cancel=cancelled.is_set,
             )
         except models_module.AudioDedupCancelled:
@@ -209,6 +206,8 @@ class AudioDedupJobManager:
                 state="cancelled",
                 finished_at=time.time(),
                 current_step=None,
+                step_started_at=None,
+                step_seconds_per_unit=None,
             )
             self._append_event(job_id, "warn", "Audio dedup cancelled")
             LOGGER.info("Audio dedup cancelled job_id=%s", job_id)
@@ -220,6 +219,8 @@ class AudioDedupJobManager:
                 state="failed",
                 finished_at=time.time(),
                 current_step=None,
+                step_started_at=None,
+                step_seconds_per_unit=None,
                 error=summary,
             )
             self._append_event(job_id, "error", f"Audio dedup failed: {summary}")
@@ -242,6 +243,8 @@ class AudioDedupJobManager:
             state="completed",
             finished_at=time.time(),
             current_step=None,
+            step_started_at=None,
+            step_seconds_per_unit=None,
             groups=result.groups,
             safe_candidates=int(statistics.get("safe_candidate_count", 0) or 0),
             review_candidates=int(statistics.get("review_candidate_count", 0) or 0),
@@ -261,6 +264,39 @@ class AudioDedupJobManager:
             report_id,
         )
         return self.get(job_id)
+
+    def _progress_reporter(self, job_id: str) -> Callable[[int, int, str], None]:
+        """Publish progress together with how fast the current step is moving.
+
+        Steps count different things - tracks, candidate pairs, clusters - and
+        a step that has just started has no rate at all, so the measurement
+        restarts whenever the step changes. The UI turns the rate into the time
+        still owed by the step in flight; the whole run has no honest estimate
+        because the steps that follow are not the same kind of work.
+        """
+        step_message: str | None = None
+        step_started_at = 0.0
+        step_base_processed = 0
+
+        def report(processed: int, total: int, message: str) -> None:
+            nonlocal step_message, step_started_at, step_base_processed
+            now = time.time()
+            if message != step_message or processed < step_base_processed:
+                step_message = message
+                step_started_at = now
+                step_base_processed = processed
+            done = processed - step_base_processed
+            elapsed = now - step_started_at
+            self._store.update(
+                job_id,
+                processed=processed,
+                total=total,
+                current_step=message,
+                step_started_at=step_started_at,
+                step_seconds_per_unit=elapsed / done if done > 0 and elapsed > 0 else None,
+            )
+
+        return report
 
     def get(self, job_id: str) -> AudioDedupJobStatus:
         return self._store.get(job_id)

@@ -12,7 +12,12 @@ import {
   X
 } from "lucide-react";
 import { api } from "./api";
-import type { AudioDedupDeletionMode, AudioDedupFile, AudioDedupSearchMode } from "./api";
+import type {
+  AudioDedupDeletionMode,
+  AudioDedupFile,
+  AudioDedupJobStatus,
+  AudioDedupSearchMode
+} from "./api";
 import { AudioDedupGroupCard } from "./AudioDedupReview";
 import { ConfirmationDialog } from "./dialogs";
 import { helpText } from "./helpText";
@@ -28,6 +33,24 @@ import { useAudioDedup } from "./useAudioDedup";
 import type { AudioDedupFilters } from "./useAudioDedup";
 import { useConfirmation } from "./useConfirmation";
 import { errorText } from "./errors";
+import { formatEta } from "./trackDisplay";
+
+function scanCounterText(
+  job: AudioDedupJobStatus,
+  elapsedSeconds: number | null,
+  etaSeconds: number | null
+) {
+  const parts: string[] = [];
+  if (job.state === "running" || job.state === "queued") {
+    parts.push(job.current_step ?? "подготовка", `${job.processed}/${job.total}`);
+    if (elapsedSeconds != null) parts.push(`прошло ${formatEta(elapsedSeconds)}`);
+    if (etaSeconds != null) parts.push(`осталось ~${formatEta(etaSeconds)}`);
+  } else {
+    parts.push(job.state, `${job.groups} ${pluralRu(job.groups, "группа", "группы", "групп")}`);
+    if (elapsedSeconds != null) parts.push(`заняло ${formatEta(elapsedSeconds)}`);
+  }
+  return parts.join(" · ");
+}
 
 export function AudioDedupDialog({
   open,
@@ -51,6 +74,7 @@ export function AudioDedupDialog({
   const [detectFakeBitrate, setDetectFakeBitrate] = useState(false);
   const [deletionMode, setDeletionMode] = useState<AudioDedupDeletionMode>("trash");
   const [draftFilters, setDraftFilters] = useState<AudioDedupFilters>(dedup.filters);
+  const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } =
     useConfirmation();
 
@@ -67,6 +91,15 @@ export function AudioDedupDialog({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [cancelConfirmation, confirmation, onClose, open]);
+
+  // The job poll lands every 1.2s and a step can sit silent for much longer, so
+  // the elapsed time keeps its own second instead of stepping in poll-sized jumps.
+  useEffect(() => {
+    if (!open || !dedup.scanRunning) return;
+    setNowSeconds(Date.now() / 1000);
+    const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 1000);
+    return () => window.clearInterval(timer);
+  }, [dedup.scanRunning, open]);
 
   const activeReport = useMemo(
     () => dedup.reports.find((report) => report.report_id === dedup.reportId) ?? null,
@@ -90,6 +123,14 @@ export function AudioDedupDialog({
 
   const job = dedup.job;
   const progressPercent = job && job.total > 0 ? Math.min(100, (job.processed / job.total) * 100) : 0;
+  const elapsedSeconds =
+    job?.started_at == null ? null : Math.max(0, (job.finished_at ?? nowSeconds) - job.started_at);
+  // Only the step in flight has a measured rate, and only it can be extrapolated:
+  // the steps that follow count other things at other speeds.
+  const etaSeconds =
+    job && dedup.scanRunning && job.step_seconds_per_unit && job.total > job.processed
+      ? (job.total - job.processed) * job.step_seconds_per_unit
+      : null;
 
   function updateFilters(next: AudioDedupFilters) {
     setDraftFilters(next);
@@ -168,10 +209,7 @@ export function AudioDedupDialog({
               Поиск
               {job ? (
                 <span className="dedup-section-counter">
-                  {job.state === "running" || job.state === "queued"
-                    ? `${job.current_step ?? "подготовка"} · ${job.processed}/${job.total}`
-                    : `${job.state} · ${job.groups} `
-                      + pluralRu(job.groups, "группа", "группы", "групп")}
+                  {scanCounterText(job, elapsedSeconds, etaSeconds)}
                 </span>
               ) : null}
             </div>

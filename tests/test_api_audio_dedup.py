@@ -72,6 +72,7 @@ def _write_report(
     root: Path,
     keeper: tuple[TrackIdentity, Path],
     duplicate: tuple[TrackIdentity, Path],
+    report_id: str = "audio_dedup_report_20260827_120000",
 ) -> str:
     keeper_entry = _track_entry(keeper[0], keeper[1])
     duplicate_entry = _track_entry(duplicate[0], duplicate[1])
@@ -150,7 +151,6 @@ def _write_report(
             }
         ],
     }
-    report_id = "audio_dedup_report_20260827_120000"
     (out_dir / f"{report_id}.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -207,6 +207,34 @@ def test_audio_dedup_report_groups_expose_evidence_and_live_staleness(tmp_path, 
     stale_files = {item["track_id"]: item for item in stale_page.json()["groups"][0]["files"]}
     assert stale_files[duplicate.track_id]["stale"] is True
     assert stale_files[duplicate.track_id]["playable"] is False
+
+
+def test_audio_dedup_reports_list_only_the_selected_database(tmp_path, monkeypatch) -> None:
+    """One report directory serves every library, so the listing has to choose."""
+    db_path, out_dir, *_, report_id = _fixture(tmp_path)
+    other_database = LibraryDatabase(tmp_path / "other_library.sqlite")
+    other_root = tmp_path / "OtherMusic"
+    other_root.mkdir()
+    other_keeper_path = other_root / "keeper.flac"
+    other_duplicate_path = other_root / "duplicate.flac"
+    other_report_id = _write_report(
+        out_dir,
+        database=other_database,
+        root=other_root,
+        keeper=(_add_track(other_database, other_keeper_path, title="other keeper"), other_keeper_path),
+        duplicate=(
+            _add_track(other_database, other_duplicate_path, title="other duplicate"),
+            other_duplicate_path,
+        ),
+        report_id="audio_dedup_report_20260827_130000",
+    )
+    client = _client(monkeypatch, db_path, out_dir)
+
+    listing = client.get("/api/audio-dedup/reports")
+
+    assert listing.status_code == 200
+    assert [item["report_id"] for item in listing.json()] == [report_id]
+    assert (out_dir / f"{other_report_id}.json").is_file()
 
 
 def test_audio_dedup_delete_requires_the_confirmation_phrase(tmp_path, monkeypatch) -> None:

@@ -62,7 +62,13 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
     @app.get("/api/audio-dedup/reports")
     def audio_dedup_reports():
-        return list_reports(state.require_audio_dedup_jobs().out_dir)
+        manager = state.require_audio_dedup_jobs()
+        database_path = state.require_db().path
+        return [
+            summary
+            for summary in list_reports(manager.out_dir)
+            if _same_database(summary.database_path, database_path)
+        ]
 
     @app.get("/api/audio-dedup/reports/{report_id}")
     def audio_dedup_report(report_id: str):
@@ -199,6 +205,18 @@ def _validated_selection(payload: dict, request: AudioDedupDeleteRequest) -> lis
     return selected
 
 
+def _same_database(reported: object, database_path: Path) -> bool:
+    """Whether a report names the library currently selected.
+
+    One notion of a match for both callers: the listing shows only this
+    library's reports and the apply gate refuses another library's. A report
+    naming no database matches nothing, which the engine never writes.
+    """
+    if not reported:
+        return False
+    return Path(str(reported)).resolve(strict=False) == Path(database_path).resolve(strict=False)
+
+
 def _require_matching_database(payload: dict, database_path: Path) -> None:
     """Refuse a report written against another library.
 
@@ -206,9 +224,7 @@ def _require_matching_database(payload: dict, database_path: Path) -> None:
     beats reporting a batch where nothing could be deleted.
     """
     reported = payload.get("database_path")
-    if not reported:
-        return
-    if Path(str(reported)).resolve(strict=False) != Path(database_path).resolve(strict=False):
+    if reported and not _same_database(reported, database_path):
         raise ValueError("Report was written against a different database")
 
 

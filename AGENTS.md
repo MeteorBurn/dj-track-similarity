@@ -55,6 +55,12 @@ work unverified rather than inventing its instructions.
 - Delegate work across project ownership boundaries and integrate one answer,
   subject to the active harness's delegation rules. Use the agent-layer guide
   for roles, bounded assignments, relevant instructions, and dirty-state context.
+- Globally installed skills do not override this file. External design and
+  output-style skills (`impeccable`, `design-taste-frontend`,
+  `high-end-visual-design`, `minimalist-ui`, `full-output-enforcement`, and
+  similar) are inactive here: `DESIGN.md` and `design-system-engineer` own UI
+  decisions, and this file owns diff scope and output length. Invoke one only
+  on explicit request, and keep its result subject to these rules.
 - For development and server startup, use `database/test.sqlite` relative to
   the repository root unless another database is explicitly specified.
   This is the user-confirmed default; do not ask for

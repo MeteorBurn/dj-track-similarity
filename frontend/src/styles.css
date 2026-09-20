@@ -5885,7 +5885,7 @@ button.dedup-play-button {
 .player-track-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .player-track-info span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-play { display: grid; place-items: center; width: 49px; height: 49px; min-width: 49px; border-radius: 50%; color: var(--accent-active-text); border: 1px solid var(--accent); background: var(--accent-deep-bg); box-shadow: 0 0 15px var(--accent-soft-bg); }
-.player-timeline { flex: 1; display: flex; gap: clamp(28px, 2.8vw, 64px); align-items: center; min-width: 100px; }
+.player-timeline { flex: 1; display: flex; gap: 18px; align-items: center; min-width: 100px; }
 .player-timeline input { width: 100%; accent-color: var(--accent); }
 .player-timeline span { color: var(--text-muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* Bare heart, like the library rows: the frame would compete with the BPM/KEY boxes. */

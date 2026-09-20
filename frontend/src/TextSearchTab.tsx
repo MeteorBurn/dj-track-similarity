@@ -359,6 +359,7 @@ export function TextSearchTab({
           </span>
           <textarea
             className="text-prompt-input"
+            name="text-prompt-bank"
             rows={bankRows(textQuery, 8, 18)}
             value={textQuery}
             readOnly
@@ -394,6 +395,7 @@ export function TextSearchTab({
           {textUseNegativePrompt ? (
             <textarea
               className="text-negative-input"
+              name="text-negative-bank"
               aria-label="Hard-negative банк"
               rows={bankRows(textNegativeQuery, 5, 12)}
               value={textNegativeQuery}
@@ -433,6 +435,7 @@ export function TextSearchTab({
       <div className="search-filter-grid text-search-filter-grid text-group-labels">
         <label title={textCompareModels ? "В режиме A/B ищут обе модели; выбор задаёт, чей вариант банка показан в поле" : "Embedding family used for text-to-track retrieval"}>Model
           <select
+            name="text-embedding-family"
             value={textEmbeddingFamily}
             onChange={(event) => onTextEmbeddingFamilyChange(event.target.value as Extract<EmbeddingSource, "clap" | "mulan">)}
           >
@@ -440,7 +443,7 @@ export function TextSearchTab({
             <option value="mulan">MuQ-MuLan</option>
           </select>
         </label>
-        <label title={limitHelp}>Limit<input type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
+        <label title={limitHelp}>Limit<input name="text-search-limit" type="number" value={limit} min={1} max={500} title={limitHelp} onChange={(event) => onLimitChange(Number(event.target.value))} /></label>
       </div>
       {!hasStoredTextEmbeddings ? <span className="text-search-requirement">Requires stored {textModelLabel} embeddings. Run {textModelLabel} analysis first.</span> : null}
       {textModelLoadingLabel ? (

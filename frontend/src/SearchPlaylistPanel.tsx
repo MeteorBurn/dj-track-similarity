@@ -538,6 +538,7 @@ export function SearchPlaylistPanel({
                           <em>{formatClassifierScoredTracks(scoredTracks)}</em>
                         </span>
                         <input
+                          name={`classifier-min-score-${classifier.classifier_key}`}
                           type="range"
                           min={0}
                           max={1}

@@ -53,7 +53,7 @@ export function PlaylistExportPanel({
         <span className="panel-counter">{playlist.length}</span>
       </div>
       <section className="playlist-export-section" aria-label="Сет и экспорт">
-        <input value={playlistName} onChange={(event) => onPlaylistNameChange(event.target.value)} title={helpText.playlistName} />
+        <input name="playlist-name" value={playlistName} onChange={(event) => onPlaylistNameChange(event.target.value)} title={helpText.playlistName} />
         <span className={`save-state ${playlist.length ? "dirty" : ""}`}>
           {playlist.length ? "Экспорт сохранит текущий сет" : "Сет пуст"}
         </span>
@@ -91,7 +91,7 @@ export function PlaylistExportPanel({
           )}
         </div>
         <div className="path-row output-row">
-          <input value={outputDir} onChange={(event) => onOutputDirChange(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
+          <input name="export-output-dir" value={outputDir} onChange={(event) => onOutputDirChange(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
           <button className="icon-button folder-picker export-folder-picker-button" title="Выбрать папку экспорта" aria-label="Выбрать папку экспорта" disabled={busy} onClick={onChooseOutputFolder} type="button">
             <FolderOpen size={17} />
           </button>

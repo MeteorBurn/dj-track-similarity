@@ -157,6 +157,7 @@ export function TrackPanel({
       <div className="search-input">
         <Search size={16} />
         <input
+          name="library-query"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           type="search"
@@ -196,6 +197,7 @@ export function TrackPanel({
           <button className="library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
           <input
             className="library-page-index-input"
+            name="library-page-index"
             type="number"
             min={1}
             max={Math.max(1, pageCount)}

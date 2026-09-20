@@ -265,6 +265,7 @@ export function ReferenceComparePanel({
           <label title="Candidates per model.">
             Limit
             <input
+              name="reference-compare-limit"
               type="number"
               min={1}
               max={100}

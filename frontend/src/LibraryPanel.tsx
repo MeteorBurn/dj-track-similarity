@@ -110,6 +110,7 @@ export function LibraryPanel({
       <span className="stage-check">
         <input
           className="stage-checkbox"
+          name={`library-stage-${stage}`}
           type="checkbox"
           aria-label={`${title} selected`}
           checked={isSelected(stage)}
@@ -189,7 +190,7 @@ export function LibraryPanel({
           <small>Путь к SQLite библиотеке и загрузка новых треков с диска.</small>
         </div>
         <div className="path-row database-path-row">
-          <input value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
+          <input name="database-path" value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
           <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={stagesDisabled} onClick={onChooseDatabase} type="button"><Database size={17} /></button>
         </div>
 
@@ -257,7 +258,7 @@ export function LibraryPanel({
           <span>Лимит треков</span>
           <div className="stepper">
             <button className="icon-button analysis-limit-decrement-button" title="Уменьшить лимит треков" aria-label="Уменьшить лимит треков" disabled={stagesDisabled || analysisLimit <= 0} onClick={() => onAnalysisLimitChange(Math.max(0, analysisLimit - 1))} type="button"><Minus size={15} /></button>
-            <input type="number" min={0} max={100000} value={analysisLimit} aria-label="Лимит треков: 0 = все треки; применяется отдельно к каждой стадии анализа" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
+            <input name="analysis-limit" type="number" min={0} max={100000} value={analysisLimit} aria-label="Лимит треков: 0 = все треки; применяется отдельно к каждой стадии анализа" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
             <button className="icon-button analysis-limit-increment-button" title="Увеличить лимит треков" aria-label="Увеличить лимит треков" disabled={stagesDisabled || analysisLimit >= 100000} onClick={() => onAnalysisLimitChange(Math.min(100000, analysisLimit + 1))} type="button"><Plus size={15} /></button>
           </div>
           <small>0 = все треки; применяется отдельно к каждой стадии анализа</small>

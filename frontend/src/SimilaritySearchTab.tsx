@@ -108,6 +108,7 @@ export function SimilaritySearchTab({
           Model
           <select
             className="embedding-model-select"
+            name="seed-search-model"
             value={model}
             title={title}
             aria-describedby="seed-search-model-description"
@@ -123,6 +124,7 @@ export function SimilaritySearchTab({
         <label className="search-limit-control" title={helpText.limit}>
           Limit
           <input
+            name="seed-search-limit"
             type="number"
             value={filters.limit}
             min={1}
@@ -160,6 +162,7 @@ export function SimilaritySearchTab({
                     {isOff ? <small className="sonara-control-off">Off</small> : null}
                   </span>
                   <input
+                    name={`sonara-mixer-${control.key}`}
                     type="range"
                     min={0}
                     max={5}

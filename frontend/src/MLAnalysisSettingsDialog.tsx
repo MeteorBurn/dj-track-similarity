@@ -95,7 +95,7 @@ export function MLAnalysisSettingsDialog({
             {mlSettings.mode === "staged" && (
               <>
                 <div className="path-row ml-staging-path-row">
-                  <input value={mlSettings.staged.folder} readOnly title="Папка для временных staging-копий ML" />
+                  <input name="ml-staging-folder" value={mlSettings.staged.folder} readOnly title="Папка для временных staging-копий ML" />
                   <button className="icon-button folder-picker ml-staging-folder-picker-button" title="Choose Folder для ML staging-копий" aria-label="Choose Folder для ML staging-копий" disabled={disabled} onClick={onChooseMLStagingFolder} type="button"><FolderOpen size={17} /></button>
                 </div>
                 <div className="ml-staged-settings-grid">

@@ -88,6 +88,7 @@ export function SonaraAnalysisSettingsDialog({
             </div>
             <div className="sonara-settings-bpm-controls">
               <label>BPM Min<input
+                name="sonara-bpm-min"
                 type="number"
                 min={minSonaraBpm}
                 max={Math.floor(maxSonaraBpm / 2)}
@@ -96,6 +97,7 @@ export function SonaraAnalysisSettingsDialog({
                 onChange={(event) => onSonaraBpmRangeChange(applySonaraBpmChange(sonaraBpmRange, { bpmMin: Number(event.target.value) || minSonaraBpm }))}
               /></label>
               <label>BPM Max<input
+                name="sonara-bpm-max"
                 type="number"
                 min={2 * minSonaraBpm}
                 max={maxSonaraBpm}
@@ -122,7 +124,7 @@ export function SonaraAnalysisSettingsDialog({
             </div>
             {sonaraSettings.mode === "staged" && (
               <div className="path-row sonara-staging-path-row">
-                <input value={sonaraSettings.staged.folder} readOnly title="Папка для временных staging-копий SONARA" />
+                <input name="sonara-staging-folder" value={sonaraSettings.staged.folder} readOnly title="Папка для временных staging-копий SONARA" />
                 <button className="icon-button folder-picker staging-folder-picker-button" title="Choose Folder для staging-копий" aria-label="Choose Folder для staging-копий" disabled={disabled} onClick={onChooseSonaraStagingFolder} type="button"><FolderOpen size={17} /></button>
               </div>
             )}

@@ -35,12 +35,12 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
         {playing ? <Pause size={25} fill="currentColor" /> : <Play size={25} fill="currentColor" />}
       </button>
       <div className="player-timeline">
-        <input type="range" min={0} max={duration || 1} step={0.1} value={duration > 0 ? currentTime : 0} disabled={!preview || !duration} onChange={(event) => preview && onSeek(preview, Number(event.target.value))} aria-label="Позиция воспроизведения" />
+        <input name="player-position" type="range" min={0} max={duration || 1} step={0.1} value={duration > 0 ? currentTime : 0} disabled={!preview || !duration} onChange={(event) => preview && onSeek(preview, Number(event.target.value))} aria-label="Позиция воспроизведения" />
         <span>{time(currentTime)} / {duration > 0 ? time(duration) : "—"}</span>
       </div>
       <div className="player-bpm"><strong>{track?.sonara_bpm?.toFixed(2) ?? "—"}</strong><span>BPM</span></div>
       <div className="player-key"><strong>{track?.sonara_key_camelot || "—"}</strong><span>KEY</span></div>
-      <label className="player-volume"><Volume2 size={19} /><input type="range" aria-label="Громкость" min={0} max={1} step={0.01} value={volume} onChange={(event) => setVolume(Number(event.target.value))} /></label>
+      <label className="player-volume"><Volume2 size={19} /><input name="player-volume" type="range" aria-label="Громкость" min={0} max={1} step={0.01} value={volume} onChange={(event) => setVolume(Number(event.target.value))} /></label>
     </footer>
   );
 }

@@ -83,13 +83,13 @@ export function ScanImportDialog({
               <span>Границы отбора</span>
             </div>
             <div className="scan-import-settings">
-              <label>Min, сек<input type="number" min={1} value={settings.minDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, minDurationSeconds: event.target.value })} /></label>
-              <label>Max, сек<input type="number" min={1} value={settings.maxDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, maxDurationSeconds: event.target.value })} /></label>
+              <label>Min, сек<input name="scan-min-duration" type="number" min={1} value={settings.minDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, minDurationSeconds: event.target.value })} /></label>
+              <label>Max, сек<input name="scan-max-duration" type="number" min={1} value={settings.maxDurationSeconds} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, maxDurationSeconds: event.target.value })} /></label>
               <div className="worker-control">
                 <span>Workers</span>
                 <div className="stepper">
                   <button className="icon-button scan-import-workers-decrement-button" title="Уменьшить workers" disabled={disabled || settings.workers <= 1} onClick={() => onSettingsChange({ ...settings, workers: settings.workers - 1 })} type="button"><Minus size={15} /></button>
-                  <input type="number" min={1} max={maxWorkers} value={settings.workers} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, workers: Math.min(maxWorkers, Math.max(1, Number(event.target.value) || 1)) })} />
+                  <input name="scan-workers" type="number" min={1} max={maxWorkers} value={settings.workers} disabled={disabled} onChange={(event) => onSettingsChange({ ...settings, workers: Math.min(maxWorkers, Math.max(1, Number(event.target.value) || 1)) })} />
                   <button className="icon-button scan-import-workers-increment-button" title="Увеличить workers" disabled={disabled || settings.workers >= maxWorkers} onClick={() => onSettingsChange({ ...settings, workers: settings.workers + 1 })} type="button"><Plus size={15} /></button>
                 </div>
               </div>
@@ -101,7 +101,7 @@ export function ScanImportDialog({
             </div>
             <p className="scan-import-description">Выберите папку как источник для загрузки треков в базу: сканирование папок выполняется рекурсивно.</p>
             <div className="path-row scan-import-path-row">
-              <input value={settings.root} readOnly placeholder="Папка не выбрана" aria-label="Папка с треками" />
+              <input name="scan-root" value={settings.root} readOnly placeholder="Папка не выбрана" aria-label="Папка с треками" />
               <button className="icon-button folder-picker scan-import-folder-button" title="Выбрать папку на сервере" aria-label="Выбрать папку на сервере" disabled={disabled} onClick={() => void chooseFolder()} type="button"><FolderOpen size={17} /></button>
             </div>
           </section>

@@ -14,7 +14,7 @@ export function MertV2LayerSelect({ state }: { state: MertV2LayerState }) {
   const hint = authorHints[state.layer];
   return <div className="mert-v2-layer-select">
     <label title={`${hintMeaning}${hint ? ` ${hint.tasks}.` : ""}`}>Слой MERT-v2
-      <select value={state.layer} disabled={state.loading || !state.layers} onChange={event => state.selectLayer(Number(event.target.value))}>
+      <select name="mert-v2-layer" value={state.layer} disabled={state.loading || !state.layers} onChange={event => state.selectLayer(Number(event.target.value))}>
         {Array.from({ length: 24 }, (_, index) => index + 1).map(layer => {
           const count = state.layers?.find(row => row.layer === layer)?.track_count ?? 0;
           const itemHint = authorHints[layer];

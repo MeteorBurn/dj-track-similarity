@@ -43,6 +43,7 @@ export function AudioDedupDialog({
   onDeleted: (message: string) => void;
 }) {
   const dedup = useAudioDedup({ open });
+  const [wholeLibrary, setWholeLibrary] = useState(true);
   const [root, setRoot] = useState("");
   const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint_scan");
   const [detectFakeBitrate, setDetectFakeBitrate] = useState(false);
@@ -73,6 +74,7 @@ export function AudioDedupDialog({
   // A report written without a search root has no boundary to delete inside, and
   // the delete endpoint refuses it. Say so here instead of letting the reviewer
   // mark copies and collect a 400.
+  const rootMissing = !wholeLibrary && root.trim() === "";
   const rootlessReport = activeReport !== null && !activeReport.root;
   const canDelete = summary.files > 0 && !dedup.busy && !rootlessReport;
   const selectionText =
@@ -169,6 +171,19 @@ export function AudioDedupDialog({
               ) : null}
             </div>
             <div className="dedup-scan-grid">
+              <label
+                className={`dedup-toggle ${dedup.scanRunning ? "disabled" : ""}`}
+                title={helpText.audioDedupWholeLibrary}
+              >
+                <input
+                  name="dedup-whole-library"
+                  type="checkbox"
+                  checked={wholeLibrary}
+                  disabled={dedup.scanRunning}
+                  onChange={(event) => setWholeLibrary(event.target.checked)}
+                />
+                <span>Вся база</span>
+              </label>
               <label className="dedup-control dedup-control-grow">
                 <span>Корень поиска</span>
                 <div className="dedup-path-row">
@@ -176,7 +191,8 @@ export function AudioDedupDialog({
                     name="dedup-root"
                     value={root}
                     title={helpText.audioDedupDedupRoot}
-                    disabled={dedup.scanRunning}
+                    placeholder={wholeLibrary ? "Вся база" : "M:/Volumes/Abstracted"}
+                    disabled={dedup.scanRunning || wholeLibrary}
                     onChange={(event) => setRoot(event.target.value)}
                   />
                   <button
@@ -184,7 +200,7 @@ export function AudioDedupDialog({
                     type="button"
                     title="Выбрать папку"
                     aria-label="Выбрать папку"
-                    disabled={dedup.scanRunning}
+                    disabled={dedup.scanRunning || wholeLibrary}
                     onClick={() => void chooseRoot()}
                   >
                     <FolderOpen size={16} />
@@ -234,10 +250,15 @@ export function AudioDedupDialog({
                 <button
                   className="dedup-primary-button"
                   type="button"
-                  disabled={dedup.busy}
+                  disabled={dedup.busy || rootMissing}
+                  title={
+                    rootMissing
+                      ? "Укажите корень поиска или верните «Вся база»"
+                      : "Искать дубликаты"
+                  }
                   onClick={() =>
                     void dedup.startScan({
-                      root: root.trim(),
+                      root: wholeLibrary ? "" : root.trim(),
                       search_mode: searchMode,
                       detect_fake_bitrate: detectFakeBitrate
                     })

@@ -5606,13 +5606,12 @@ button.dedup-play-button {
   font-variant-numeric: tabular-nums;
 }
 
-/* The rows above and below are plain text on the column's left edge, while this
-   one carries a tint, and its border and padding indented the value by eight
-   pixels. The negative inline-start margin gives back exactly that, so the value
-   starts where they do. Only the inline side: pulling the block sides too put
-   the text on the plain rows' 5px rhythm but left the tint two pixels off its
-   neighbours, which reads as crowding. The grid's gap sits equally above and
-   below either way. */
+/* A tinted box between two rows of plain text. It keeps to the column: the box
+   starts on the rows' left edge and the value sits inside it by its own border
+   and padding, so the tint never hangs out into the card's padding. The rows'
+   5px gap is spacing between lines of text and crowds a box, so the chip brings
+   its own block margin and stands 8px clear above and below, the rhythm the
+   card's blocks already keep. */
 .dedup-spectral {
   align-items: center;
   border: 1px solid transparent;
@@ -5621,8 +5620,8 @@ button.dedup-play-button {
   font-size: 11px;
   font-weight: 600;
   gap: 4px;
-  margin-inline-start: -8px;
-  padding: 2px 7px;
+  margin-block: 3px;
+  padding: 3px 7px;
   width: fit-content;
 }
 

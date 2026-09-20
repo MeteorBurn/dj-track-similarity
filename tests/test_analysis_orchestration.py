@@ -37,13 +37,18 @@ from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.maest import MaestAnalysisResult
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
-from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
+from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
+from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
-def _mert_output() -> AnalysisOutput:
-    return current_embedding_analysis_output("mert", device="cpu")
+def _muq_output() -> AnalysisOutput:
+    return current_embedding_analysis_output("muq", device="cpu")
+
+
+def _mert_v2_output() -> AnalysisOutput:
+    return current_embedding_analysis_output("mert_v2", device="cpu")
 
 
 def _clap_output() -> AnalysisOutput:
@@ -99,6 +104,9 @@ class _FakeRepository:
     active_by_key: dict[tuple[str, str], AnalysisOutput] = field(
         default_factory=dict,
     )
+
+    def require_mert_v2_layer_storage(self) -> None:
+        pass
 
     def register_analysis_outputs(
         self,
@@ -188,12 +196,12 @@ class _FakeRunner:
 
 
 def test_job_registers_exact_outputs_before_candidate_selection() -> None:
-    mert = _mert_output()
+    muq = _muq_output()
     clap = _clap_output()
-    candidate = _candidate(1, (mert, clap))
+    candidate = _candidate(1, (muq, clap))
     repository = _FakeRepository([candidate])
     runners = {
-        "mert": _FakeRunner("mert", (mert,)),
+        "muq": _FakeRunner("muq", (muq,)),
         "clap": _FakeRunner("clap", (clap,)),
     }
 
@@ -201,7 +209,7 @@ def test_job_registers_exact_outputs_before_candidate_selection() -> None:
         repository,
         model_runners=runners,
         decode_audio=lambda path: _decoded(str(path)),
-    ).run_sync(models=["clap", "mert"], device="cpu")
+    ).run_sync(models=["clap", "muq"], device="cpu")
 
     assert [event[0] for event in repository.events] == [
         "register",
@@ -210,11 +218,11 @@ def test_job_registers_exact_outputs_before_candidate_selection() -> None:
     registered = repository.events[0][1]
     assert isinstance(registered, tuple)
     assert [output.key for output in registered] == [
-        ("mert", "embedding"),
+        ("muq", "embedding"),
         ("clap", "embedding"),
     ]
     assert repository.events[1][1] == (
-        (mert, clap),
+        (muq, clap),
         None,
         True,
     )
@@ -222,7 +230,7 @@ def test_job_registers_exact_outputs_before_candidate_selection() -> None:
     assert status.total == 1
     assert status.phase == "analyzing"
     messages = [event.message for event in status.events]
-    assert messages.index("Model warm-up started: mert, clap") < messages.index(
+    assert messages.index("Model warm-up started: muq, clap") < messages.index(
         "Analysis candidates ready: 1"
     )
     assert all(runner.preflight_calls == 1 for runner in runners.values())
@@ -230,7 +238,7 @@ def test_job_registers_exact_outputs_before_candidate_selection() -> None:
     assert status.analyzed == 1
     assert status.failed == 0
     assert not hasattr(status, "embedding_key")
-    assert runners["mert"].items[0].candidate is candidate
+    assert runners["muq"].items[0].candidate is candidate
     assert runners["clap"].items[0].candidate is candidate
 
 
@@ -242,36 +250,36 @@ def test_ml_job_is_unavailable_without_current_sonara() -> None:
         ValueError,
         match="ML analysis requires at least one track with current SONARA",
     ):
-        manager.create_job(models=["mert"], device="cpu")
+        manager.create_job(models=["muq"], device="cpu")
 
     assert repository.events == []
 
 
-@pytest.mark.parametrize("failure_origin", ["result", "mert_batch", "mert_staged"])
+@pytest.mark.parametrize("failure_origin", ["result", "mert_v2_batch", "mert_v2_staged"])
 def test_per_file_runner_failure_does_not_fail_the_job(failure_origin: str, tmp_path: Path) -> None:
-    output = _mert_output()
+    output = _mert_v2_output()
     candidates = [_candidate(1, (output,)), _candidate(2, (output,))]
     repository = _FakeRepository(candidates)
     runner = _FakeRunner(
-        "mert",
+        "mert_v2",
         (output,),
         errors=(None, RuntimeError("stale target")),
     )
     if failure_origin != "result":
-        class FailingMertAdapter(_FakeMertAdapter):
-            def embed_decoded_batch(self, decoded_items, *, cancelled=None):
+        class FailingMertV2Adapter(_FakeMertV2Adapter):
+            def embed_decoded_layers_batch(self, decoded_items, *, cancelled=None):
                 if any(Path(item.path).stem == "2" for item in decoded_items):
                     raise RuntimeError("stale target")
-                return super().embed_decoded_batch(decoded_items, cancelled=cancelled)
+                return super().embed_decoded_layers_batch(decoded_items, cancelled=cancelled)
 
         runner = EmbeddingModelRunner(
-            "mert", device="cpu", inference_batch_size=2, adapter=FailingMertAdapter(),
+            "mert_v2", device="cpu", inference_batch_size=2, adapter=FailingMertV2Adapter(),
         )
         write_repository = _EmbeddingWriteRepository()
         repository.save_embedding_results = write_repository.save_embedding_results
-    runners = {"mert": runner}
+    runners = {"mert_v2": runner}
     staging_config = None
-    if failure_origin == "mert_staged":
+    if failure_origin == "mert_v2_staged":
         clap_output = _clap_output()
         runners["clap"] = _FakeRunner("clap", (clap_output,))
         for index, candidate in enumerate(candidates):
@@ -297,14 +305,14 @@ def test_per_file_runner_failure_does_not_fail_the_job(failure_origin: str, tmp_
         assert [write.target.track_id for write in write_repository.writes] == [1]
     assert status.analyzed == 1
     assert status.failed == 1
-    assert status.model_progress["mert"].analyzed == 1
-    assert status.model_progress["mert"].failed == 1
+    assert status.model_progress["mert_v2"].analyzed == 1
+    assert status.model_progress["mert_v2"].failed == 1
     assert status.errors[0].track_id == 2
     assert "stale target" in status.errors[0].error
-    if failure_origin == "mert_staged":
+    if failure_origin == "mert_v2_staged":
         assert status.model_progress["clap"].analyzed == 2
         assert status.model_progress["clap"].failed == 0
-        assert [error.model for error in status.errors] == ["mert"]
+        assert [error.model for error in status.errors] == ["mert_v2"]
 
 
 def test_runner_initialization_failure_is_fatal_before_activation() -> None:
@@ -316,7 +324,7 @@ def test_runner_initialization_failure_is_fatal_before_activation() -> None:
     status = AnalysisJobManager(
         repository,
         runner_factory=fail_factory,
-    ).run_sync(models=["mert"], device="cpu")
+    ).run_sync(models=["muq"], device="cpu")
 
     assert status.state == "failed"
     assert status.processed == 0
@@ -330,12 +338,12 @@ def test_staging_entry_failure_finishes_job_and_releases_execution(
     tmp_path: Path,
     error_type: type[BaseException],
 ) -> None:
-    output = _mert_output()
+    output = _muq_output()
     repository = _FakeRepository([_candidate(1, (output,))])
-    runner = _FakeRunner("mert", (output,))
-    manager = AnalysisJobManager(repository, model_runners={"mert": runner})
+    runner = _FakeRunner("muq", (output,))
+    manager = AnalysisJobManager(repository, model_runners={"muq": runner})
     job_id = manager.create_job(
-        models=["mert"], device="cpu", ml_staging_config=MLStagingConfig(root=tmp_path)
+        models=["muq"], device="cpu", ml_staging_config=MLStagingConfig(root=tmp_path)
     )
     error = error_type("staging unavailable")
     payload = manager._payload(job_id)
@@ -384,7 +392,7 @@ def test_staging_entry_failure_finishes_job_and_releases_execution(
 def test_finished_job_releases_track_data_but_retains_status_and_configuration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, cancel_at: str | None,
 ) -> None:
-    output = _mert_output()
+    output = _clap_output()
     maest_runner = (
         MaestModelRunner(device="cpu", top_k=3, inference_batch_size=2, adapter=_FakeMaestAdapter())
         if mode == "staged" else None
@@ -444,7 +452,7 @@ def test_finished_job_releases_track_data_but_retains_status_and_configuration(
 
     monkeypatch.setattr(runner_module, "load_decoded_audio_with_ffmpeg", fallback_audio)
 
-    class ReleasingMertAdapter(_FakeMertAdapter):
+    class ReleasingClapAdapter(_FakeClapAdapter):
         def embed_decoded_batch(self, decoded_items, *, cancelled=None):
             payload = manager._payload(job_id)
             outcome_refs.extend(weakref.ref(value) for value in payload.track_outcomes.values())
@@ -457,13 +465,13 @@ def test_finished_job_releases_track_data_but_retains_status_and_configuration(
                 manager.cancel(job_id)
                 if cancel_at != "before_write":
                     assert cancelled is not None and cancelled()
-                    raise EmbeddingCancelledError("MERT analysis cancelled")
+                    raise EmbeddingCancelledError("CLAP analysis cancelled")
             return super().embed_decoded_batch(decoded_items)
 
     runner = EmbeddingModelRunner(
-        "mert", device="cpu", inference_batch_size=2, adapter=ReleasingMertAdapter(),
+        "clap", device="cpu", inference_batch_size=2, adapter=ReleasingClapAdapter(),
     )
-    runners = {"mert": runner}
+    runners = {"clap": runner}
     if maest_runner is not None:
         runners["maest"] = maest_runner
     manager = AnalysisJobManager(
@@ -506,8 +514,8 @@ def test_finished_job_releases_track_data_but_retains_status_and_configuration(
     if mode == "staged":
         assert [write.target.track_id for write in maest_writes] == [1, 2, 3, 4]
         assert status.model_progress["maest"].processed == status.model_progress["maest"].analyzed == 4
-        assert status.model_progress["mert"].processed == status.model_progress["mert"].analyzed == 2
-        assert status.model_progress["maest"].failed == status.model_progress["mert"].failed == 0
+        assert status.model_progress["clap"].processed == status.model_progress["clap"].analyzed == 2
+        assert status.model_progress["maest"].failed == status.model_progress["clap"].failed == 0
         assert status.total == 4
         assert status.processed == status.analyzed == 2
         assert status.skipped == 0
@@ -635,20 +643,20 @@ def _assert_clap_job_cancellation(tmp_path, monkeypatch, mode, cancel_at) -> Non
 def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    output = _mert_output()
+    output = _muq_output()
     repository = _FakeRepository([])
     created: list[_FakeRunner] = []
 
     def factory(model: str, _device: str, _batch_size: int, _top_k: int) -> _FakeRunner:
-        assert model == "mert"
+        assert model == "muq"
         runner = _FakeRunner(model, (output,))
         created.append(runner)
         return runner
 
     manager = AnalysisJobManager(repository, runner_factory=factory)
 
-    first = manager.run_sync(models=["mert"], device="cpu")
-    second = manager.run_sync(models=["mert"], device="cpu")
+    first = manager.run_sync(models=["muq"], device="cpu")
+    second = manager.run_sync(models=["muq"], device="cpu")
 
     assert first.state == second.state == "completed"
     assert len(created) == 1
@@ -660,9 +668,9 @@ def test_ml_runtime_runner_is_reused_after_its_first_successful_preflight(
     assert runner_ref() is None
     assert manager.get(first.job_id).state == "completed"
     with pytest.raises(RuntimeError, match="closed"):
-        manager.start(models=["mert"], device="cpu")
+        manager.start(models=["muq"], device="cpu")
     with pytest.raises(RuntimeError, match="closed"):
-        manager.run_sync(models=["mert"], device="cpu")
+        manager.run_sync(models=["muq"], device="cpu")
     with pytest.raises(RuntimeError, match="closed"):
         manager.run_job(first.job_id)
 
@@ -878,7 +886,7 @@ def test_ml_runtime_runner_is_not_reused_across_runtime_settings(tmp_path: Path)
 
 
 def test_model_preflight_failure_preserves_prior_active_output() -> None:
-    for model in ("mert", "mert_v2"):
+    for model in ("muq", "mert_v2"):
         old_output = AnalysisOutput(model, "embedding")
         new_output = AnalysisOutput(model, "embedding")
         repository = _FakeRepository([], active_by_key={old_output.key: old_output})
@@ -908,12 +916,11 @@ def test_model_preflight_failure_preserves_prior_active_output() -> None:
 def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     runners = [
         default_model_runners(model, "cpu", 7, 11)
-        for model in ("maest", "mert", "mert_v2", "muq", "mulan", "clap")
+        for model in ("maest", "mert_v2", "muq", "mulan", "clap")
     ]
 
     assert [runner.model for runner in runners] == [
         "maest",
-        "mert",
         "mert_v2",
         "muq",
         "mulan",
@@ -924,7 +931,6 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
         for runner in runners
     } == {
         "maest": (("maest", "analysis"), ("maest", "embedding")),
-        "mert": (("mert", "embedding"),),
         "mert_v2": (("mert_v2", "embedding"),),
         "muq": (("muq", "embedding"),),
         "mulan": (("mulan", "embedding"),),
@@ -932,7 +938,6 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
     }
     expected_dimensions = {
         "maest": 768,
-        "mert": 768,
         "mert_v2": 1024,
         "muq": 1024,
         "mulan": 512,
@@ -950,13 +955,13 @@ def test_default_ml_runners_declare_current_outputs_before_model_load() -> None:
 
 
 def test_cancelled_queued_job_performs_no_repository_work() -> None:
-    output = _mert_output()
+    output = _muq_output()
     repository = _FakeRepository([_candidate(1, (output,))])
     manager = AnalysisJobManager(
         repository,
-        model_runners={"mert": _FakeRunner("mert", (output,))},
+        model_runners={"muq": _FakeRunner("muq", (output,))},
     )
-    job_id = manager.create_job(models=["mert"], device="cpu")
+    job_id = manager.create_job(models=["muq"], device="cpu")
 
     manager.cancel(job_id)
     status = manager.run_job(job_id)
@@ -965,7 +970,7 @@ def test_cancelled_queued_job_performs_no_repository_work() -> None:
     assert repository.events == []
 
 
-class _FakeMertAdapter(MertEmbeddingAdapter):
+class _FakeMuqAdapter(MuqEmbeddingAdapter):
     def __init__(self) -> None:
         super().__init__(
             device="cpu",
@@ -981,7 +986,49 @@ class _FakeMertAdapter(MertEmbeddingAdapter):
         *,
         cancelled: Callable[[], bool] | None = None,
     ) -> list[np.ndarray]:
-        vector = np.zeros(768, dtype=np.float32)
+        vector = np.zeros(1024, dtype=np.float32)
+        vector[0] = 1.0
+        return [vector.copy() for _item in decoded_items]
+
+
+class _FakeMertV2Adapter(MertV2EmbeddingAdapter):
+    def __init__(self) -> None:
+        super().__init__(
+            device="cpu",
+            inference_batch_size=2,
+        )
+
+    def preflight(self) -> None:
+        pass
+
+    def embed_decoded_layers_batch(
+        self,
+        decoded_items: Sequence[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[tuple[np.ndarray, ...]]:
+        vector = np.zeros(1024, dtype=np.float32)
+        vector[0] = 1.0
+        return [tuple(vector.copy() for _ in range(24)) for _item in decoded_items]
+
+
+class _FakeClapAdapter(ClapEmbeddingAdapter):
+    def __init__(self) -> None:
+        super().__init__(
+            device="cpu",
+            inference_batch_size=2,
+        )
+
+    def preflight(self) -> None:
+        pass
+
+    def embed_decoded_batch(
+        self,
+        decoded_items: Sequence[DecodedAudio],
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> list[np.ndarray]:
+        vector = np.zeros(512, dtype=np.float32)
         vector[0] = 1.0
         return [vector.copy() for _item in decoded_items]
 
@@ -1008,10 +1055,10 @@ class _EmbeddingWriteRepository:
 
 def test_embedding_runner_writes_typed_contract_output_only() -> None:
     runner = EmbeddingModelRunner(
-        "mert",
+        "muq",
         device="cpu",
         inference_batch_size=2,
-        adapter=_FakeMertAdapter(),  # type: ignore[arg-type]
+        adapter=_FakeMuqAdapter(),  # type: ignore[arg-type]
     )
     candidate = _candidate(1, runner.candidate_outputs)
     repository = _EmbeddingWriteRepository()
@@ -1022,7 +1069,7 @@ def test_embedding_runner_writes_typed_contract_output_only() -> None:
             AnalysisBatchItem(
                 candidate=candidate,
                 decoded=_decoded(candidate.file_path),
-                models=("mert",),
+                models=("muq",),
             ),
         ),
     )
@@ -1032,7 +1079,7 @@ def test_embedding_runner_writes_typed_contract_output_only() -> None:
     write = repository.writes[0]
     assert write.target == candidate.target
     assert write.output.family == runner.active_outputs[0].analysis_family
-    assert write.output.vector.shape == (768,)
+    assert write.output.vector.shape == (1024,)
     assert np.linalg.norm(write.output.vector) == pytest.approx(1.0)
 
 
@@ -1120,7 +1167,7 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
         assert len(rows) == 1
         assert rows[0].target.track_uuid == mutation.identity.track_uuid
         np.testing.assert_array_equal(rows[0].vector, layers[layer - 1])
-    assert _stored_embedding(database, mutation.identity, family="mert") is None
+    assert _stored_embedding(database, mutation.identity, family="muq") is None
 
 
 def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(
@@ -1275,7 +1322,7 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
 
 @pytest.mark.parametrize("mode", ["run_job", "run_sync", "threaded", "queued"])
 def test_manager_close_waits_for_execution_before_releasing_runners(monkeypatch, mode) -> None:
-    output = _mert_output()
+    output = _muq_output()
     entered = threading.Event()
     release = threading.Event()
     closed = threading.Event()
@@ -1291,14 +1338,14 @@ def test_manager_close_waits_for_execution_before_releasing_runners(monkeypatch,
             assert release.wait(5)
             super().preflight()
 
-    runner = BlockingRunner("mert", (output,))
+    runner = BlockingRunner("muq", (output,))
     runner_ref = weakref.ref(runner)
     manager = AnalysisJobManager(
-        _FakeRepository([]), model_runners={"mert": runner}, stage_queue=stage_queue,
+        _FakeRepository([]), model_runners={"muq": runner}, stage_queue=stage_queue,
     )
     del runner
     # An undispatched status must not leave close waiting forever.
-    unused = manager.create_job(models=["mert"], device="cpu")
+    unused = manager.create_job(models=["muq"], device="cpu")
     close_errors = []
     interrupt = KeyboardInterrupt("manager close interrupted")
     interrupted = threading.Event()
@@ -1317,7 +1364,7 @@ def test_manager_close_waits_for_execution_before_releasing_runners(monkeypatch,
         if mode == "run_job":
             results.append(manager.run_job(unused))
         else:
-            results.append(manager.run_sync(models=["mert"], device="cpu"))
+            results.append(manager.run_sync(models=["muq"], device="cpu"))
 
     def close():
         closing.set()
@@ -1335,7 +1382,7 @@ def test_manager_close_waits_for_execution_before_releasing_runners(monkeypatch,
     second_close = threading.Thread(target=lambda: (manager.close(), second_closed.set()), daemon=True)
     try:
         if mode in {"queued", "threaded"}:
-            results.append(manager.start(models=["mert"], device="cpu"))
+            results.append(manager.start(models=["muq"], device="cpu"))
         else:
             worker = threading.Thread(target=run, daemon=True)
             worker.start()
@@ -1365,7 +1412,7 @@ def test_manager_close_waits_for_execution_before_releasing_runners(monkeypatch,
     assert runner_ref() is None
     assert manager.get(results[0].job_id).state == "completed"
     with pytest.raises(RuntimeError, match="closed"):
-        manager.create_job(models=["mert"], device="cpu")
+        manager.create_job(models=["muq"], device="cpu")
 
 
 @pytest.mark.parametrize("mode", ["queued", "threaded"])
@@ -1378,11 +1425,11 @@ def test_manager_close_in_dispatch_gap_preserves_accepted_work(monkeypatch, mode
     closing = threading.Event()
     closed = threading.Event()
     statuses = []
-    output = _mert_output()
-    runner = _FakeRunner("mert", (output,))
+    output = _muq_output()
+    runner = _FakeRunner("muq", (output,))
     stage_queue = AnalysisStageQueue() if mode == "queued" else None
     manager = AnalysisJobManager(
-        _FakeRepository([]), model_runners={"mert": runner}, stage_queue=stage_queue,
+        _FakeRepository([]), model_runners={"muq": runner}, stage_queue=stage_queue,
     )
 
     def hold_dispatch():
@@ -1408,7 +1455,7 @@ def test_manager_close_in_dispatch_gap_preserves_accepted_work(monkeypatch, mode
         ))
 
     starter = threading.Thread(target=lambda: statuses.append(
-        manager.start(models=["mert"], device="cpu")
+        manager.start(models=["muq"], device="cpu")
     ), daemon=True)
 
     def close():
@@ -1446,7 +1493,7 @@ def test_rejected_queue_dispatch_finishes_job_and_releases_reservation() -> None
     manager = AnalysisJobManager(_FakeRepository([]), stage_queue=stage_queue)
     stage_queue.close()
     with pytest.raises(RuntimeError, match="closed"):
-        manager.start(models=["mert"], device="cpu")
+        manager.start(models=["muq"], device="cpu")
     assert manager.latest().state == "failed"
     closed = threading.Event()
     closer = threading.Thread(target=lambda: (manager.close(), closed.set()), daemon=True)

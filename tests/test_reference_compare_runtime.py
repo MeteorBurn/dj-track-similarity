@@ -60,12 +60,12 @@ def _insert_track(
     )
 
 
-def _mert_output():
-    return current_embedding_analysis_output("mert")
+def _muq_output():
+    return current_embedding_analysis_output("muq")
 
 
-def _mert_vector(first: float, second: float) -> np.ndarray:
-    vector = np.zeros(768, dtype=np.float32)
+def _muq_vector(first: float, second: float) -> np.ndarray:
+    vector = np.zeros(1024, dtype=np.float32)
     vector[0] = first
     vector[1] = second
     return vector
@@ -135,12 +135,12 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
 ) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
     seed = _insert_track(database, tmp_path, "seed")
-    mert_top = _insert_track(database, tmp_path, "mert-top")
+    muq_top = _insert_track(database, tmp_path, "muq-top")
     sonara_top = _insert_track(database, tmp_path, "sonara-top")
     unrelated = _insert_track(database, tmp_path, "unrelated")
-    mert_output = _mert_output()
+    muq_output = _muq_output()
     database.register_analysis_outputs(
-        (mert_output, AnalysisOutput("sonara", "core"))
+        (muq_output, AnalysisOutput("sonara", "core"))
     )
     assert all(
         result.ok
@@ -149,16 +149,16 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
                 EmbeddingWrite(
                     target=seed,
                     output=EmbeddingOutput(
-                        family="mert",
-                        vector=_mert_vector(1.0, 0.0),
+                        family="muq",
+                        vector=_muq_vector(1.0, 0.0),
                         analyzed_at=_NOW,
                     ),
                 ),
                 EmbeddingWrite(
-                    target=mert_top,
+                    target=muq_top,
                     output=EmbeddingOutput(
-                        family="mert",
-                        vector=_mert_vector(0.8, 0.6),
+                        family="muq",
+                        vector=_muq_vector(0.8, 0.6),
                         analyzed_at=_NOW,
                     ),
                 ),
@@ -168,7 +168,7 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     for target, energy, danceability in (
         (seed, 0.9, 0.9),
         (sonara_top, 0.8, 0.8),
-        (mert_top, 0.1, 0.1),
+        (muq_top, 0.1, 0.1),
     ):
         result = database.save_sonara_results(
             (
@@ -185,10 +185,10 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
         assert result.ok, result.error
 
     for candidate, source, tags in (
-        (mert_top, "reference_compare:mert", ("groove",)),
-        (mert_top, "reference_compare:sonara", ("palette",)),
+        (muq_top, "reference_compare:muq", ("groove",)),
+        (muq_top, "reference_compare:sonara", ("palette",)),
         (sonara_top, "reference_compare:sonara", ("mood", "palette")),
-        (unrelated, "reference_compare:mert", ("miss",)),
+        (unrelated, "reference_compare:muq", ("miss",)),
         (sonara_top, "manual", ("transition",)),
     ):
         database.upsert_track_pair_feedback(
@@ -200,7 +200,7 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
         )
 
     selected_ids: set[int] = set()
-    expected_ids = {seed.track_id, mert_top.track_id, sonara_top.track_id}
+    expected_ids = {seed.track_id, muq_top.track_id, sonara_top.track_id}
     changed_summary_id: int | None = None
     get_summaries = database.get_track_summaries
     get_feedback = database.get_track_pair_feedback_tags_exact
@@ -225,9 +225,9 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
             seed.catalog_uuid, seed.track_id, seed.track_uuid
         )
         assert {candidate.track_id for candidate in candidates} == {
-            mert_top.track_id, sonara_top.track_id,
+            muq_top.track_id, sonara_top.track_id,
         }
-        assert set(sources) == {"reference_compare:mert", "reference_compare:sonara"}
+        assert set(sources) == {"reference_compare:muq", "reference_compare:sonara"}
         feedback_reads.append((reference, tuple(candidates)))
         return get_feedback(reference, candidates, sources)
 
@@ -240,7 +240,7 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     monkeypatch.setattr(database, "get_pair_feedback_map", reject_full_feedback_map)
     query = ReferenceCompareQuery(
         seed_track_id=seed.track_id,
-        models=("mert", "clap", "sonara"),
+        models=("muq", "clap", "sonara"),
         limit=2,
     )
     response = build_reference_compare(
@@ -249,12 +249,12 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     )
     assert selected_ids == expected_ids
     groups = {group.model: group for group in response.groups}
-    assert groups["mert"].available
-    assert groups["mert"].results[0].target == mert_top
-    assert isinstance(groups["mert"].results[0].track, TrackSummary)
-    assert groups["mert"].results[0].track.track_id == mert_top.track_id
-    assert groups["mert"].results[0].score == pytest.approx(0.8)
-    assert groups["mert"].results[0].saved_verdict == "groove"
+    assert groups["muq"].available
+    assert groups["muq"].results[0].target == muq_top
+    assert isinstance(groups["muq"].results[0].track, TrackSummary)
+    assert groups["muq"].results[0].track.track_id == muq_top.track_id
+    assert groups["muq"].results[0].score == pytest.approx(0.8)
+    assert groups["muq"].results[0].saved_verdict == "groove"
     assert not groups["clap"].available
     assert groups["clap"].results == ()
     assert "missing CLAP embedding" in str(groups["clap"].reason)
@@ -262,7 +262,7 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     assert groups["sonara"].results[0].target == sonara_top
     assert [result.target for result in groups["sonara"].results] == [
         sonara_top,
-        mert_top,
+        muq_top,
     ]
     assert [result.saved_verdict for result in groups["sonara"].results] == [
         None,
@@ -274,7 +274,7 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
             assert result.track.catalog_uuid == result.target.catalog_uuid
             assert result.track.track_uuid == result.target.track_uuid
 
-    for changed_summary_id in (seed.track_id, mert_top.track_id):
+    for changed_summary_id in (seed.track_id, muq_top.track_id):
         with pytest.raises(RuntimeError, match="identity changed"):
             build_reference_compare(database, query)
 
@@ -286,6 +286,6 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
     ):
         with pytest.raises(RuntimeError, match="identity is stale"):
             get_feedback(
-                stale_reference, stale_candidates, ("reference_compare:mert",)
+                stale_reference, stale_candidates, ("reference_compare:muq",)
             )
     assert not database.evaluation_path.exists()

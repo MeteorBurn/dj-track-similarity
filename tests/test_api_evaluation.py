@@ -39,7 +39,7 @@ def test_evaluation_summary_keeps_feedback_in_library_and_sessions_in_sidecar(
         candidate.track_id,
         rank=1,
         total_score=0.9,
-        score_breakdown={"sources": {"mert": {"rank": 1}}},
+        score_breakdown={"sources": {"muq": {"rank": 1}}},
     )
     database.upsert_track_pair_feedback(
         seed.track_id,
@@ -131,7 +131,7 @@ def test_weighted_candidate_preview_uses_typed_targets_without_sidecar_write(
     seed = _track(database, tmp_path / "seed.wav")
     close = _track(database, tmp_path / "close.wav")
     far = _track(database, tmp_path / "far.wav")
-    output = current_embedding_analysis_output("mert")
+    output = current_embedding_analysis_output("muq")
     database.register_analysis_outputs((output,))
     for identity, vector in (
         (seed, _vector(1.0, 0.0)),
@@ -159,7 +159,7 @@ def test_weighted_candidate_preview_uses_typed_targets_without_sidecar_write(
         "/api/evaluation/run/weighted-candidates",
         json={
             "name": "typed-preview",
-            "weights": {"mert": 1.0},
+            "weights": {"muq": 1.0},
             "seed_track_ids": [seed.track_id],
             "per_source": 2,
             "limit_per_seed": 1,
@@ -186,7 +186,7 @@ def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
         _track(database, tmp_path / "second.wav"),
         _track(database, tmp_path / "third.wav"),
     )
-    output = current_embedding_analysis_output("mert")
+    output = current_embedding_analysis_output("muq")
     database.register_analysis_outputs((output,))
     for identity, vector in zip(
         tracks,
@@ -218,8 +218,8 @@ def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
         "/api/evaluation/run/weighted-candidates",
         json={
             "name": "legacy-without-muq",
-            "weights": {"mert": 1.0},
-            "sources": ["mert"],
+            "weights": {"muq": 1.0},
+            "sources": ["muq"],
             "sample_count": 1,
             "per_source": 2,
             "limit_per_seed": 1,
@@ -229,7 +229,7 @@ def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["sources"] == ["mert"]
+    assert payload["sources"] == ["muq"]
     assert len(payload["seed_track_ids"]) == 1
     assert payload["rows_returned"] == 1
 
@@ -297,7 +297,7 @@ def _track(database: LibraryDatabase, path: Path):
 
 
 def _vector(first: float, second: float) -> np.ndarray:
-    vector = np.zeros(768, dtype=np.float32)
+    vector = np.zeros(1024, dtype=np.float32)
     vector[:2] = (first, second)
     vector /= np.linalg.norm(vector)
     return vector

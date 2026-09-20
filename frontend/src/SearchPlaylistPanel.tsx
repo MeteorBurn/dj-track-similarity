@@ -56,7 +56,7 @@ export type SearchHelpText = {
 };
 
 const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
-  similarity: { label: "SIMILARITY", title: "Seed similarity search (SONARA, MAEST, MERT, MuQ, MuQ-MuLan)" },
+  similarity: { label: "SIMILARITY", title: "Seed similarity search (SONARA, MAEST, MERT-v2, MuQ, MuQ-MuLan)" },
   text: { label: "PROMPT", title: "Prompt-to-track search: describe the sound in words (CLAP or MuQ-MuLan)" },
   class: { label: "CLASSIFIER", title: "Classifier controls" },
   lab: { label: "LAB", title: "Reference Compare model groups" }

@@ -56,8 +56,8 @@ class _ProbabilityModel:
         )
 
 
-def _mert_output() -> AnalysisOutput:
-    return AnalysisOutput("mert", "embedding")
+def _clap_output() -> AnalysisOutput:
+    return AnalysisOutput("clap", "embedding")
 
 
 def _artifact_hash(data: bytes = _ARTIFACT_BYTES) -> str:
@@ -67,14 +67,14 @@ def _artifact_hash(data: bytes = _ARTIFACT_BYTES) -> str:
 def _manifest_payload(
     *,
     classifier_key: str = "test_classifier",
-    feature_names: tuple[str, ...] = ("mert:0",),
+    feature_names: tuple[str, ...] = ("clap:0",),
     artifact_hash: str | None = None,
     label_order: tuple[str, str] = ("negative", "positive"),
 ) -> dict[str, object]:
     return {
         "classifier_key": classifier_key,
         "artifact_hash": artifact_hash or _artifact_hash(),
-        "feature_set": "mert-features",
+        "feature_set": "clap-features",
         "feature_names": list(feature_names),
         "feature_count": len(feature_names),
         "label_order": list(label_order),
@@ -153,7 +153,7 @@ def _write_embedding(
     assert len(results) == 1 and results[0].ok
 
 
-def _write_mert_embedding(
+def _write_clap_embedding(
     db: LibraryDatabase,
     target: AnalysisTarget,
     output: AnalysisOutput,
@@ -191,11 +191,11 @@ def _score_write(
     classifier_key: str,
     score: float = 0.8,
 ) -> ClassifierScoreWrite:
-    output = _mert_output()
+    output = _clap_output()
     specification = ClassifierSpecification(
         classifier_key=classifier_key,
-        feature_set="mert-features",
-        feature_names=("mert:0",),
+        feature_set="clap-features",
+        feature_names=("clap:0",),
         required_outputs=(output,),
         label_order=("negative", "positive"),
         positive_label="positive",
@@ -211,7 +211,7 @@ def _score_write(
             track_id=target.track_id,
             track_uuid=target.track_uuid,
             classifier_key=classifier_key,
-            feature_set="mert-features",
+            feature_set="clap-features",
             feature_names_json=json.dumps(list(specification.feature_names)),
             positive_label="positive",
             predicted_class=("positive" if score > 0.5 else "negative"),
@@ -276,11 +276,11 @@ def test_artifact_validation_preserves_existing_scores_on_failure(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
     _write_sonara_core(db, target)
-    _write_mert_embedding(db, target, output)
+    _write_clap_embedding(db, target, output)
     assert db.save_classifier_scores(
         (
             _score_write(
@@ -346,7 +346,7 @@ def test_artifact_validation_preserves_existing_scores_on_failure(
     assert current == [
         (
             "test_classifier",
-            '["mert:0"]',
+            '["clap:0"]',
             "positive",
             "high",
             pytest.approx(0.8),
@@ -399,9 +399,9 @@ def test_requirements_reject_out_of_range_feature(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    active = _mert_output()
+    active = _clap_output()
     db.register_analysis_outputs((active,))
-    out_of_range = _manifest_payload(feature_names=("mert:768",))
+    out_of_range = _manifest_payload(feature_names=("clap:512",))
     range_path = tmp_path / "out-of-range"
     range_path.mkdir()
     (range_path / "model.joblib").write_bytes(_ARTIFACT_BYTES)
@@ -416,9 +416,9 @@ def test_requirements_reject_out_of_range_feature(
 
     assert summary.status == "invalid"
     assert any(
-        "outside the current mert dimension 768" in error for error in summary.errors
+        "outside the current clap dimension 512" in error for error in summary.errors
     )
-    with pytest.raises(ValueError, match="outside the current mert dimension 768"):
+    with pytest.raises(ValueError, match="outside the current clap dimension 512"):
         load_classifier_requirements(
             db,
             "test_classifier",
@@ -479,10 +479,10 @@ def test_public_scorer_uses_deterministic_argmax_and_bucket_boundaries(
     expected_bucket: str,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
-    _write_mert_embedding(db, target, output)
+    _write_clap_embedding(db, target, output)
     model_path = _write_artifact(tmp_path / "artifact")
     _install_fake_joblib(
         monkeypatch,
@@ -524,10 +524,10 @@ def test_public_scorer_breaks_exact_ties_by_manifest_label_order(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
-    _write_mert_embedding(db, target, output)
+    _write_clap_embedding(db, target, output)
     payload = _manifest_payload(label_order=("positive", "negative"))
     artifact_dir = tmp_path / "tie"
     artifact_dir.mkdir()
@@ -596,7 +596,7 @@ def test_classifier_writer_rejects_contradictory_score_math(
     expected_error: str,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
     base = _score_write(
@@ -651,7 +651,7 @@ def test_classifier_writer_rejects_numeric_strings_before_persistence(
     expected_error: str,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
     base = _score_write(
@@ -677,7 +677,7 @@ def test_classifier_writer_valid_numbers_round_trip_through_reader(
     numeric_score: int | float,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
     write = _score_write(
@@ -708,7 +708,7 @@ def test_classifier_writer_valid_numbers_round_trip_through_reader(
     assert stored.analyzed_at == write.score.analyzed_at
 
     # The persisted recipe belongs to the ordered feature set, not a track or key.
-    names = ("mert:0", "mert:1")
+    names = ("clap:0", "clap:1")
     ordered = replace(
         write,
         specification=replace(write.specification, feature_names=names),

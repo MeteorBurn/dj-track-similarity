@@ -134,7 +134,7 @@ def _write_report(
                         "right_track_id": duplicate[0].track_id,
                         "score": 1.0,
                         "content_similarity": None,
-                        "mert_similarity": None,
+                        "mert_v2_similarity": None,
                         "maest_similarity": None,
                         "muq_similarity": None,
                         "clap_similarity": None,
@@ -271,7 +271,7 @@ def test_audio_dedup_scan_rejects_sources_without_embedding_mode(tmp_path, monke
 
     response = client.post(
         "/api/audio-dedup/jobs",
-        json={"root": str(audio_dir), "search_mode": "fingerprint", "sources": ["mert"]},
+        json={"root": str(audio_dir), "search_mode": "fingerprint", "sources": ["mert_v2"]},
     )
 
     assert response.status_code == 400

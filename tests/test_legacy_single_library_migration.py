@@ -51,7 +51,6 @@ def _create_legacy_core(path: Path, *, catalog_uuid: str) -> None:
         )
         for table in (
             "maest_embeddings",
-            "mert_embeddings",
             "muq_embeddings",
             "mulan_embeddings",
             "clap_embeddings",
@@ -211,7 +210,7 @@ def _create_legacy_artifacts(path: Path, *, catalog_uuid: str) -> None:
             "muq_embeddings",
             "clap_embeddings",
         ):
-            connection.execute(f'DROP TABLE "{table}"')
+            connection.execute(f'DROP TABLE IF EXISTS "{table}"')
             connection.execute(
                 f"""
                 CREATE TABLE {table} (
@@ -244,7 +243,7 @@ def _create_legacy_pair(root: Path, *, artifact_catalog_uuid: str = _CATALOG_UUI
     return core_path
 
 
-def test_migration_merges_a_legacy_pair_without_filtering_analysis_rows(
+def test_migration_merges_a_legacy_pair_and_records_excluded_tables(
     tmp_path: Path,
 ) -> None:
     core_path = _create_legacy_pair(tmp_path)
@@ -263,7 +262,6 @@ def test_migration_merges_a_legacy_pair_without_filtering_analysis_rows(
         "sonara_features": 1,
         "maest_genres": 1,
         "maest_embeddings": 1,
-        "mert_embeddings": 1,
         "muq_embeddings": 1,
         "mulan_embeddings": 0,
         "clap_embeddings": 1,
@@ -283,9 +281,12 @@ def test_migration_merges_a_legacy_pair_without_filtering_analysis_rows(
         ).fetchone()
         assert library == (_CATALOG_UUID, 1, '["D:/Music/House"]')
         assert connection.execute("SELECT COUNT(*) FROM sonara_features").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM mert_embeddings").fetchone()[0] == 1
         assert connection.execute(
-            "SELECT embedding_blob FROM mert_embeddings WHERE track_id = 7"
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'mert_embeddings'"
+        ).fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM muq_embeddings").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT embedding_blob FROM muq_embeddings WHERE track_id = 7"
         ).fetchone()[0] == b"\x00\x00\x80?"
         assert connection.execute(
             "SELECT COUNT(*) FROM track_search_fts WHERE track_search_fts MATCH 'legacy'"
@@ -300,7 +301,13 @@ def test_migration_merges_a_legacy_pair_without_filtering_analysis_rows(
             "reason": "obsolete derived counters",
             "row_count": 1,
             "table": "library_settings",
-        }
+        },
+        {
+            "database": "artifacts",
+            "reason": "retired MERT-95M embedding family",
+            "row_count": 1,
+            "table": "mert_embeddings",
+        },
     ]
 
 

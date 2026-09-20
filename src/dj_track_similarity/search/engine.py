@@ -33,7 +33,7 @@ from ..scalars import finite_number
 
 
 FloatArray = NDArray[np.float32]
-EmbeddingFamily = Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"]
+EmbeddingFamily = Literal["maest", "mert_v2", "muq", "mulan", "clap"]
 CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = 0.5
 
 # Rocchio relevance feedback: how far an accumulated opinion may pull a query.
@@ -48,7 +48,7 @@ FEEDBACK_IRRELEVANT_WEIGHT: Final = 0.25
 # Below this the centroid is one person's afternoon rather than an opinion, and
 # a query pulled by it moves for no reason it could defend.
 FEEDBACK_MINIMUM_TRACKS: Final = 3
-_EMBEDDING_FAMILIES = frozenset({"maest", "mert", "mert_v2", "muq", "mulan", "clap"})
+_EMBEDDING_FAMILIES = frozenset({"maest", "mert_v2", "muq", "mulan", "clap"})
 
 
 class AnalysisSearchRepository(Protocol):

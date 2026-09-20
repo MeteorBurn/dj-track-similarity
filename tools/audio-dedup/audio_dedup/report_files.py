@@ -33,7 +33,7 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: mode
         ),
         f"min_score={payload['min_score']}",
         f"min_similarity={payload['min_similarity']}",
-        "min_similarity_semantics=audio-to-audio content gate over enabled MERT/MAEST/MuQ/CLAP embeddings; not CLAP text-search score",
+        "min_similarity_semantics=audio-to-audio content gate over enabled MERT-v2/MAEST/MuQ/CLAP embeddings; not CLAP text-search score",
         "muq_similarity_semantics=audio-to-audio cosine over structurally valid current-generation stored MuQ embeddings",
         f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",

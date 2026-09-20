@@ -16,7 +16,6 @@ class AnalysisCoverage:
     sonara_core: bool = False
     maest_analysis: bool = False
     maest_embedding: bool = False
-    mert: bool = False
     mert_v2: bool = False
     muq: bool = False
     mulan: bool = False
@@ -244,7 +243,6 @@ class LibrarySummary:
     sonara: int
     maest_analysis: int
     maest_embedding: int
-    mert: int
     mert_v2: int
     muq: int
     mulan: int

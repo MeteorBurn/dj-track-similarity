@@ -25,7 +25,7 @@ from .source_db import MERT_V2_DEFAULT_LAYER, SourceDatabase, SourceTrack
 # (the UI mirrors it). MERT-v2 stores 24 layers; a source token may select one
 # as "mert_v2@<layer>". The bare token is the layer Rhythm Lab has always read,
 # so existing artifacts keep matching.
-SUPPORTED_FEATURE_SOURCES = ("sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap")
+SUPPORTED_FEATURE_SOURCES = ("sonara", "maest", "mert_v2", "muq", "mulan", "clap")
 _LAYERED_FAMILIES = ("mert_v2",)
 _SONARA_CORE_SCALAR_FIELDS = (
     "bpm",

@@ -117,7 +117,7 @@ def score_pair(
         )
         for source in config_module.SUPPORTED_EMBEDDINGS
     }
-    mert = similarities["mert"]
+    mert_v2 = similarities["mert_v2"]
     maest = similarities["maest"]
     muq = similarities["muq"]
     clap = similarities["clap"]
@@ -130,7 +130,7 @@ def score_pair(
     blocked: list[str] = []
     weighted = 0.0
     total = 0.0
-    for source in ("mert", "maest"):
+    for source in config_module.DELETE_SAFETY_EMBEDDINGS:
         if source not in selected_sources.sources:
             continue
         value = similarities[source]
@@ -168,43 +168,42 @@ def score_pair(
             blocked.append(
                 f"missing {required_source.upper()} embedding"
             )
-    if not config_module._uses_legacy_delete_safety_config(selected_sources):
-        corroboration_weighted = 0.0
-        corroboration_total = 0.0
-        corroboration_available = True
-        for required_source in config_module.DELETE_SAFETY_EMBEDDINGS:
-            if required_source not in selected_sources.sources:
-                corroboration_available = False
-                continue
-            required_weight = selected_sources.weights[required_source]
-            if required_weight <= 0:
-                blocked.append(
-                    f"{required_source.upper()} weight is not positive"
-                )
-                corroboration_available = False
-                continue
-            required_similarity = similarities[required_source]
-            if required_similarity is None:
-                corroboration_available = False
-                continue
-            corroboration_weighted += (
-                required_similarity * required_weight
+    corroboration_weighted = 0.0
+    corroboration_total = 0.0
+    corroboration_available = True
+    for required_source in config_module.DELETE_SAFETY_EMBEDDINGS:
+        if required_source not in selected_sources.sources:
+            corroboration_available = False
+            continue
+        required_weight = selected_sources.weights[required_source]
+        if required_weight <= 0:
+            blocked.append(
+                f"{required_source.upper()} weight is not positive"
             )
-            corroboration_total += required_weight
-        if corroboration_available and corroboration_total > 0:
-            corroboration = max(
-                0.0,
-                min(
-                    1.0,
-                    corroboration_weighted / corroboration_total,
-                ),
+            corroboration_available = False
+            continue
+        required_similarity = similarities[required_source]
+        if required_similarity is None:
+            corroboration_available = False
+            continue
+        corroboration_weighted += (
+            required_similarity * required_weight
+        )
+        corroboration_total += required_weight
+    if corroboration_available and corroboration_total > 0:
+        corroboration = max(
+            0.0,
+            min(
+                1.0,
+                corroboration_weighted / corroboration_total,
+            ),
+        )
+        if corroboration < config.min_similarity:
+            blocked.append(
+                "MERT_V2+MAEST corroboration below delete safety "
+                f"threshold ({corroboration:.6f} < "
+                f"{config.min_similarity:.6f})"
             )
-            if corroboration < config.min_similarity:
-                blocked.append(
-                    "MERT+MAEST corroboration below delete safety "
-                    f"threshold ({corroboration:.6f} < "
-                    f"{config.min_similarity:.6f})"
-                )
     if content_similarity is None:
         blocked.append("missing content similarity")
     elif content_similarity < config.min_similarity:
@@ -215,7 +214,7 @@ def score_pair(
         right_id=right.track_id,
         score=max(0.0, min(1.0, score)),
         content_similarity=content_similarity,
-        mert_similarity=mert,
+        mert_v2_similarity=mert_v2,
         maest_similarity=maest,
         muq_similarity=muq,
         clap_similarity=clap,

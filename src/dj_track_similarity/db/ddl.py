@@ -13,7 +13,7 @@ Tables (emission order matches FK dependency order):
       sonara_fingerprints   — SONARA native base64 acoustic fingerprints
   6.  maest_genres          — MAEST genre predictions + syncopated_rhythm flag
   7.  maest_embeddings      — MAEST float32-le embedding BLOBs
-  8.  mert_embeddings       — MERT float32-le embedding BLOBs
+  8.  mert_v2_embeddings    — MERT-v2 float32-le embedding BLOBs, 24 layers/track
   9.  muq_embeddings        — MuQ float32-le embedding BLOBs
   10. mulan_embeddings      — MuQ-MuLan float32-le embedding BLOBs
   11. clap_embeddings       — CLAP float32-le embedding BLOBs
@@ -265,18 +265,6 @@ CREATE TABLE maest_embeddings (
 CREATE INDEX idx_maest_embeddings_track_uuid ON maest_embeddings(track_uuid);
 """
 
-_DDL_MERT_EMBEDDINGS = """
-CREATE TABLE mert_embeddings (
-    track_id           INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
-    track_uuid         TEXT    NOT NULL,
-    dim                INTEGER NOT NULL CHECK(dim > 0),
-    normalization      TEXT    NOT NULL CHECK(normalization IN ('none','l2')),
-    embedding_blob     BLOB    NOT NULL CHECK(length(embedding_blob) = dim * 4),
-    analyzed_at        TEXT    NOT NULL
-);
-CREATE INDEX idx_mert_embeddings_track_uuid ON mert_embeddings(track_uuid);
-"""
-
 MERT_V2_EMBEDDINGS_DDL = """
 CREATE TABLE mert_v2_embeddings (
     track_id INTEGER NOT NULL REFERENCES tracks(track_id) ON DELETE CASCADE,
@@ -442,7 +430,6 @@ _ALL_DDL: list[str] = [
     _DDL_SONARA_FINGERPRINTS,
     _DDL_MAEST_GENRES,
     _DDL_MAEST_EMBEDDINGS,
-    _DDL_MERT_EMBEDDINGS,
     _DDL_MERT_V2_EMBEDDINGS,
     _DDL_MUQ_EMBEDDINGS,
     _DDL_MULAN_EMBEDDINGS,

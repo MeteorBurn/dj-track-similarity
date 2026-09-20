@@ -30,7 +30,7 @@ type ReferenceComparePanelProps = {
   onDetails: (track: TrackSummary) => void;
 };
 
-const referenceCompareModels: ReferenceCompareModel[] = ["sonara", "maest", "mert", "clap", "muq", "mulan"];
+const referenceCompareModels: ReferenceCompareModel[] = ["sonara", "maest", "mert_v2", "clap", "muq", "mulan"];
 const referenceCompareTimeoutMs = 120_000;
 const verdictTimeoutMs = 30_000;
 

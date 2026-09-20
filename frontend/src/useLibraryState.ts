@@ -33,7 +33,6 @@ export const emptyLibrarySummary: LibrarySummary = {
   sonara: 0,
   maest_analysis: 0,
   maest_embedding: 0,
-  mert: 0,
   mert_v2: 0,
   muq: 0,
   mulan: 0,

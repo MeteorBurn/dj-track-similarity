@@ -12,7 +12,6 @@ import dj_track_similarity.embedding.loading as embedding_loading
 import dj_track_similarity.embedding.maest as embedding_maest
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
-from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
 from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
@@ -112,14 +111,13 @@ def _retry_loader_concurrently(adapter, monkeypatch) -> None:
 def test_adapters_expose_dimensions_and_normalization_before_model_load() -> None:
     adapters = (
         MaestEmbeddingAdapter(device="cpu"),
-        MertEmbeddingAdapter(device="cpu"),
         MertV2EmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
         ClapEmbeddingAdapter(device="cpu"),
     )
 
-    assert [adapter.dim for adapter in adapters] == [768, 768, 1024, 1024, 512, 512]
+    assert [adapter.dim for adapter in adapters] == [768, 1024, 1024, 512, 512]
     assert [adapter.normalization for adapter in adapters] == ["l2"] * len(adapters)
     for adapter in adapters:
         assert adapter._model is None
@@ -135,7 +133,6 @@ def test_every_adapter_declares_a_pinned_immutable_identity() -> None:
 
     adapters = (
         MaestEmbeddingAdapter(device="cpu"),
-        MertEmbeddingAdapter(device="cpu"),
         MertV2EmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
@@ -173,7 +170,6 @@ def test_adapter_identity_rejects_an_adapter_with_a_blank_field() -> None:
 def test_adapters_declare_the_shared_torchcodec_decoder() -> None:
     for adapter in (
         MaestEmbeddingAdapter(device="cpu"),
-        MertEmbeddingAdapter(device="cpu"),
         MertV2EmbeddingAdapter(device="cpu"),
         MuqEmbeddingAdapter(device="cpu"),
         MuqMulanEmbeddingAdapter(device="cpu"),
@@ -221,16 +217,12 @@ def test_local_checkpoint_resolution_creates_immutable_verified_binding(
     assert cache_checkpoint.read_bytes() == b"checkpoint"
 
 
-@pytest.mark.parametrize(
-    ("adapter_class", "model_directory"),
-    [(MertEmbeddingAdapter, "mert"), (MertV2EmbeddingAdapter, "mert-v2")],
-)
-def test_mert_loader_deserializes_only_verified_local_snapshot(
+def test_mert_v2_loader_deserializes_only_verified_local_snapshot(
     monkeypatch,
     tmp_path,
-    adapter_class,
-    model_directory,
 ) -> None:
+    adapter_class = MertV2EmbeddingAdapter
+    model_directory = "mert-v2"
     calls: dict[str, object] = {}
     models = []
     processors = []
@@ -251,7 +243,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
         def eval(self):
             calls["eval"] = True
             if self is models[0]:
-                raise RuntimeError("MERT final preparation failed")
+                raise RuntimeError("MERT-v2 final preparation failed")
             return self
 
     class FakeProcessor:
@@ -312,7 +304,7 @@ def test_mert_loader_deserializes_only_verified_local_snapshot(
     assert adapter._model is None and adapter._processor is None
     missing_asset.write_bytes(missing_asset.name.encode())
     _reject_missing_or_corrupt_assets(adapter, [snapshot / name for name in adapter.snapshot_files], tmp_path)
-    with pytest.raises(RuntimeError, match="MERT final preparation failed"):
+    with pytest.raises(RuntimeError, match="MERT-v2 final preparation failed"):
         adapter.preflight()
     assert len(models) == len(processors) == 1
     assert adapter._model is None

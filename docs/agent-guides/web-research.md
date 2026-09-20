@@ -20,7 +20,7 @@ are relative to this file. These guides are read by task, not imported as a batc
   from extracted content when that capability is unavailable.
 - For library/API behavior and errors, use Firecrawl's developer index when
   available to locate official documentation, repository issues and PRs.
-- For audio-model literature (CLAP, MuQ, MuQ-MuLan, MERT, MAEST, SONARA), use
+- For audio-model literature (CLAP, MuQ, MuQ-MuLan, MERT-v2, MAEST, SONARA), use
   the research-paper index when available, inspect relevant papers and linked
   repositories, and cite the paper URL or ID for claims. A web-search research
   category is not equivalent to searching a paper index or reading full text.

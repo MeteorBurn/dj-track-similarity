@@ -27,7 +27,7 @@ LOGGER = logging.getLogger(__name__)
 
 ReferenceCompareModel = Literal[
     "clap",
-    "mert",
+    "mert_v2",
     "muq",
     "mulan",
     "maest",
@@ -46,9 +46,9 @@ ReferenceCompareVerdict = Literal[
 DEFAULT_REFERENCE_COMPARE_MODELS: tuple[
     ReferenceCompareModel,
     ...,
-] = ("clap", "mert", "muq", "mulan", "maest", "sonara")
+] = ("clap", "mert_v2", "muq", "mulan", "maest", "sonara")
 _REFERENCE_COMPARE_MODELS = frozenset(
-    ("clap", "mert", "muq", "mulan", "maest", "sonara")
+    ("clap", "mert_v2", "muq", "mulan", "maest", "sonara")
 )
 _REFERENCE_COMPARE_VERDICTS = frozenset(
     {
@@ -331,7 +331,7 @@ def _reference_compare_group(
 def _embedding_group(
     repository: ReferenceCompareRepository,
     query: ReferenceCompareQuery,
-    model: Literal["clap", "mert", "muq", "mulan", "maest"],
+    model: Literal["clap", "mert_v2", "muq", "mulan", "maest"],
     expected_seed: AnalysisTarget,
 ) -> _ReferenceCompareSearchGroup:
     try:

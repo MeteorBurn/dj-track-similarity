@@ -25,13 +25,13 @@ _ARTIFACT_HASH = f"sha256:{hashlib.sha256(_ARTIFACT_BYTES).hexdigest()}"
 
 
 def _manifest_payload(classifier_key: str) -> dict[str, object]:
-    feature_names = ("mert:0",)
+    feature_names = ("clap:0",)
     payload: dict[str, object] = {
         "classifier_key": classifier_key,
         "profile_name": classifier_key.replace("_", " ").title(),
         "profile_description": "Human-readable classifier description.",
         "artifact_hash": _ARTIFACT_HASH,
-        "feature_set": "mert-features",
+        "feature_set": "clap-features",
         "feature_names": list(feature_names),
         "feature_count": len(feature_names),
         "label_order": ["negative", "positive"],
@@ -85,8 +85,8 @@ def _score_detail(
         score_bucket=("high" if score >= 0.7 else "medium" if score >= 0.3 else "low"),
         confidence=max(probabilities.values()),
         probabilities=probabilities,
-        feature_set="mert-features",
-        feature_names=("mert:0",),
+        feature_set="clap-features",
+        feature_names=("clap:0",),
         positive_label="positive",
         analyzed_at=_NOW,
     )
@@ -189,8 +189,8 @@ def test_promoted_classifiers_expose_feature_driven_manifest_fields(
 
     valid = by_key["valid_classifier"]
     assert valid["manifest_status"] == "valid"
-    assert valid["required_inputs"] == ["mert"]
-    assert valid["feature_names"] == ["mert:0"]
+    assert valid["required_inputs"] == ["clap"]
+    assert valid["feature_names"] == ["clap:0"]
     assert valid["profile_description"] == "Human-readable classifier description."
     assert valid["trained_label_counts"] == {"negative": 12, "positive": 14}
 

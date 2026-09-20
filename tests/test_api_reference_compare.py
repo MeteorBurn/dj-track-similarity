@@ -48,14 +48,14 @@ def test_reference_compare_returns_separate_model_groups(
     assert payload["seed_track_id"] == tracks["seed"].track_id
     assert [group["model"] for group in payload["groups"]] == [
         "clap",
-        "mert",
+        "mert_v2",
         "muq",
         "mulan",
         "maest",
         "sonara",
     ]
     groups = {group["model"]: group for group in payload["groups"]}
-    for model in ("clap", "mert", "muq", "maest", "sonara"):
+    for model in ("clap", "mert_v2", "muq", "maest", "sonara"):
         assert groups[model]["available"] is True
         assert (
             groups[model]["results"][0]["track"]["track_id"]
@@ -75,7 +75,7 @@ def test_reference_compare_returns_separate_model_groups(
     def changed_catalog(database, track_ids, *, include_missing=False):
         return tuple(
             replace(summary, catalog_uuid="changed-catalog")
-            if summary.track_id == tracks["mert_top"].track_id
+            if summary.track_id == tracks["mert_v2_top"].track_id
             else summary
             for summary in get_summaries(
                 database, track_ids, include_missing=include_missing
@@ -96,26 +96,26 @@ def test_reference_compare_marks_missing_model_without_error(
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    mert = _embedding_outputs()["mert"]
-    db.register_analysis_outputs((mert,))
+    mert_v2 = _embedding_outputs()["mert_v2"]
+    db.register_analysis_outputs((mert_v2,))
     seed = _track(db, tmp_path, "seed")
     candidate = _track(db, tmp_path, "candidate")
-    _embedding(db, seed, mert, [1.0, 0.0])
-    _embedding(db, candidate, mert, [0.9, 0.1])
+    _embedding(db, seed, mert_v2, [1.0, 0.0])
+    _embedding(db, candidate, mert_v2, [0.9, 0.1])
 
     response = _client(monkeypatch, db_path).post(
         "/api/reference/compare",
         json={
             "seed_track_id": seed.track_id,
-            "models": ["mert", "clap", "sonara"],
+            "models": ["mert_v2", "clap", "sonara"],
             "limit": 3,
         },
     )
 
     assert response.status_code == 200
     groups = {group["model"]: group for group in response.json()["groups"]}
-    assert groups["mert"]["available"] is True
-    assert groups["mert"]["results"][0]["track"]["track_id"] == candidate.track_id
+    assert groups["mert_v2"]["available"] is True
+    assert groups["mert_v2"]["results"][0]["track"]["track_id"] == candidate.track_id
     assert groups["clap"]["available"] is False
     assert groups["clap"]["results"] == []
     assert groups["sonara"]["available"] is False
@@ -131,8 +131,8 @@ def test_reference_compare_verdict_persists_pair_feedback(
     candidate = _track(db, tmp_path, "candidate")
     other_seed = _track(db, tmp_path, "other-seed")
     outputs = _embedding_outputs()
-    db.register_analysis_outputs((outputs["muq"], outputs["mert"]))
-    for model in ("muq", "mert"):
+    db.register_analysis_outputs((outputs["muq"], outputs["mert_v2"]))
+    for model in ("muq", "mert_v2"):
         for target, values in (
             (seed, [1.0, 0.0]),
             (candidate, [0.9, 0.1]),
@@ -171,7 +171,7 @@ def test_reference_compare_verdict_persists_pair_feedback(
             "/api/reference/compare",
             json={
                 "seed_track_id": reference.track_id,
-                "models": ["muq", "mert"],
+                "models": ["muq", "mert_v2"],
                 "limit": 2,
             },
         )
@@ -185,8 +185,8 @@ def test_reference_compare_verdict_persists_pair_feedback(
     assert saved_verdicts(seed) == {
         ("muq", candidate.track_id): "palette",
         ("muq", other_seed.track_id): None,
-        ("mert", candidate.track_id): None,
-        ("mert", other_seed.track_id): None,
+        ("mert_v2", candidate.track_id): None,
+        ("mert_v2", other_seed.track_id): None,
     }
     assert all(verdict is None for verdict in saved_verdicts(other_seed).values())
     for verdict in ("miss", "genre"):
@@ -288,7 +288,7 @@ def _reference_library(
         for name in (
             "seed",
             "clap_top",
-            "mert_top",
+            "mert_v2_top",
             "muq_top",
             "maest_top",
             "sonara_top",
@@ -296,7 +296,7 @@ def _reference_library(
     }
     for model, vector in (
         ("clap", [1.0, 0.0]),
-        ("mert", [0.0, 1.0]),
+        ("mert_v2", [0.0, 1.0]),
         ("muq", [0.0, 0.0, 1.0]),
         ("maest", [0.7, 0.7]),
     ):
@@ -359,6 +359,11 @@ def _embedding(
         family=output.analysis_family,
         vector=vector,
         analyzed_at=_NOW,
+        layer_vectors=(
+            tuple(vector for _ in range(24))
+            if output.analysis_family == "mert_v2"
+            else None
+        ),
     )
     if output.analysis_family == "maest":
         assert maest_analysis is not None
@@ -383,7 +388,7 @@ def _embedding(
 def _embedding_outputs() -> dict[str, AnalysisOutput]:
     return {
         family: current_embedding_analysis_output(family)
-        for family in ("mert", "clap", "muq", "maest")
+        for family in ("mert_v2", "clap", "muq", "maest")
     }
 
 

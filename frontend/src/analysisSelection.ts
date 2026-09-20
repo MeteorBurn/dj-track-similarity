@@ -7,8 +7,8 @@ export type AnalysisSelection = AnalysisModel;
 // so it only exists at this frontend selection layer.
 export type StageSelection = "database" | AnalysisSelection;
 
-export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"];
-export const mlAnalysisModelOrder: AnalysisModel[] = ["maest", "mert", "mert_v2", "muq", "mulan", "clap"];
+export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert_v2", "muq", "mulan", "clap"];
+export const mlAnalysisModelOrder: AnalysisModel[] = ["maest", "mert_v2", "muq", "mulan", "clap"];
 export const analysisSelectionOrder: AnalysisSelection[] = [...audioAnalysisModelOrder];
 export const defaultStageSelections: StageSelection[] = ["sonara"];
 
@@ -25,7 +25,6 @@ export function analysisStartBlockedByMissingSonara(
 export const analysisModelLabels: Record<AnalysisModel, string> = {
   sonara: "SONARA",
   maest: "MAEST",
-  mert: "MERT",
   mert_v2: "MERT-v2",
   muq: "MuQ",
   mulan: "MuQ-MuLan",

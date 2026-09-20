@@ -1,11 +1,10 @@
-export type EmbeddingSource = "mert" | "mert_v2" | "maest" | "muq" | "mulan" | "clap";
+export type EmbeddingSource = "mert_v2" | "maest" | "muq" | "mulan" | "clap";
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type AnalysisPipelineStage = "sonara" | "ml";
 export type AnalysisCoverage = {
   sonara_core: boolean;
   maest_analysis: boolean;
   maest_embedding: boolean;
-  mert: boolean;
   mert_v2: boolean;
   muq: boolean;
   mulan: boolean;
@@ -230,7 +229,7 @@ export type EmbeddingRandomTrackPayload = {
   exclude_track_ids: number[];
 };
 
-export type ReferenceCompareModel = "clap" | "mert" | "muq" | "mulan" | "maest" | "sonara";
+export type ReferenceCompareModel = "clap" | "mert_v2" | "muq" | "mulan" | "maest" | "sonara";
 export type ReferenceCompareVerdict = "mood" | "palette" | "instruments" | "groove" | "genre" | "transition" | "miss";
 export type ReferenceComparePayload = {
   seed_track_id: number;
@@ -279,7 +278,6 @@ export type LibrarySummary = {
   sonara: number;
   maest_analysis: number;
   maest_embedding: number;
-  mert: number;
   mert_v2: number;
   muq: number;
   mulan: number;
@@ -697,7 +695,7 @@ export type AudioDedupPair = {
   score: number | null;
   fingerprint_similarity: number | null;
   sonara_similarity: number | null;
-  mert_similarity: number | null;
+  mert_v2_similarity: number | null;
   maest_similarity: number | null;
   muq_similarity: number | null;
   clap_similarity: number | null;

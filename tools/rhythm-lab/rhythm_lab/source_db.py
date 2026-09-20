@@ -30,10 +30,10 @@ from dj_track_similarity.rhythm_lab_collections import sonara_content_key
 
 
 # Family order is owner-mandated and mirrored by features.SUPPORTED_FEATURE_SOURCES and the UI.
-EmbeddingFamily: TypeAlias = Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"]
-AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"]
+EmbeddingFamily: TypeAlias = Literal["maest", "mert_v2", "muq", "mulan", "clap"]
+AnalysisFamily: TypeAlias = Literal["sonara", "maest", "mert_v2", "muq", "mulan", "clap"]
 OutputKind: TypeAlias = Literal["core", "analysis", "embedding"]
-FeatureSource: TypeAlias = Literal["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"]
+FeatureSource: TypeAlias = Literal["sonara", "maest", "mert_v2", "muq", "mulan", "clap"]
 FeatureStateStatus: TypeAlias = Literal["current", "missing"]
 
 _OUTPUT_KEYS = frozenset(
@@ -79,7 +79,6 @@ class SourceOutput:
 SONARA_CORE_OUTPUT = SourceOutput("sonara", "core")
 MAEST_ANALYSIS_OUTPUT = SourceOutput("maest", "analysis")
 MAEST_EMBEDDING_OUTPUT = SourceOutput("maest", "embedding")
-MERT_EMBEDDING_OUTPUT = SourceOutput("mert", "embedding")
 MERT_V2_EMBEDDING_OUTPUT = SourceOutput("mert_v2", "embedding")
 MUQ_EMBEDDING_OUTPUT = SourceOutput("muq", "embedding")
 MULAN_EMBEDDING_OUTPUT = SourceOutput("mulan", "embedding")
@@ -88,7 +87,6 @@ CLAP_EMBEDDING_OUTPUT = SourceOutput("clap", "embedding")
 EMBEDDING_OUTPUTS: Mapping[EmbeddingFamily, SourceOutput] = MappingProxyType(
     {
         "maest": MAEST_EMBEDDING_OUTPUT,
-        "mert": MERT_EMBEDDING_OUTPUT,
         "mert_v2": MERT_V2_EMBEDDING_OUTPUT,
         "muq": MUQ_EMBEDDING_OUTPUT,
         "mulan": MULAN_EMBEDDING_OUTPUT,
@@ -99,7 +97,6 @@ SOURCE_OUTPUTS = (
     SONARA_CORE_OUTPUT,
     MAEST_ANALYSIS_OUTPUT,
     MAEST_EMBEDDING_OUTPUT,
-    MERT_EMBEDDING_OUTPUT,
     MERT_V2_EMBEDDING_OUTPUT,
     MUQ_EMBEDDING_OUTPUT,
     MULAN_EMBEDDING_OUTPUT,
@@ -109,7 +106,6 @@ FEATURE_SOURCE_OUTPUTS: Mapping[FeatureSource, SourceOutput] = MappingProxyType(
     {
         "sonara": SONARA_CORE_OUTPUT,
         "maest": MAEST_EMBEDDING_OUTPUT,
-        "mert": MERT_EMBEDDING_OUTPUT,
         "mert_v2": MERT_V2_EMBEDDING_OUTPUT,
         "muq": MUQ_EMBEDDING_OUTPUT,
         "mulan": MULAN_EMBEDDING_OUTPUT,
@@ -132,7 +128,7 @@ def _source_table(output: SourceOutput) -> str:
 def _coverage_attribute(output: SourceOutput) -> str:
     """``AnalysisCoverage`` field for one output.
 
-    A family with a single coverage field uses its own name (``mert``); a family
+    A family with a single coverage field uses its own name (``muq``); a family
     with several uses ``<family>_<kind>`` (``sonara_core``, ``maest_embedding``).
     """
 

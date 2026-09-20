@@ -230,7 +230,7 @@ def pair_payload(pair: models_module.PairEvidence) -> dict[str, object]:
         "right_track_id": pair.right_id,
         "score": values_module._round_float(pair.score),
         "content_similarity": values_module._round_float(pair.content_similarity),
-        "mert_similarity": values_module._round_float(pair.mert_similarity),
+        "mert_v2_similarity": values_module._round_float(pair.mert_v2_similarity),
         "maest_similarity": values_module._round_float(pair.maest_similarity),
         "muq_similarity": values_module._round_float(pair.muq_similarity),
         "clap_similarity": values_module._round_float(pair.clap_similarity),

@@ -11,8 +11,8 @@ def test_search_report_matches_typed_current_events_to_manual_feedback() -> None
     repository.add_session(
         mode="evaluation_candidate_pool",
         events=(
-            {"candidate_track_id": 2, "rank": 1, "sources": {"mert": {"rank": 1}}},
-            {"candidate_track_id": 3, "rank": 2, "sources": {"mert": {"rank": 2}}},
+            {"candidate_track_id": 2, "rank": 1, "sources": {"mert_v2": {"rank": 1}}},
+            {"candidate_track_id": 3, "rank": 2, "sources": {"mert_v2": {"rank": 2}}},
         ),
     )
     repository.add_feedback(2, 3, reason_tags=("energy",))
@@ -29,10 +29,10 @@ def test_search_report_matches_typed_current_events_to_manual_feedback() -> None
 def test_search_report_rejects_legacy_event_provenance_before_metrics() -> None:
     repository = EvaluationRepository()
     repository.add_session(
-        events=({"candidate_track_id": 2, "sources": {"mert": {"rank": 1}}},)
+        events=({"candidate_track_id": 2, "sources": {"mert_v2": {"rank": 1}}},)
     )
     repository.add_feedback(2, 3)
-    repository.sessions[0]["events"][0]["score_breakdown"]["sources"]["mert"][
+    repository.sessions[0]["events"][0]["score_breakdown"]["sources"]["mert_v2"][
         "contract_hash"
     ] = "sha256:" + "0" * 64
 

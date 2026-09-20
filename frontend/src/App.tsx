@@ -353,7 +353,6 @@ export function App() {
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
     maest: librarySummary.maest_analysis,
-    mert: librarySummary.mert,
     mert_v2: librarySummary.mert_v2,
     muq: librarySummary.muq,
     mulan: librarySummary.mulan,
@@ -1509,7 +1508,6 @@ export function App() {
           helpText={helpText}
           sonaraCount={librarySummary.sonara}
           embeddingCounts={{
-            mert: librarySummary.mert,
             mert_v2: librarySummary.mert_v2,
             maest: librarySummary.maest_embedding,
             muq: librarySummary.muq,

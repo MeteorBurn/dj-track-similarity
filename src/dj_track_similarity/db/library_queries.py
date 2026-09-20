@@ -625,7 +625,6 @@ class LibraryQueryRepository:
                 sonara=count_rows(connection, "sonara_features"),
                 maest_analysis=count_rows(connection, "maest_genres"),
                 maest_embedding=count_rows(connection, "maest_embeddings"),
-                mert=count_rows(connection, "mert_embeddings"),
                 mert_v2=int(connection.execute(
                     "SELECT COUNT(DISTINCT track_id) FROM mert_v2_embeddings"
                 ).fetchone()[0]),

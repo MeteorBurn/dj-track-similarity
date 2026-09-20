@@ -33,7 +33,7 @@ def test_sonara_bpm_range_is_one_argument_holding_a_preset_or_an_octave_wide_ran
 
 
 def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() -> None:
-    assert normalize_analysis_models(["CLAP", "muq", "mert", "clap"]) == ("mert", "muq", "clap")
+    assert normalize_analysis_models(["CLAP", "muq", "mert_v2", "clap"]) == ("mert_v2", "muq", "clap")
 
 
 def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:
@@ -44,11 +44,11 @@ def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:
         normalize_analysis_models(["unknown"])
 
     with pytest.raises(ValueError, match="SONARA analysis must run alone"):
-        normalize_analysis_models(["sonara", "mert"])
+        normalize_analysis_models(["sonara", "mert_v2"])
 
 
 def test_parse_analysis_models_text_uses_same_rules() -> None:
-    assert parse_analysis_models_text("mert, maest, mert") == ("maest", "mert")
+    assert parse_analysis_models_text("mert_v2, maest, mert_v2") == ("maest", "mert_v2")
 
 
 def test_normalize_analysis_device_accepts_canonical_torch_devices() -> None:
@@ -64,7 +64,7 @@ def test_normalize_analysis_device_rejects_unknown_values() -> None:
 
 def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
     config = build_analysis_job_config(
-        models=["clap", "MERT"],
+        models=["clap", "MERT_V2"],
         limit=12,
         device=" CPU ",
         top_k=4,
@@ -72,7 +72,7 @@ def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
         inference_batch_size=18,
     )
 
-    assert config.models == ("mert", "clap")
+    assert config.models == ("mert_v2", "clap")
     assert config.limit == 12
     assert config.device == "cpu"
     assert config.top_k == 4
@@ -83,7 +83,7 @@ def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
 
 def test_ml_jobs_require_current_sonara_but_sonara_jobs_do_not() -> None:
     assert build_analysis_job_config(
-        models=["maest", "mert"],
+        models=["maest", "mert_v2"],
     ).require_current_sonara
     assert not build_analysis_job_config(
         models=["sonara"],

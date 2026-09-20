@@ -67,15 +67,15 @@ def test_validator_reports_corrupt_embedding_payload(tmp_path: Path) -> None:
         write_valid_embedding_in_transaction(
             connection=connection,
             track=identity,
-            family="mert",
-            embedding=np.ones(768, dtype="<f4") / np.sqrt(768),
+            family="muq",
+            embedding=np.ones(1024, dtype="<f4") / np.sqrt(1024),
             analyzed_at="2026-08-13T00:00:00Z",
         )
         connection.commit()
     with sqlite3.connect(database.path) as connection:
         connection.execute("PRAGMA ignore_check_constraints = ON")
         connection.execute(
-            "UPDATE mert_embeddings SET track_uuid = ?, normalization = 'none' WHERE track_id = ?",
+            "UPDATE muq_embeddings SET track_uuid = ?, normalization = 'none' WHERE track_id = ?",
             ("wrong-uuid", identity.track_id),
         )
         connection.commit()
@@ -85,7 +85,7 @@ def test_validator_reports_corrupt_embedding_payload(tmp_path: Path) -> None:
     assert any(
         finding.level == "error"
         and finding.entity == "embedding"
-        and finding.table == "mert_embeddings"
+        and finding.table == "muq_embeddings"
         and finding.track_id == identity.track_id
         and finding.code == "embedding_invalid"
         for finding in report.findings

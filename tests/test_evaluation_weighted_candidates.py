@@ -21,7 +21,7 @@ def test_weighted_profile_ranks_high_weight_source_candidate_first(
 ) -> None:
     db, tracks = _weighted_library()
     rows = (
-        _candidate_row(db, tracks["seed"], tracks["mert_top"], {"mert": (1, 100.0)}),
+        _candidate_row(db, tracks["seed"], tracks["mert_v2_top"], {"mert_v2": (1, 100.0)}),
         _candidate_row(db, tracks["seed"], tracks["maest_top"], {"maest": (1, 0.01)}),
     )
     monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
@@ -29,13 +29,13 @@ def test_weighted_profile_ranks_high_weight_source_candidate_first(
     result = build_weighted_candidate_pool(
         db,
         [tracks["seed"]],
-        _score_profile({"mert": 0.1, "maest": 0.9}),
-        ["mert", "maest"],
+        _score_profile({"mert_v2": 0.1, "maest": 0.9}),
+        ["mert_v2", "maest"],
         per_source=2,
         random_seed=123,
     )
 
-    assert [row.candidate_track_id for row in result.rows] == [tracks["maest_top"], tracks["mert_top"]]
+    assert [row.candidate_track_id for row in result.rows] == [tracks["maest_top"], tracks["mert_v2_top"]]
     assert result.rows[0].profile_score > result.rows[1].profile_score
 
 
@@ -44,7 +44,7 @@ def test_weighted_candidates_use_source_ranks_not_raw_scores(
 ) -> None:
     db, tracks = _weighted_library()
     rows = (
-        _candidate_row(db, tracks["seed"], tracks["mert_top"], {"maest": (2, 1000.0)}),
+        _candidate_row(db, tracks["seed"], tracks["mert_v2_top"], {"maest": (2, 1000.0)}),
         _candidate_row(db, tracks["seed"], tracks["maest_top"], {"maest": (1, 0.01)}),
     )
     monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
@@ -58,7 +58,7 @@ def test_weighted_candidates_use_source_ranks_not_raw_scores(
         random_seed=123,
     )
 
-    assert [row.candidate_track_id for row in result.rows] == [tracks["maest_top"], tracks["mert_top"]]
+    assert [row.candidate_track_id for row in result.rows] == [tracks["maest_top"], tracks["mert_v2_top"]]
 
 
 def test_weighted_candidates_exclude_zero_weight_only_support_without_renormalizing(
@@ -69,8 +69,8 @@ def test_weighted_candidates_exclude_zero_weight_only_support_without_renormaliz
         _candidate_row(
             db,
             tracks["seed"],
-            tracks["mert_top"],
-            {"mert": (1, 0.9)},
+            tracks["mert_v2_top"],
+            {"mert_v2": (1, 0.9)},
         ),
         _candidate_row(
             db,
@@ -88,14 +88,14 @@ def test_weighted_candidates_exclude_zero_weight_only_support_without_renormaliz
     result = build_weighted_candidate_pool(
         db,
         [tracks["seed"]],
-        _score_profile({"mert": 0.25, "maest": 0.75, "clap": 0.0}),
-        ["mert", "maest", "clap"],
+        _score_profile({"mert_v2": 0.25, "maest": 0.75, "clap": 0.0}),
+        ["mert_v2", "maest", "clap"],
         per_source=2,
         random_seed=123,
         rrf_k=60,
     )
 
-    assert [row.candidate_track_id for row in result.rows] == [tracks["mert_top"]]
+    assert [row.candidate_track_id for row in result.rows] == [tracks["mert_v2_top"]]
     assert result.rows[0].raw_rrf_score == pytest.approx(0.25 / 61.0)
 
 
@@ -103,35 +103,35 @@ def test_weighted_candidates_zero_weight_source_does_not_change_transition_score
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db, tracks = _weighted_library()
-    mert_only_rows = (
+    mert_v2_only_rows = (
         _candidate_row(
             db,
             tracks["seed"],
-            tracks["mert_top"],
-            {"mert": (2, 0.8)},
+            tracks["mert_v2_top"],
+            {"mert_v2": (2, 0.8)},
         ),
         _candidate_row(
             db,
             tracks["seed"],
             tracks["maest_top"],
-            {"mert": (1, 0.9)},
+            {"mert_v2": (1, 0.9)},
         ),
     )
     rows_with_zero_weight_source = (
         _candidate_row(
             db,
             tracks["seed"],
-            tracks["mert_top"],
-            {"mert": (2, 0.8), "maest": (1, 0.9)},
+            tracks["mert_v2_top"],
+            {"mert_v2": (2, 0.8), "maest": (1, 0.9)},
         ),
-        mert_only_rows[1],
+        mert_v2_only_rows[1],
     )
 
     def candidate_rows(_db, request):
         rows = (
             rows_with_zero_weight_source
             if "maest" in request.sources
-            else mert_only_rows
+            else mert_v2_only_rows
         )
         return rows, ()
 
@@ -149,27 +149,27 @@ def test_weighted_candidates_zero_weight_source_does_not_change_transition_score
         "transition_risk_weight": 1.0,
     }
 
-    mert_only = build_weighted_candidate_pool(
-        profile=_score_profile({"mert": 1.0}),
-        sources=["mert"],
+    mert_v2_only = build_weighted_candidate_pool(
+        profile=_score_profile({"mert_v2": 1.0}),
+        sources=["mert_v2"],
         **common,
     )
     zero_weight_maest = build_weighted_candidate_pool(
-        profile=_score_profile({"mert": 1.0, "maest": 0.0}),
-        sources=["mert", "maest"],
+        profile=_score_profile({"mert_v2": 1.0, "maest": 0.0}),
+        sources=["mert_v2", "maest"],
         **common,
     )
 
-    assert [row.candidate_track_id for row in mert_only.rows] == [
+    assert [row.candidate_track_id for row in mert_v2_only.rows] == [
         tracks["maest_top"],
-        tracks["mert_top"],
+        tracks["mert_v2_top"],
     ]
     assert [row.candidate_track_id for row in zero_weight_maest.rows] == [
         tracks["maest_top"],
-        tracks["mert_top"],
+        tracks["mert_v2_top"],
     ]
     for baseline, with_zero_weight_source in zip(
-        mert_only.rows,
+        mert_v2_only.rows,
         zero_weight_maest.rows,
         strict=True,
     ):
@@ -207,16 +207,16 @@ def test_weighted_candidates_transition_risk_weight_demotes_high_risk_candidate(
         musical_key="8B",
     )
     rows = (
-        _candidate_row(db, tracks["seed"], tracks["risky"], {"mert": (1, 0.9)}),
-        _candidate_row(db, tracks["seed"], tracks["safe"], {"mert": (2, 0.8)}),
+        _candidate_row(db, tracks["seed"], tracks["risky"], {"mert_v2": (1, 0.9)}),
+        _candidate_row(db, tracks["seed"], tracks["safe"], {"mert_v2": (2, 0.8)}),
     )
     monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
 
     result = build_weighted_candidate_pool(
         db,
         [tracks["seed"]],
-        _score_profile({"mert": 1.0}),
-        ["mert"],
+        _score_profile({"mert_v2": 1.0}),
+        ["mert_v2"],
         per_source=2,
         random_seed=123,
         rrf_k=60,
@@ -233,14 +233,14 @@ def test_weighted_candidates_exclude_seed_and_tie_order_is_deterministic(
 ) -> None:
     db, tracks = _weighted_library()
     rows = (
-        _candidate_row(db, tracks["seed"], tracks["seed"], {"mert": (1, 1.0)}),
-        _candidate_row(db, tracks["seed"], tracks["mert_top"], {"mert": (1, 1.0)}),
-        _candidate_row(db, tracks["seed"], tracks["maest_top"], {"mert": (1, 1.0)}),
+        _candidate_row(db, tracks["seed"], tracks["seed"], {"mert_v2": (1, 1.0)}),
+        _candidate_row(db, tracks["seed"], tracks["mert_v2_top"], {"mert_v2": (1, 1.0)}),
+        _candidate_row(db, tracks["seed"], tracks["maest_top"], {"mert_v2": (1, 1.0)}),
     )
     monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
 
-    first = build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert": 1.0}), ["mert"], 2, 19)
-    second = build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert": 1.0}), ["mert"], 2, 19)
+    first = build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert_v2": 1.0}), ["mert_v2"], 2, 19)
+    second = build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert_v2": 1.0}), ["mert_v2"], 2, 19)
 
     assert [row.candidate_track_id for row in first.rows] == [row.candidate_track_id for row in second.rows]
     assert tracks["seed"] not in {row.candidate_track_id for row in first.rows}
@@ -252,7 +252,7 @@ def test_weighted_candidates_record_session_in_profile_rank_order(
 ) -> None:
     db, tracks = _weighted_library()
     rows = (
-        _candidate_row(db, tracks["seed"], tracks["mert_top"], {"mert": (1, 1.0)}),
+        _candidate_row(db, tracks["seed"], tracks["mert_v2_top"], {"mert_v2": (1, 1.0)}),
         _candidate_row(db, tracks["seed"], tracks["maest_top"], {"maest": (1, 1.0)}),
     )
     monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
@@ -260,8 +260,8 @@ def test_weighted_candidates_record_session_in_profile_rank_order(
     result = build_weighted_candidate_pool(
         db,
         [tracks["seed"]],
-        _score_profile({"mert": 0.1, "maest": 0.9}),
-        ["mert", "maest"],
+        _score_profile({"mert_v2": 0.1, "maest": 0.9}),
+        ["mert_v2", "maest"],
         per_source=2,
         random_seed=123,
         record_session=True,
@@ -275,67 +275,67 @@ def test_weighted_candidates_record_session_in_profile_rank_order(
     assert [event["rank"] for event in sessions[0]["events"]] == [1, 2]
     assert sessions[0]["events"][0]["score_breakdown"]["score_kind"] == "weighted_rrf"
     assert sessions[0]["events"][0]["score_breakdown"]["transition_risk_version"] == "v2"
-    assert sessions[0]["events"][0]["score_breakdown"]["profile_weights"] == {"maest": 0.9, "mert": 0.1}
+    assert sessions[0]["events"][0]["score_breakdown"]["profile_weights"] == {"maest": 0.9, "mert_v2": 0.1}
     assert "components" in sessions[0]["events"][0]["score_breakdown"]["weighted_rrf"]
 
 
 def test_weighted_candidates_require_requested_sources_to_match_profile() -> None:
     db, tracks = _weighted_library()
-    profile = _score_profile({"mert": 0.5, "maest": 0.5})
+    profile = _score_profile({"mert_v2": 0.5, "maest": 0.5})
 
     with pytest.raises(ValueError, match="not requested"):
-        build_weighted_candidate_pool(db, [tracks["seed"]], profile, ["mert"], per_source=2, random_seed=123)
+        build_weighted_candidate_pool(db, [tracks["seed"]], profile, ["mert_v2"], per_source=2, random_seed=123)
 
     with pytest.raises(ValueError, match="no score profile weight"):
-        build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert": 1.0}), ["mert", "maest"], per_source=2, random_seed=123)
+        build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert_v2": 1.0}), ["mert_v2", "maest"], per_source=2, random_seed=123)
 
 
 def test_weighted_candidate_csv_row_contains_expected_manual_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db, tracks = _weighted_library()
-    db.summaries[tracks["mert_top"]] = replace(
-        db.summaries[tracks["mert_top"]],
-        album="Album mert_top",
+    db.summaries[tracks["mert_v2_top"]] = replace(
+        db.summaries[tracks["mert_v2_top"]],
+        album="Album mert_v2_top",
         tag_key="2B",
     )
-    db.sonara_rows[tracks["mert_top"]] = _sonara_with_energy(
+    db.sonara_rows[tracks["mert_v2_top"]] = _sonara_with_energy(
         db,
-        tracks["mert_top"],
+        tracks["mert_v2_top"],
         energy=0.9,
         bpm=90.0,
         musical_key="2B",
     )
-    rows = (_candidate_row(db, tracks["seed"], tracks["mert_top"], {"mert": (1, 0.9)}),)
+    rows = (_candidate_row(db, tracks["seed"], tracks["mert_v2_top"], {"mert_v2": (1, 0.9)}),)
     monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
 
-    result = build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert": 1.0}), ["mert"], 1, 123)
+    result = build_weighted_candidate_pool(db, [tracks["seed"]], _score_profile({"mert_v2": 1.0}), ["mert_v2"], 1, 123)
     csv_row = result.rows[0].csv_row()
 
     assert csv_row["rating"] == ""
     assert csv_row["reason_tags"] == ""
     assert csv_row["notes"] == ""
     assert csv_row["source"] == "manual"
-    assert csv_row["candidate_album"] == "Album mert_top"
+    assert csv_row["candidate_album"] == "Album mert_v2_top"
     assert csv_row["candidate_bpm"] == "90.0"
     assert csv_row["candidate_musical_key"] == "2B"
     assert csv_row["candidate_energy"] == "0.9"
     assert csv_row["transition_risk_weight"] == 0.0
     assert csv_row["transition_risk_penalty"] == 0.0
     assert json.loads(str(csv_row["sources_json"])) == {
-        "mert": {
+        "mert_v2": {
             "rank": 1,
             "score": 0.9,
         }
     }
-    assert json.loads(str(csv_row["score_profile_weights_json"])) == {"mert": 1.0}
+    assert json.loads(str(csv_row["score_profile_weights_json"])) == {"mert_v2": 1.0}
 
 
 def _weighted_library() -> tuple[EvaluationRepository, dict[str, int]]:
     db = EvaluationRepository()
     return db, {
         "seed": 1,
-        "mert_top": 2,
+        "mert_v2_top": 2,
         "maest_top": 3,
     }
 

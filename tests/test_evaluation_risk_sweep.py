@@ -13,7 +13,7 @@ def test_risk_sweep_reorders_candidates_by_stored_current_risk() -> None:
         events=(
             {
                 "candidate_track_id": 2,
-                "sources": {"mert": {"rank": 1}},
+                "sources": {"mert_v2": {"rank": 1}},
                 "score_breakdown": {
                     "transition_risk": 0.9,
                     "transition_risk_version": "v2",
@@ -21,7 +21,7 @@ def test_risk_sweep_reorders_candidates_by_stored_current_risk() -> None:
             },
             {
                 "candidate_track_id": 3,
-                "sources": {"mert": {"rank": 2}},
+                "sources": {"mert_v2": {"rank": 2}},
                 "score_breakdown": {
                     "transition_risk": 0.0,
                     "transition_risk_version": "v2",
@@ -33,7 +33,7 @@ def test_risk_sweep_reorders_candidates_by_stored_current_risk() -> None:
     repository.add_feedback(3, 3)
 
     report = build_risk_penalty_sweep_report(
-        repository, profile({"mert": 1.0}), weights=(0.0, 1.0), k_values=(1,), rrf_k=1
+        repository, profile({"mert_v2": 1.0}), weights=(0.0, 1.0), k_values=(1,), rrf_k=1
     )
 
     assert report["variants"]["transition_risk_weight:0"]["ranked_sessions"][0][
@@ -53,7 +53,7 @@ def test_risk_sweep_selects_versioned_v1_and_v2_risk_values() -> None:
         events=(
             {
                 "candidate_track_id": 2,
-                "sources": {"mert": {"rank": 1}},
+                "sources": {"mert_v2": {"rank": 1}},
                 "score_breakdown": {
                     "transition_diagnostics": {
                         "transition_risk": 0.7,
@@ -67,14 +67,14 @@ def test_risk_sweep_selects_versioned_v1_and_v2_risk_values() -> None:
 
     v1 = build_risk_penalty_sweep_report(
         repository,
-        profile({"mert": 1.0}),
+        profile({"mert_v2": 1.0}),
         weights=(0.0,),
         k_values=(1,),
         risk_version="v1",
     )
     v2 = build_risk_penalty_sweep_report(
         repository,
-        profile({"mert": 1.0}),
+        profile({"mert_v2": 1.0}),
         weights=(0.0,),
         k_values=(1,),
         risk_version="v2",
@@ -102,7 +102,7 @@ def test_risk_sweep_without_labels_keeps_diagnostics_and_rejects_invalid_weights
         events=(
             {
                 "candidate_track_id": 2,
-                "sources": {"mert": {"rank": 1}},
+                "sources": {"mert_v2": {"rank": 1}},
                 "score_breakdown": {
                     "transition_risk": 0.4,
                     "transition_risk_version": "v2",
@@ -112,12 +112,12 @@ def test_risk_sweep_without_labels_keeps_diagnostics_and_rejects_invalid_weights
     )
 
     report = build_risk_penalty_sweep_report(
-        repository, profile({"mert": 1.0}), weights=(0.0,), k_values=(1,)
+        repository, profile({"mert_v2": 1.0}), weights=(0.0,), k_values=(1,)
     )
 
     assert report["judged_results"] == 0
     assert "best_by_metric" not in report
     with pytest.raises(ValueError, match="weight must be between 0 and 1"):
         build_risk_penalty_sweep_report(
-            repository, profile({"mert": 1.0}), weights=(-0.1,), k_values=(1,)
+            repository, profile({"mert_v2": 1.0}), weights=(-0.1,), k_values=(1,)
         )

@@ -178,7 +178,7 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
     )
 
     vectors = {
-        "mert": np.eye(1, 768, dtype=np.float32)[0],
+        "muq": np.eye(1, 1024, dtype=np.float32)[0],
         "mert_v2": np.eye(1, 1024, 1, dtype=np.float32)[0],
     }
     for family, vector in vectors.items():
@@ -198,7 +198,7 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="does not match mert_v2 dimension 1024"):
         _write_embedding(
-            database, track=target, family="mert_v2", vector=vectors["mert"],
+            database, track=target, family="mert_v2", vector=np.zeros(512, dtype=np.float32),
             analyzed_at="2026-08-12T00:00:00.000000Z",
         )
     with pytest.raises(RuntimeError, match="stale embedding write rejected: track_uuid mismatch"):
@@ -209,9 +209,9 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
         )
 
     detail = database.get_track_detail(track_id)
-    assert detail.analysis_coverage.mert and detail.analysis_coverage.mert_v2
+    assert detail.analysis_coverage.muq and detail.analysis_coverage.mert_v2
     assert {(row.analysis_family, row.dim) for row in detail.embeddings} == {
-        ("mert", 768), ("mert_v2", 1024),
+        ("muq", 1024), ("mert_v2", 1024),
     }
     with closing(database.connect()) as connection:
         row = connection.execute(
@@ -255,7 +255,7 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="from 1 to 24"):
         database.load_analysis_vectors(output, mert_v2_layer=0)
     with pytest.raises(ValueError, match="only supported for MERT-v2"):
-        database.load_analysis_vectors(AnalysisOutput("mert", "embedding"), mert_v2_layer=12)
+        database.load_analysis_vectors(AnalysisOutput("muq", "embedding"), mert_v2_layer=12)
     with closing(database.connect()) as connection, connection:
         connection.execute(
             "UPDATE mert_v2_embeddings SET track_uuid='stale' WHERE layer=12"
@@ -295,7 +295,7 @@ def test_embedding_round_trip_uses_the_library_connection(tmp_path: Path) -> Non
     assert database.load_analysis_vectors(AnalysisOutput("mert_v2", "embedding")) == ()
     assert database.mert_v2_layer_counts() == dict.fromkeys(range(1, 25), 0)
     np.testing.assert_array_equal(
-        _read_embedding(database, track=target, family="mert"), vectors["mert"],
+        _read_embedding(database, track=target, family="muq"), vectors["muq"],
     )
     _write_embedding(
         database, track=target, family="mert_v2", vector=vectors["mert_v2"],
@@ -405,7 +405,7 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
             ).lastrowid
         )
     target = TrackIdentity(database.catalog_uuid, track_id, "track-b")
-    outputs = (AnalysisOutput("mert", "embedding"), AnalysisOutput("mert_v2", "embedding"))
+    outputs = (AnalysisOutput("muq", "embedding"), AnalysisOutput("mert_v2", "embedding"))
     assert [
         candidate.target for candidate in database.list_analysis_candidates(outputs)
     ] == [
@@ -415,7 +415,7 @@ def test_current_embedding_removes_track_from_its_analysis_candidates(
             track_uuid=target.track_uuid,
         )
     ]
-    for index, (family, dimension) in enumerate((("mert", 768), ("mert_v2", 1024))):
+    for index, (family, dimension) in enumerate((("muq", 1024), ("mert_v2", 1024))):
         vector = np.zeros(dimension, dtype=np.float32)
         vector[0] = 1.0
         _write_embedding(
@@ -478,7 +478,7 @@ def test_stored_embedding_sonara_and_maest_readiness_does_not_read_payload(tmp_p
             ).lastrowid
         )
     target = TrackIdentity(database.catalog_uuid, track_id, "track-readiness")
-    for family, dimension in (("mert", 768), ("mert_v2", 1024)):
+    for family, dimension in (("muq", 1024), ("mert_v2", 1024)):
         vector = np.zeros(dimension, dtype=np.float32)
         vector[0] = 1.0
         _write_embedding(
@@ -548,7 +548,7 @@ def test_stored_embedding_sonara_and_maest_readiness_does_not_read_payload(tmp_p
             connection=connection,
             catalog_uuid=database.catalog_uuid,
             outputs=(
-                AnalysisOutput("mert", "embedding"),
+                AnalysisOutput("muq", "embedding"),
                 AnalysisOutput("mert_v2", "embedding"),
                 *analysis_outputs_for_sonara_runtime(),
                 AnalysisOutput("maest", "analysis"),
@@ -582,7 +582,7 @@ def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:
                 ),
             ).lastrowid
         )
-        for family, dimension in (("mert", 768), ("mert_v2", 1024)):
+        for family, dimension in (("muq", 1024), ("mert_v2", 1024)):
             vector = np.zeros(dimension, dtype="<f4")
             vector[0] = 2.0
             layer_column = ", layer" if family == "mert_v2" else ""
@@ -608,7 +608,7 @@ def test_library_summary_counts_embedding_rows_directly(tmp_path: Path) -> None:
     summary = database.library_summary()
 
     assert summary.tracks == 1
-    assert summary.mert == 1
+    assert summary.muq == 1
     assert summary.mert_v2 == 1
 
 
@@ -643,12 +643,12 @@ def test_rhythm_lab_reads_embeddings_from_the_library_database(
                 ),
             ).lastrowid
         )
-    vector = np.zeros(768, dtype=np.float32)
+    vector = np.zeros(1024, dtype=np.float32)
     vector[0] = 1.0
     _write_embedding(
         database,
         track=TrackIdentity(database.catalog_uuid, track_id, "track-c"),
-        family="mert",
+        family="muq",
         vector=vector,
         analyzed_at="2026-08-12T00:00:00.000000Z",
     )
@@ -656,7 +656,7 @@ def test_rhythm_lab_reads_embeddings_from_the_library_database(
     source = SourceDatabase(database.path)
 
     assert source.count_tracks() == 1
-    assert source.count_embeddings("mert") == 1
+    assert source.count_embeddings("muq") == 1
 
 
 def test_evaluation_profile_creates_the_optional_sidecar_on_save(
@@ -669,7 +669,7 @@ def test_evaluation_profile_creates_the_optional_sidecar_on_save(
 
     profile_id = database.save_evaluation_profile(
         "weighted-candidates",
-        {"weights": {"mert": 1.0}},
+        {"weights": {"muq": 1.0}},
     )
 
     assert profile_id == 1
@@ -678,7 +678,7 @@ def test_evaluation_profile_creates_the_optional_sidecar_on_save(
     assert stored is not None
     assert stored["profile_id"] == 1
     assert stored["profile_name"] == "weighted-candidates"
-    assert stored["profile"] == {"weights": {"mert": 1.0}}
+    assert stored["profile"] == {"weights": {"muq": 1.0}}
     connection = database.connect_evaluation(create=False)
     assert connection is not None
     with closing(connection):

@@ -34,7 +34,7 @@ def test_weighted_feedback_optimizer_profile_save_e2e_fixture() -> None:
     assert candidate["matched_judged_examples"] == 200
     assert candidate["candidate_profile_allowed"] is True
     assert candidate["can_update_defaults"] is False
-    assert candidate["weights"]["mert"] > candidate["weights"]["maest"]
+    assert candidate["weights"]["mert_v2"] > candidate["weights"]["maest"]
     assert (
         _classifier_adjusted_event_count(
             candidate_db,
@@ -78,7 +78,7 @@ def _build_weighted_feedback_fixture(
                     "candidate_track_id": good_id,
                     "rank": 1,
                     "sources": {
-                        "mert": {"rank": 1, "score": 0.95},
+                        "mert_v2": {"rank": 1, "score": 0.95},
                         "maest": {"rank": 10, "score": 0.25},
                     },
                     "score_breakdown": {
@@ -91,7 +91,7 @@ def _build_weighted_feedback_fixture(
                     "candidate_track_id": bad_id,
                     "rank": 2,
                     "sources": {
-                        "mert": {"rank": 10, "score": 0.25},
+                        "mert_v2": {"rank": 10, "score": 0.25},
                         "maest": {"rank": 1, "score": 0.95},
                     },
                 },

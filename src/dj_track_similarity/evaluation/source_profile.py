@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from ..database import LibraryDatabase
 
 
-DEFAULT_PROFILE_SOURCES = ("mert", "maest", "muq", "sonara", "clap")
+DEFAULT_PROFILE_SOURCES = ("mert_v2", "maest", "muq", "sonara", "clap")
 DEFAULT_PROFILE_TOP_K = (10,)
 WEIGHT_KIND = "unsupervised_internal_profile"
 PROFILE_KIND = "unsupervised_source_profile"

@@ -71,7 +71,7 @@ def run_benchmark(
         next_track_id += 1
 
     config = config_module.resolve_preset("safe", min_score=None)
-    source_config = config_module.resolve_source_config(sources=("mert",), weights={"mert": 1.0})
+    source_config = config_module.resolve_source_config(sources=("mert_v2",), weights={"mert_v2": 1.0})
     fingerprint_started = time.perf_counter()
     fingerprint_pairs = fingerprint_candidate_pairs(sketches)
     fingerprint_elapsed = (time.perf_counter() - fingerprint_started) * 1000.0
@@ -121,7 +121,7 @@ def run_benchmark(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Compare synthetic fingerprint and MERT candidate retrieval for Audio Dedup."
+        description="Compare synthetic fingerprint and MERT-v2 candidate retrieval for Audio Dedup."
     )
     parser.add_argument("--groups", type=int, default=32)
     parser.add_argument("--distractors", type=int, default=128)
@@ -156,7 +156,7 @@ def _benchmark_track(track_id: int, embedding: np.ndarray) -> models_module.Trac
         musical_key=None,
         duration=180.0,
         metadata={},
-        embeddings={"mert": embedding},
+        embeddings={"mert_v2": embedding},
     )
 
 

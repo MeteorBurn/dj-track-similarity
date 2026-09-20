@@ -28,18 +28,18 @@ from dj_track_similarity.tempo_resolution import (
 
 def test_weighted_rrf_components_are_exact_and_deterministically_ordered() -> None:
     contributions = {
-        "mert": CandidateSourceContribution(rank=2, score=0.99),
+        "clap": CandidateSourceContribution(rank=2, score=0.99),
         "maest": CandidateSourceContribution(rank=4, score=0.01),
     }
-    weights = {"mert": 0.75, "maest": 0.25}
+    weights = {"clap": 0.75, "maest": 0.25}
 
     components = weighted_rrf_components(contributions, weights, rrf_k=60)
 
-    assert list(components) == ["maest", "mert"]
+    assert list(components) == ["clap", "maest"]
     assert components["maest"] == pytest.approx(
         {"rank": 4, "weight": 0.25, "contribution": 0.25 / 64.0}
     )
-    assert components["mert"] == pytest.approx(
+    assert components["clap"] == pytest.approx(
         {"rank": 2, "weight": 0.75, "contribution": 0.75 / 62.0}
     )
     assert weighted_rrf_score(contributions, weights, rrf_k=60) == pytest.approx(
@@ -48,7 +48,7 @@ def test_weighted_rrf_components_are_exact_and_deterministically_ordered() -> No
 
 
 def test_weighted_rrf_missing_source_keeps_its_global_weight_penalty() -> None:
-    weights = {"mert": 0.75, "maest": 0.25}
+    weights = {"clap": 0.75, "maest": 0.25}
     rank = 3
     only_low_weight_source = {
         "maest": CandidateSourceContribution(rank=rank, score=0.9),
@@ -89,7 +89,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = AnalysisOutput("mert", "embedding")
+    output = AnalysisOutput("clap", "embedding")
     db.register_analysis_outputs((output,))
     track_uuid = str(uuid.uuid4())
     with db.connect() as connection:
@@ -114,7 +114,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
         track_id=track_id,
         track_uuid=track_uuid,
     )
-    vector = np.zeros(current_embedding_spec("mert").dimension, dtype=np.float32)
+    vector = np.zeros(current_embedding_spec("clap").dimension, dtype=np.float32)
     vector[:3] = (1.0, 2.0, 3.0)
     vector /= np.linalg.norm(vector)
     assert db.save_embedding_results(
@@ -122,7 +122,7 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    family="mert",
+                    family="clap",
                     vector=vector,
                     analyzed_at="2026-07-24T13:00:00.000000Z",
                 ),
@@ -130,10 +130,10 @@ def test_classifier_feature_assembly_preserves_order_and_never_zero_fills(
         )
     )[0].ok
 
-    feature_names = ("mert:2", "mert:0", "mert:1")
+    feature_names = ("clap:2", "clap:0", "clap:1")
     specification = ClassifierSpecification(
         classifier_key="ordered_classifier",
-        feature_set="mert-features",
+        feature_set="clap-features",
         feature_names=feature_names,
         required_outputs=(output,),
         label_order=("negative", "positive"),

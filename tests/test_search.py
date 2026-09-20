@@ -14,7 +14,7 @@ from dj_track_similarity.analysis_models import (
     CLAP_EMBEDDING_DIM,
     EmbeddingOutput,
     EmbeddingWrite,
-    MERT_EMBEDDING_DIM,
+    MUQ_EMBEDDING_DIM,
     MERT_V2_EMBEDDING_DIM,
     MULAN_EMBEDDING_DIM,
 )
@@ -69,12 +69,12 @@ def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(
 def test_search_epsilon_keeps_only_candidates_near_the_best_score(
     tmp_path: Path,
 ) -> None:
-    db, output = _library(tmp_path, "mert")
+    db, output = _library(tmp_path, "muq")
     seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
     near = _add_track(db, tmp_path, output, "near.wav", [0.99, 0.01, 0.0])
     far = _add_track(db, tmp_path, output, "far.wav", [0.7, 0.3, 0.0])
 
-    results = SimilaritySearch(db, "mert", analysis_output=output).search(
+    results = SimilaritySearch(db, "muq", analysis_output=output).search(
         (seed,), filters=SearchFilters(epsilon=0.02), limit=10
     )
 
@@ -85,17 +85,17 @@ def test_search_epsilon_keeps_only_candidates_near_the_best_score(
 def test_search_noise_changes_near_tie_ranking_but_keeps_similarity_scores(
     tmp_path: Path,
 ) -> None:
-    db, output = _library(tmp_path, "mert")
+    db, output = _library(tmp_path, "muq")
     seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
     first = _add_track(db, tmp_path, output, "first.wav", [0.99, 0.01, 0.0])
     second = _add_track(db, tmp_path, output, "second.wav", [0.98, 0.02, 0.0])
 
     plain = SimilaritySearch(
         db,
-        "mert",
+        "muq",
         analysis_output=output,
     ).search((seed,), limit=2)
-    noisy = SimilaritySearch(db, "mert", analysis_output=output).search(
+    noisy = SimilaritySearch(db, "muq", analysis_output=output).search(
         (seed,), filters=SearchFilters(noise=0.2), limit=2
     )
 
@@ -108,10 +108,10 @@ def test_search_noise_changes_near_tie_ranking_but_keeps_similarity_scores(
 
 def test_search_vector_uses_requested_embedding_space(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    mert = _output("mert")
+    muq = _output("muq")
     clap = _output("clap")
-    db.register_analysis_outputs((mert, clap))
-    mert_track = _add_track(db, tmp_path, mert, "mert.wav", [1.0, 0.0, 0.0])
+    db.register_analysis_outputs((muq, clap))
+    muq_track = _add_track(db, tmp_path, muq, "muq.wav", [1.0, 0.0, 0.0])
     clap_near = _add_track(db, tmp_path, clap, "clap-near.wav", [0.0, 1.0, 0.0])
     clap_far = _add_track(db, tmp_path, clap, "clap-far.wav", [1.0, 0.0, 0.0])
 
@@ -128,7 +128,7 @@ def test_search_vector_uses_requested_embedding_space(tmp_path: Path) -> None:
         clap_near.track_id,
         clap_far.track_id,
     ]
-    assert mert_track not in {result.target for result in results}
+    assert muq_track not in {result.target for result in results}
 
     assert searcher.text_eligible_count == 2
     assert searcher.text_feedback_status["reason"] == "not_requested"
@@ -243,7 +243,7 @@ def test_cached_library_vectors_reload_after_a_write_from_another_connection(
     object must still be visible on the next load.
     """
 
-    db, output = _library(tmp_path, "mert")
+    db, output = _library(tmp_path, "muq")
     kept = _add_track(db, tmp_path, output, "kept.wav", [1.0, 0.0, 0.0])
     moved = _add_track(db, tmp_path, output, "moved.wav", [0.0, 1.0, 0.0])
 
@@ -300,7 +300,7 @@ def test_bounded_ranking_depth_matches_ranking_the_whole_library(
     result kept. This pins that bound against the ranking it approximates.
     """
 
-    db, output = _library(tmp_path, "mert")
+    db, output = _library(tmp_path, "muq")
     seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
     # Six tracks packed inside the noise band, where the jitter decides the
     # order, and six far below it, where it cannot.
@@ -318,13 +318,13 @@ def test_bounded_ranking_depth_matches_ranking_the_whole_library(
     recorder = _DepthRecordingBackend()
     bounded = SimilaritySearch(
         db,
-        "mert",
+        "muq",
         analysis_output=output,
         vector_backend=recorder,
     ).search((seed,), filters=filters, limit=3)
     whole = SimilaritySearch(
         db,
-        "mert",
+        "muq",
         analysis_output=output,
         vector_backend=_FullDepthBackend(),
     ).search((seed,), filters=filters, limit=3)
@@ -386,7 +386,7 @@ def _add_track(
 def _query(output: AnalysisOutput, values: list[float]) -> np.ndarray:
     dimensions = {
         "clap": CLAP_EMBEDDING_DIM,
-        "mert": MERT_EMBEDDING_DIM,
+        "muq": MUQ_EMBEDDING_DIM,
         "mert_v2": MERT_V2_EMBEDDING_DIM,
         "mulan": MULAN_EMBEDDING_DIM,
     }
@@ -396,6 +396,6 @@ def _query(output: AnalysisOutput, values: list[float]) -> np.ndarray:
 
 
 def _output(family: str) -> AnalysisOutput:
-    if family not in {"mert", "mert_v2", "mulan", "clap"}:
+    if family not in {"muq", "mert_v2", "mulan", "clap"}:
         raise ValueError(f"Unsupported fixture family: {family}")
     return current_embedding_analysis_output(family)

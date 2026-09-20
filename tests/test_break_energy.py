@@ -46,8 +46,8 @@ class _FixedProbabilityModel:
         return np.tile(probabilities, (matrix.shape[0], 1))
 
 
-def _mert_output() -> AnalysisOutput:
-    return AnalysisOutput("mert", "embedding")
+def _clap_output() -> AnalysisOutput:
+    return AnalysisOutput("clap", "embedding")
 
 
 def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
@@ -141,8 +141,8 @@ def _write_model(
     joblib.dump(
         {
             "classifier_key": "break_energy",
-            "feature_set": "mert",
-            "feature_names": ["mert:0"],
+            "feature_set": "clap",
+            "feature_names": ["clap:0"],
             "feature_count": 1,
             "label_order": ["straight", "broken"],
             "positive_label": "broken",
@@ -156,8 +156,8 @@ def _write_model(
         "classifier_key": "break_energy",
         "profile_name": "Break Energy",
         "artifact_hash": artifact_hash,
-        "feature_set": "mert",
-        "feature_names": ["mert:0"],
+        "feature_set": "clap",
+        "feature_names": ["clap:0"],
         "feature_count": 1,
         "label_order": ["straight", "broken"],
         "negative_label": "straight",
@@ -178,7 +178,7 @@ def test_break_energy_job_scores_tracks_with_required_rows(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     ready = _insert_track(db)
     missing = _insert_track(db)
@@ -199,7 +199,7 @@ def test_break_energy_job_scores_tracks_with_required_rows(
     queued = manager.get(job_id)
 
     assert queued.total == 1
-    assert queued.required_families == ("mert",)
+    assert queued.required_families == ("clap",)
 
     completed = manager.run_job(job_id)
 
@@ -222,7 +222,7 @@ def test_break_energy_public_scorer_preserves_probability_precision(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
     _write_embedding(db, target, output)

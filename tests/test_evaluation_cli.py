@@ -74,9 +74,9 @@ def test_eval_report_cli_writes_json_summary(tmp_path: Path) -> None:
     candidate_id = _add_cli_track(db, tmp_path, "candidate")
     _record_current_session(
         db,
-        mode="mert",
+        mode="mert_v2",
         seed_id=seed_id,
-        events=((candidate_id, 1, {"mert": {"score": 0.9}}),),
+        events=((candidate_id, 1, {"mert_v2": {"score": 0.9}}),),
         request={"limit": 1},
     )
     db.upsert_track_pair_feedback(seed_id, candidate_id, 3)
@@ -116,7 +116,7 @@ def test_eval_run_ablation_cli_writes_json_summary(tmp_path: Path) -> None:
             (
                 candidate_id,
                 1,
-                {"mert": {"rank": 1}, "maest": {"rank": 2}},
+                {"mert_v2": {"rank": 1}, "maest": {"rank": 2}},
             ),
         ),
         request={"feedback_source": "manual"},
@@ -152,7 +152,7 @@ def test_eval_build_score_profile_cli_writes_profile_artifact(tmp_path: Path) ->
     source_report_path = tmp_path / "source_profile.json"
     output_path = tmp_path / "score_profile.json"
     source_report_path.write_text(
-        json.dumps(_source_profile_report({"mert": 0.75, "maest": 0.25})),
+        json.dumps(_source_profile_report({"mert_v2": 0.75, "maest": 0.25})),
         encoding="utf-8",
     )
 
@@ -177,7 +177,7 @@ def test_eval_build_score_profile_cli_writes_profile_artifact(tmp_path: Path) ->
     profile = json.loads(output_path.read_text(encoding="utf-8"))
     assert profile["profile_kind"] == "unsupervised_source_profile"
     assert profile["weight_kind"] == "unsupervised_internal_profile"
-    assert profile["weights"]["mert"] == 0.75
+    assert profile["weights"]["mert_v2"] == 0.75
     assert profile["weights"]["maest"] == 0.25
 
 
@@ -193,8 +193,8 @@ def test_eval_run_ablation_cli_with_score_profile_includes_weighted_variant(
                 "name": "maest_auto",
                 "profile_kind": "unsupervised_source_profile",
                 "weight_kind": "unsupervised_internal_profile",
-                "sources": ["mert", "maest"],
-                "weights": {"mert": 0.1, "maest": 0.9},
+                "sources": ["mert_v2", "maest"],
+                "weights": {"mert_v2": 0.1, "maest": 0.9},
                 "created_at": "2026-06-23T00:00:00Z",
                 "source_report_summary": {"status": "ok"},
                 "limitations": [
@@ -218,7 +218,7 @@ def test_eval_run_ablation_cli_with_score_profile_includes_weighted_variant(
             (
                 candidate_id,
                 1,
-                {"mert": {"rank": 2}, "maest": {"rank": 1}},
+                {"mert_v2": {"rank": 2}, "maest": {"rank": 1}},
             ),
         ),
         request={"feedback_source": "manual"},
@@ -256,7 +256,7 @@ def test_eval_apply_score_profile_cli_reports_rankings_without_labels(
     seed_id = _add_cli_track(db, tmp_path, "seed")
     candidate_a = _add_cli_track(db, tmp_path, "candidate_a")
     candidate_b = _add_cli_track(db, tmp_path, "candidate_b")
-    _write_score_profile(profile_path, {"mert": 0.1, "maest": 0.9})
+    _write_score_profile(profile_path, {"mert_v2": 0.1, "maest": 0.9})
     _record_current_session(
         db,
         mode="evaluation_candidate_pool",
@@ -265,7 +265,7 @@ def test_eval_apply_score_profile_cli_reports_rankings_without_labels(
             (
                 candidate_a,
                 1,
-                {"mert": {"rank": 1}, "maest": {"rank": 20}},
+                {"mert_v2": {"rank": 1}, "maest": {"rank": 20}},
             ),
             (candidate_b, 2, {"maest": {"rank": 1}}),
         ),
@@ -310,7 +310,7 @@ def test_eval_apply_score_profile_cli_includes_metrics_with_pair_feedback(
     seed_id = _add_cli_track(db, tmp_path, "seed")
     candidate_a = _add_cli_track(db, tmp_path, "candidate_a")
     candidate_b = _add_cli_track(db, tmp_path, "candidate_b")
-    _write_score_profile(profile_path, {"mert": 0.1, "maest": 0.9})
+    _write_score_profile(profile_path, {"mert_v2": 0.1, "maest": 0.9})
     _record_current_session(
         db,
         mode="evaluation_candidate_pool",
@@ -319,7 +319,7 @@ def test_eval_apply_score_profile_cli_includes_metrics_with_pair_feedback(
             (
                 candidate_a,
                 1,
-                {"mert": {"rank": 1}, "maest": {"rank": 20}},
+                {"mert_v2": {"rank": 1}, "maest": {"rank": 20}},
             ),
             (candidate_b, 2, {"maest": {"rank": 1}}),
         ),
@@ -387,7 +387,7 @@ def test_eval_optimize_score_profile_cli_writes_report_without_recording_by_defa
     assert "recorded=False" in result.output
     report = json.loads(output_path.read_text(encoding="utf-8"))
     assert report["source"] == "judged_feedback"
-    assert report["weights"]["mert"] > report["weights"]["maest"]
+    assert report["weights"]["mert_v2"] > report["weights"]["maest"]
     assert LibraryDatabase(db_path).count_evaluation_rows() == before_counts
     assert (
         LibraryDatabase(db_path).get_evaluation_profile(
@@ -498,7 +498,7 @@ def test_eval_optimize_score_profile_cli_save_profile_appends_evaluation_profile
     assert payload["profile_source"] == "score_profile_optimizer"
     assert payload["can_apply_as_default"] is True
     assert payload["judged_pairs"] == 8
-    assert payload["weights"]["mert"] > payload["weights"]["maest"]
+    assert payload["weights"]["mert_v2"] > payload["weights"]["maest"]
     report = json.loads(output_path.read_text(encoding="utf-8"))
     assert report["saved_profile"] is True
     assert report["evaluation_profile_id"] == saved_profile["profile_id"]
@@ -551,7 +551,7 @@ def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None
     seed_id = _add_cli_track(db, tmp_path, "seed")
     risky_id = _add_cli_track(db, tmp_path, "risky")
     safe_id = _add_cli_track(db, tmp_path, "safe")
-    _write_score_profile(profile_path, {"mert": 1.0})
+    _write_score_profile(profile_path, {"mert_v2": 1.0})
     _record_current_session(
         db,
         mode="evaluation_weighted_candidate_pool",
@@ -560,7 +560,7 @@ def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None
             (
                 risky_id,
                 1,
-                {"mert": {"rank": 1}},
+                {"mert_v2": {"rank": 1}},
                 {
                     "transition_risk": 1.0,
                     "transition_risk_version": "v2",
@@ -569,14 +569,14 @@ def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None
             (
                 safe_id,
                 2,
-                {"mert": {"rank": 2}},
+                {"mert_v2": {"rank": 2}},
                 {
                     "transition_risk": 0.0,
                     "transition_risk_version": "v2",
                 },
             ),
         ),
-        request={"feedback_source": "manual", "sources": ["mert"]},
+        request={"feedback_source": "manual", "sources": ["mert_v2"]},
     )
     db.upsert_track_pair_feedback(seed_id, safe_id, 3, source="manual")
 
@@ -636,7 +636,7 @@ def test_eval_profile_sources_cli_writes_score_profile_output(tmp_path: Path) ->
             "--profile-name",
             "auto-test",
             "--source",
-            "mert",
+            "mert_v2",
             "--per-source",
             "2",
         ],
@@ -646,7 +646,7 @@ def test_eval_profile_sources_cli_writes_score_profile_output(tmp_path: Path) ->
     assert "score_profile=auto-test" in result.output
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     assert profile["name"] == "auto-test"
-    assert profile["weights"] == {"mert": 1.0}
+    assert profile["weights"] == {"mert_v2": 1.0}
 
 
 def test_eval_export_candidates_cli_writes_csv_without_recording_sessions(
@@ -668,7 +668,7 @@ def test_eval_export_candidates_cli_writes_csv_without_recording_sessions(
             "--seed-track-id",
             str(seed_id),
             "--source",
-            "mert",
+            "mert_v2",
             "--per-source",
             "2",
             "--random-seed",
@@ -704,7 +704,7 @@ def test_eval_export_candidates_cli_records_sessions_and_events(tmp_path: Path) 
             "--seed-track-id",
             str(seed_id),
             "--source",
-            "mert",
+            "mert_v2",
             "--source",
             "sonara",
             "--per-source",
@@ -724,7 +724,7 @@ def test_eval_export_candidates_cli_records_sessions_and_events(tmp_path: Path) 
     assert counts["search_result_events"] == len(_read_csv_rows(output_path))
     assert sessions[0]["mode"] == "evaluation_candidate_pool"
     assert sessions[0]["seed_track_ids"] == [seed_id]
-    assert sessions[0]["request"]["sources"] == ["mert", "sonara"]
+    assert sessions[0]["request"]["sources"] == ["mert_v2", "sonara"]
     assert sessions[0]["request"]["feedback_source"] == "manual"
     assert {event["track_id"] for event in sessions[0]["events"]}.issubset(
         set(candidate_ids)
@@ -739,7 +739,7 @@ def test_eval_export_weighted_candidates_cli_writes_csv_columns(tmp_path: Path) 
     output_path = tmp_path / "weighted_candidates.csv"
     profile_path = tmp_path / "score_profile.json"
     seed_id, candidate_ids = _build_candidate_export_library(db_path, tmp_path)
-    _write_score_profile(profile_path, {"mert": 1.0})
+    _write_score_profile(profile_path, {"mert_v2": 1.0})
 
     result = CliRunner().invoke(
         cli.app,
@@ -842,7 +842,7 @@ def test_eval_export_seed_sample_cli_writes_csv(tmp_path: Path) -> None:
         "musical_key",
         "energy",
             "sonara_core",
-            "mert_embedding",
+            "mert_v2_embedding",
             "muq_embedding",
             "mulan_embedding",
             "clap_embedding",
@@ -894,7 +894,7 @@ def _build_optimizer_cli_library(
     db = LibraryDatabase(db_path)
     source_outputs = _register_evaluation_source_outputs(
         db,
-        ("mert", "maest"),
+        ("mert_v2", "maest"),
     )
     for index in range(seed_count):
         seed_id = _add_cli_track(
@@ -920,12 +920,12 @@ def _build_optimizer_cli_library(
                 (
                     bad_id,
                     1,
-                    {"mert": {"rank": 10}, "maest": {"rank": 1}},
+                    {"mert_v2": {"rank": 10}, "maest": {"rank": 1}},
                 ),
                 (
                     good_id,
                     2,
-                    {"mert": {"rank": 1}, "maest": {"rank": 10}},
+                    {"mert_v2": {"rank": 1}, "maest": {"rank": 10}},
                 ),
             ),
             request={"feedback_source": "manual"},
@@ -973,10 +973,10 @@ def _save_cli_candidate_analysis(
 ) -> None:
     identity = _required_identity(db, track_id)
     target = _target(identity)
-    mert = current_embedding_analysis_output("mert")
+    mert_v2 = current_embedding_analysis_output("mert_v2")
     db.register_analysis_outputs(
         (
-            mert,
+            mert_v2,
             AnalysisOutput("sonara", "core"),
         )
     )
@@ -985,9 +985,9 @@ def _save_cli_candidate_analysis(
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    family="mert",
+                    family="mert_v2",
                     vector=_expanded_unit_vector(
-                        current_embedding_spec("mert").dimension,
+                        current_embedding_spec("mert_v2").dimension,
                         embedding,
                     ),
                     analyzed_at=_NOW,
@@ -1177,8 +1177,8 @@ def _register_evaluation_source_outputs(
 ) -> dict[str, AnalysisOutput]:
     outputs: dict[str, AnalysisOutput] = {}
     for source in sources:
-        if source == "mert":
-            outputs[source] = current_embedding_analysis_output("mert")
+        if source == "mert_v2":
+            outputs[source] = current_embedding_analysis_output("mert_v2")
         elif source == "maest":
             outputs[source] = _maest_outputs()[1]
         elif source == "muq":

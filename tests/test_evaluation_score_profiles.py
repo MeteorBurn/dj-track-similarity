@@ -18,20 +18,20 @@ from evaluation_fixtures import EvaluationRepository
 
 
 def test_score_profile_builds_from_ok_source_profile_report() -> None:
-    profile = build_score_profile_from_source_report(_source_profile_report({"mert": 0.65, "maest": 0.35}), name="auto")
+    profile = build_score_profile_from_source_report(_source_profile_report({"mert_v2": 0.65, "maest": 0.35}), name="auto")
 
     assert profile.name == "auto"
     assert profile.profile_kind == "unsupervised_source_profile"
     assert profile.weight_kind == "unsupervised_internal_profile"
-    assert profile.sources == ["mert", "maest"]
-    assert profile.weights == {"mert": pytest.approx(0.65), "maest": pytest.approx(0.35)}
+    assert profile.sources == ["mert_v2", "maest"]
+    assert profile.weights == {"mert_v2": pytest.approx(0.65), "maest": pytest.approx(0.35)}
     assert any("unsupervised" in limitation for limitation in profile.limitations)
     assert any("not probability" in limitation for limitation in profile.limitations)
     assert any("not human ground truth" in limitation for limitation in profile.limitations)
 
 
 def test_score_profile_rejects_non_ok_source_profile_report() -> None:
-    report = _source_profile_report({"mert": 1.0})
+    report = _source_profile_report({"mert_v2": 1.0})
     report["status"] = "insufficient_data"
 
     with pytest.raises(ValueError, match="status must be ok"):
@@ -40,20 +40,20 @@ def test_score_profile_rejects_non_ok_source_profile_report() -> None:
 
 def test_score_profile_validation_rejects_bad_weights() -> None:
     with pytest.raises(ValueError, match="non-negative"):
-        validate_score_profile(_profile_payload(weights={"mert": -0.1, "maest": 1.1}))
+        validate_score_profile(_profile_payload(weights={"mert_v2": -0.1, "maest": 1.1}))
 
     with pytest.raises(ValueError, match="sum approximately"):
-        validate_score_profile(_profile_payload(weights={"mert": 0.7, "maest": 0.7}))
+        validate_score_profile(_profile_payload(weights={"mert_v2": 0.7, "maest": 0.7}))
 
     with pytest.raises(ValueError, match="missing weights"):
-        validate_score_profile(_profile_payload(sources=["mert", "maest"], weights={"mert": 1.0}))
+        validate_score_profile(_profile_payload(sources=["mert_v2", "maest"], weights={"mert_v2": 1.0}))
 
 
 def test_weighted_rrf_prefers_candidate_from_high_weight_source() -> None:
-    profile = _score_profile(weights={"mert": 0.1, "maest": 0.9})
+    profile = _score_profile(weights={"mert_v2": 0.1, "maest": 0.9})
     ranked_candidates = rank_candidates_with_profile(
         {
-            101: {"mert": {"rank": 1}},
+            101: {"mert_v2": {"rank": 1}},
             102: {"maest": {"rank": 1}},
         },
         profile,
@@ -65,7 +65,7 @@ def test_weighted_rrf_prefers_candidate_from_high_weight_source() -> None:
 
 def test_score_profile_save_load_round_trip(tmp_path: Path) -> None:
     output_path = tmp_path / "score_profile.json"
-    profile = _score_profile(weights={"mert": 0.25, "maest": 0.75})
+    profile = _score_profile(weights={"mert_v2": 0.25, "maest": 0.75})
 
     save_score_profile(profile, output_path)
     loaded = load_score_profile(output_path)
@@ -85,12 +85,12 @@ def test_score_profile_metrics_preserve_unjudged_rank_positions() -> None:
             {
                 "candidate_track_id": unjudged_candidate_id,
                 "rank": 1,
-                "sources": {"mert": {"rank": 1}},
+                "sources": {"mert_v2": {"rank": 1}},
             },
             {
                 "candidate_track_id": relevant_candidate_id,
                 "rank": 2,
-                "sources": {"mert": {"rank": 2}},
+                "sources": {"mert_v2": {"rank": 2}},
             },
         ),
     )
@@ -99,7 +99,7 @@ def test_score_profile_metrics_preserve_unjudged_rank_positions() -> None:
         3,
         seed_track_id=seed_id,
     )
-    profile = _score_profile(weights={"mert": 1.0})
+    profile = _score_profile(weights={"mert_v2": 1.0})
 
     report = build_score_profile_application_report(db, profile, k_values=[1, 2], rrf_k=60)
 
@@ -125,7 +125,7 @@ def _profile_payload(
     sources: list[str] | None = None,
     weights: dict[str, float] | None = None,
 ) -> dict[str, object]:
-    clean_weights = weights or {"mert": 0.5, "maest": 0.5}
+    clean_weights = weights or {"mert_v2": 0.5, "maest": 0.5}
     return {
         "name": "auto",
         "profile_kind": "unsupervised_source_profile",

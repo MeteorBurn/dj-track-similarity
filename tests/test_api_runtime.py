@@ -55,7 +55,7 @@ def test_track_responses_expose_current_identity_and_split_coverage(
         "sonara_core": False,
         "maest_analysis": False,
         "maest_embedding": False,
-        "mert": False,
+        "muq": False,
         "mert_v2": False,
         "muq": False,
         "mulan": False,
@@ -174,11 +174,11 @@ def test_reset_and_summary_use_analysis_family_names(
 
     reset = client.post(
         "/api/analysis/reset",
-        json={"analysis_family": "mert"},
+        json={"analysis_family": "muq"},
     )
     legacy = client.post(
         "/api/analysis/reset",
-        json={"adapter": "mert"},
+        json={"adapter": "muq"},
     )
     summary = client.get("/api/library/summary")
 
@@ -195,7 +195,7 @@ def test_reset_and_summary_use_analysis_family_names(
         "sonara": 0,
         "maest_analysis": 0,
         "maest_embedding": 0,
-        "mert": 0,
+        "muq": 0,
         "mert_v2": 0,
         "muq": 0,
         "mulan": 0,
@@ -358,7 +358,7 @@ def test_state_close_drains_inline_pipeline_children_outside_state_lock(
         job = pipeline.start(stage="sonara", limit=None)
         # SONARA and ML never share a pipeline, so the ML run is queued behind
         # it as its own pipeline; closing must still drain both.
-        ml_job = pipeline.start(stage="ml", limit=None, ml={"models": ["mert"]})
+        ml_job = pipeline.start(stage="ml", limit=None, ml={"models": ["muq"]})
         assert entered.wait(5)
         closer.start()
         assert joining.wait(5)
@@ -382,6 +382,6 @@ def test_state_close_drains_inline_pipeline_children_outside_state_lock(
     assert close_errors == [interrupt]
     assert pipeline.get(job.job_id).state == "completed"
     assert pipeline.get(ml_job.job_id).state == "completed"
-    assert order == [["sonara"], ["mert"]]
+    assert order == [["sonara"], ["muq"]]
     with pytest.raises(RuntimeError, match="closed"):
-        audio.run_sync(models=["mert"], device="cpu")
+        audio.run_sync(models=["muq"], device="cpu")

@@ -17,7 +17,6 @@ from .mert_v2_layers import require_mert_v2_layers, validate_mert_v2_layer
 
 _EMBEDDING_TABLES: Mapping[str, str] = {
     "maest": "maest_embeddings",
-    "mert": "mert_embeddings",
     "mert_v2": "mert_v2_embeddings",
     "muq": "muq_embeddings",
     "mulan": "mulan_embeddings",

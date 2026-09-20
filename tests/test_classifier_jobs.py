@@ -29,8 +29,8 @@ _NOW = "2026-07-24T11:00:00.000000Z"
 _ARTIFACT_HASH = "sha256:" + "a" * 64
 
 
-def _mert_output() -> AnalysisOutput:
-    return AnalysisOutput("mert", "embedding")
+def _clap_output() -> AnalysisOutput:
+    return AnalysisOutput("clap", "embedding")
 
 
 def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
@@ -138,13 +138,13 @@ def _insert_present_classifier_inputs(db: LibraryDatabase, count: int) -> None:
                 ),
             )
             vector = np.zeros(
-                current_embedding_spec("mert").dimension,
+                current_embedding_spec("clap").dimension,
                 dtype="<f4",
             )
             vector[0] = 1.0
             connection.execute(
                 """
-                INSERT INTO mert_embeddings(
+                INSERT INTO clap_embeddings(
                     track_id, track_uuid, dim, normalization, embedding_blob, analyzed_at
                 ) VALUES (?, ?, ?, 'l2', ?, ?)
                 """,
@@ -162,10 +162,10 @@ def _requirements(
     classifier_key: str,
     output: AnalysisOutput,
 ) -> ClassifierRequirements:
-    feature_names = ("mert:0",)
+    feature_names = ("clap:0",)
     specification = ClassifierSpecification(
         classifier_key=classifier_key,
-        feature_set="mert-features",
+        feature_set="clap-features",
         feature_names=feature_names,
         required_outputs=(output,),
         label_order=("negative", "positive"),
@@ -247,7 +247,7 @@ def test_classifier_job_streams_inputs_in_200_track_batches(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     _insert_present_classifier_inputs(db, 201)
     requirements = _requirements("test_classifier", output)
@@ -281,7 +281,7 @@ def test_custom_model_path_calls_current_requirements_loader_with_database(
     tmp_path: Path,
 ) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    output = _mert_output()
+    output = _clap_output()
     db.register_analysis_outputs((output,))
     _insert_track(db)
     requirements = _requirements("test_classifier", output)

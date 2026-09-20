@@ -93,8 +93,8 @@ class Repository(AnalysisRepository, LibraryQueryRepository):
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
-def _mert_output() -> AnalysisOutput:
-    return AnalysisOutput("mert", "embedding")
+def _mulan_output() -> AnalysisOutput:
+    return AnalysisOutput("mulan", "embedding")
 
 
 def _fingerprint_base64(index: int) -> str:
@@ -212,7 +212,7 @@ def _insert_complete_rhythm_lab_rows(
                     NOW,
                 ),
             )
-        for family in ("mert", "maest", "clap", "muq", "mulan"):
+        for family in ("maest", "clap", "muq", "mulan"):
             if family == missing_source:
                 continue
             specification = current_embedding_spec(family)
@@ -265,7 +265,7 @@ def _write_promotable_artifact(
     stamp: str = "test",
     calibrated: bool = False,
 ) -> Path:
-    selected_output = output or _mert_output()
+    selected_output = output or _mulan_output()
     family = selected_output.analysis_family
     feature_count = current_embedding_spec(family).dimension
     root.mkdir(parents=True, exist_ok=True)
@@ -358,10 +358,10 @@ def test_web_profile_creation_uses_canonical_profiles_directory(
 
 def test_source_tracks_read_current_file_tags_schema(tmp_path: Path) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     with repository.connect() as core:
         track_id = int(core.execute("SELECT track_id FROM tracks").fetchone()[0])
         core.execute(
@@ -595,12 +595,12 @@ def test_source_feature_states_distinguish_current_and_missing(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    mert = _mert_output()
-    repository.register_analysis_outputs((mert,))
-    _insert_track(repository, mert, index=0)
+    mulan = _mulan_output()
+    repository.register_analysis_outputs((mulan,))
+    _insert_track(repository, mulan, index=0)
     states = SourceDatabase(repository.path).feature_states()
 
-    assert states["mert"].status == "current"
+    assert states["mulan"].status == "current"
     assert states["muq"].status == "missing"
     assert "no stored MUQ data" in str(states["muq"].reason)
     assert states["clap"].status == "missing"
@@ -618,7 +618,7 @@ def test_source_feature_states_distinguish_current_and_missing(
     assert matrix.not_ready_track_ids == (1,)
     track = matrix.tracks[0]
     assert track.analysis_coverage.mert_v2 is True
-    assert track.analysis_coverage.mert is False
+    assert track.analysis_coverage.mulan is False
     assert track.feature_status["mert_v2"].status == "current"
 
     layers = tuple(np.eye(1, 1024, index, dtype=np.float32)[0] for index in range(24))
@@ -646,7 +646,7 @@ def test_source_feature_inventory_is_cached_until_storage_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
     source = SourceDatabase(repository.path)
@@ -675,7 +675,7 @@ def test_source_feature_inventory_is_cached_until_storage_changes(
     refreshed_counts, _ = source.feature_inventory()
 
     assert calls == 2
-    assert refreshed_counts["mert"] == first_counts["mert"] + 1
+    assert refreshed_counts["mulan"] == first_counts["mulan"] + 1
 
 
 def test_rhythm_lab_track_ids_follow_the_requested_recipe(
@@ -695,15 +695,15 @@ def test_rhythm_lab_track_ids_follow_the_requested_recipe(
     _insert_complete_rhythm_lab_rows(
         repository,
         track_id=track_ids[1],
-        missing_source="mert",
+        missing_source="mulan",
     )
 
     source = SourceDatabase(repository.path)
 
-    # Default pool: every family stored in this library, so the MERT gap excludes track 2.
+    # Default pool: every family stored in this library, so the MuLan gap excludes track 2.
     assert source.rhythm_lab_track_ids() == (track_ids[0],)
-    assert source.rhythm_lab_track_ids(("sonara", "mert")) == (track_ids[0],)
-    # A recipe without MERT keeps it.
+    assert source.rhythm_lab_track_ids(("sonara", "mulan")) == (track_ids[0],)
+    # A recipe without MuLan keeps it.
     assert source.rhythm_lab_track_ids(("sonara", "maest")) == tuple(track_ids)
     # A family with no rows here (mert_v2) yields an empty pool instead of a query error.
     assert source.rhythm_lab_track_ids(("sonara", "mert_v2")) == ()
@@ -722,7 +722,7 @@ def test_source_feature_counts_trust_existing_rows_without_blob_validation(
         ).fetchone()
         connection.execute(
             """
-            INSERT INTO mert_embeddings(
+            INSERT INTO mulan_embeddings(
                 track_id, track_uuid, dim, normalization,
                 embedding_blob, analyzed_at
             ) VALUES (?, ?, 1, 'none', ?, ?)
@@ -749,8 +749,8 @@ def test_source_feature_counts_trust_existing_rows_without_blob_validation(
 
     source = SourceDatabase(repository.path)
 
-    assert source.feature_counts()["mert"] == 1
-    assert source.count_embeddings("mert") == 1
+    assert source.feature_counts()["mulan"] == 1
+    assert source.count_embeddings("mulan") == 1
     assert source.count_sonara_features() == 1
 
 
@@ -758,7 +758,7 @@ def test_rhythm_lab_track_page_follows_the_requested_recipe(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
     _insert_track(repository, output, index=1)
@@ -772,7 +772,7 @@ def test_rhythm_lab_track_page_follows_the_requested_recipe(
     _insert_complete_rhythm_lab_rows(
         repository,
         track_id=track_ids[0],
-        missing_source="mert",
+        missing_source="mulan",
     )
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
@@ -792,8 +792,8 @@ def test_rhythm_lab_track_page_follows_the_requested_recipe(
 
     # Default pool requires every stored family; only track 1 has all of them.
     assert page(None) == [track_ids[0]]
-    # A MERT-only recipe shows both tracks; a subset without MERT shows track 1.
-    assert page(("mert",)) == track_ids
+    # A MuLan-only recipe shows both tracks; a subset without MuLan shows track 1.
+    assert page(("mulan",)) == track_ids
     assert page(("sonara", "muq")) == [track_ids[0]]
     assert page(("mert_v2",)) == []
 
@@ -802,7 +802,7 @@ def test_labeled_features_exclude_tracks_missing_a_recipe_source(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
     _insert_track(repository, output, index=1)
@@ -811,7 +811,7 @@ def test_labeled_features_exclude_tracks_missing_a_recipe_source(
     _insert_complete_rhythm_lab_rows(
         repository,
         track_id=tracks[0].track_id,
-        missing_source="mert",
+        missing_source="mulan",
     )
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
@@ -819,22 +819,22 @@ def test_labeled_features_exclude_tracks_missing_a_recipe_source(
     scoped.set_label(tracks[0], "yes")
     scoped.set_label(tracks[1], "no")
 
-    # The training pool follows the recipe: both tracks store MERT, only one stores MAEST.
-    mert_only = build_labeled_feature_matrix(
+    # The training pool follows the recipe: both tracks store MuLan, only one stores MAEST.
+    mulan_only = build_labeled_feature_matrix(
         repository.path,
         labels_path,
-        "mert",
+        "mulan",
         classifier_key="focused",
     )
     with_maest = build_labeled_feature_matrix(
         repository.path,
         labels_path,
-        "mert+maest",
+        "mulan+maest",
         classifier_key="focused",
     )
 
-    assert {track.track_id for track in mert_only.tracks} == {track.track_id for track in tracks}
-    assert mert_only.skipped_identities == ()
+    assert {track.track_id for track in mulan_only.tracks} == {track.track_id for track in tracks}
+    assert mulan_only.skipped_identities == ()
     assert [track.track_id for track in with_maest.tracks] == [tracks[0].track_id]
     assert with_maest.skipped_identities == (tracks[1].content_key,)
 
@@ -843,7 +843,7 @@ def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
     _insert_track(repository, output, index=1)
@@ -856,7 +856,7 @@ def test_profile_summary_counts_only_complete_rhythm_lab_tracks(
     _insert_complete_rhythm_lab_rows(
         repository,
         track_id=complete_track_id,
-        missing_source="mert",
+        missing_source="mulan",
     )
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
@@ -974,10 +974,10 @@ def test_labels_from_another_catalog_are_not_counted_or_trained(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     track = SourceDatabase(repository.path).list_tracks()[0]
     labels_path = tmp_path / "lab.sqlite"
     _create_focused_profile(labels_path)
@@ -1009,14 +1009,14 @@ def test_labels_from_another_catalog_are_not_counted_or_trained(
     features = build_labeled_feature_matrix(
         repository.path,
         labels_path,
-        "mert",
+        "mulan",
         classifier_key="focused",
     )
     with TestClient(app) as client:
         summary = client.get("/api/profiles/focused/summary").json()
         readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "mert"},
+            params={"feature_set": "mulan"},
         ).json()
 
     assert features.labels == ["yes"]
@@ -1029,11 +1029,11 @@ def test_prediction_page_hides_track_only_when_a_required_source_row_is_removed(
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
     _insert_track(repository, output, index=1)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     source = SourceDatabase(repository.path)
     track = source.list_tracks()[0]
     labels_path = tmp_path / "lab.sqlite"
@@ -1042,16 +1042,16 @@ def test_prediction_page_hides_track_only_when_a_required_source_row_is_removed(
     scoped.sync_track_sightings(source)
     scoped.save_prediction(
         track,
-        feature_set="mert",
+        feature_set="mulan",
         model_artifact="focused.joblib",
         label="yes",
         confidence=0.8,
         probabilities={"yes": 0.8, "no": 0.2},
     )
-    # The other track keeps MERT stored, so the family stays available library-wide.
+    # The other track keeps MuLan stored, so the family stays available library-wide.
     with repository.connect() as connection:
         connection.execute(
-            "DELETE FROM mert_embeddings WHERE track_id = ?",
+            "DELETE FROM mulan_embeddings WHERE track_id = ?",
             (track.track_id,),
         )
 
@@ -1072,7 +1072,7 @@ def test_prediction_page_hides_track_only_when_a_required_source_row_is_removed(
         return result["total"]
 
     assert page(None) == 0
-    assert page(("mert",)) == 0
+    assert page(("mulan",)) == 0
     # Removing an unrelated family's row does not hide the prediction.
     assert page(("sonara", "muq")) == 1
 
@@ -1097,7 +1097,7 @@ def test_embedding_reads_are_bounded_by_track_id_chunks() -> None:
     connection = RecordingConnection()
     vectors = _ready_embedding_vectors(
         connection,  # type: ignore[arg-type]
-        family="mert",
+        family="mulan",
         track_ids=range(1, 1_702),
     )
 
@@ -1112,11 +1112,11 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Repository(tmp_path)
-    mert = _mert_output()
-    repository.register_analysis_outputs((mert,))
+    mulan = _mulan_output()
+    repository.register_analysis_outputs((mulan,))
     for index in range(4):
-        _insert_track(repository, mert, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+        _insert_track(repository, mulan, index=index)
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     # Libraries analyzed before MERT-v2 existed have no table at all; the lab
     # must report the family as missing instead of failing on the query.
     with repository.connect() as connection:
@@ -1137,10 +1137,10 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
 
     def fake_benchmark(*_args: object, **kwargs: object) -> dict[str, object]:
         benchmark_calls.append(kwargs)
-        return {"strategy": kwargs["strategy"], "feature_sets": ["sonara+mert"], "planned_runs": 1, "profiles": []}
+        return {"strategy": kwargs["strategy"], "feature_sets": ["sonara+mulan"], "planned_runs": 1, "profiles": []}
 
     monkeypatch.setattr(web_app_module, "run_ablation_benchmark", fake_benchmark)
-    stored_families = ["sonara", "maest", "mert", "muq", "mulan", "clap"]
+    stored_families = ["sonara", "maest", "muq", "mulan", "clap"]
 
     with TestClient(app) as client:
         current = client.get("/api/source/current")
@@ -1150,7 +1150,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert current.json()["track_count"] == 4
         assert current.json()["available_feature_sources"] == stored_families
         assert current.json()["default_feature_set"] == "+".join(stored_families)
-        assert current.json()["feature_sources"]["mert"] == {
+        assert current.json()["feature_sources"]["mulan"] == {
             "status": "current",
             "reason": None,
             "count": 4,
@@ -1173,14 +1173,14 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert first["file_path"].endswith(".wav")
         assert set(first["feature_status"]) == {
             "sonara",
-            "mert",
+            "mulan",
             "mert_v2",
             "maest",
             "clap",
             "muq",
             "mulan",
         }
-        assert first["feature_status"]["mert"]["status"] == "current"
+        assert first["feature_status"]["mulan"]["status"] == "current"
         assert first["feature_status"]["mert_v2"]["status"] == "missing"
         assert first["feature_status"]["muq"]["status"] == "current"
         assert first["feature_status"]["mulan"]["status"] == "current"
@@ -1194,13 +1194,13 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
             params={"feature_set": "combined"},
         ).status_code == 400
 
-        mert_readiness = client.get(
+        mulan_readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "mert"},
+            params={"feature_set": "mulan"},
         ).json()
-        sonara_mert_maest_readiness = client.get(
+        sonara_mulan_maest_readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "maest+mert+sonara"},
+            params={"feature_set": "maest+mulan+sonara"},
         ).json()
         muq_readiness = client.get(
             "/api/profiles/focused/training/readiness",
@@ -1209,20 +1209,20 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         default_readiness = client.get(
             "/api/profiles/focused/training/readiness",
         ).json()
-        assert mert_readiness["features_ready"] is True
-        assert mert_readiness["promoted_model"]["status"] == "not_promoted"
-        assert mert_readiness["trained_model"]["feature_set"] is None
-        assert mert_readiness["labels_ready"] is True
-        assert mert_readiness["label_threshold_ready"] is True
-        assert mert_readiness["calibration_ready"] is False
-        assert "100" in mert_readiness["calibration_readiness"]["reason"]
-        assert mert_readiness["available_feature_sources"] == stored_families
-        assert mert_readiness["default_feature_set"] == "+".join(stored_families)
-        assert mert_readiness["mert_v2_layers"] == []
-        assert "available_feature_sets" not in mert_readiness
-        source_features = mert_readiness["source_features"]
+        assert mulan_readiness["features_ready"] is True
+        assert mulan_readiness["promoted_model"]["status"] == "not_promoted"
+        assert mulan_readiness["trained_model"]["feature_set"] is None
+        assert mulan_readiness["labels_ready"] is True
+        assert mulan_readiness["label_threshold_ready"] is True
+        assert mulan_readiness["calibration_ready"] is False
+        assert "100" in mulan_readiness["calibration_readiness"]["reason"]
+        assert mulan_readiness["available_feature_sources"] == stored_families
+        assert mulan_readiness["default_feature_set"] == "+".join(stored_families)
+        assert mulan_readiness["mert_v2_layers"] == []
+        assert "available_feature_sets" not in mulan_readiness
+        source_features = mulan_readiness["source_features"]
         assert set(source_features) == set(first["feature_status"])
-        assert source_features["mert"] == {
+        assert source_features["mulan"] == {
             "status": "current",
             "reason": None,
             "count": 4,
@@ -1231,14 +1231,14 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         assert source_features["mert_v2"]["status"] == "missing"
         assert source_features["mert_v2"]["count"] == 0
         # Requested recipes come back canonical; the default is every stored family.
-        assert sonara_mert_maest_readiness["features_ready"] is True
-        assert sonara_mert_maest_readiness["feature_recipe"]["feature_set"] == "sonara+maest+mert"
-        assert sonara_mert_maest_readiness["feature_recipe"]["required_sources"] == [
+        assert sonara_mulan_maest_readiness["features_ready"] is True
+        assert sonara_mulan_maest_readiness["feature_recipe"]["feature_set"] == "sonara+maest+mulan"
+        assert sonara_mulan_maest_readiness["feature_recipe"]["required_sources"] == [
             "sonara",
             "maest",
-            "mert",
+            "mulan",
         ]
-        assert "total" in mert_readiness and "current" in mert_readiness
+        assert "total" in mulan_readiness and "current" in mulan_readiness
         assert muq_readiness["features_ready"] is True
         assert muq_readiness["feature_recipe"]["blocking"] == []
         assert default_readiness["feature_recipe"]["feature_set"] == "+".join(stored_families)
@@ -1247,13 +1247,13 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         # Benchmarks are planned from the stored families before any training starts.
         benchmark = client.post(
             "/api/profiles/focused/training/benchmark",
-            json={"strategy": "custom", "feature_sets": ["mert+sonara"]},
+            json={"strategy": "custom", "feature_sets": ["mulan+sonara"]},
         )
         assert benchmark.status_code == 200, benchmark.text
         assert benchmark.json()["planned_runs"] == 1
-        assert benchmark.json()["feature_sets"] == ["sonara+mert"]
+        assert benchmark.json()["feature_sets"] == ["sonara+mulan"]
         assert benchmark_calls[-1]["strategy"] == "custom"
-        assert benchmark_calls[-1]["feature_sets"] == ("mert+sonara",)
+        assert benchmark_calls[-1]["feature_sets"] == ("mulan+sonara",)
         assert client.post(
             "/api/profiles/focused/training/benchmark",
             json={"strategy": "layers"},
@@ -1308,15 +1308,15 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         other_root = tmp_path / "other"
         other_root.mkdir()
         other = Repository(other_root)
-        other.register_analysis_outputs((mert,))
-        _insert_track(other, mert, index=5)
+        other.register_analysis_outputs((mulan,))
+        _insert_track(other, mulan, index=5)
         switched = client.post("/api/source/switch", json={"path": str(other.path)})
         assert switched.status_code == 200, switched.text
         assert switched.json()["catalog_uuid"] == other.catalog_uuid
         assert switched.json()["launched_catalog_uuid"] == repository.catalog_uuid
         assert switched.json()["track_count"] == 1
-        assert switched.json()["available_feature_sources"] == ["mert"]
-        assert switched.json()["default_feature_set"] == "mert"
+        assert switched.json()["available_feature_sources"] == ["mulan"]
+        assert switched.json()["default_feature_set"] == "mulan"
         assert client.post("/api/source/switch", json={"path": str(lab_path)}).status_code == 409
         assert client.get("/api/source/current").json()["catalog_uuid"] == other.catalog_uuid
 
@@ -1335,7 +1335,7 @@ def test_web_uses_current_track_identity_and_recipe_readiness(
         def blocking_benchmark(*_args: object, **kwargs: object) -> dict[str, object]:
             benchmark_started.set()
             assert benchmark_release.wait(timeout=10)
-            return {"strategy": kwargs["strategy"], "feature_sets": ["mert"], "planned_runs": 1, "profiles": []}
+            return {"strategy": kwargs["strategy"], "feature_sets": ["mulan"], "planned_runs": 1, "profiles": []}
 
         monkeypatch.setattr(web_app_module, "run_ablation_benchmark", blocking_benchmark)
         benchmark_thread = threading.Thread(
@@ -1387,7 +1387,7 @@ def test_web_reuses_lab_database_repository_for_profile_requests(
         tracks = client.get("/api/profiles/focused/tracks")
         readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "mert"},
+            params={"feature_set": "mulan"},
         )
 
     assert summary.status_code == 200
@@ -1431,12 +1431,12 @@ def test_calibration_preflight_uses_usable_rows_and_preserves_current_artifact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track_without_embedding(repository, index=0)
     for index in range(1, 4):
         _insert_track(repository, output, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)
@@ -1474,15 +1474,15 @@ def test_calibration_preflight_uses_usable_rows_and_preserves_current_artifact(
     with TestClient(app) as client:
         readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "mert"},
+            params={"feature_set": "mulan"},
         ).json()
         response = client.post(
             "/api/profiles/focused/training/calibrate",
-            json={"feature_set": "mert"},
+            json={"feature_set": "mulan"},
         )
         after = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "mert"},
+            params={"feature_set": "mulan"},
         ).json()
 
     assert readiness["current"] == {"yes": 2, "no": 2}
@@ -1501,11 +1501,11 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)
@@ -1528,7 +1528,7 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
 
     def fake_benchmark(*args: object, **kwargs: object) -> dict[str, object]:
         return {
-            "mert": {
+            "mulan": {
                 "status": "trained",
                 "artifact_path": str(trained_artifact),
                 "metrics_path": str(
@@ -1558,20 +1558,20 @@ def test_train_refresh_applies_the_exact_artifact_returned_by_training(
         assert raised.status_code == 200, raised.text
         assert raised.json()["training_min_labels"] == 3
         for path, body in (
-            ("training/train-refresh", {"feature_set": "mert"}),
+            ("training/train-refresh", {"feature_set": "mulan"}),
             ("training/benchmark", {"strategy": "singles"}),
-            ("training/calibrate", {"feature_set": "mert"}),
+            ("training/calibrate", {"feature_set": "mulan"}),
         ):
             blocked = client.post(f"/api/profiles/focused/{path}", json=body)
             assert blocked.status_code == 409, blocked.text
             assert "at least 3 labels per class" in blocked.json()["detail"]
-        readiness = client.get("/api/profiles/focused/training/readiness", params={"feature_set": "mert"}).json()
+        readiness = client.get("/api/profiles/focused/training/readiness", params={"feature_set": "mulan"}).json()
         assert (readiness["label_threshold"], readiness["label_threshold_ready"]) == (3, False)
         assert client.patch("/api/profiles/focused", json={"training_min_labels": 2}).status_code == 200
 
         response = client.post(
             "/api/profiles/focused/training/train-refresh",
-            json={"feature_set": "mert"},
+            json={"feature_set": "mulan"},
         )
 
     assert response.status_code == 200, response.text
@@ -1621,7 +1621,7 @@ def test_prediction_applies_artifacts_by_feature_spec_not_source_catalog(
     other_root = tmp_path / "other"
     other_root.mkdir()
     other_repository = Repository(other_root)
-    output = _mert_output()
+    output = _mulan_output()
     other_repository.register_analysis_outputs((output,))
     _insert_track(other_repository, output, index=0)
     lab_path = tmp_path / "lab.sqlite"
@@ -1660,7 +1660,7 @@ def test_prediction_and_promotion_accept_artifact_without_source_catalog_binding
     tmp_path: Path,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     _insert_track(repository, output, index=0)
     lab_path = tmp_path / "lab.sqlite"
@@ -1695,11 +1695,11 @@ def test_prediction_refresh_failure_leaves_previous_candidate_set_untouched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     for index in range(5):
         _insert_track(repository, output, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path)
     scoped = RhythmLabDatabase(lab_path, classifier_key="focused")
@@ -1707,7 +1707,7 @@ def test_prediction_refresh_failure_leaves_previous_candidate_set_untouched(
     for track in tracks:
         scoped.save_prediction(
             track,
-            feature_set="mert",
+            feature_set="mulan",
             model_artifact="old.joblib",
             label="no",
             confidence=0.75,
@@ -1754,11 +1754,11 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Repository(tmp_path)
-    output = _mert_output()
+    output = _mulan_output()
     repository.register_analysis_outputs((output,))
     for index in range(4):
         _insert_track(repository, output, index=index)
-    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mert")
+    _complete_all_tracks_for_rhythm_lab(repository, existing_source="mulan")
     artifact_dir = tmp_path / "artifacts"
     lab_path = tmp_path / "lab.sqlite"
     _create_focused_profile(lab_path, artifact_dir=artifact_dir)
@@ -1789,7 +1789,7 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
         assert Path(labels_db_path) == lab_path
         assert Path(selected_artifact_dir) == artifact_dir
         assert classifier_key == "focused"
-        assert feature_sets == ("mert",)
+        assert feature_sets == ("mulan",)
         assert random_state == 42
         assert calibrate is True
         assert progress_callback is not None
@@ -1802,7 +1802,7 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
             calibrated=True,
         )
         return {
-            "mert": {
+            "mulan": {
                 "status": "trained",
                 "artifact_path": str(calibrated_artifact),
                 "metrics_path": str(
@@ -1832,7 +1832,7 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
     with TestClient(app) as client:
         calibration = client.post(
             "/api/profiles/focused/training/calibrate",
-            json={"feature_set": "mert"},
+            json={"feature_set": "mulan"},
         )
         assert calibration.status_code == 200, calibration.text
         assert calibrated_artifact is not None
@@ -1849,14 +1849,14 @@ def test_calibration_becomes_current_for_refresh_and_web_promotion(
         }
         readiness = client.get(
             "/api/profiles/focused/training/readiness",
-            params={"feature_set": "mert"},
+            params={"feature_set": "mulan"},
         ).json()
         option = readiness["artifact_summary"]["promotion_options"][0]
         assert option["latest_model"] == str(calibrated_artifact)
         assert option["calibration_status"] == "calibrated"
         promoted = client.post(
             "/api/profiles/focused/promote",
-            json={"feature_set": "mert"},
+            json={"feature_set": "mulan"},
         )
 
     assert promoted.status_code == 200, promoted.text
@@ -1867,11 +1867,11 @@ def test_tampered_or_unbound_artifact_is_rejected_before_joblib_load(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    artifact = tmp_path / "focused-mert-test.joblib"
+    artifact = tmp_path / "focused-mulan-test.joblib"
     joblib.dump(
         {
             "classifier_key": "focused",
-            "feature_set": "mert",
+            "feature_set": "mulan",
             "model": object(),
         },
         artifact,

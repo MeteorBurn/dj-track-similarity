@@ -34,7 +34,7 @@ def test_candidate_pool_uses_current_targets_without_contract_hashes() -> None:
     result = export_candidate_pools(
         repository,
         seed_track_ids=(1,),
-        sources=("mert", "maest"),
+        sources=("mert_v2", "maest"),
         per_source=2,
         random_seed=19,
         record_session=True,
@@ -44,7 +44,7 @@ def test_candidate_pool_uses_current_targets_without_contract_hashes() -> None:
     assert result.session_ids == (1,)
     assert {row.candidate_track_id for row in result.rows} == {2, 3}
     shared = next(row for row in result.rows if row.candidate_track_id == 2)
-    assert tuple(shared.source_contributions) == ("maest", "mert")
+    assert tuple(shared.source_contributions) == ("maest", "mert_v2")
     assert all(
         not hasattr(contribution, "contract_hash")
         for contribution in shared.source_contributions.values()
@@ -55,7 +55,7 @@ def test_candidate_pool_uses_current_targets_without_contract_hashes() -> None:
     request = repository.created_sessions[0]["request"]
     assert request["catalog_uuid"] == repository.catalog_uuid
     assert request["seed_identities"] == [_identity_payload(repository.identities[1])]
-    assert request["sources"] == ["mert", "maest"]
+    assert request["sources"] == ["mert_v2", "maest"]
     assert "source_contract_hashes" not in request
     assert all(
         event["score_breakdown"]["candidate_identity"]
@@ -75,7 +75,7 @@ def test_seed_sample_distinguishes_maest_analysis_and_embedding_coverage() -> No
         repository.identities[1],
         coverage=AnalysisCoverage(
             sonara_core=True,
-            mert=True,
+            mert_v2=True,
             muq=True,
             clap=True,
             maest_analysis=False,
@@ -97,7 +97,7 @@ def test_seed_sample_distinguishes_maest_analysis_and_embedding_coverage() -> No
     assert result.eligible_count == 1
     row = result.rows[0]
     assert row.sonara_core
-    assert row.mert_embedding
+    assert row.mert_v2_embedding
     assert row.muq_embedding
     assert row.clap_embedding
     assert not row.maest_analysis
@@ -109,7 +109,7 @@ def test_seed_sample_distinguishes_maest_analysis_and_embedding_coverage() -> No
         repository.identities[1],
         coverage=AnalysisCoverage(
             sonara_core=True,
-            mert=True,
+            mert_v2=True,
             muq=False,
             clap=True,
             maest_analysis=True,
@@ -127,7 +127,7 @@ def test_seed_sample_distinguishes_maest_analysis_and_embedding_coverage() -> No
         repository,
         count=1,
         require_complete_analysis=True,
-        required_sources=("mert", "maest", "sonara", "clap"),
+        required_sources=("mert_v2", "maest", "sonara", "clap"),
     )
     assert legacy_sources.eligible_count == 1
 
@@ -172,7 +172,7 @@ def _recorded_session_fixture(
     }
 
 
-@pytest.mark.parametrize("source", ("mert", "muq"))
+@pytest.mark.parametrize("source", ("mert_v2", "muq"))
 def test_recorded_session_reader_requires_current_track_identity_without_hashes(
     source: str,
 ) -> None:
@@ -196,7 +196,7 @@ def test_recorded_session_reader_requires_current_track_identity_without_hashes(
 @pytest.mark.parametrize(
     ("legacy_key", "legacy_value"),
     (
-        ("source_contract_hashes", {"mert": "sha256:legacy"}),
+        ("source_contract_hashes", {"mert_v2": "sha256:legacy"}),
         ("release_hash", "sha256:legacy"),
         ("schema_version", 7),
     ),
@@ -206,7 +206,7 @@ def test_recorded_session_reader_rejects_legacy_request_identity(
     legacy_value: object,
 ) -> None:
     repository = _Repository()
-    session = _recorded_session_fixture(repository, "mert")
+    session = _recorded_session_fixture(repository, "mert_v2")
     session["request"][legacy_key] = legacy_value
     repository.raw_sessions = [session]
 
@@ -227,8 +227,8 @@ def test_recorded_session_reader_filters_legacy_event_identity(
     legacy_value: object,
 ) -> None:
     repository = _Repository()
-    session = _recorded_session_fixture(repository, "mert")
-    contribution = session["events"][0]["score_breakdown"]["sources"]["mert"]
+    session = _recorded_session_fixture(repository, "mert_v2")
+    contribution = session["events"][0]["score_breakdown"]["sources"]["mert_v2"]
     contribution[legacy_key] = legacy_value
     repository.raw_sessions = [session]
 
@@ -250,7 +250,7 @@ class _Repository:
         }
         coverage = AnalysisCoverage(
             sonara_core=True,
-            mert=True,
+            mert_v2=True,
             muq=True,
             clap=True,
             maest_embedding=True,
@@ -260,8 +260,8 @@ class _Repository:
             for track_id, identity in self.identities.items()
         }
         self.outputs = {
-            ("mert", "embedding"): current_embedding_analysis_output(
-                "mert"
+            ("mert_v2", "embedding"): current_embedding_analysis_output(
+                "mert_v2"
             ),
             ("maest", "embedding"): current_embedding_analysis_output(
                 "maest"
@@ -275,10 +275,10 @@ class _Repository:
             ("sonara", "core"): _sonara_output(),
         }
         self.vectors = {
-            "mert": {
-                1: _expanded_vector(768, 1.0, 0.0),
-                2: _expanded_vector(768, 0.9949874, 0.1),
-                3: _expanded_vector(768, 0.8, 0.6),
+            "mert_v2": {
+                1: _expanded_vector(1024, 1.0, 0.0),
+                2: _expanded_vector(1024, 0.9949874, 0.1),
+                3: _expanded_vector(1024, 0.8, 0.6),
             },
             "maest": {
                 1: _expanded_vector(768, 0.0, 1.0),

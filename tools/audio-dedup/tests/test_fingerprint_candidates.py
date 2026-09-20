@@ -212,7 +212,7 @@ def test_fingerprint_mode_candidates_come_only_from_fingerprint_lsh() -> None:
             musical_key=None,
             duration=180.0,
             metadata={},
-            embeddings={} if embedding is None else {"mert": embedding},
+            embeddings={} if embedding is None else {"mert_v2": embedding},
         )
 
     source_words = np.tile(np.array([0x11111111, 0xABCD1234], dtype=np.uint32), 240)
@@ -256,7 +256,7 @@ def test_default_fingerprint_mode_rejects_embedding_source_selection(
             min_score=None,
             limit_groups=None,
             out_dir=tmp_path,
-            sources=("mert",),
+            sources=("mert_v2",),
         )
 
 
@@ -264,7 +264,7 @@ def test_exact_fingerprint_checks_skip_duration_only_candidates() -> None:
     pairs = candidates_module._fingerprint_exact_candidate_pairs(
         {
             (1, 2): ("duration_window",),
-            (3, 4): ("mert_lsh",),
+            (3, 4): ("mert_v2_lsh",),
             (5, 6): ("fingerprint_lsh",),
         }
     )

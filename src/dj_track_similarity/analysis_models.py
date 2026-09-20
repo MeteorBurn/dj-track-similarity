@@ -35,7 +35,6 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         "sonara": frozenset({"core", "embedding", "fingerprint", "timeline"}),
         "maest": frozenset({"analysis", "embedding"}),
-        "mert": frozenset({"embedding"}),
         "mert_v2": frozenset({"embedding"}),
         "muq": frozenset({"embedding"}),
         "mulan": frozenset({"embedding"}),
@@ -44,7 +43,6 @@ OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
 )
 
 MAEST_MODEL_NAME = "discogs-maest-30s-pw-129e-519l"
-MERT_MODEL_NAME = "m-a-p/MERT-v1-95M"
 MERT_V2_MODEL_NAME = "m-a-p/MERT-v2-FullSong"
 MUQ_MODEL_NAME = "OpenMuQ/MuQ-large-msd-iter"
 MULAN_MODEL_NAME = "OpenMuQ/MuQ-MuLan-large"
@@ -53,7 +51,6 @@ CLAP_MODEL_NAME = "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
 CLAP_TEXT_MODEL_NAME = "roberta-base"
 
 MAEST_MODEL_VERSION = "v0.0.0-beta"
-MERT_MODEL_REVISION = "12af15fef9d0ac838c3f475bfbbf26d2060dd4f5"
 MERT_V2_MODEL_REVISION = "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42"
 MUQ_MODEL_REVISION = "0562a57814f6f8bbd9fdea0a25921a2fce1a841a"
 MULAN_MODEL_REVISION = "57b8af8e903a6fa28b6ba1d7a1578b4d68fcc918"
@@ -63,9 +60,6 @@ CLAP_TEXT_MODEL_REVISION = "e2da8e2f811d1448a5b465c236feacd80ffbac7b"
 
 MAEST_CHECKPOINT_ID = (
     "sha256:d6044e642b6ae295ee1164cc52b33ac663e247f03b4b100a0af1a5edfab18cdb"
-)
-MERT_CHECKPOINT_ID = (
-    "sha256:a2b8b747f72c06e0595aeae41ae5473f4364938c6b39b2c58be38c48e6bd3fcd"
 )
 MERT_V2_CHECKPOINT_ID = (
     "sha256:e6dd2ab187d6dd62b6521cd7d8f932e237acf0c5757745a7232082e28391350d"
@@ -80,25 +74,6 @@ CLAP_CHECKPOINT_ID = (
     "sha256:fae3e9c087f2909c28a09dc31c8dfcdacbc42ba44c70e972b58c1bd1caf6dedd"
 )
 
-MERT_SNAPSHOT_SHA256 = (
-    (
-        "config.json",
-        "ea2627c4c7825cd66f3c944b6b966331604c35928174e0100cd4a82829424e32",
-    ),
-    (
-        "configuration_MERT.py",
-        "ae0ec2bab8f59c724ba9878a7c20b67210189536ea62d34a56775968e9decb03",
-    ),
-    (
-        "modeling_MERT.py",
-        "6c3ee73cef6f0c30ef494f88d96f891fa6925ffe663fa391b512f4b57abecc6c",
-    ),
-    (
-        "preprocessor_config.json",
-        "cc5a5e4a5d3b1a758a5ed984b2eaa15bb0522d811d44a9eed82bfca4baa0dc8f",
-    ),
-    ("pytorch_model.bin", MERT_CHECKPOINT_ID.removeprefix("sha256:")),
-)
 MERT_V2_SNAPSHOT_SHA256 = (
     (
         "config.json",
@@ -182,14 +157,12 @@ CLAP_TEXT_SNAPSHOT_SHA256 = (
 )
 
 MAEST_PREPROCESSING = "shared-mono/maest-16khz-native-full-track"
-MERT_PREPROCESSING = "shared-mono/mert-24khz-interior-windows"
 MERT_V2_PREPROCESSING = "shared-mono/mert-v2-24khz-amplitude-preserved-360s-last-layer-frame-weighted"
 MUQ_PREPROCESSING = "shared-mono/muq-24khz-float32-consecutive-windows"
 MULAN_PREPROCESSING = "shared-mono/muq-mulan-24khz-float32-full-track"
 CLAP_PREPROCESSING = "shared-mono/clap-48khz-native-full-signal"
 
 MAEST_EMBEDDING_DIM = 768
-MERT_EMBEDDING_DIM = 768
 MERT_V2_EMBEDDING_DIM = 1024
 MUQ_EMBEDDING_DIM = 1024
 MULAN_EMBEDDING_DIM = 512
@@ -209,7 +182,6 @@ class EmbeddingFamilySpec:
 CURRENT_EMBEDDING_SPECS: Mapping[str, EmbeddingFamilySpec] = MappingProxyType(
     {
         "maest": EmbeddingFamilySpec(MAEST_EMBEDDING_DIM, "l2"),
-        "mert": EmbeddingFamilySpec(MERT_EMBEDDING_DIM, "l2"),
         "mert_v2": EmbeddingFamilySpec(MERT_V2_EMBEDDING_DIM, "l2"),
         "muq": EmbeddingFamilySpec(MUQ_EMBEDDING_DIM, "l2"),
         "mulan": EmbeddingFamilySpec(MULAN_EMBEDDING_DIM, "l2"),
@@ -723,9 +695,9 @@ class EmbeddingWrite:
     output: EmbeddingOutput
 
     def __post_init__(self) -> None:
-        if self.output.family not in {"mert", "mert_v2", "muq", "mulan", "clap"}:
+        if self.output.family not in {"mert_v2", "muq", "mulan", "clap"}:
             raise ValueError(
-                "standalone embedding writes support only MERT, MERT-v2, MuQ, MuQ-MuLan, or CLAP"
+                "standalone embedding writes support only MERT-v2, MuQ, MuQ-MuLan, or CLAP"
             )
 
 

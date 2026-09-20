@@ -188,8 +188,8 @@ def _train_artifact(
     return train_feature_set(
         matrix,
         labels,
-        feature_names=["mert:0", "mert:1"],
-        feature_set="mert",
+        feature_names=["mulan:0", "mulan:1"],
+        feature_set="mulan",
         artifact_dir=artifact_dir,
         label_order=["yes", "no"],
         positive_label="yes",
@@ -248,14 +248,14 @@ def test_ablation_benchmark_reports_progress_across_profile_and_report(
         tmp_path / "labels.sqlite",
         profile_keys=("focused",),
         strategy="custom",
-        feature_sets=("mert",),
+        feature_sets=("mulan",),
         progress_callback=lambda stage, completed, total: events.append((stage, completed, total)),
     )
 
     assert events[0] == ("Focused: Cross-validation fold 5/5", 10, 11)
     assert events[-1] == ("Benchmark complete", 11, 11)
     assert report["strategy"] == "custom"
-    assert report["available_sources"] == ["sonara", "maest", "mert", "muq", "mulan", "clap"]
+    assert report["available_sources"] == ["sonara", "maest", "muq", "mulan", "clap"]
     assert report["planned_runs"] == 1
     assert Path(str(report["output_path"])).parent == profile.artifact_dir
 
@@ -274,15 +274,15 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
     # there and never enumerates the rest of the grid. The winner is the metric maximum.
     scripted = {
         "sonara": (0.70, 0.02),
-        "mert": (0.60, 0.02),
+        "mulan": (0.60, 0.02),
         "maest": (0.50, 0.02),
         "clap": (0.40, 0.02),
-        "sonara+mert": (0.80, 0.05),
+        "sonara+mulan": (0.80, 0.05),
         "sonara+maest": (0.71, 0.02),
         "sonara+clap": (0.65, 0.02),
-        "sonara+maest+mert": (0.84, 0.02),
-        "sonara+mert+clap": (0.82, 0.02),
-        "sonara+maest+mert+clap": (0.83, 0.02),
+        "sonara+maest+mulan": (0.84, 0.02),
+        "sonara+mulan+clap": (0.82, 0.02),
+        "sonara+maest+mulan+clap": (0.83, 0.02),
     }
     trained: list[str] = []
 
@@ -301,7 +301,7 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
     monkeypatch.setattr(
         ablation_module,
         "available_feature_sources",
-        lambda _states: ("sonara", "mert", "maest", "clap"),
+        lambda _states: ("sonara", "mulan", "maest", "clap"),
     )
 
     report = ablation_module.benchmark_profile_ablation(
@@ -317,16 +317,16 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
     assert trained == [
         "sonara",
         "maest",
-        "mert",
+        "mulan",
         "clap",
-        "sonara+mert",
+        "sonara+mulan",
         "sonara+maest",
         "sonara+clap",
-        "sonara+maest+mert",
-        "sonara+mert+clap",
-        "sonara+maest+mert+clap",
+        "sonara+maest+mulan",
+        "sonara+mulan+clap",
+        "sonara+maest+mulan+clap",
     ]
-    assert report["winner"]["feature_set"] == "sonara+maest+mert"
+    assert report["winner"]["feature_set"] == "sonara+maest+mulan"
     assert [row["feature_set"] for row in report["results"]] == trained
 
     custom = ablation_module.benchmark_profile_ablation(
@@ -335,13 +335,13 @@ def test_greedy_benchmark_adds_sources_only_beyond_cv_noise(
         "focused",
         artifact_dir=tmp_path / "artifacts",
         strategy="custom",
-        feature_sets=("mert+sonara", "sonara+muq"),
+        feature_sets=("mulan+sonara", "sonara+muq"),
     )
 
-    assert [row["feature_set"] for row in custom["results"]] == ["sonara+mert", "sonara+muq"]
+    assert [row["feature_set"] for row in custom["results"]] == ["sonara+mulan", "sonara+muq"]
     assert custom["results"][1]["status"] == "unavailable"
     assert custom["results"][1]["error"] == "MUQ data is not stored in this library"
-    assert custom["winner"]["feature_set"] == "sonara+mert"
+    assert custom["winner"]["feature_set"] == "sonara+mulan"
 
     # Layers strategy: one run per layer the library reports.
     assert feature_module.stored_mert_v2_layers(_ReadyFeatureSource(library)) == ()
@@ -416,7 +416,7 @@ class _FeatureSource:
         )
         self.specifications = {
             family: current_embedding_spec(family)
-            for family in ("mert", "maest", "clap", "muq", "mulan", "mert_v2")
+            for family in ("mulan", "maest", "clap", "muq", "mulan", "mert_v2")
         }
         self.layers: dict[str, int | None] = {}
 
@@ -432,7 +432,7 @@ class _FeatureSource:
     ) -> SourceEmbeddingMatrix:
         self.layers[family] = layer
         specification = self.specifications[family]
-        family_value = float(("mert", "maest", "clap", "muq", "mulan", "mert_v2").index(family) + 2)
+        family_value = float(("mulan", "maest", "clap", "muq", "mulan", "mert_v2").index(family) + 2)
         tracks = (
             (self.track,)
             if track_ids is None or self.track.track_id in set(track_ids)  # type: ignore[arg-type]
@@ -459,14 +459,14 @@ class _FeatureSource:
     (
         ("muq", ("muq",)),
         ("sonara+muq", ("sonara", "muq")),
-        ("mert+muq", ("mert", "muq")),
+        ("mulan+muq", ("muq", "mulan")),
         (
-            "sonara+mert+maest+clap+muq",
-            ("sonara", "maest", "mert", "muq", "clap"),
+            "sonara+mulan+maest+clap+muq",
+            ("sonara", "maest", "muq", "mulan", "clap"),
         ),
         (
-            "sonara+mert+maest+clap+muq+mulan",
-            ("sonara", "maest", "mert", "muq", "mulan", "clap"),
+            "sonara+mert_v2+maest+clap+muq+mulan",
+            ("sonara", "maest", "mert_v2", "muq", "mulan", "clap"),
         ),
     ),
 )
@@ -492,7 +492,7 @@ def test_muq_feature_sets_extract_current_structural_dimensions(
         assert sum(name.startswith("sonara:") for name in result.feature_names) == (
             sonara_count
         )
-    for family in ("mert", "maest", "clap", "muq", "mulan"):
+    for family in ("mulan", "maest", "clap", "muq", "mulan"):
         expected_count = (
             source.specifications[family].dimension
             if family in expected_sources
@@ -514,19 +514,19 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
             status="current",
             reason=None,
         )
-        for source in ("sonara", "mert", "maest", "clap")
+        for source in ("sonara", "mulan", "maest", "clap")
     }
     states["muq"] = SourceFeatureState(
         status="missing",
         reason="MuQ vectors are missing.",
     )
 
-    sonara_mert_maest = feature_recipe_readiness("sonara+mert+maest", states)
+    sonara_mulan_maest = feature_recipe_readiness("sonara+mulan+maest", states)
     muq = feature_recipe_readiness("muq", states)
     sonara_muq = feature_recipe_readiness("sonara+muq", states)
 
-    assert sonara_mert_maest["required_sources"] == ["sonara", "maest", "mert"]
-    assert sonara_mert_maest["ready"] is True
+    assert sonara_mulan_maest["required_sources"] == ["sonara", "maest", "mulan"]
+    assert sonara_mulan_maest["ready"] is True
     assert muq["ready"] is False
     assert muq["blocking"] == [
         {
@@ -554,7 +554,7 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
     assert canonical_feature_set(("mert_v2@24",)) == "mert_v2"
     assert feature_sources("MERT_V2@12+sonara") == ("sonara", "mert_v2@12")
     assert feature_sources("mert_v2+mert_v2@6+mert_v2@12") == ("mert_v2@6", "mert_v2@12", "mert_v2")
-    for invalid in ("mert@12", "mert_v2@0", "mert_v2@x", "mert_v2@012", "mert_v2+mert_v2@24"):
+    for invalid in ("mulan@12", "mert_v2@0", "mert_v2@x", "mert_v2@012", "mert_v2+mert_v2@24"):
         with pytest.raises(ValueError):
             feature_sources(invalid)
     layered = feature_recipe_readiness("mert_v2@12", states)
@@ -589,18 +589,18 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
         build_feature_matrix(source, "sonara+mert_v2@12", labels_by_identity=identity, expected_feature_names=old_order[:-1])  # type: ignore[arg-type]
 
     available = available_feature_sources(states)
-    assert available == ("sonara", "maest", "mert", "mert_v2", "clap")
-    assert default_feature_set(available) == "sonara+maest+mert+mert_v2+clap"
+    assert available == ("sonara", "maest", "mert_v2", "mulan", "clap")
+    assert default_feature_set(available) == "sonara+maest+mert_v2+mulan+clap"
     assert default_feature_set(()) is None
 
     plan = ablation_module.benchmark_plan
     count = ablation_module.planned_run_count
     assert plan(available, "singles") == available
-    assert plan(available, "singles+all") == (*available, "sonara+maest+mert+mert_v2+clap")
-    assert plan(("mert",), "singles+all") == ("mert",)
+    assert plan(available, "singles+all") == (*available, "sonara+maest+mert_v2+mulan+clap")
+    assert plan(("mulan",), "singles+all") == ("mulan",)
     assert plan(available, "greedy") == available
     full = plan(available, "full")
-    assert full[0] == "sonara+maest+mert+mert_v2+clap"
+    assert full[0] == "sonara+maest+mert_v2+mulan+clap"
     assert len(full) == len(set(full)) == 2 ** len(available) - 1
     assert plan(available, "custom", ("mert_v2+sonara", "clap")) == ("sonara+mert_v2", "clap")
     with pytest.raises(ValueError, match="MUQ data is not stored"):
@@ -619,16 +619,16 @@ def test_recipe_readiness_requires_only_selected_current_sources() -> None:
         "mert_v2@6",
         "mert_v2@12",
         "mert_v2",
-        "sonara+maest+mert+mert_v2@6+clap",
-        "sonara+maest+mert+mert_v2@12+clap",
-        "sonara+maest+mert+mert_v2+clap",
+        "sonara+maest+mert_v2@6+mulan+clap",
+        "sonara+maest+mert_v2@12+mulan+clap",
+        "sonara+maest+mert_v2+mulan+clap",
     )
     assert plan(("mert_v2",), "layers+all", mert_v2_layers=(24,)) == ("mert_v2",)
     assert plan(available, "custom", ("sonara+mert_v2@12",), mert_v2_layers=layers) == ("sonara+mert_v2@12",)
     with pytest.raises(ValueError, match="MERT_V2 layer 12 is not stored"):
         plan(available, "custom", ("sonara+mert_v2@12",), mert_v2_layers=(24,))
     with pytest.raises(ValueError, match="MERT_V2 data is not stored"):
-        plan(("sonara", "mert"), "layers", mert_v2_layers=layers)
+        plan(("sonara", "mulan"), "layers", mert_v2_layers=layers)
     assert "mert_v2@12" not in plan(available, "full", mert_v2_layers=layers)
 
 
@@ -683,9 +683,9 @@ def test_artifact_with_the_previous_sonara_schema_is_not_promotable() -> None:
     summary = {
         "by_feature": [
             {
-                "feature_set": "sonara+mert",
-                "latest_model": "sonara-mert.joblib",
-                "feature_names": ["sonara:bpm", "mert:0"],
+                "feature_set": "sonara+mulan",
+                "latest_model": "sonara-mulan.joblib",
+                "feature_names": ["sonara:bpm", "mulan:0"],
                 "macro_f1_mean": 0.9,
             }
         ],
@@ -697,7 +697,7 @@ def test_artifact_with_the_previous_sonara_schema_is_not_promotable() -> None:
         summary,
         {
             "sonara": SourceFeatureState(status="current", reason=None),
-            "mert": SourceFeatureState(status="current", reason=None),
+            "mulan": SourceFeatureState(status="current", reason=None),
         },
     )
 
@@ -1061,7 +1061,7 @@ def test_label_rename_migrates_labels_predictions_and_checkpoint(
     database.set_label(track, "yes")
     database.save_prediction(
         track,
-        feature_set="mert",
+        feature_set="mulan",
         model_artifact="old.joblib",
         label="yes",
         confidence=0.8,
@@ -1131,7 +1131,7 @@ def test_predictions_preserve_precision_and_prune_only_selected_feature(
     track = _track(1)
     database.save_prediction(
         track,
-        feature_set="mert",
+        feature_set="mulan",
         model_artifact="old.joblib",
         label="yes",
         confidence=0.5000000001,
@@ -1139,7 +1139,7 @@ def test_predictions_preserve_precision_and_prune_only_selected_feature(
     )
     database.save_prediction(
         track,
-        feature_set="mert",
+        feature_set="mulan",
         model_artifact="new.joblib",
         label="yes",
         confidence=0.75,
@@ -1155,14 +1155,14 @@ def test_predictions_preserve_precision_and_prune_only_selected_feature(
     )
 
     assert database.prune_predictions(
-        feature_set="mert",
+        feature_set="mulan",
         keep_model_artifact="new.joblib",
     ) == 1
     assert {
         (row["feature_set"], row["model_artifact"])
         for row in database.predictions()
     } == {
-        ("mert", "new.joblib"),
+        ("mulan", "new.joblib"),
         ("maest", "other.joblib"),
     }
 
@@ -1209,14 +1209,14 @@ def test_training_checkpoint_counts_are_profile_scoped_and_catalog_global(
     for index, label in ((1, "yes"), (2, "yes"), (3, "no"), (4, "no"), (9, "yes")):
         fresh.set_label(_track(index), label)
     (tmp_path / "artifacts").mkdir(exist_ok=True)
-    _write_artifact(tmp_path / "artifacts", "focused-mert-20260101T000000Z.joblib")
+    _write_artifact(tmp_path / "artifacts", "focused-mulan-20260101T000000Z.joblib")
     source = _ReadyFeatureSource(_ready_library(tmp_path))  # tracks 1..4 sighted; 9 is not
 
     readiness = _training_readiness(
         fresh,
         artifact_dir=tmp_path / "artifacts",
         source=source,  # type: ignore[arg-type]
-        feature_set="mert",
+        feature_set="mulan",
     )
 
     assert readiness["current"] == {"yes": 2, "no": 2}
@@ -1229,7 +1229,7 @@ def test_training_checkpoint_counts_are_profile_scoped_and_catalog_global(
         fresh,
         artifact_dir=tmp_path / "artifacts",
         source=source,  # type: ignore[arg-type]
-        feature_set="mert",
+        feature_set="mulan",
     )
     assert after["current"] == {"yes": 2, "no": 2}
     assert after["total"] == {"yes": 4, "no": 2}
@@ -1243,7 +1243,7 @@ def test_training_checkpoint_counts_are_profile_scoped_and_catalog_global(
         fresh,
         artifact_dir=tmp_path / "artifacts",
         source=source,  # type: ignore[arg-type]
-        feature_set="mert",
+        feature_set="mulan",
     )
     assert (short["label_threshold"], short["label_threshold_ready"], short["ready"]) == (3, False, False)
     assert "at least 3 labels per class" in short["label_threshold_reason"]
@@ -1253,7 +1253,7 @@ def test_training_checkpoint_counts_are_profile_scoped_and_catalog_global(
         fresh,
         artifact_dir=tmp_path / "artifacts",
         source=source,  # type: ignore[arg-type]
-        feature_set="mert",
+        feature_set="mulan",
     )["label_threshold_ready"] is True
 
 
@@ -1268,10 +1268,10 @@ def test_train_feature_set_binds_exact_bytes_and_features_to_metrics(
         result.artifact_path.read_bytes()
     )
     assert metrics["feature_count"] == 2
-    assert metrics["feature_names"] == ["mert:0", "mert:1"]
+    assert metrics["feature_names"] == ["mulan:0", "mulan:1"]
     payload = joblib.load(result.artifact_path)
     assert payload["classifier_key"] == "focused"
-    assert payload["feature_names"] == ["mert:0", "mert:1"]
+    assert payload["feature_names"] == ["mulan:0", "mulan:1"]
 
 
 def test_training_artifact_names_are_collision_safe(tmp_path: Path) -> None:
@@ -1302,8 +1302,8 @@ def test_calibration_gate_failure_does_not_write_uncalibrated_artifact(
         train_feature_set(
             matrix,
             labels,
-            feature_names=["mert:0", "mert:1"],
-            feature_set="mert",
+            feature_names=["mulan:0", "mulan:1"],
+            feature_set="mulan",
             artifact_dir=artifact_dir,
             label_order=["yes", "no"],
             positive_label="yes",
@@ -1349,17 +1349,17 @@ def test_training_serializes_full_data_model_source_binding_and_block_weights(
     labels = ["yes" if index % 2 == 0 else "no" for index in range(20)]
     feature_names = [
         "sonara:bpm",
-        "mert:0",
-        "mert:1",
-        "mert:2",
-        "mert:3",
+        "mulan:0",
+        "mulan:1",
+        "mulan:2",
+        "mulan:3",
     ]
 
     result = train_feature_set(
         matrix,
         labels,
         feature_names=feature_names,
-        feature_set="sonara+mert",
+        feature_set="sonara+mulan",
         artifact_dir=tmp_path,
         label_order=["yes", "no"],
         positive_label="yes",
@@ -1373,7 +1373,7 @@ def test_training_serializes_full_data_model_source_binding_and_block_weights(
     metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
     expected_weights = {
         "sonara": pytest.approx(np.sqrt(5.0 / 2.0)),
-        "mert": pytest.approx(np.sqrt(5.0 / 8.0)),
+        "mulan": pytest.approx(np.sqrt(5.0 / 8.0)),
     }
     assert payload["model"].fit_rows == 20
     assert payload["source_catalog_uuid"] == "catalog-current"
@@ -1414,13 +1414,13 @@ class _ReadyFeatureSource:
     def feature_states(self) -> dict[str, SourceFeatureState]:
         return {
             source: SourceFeatureState(status="current", reason=None)
-            for source in ("sonara", "mert", "maest", "clap", "muq", "mulan")
+            for source in ("sonara", "mulan", "maest", "clap", "muq", "mulan")
         }
 
     def feature_counts(self) -> dict[str, int]:
         return {
             source: self.track_count
-            for source in ("sonara", "mert", "maest", "clap", "muq", "mulan")
+            for source in ("sonara", "mulan", "maest", "clap", "muq", "mulan")
         }
 
     def count_tracks(self) -> int:
@@ -1482,7 +1482,7 @@ def test_explicit_retrain_uses_total_label_sufficiency_not_checkpoint_delta(
         labels,
         artifact_dir=tmp_path / "artifacts",
         source=_ReadyFeatureSource(_ready_library(tmp_path)),  # type: ignore[arg-type]
-        feature_set="mert",
+        feature_set="mulan",
     )
 
     assert readiness["labels_ready"] is True
@@ -1512,7 +1512,7 @@ def test_training_readiness_uses_only_rows_usable_by_selected_recipe(
             _ready_library(tmp_path),
             missing_embedding_track_ids=frozenset({1}),
         ),  # type: ignore[arg-type]
-        feature_set="mert",
+        feature_set="mulan",
     )
 
     assert readiness["current"] == {"yes": 2, "no": 2}
@@ -1547,16 +1547,16 @@ def test_cli_training_promotion_and_calibration_default_to_current_recipe(
         calibration.func(calibration)
     artifact_dir = tmp_path / "artifacts"
     artifact_dir.mkdir(exist_ok=True)
-    older = _write_artifact(artifact_dir, "focused-sonara+mert-20260101T000000Z.joblib")
-    newest = _write_artifact(artifact_dir, "focused-mert-20260102T000000Z.joblib")
+    older = _write_artifact(artifact_dir, "focused-sonara+mulan-20260101T000000Z.joblib")
+    newest = _write_artifact(artifact_dir, "focused-mulan-20260102T000000Z.joblib")
     os.utime(older, (1_700_000_000, 1_700_000_000))
-    assert cli_module._profile_feature_set(labels, artifact_dir) == "mert"
+    assert cli_module._profile_feature_set(labels, artifact_dir) == "mulan"
     labels.record_training_checkpoint({"yes": 0, "no": 0}, model_artifact=older)
-    assert cli_module._profile_feature_set(labels, artifact_dir) == "sonara+mert"
+    assert cli_module._profile_feature_set(labels, artifact_dir) == "sonara+mulan"
     assert newest.exists()
 
     # `train` defaults to every source the library stores and canonicalizes explicit recipes.
-    stored = {"sonara", "mert", "mert_v2"}
+    stored = {"sonara", "mulan", "mert_v2"}
     monkeypatch.setattr(
         cli_module,
         "SourceDatabase",
@@ -1583,7 +1583,7 @@ def test_cli_training_promotion_and_calibration_default_to_current_recipe(
     train.func(train)
     explicit = parser.parse_args([*train_args, "--feature-set", "mert_v2+sonara"])
     explicit.func(explicit)
-    assert trained == [("sonara+mert+mert_v2",), ("sonara+mert_v2",)]
+    assert trained == [("sonara+mert_v2+mulan",), ("sonara+mert_v2",)]
     invalid = parser.parse_args([*train_args, "--feature-set", "combined"])
     with pytest.raises(ValueError, match="Unsupported feature source"):
         invalid.func(invalid)
@@ -1727,8 +1727,8 @@ def _v1_lab_database(path: Path) -> None:
                    ('other', 'catalog-a', 'a1', 'C:/music/1.wav', 1, 2, 'yes', '', '2026-01-01 00:00:00'),
                    ('other', 'catalog-b', 'b1', 'E:/music/1.wav', 1, 2, 'yes', 'keep', '2026-03-01 00:00:00');
             INSERT INTO classifier_predictions(classifier_key, catalog_uuid, track_uuid, selected_path, feature_set, model_artifact, label, confidence, probabilities_json)
-            VALUES ('focused', 'catalog-a', 'a1', 'C:/music/1.wav', 'mert', 'old.joblib', 'yes', 0.9, '{{"yes": 0.9, "no": 0.1}}'),
-                   ('focused', 'catalog-b', 'b1', 'E:/music/1.wav', 'mert', 'old.joblib', 'yes', 0.8, '{{"yes": 0.8, "no": 0.2}}');
+            VALUES ('focused', 'catalog-a', 'a1', 'C:/music/1.wav', 'mulan', 'old.joblib', 'yes', 0.9, '{{"yes": 0.9, "no": 0.1}}'),
+                   ('focused', 'catalog-b', 'b1', 'E:/music/1.wav', 'mulan', 'old.joblib', 'yes', 0.8, '{{"yes": 0.8, "no": 0.2}}');
             INSERT INTO classifier_label_queue(classifier_key, catalog_uuid, track_uuid, selected_path, mode, priority, reason_json)
             VALUES ('focused', 'catalog-a', 'a2', 'C:/music/2.wav', 'uncertainty', 1.0, '{{}}');
             INSERT INTO classifier_training_checkpoints(classifier_key, counts_json, model_artifact)
@@ -1817,8 +1817,8 @@ def test_artifact_readiness_is_gated_by_feature_spec_not_source_catalog() -> Non
     summary = {
         "by_feature": [
             {
-                "feature_set": "mert",
-                "feature_names": _embedding_feature_names("mert"),
+                "feature_set": "mulan",
+                "feature_names": _embedding_feature_names("mulan"),
                 "source_catalog_uuid": "catalog-old",
                 "latest_model": "model.joblib",
                 "macro_f1_mean": 0.9,
@@ -1842,14 +1842,14 @@ def test_artifact_readiness_is_gated_by_feature_spec_not_source_catalog() -> Non
     }
     states = {
         source: SourceFeatureState(status="current", reason=None)
-        for source in ("mert", "clap", "mert_v2")
+        for source in ("mulan", "clap", "mert_v2")
     }
 
     bound = _bind_artifact_source_readiness(summary, states)
 
     by_feature = {row["feature_set"]: row for row in bound["by_feature"]}
     # Another library's artifact with full current feature names is usable.
-    other_catalog = by_feature["mert"]
+    other_catalog = by_feature["mulan"]
     assert other_catalog["spec_compatible"] is True
     assert other_catalog["source_data_ready"] is True
     assert other_catalog["source_catalog_uuid"] == "catalog-old"
@@ -1865,7 +1865,7 @@ def test_artifact_readiness_is_gated_by_feature_spec_not_source_catalog() -> Non
         "The main app scores only MERT-v2 layer 24; layer 12 artifacts stay in the lab"
     )
     assert layered["source_data_ready"] is True
-    assert bound["latest_promotable"]["feature_set"] == "mert"
+    assert bound["latest_promotable"]["feature_set"] == "mulan"
 
 
 def test_promotion_requires_matching_profile_and_calibration_gate(
@@ -1920,7 +1920,7 @@ def test_artifact_cleanup_keeps_recent_and_protected_models(
     root = tmp_path / "artifacts"
     root.mkdir()
     models = [
-        root / f"focused-mert-20260724T10000{index}Z.joblib"
+        root / f"focused-mulan-20260724T10000{index}Z.joblib"
         for index in range(4)
     ]
     for index, model in enumerate(models):

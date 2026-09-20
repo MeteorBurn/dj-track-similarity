@@ -12,7 +12,7 @@ REPO_ROOT = TOOL_ROOT.parents[1]
 DEFAULT_DB = REPO_ROOT / "database" / "volumes.sqlite"
 DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "database" / "rhythm_lab.sqlite"
 DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
-SUPPORTED_EMBEDDINGS = ("mert", "maest", "muq", "clap")
+SUPPORTED_EMBEDDINGS = ("mert_v2", "maest", "muq", "clap")
 FINGERPRINT_REVIEW_MIN_SIMILARITY = 0.45
 MODE_FINGERPRINT = "fingerprint"
 MODE_EMBEDDING = "embedding"
@@ -21,17 +21,12 @@ DELETION_MODE_PERMANENT = "permanent"
 DELETION_MODE_TRASH = "trash"
 DELETION_MODES = (DELETION_MODE_PERMANENT, DELETION_MODE_TRASH)
 DEFAULT_SOURCE_WEIGHTS = {
-    "mert": 0.43,
+    "mert_v2": 0.43,
     "maest": 0.32,
     "muq": 0.12,
     "clap": 0.04,
 }
-DELETE_SAFETY_EMBEDDINGS = ("mert", "maest")
-LEGACY_DELETE_SAFETY_SOURCES = ("mert", "maest", "clap")
-LEGACY_DELETE_SAFETY_WEIGHTS = {
-    source: DEFAULT_SOURCE_WEIGHTS[source]
-    for source in LEGACY_DELETE_SAFETY_SOURCES
-}
+DELETE_SAFETY_EMBEDDINGS = ("mert_v2", "maest")
 SCORE_SEMANTICS = {
     "score": {
         "kind": "weighted_duplicate_evidence",
@@ -41,12 +36,12 @@ SCORE_SEMANTICS = {
     "content_similarity": {
         "kind": "audio_to_audio_embedding_gate",
         "range": "0..1",
-        "notes": "Embedding-only gate computed from enabled stored MERT, MAEST, MuQ, and CLAP audio embeddings; MERT plus MAEST remain mandatory for automatic deletion safety.",
+        "notes": "Embedding-only gate computed from enabled stored MERT-v2, MAEST, MuQ, and CLAP audio embeddings; MERT-v2 plus MAEST remain mandatory for automatic deletion safety.",
     },
-    "mert_similarity": {
+    "mert_v2_similarity": {
         "kind": "audio_to_audio_cosine",
         "range": "-1..1",
-        "notes": "Cosine similarity between stored MERT audio embeddings.",
+        "notes": "Cosine similarity between stored MERT-v2 audio embeddings.",
     },
     "maest_similarity": {
         "kind": "audio_to_audio_cosine",
@@ -173,19 +168,6 @@ def resolve_source_config(
     return models_module.SourceConfig(
         sources=selected_sources,
         weights=selected_weights,
-    )
-
-
-def _uses_legacy_delete_safety_config(
-    source_config: models_module.SourceConfig,
-) -> bool:
-    return (
-        len(source_config.sources)
-        == len(LEGACY_DELETE_SAFETY_SOURCES)
-        and set(source_config.sources)
-        == set(LEGACY_DELETE_SAFETY_SOURCES)
-        and source_config.weights
-        == LEGACY_DELETE_SAFETY_WEIGHTS
     )
 
 

@@ -187,6 +187,32 @@ def _insert_track(
     for key, values in (vectors or {}).items():
         dimension, vector = _current_embedding_fixture(key, values)
         with database.connect() as connection:
+            if key == "mert_v2":
+                # MERT-v2 stores all 24 layers; the tool reads layer 24.
+                connection.executemany(
+                    """
+                    INSERT INTO mert_v2_embeddings(
+                        track_id, layer, track_uuid, dim, normalization,
+                        embedding_blob, analyzed_at
+                    ) VALUES(
+                        ?, ?, ?, ?, ?, ?,
+                        '2026-07-24T00:00:00.000000Z'
+                    )
+                    """,
+                    [
+                        (
+                            identity.track_id,
+                            layer,
+                            identity.track_uuid,
+                            dimension,
+                            "l2",
+                            vector.tobytes(),
+                        )
+                        for layer in range(1, 25)
+                    ],
+                )
+                connection.commit()
+                continue
             connection.execute(
                 f"""
                 INSERT INTO {key}_embeddings(
@@ -249,7 +275,7 @@ def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     vectors = {
-        "mert": [1.0, 0.0, 0.0],
+        "mert_v2": [1.0, 0.0, 0.0],
         "maest": [0.0, 1.0, 0.0],
         "muq": [0.0, 0.0, 1.0],
         "clap": [0.5, 0.5, 0.0],
@@ -266,16 +292,16 @@ def test_load_tracks_limits_embeddings_to_selected_sources_and_reports_progress(
         db_path,
         root=Path("M:/Volumes/Abstracted"),
         path_contains=[],
-        sources=("mert", "maest"),
+        sources=("mert_v2", "maest"),
         progress_callback=lambda processed, total, message: progress.append(
             (processed, total, message)
         ),
     )
 
     assert track_loading_module.EMBEDDING_LOAD_CHUNK_SIZE == 200
-    assert set(tracks[0].embeddings) == {"mert", "maest"}
-    assert (0, 1, "Loading MERT embeddings") in progress
-    assert (1, 1, "Loading MERT embeddings") in progress
+    assert set(tracks[0].embeddings) == {"mert_v2", "maest"}
+    assert (0, 1, "Loading MERT_V2 embeddings") in progress
+    assert (1, 1, "Loading MERT_V2 embeddings") in progress
     assert (0, 1, "Loading MAEST embeddings") in progress
     assert (1, 1, "Loading MAEST embeddings") in progress
     assert all("MUQ" not in message and "CLAP" not in message for _, _, message in progress)
@@ -285,7 +311,7 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     vectors = {
-        "mert": [1.0, 0.0, 0.0],
+        "mert_v2": [1.0, 0.0, 0.0],
         "maest": [0.0, 1.0, 0.0],
     }
     _insert_track(
@@ -295,14 +321,14 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
         vectors=vectors,
     )
 
-    mert_specification = current_embedding_spec("mert")
-    malformed = np.zeros(mert_specification.dimension, dtype="<f4")
+    mert_v2_specification = current_embedding_spec("mert_v2")
+    malformed = np.zeros(mert_v2_specification.dimension, dtype="<f4")
     malformed[0] = 2.0
     database = LibraryDatabase(db_path)
     with database.connect() as connection:
         connection.execute(
             """
-            UPDATE mert_embeddings
+            UPDATE mert_v2_embeddings
             SET embedding_blob = ?
             WHERE track_id = 1
             """,
@@ -317,7 +343,7 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
     )
 
     assert len(tracks) == 1
-    assert "mert" not in tracks[0].embeddings
+    assert "mert_v2" not in tracks[0].embeddings
     _maest_contract, expected_maest = _current_embedding_fixture(
         "maest",
         vectors["maest"],
@@ -380,15 +406,15 @@ def test_load_tracks_uses_only_structurally_valid_current_muq_vectors(
     ("sources", "weights", "match"),
     [
         ([], None, "at least one"),
-        (["mert", "mert"], None, "unique"),
+        (["mert_v2", "mert_v2"], None, "unique"),
         (["unknown"], None, "Unsupported"),
-        (["mert", "muq"], {"mert": 1.0}, "exactly"),
-        (["mert"], {"mert": -0.1}, "finite and nonnegative"),
-        (["mert"], {"mert": float("nan")}, "finite and nonnegative"),
-        (["mert"], {"mert": float("inf")}, "finite and nonnegative"),
+        (["mert_v2", "muq"], {"mert_v2": 1.0}, "exactly"),
+        (["mert_v2"], {"mert_v2": -0.1}, "finite and nonnegative"),
+        (["mert_v2"], {"mert_v2": float("nan")}, "finite and nonnegative"),
+        (["mert_v2"], {"mert_v2": float("inf")}, "finite and nonnegative"),
         (
-            ["mert", "muq"],
-            {"mert": 0.0, "muq": 0.0},
+            ["mert_v2", "muq"],
+            {"mert_v2": 0.0, "muq": 0.0},
             "positive",
         ),
     ],
@@ -413,11 +439,11 @@ def test_cli_accepts_repeatable_sources_and_weights() -> None:
             "--root",
             "D:/Music",
             "--source",
-            "mert",
+            "mert_v2",
             "--source",
             "muq",
             "--weight",
-            "mert=0.8",
+            "mert_v2=0.8",
             "--weight",
             "muq=0.2",
         ]
@@ -427,8 +453,8 @@ def test_cli_accepts_repeatable_sources_and_weights() -> None:
         weights=config_module.parse_weight_arguments(args.weights),
     )
 
-    assert source_config.sources == ("mert", "muq")
-    assert source_config.weights == {"mert": 0.8, "muq": 0.2}
+    assert source_config.sources == ("mert_v2", "muq")
+    assert source_config.weights == {"mert_v2": 0.8, "muq": 0.2}
 
 
 @pytest.mark.parametrize(
@@ -437,12 +463,12 @@ def test_cli_accepts_repeatable_sources_and_weights() -> None:
         (
             ["muq"],
             {"muq": 1.0},
-            {"MERT source disabled", "MAEST source disabled"},
+            {"MERT_V2 source disabled", "MAEST source disabled"},
         ),
         (
             None,
             None,
-            {"missing MERT embedding", "missing MAEST embedding"},
+            {"missing MERT_V2 embedding", "missing MAEST embedding"},
         ),
     ],
 )
@@ -514,32 +540,23 @@ def test_high_muq_only_report_candidate_is_never_safe_to_delete(
     ),
     [
         (
-            ["mert", "maest", "muq"],
-            {"mert": 0.0, "maest": 0.0, "muq": 1.0},
+            ["mert_v2", "maest", "muq"],
+            {"mert_v2": 0.0, "maest": 0.0, "muq": 1.0},
             {
-                "MERT weight is not positive",
+                "MERT_V2 weight is not positive",
                 "MAEST weight is not positive",
             },
             False,
         ),
         (
-            ["mert", "maest", "muq"],
-            {"mert": 0.001, "maest": 0.001, "muq": 0.998},
+            ["mert_v2", "maest", "muq"],
+            {"mert_v2": 0.001, "maest": 0.001, "muq": 0.998},
             set(),
             True,
         ),
-        (
-            ["mert", "maest", "clap"],
-            {"mert": 0.0, "maest": 0.0, "clap": 1.0},
-            {
-                "MERT weight is not positive",
-                "MAEST weight is not positive",
-            },
-            False,
-        ),
     ],
 )
-def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
+def test_weighting_requires_substantive_corroboration(
     tmp_path: Path,
     sources: list[str],
     weights: dict[str, float],
@@ -554,7 +571,7 @@ def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
         path="M:/Volumes/Abstracted/one.flac",
         size=20_000_000,
         vectors={
-            "mert": [1.0, 0.0],
+            "mert_v2": [1.0, 0.0],
             "maest": [1.0, 0.0],
             "muq": [1.0, 0.0],
             "clap": [1.0, 0.0],
@@ -566,7 +583,7 @@ def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
         path="M:/Volumes/Abstracted/two.mp3",
         size=8_000_000,
         vectors={
-            "mert": [-1.0, 0.0],
+            "mert_v2": [-1.0, 0.0],
             "maest": [-1.0, 0.0],
             "muq": [1.0, 0.0],
             "clap": [1.0, 0.0],
@@ -602,7 +619,7 @@ def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
     evidence = payload["groups"][0]["pairwise_evidence"][0]
     assert evidence["score"] >= config.min_score
     assert evidence["content_similarity"] >= config.min_similarity
-    assert evidence["mert_similarity"] == pytest.approx(-1.0)
+    assert evidence["mert_v2_similarity"] == pytest.approx(-1.0)
     assert evidence["maest_similarity"] == pytest.approx(-1.0)
     candidate = payload["groups"][0]["candidate_deletes"][0]
     assert candidate["decision"] == "review"
@@ -611,7 +628,7 @@ def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
     assert expected_weight_blockers <= blockers
     has_corroboration_blocker = any(
         blocker.startswith(
-            "MERT+MAEST corroboration below delete safety threshold"
+            "MERT_V2+MAEST corroboration below delete safety threshold"
         )
         for blocker in blockers
     )
@@ -639,7 +656,7 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     first_path.write_bytes(b"first")
     second_path.write_bytes(b"second")
     _create_library_db(db_path)
-    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    vectors = {"mert_v2": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(first_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(second_path), size=8_000_000, mtime=200, vectors=vectors)
 
@@ -717,19 +734,19 @@ def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
         db_path,
         track_id=1,
         path="M:/Volumes/Abstracted/one.flac",
-        vectors={"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]},
+        vectors={"mert_v2": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]},
     )
     _insert_track(
         db_path,
         track_id=2,
         path="M:/Volumes/Abstracted/two.flac",
-        vectors={"mert": [0.96, 0.28, 0.0], "maest": [0.96, 0.28, 0.0]},
+        vectors={"mert_v2": [0.96, 0.28, 0.0], "maest": [0.96, 0.28, 0.0]},
     )
     _insert_track(
         db_path,
         track_id=3,
         path="M:/Volumes/Abstracted/three.flac",
-        vectors={"mert": [0.84, 0.5425864, 0.0], "maest": [0.84, 0.5425864, 0.0]},
+        vectors={"mert_v2": [0.84, 0.5425864, 0.0], "maest": [0.84, 0.5425864, 0.0]},
     )
 
     config = config_module.resolve_preset("safe", min_score=0.925, min_similarity=0.8)
@@ -747,13 +764,13 @@ def test_safe_preset_requires_content_similarity_not_only_overall_score(tmp_path
     db_path = tmp_path / "library.sqlite"
     _create_library_db(db_path)
     sonara = {"bpm": 128.0, "danceability": 0.8, "energy": 0.7, "valence": 0.5}
-    near_but_not_duplicate = {"mert": [0.96, 0.28, 0.0], "maest": [0.96, 0.28, 0.0]}
+    near_but_not_duplicate = {"mert_v2": [0.96, 0.28, 0.0], "maest": [0.96, 0.28, 0.0]}
     _insert_track(
         db_path,
         track_id=1,
         path="M:/Volumes/Abstracted/one.flac",
         sonara=sonara,
-        vectors={"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]},
+        vectors={"mert_v2": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]},
     )
     _insert_track(
         db_path,
@@ -815,7 +832,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     out_dir = tmp_path / "reports"
     _create_library_db(db_path)
     vectors = {
-        "mert": [1.0, 0.0, 0.0],
+        "mert_v2": [1.0, 0.0, 0.0],
         "maest": [1.0, 0.0, 0.0],
         "muq": [1.0, 0.0, 0.0],
         "clap": [1.0, 0.0, 0.0],
@@ -847,20 +864,20 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert json_payload["scoped_track_count"] == 2
     assert json_payload["track_count"] == 2
     assert json_payload["sources"] == [
-        "mert",
+        "mert_v2",
         "maest",
         "muq",
         "clap",
     ]
     assert json_payload["weights"] == {
-        "mert": 0.43,
+        "mert_v2": 0.43,
         "maest": 0.32,
         "muq": 0.12,
         "clap": 0.04,
     }
     assert json_payload["min_similarity"] == 0.985
     assert "content_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
-    assert "mert_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
+    assert "mert_v2_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
     assert json_payload["groups"][0]["pairwise_evidence"][0]["muq_similarity"] == pytest.approx(1.0)
     assert "keeper_reasons" in json_payload["groups"][0]["suggested_keeper"]
     assert json_payload["groups"][0]["suggested_keeper"]["role"] == "KEEP"
@@ -894,7 +911,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "file_size_mb" not in candidates_xml
     assert "audio_codec" not in candidates_xml
     assert "MPEG Audio Layer III" not in candidates_xml
-    assert "mert_similarity" in candidates_xml
+    assert "mert_v2_similarity" in candidates_xml
     assert "muq_similarity" in candidates_xml
     assert "content_similarity_vs_keeper" in candidates_xml
     assert "Audio Dedup Report" in summary_xml
@@ -919,7 +936,7 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
     monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
     _create_library_db(db_path)
     _create_rhythm_lab_db(rhythm_lab_db)
-    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    vectors = {"mert_v2": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
     keeper_identity = _identity_tuple(db_path, 1)
@@ -1007,7 +1024,7 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     duplicate_path.write_bytes(b"duplicate")
     monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
     _create_library_db(db_path)
-    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    vectors = {"mert_v2": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
     result = core_module.run_report(
@@ -1034,7 +1051,7 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
         assert [
             int(row[0])
             for row in connection.execute(
-                "SELECT track_id FROM mert_embeddings ORDER BY track_id"
+                "SELECT DISTINCT track_id FROM mert_v2_embeddings ORDER BY track_id"
             )
         ] == [1]
         assert [
@@ -1099,7 +1116,7 @@ def _two_copy_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     duplicate_path.write_bytes(b"duplicate")
     monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
     _create_library_db(db_path)
-    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    vectors = {"mert_v2": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
     result = core_module.run_report(
@@ -1217,7 +1234,7 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
     monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
     _create_library_db(db_path)
     _create_rhythm_lab_db(rhythm_lab_db)
-    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    vectors = {"mert_v2": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
     keeper_identity = _identity_tuple(db_path, 1)

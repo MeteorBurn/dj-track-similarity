@@ -52,7 +52,6 @@ function summary(overrides = {}) {
       sonara_core: true,
       maest_analysis: true,
       maest_embedding: true,
-      mert: true,
       muq: true,
       clap: false,
     },

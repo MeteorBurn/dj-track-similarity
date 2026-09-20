@@ -42,7 +42,6 @@ _DERIVED_TRACK_TABLES = (
     "maest_genres",
     "classifier_scores",
     "maest_embeddings",
-    "mert_embeddings",
     "mert_v2_embeddings",
     "muq_embeddings",
     "mulan_embeddings",
@@ -51,7 +50,6 @@ _DERIVED_TRACK_TABLES = (
 _EMBEDDING_TABLES = (
     "sonara_embeddings",
     "maest_embeddings",
-    "mert_embeddings",
     "mert_v2_embeddings",
     "muq_embeddings",
     "mulan_embeddings",

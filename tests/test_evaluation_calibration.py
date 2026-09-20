@@ -38,8 +38,8 @@ def test_calibration_rrf_uses_current_provenance_and_manual_label_gate() -> None
     repository = EvaluationRepository()
     repository.add_session(
         events=(
-            {"candidate_track_id": 2, "sources": {"mert": {"rank": 1}}},
-            {"candidate_track_id": 3, "sources": {"mert": {"rank": 2}}},
+            {"candidate_track_id": 2, "sources": {"mert_v2": {"rank": 1}}},
+            {"candidate_track_id": 3, "sources": {"mert_v2": {"rank": 2}}},
         )
     )
     repository.add_feedback(2, 3)
@@ -67,7 +67,7 @@ def test_event_total_score_outside_probability_range_remains_diagnostic() -> Non
             {
                 "candidate_track_id": 2,
                 "total_score": 2.0,
-                "sources": {"mert": {"rank": 1}},
+                "sources": {"mert_v2": {"rank": 1}},
             },
         )
     )

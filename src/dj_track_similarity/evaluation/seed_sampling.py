@@ -27,7 +27,7 @@ SEED_SAMPLE_COLUMNS = (
     "musical_key",
     "energy",
     "sonara_core",
-    "mert_embedding",
+    "mert_v2_embedding",
     "muq_embedding",
     "mulan_embedding",
     "clap_embedding",
@@ -47,7 +47,7 @@ class SeedSampleTrack:
     musical_key: str | None
     energy: float | None
     sonara_core: bool
-    mert_embedding: bool
+    mert_v2_embedding: bool
     muq_embedding: bool
     clap_embedding: bool
     maest_analysis: bool
@@ -76,7 +76,7 @@ class SeedSampleTrack:
             "musical_key": _optional_text(self.musical_key),
             "energy": _optional_number(self.energy),
             "sonara_core": _analysis_flag(self.sonara_core),
-            "mert_embedding": _analysis_flag(self.mert_embedding),
+            "mert_v2_embedding": _analysis_flag(self.mert_v2_embedding),
             "muq_embedding": _analysis_flag(self.muq_embedding),
             "mulan_embedding": _analysis_flag(self.mulan_embedding),
             "clap_embedding": _analysis_flag(self.clap_embedding),
@@ -190,7 +190,7 @@ def _transition_track_to_seed_sample_track(
         musical_key=musical_key,
         energy=energy,
         sonara_core=sonara is not None,
-        mert_embedding=coverage.mert,
+        mert_v2_embedding=coverage.mert_v2,
         muq_embedding=coverage.muq,
         mulan_embedding=coverage.mulan,
         clap_embedding=coverage.clap,
@@ -205,7 +205,7 @@ def _has_required_analysis(
     required_sources: Sequence[str],
 ) -> bool:
     coverage = {
-        "mert": track.mert_embedding,
+        "mert_v2": track.mert_v2_embedding,
         "maest": track.maest_embedding,
         "muq": track.muq_embedding,
         "mulan": track.mulan_embedding,

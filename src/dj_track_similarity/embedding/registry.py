@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Literal, TypedDict, overload
 if TYPE_CHECKING:
     from .clap import ClapEmbeddingAdapter
     from .maest import MaestEmbeddingAdapter
-    from .mert import MertEmbeddingAdapter
     from .mert_v2 import MertV2EmbeddingAdapter
     from .mulan import MuqMulanEmbeddingAdapter
     from .muq import MuqEmbeddingAdapter
@@ -13,7 +12,6 @@ if TYPE_CHECKING:
 
 class AdapterFactories(TypedDict):
     maest: type[MaestEmbeddingAdapter]
-    mert: type[MertEmbeddingAdapter]
     mert_v2: type[MertV2EmbeddingAdapter]
     muq: type[MuqEmbeddingAdapter]
     mulan: type[MuqMulanEmbeddingAdapter]
@@ -23,14 +21,12 @@ class AdapterFactories(TypedDict):
 def adapter_factories() -> AdapterFactories:
     from .clap import ClapEmbeddingAdapter
     from .maest import MaestEmbeddingAdapter
-    from .mert import MertEmbeddingAdapter
     from .mert_v2 import MertV2EmbeddingAdapter
     from .mulan import MuqMulanEmbeddingAdapter
     from .muq import MuqEmbeddingAdapter
 
     return {
         "maest": MaestEmbeddingAdapter,
-        "mert": MertEmbeddingAdapter,
         "mert_v2": MertV2EmbeddingAdapter,
         "muq": MuqEmbeddingAdapter,
         "mulan": MuqMulanEmbeddingAdapter,
@@ -50,12 +46,12 @@ def create_embedding_adapter(
 
 @overload
 def create_embedding_adapter(
-    family: Literal["mert", "mert_v2", "muq"],
+    family: Literal["mert_v2", "muq"],
     *,
     device: str,
     inference_batch_size: int | None = None,
     top_k: None = None,
-) -> MertEmbeddingAdapter | MertV2EmbeddingAdapter | MuqEmbeddingAdapter: ...
+) -> MertV2EmbeddingAdapter | MuqEmbeddingAdapter: ...
 
 
 @overload
@@ -76,7 +72,6 @@ def create_embedding_adapter(
     top_k: int | None = None,
 ) -> (
     MaestEmbeddingAdapter
-    | MertEmbeddingAdapter
     | MertV2EmbeddingAdapter
     | MuqEmbeddingAdapter
     | MuqMulanEmbeddingAdapter
@@ -95,7 +90,7 @@ def create_embedding_adapter(
             top_k=top_k,
             inference_batch_size=inference_batch_size,
         )
-    if family == "mert" or family == "mert_v2" or family == "muq" or family == "mulan" or family == "clap":
+    if family == "mert_v2" or family == "muq" or family == "mulan" or family == "clap":
         if top_k is not None:
             raise TypeError("top_k is only supported for MAEST")
         factory = factories[family]

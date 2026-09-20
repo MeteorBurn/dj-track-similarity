@@ -78,14 +78,14 @@ def test_sonara_search_endpoint_uses_stored_sonara_features(
     assert payload[0]["score"] > payload[1]["score"]
 
 
-def test_generic_search_endpoint_returns_mert_result_shape(
+def test_generic_search_endpoint_returns_muq_result_shape(
     monkeypatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     with TestClient(create_app(db_path)) as client:
-        for family, seed_count in (("mert", 1), ("mert_v2", 6)):
+        for family, seed_count in (("muq", 1), ("mert_v2", 6)):
             output = current_embedding_analysis_output(family)
             seeds = [
                 _add_embedding_track(db, tmp_path, output, f"{family}-seed-{index}.wav", [1.0, 0.0])
@@ -278,17 +278,17 @@ def test_random_embedding_track_requires_an_available_embedded_track(
     monkeypatch.setattr(api, "configure_shared_ffmpeg_runtime", lambda: None, raising=False)
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    output = _mert_output()
+    output = _muq_output()
     db.register_analysis_outputs((output,))
     only = _add_embedding_track(db, tmp_path, output, "only.wav", [1.0, 0.0])
 
     response = TestClient(create_app(db_path)).post(
         "/api/search/random-track",
-        json={"analysis_family": "mert", "exclude_track_ids": [only.track_id]},
+        json={"analysis_family": "muq", "exclude_track_ids": [only.track_id]},
     )
 
     assert response.status_code == 409
-    assert "mert" in response.json()["detail"]
+    assert "muq" in response.json()["detail"]
 
 
 def test_sonara_search_enforces_the_shared_seed_contract(
@@ -424,8 +424,8 @@ def _track(db: LibraryDatabase, root: Path, name: str) -> AnalysisTarget:
     )
 
 
-def _mert_output() -> AnalysisOutput:
-    return current_embedding_analysis_output("mert")
+def _muq_output() -> AnalysisOutput:
+    return current_embedding_analysis_output("muq")
 
 
 def _float(value: float | list[float] | None) -> float | None:

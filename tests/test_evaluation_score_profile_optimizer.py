@@ -28,7 +28,7 @@ def test_optimizer_ignores_unmatched_feedback_rows() -> None:
 def test_optimizer_split_by_seed_is_deterministic_and_disjoint() -> None:
     db = _build_two_candidate_optimizer_library(
         seed_count=100,
-        positive_source="mert",
+        positive_source="mert_v2",
     )
 
     first = build_score_profile_optimizer_report(
@@ -54,7 +54,7 @@ def test_optimizer_split_by_seed_is_deterministic_and_disjoint() -> None:
 def test_optimizer_outputs_normalized_non_negative_weights_and_schema_fields() -> None:
     db = _build_two_candidate_optimizer_library(
         seed_count=100,
-        positive_source="mert",
+        positive_source="mert_v2",
     )
 
     report = build_score_profile_optimizer_report(
@@ -70,7 +70,7 @@ def test_optimizer_outputs_normalized_non_negative_weights_and_schema_fields() -
     assert report["label_status"] == "sufficient_for_candidate_profile"
     assert report["judged_pairs"] == 200
     assert report["judged_seeds"] == 100
-    assert report["weights"]["mert"] > report["weights"]["maest"]
+    assert report["weights"]["mert_v2"] > report["weights"]["maest"]
     assert all(weight >= 0.0 for weight in report["weights"].values())
     assert sum(report["weights"].values()) == pytest.approx(1.0)
     assert all(weight >= 0.0 for weight in report["risk_weights"].values())
@@ -85,17 +85,17 @@ def test_optimizer_missing_sources_are_neutral_for_ranked_examples() -> None:
     good = _optimizer_example_for_missing_source_test(
         candidate_track_id=2,
         rating=3,
-        source_contributions={"mert": {"rank": 1}},
+        source_contributions={"mert_v2": {"rank": 1}},
     )
     bad = _optimizer_example_for_missing_source_test(
         candidate_track_id=1,
         rating=0,
-        source_contributions={"mert": {"rank": 100}, "maest": {"rank": 1}},
+        source_contributions={"mert_v2": {"rank": 100}, "maest": {"rank": 1}},
     )
 
     relevances = ranked_relevances_for_optimizer_test(
         [bad, good],
-        {"mert": 0.5, "maest": 0.5},
+        {"mert_v2": 0.5, "maest": 0.5},
         60,
         {"transition_risk": 0.0},
     )
@@ -107,7 +107,7 @@ def test_optimizer_rejects_when_validation_ndcg_does_not_improve() -> None:
     db, seed_ids = _build_empty_seed_shell(seed_count=100)
     validation_seed_ids = _validation_seed_ids(seed_ids, random_seed=123)
     for index, seed_id in enumerate(seed_ids):
-        positive_source = "maest" if seed_id in validation_seed_ids else "mert"
+        positive_source = "maest" if seed_id in validation_seed_ids else "mert_v2"
         bad_id = _track(db)
         good_id = _track(db)
         _add_two_candidate_session(db, seed_id, bad_id, good_id, positive_source=positive_source)
@@ -178,7 +178,7 @@ def _build_bad_rate_increase_library(
         events.append(
             _candidate_event(
                 strong_id,
-                {"mert": {"rank": 1}, "maest": {"rank": 12}},
+                {"mert_v2": {"rank": 1}, "maest": {"rank": 12}},
                 rank=1,
             )
         )
@@ -189,7 +189,7 @@ def _build_bad_rate_increase_library(
                 _candidate_event(
                     work_id,
                     {
-                        "mert": {"rank": offset + 2},
+                        "mert_v2": {"rank": offset + 2},
                         "maest": {"rank": offset + 1},
                     },
                     rank=offset + 2,
@@ -200,7 +200,7 @@ def _build_bad_rate_increase_library(
         events.append(
             _candidate_event(
                 bad_id,
-                {"mert": {"rank": 10}, "maest": {"rank": 13}},
+                {"mert_v2": {"rank": 10}, "maest": {"rank": 13}},
                 rank=10,
             )
         )
@@ -211,7 +211,7 @@ def _build_bad_rate_increase_library(
                 _candidate_event(
                     maybe_id,
                     {
-                        "mert": {"rank": offset + 11},
+                        "mert_v2": {"rank": offset + 11},
                         "maest": {"rank": offset + 9},
                     },
                     rank=offset + 11,
@@ -236,7 +236,7 @@ def _add_two_candidate_session(
     *,
     positive_source: str,
 ) -> None:
-    negative_source = "maest" if positive_source == "mert" else "mert"
+    negative_source = "maest" if positive_source == "mert_v2" else "mert_v2"
     db.add_session(
         seed_track_id=seed_id,
         events=(

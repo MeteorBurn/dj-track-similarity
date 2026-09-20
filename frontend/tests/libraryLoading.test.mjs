@@ -38,7 +38,6 @@ function track(trackId, catalogUuid = "catalog-a") {
       sonara_core: false,
       maest_analysis: false,
       maest_embedding: false,
-      mert: false,
       muq: false,
       clap: false
     },

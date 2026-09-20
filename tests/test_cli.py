@@ -32,7 +32,7 @@ class _FakeAnalysisManager:
             processed=3,
             analyzed=2,
             failed=1,
-            models=["maest", "mert", "muq", "clap"],
+            models=["maest", "mert_v2", "muq", "clap"],
             current_model=None,
             model_progress={},
             device="cpu",
@@ -286,7 +286,7 @@ def test_analyze_cli_passes_separate_ml_batch_sizes(
         [
             "analyze",
             "--models",
-            "maest,mert",
+            "maest,mert_v2",
             "--track-batch-size",
             "3",
             "--inference-batch-size",

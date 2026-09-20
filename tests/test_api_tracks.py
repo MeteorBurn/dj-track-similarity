@@ -556,8 +556,8 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
             maest=None,
             embeddings=(
                 EmbeddingSummary(
-                    analysis_family="mert",
-                    dim=768,
+                    analysis_family="muq",
+                    dim=1024,
                     normalization="l2",
                     analyzed_at="2026-07-30T00:00:00Z",
                 ),
@@ -570,8 +570,8 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
                     score_bucket="high",
                     confidence=0.8,
                     probabilities={"absent": 0.25, "present": 0.75},
-                    feature_set="mert",
-                    feature_names=("mert:0",),
+                    feature_set="muq",
+                    feature_names=("muq:0",),
                     positive_label="present",
                     analyzed_at="2026-07-30T00:00:00Z",
                 ),
@@ -589,8 +589,8 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
     payload = response.json()
     assert payload["embeddings"] == [
         {
-            "analysis_family": "mert",
-            "dim": 768,
+            "analysis_family": "muq",
+            "dim": 1024,
             "normalization": "l2",
             "analyzed_at": "2026-07-30T00:00:00Z",
         }
@@ -603,8 +603,8 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
             "score_bucket": "high",
             "confidence": 0.8,
             "probabilities": {"absent": 0.25, "present": 0.75},
-            "feature_set": "mert",
-            "feature_names": ["mert:0"],
+            "feature_set": "muq",
+            "feature_names": ["muq:0"],
             "positive_label": "present",
             "analyzed_at": "2026-07-30T00:00:00Z",
         }

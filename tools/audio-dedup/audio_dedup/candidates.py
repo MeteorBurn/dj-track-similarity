@@ -12,6 +12,14 @@ from .fingerprints import (
 from . import models as models_module
 from . import values as values_module
 
+# Families with a signature-LSH candidate channel. The tag each one emits
+# ("<family>_lsh") is read back by _fingerprint_exact_candidate_pairs, so both
+# sides come from this one tuple.
+SIGNATURE_LSH_EMBEDDINGS = ("mert_v2", "maest")
+# Per-family projection bases. A family without an entry has no tuned base, so
+# it must fail rather than silently share another family's projections.
+_PROJECTION_SEED_BASES = {"mert_v2": 17_311, "maest": 29_327}
+
 
 
 
@@ -50,7 +58,10 @@ def _fingerprint_exact_candidate_pairs(
         pair
         for pair, sources_for_pair in candidate_sources.items()
         if "fingerprint_lsh" in sources_for_pair
-        or any(source in {"mert_lsh", "maest_lsh"} for source in sources_for_pair)
+        or any(
+            source in {f"{key}_lsh" for key in SIGNATURE_LSH_EMBEDDINGS}
+            for source in sources_for_pair
+        )
     }
 
 
@@ -89,7 +100,7 @@ def _signature_candidate_pair_sources(
     source_config: models_module.SourceConfig,
 ) -> dict[tuple[int, int], set[str]]:
     sources_by_pair: dict[tuple[int, int], set[str]] = {}
-    for embedding_key in ("mert", "maest"):
+    for embedding_key in SIGNATURE_LSH_EMBEDDINGS:
         if embedding_key not in source_config.sources:
             continue
         embedding_tracks = [track for track in tracks if embedding_key in track.embeddings]
@@ -145,5 +156,4 @@ def _bits_to_int(bits: np.ndarray) -> int:
 
 
 def _projection_seed(embedding_key: str, dim: int) -> int:
-    base = 17_311 if embedding_key == "mert" else 29_327
-    return base + int(dim)
+    return _PROJECTION_SEED_BASES[embedding_key] + int(dim)

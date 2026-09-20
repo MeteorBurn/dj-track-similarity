@@ -70,7 +70,7 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
         json={
-            "models": ["maest", "mert", "mert_v2"],
+            "models": ["maest", "muq", "mert_v2"],
             "limit": 0,
             "device": "cpu",
             "top_k": 4,
@@ -80,11 +80,11 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
     )
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["maest", "mert", "mert_v2"]
+    assert response.json()["models"] == ["maest", "mert_v2", "muq"]
     assert "classifier_keys" not in response.json()
     assert calls == [
         {
-            "models": ["maest", "mert", "mert_v2"],
+            "models": ["maest", "mert_v2", "muq"],
             "limit": 0,
             "track_batch_size": 5,
             "inference_batch_size": 18,
@@ -103,7 +103,7 @@ def test_api_rejects_classifier_scoring_inside_audio_job(
 ) -> None:
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
-        json={"models": ["mert"], "classifier_keys": ["voice_presence"]},
+        json={"models": ["muq"], "classifier_keys": ["voice_presence"]},
     )
 
     assert response.status_code == 422
@@ -159,7 +159,7 @@ def test_api_pipeline_starts_ml_with_direct_settings(
             "stage": "ml",
             "limit": 0,
             "ml": {
-                "models": ["mert"],
+                "models": ["muq"],
                 "device": "cpu",
                 "top_k": 3,
                 "track_batch_size": 2,
@@ -175,7 +175,7 @@ def test_api_pipeline_starts_ml_with_direct_settings(
             "limit": 0,
             "sonara": {},
             "ml": {
-                "models": ["mert"],
+                "models": ["muq"],
                 "device": "cpu",
                 "top_k": 3,
                 "track_batch_size": 2,
@@ -205,7 +205,7 @@ def test_api_pipeline_builds_staged_ml_settings(
         json={
             "stage": "ml",
             "ml": {
-                "models": ["mert"],
+                "models": ["muq"],
                 "device": "cpu",
                 "top_k": 3,
                 "track_batch_size": 2,
@@ -246,7 +246,7 @@ def test_api_pipeline_rejects_unknown_ml_staged_setting(
         json={
             "stage": "ml",
             "ml": {
-                "models": ["mert"],
+                "models": ["muq"],
                 "mode": "staged",
                 "staged": {
                     "folder": str(staging_root),
@@ -282,7 +282,7 @@ def test_api_pipeline_rejects_classifier_stage(
             "stage": "classifiers",
             "limit": 0,
             "ml": {
-                "models": ["mert"],
+                "models": ["muq"],
                 "device": "cpu",
                 "top_k": 3,
                 "track_batch_size": 2,
@@ -414,7 +414,7 @@ def test_api_reset_uses_current_analysis_family_and_rejects_legacy_payload(
     client = _client(monkeypatch, tmp_path)
 
     reset = client.post("/api/analysis/reset", json={"analysis_family": "mert_v2"})
-    legacy = client.post("/api/analysis/reset", json={"adapter": "mert"})
+    legacy = client.post("/api/analysis/reset", json={"adapter": "muq"})
 
     assert reset.status_code == 200
     assert reset.json() == {

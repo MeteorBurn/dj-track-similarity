@@ -279,18 +279,18 @@ def _save_ml_embeddings(
     axis: int,
 ) -> None:
     target = _target(identity)
-    mert, muq, clap, maest_analysis, maest_embedding = _ml_outputs()
+    mert_v2, muq, clap, maest_analysis, maest_embedding = _ml_outputs()
     db.register_analysis_outputs(
-        (mert, muq, clap, maest_analysis, maest_embedding)
+        (mert_v2, muq, clap, maest_analysis, maest_embedding)
     )
     embedding_results = db.save_embedding_results(
         (
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
-                    family="mert",
+                    family="mert_v2",
                     vector=_unit_vector(
-                        current_embedding_spec("mert").dimension, axis
+                        current_embedding_spec("mert_v2").dimension, axis
                     ),
                     analyzed_at=_NOW,
                 ),
@@ -378,12 +378,12 @@ def _ml_outputs() -> tuple[
     AnalysisOutput,
     AnalysisOutput,
 ]:
-    mert = current_embedding_analysis_output("mert")
+    mert_v2 = current_embedding_analysis_output("mert_v2")
     muq = current_embedding_analysis_output("muq")
     clap = current_embedding_analysis_output("clap")
     maest_analysis = AnalysisOutput("maest", "analysis")
     maest_embedding = current_embedding_analysis_output("maest")
-    return mert, muq, clap, maest_analysis, maest_embedding
+    return mert_v2, muq, clap, maest_analysis, maest_embedding
 
 
 def _unit_vector(dim: int, axis: int) -> np.ndarray:

@@ -32,7 +32,6 @@ _COPY_TABLES: tuple[tuple[str, str, str], ...] = (
     ("sonara_features", "core", "sonara"),
     ("maest_genres", "core", "maest_genres"),
     ("maest_embeddings", "artifacts", "maest_embeddings"),
-    ("mert_embeddings", "artifacts", "mert_embeddings"),
     ("muq_embeddings", "artifacts", "muq_embeddings"),
     ("mulan_embeddings", "artifacts", "mulan_embeddings"),
     ("clap_embeddings", "artifacts", "clap_embeddings"),
@@ -40,6 +39,13 @@ _COPY_TABLES: tuple[tuple[str, str, str], ...] = (
     ("likes", "core", "likes"),
     ("pair_feedback", "core", "pair_feedback"),
     ("transition_feedback", "core", "transition_feedback"),
+)
+
+# Legacy tables the current schema deliberately has no destination for. The rows
+# stay in the archived legacy pair; the receipt records how many were left.
+_EXCLUDED_LEGACY_TABLES: tuple[tuple[str, str, str], ...] = (
+    ("core", "library_settings", "obsolete derived counters"),
+    ("artifacts", "mert_embeddings", "retired MERT-95M embedding family"),
 )
 
 class LegacyLibraryMigrationError(RuntimeError):
@@ -320,26 +326,34 @@ def _require_no_unrepresentable_data(
     artifacts: sqlite3.Connection,
 ) -> tuple[dict[str, object], ...]:
     allowed_core = {source for _, role, source in _COPY_TABLES if role == "core"}
-    allowed_core.update({"library_catalog", "library_settings", "track_search_fts"})
+    allowed_core.update({"library_catalog", "track_search_fts"})
     allowed_artifacts = {
         source for _, role, source in _COPY_TABLES if role == "artifacts"
     }
     allowed_artifacts.add("storage_metadata")
+    connections = {"core": core, "artifacts": artifacts}
+    for database, table, _reason in _EXCLUDED_LEGACY_TABLES:
+        (allowed_core if database == "core" else allowed_artifacts).add(table)
 
     _reject_nonempty_unknown_tables(core, "core", allowed_core)
     _reject_nonempty_unknown_tables(artifacts, "artifacts", allowed_artifacts)
 
-    settings_count = _row_count(core, "library_settings")
-    if not settings_count:
-        return ()
-    return (
-        {
-            "database": "core",
-            "table": "library_settings",
-            "row_count": settings_count,
-            "reason": "obsolete derived counters",
-        },
-    )
+    excluded: list[dict[str, object]] = []
+    for database, table, reason in _EXCLUDED_LEGACY_TABLES:
+        connection = connections[database]
+        if not _table_exists(connection, table):
+            continue
+        row_count = _row_count(connection, table)
+        if row_count:
+            excluded.append(
+                {
+                    "database": database,
+                    "table": table,
+                    "row_count": row_count,
+                    "reason": reason,
+                }
+            )
+    return tuple(excluded)
 
 
 def _reject_nonempty_unknown_tables(

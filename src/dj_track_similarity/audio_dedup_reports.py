@@ -89,7 +89,7 @@ class AudioDedupPair:
     score: float | None
     fingerprint_similarity: float | None
     sonara_similarity: float | None
-    mert_similarity: float | None
+    mert_v2_similarity: float | None
     maest_similarity: float | None
     muq_similarity: float | None
     clap_similarity: float | None
@@ -421,7 +421,7 @@ def _pair(entry: dict) -> AudioDedupPair:
         score=_float_or_none(entry.get("score")),
         fingerprint_similarity=_float_or_none(entry.get("fingerprint_similarity")),
         sonara_similarity=_float_or_none(entry.get("sonara_similarity")),
-        mert_similarity=_float_or_none(entry.get("mert_similarity")),
+        mert_v2_similarity=_float_or_none(entry.get("mert_v2_similarity")),
         maest_similarity=_float_or_none(entry.get("maest_similarity")),
         muq_similarity=_float_or_none(entry.get("muq_similarity")),
         clap_similarity=_float_or_none(entry.get("clap_similarity")),

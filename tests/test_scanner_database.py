@@ -34,8 +34,8 @@ def _library_roots(database: LibraryDatabase) -> tuple[str, ...]:
     return tuple(json.loads(str(row[0])))
 
 
-def _mert_output():
-    return current_embedding_analysis_output("mert")
+def _muq_output():
+    return current_embedding_analysis_output("muq")
 
 
 def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(
@@ -216,7 +216,7 @@ def test_analysis_candidates_are_path_ordered_limited_and_skip_missing_tracks(
     database = LibraryDatabase(tmp_path / "library.sqlite")
     assert scan_library(database, music_root).added == 2
 
-    output = _mert_output()
+    output = _muq_output()
     database.register_analysis_outputs((output,))
 
     limited = database.list_analysis_candidates((output,), limit=1)

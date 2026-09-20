@@ -57,7 +57,7 @@ are relative to this file. These guides are read by task, not imported as a batc
   `src/dj_track_similarity/embedding/text_cache.py`,
   `frontend/src/textPromptPresets.ts`, `frontend/src/TextSearchTab.tsx`, and
   `scripts/text_prompt_benchmark.py`.
-- SONARA, MERT, MAEST, MuQ seed search, their analysis jobs, and Rhythm Lab
+- SONARA, MERT-v2, MAEST, MuQ seed search, their analysis jobs, and Rhythm Lab
   training are separate layers. Signals may cross boundaries; keep production
   logic in its owning layer. Ask before extending the task to a model layer
   the user has not authorized; already requested cross-layer work is delegated
@@ -68,7 +68,7 @@ are relative to this file. These guides are read by task, not imported as a batc
   the requested behavior changes a shared contract.
 - Do not expand, redesign, or remove Model Listening Lab without a new request.
 - Keep CLAP text scores separate from audio-to-audio CLAP signals. Never
-  substitute MuQ, MERT, MERT-v2, MAEST, CLAP, MuQ-MuLan, or SONARA evidence
+  substitute MuQ, MERT-v2, MAEST, CLAP, MuQ-MuLan, or SONARA evidence
   for another.
 - Zero-shot text tags are additional evidence, not replacements for MAEST or
   classifier scores; never write them to `classifier_scores` or audio files.

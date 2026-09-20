@@ -318,7 +318,6 @@ test("liked mutation serializes the exact optimistic track identity", async () =
       sonara_core: true,
       maest_analysis: true,
       maest_embedding: true,
-      mert: true,
       mert_v2: false,
       muq: true,
       clap: true
@@ -382,7 +381,7 @@ test("API client surfaces backend error text for unknown or invalid payload fail
   }));
 
   await assert.rejects(
-    api.resetAnalysis("mert"),
+    api.resetAnalysis("muq"),
     /Unknown classifier: break_energy/
   );
 });

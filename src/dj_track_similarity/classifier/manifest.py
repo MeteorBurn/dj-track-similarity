@@ -10,13 +10,12 @@ from typing import Any
 from ..analysis_models import current_embedding_spec
 
 
-CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap", "muq", "mulan", "mert_v2")
+CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "maest", "clap", "muq", "mulan", "mert_v2")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _OUTPUT_KIND_BY_FEATURE_SOURCE = {
     "sonara": "core",
-    "mert": "embedding",
     "mert_v2": "embedding",
     "maest": "embedding",
     "clap": "embedding",
@@ -430,6 +429,9 @@ def _validate_embedding_feature_indices(
     for feature_name in feature_names:
         source, separator, key = feature_name.partition(":")
         if not separator or source == "sonara":
+            continue
+        if source not in CLASSIFIER_SUPPORTED_INPUTS:
+            # _feature_sources already reported it; there is no dimension to check.
             continue
         if not key.isdigit() or str(int(key)) != key:
             errors.append(

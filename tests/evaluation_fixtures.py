@@ -32,7 +32,7 @@ class EvaluationRepository:
         }
         coverage = AnalysisCoverage(
             sonara_core=True,
-            mert=True,
+            mert_v2=True,
             maest_embedding=True,
             muq=True,
             clap=True,
@@ -42,7 +42,7 @@ class EvaluationRepository:
             for track_id, identity in self.identities.items()
         }
         self.outputs = {
-            ("mert", "embedding"): _embedding_output("mert", "1"),
+            ("mert_v2", "embedding"): _embedding_output("mert_v2", "1"),
             ("maest", "embedding"): _embedding_output("maest", "2"),
             ("muq", "embedding"): _embedding_output("muq", "4"),
             ("clap", "embedding"): _embedding_output("clap", "3"),
@@ -63,7 +63,7 @@ class EvaluationRepository:
         self.sessions: list[dict[str, Any]] = []
         self.feedback: dict[tuple[int, int, str], dict[str, Any]] = {}
         self.vectors: dict[str, dict[int, np.ndarray]] = {
-            "mert": {},
+            "mert_v2": {},
             "maest": {},
             "muq": {},
             "clap": {},

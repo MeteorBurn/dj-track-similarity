@@ -15,7 +15,7 @@ def test_source_profile_is_deterministic_for_same_seed() -> None:
     first = build_source_profile(
         db,
         seed_track_ids=[track_ids["seed"]],
-        sources=["mert", "maest"],
+        sources=["mert_v2", "maest"],
         per_source=2,
         top_k_values=[1, 2],
         random_seed=17,
@@ -23,7 +23,7 @@ def test_source_profile_is_deterministic_for_same_seed() -> None:
     second = build_source_profile(
         db,
         seed_track_ids=[track_ids["seed"]],
-        sources=["mert", "maest"],
+        sources=["mert_v2", "maest"],
         per_source=2,
         top_k_values=[1, 2],
         random_seed=17,
@@ -40,7 +40,7 @@ def test_source_profile_weights_sum_to_one_for_available_sources() -> None:
     report = build_source_profile(
         db,
         seed_track_ids=[track_ids["seed"]],
-        sources=["mert", "maest"],
+        sources=["mert_v2", "maest"],
         per_source=2,
         random_seed=123,
     )
@@ -54,16 +54,16 @@ def test_source_profile_weights_sum_to_one_for_available_sources() -> None:
 
 def test_source_profile_zero_coverage_source_gets_zero_weight_and_warning() -> None:
     db = EvaluationRepository()
-    _activate_runtime_embedding_outputs(db, ("mert", "maest"))
+    _activate_runtime_embedding_outputs(db, ("mert_v2", "maest"))
     seed_id = 1
     candidate_id = 2
-    db.set_vector("mert", seed_id, [1.0, 0.0])
-    db.set_vector("mert", candidate_id, [0.9, 0.1])
+    db.set_vector("mert_v2", seed_id, [1.0, 0.0])
+    db.set_vector("mert_v2", candidate_id, [0.9, 0.1])
 
     report = build_source_profile(
         db,
         seed_track_ids=[seed_id],
-        sources=["mert", "maest"],
+        sources=["mert_v2", "maest"],
         per_source=1,
         random_seed=123,
     )
@@ -76,8 +76,8 @@ def test_source_profile_zero_coverage_source_gets_zero_weight_and_warning() -> N
 def test_source_profile_consensus_source_outweighs_isolated_source() -> None:
     seed = _track(1)
     rows = (
-        _row(seed, _track(101), {"mert": 1, "maest": 1}),
-        _row(seed, _track(102), {"mert": 2}),
+        _row(seed, _track(101), {"mert_v2": 1, "maest": 1}),
+        _row(seed, _track(102), {"mert_v2": 2}),
         _row(seed, _track(103), {"maest": 2}),
         _row(seed, _track(104), {"sonara": 1}),
         _row(seed, _track(105), {"sonara": 2}),
@@ -86,7 +86,7 @@ def test_source_profile_consensus_source_outweighs_isolated_source() -> None:
     report = profile_candidate_rows(
         SourceProfileRequest(
             seed_track_ids=(seed.identity.track_id,),
-            sources=("mert", "maest", "sonara"),
+            sources=("mert_v2", "maest", "sonara"),
             per_source=2,
             top_k_values=(2,),
             random_seed=123,
@@ -95,25 +95,25 @@ def test_source_profile_consensus_source_outweighs_isolated_source() -> None:
     )
     weights = report["recommended_weights"]["weights"]
 
-    assert weights["mert"] > weights["sonara"]
+    assert weights["mert_v2"] > weights["sonara"]
     assert weights["maest"] > weights["sonara"]
     assert report["per_source"]["sonara"]["conflict_rate"] == 1.0
-    assert report["pairwise_agreement"]["mert"]["maest"]["jaccard_at_k"]["2"] > 0.0
+    assert report["pairwise_agreement"]["mert_v2"]["maest"]["jaccard_at_k"]["2"] > 0.0
 
 
 def _profile_library() -> tuple[EvaluationRepository, dict[str, int]]:
     db = EvaluationRepository()
-    _activate_runtime_embedding_outputs(db, ("mert", "maest"))
+    _activate_runtime_embedding_outputs(db, ("mert_v2", "maest"))
     track_ids = {
         "seed": 1,
         "shared": 2,
-        "mert_only": 3,
+        "mert_v2_only": 3,
         "maest_only": 4,
     }
-    _save_profile_embeddings(db, track_ids["seed"], mert=[1.0, 0.0], maest=[0.0, 1.0])
-    _save_profile_embeddings(db, track_ids["shared"], mert=[0.99, 0.1], maest=[0.1, 0.99])
-    _save_profile_embeddings(db, track_ids["mert_only"], mert=[0.8, 0.2], maest=[1.0, 0.0])
-    _save_profile_embeddings(db, track_ids["maest_only"], mert=[0.0, 1.0], maest=[0.2, 0.8])
+    _save_profile_embeddings(db, track_ids["seed"], mert_v2=[1.0, 0.0], maest=[0.0, 1.0])
+    _save_profile_embeddings(db, track_ids["shared"], mert_v2=[0.99, 0.1], maest=[0.1, 0.99])
+    _save_profile_embeddings(db, track_ids["mert_v2_only"], mert_v2=[0.8, 0.2], maest=[1.0, 0.0])
+    _save_profile_embeddings(db, track_ids["maest_only"], mert_v2=[0.0, 1.0], maest=[0.2, 0.8])
     return db, track_ids
 
 
@@ -131,10 +131,10 @@ def _save_profile_embeddings(
     db: EvaluationRepository,
     track_id: int,
     *,
-    mert: list[float],
+    mert_v2: list[float],
     maest: list[float],
 ) -> None:
-    db.set_vector("mert", track_id, mert)
+    db.set_vector("mert_v2", track_id, mert_v2)
     db.set_vector("maest", track_id, maest)
 
 

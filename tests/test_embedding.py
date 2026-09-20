@@ -22,7 +22,6 @@ from dj_track_similarity.audio.loader import DecodedAudio
 from dj_track_similarity.embedding.clap import ClapEmbeddingAdapter
 from dj_track_similarity.embedding.contracts import EmbeddingCancelledError
 from dj_track_similarity.embedding.maest import MaestEmbeddingAdapter
-from dj_track_similarity.embedding.mert import MertEmbeddingAdapter
 from dj_track_similarity.embedding.mert_v2 import MertV2EmbeddingAdapter
 from dj_track_similarity.embedding.muq import MuqEmbeddingAdapter
 from dj_track_similarity.embedding.mulan import MuqMulanEmbeddingAdapter
@@ -762,7 +761,7 @@ def test_mulan_adapter_forwards_full_tracks_and_normalizes_audio_and_text(monkey
     np.testing.assert_array_equal(text_vector, bank_vectors[0])
 
 
-class FakeMertProcessor:
+class FakeMertV2Processor:
     sampling_rate = 24_000
 
     def __init__(self) -> None:
@@ -779,117 +778,6 @@ class FakeMertProcessor:
             "input_values": values,
             "attention_mask": torch.ones_like(values, dtype=torch.long),
         }
-
-
-class FakeMertModel(torch.nn.Module):
-    def __init__(self) -> None:
-        super().__init__()
-        self.feature_mask_calls: list[tuple[int, tuple[int, ...]]] = []
-        self.forward_calls = 0
-        self.empty_feature_mask = False
-
-    def forward(self, input_values, attention_mask, *, output_hidden_states):
-        assert torch.is_inference_mode_enabled()
-        assert input_values.dtype == torch.float32
-        self.forward_calls += 1
-        hidden = torch.zeros((len(input_values), 3, 768), dtype=torch.float32)
-        means = input_values.mean(dim=1)
-        hidden[:, 0, 0], hidden[:, 1, 0] = means, 2 * means
-        hidden[:, 2, 0] = 100_000.0  # Must be excluded by feature-frame pooling.
-        hidden[:, :, 1] = 1.0
-        states = []
-        for index in range(12):
-            if output_hidden_states:
-                states.append(hidden)
-            hidden = hidden.clone()
-            hidden[:, :, index + 2] += index + 1
-        if output_hidden_states:
-            states.append(hidden)
-        return types.SimpleNamespace(last_hidden_state=hidden, hidden_states=tuple(states) or None)
-
-    def _get_feature_vector_attention_mask(self, feature_vector_length, attention_mask):
-        self.feature_mask_calls.append((feature_vector_length, tuple(attention_mask.shape)))
-        mask = torch.zeros((len(attention_mask), feature_vector_length), dtype=torch.bool)
-        if not self.empty_feature_mask:
-            mask[:, :2] = True
-        return mask
-
-
-class SharedAudioMertAdapter(MertEmbeddingAdapter):
-    def __init__(self, inference_batch_size=2) -> None:
-        super().__init__(device="cpu", inference_batch_size=inference_batch_size)
-        self.fake_model = FakeMertModel()
-        self.fake_processor = FakeMertProcessor()
-        self.load_calls = 0
-
-    def _load_model(self) -> None:
-        self.load_calls += 1
-        self._torch = torch
-        self._torchaudio = None
-        self._processor = self.fake_processor
-        self.device = "cpu"
-        self._model = self.fake_model
-
-
-def test_mert_embed_decoded_batch_uses_feature_vector_attention_mask() -> None:
-    decoded = [
-        DecodedAudio(
-            path=f"synthetic-{index}.wav",
-            audio=torch.arange(length, dtype=torch.float32) / 120_000 + index,
-            sample_rate=24_000,
-            detail="shared",
-        )
-        for index, length in enumerate((7 * 120_000 + 400, 120_399, 400, 719, 720, 120_000))
-    ]
-    expected = {}
-    for item in decoded:
-        # Layer outputs 9..12 contain all of layers 1..9, then 3/4, 1/2,
-        # and 1/4 of layers 10, 11, and 12. The first two valid frames
-        # encode the sample mean, so duration weighting recovers the whole track.
-        vector = np.zeros(768, dtype=np.float64)
-        vector[:2] = [1.5 * item.audio.double().mean().item(), 1.0]
-        vector[2:14] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 7.5, 5.5, 3]
-        expected[item.path] = (vector / np.linalg.norm(vector)).astype(np.float32)
-
-    for batch_size in (1, 2, 3, 32):
-        for items in (decoded, list(reversed(decoded))):
-            adapter = SharedAudioMertAdapter(batch_size)
-            vectors = adapter.embed_decoded_batch(items)
-            for item, vector in zip(items, vectors, strict=True):
-                assert vector.shape == (768,)
-                assert vector.dtype == np.float32
-                assert np.linalg.norm(vector) == pytest.approx(1.0)
-                np.testing.assert_allclose(vector, expected[item.path], rtol=1e-5, atol=1e-6)
-            batches = adapter.fake_processor.batches
-            assert all(len(batch) <= batch_size for batch in batches)
-            assert sum(sum(batch) for batch in batches) == sum(item.audio.numel() for item in items)
-            assert adapter.fake_model.feature_mask_calls
-
-    for item in decoded:
-        vector = SharedAudioMertAdapter().embed_decoded_batch([item])[0]
-        np.testing.assert_allclose(vector, expected[item.path], rtol=1e-5, atol=1e-6)
-
-    for audio in (torch.empty(0), torch.ones(399), torch.full((400,), torch.nan), torch.full((400,), torch.inf)):
-        invalid = DecodedAudio(path="invalid.wav", audio=audio, sample_rate=24_000, detail="shared")
-        for items in ([invalid], [invalid, decoded[-1]], [decoded[-1], invalid]):
-            with pytest.raises(ValueError):
-                SharedAudioMertAdapter().embed_decoded_batch(items)
-
-    adapter = SharedAudioMertAdapter()
-    adapter.fake_model.empty_feature_mask = True
-    with pytest.raises(ValueError):
-        adapter.embed_decoded_batch([decoded[-1]])
-
-    adapter = SharedAudioMertAdapter()
-    with pytest.raises(EmbeddingCancelledError):
-        adapter.embed_decoded_batch(decoded, cancelled=lambda: True)
-    assert adapter.load_calls == adapter.fake_model.forward_calls == 0
-
-    for items in ([decoded[0]], [decoded[-1]]):
-        adapter = SharedAudioMertAdapter(inference_batch_size=2)
-        with pytest.raises(EmbeddingCancelledError):
-            adapter.embed_decoded_batch(items, cancelled=lambda: adapter.fake_model.forward_calls >= 1)
-        assert adapter.fake_model.forward_calls == 1
 
 
 def test_mert_v2_full_coverage_pools_all_valid_layer_frames(monkeypatch) -> None:
@@ -954,7 +842,7 @@ def test_mert_v2_full_coverage_pools_all_valid_layer_frames(monkeypatch) -> None
             adapter._torch = torch
             adapter._torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResampler))
             adapter._model = model
-            adapter._processor = FakeMertProcessor()
+            adapter._processor = FakeMertV2Processor()
             adapter.device = "cpu"
 
         monkeypatch.setattr(adapter, "_load_model", load)

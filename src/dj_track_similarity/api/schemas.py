@@ -33,9 +33,9 @@ from ..analysis.config import (
 from ..scanner import SUPPORTED_AUDIO_EXTENSIONS
 
 
-EmbeddingSource = Literal["mert", "maest", "muq", "mulan", "clap"]
-EvaluationSource = Literal["mert", "maest", "muq", "mulan", "sonara", "clap"]
-ReferenceCompareModel = Literal["clap", "mert", "muq", "mulan", "maest", "sonara"]
+EmbeddingSource = Literal["mert_v2", "maest", "muq", "mulan", "clap"]
+EvaluationSource = Literal["mert_v2", "maest", "muq", "mulan", "sonara", "clap"]
+ReferenceCompareModel = Literal["clap", "mert_v2", "muq", "mulan", "maest", "sonara"]
 ReferenceCompareVerdict = Literal[
     "mood", "palette", "instruments", "groove", "genre", "transition", "miss"
 ]
@@ -300,13 +300,13 @@ class ClassifierResetRequest(BaseModel):
 class AnalysisResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["sonara", "maest", "mert", "mert_v2", "muq", "mulan", "clap"]
+    analysis_family: Literal["sonara", "maest", "mert_v2", "muq", "mulan", "clap"]
 
 
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"] = "mert"
+    analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"] = "mert_v2"
     mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
     seed_track_ids: Annotated[list[TrackId], _unique] = Field(min_length=1)
     limit: int = Field(default=10, ge=1, le=500)
@@ -318,7 +318,7 @@ class SearchRequest(BaseModel):
 class EmbeddingRandomTrackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    analysis_family: Literal["maest", "mert", "mert_v2", "muq", "mulan", "clap"] = "mert"
+    analysis_family: Literal["maest", "mert_v2", "muq", "mulan", "clap"] = "mert_v2"
     mert_v2_layer: int = Field(default=24, ge=1, le=24, strict=True)
     exclude_track_ids: Annotated[list[TrackId], _unique] = Field(default_factory=list)
 
@@ -539,7 +539,7 @@ class ReferenceCompareRequest(BaseModel):
 
     seed_track_id: EvaluationTrackId
     models: Annotated[list[ReferenceCompareModel], _unique] = Field(
-        default_factory=lambda: ["clap", "mert", "muq", "mulan", "maest", "sonara"],
+        default_factory=lambda: ["clap", "mert_v2", "muq", "mulan", "maest", "sonara"],
         min_length=1,
         max_length=6,
     )
@@ -626,7 +626,7 @@ class EvaluationSourceProfileRunRequest(BaseModel):
     seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
     sample_count: int = Field(default=50, ge=1, le=200)
     sources: list[EvaluationSource] = Field(
-        default_factory=lambda: ["mert", "maest", "muq", "sonara", "clap"],
+        default_factory=lambda: ["mert_v2", "maest", "muq", "sonara", "clap"],
         min_length=1,
         max_length=5,
     )
@@ -706,7 +706,6 @@ class AnalysisCoverageResponse(_ResponseModel):
     sonara_core: bool
     maest_analysis: bool
     maest_embedding: bool
-    mert: bool
     mert_v2: bool
     muq: bool
     mulan: bool
@@ -892,7 +891,6 @@ class LibrarySummaryResponse(_ResponseModel):
     sonara: int
     maest_analysis: int
     maest_embedding: int
-    mert: int
     mert_v2: int
     muq: int
     mulan: int

@@ -26,8 +26,8 @@ from dj_track_similarity.analysis.sonara_staging import (
 )
 
 
-def _mert_output() -> AnalysisOutput:
-    return current_embedding_analysis_output("mert")
+def _muq_output() -> AnalysisOutput:
+    return current_embedding_analysis_output("muq")
 
 
 def _maest_output() -> AnalysisOutput:
@@ -149,16 +149,16 @@ def _decoded(path: str) -> DecodedAudio:
 
 
 def test_multi_model_job_aggregates_exact_missing_outputs_per_track() -> None:
-    mert = _mert_output()
+    muq = _muq_output()
     maest = _maest_output()
     repository = _Repository(
         [
-            _candidate(1, (mert, maest)),
-            _candidate(2, (mert,)),
+            _candidate(1, (muq, maest)),
+            _candidate(2, (muq,)),
         ]
     )
     runners = {
-        "mert": _Runner("mert", mert),
+        "muq": _Runner("muq", muq),
         "maest": _Runner("maest", maest),
     }
     decoded_paths: list[str] = []
@@ -172,7 +172,7 @@ def test_multi_model_job_aggregates_exact_missing_outputs_per_track() -> None:
         model_runners=runners,
         decode_audio=decode,
     ).run_sync(
-        models=("maest", "mert"),
+        models=("maest", "muq"),
         device="cpu",
         track_batch_size=2,
     )
@@ -184,9 +184,9 @@ def test_multi_model_job_aggregates_exact_missing_outputs_per_track() -> None:
         2,
         0,
     )
-    assert status.model_progress["mert"].analyzed == 2
+    assert status.model_progress["muq"].analyzed == 2
     assert status.model_progress["maest"].analyzed == 1
-    assert [item.candidate.target.track_id for item in runners["mert"].items] == [
+    assert [item.candidate.target.track_id for item in runners["muq"].items] == [
         1,
         2,
     ]

@@ -15,7 +15,7 @@ def _manifest_payload(
     *,
     feature_names: list[str] | None = None,
 ) -> dict[str, object]:
-    names = feature_names or ["mert:0"]
+    names = feature_names or ["clap:0"]
     return {
         "classifier_key": "test_classifier",
         "artifact_hash": _ARTIFACT_HASH,
@@ -43,10 +43,31 @@ def _write_manifest(
     return model_path, manifest_path
 
 
+def test_manifest_from_a_retired_family_is_invalid_rather_than_raising(
+    tmp_path: Path,
+) -> None:
+    """A promoted artifact naming a family the app no longer supports must not
+    take the classifier listing down with it."""
+
+    model_path, manifest_path = _write_manifest(
+        tmp_path,
+        _manifest_payload(feature_names=["mert:0", "clap:1"]),
+    )
+
+    summary = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key="test_classifier",
+        metadata_path=manifest_path,
+    )
+
+    assert summary.status == "invalid"
+    assert any("unsupported feature 'mert:0'" in error for error in summary.errors)
+
+
 def test_manifest_derives_input_families_from_ordered_feature_names(
     tmp_path: Path,
 ) -> None:
-    names = ["mert:1", "clap:2", "mert:0"]
+    names = ["muq:1", "clap:2", "muq:0"]
     model_path, manifest_path = _write_manifest(
         tmp_path,
         _manifest_payload(feature_names=names),
@@ -60,15 +81,15 @@ def test_manifest_derives_input_families_from_ordered_feature_names(
 
     assert summary.status == "valid", summary.errors
     assert summary.feature_names == tuple(names)
-    assert summary.required_inputs == ("mert", "clap")
-    assert summary.to_api_dict()["required_inputs"] == ["mert", "clap"]
+    assert summary.required_inputs == ("muq", "clap")
+    assert summary.to_api_dict()["required_inputs"] == ["muq", "clap"]
 
 
 def test_embedding_manifest_checks_current_embedding_dimension(
     tmp_path: Path,
 ) -> None:
     for family in ("muq", "mert_v2"):
-        names = [f"{family}:0", f"{family}:1023", "mert:1"]
+        names = [f"{family}:0", f"{family}:1023", "clap:1"]
         model_path, manifest_path = _write_manifest(
             tmp_path / family,
             _manifest_payload(feature_names=names),
@@ -81,7 +102,7 @@ def test_embedding_manifest_checks_current_embedding_dimension(
         )
 
         assert summary.status == "valid", summary.errors
-        assert summary.required_inputs == (family, "mert")
+        assert summary.required_inputs == (family, "clap")
 
         invalid_model, invalid_manifest = _write_manifest(
             tmp_path / family / "invalid-index",
@@ -103,7 +124,7 @@ def test_embedding_manifest_checks_current_embedding_dimension(
 def test_manifest_rejects_duplicate_feature_names(tmp_path: Path) -> None:
     model_path, manifest_path = _write_manifest(
         tmp_path,
-        _manifest_payload(feature_names=["mert:0", "mert:0"]),
+        _manifest_payload(feature_names=["clap:0", "clap:0"]),
     )
 
     summary = load_classifier_manifest_summary(

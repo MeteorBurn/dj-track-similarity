@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import math
 from pathlib import Path
 import sqlite3
 from typing import Iterable
 
-import numpy as np
-
-from dj_track_similarity.analysis_models import current_embedding_spec
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db.embeddings import read_valid_embeddings
 from dj_track_similarity.db.tracks import canonical_file_path, ordinal_path_key
 
 from . import config as config_module
@@ -115,6 +112,7 @@ def load_tracks(
         _attach_embeddings(
             connection,
             tracks,
+            catalog_uuid=selected_database.catalog_uuid,
             sources=selected_sources,
             progress_callback=progress_callback,
         )
@@ -213,6 +211,7 @@ def _attach_embeddings(
     connection: sqlite3.Connection,
     tracks: list[models_module.TrackRecord],
     *,
+    catalog_uuid: str,
     sources: Iterable[str] = config_module.SUPPORTED_EMBEDDINGS,
     progress_callback: models_module.ProgressCallback | None = None,
 ) -> None:
@@ -227,63 +226,24 @@ def _attach_embeddings(
     for family in sources:
         if family not in config_module.SUPPORTED_EMBEDDINGS:
             raise ValueError(f"Unsupported embedding source: {family}")
-        specification = current_embedding_spec(family)
-        table = f"{family}_embeddings"
         message = f"Loading {family.upper()} embeddings"
         progress_module._report_progress(progress_callback, 0, len(track_ids), message)
         processed = 0
         for chunk in values_module._chunks(track_ids, EMBEDDING_LOAD_CHUNK_SIZE):
-            placeholders = ",".join("?" for _ in chunk)
-            rows = connection.execute(
-                f"""
-                SELECT
-                    track_id,
-                    track_uuid,
-                    dim,
-                    normalization,
-                    embedding_blob
-                FROM {table}
-                WHERE track_id IN ({placeholders})
-                ORDER BY track_id
-                """,
-                chunk,
-            ).fetchall()
-            for row in rows:
-                track_id = int(row["track_id"])
-                expected_identity = identity_by_track.get(track_id)
-                if expected_identity != str(row["track_uuid"]):
-                    continue
-                dim = int(row["dim"])
-                if (
-                    dim != specification.dimension
-                    or str(row["normalization"]) != specification.normalization
-                ):
-                    continue
-                vector = np.frombuffer(
-                    row["embedding_blob"],
-                    dtype="<f4",
-                ).copy()
-                if (
-                    vector.shape != (dim,)
-                    or not np.all(np.isfinite(vector))
-                ):
-                    continue
-                norm = float(np.linalg.norm(vector))
-                if not math.isfinite(norm) or norm <= 0:
-                    continue
-                if (
-                    specification.normalization == "l2"
-                    and not np.isclose(
-                        norm,
-                        1.0,
-                        rtol=1e-4,
-                        atol=1e-5,
-                    )
-                ):
-                    continue
-                embeddings_by_track[track_id][family] = (
-                    vector / norm
-                ).astype(np.float32)
+            # The application's own reader owns "what is a valid stored
+            # embedding", including MERT-v2's one-layer-per-family rule. A
+            # second copy here is what previously let all 24 layers land in
+            # one slot.
+            vectors = read_valid_embeddings(
+                family=family,
+                identities={
+                    track_id: identity_by_track[track_id] for track_id in chunk
+                },
+                catalog_uuid=catalog_uuid,
+                connection=connection,
+            )
+            for track_id, vector in vectors.items():
+                embeddings_by_track[track_id][family] = vector
             processed += len(chunk)
             progress_module._report_progress(progress_callback, processed, len(track_ids), message)
     for index, track in enumerate(tracks):

@@ -44,7 +44,7 @@ export function reconcileReportId(
  */
 const embeddingAbsencePatterns = [
   /source disabled$/i,
-  /^missing (mert|maest|muq|clap) embedding$/i,
+  /^missing (mert_v2|maest|muq|clap) embedding$/i,
   /^missing content similarity$/i,
   /^content similarity below threshold$/i,
   /weight is not positive$/i
@@ -212,8 +212,8 @@ const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> =
   [/^missing (\w+) embedding$/i, (m) => `Нет эмбеддинга ${m[1].toUpperCase()}`],
   [/^(\w+) weight is not positive$/i, (m) => `Вес ${m[1].toUpperCase()} не положительный`],
   [
-    /^MERT\+MAEST corroboration below delete safety threshold \(([^)]+)\)$/i,
-    (m) => `Подтверждение MERT+MAEST ниже порога безопасного удаления (${m[1]})`
+    /^MERT_V2\+MAEST corroboration below delete safety threshold \(([^)]+)\)$/i,
+    (m) => `Подтверждение MERT-v2+MAEST ниже порога безопасного удаления (${m[1]})`
   ]
 ];
 
@@ -253,7 +253,7 @@ export function copyStatusLine(
 ): string | null {
   if (file.role === "keeper") return null;
   if (file.safe_to_delete) {
-    return "MERT и MAEST подтвердили совпадение — копию можно удалять автоматически.";
+    return "MERT-v2 и MAEST подтвердили совпадение — копию можно удалять автоматически.";
   }
   const blockers = copyDetailReasons(file, searchMode);
   if (blockers.length > 0) return `Автоудаление заблокировано: ${blockers[0]}.`;

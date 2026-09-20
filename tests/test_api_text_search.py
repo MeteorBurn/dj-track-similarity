@@ -15,7 +15,7 @@ from dj_track_similarity.analysis_models import (
     CLAP_EMBEDDING_DIM,
     EmbeddingOutput,
     EmbeddingWrite,
-    MERT_EMBEDDING_DIM,
+    MUQ_EMBEDDING_DIM,
     MULAN_EMBEDDING_DIM,
 )
 from dj_track_similarity.api.application import create_app
@@ -75,7 +75,7 @@ def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> N
     db = LibraryDatabase(db_path)
     near_id = _track_with_embedding(db, "near.wav", [0.0, 1.0, 0.0], "clap")
     far_id = _track_with_embedding(db, "far.wav", [1.0, 0.0, 0.0], "clap")
-    _track_with_embedding(db, "mert-only.wav", [0.0, 1.0, 0.0], "mert")
+    _track_with_embedding(db, "muq-only.wav", [0.0, 1.0, 0.0], "muq")
     monkeypatch.setattr(embedding_clap, "ClapEmbeddingAdapter", FakeClapAdapter)
 
     response = TestClient(create_app(db_path)).post(
@@ -418,7 +418,7 @@ def _typed_vector(
 ) -> np.ndarray:
     dimensions = {
         "clap": CLAP_EMBEDDING_DIM,
-        "mert": MERT_EMBEDDING_DIM,
+        "muq": MUQ_EMBEDDING_DIM,
         "mulan": MULAN_EMBEDDING_DIM,
     }
     vector = np.zeros(dimensions[output.analysis_family], dtype=np.float32)

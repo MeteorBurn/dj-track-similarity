@@ -52,7 +52,7 @@ class PairEvidence:
     right_id: int
     score: float
     content_similarity: float | None
-    mert_similarity: float | None
+    mert_v2_similarity: float | None
     maest_similarity: float | None
     muq_similarity: float | None
     clap_similarity: float | None

@@ -8,7 +8,6 @@ type LibraryHelpText = {
   clearDatabase: string;
   sonaraAnalyze: string;
   maestAnalyze: string;
-  mertAnalyze: string;
   muqAnalyze: string;
   clapAnalyze: string;
   writeMaestGenres: string;
@@ -18,7 +17,6 @@ type LibraryHelpText = {
 const modelDescriptions: Record<AnalysisModel, string> = {
   sonara: "Считает темп, тональность, ритм, динамику, тембр и структуру трека.",
   maest: "Помогает понять жанровый характер трека.",
-  mert: "Ищет похожее звучание от выбранного seed-трека.",
   mert_v2: "Анализирует звучание трека моделью MERT-v2 FullSong.",
   muq: "Сохраняет дополнительный слой аудио-признаков.",
   mulan: "Связывает текстовое описание с отдельными аудио-эмбеддингами.",

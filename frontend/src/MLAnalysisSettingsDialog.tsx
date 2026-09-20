@@ -65,7 +65,7 @@ export function MLAnalysisSettingsDialog({
         <header className="dialog-title ml-settings-title">
           <div className="ml-settings-title-copy">
             <h2 id="ml-settings-title">Настройки анализа ML моделями</h2>
-            <span>Device и режим чтения файлов решают, как MAEST, MERT, MERT-v2, MuQ, MuLan и CLAP считают эмбеддинги.</span>
+            <span>Device и режим чтения файлов решают, как MAEST, MERT-v2, MuQ, MuLan и CLAP считают эмбеддинги.</span>
           </div>
           <button className="icon-button ml-settings-close-button" title="Закрыть" aria-label="Закрыть" disabled={disabled} onClick={onClose} type="button"><X size={16} /></button>
         </header>
@@ -109,7 +109,7 @@ export function MLAnalysisSettingsDialog({
             <div className="ml-settings-section-title">
               <span>Размер батчей</span>
             </div>
-            <p className="ml-settings-section-description">Track batch — сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Измеренный дефолт для этой машины: 8. Inference batch — сколько окон или семплов MAEST, MERT, MuQ и CLAP прогоняют за один forward pass модели. Тип: целое число 1-128. Измеренный дефолт для RTX 3090: 16. Оба параметра действуют одинаково в режимах Direct и Staged.</p>
+            <p className="ml-settings-section-description">Track batch — сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Измеренный дефолт для этой машины: 8. Inference batch — сколько окон или семплов MAEST, MERT-v2, MuQ и CLAP прогоняют за один forward pass модели. Тип: целое число 1-128. Измеренный дефолт для RTX 3090: 16. Оба параметра действуют одинаково в режимах Direct и Staged.</p>
             <div className="ml-settings-batch-grid">
               <NumberStepper label="Track batch" value={analysisTrackBatchSize} minimum={1} maximum={maxAnalysisTrackBatchSize} disabled={batchDisabled} classPrefix="analysis-track-batch" onChange={onAnalysisTrackBatchSizeChange} />
               <NumberStepper label="Inference batch" value={analysisInferenceBatchSize} minimum={1} maximum={maxAnalysisInferenceBatchSize} disabled={batchDisabled} classPrefix="analysis-inference-batch" onChange={onAnalysisInferenceBatchSizeChange} />

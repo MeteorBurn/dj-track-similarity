@@ -16,7 +16,7 @@ DJTS – `dj-track-similarity` is a local-first workbench for large music folder
 BPM, key, energy, tags, and crates are the usual DJ toolkit. This project keeps that layer and adds two more:
 
 1. **Technical compatibility.** BPM, key, duration, energy, and related metadata from SONARA analysis and file tags. Available today.
-2. **Sonic compatibility.** Rhythm, timbre, density, dynamics, and audio similarity from SONARA features and MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, and CLAP embeddings, plus texture and atmosphere through text prompts. Available today as ranking evidence.
+2. **Sonic compatibility.** Rhythm, timbre, density, dynamics, and audio similarity from SONARA features and MAEST, MERT-v2, MuQ, MuQ-MuLan, and CLAP embeddings, plus texture and atmosphere through text prompts. Available today as ranking evidence.
 3. **Set dramaturgy.** A set that keeps flowing while the mood changes slowly, through chapters toward a destination. This is the direction. Nothing in the app orders a set automatically, and stored mood values are not a similarity input yet.
 
 The goal is a DJ assistant that builds a playable narrative from reference tracks, start and target moods, a text prompt, an emotional arc, a personal classifier profile, and the previous track in the set. Similarity is one building block of that goal.
@@ -54,7 +54,7 @@ Hold a reflective mood across a long, steady-tempo plateau. Gentle changes in te
 ## ✅ What the project can do today
 
 - **📂 Browse your library.** Scan a local music folder into one SQLite library (tags read with Mutagen) and browse it in server-side pages.
-- **🎧 Find similar tracks.** Analyze tracks with SONARA, MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those seven models.
+- **🎧 Find similar tracks.** Analyze tracks with SONARA, MAEST, MERT-v2, MuQ, MuQ-MuLan, and CLAP, and search from seed tracks with any of those six models.
 - **💬 Search by text.** Search from text prompts with CLAP or MuQ-MuLan once that family's audio embeddings exist (see workflow 4 for A/B comparison and feedback).
 - **🧪 Train personal classifiers.** Use Rhythm Lab to label, train, benchmark, and promote classifiers, then filter the library by their scores in the CLASSIFIER tab.
 - **🎚️ Build a set.** Keep a manual current set, export it as M3U or CSV, and remove a confirmed track from the catalog without touching its audio file.
@@ -143,7 +143,6 @@ The installer downloads the ML assets below into `models/` and verifies their SH
 | Model | Local assets | Approximate size |
 | --- | --- | ---: |
 | 🧠 [MAEST Infer](https://github.com/openmirlab/maest-infer) | Checkpoint | 0.34 GB |
-| 🧠 [MERT-v1-95M](https://huggingface.co/m-a-p/MERT-v1-95M) | Weights and configuration | 0.38 GB |
 | 🧠 [MERT-v2-FullSong](https://huggingface.co/m-a-p/MERT-v2-FullSong) | Weights and configuration | 2.53 GB |
 | 🧠 [MuQ-large-msd-iter](https://huggingface.co/OpenMuQ/MuQ-large-msd-iter) | Weights and configuration | 1.33 GB |
 | 🧠 [MuQ-MuLan-large](https://huggingface.co/OpenMuQ/MuQ-MuLan-large) | Audio/text assets, including XLM-RoBERTa | 3.78 GB |
@@ -221,7 +220,7 @@ Filters, likes, analysis coverage, text search, and seed search find tracks that
 
 ### 2. 🎯 Start from a reference track
 
-Pick up to five tracks as seeds. The SIMILARITY tab ranks candidates in one model space per search: SONARA measured Core features with a manual mixer of five sliders and nine directional modifiers, or a MAEST, MERT, MERT-v2, MuQ, MuQ-MuLan, or CLAP embedding space, where MERT-v2 searches one selectable stored layer of its 24. The LAB tab takes the first seed and shows a short candidate list per available model. Scores are model-specific, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
+Pick up to five tracks as seeds. The SIMILARITY tab ranks candidates in one model space per search: SONARA measured Core features with a manual mixer of five sliders and nine directional modifiers, or a MAEST, MERT-v2, MuQ, MuQ-MuLan, or CLAP embedding space, where MERT-v2 searches one selectable stored layer of its 24. The LAB tab takes the first seed and shows a short candidate list per available model. Scores are model-specific, and a saved listening verdict reappears when the same candidate returns for that reference and model. See [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md).
 
 ### 3. 🌊 Curate the current set
 
@@ -277,7 +276,7 @@ The app keeps evidence sources separate and never folds them into one score scal
 - **File tags** come from Mutagen during scan and Refresh Tags.
 - **SONARA** stores measured Core features (BPM, key, duration, energy, rhythm, dynamics, timbre, tonal signals), a timeline (beats, downbeats, chord events, segments, and energy, loudness, and tempo curves), a 48-dimensional embedding, and a versioned acoustic fingerprint. A SONARA write needs all four outputs and stores them together. Startup reports an error if an older library lacks the `sonara_timeline` table. It never adds the table automatically. The first SONARA run claims the library's BPM analysis range. Later runs reuse that range. A different range requires a SONARA analysis reset. The library rejects an upper bound below twice the lower one. Presets are Rekordbox 70 to 180, VirtualDJ 80 to 240, and Mixed In Key 79 to 192.
 - **MAEST** stores genre labels and an audio embedding.
-- **MERT**, **MERT-v2**, **MuQ**, **MuQ-MuLan**, and **CLAP** each store their own audio embedding in a separate seed-search space. MERT-v2 stores all 24 transformer layers instead of one vector. CLAP and MuQ-MuLan also serve text-to-track search. MuQ-MuLan does not reuse MuQ embeddings.
+- **MERT-v2**, **MuQ**, **MuQ-MuLan**, and **CLAP** each store their own audio embedding in a separate seed-search space. MERT-v2 stores all 24 transformer layers instead of one vector. CLAP and MuQ-MuLan also serve text-to-track search. MuQ-MuLan does not reuse MuQ embeddings.
 - **Rhythm Lab classifiers** score from stored inputs only and save results under a classifier key (see workflow 5).
 
 The ML families share one in-process decode per track: TorchCodec `0.16` over the shared FFmpeg `8.1.1` libraries, with a per-family PyAV `17.1.0` retry that discards malformed packets and keeps the valid audio around them. SONARA decodes natively and uses the same PyAV retry. The retry recovers a readable file. It does not repair a damaged one. Decoding never launches `ffmpeg.exe`, and the runtime check reads the release version from `libavutil` without starting a process. Only the Audio Dedup spectral check runs `ffmpeg` from `PATH`. The CPU or CUDA device applies to inference only. See [Analysis families](docs/dj-track-similarity/reference/analysis-families.md).
@@ -290,7 +289,7 @@ The SONARA fingerprint feeds Audio Dedup and the Rhythm Lab `content_key`. No se
 
 ## 🔗 Upstream models and licenses
 
-Optional analysis uses upstream projects and downloaded checkpoints: [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights. Upstream code and weights carry different licenses, so check their terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md).
+Optional analysis uses upstream projects and downloaded checkpoints: [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT-v2](https://huggingface.co/m-a-p/MERT-v2-FullSong), [MuQ and MuQ-MuLan](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights. Upstream code and weights carry different licenses, so check their terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md).
 
 ---
 

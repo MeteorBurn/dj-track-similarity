@@ -227,7 +227,7 @@ def register_analysis_routes(
                 )
                 if "sonara" in ml_config.models:
                     raise ValueError(
-                        "The ML pipeline stage accepts only MAEST, MERT, MuQ, "
+                        "The ML pipeline stage accepts only MAEST, MERT-v2, MuQ, "
                         "MuQ-MuLan, and CLAP"
                     )
                 ml_settings = {
@@ -367,7 +367,6 @@ def _outputs_for_family(
         # only Core would leave the rest looking current.
         "sonara": ("core", "timeline", "embedding", "fingerprint"),
         "maest": ("analysis", "embedding"),
-        "mert": ("embedding",),
         "mert_v2": ("embedding",),
         "muq": ("embedding",),
         "mulan": ("embedding",),

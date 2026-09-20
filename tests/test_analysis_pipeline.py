@@ -84,7 +84,7 @@ def test_pipeline_forwards_staged_ml_configuration_to_child_job(tmp_path) -> Non
         stage="ml",
         limit=None,
         ml={
-            "models": ["mert"],
+            "models": ["muq"],
             "device": "auto",
             "top_k": 3,
             "track_batch_size": 8,
@@ -99,7 +99,7 @@ def test_pipeline_forwards_staged_ml_configuration_to_child_job(tmp_path) -> Non
         (
             "child-1",
             {
-                "models": ["mert"],
+                "models": ["muq"],
                 "limit": None,
                 "device": "auto",
                 "top_k": 3,
@@ -165,7 +165,7 @@ def test_parent_cancel_propagates_to_current_child() -> None:
     parent_id = manager.create_job(
         stage="ml",
         limit=None,
-        ml={"models": ["mert"]},
+        ml={"models": ["muq"]},
     )
     holder.update(manager=manager, parent_id=parent_id)
 

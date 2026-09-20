@@ -5606,6 +5606,12 @@ button.dedup-play-button {
   font-variant-numeric: tabular-nums;
 }
 
+/* The rows above and below are plain text on the column's left edge, while this
+   one carries a tint; its border and padding would otherwise indent the value by
+   eight pixels and break the edge all three share. The negative inline margin
+   takes exactly that box back, so the text lines up and the tint still wraps it.
+   Vertical spacing is untouched: the grid's own 5px gap already sits equally
+   above and below. */
 .dedup-spectral {
   align-items: center;
   border: 1px solid transparent;
@@ -5614,6 +5620,7 @@ button.dedup-play-button {
   font-size: 11px;
   font-weight: 600;
   gap: 4px;
+  margin-inline-start: -8px;
   padding: 2px 7px;
   width: fit-content;
 }

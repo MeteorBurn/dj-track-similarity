@@ -261,8 +261,13 @@
   box-sizing: border-box;
 }
 
+/* A control surface, not a document: the browser's I-beam over every heading,
+   label and track row offers text entry where there is none. Text fields keep
+   their own cursor from the UA stylesheet; ranges meant to be copied ask for
+   it back explicitly. */
 body {
   background: var(--app-bg);
+  cursor: default;
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
@@ -5417,6 +5422,7 @@ button.dedup-play-button {
 
 .dedup-copy-path {
   color: var(--text-muted);
+  cursor: text;
   font-size: 10px;
   line-height: 1.35;
   margin: 0;

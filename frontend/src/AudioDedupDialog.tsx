@@ -19,7 +19,7 @@ import type {
 } from "./api";
 import { AudioDedupGroupCard } from "./AudioDedupReview";
 import { ConfirmationDialog } from "./dialogs";
-import { audioDedupModeDescription, helpText } from "./helpText";
+import { audioDedupModeDescription, audioDedupModeLabel, helpText } from "./helpText";
 import {
   confidenceLabel,
   copiesWord,
@@ -247,8 +247,12 @@ export function AudioDedupDialog({
                   disabled={jobRunning}
                   onChange={(event) => setSearchMode(event.target.value as AudioDedupSearchMode)}
                 >
-                  <option value="fingerprint_scan">Fingerprints</option>
-                  <option value="fingerprint_lsh">Fingerprints + LSH</option>
+                  <option value="fingerprint_scan">
+                    {audioDedupModeLabel.fingerprint_scan}
+                  </option>
+                  <option value="fingerprint_lsh">
+                    {audioDedupModeLabel.fingerprint_lsh}
+                  </option>
                 </select>
               </label>
               <label
@@ -336,7 +340,9 @@ export function AudioDedupDialog({
                   ) : null}
                   {dedup.reports.map((report) => (
                     <option key={report.report_id} value={report.report_id}>
-                      {report.generated_at.replace("T", " ")} · {report.group_count}{" "}
+                      {report.generated_at.replace("T", " ")} ·{" "}
+                      {report.search_mode ? audioDedupModeLabel[report.search_mode] : "режим неизвестен"} ·{" "}
+                      {report.group_count}{" "}
                       {pluralRu(report.group_count, "группа", "группы", "групп")}
                     </option>
                   ))}

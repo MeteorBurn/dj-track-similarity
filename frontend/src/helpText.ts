@@ -36,6 +36,12 @@ export const helpText = {
   outputDir: "Папка экспорта. Формат: путь Windows или POSIX, например D:/Exports. Если папки нет, она будет создана.",
 } as const;
 
+/** Short mode names: for the picker, and to say which mode produced a report. */
+export const audioDedupModeLabel = {
+  fingerprint_scan: "Fingerprints",
+  fingerprint_lsh: "Fingerprints + LSH"
+} as const;
+
 /**
  * What each duplicate search mode does, written for the screen rather than a
  * tooltip: this is the one decision taken before a run over the whole library,
@@ -45,5 +51,5 @@ export const audioDedupModeDescription = {
   fingerprint_scan:
     "Сравнивает звуковые отпечатки треков и ищет копии среди записей близкой длительности. Находит одну и ту же запись, даже если теги и имена файлов разные. Копию с другим обрезом или длинной паузой в начале пропустит. Самый долгий режим.",
   fingerprint_lsh:
-    "Те же отпечатки, но пары для сверки подбираются быстрым предварительным отбором, а не по длительности, — поэтому находятся и копии с другим обрезом или паузами. Работает заметно быстрее."
+    "Те же отпечатки, но пары для сверки подбираются быстрым предварительным отбором, а не по длительности: находит и копии с другим обрезом или паузами, а прогон занимает минуты вместо часа. Отбор неполный — примерно треть копий, которые видит первый режим, сюда не попадает. Быстрая прикидка, а не замена полному поиску."
 } as const;

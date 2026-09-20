@@ -1525,6 +1525,11 @@ def _track_page_item(
             if track.sonara_features is not None
             else None
         ),
+        "sonara_key_camelot": (
+            track.sonara_features.detected_key_camelot
+            if track.sonara_features is not None
+            else None
+        ),
         "tag_key": tags.tag_key if tags is not None else None,
         "genres": [genre.genre_name for genre in maest_genres],
         "maest_genre_scores": {
@@ -1788,6 +1793,11 @@ def _prediction_page_item(
         ),
         "sonara_bpm": (
             track.sonara_features.detected_bpm
+            if track is not None and track.sonara_features is not None
+            else None
+        ),
+        "sonara_key_camelot": (
+            track.sonara_features.detected_key_camelot
             if track is not None and track.sonara_features is not None
             else None
         ),

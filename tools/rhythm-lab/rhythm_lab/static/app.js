@@ -2063,6 +2063,19 @@ function formatMaestGenreLabel(label) {
   return String(label).replace(/_/g, " ").split("---").pop()?.trim() || "";
 }
 
+function gridBadge(track) {
+  const bpm = nullableNumber(track.sonara_bpm);
+  const camelot = String(track.sonara_key_camelot || "").trim();
+  if (bpm === null && !camelot) return "";
+  const tempo = bpm === null ? "" : bpm.toFixed(1);
+  const described = [tempo ? `${tempo} BPM` : "", camelot ? `Camelot ${camelot}` : ""].filter(Boolean).join(", ");
+  const segments = [
+    tempo ? `<span class="grid-bpm">${tempo}</span>` : "",
+    camelot ? `<span class="grid-key">${escapeHtml(camelot)}</span>` : "",
+  ].join("");
+  return `<span class="grid-badge" role="img" aria-label="SONARA ${escapeHtml(described)}" title="SONARA: ${escapeHtml(described)}">${segments}</span>`;
+}
+
 function genreBadges(track) {
   const scores = track.maest_genre_scores || {};
   return (track.genres || [])
@@ -2084,7 +2097,7 @@ function trackMarkup(track) {
   return `<span class="row-index">${track.rowNumber}</span>
     <div class="row-play"><button type="button" class="track-play-button" data-action="play" aria-label="Play ${escapeHtml(displayTrackTitle(track))}" title="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m8 5 11 7-11 7z"/></svg></button></div>
     <div class="track-details"><strong class="track-heading"><span class="track-title-main">${escapeHtml(displayTrackTitle(track))}</span>${activeView === "library" ? featuresIndicator(track) : ""}</strong><span class="track-artist">${escapeHtml(track.artist || "Unknown Artist")}</span>${activeView === "library" || activeView === "liked" ? `<span class="meta track-path" title="${escapeHtml(track.file_path)}">${escapeHtml(track.file_path)}</span>` : ""}${badgeRow(track)}</div>
-    <div class="track-genres">${genreBadges(track)}${syncopatedBadge(track)}</div>
+    <div class="track-meta">${gridBadge(track)}<span class="track-meta-evidence">${genreBadges(track)}${syncopatedBadge(track)}</span></div>
     ${candidates ? `<div class="track-score" title="${validScore ? escapeHtml(formatProbability(score)) : "Score unavailable"}"><span>${validScore ? Number(score).toFixed(6) : "—"}</span><span class="score-track"><i style="width:${validScore ? Math.max(0, Math.min(1, Number(score))) * 100 : 0}%"></i></span></div><div class="track-prediction ${labelRoleClass(label, activeProfile.labels.indexOf(label))}">${track.predicted_label ? escapeHtml(displayLabel(track.predicted_label)) : "—"}</div>` : activeView === "collection" ? "" : `<div class="track-state">${renderTrackState(track)}</div>`}
     <div class="track-actions">${renderLikeButton(track)}<div class="label-actions ${isMulticlassProfile() ? "multiclass-label-actions" : ""}">${hasContentKey(track) ? renderLabelButtons(track) : noFingerprintHint()}</div></div>`;
 }
@@ -2112,7 +2125,7 @@ function refreshVisibleTrackStates() {
 
 function renderTrackHeader() {
   const candidates = activeView === "candidates";
-  document.getElementById("trackTableHeader").innerHTML = `<span class="row-index">#</span><span class="row-play"></span><span class="track-details">Track</span><span class="track-genres">${candidates ? "" : "Genres"}</span>${candidates ? `<span class="track-score">${isMulticlassProfile() ? "Confidence" : `P(${escapeHtml(activeProfile ? labelByKey(activeProfile.positive_label).name : "positive")})`}</span><span class="track-prediction">Predicted</span>` : activeView === "collection" ? "" : `<span class="track-state">${activeView === "liked" ? "Trained" : "Status"}</span>`}<span class="track-actions">${candidates ? "Your label" : "Label"}</span>`;
+  document.getElementById("trackTableHeader").innerHTML = `<span class="row-index">#</span><span class="row-play"></span><span class="track-details">Track</span><span class="track-meta">Details</span>${candidates ? `<span class="track-score">${isMulticlassProfile() ? "Confidence" : `P(${escapeHtml(activeProfile ? labelByKey(activeProfile.positive_label).name : "positive")})`}</span><span class="track-prediction">Predicted</span>` : activeView === "collection" ? "" : `<span class="track-state">${activeView === "liked" ? "Trained" : "Status"}</span>`}<span class="track-actions">${candidates ? "Your label" : "Label"}</span>`;
   const hints = document.getElementById("keyboardHints");
   if (hints) {
     hints.hidden = !candidates;

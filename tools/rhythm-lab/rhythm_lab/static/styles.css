@@ -41,7 +41,8 @@
   --row-gap: .85rem;
   --row-index-digits: 1;
   --row-index-width: calc(var(--row-index-digits) * .65rem);
-  --row-columns: var(--row-index-width) 3.15rem minmax(9rem, 1fr) minmax(max-content, 28rem) 6.4rem minmax(22rem, 26.5rem);
+  --row-meta-track: minmax(7.5rem, 31rem);
+  --row-columns: var(--row-index-width) 3.15rem minmax(9rem, 1fr) var(--row-meta-track) 6.4rem minmax(22rem, 26.5rem);
 }
 
 * { box-sizing: border-box; }
@@ -146,9 +147,16 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .track-path { font-size: .71rem; }
 .features-indicator { width: .65rem; height: .65rem; min-width: .65rem; overflow: hidden; font-size: 0; border-radius: 50%; background: currentColor; }
 .features-indicator.missing { color: var(--accent); }
-.track-genres { display: flex; flex-wrap: nowrap; align-items: center; gap: .25rem; min-width: max-content; }
-.maest-genre-pill { display: inline-flex; flex-shrink: 0; align-items: center; gap: .2rem; padding: .25rem .35rem; border: 1px solid var(--genre-border); border-radius: var(--radius); background: var(--genre-bg); color: var(--text); font-size: .75rem; white-space: nowrap; }
+.track-meta { display: flex; flex-wrap: nowrap; align-items: center; justify-content: center; gap: .4rem; min-width: 0; text-align: center; }
+.track-meta-evidence { display: flex; flex-wrap: nowrap; align-items: center; gap: .25rem; min-width: 0; overflow: hidden; }
+.grid-badge { display: inline-flex; align-items: stretch; flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-raised); font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.grid-bpm { display: flex; align-items: baseline; justify-content: flex-end; gap: .22rem; width: 4.75rem; padding: .25rem .38rem; font-weight: 650; }
+.grid-bpm::after { content: "BPM"; color: var(--text-soft); font-size: .62rem; font-weight: 500; letter-spacing: .05em; }
+.grid-key { display: flex; align-items: center; justify-content: center; width: 2.4rem; padding: .25rem .2rem; border-left: 1px solid var(--border); color: var(--accent); font-weight: 650; }
+.grid-key:only-child { border-left: 0; }
+.maest-genre-pill { display: inline-flex; min-width: 0; align-items: center; gap: .2rem; padding: .25rem .35rem; border: 1px solid var(--genre-border); border-radius: var(--radius); background: var(--genre-bg); color: var(--text); font-size: .75rem; white-space: nowrap; }
 .maest-genre-pill b { flex-shrink: 0; }
+.maest-genre-pill .genre-name { overflow: hidden; text-overflow: ellipsis; }
 .track-state { display: flex; flex-direction: column; gap: .2rem; font-size: .78rem; }
 .track-state .meta { padding-left: 1.25rem; font-size: .71rem; }
 .track-state-primary { display: flex; align-items: center; gap: .45rem; }
@@ -179,7 +187,7 @@ svg { display: inline-block; flex: 0 0 auto; width: 1.35rem; height: 1.35rem; fi
 .keyboard-hints:empty { display: none; }
 .keyboard-hints kbd { color: var(--accent); font: inherit; font-weight: 600; margin-right: .3rem; }
 
-body[data-view="candidates"] { --row-columns: var(--row-index-width) 3.15rem minmax(7rem, 1fr) minmax(max-content, 28rem) 10.5rem 8rem minmax(20rem, 26rem); }
+body[data-view="candidates"] { --row-columns: var(--row-index-width) 3.15rem minmax(7rem, 1fr) var(--row-meta-track) 10.5rem 8rem minmax(20rem, 26rem); }
 body[data-view="candidates"] .filter-toolbar { flex-wrap: wrap; padding-top: .25rem; }
 body[data-view="candidates"] .common-filters { flex-basis: calc(100% - 3.3rem); grid-template-columns: minmax(12rem, 2.55fr) minmax(7rem, 1fr) minmax(7rem, 1fr) minmax(9rem, 1.4fr); }
 body[data-view="candidates"] #candidateFilters { order: 3; width: 100%; }
@@ -196,7 +204,7 @@ body[data-view="candidates"] .track, body[data-view="collection"] .track { min-h
 body[data-view="candidates"] .pager { flex-wrap: wrap; }
 body[data-view="candidates"] .keyboard-hints { order: -1; }
 body[data-view="candidates"] .page-controls { flex: 0 1 auto; margin-left: auto; }
-body[data-view="collection"] { --row-columns: var(--row-index-width) 3.8rem minmax(9rem, 1fr) minmax(max-content, 28rem) minmax(24rem, 30rem); }
+body[data-view="collection"] { --row-columns: var(--row-index-width) 3.8rem minmax(9rem, 1fr) var(--row-meta-track) minmax(24rem, 30rem); }
 body[data-view="collection"] .common-filters, body[data-view="liked"] .common-filters { grid-template-columns: minmax(10rem, 2.7fr) minmax(6rem, 1fr) minmax(6rem, 1fr) minmax(8rem, 2.15fr); }
 body[data-view="liked"] .track-like-button.active { background: transparent; border-color: transparent; box-shadow: none; }
 body[data-view="liked"] .track-like-button.active svg { width: 1.6rem; height: 1.6rem; }
@@ -573,7 +581,7 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
   .binary-label-group { padding-left: 1.8rem; }
   .binary-label-group .paired-fields { gap: .8rem; }
   .dialog-footer { padding: .75rem 1.35rem; }
-  body[data-view="candidates"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) minmax(max-content, 28rem) 7rem 6rem; }
+  body[data-view="candidates"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) var(--row-meta-track) 7rem 6rem; }
   body[data-view="candidates"] .track-table-header,
   body[data-view="candidates"] .track { min-width: 0; }
   body[data-view="candidates"] .track-actions { grid-column: 3 / -1; padding-bottom: .6rem; }
@@ -581,8 +589,8 @@ body[data-view="settings"] .page-heading { padding-top: 1.6rem; padding-bottom: 
 }
 
 @media (max-width: 1200px) {
-  :root { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) minmax(max-content, 28rem) 6.4rem; }
-  body[data-view="collection"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) minmax(max-content, 28rem); }
+  :root { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) var(--row-meta-track) 6.4rem; }
+  body[data-view="collection"] { --row-columns: var(--row-index-width) 2.8rem minmax(0, 1fr) var(--row-meta-track); }
   .track-table-header, .track { min-width: 0; }
   .track-actions { grid-column: 3 / -1; padding-bottom: .6rem; }
   .track-table-header .track-actions { display: none; }

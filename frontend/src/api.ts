@@ -652,6 +652,7 @@ export type AudioDedupReportSummary = {
   safe_candidate_count: number;
   review_candidate_count: number;
   fake_bitrate_candidate_count: number;
+  fingerprint_min_similarity: number | null;
   database_path: string | null;
   modified_at: number;
   has_xlsx: boolean;

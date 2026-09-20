@@ -427,18 +427,10 @@ export function AudioDedupDialog({
                 <span>Отпечаток ≥</span>
                 <input
                   name="dedup-min-fingerprint"
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  placeholder="0.45"
-                  value={draftFilters.minFingerprint ?? ""}
-                  onChange={(event) =>
-                    updateFilters({
-                      ...draftFilters,
-                      minFingerprint: event.target.value === "" ? null : Number(event.target.value)
-                    })
-                  }
+                  title={helpText.audioDedupFingerprintFloor}
+                  value={dedup.fingerprintFloor == null ? "—" : dedup.fingerprintFloor.toFixed(2)}
+                  readOnly
+                  disabled
                 />
               </label>
               <label className="dedup-control dedup-control-grow">

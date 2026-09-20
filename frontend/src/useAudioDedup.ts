@@ -25,13 +25,11 @@ const groupPageSize = 25;
 
 export type AudioDedupFilters = {
   confidence: string[];
-  minFingerprint: number | null;
   pathContains: string;
 };
 
 export const emptyAudioDedupFilters: AudioDedupFilters = {
   confidence: [],
-  minFingerprint: null,
   pathContains: ""
 };
 
@@ -143,6 +141,19 @@ export function useAudioDedup({
     return () => window.clearInterval(timer);
   }, [job, open, refreshReports, selectReportId]);
 
+  /**
+   * The fingerprint boundary the review filters by.
+   *
+   * Each search mode has its own: the SONARA scan clusters above 0.30, the
+   * candidate modes review above 0.45. The report carries the one its run used,
+   * so the review reads it off the report instead of asking for a number that
+   * only means something next to the mode that produced it.
+   */
+  const fingerprintFloor = useMemo(
+    () => reports.find((report) => report.report_id === reportId)?.fingerprint_min_similarity ?? null,
+    [reportId, reports]
+  );
+
   const loadGroups = useCallback(
     async (targetReportId: string, targetOffset: number, targetFilters: AudioDedupFilters) => {
       const token = groupRequestRef.current + 1;
@@ -153,7 +164,7 @@ export function useAudioDedup({
           offset: targetOffset,
           limit: groupPageSize,
           confidence: targetFilters.confidence,
-          min_fingerprint: targetFilters.minFingerprint,
+          min_fingerprint: fingerprintFloor,
           path_contains: targetFilters.pathContains
         });
         if (groupRequestRef.current !== token) return;
@@ -170,7 +181,7 @@ export function useAudioDedup({
         if (groupRequestRef.current === token) setLoadingGroups(false);
       }
     },
-    [refreshReports]
+    [fingerprintFloor, refreshReports]
   );
 
   useEffect(() => {
@@ -289,6 +300,7 @@ export function useAudioDedup({
     offset,
     pageSize: groupPageSize,
     filters,
+    fingerprintFloor,
     selection,
     loadingGroups,
     busy,

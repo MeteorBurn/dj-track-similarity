@@ -42,6 +42,7 @@ class AudioDedupReportSummary:
     safe_candidate_count: int
     review_candidate_count: int
     fake_bitrate_candidate_count: int
+    fingerprint_min_similarity: float | None
     database_path: str | None
     modified_at: float
     has_xlsx: bool
@@ -237,6 +238,11 @@ def _summary(json_path: Path, payload: dict) -> AudioDedupReportSummary:
         safe_candidate_count=_int(statistics.get("safe_candidate_count")),
         review_candidate_count=_int(statistics.get("review_candidate_count")),
         fake_bitrate_candidate_count=_int(statistics.get("fake_bitrate_candidate_count")),
+        # The run's own fingerprint boundary, which the search mode decides. The
+        # review filters by it instead of asking the reviewer for a number.
+        fingerprint_min_similarity=_float_or_none(
+            _mapping(payload.get("fingerprint_retrieval")).get("fingerprint_review_min_similarity")
+        ),
         database_path=_text_or_none(payload.get("database_path")),
         modified_at=json_path.stat().st_mtime,
         has_xlsx=json_path.with_suffix(".xlsx").is_file(),

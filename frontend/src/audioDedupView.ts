@@ -234,6 +234,9 @@ export function translateReason(reason: string) {
 export function groupFingerprintLine(group: AudioDedupGroup): string | null {
   const fingerprint = group.fingerprint_similarity;
   if (fingerprint === null) return null;
+  // A clamped score reaches 1 only on an identical fingerprint, which is the
+  // one verdict the tool can state outright instead of hedging.
+  if (fingerprint >= 1) return `Отпечатки совпали полностью (${formatSimilarity(fingerprint)}).`;
   return fingerprint >= 0.9
     ? `Отпечатки совпали почти полностью (${formatSimilarity(fingerprint)}).`
     : `Отпечатки совпали лишь частично (${formatSimilarity(fingerprint)})`
@@ -430,7 +433,11 @@ export function formatSeconds(seconds: number | null) {
 
 export function formatSimilarity(score: number | null) {
   if (score === null || !Number.isFinite(score)) return "—";
-  return score.toFixed(3);
+  const rounded = score.toFixed(3);
+  // 1.000 has to mean 1: rounding 0.9999 up to it hides the one difference that
+  // separates an identical fingerprint from a very close one.
+  if (rounded === "1.000" && score < 1) return (Math.floor(score * 1000) / 1000).toFixed(3);
+  return rounded;
 }
 
 export function formatCutoff(hz: number | null) {

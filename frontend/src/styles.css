@@ -5153,21 +5153,22 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-.dedup-toggle:hover {
+.dedup-toggle:hover:not(:disabled) {
   border-color: var(--accent-border-hover);
 }
 
-.dedup-toggle input[type="checkbox"] {
-  accent-color: var(--accent);
+.dedup-toggle-checkbox {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  display: inline-flex;
+  height: 15px;
+  justify-content: center;
+  width: 15px;
 }
 
-.dedup-toggle.disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-}
-
-.dedup-toggle.disabled:hover {
-  border-color: var(--border-strong);
+.dedup-toggle.active .dedup-toggle-checkbox {
+  border-color: var(--accent-border);
 }
 
 /* The selected mode explained in full under the row that selects it: the

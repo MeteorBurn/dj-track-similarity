@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   CopyX,
   Download,
   FileSpreadsheet,
@@ -8,6 +9,7 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  WavesArrowDown,
   X
 } from "lucide-react";
 import { api } from "./api";
@@ -255,19 +257,22 @@ export function AudioDedupDialog({
                   </option>
                 </select>
               </label>
-              <label
-                className={`dedup-toggle ${jobRunning ? "disabled" : ""}`}
+              <button
+                className={`dedup-toggle ${detectFakeBitrate ? "active" : ""}`}
+                name="dedup-detect-fake-bitrate"
+                role="switch"
+                aria-checked={detectFakeBitrate}
                 title={helpText.audioDedupDetectFakeBitrate}
+                disabled={jobRunning}
+                onClick={() => setDetectFakeBitrate(!detectFakeBitrate)}
+                type="button"
               >
-                <input
-                  name="dedup-detect-fake-bitrate"
-                  type="checkbox"
-                  checked={detectFakeBitrate}
-                  disabled={jobRunning}
-                  onChange={(event) => setDetectFakeBitrate(event.target.checked)}
-                />
-                <span>Определение поддельного битрейта</span>
-              </label>
+                <span className="dedup-toggle-checkbox" aria-hidden="true">
+                  {detectFakeBitrate ? <Check size={11} strokeWidth={2.6} /> : null}
+                </span>
+                <WavesArrowDown size={15} />
+                Фейк-битрейт
+              </button>
               {jobRunning ? (
                 <button
                   className="dedup-secondary-button dedup-run-button"

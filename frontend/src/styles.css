@@ -5132,6 +5132,13 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   border-color: var(--border-strong);
 }
 
+/* Sits in the scan row beside the search button, at its baseline. */
+.dedup-scan-hint {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .dedup-primary-button,
 .dedup-secondary-button,
 .dedup-ghost-button,
@@ -5150,13 +5157,13 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 .dedup-primary-button {
   background: var(--accent-deep-bg);
   border: 1px solid var(--accent-border);
-  color: #ffffff;
+  color: var(--inverse-text);
 }
 
 .dedup-primary-button:hover:not(:disabled) {
   background: var(--accent-deep-hover);
   border-color: var(--accent-border);
-  color: #ffffff;
+  color: var(--inverse-text);
 }
 
 .dedup-secondary-button {

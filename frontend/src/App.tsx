@@ -1649,6 +1649,7 @@ export function App() {
       )}
       <AudioDedupDialog
         open={audioDedupOpen}
+        databaseIdentity={databasePath && databaseCatalogUuid ? JSON.stringify([databasePath, databaseCatalogUuid]) : null}
         playingTrackId={playingTrackId}
         onPreview={(file) => togglePreview({ track_id: file.track_id })}
         onClose={() => setAudioDedupOpen(false)}

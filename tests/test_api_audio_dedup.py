@@ -16,6 +16,7 @@ def _client(monkeypatch, db_path: Path, out_dir: Path) -> TestClient:
     config_module = load_audio_dedup_module("config")
     out_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(config_module, "DEFAULT_OUT_DIR", out_dir)
+    monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", db_path.parent / "missing_rhythm_lab.sqlite")
     return TestClient(api_module.create_app(db_path))
 
 

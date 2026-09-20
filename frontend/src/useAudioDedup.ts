@@ -39,7 +39,13 @@ function isMissingReport(error: unknown) {
   return error instanceof ApiError && error.status === 404;
 }
 
-export function useAudioDedup({ open }: { open: boolean }) {
+export function useAudioDedup({
+  open,
+  databaseIdentity
+}: {
+  open: boolean;
+  databaseIdentity: string | null;
+}) {
   const [job, setJob] = useState<AudioDedupJobStatus | null>(null);
   const [reports, setReports] = useState<AudioDedupReportSummary[]>([]);
   const [reportId, setReportId] = useState<string | null>(null);
@@ -52,6 +58,7 @@ export function useAudioDedup({ open }: { open: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const groupRequestRef = useRef(0);
   const reportIdRef = useRef<string | null>(null);
+  const handledJobIdRef = useRef<string | null>(null);
 
   /**
    * Move the review to another report, or to none at all.
@@ -83,17 +90,41 @@ export function useAudioDedup({ open }: { open: boolean }) {
     }
   }, [selectReportId]);
 
+  /**
+   * Another library means other track ids, so nothing of the review survives a
+   * database switch: the marked copies, the page they were marked on and the
+   * report they came from all belong to the database that was open when they
+   * were read. Drop them before the effect below re-reads the listing, so it
+   * reconciles from a clean slate instead of keeping the previous report.
+   */
+  useEffect(() => {
+    selectReportId(null);
+  }, [databaseIdentity, selectReportId]);
+
   useEffect(() => {
     if (!open) return;
     void refreshReports();
     void api
       .latestAudioDedupJob()
-      .then((latest) => setJob(latest))
+      .then((latest) => {
+        setJob(latest);
+        // A scan that finished while the dialog was closed still owes the user
+        // the report it produced, and only a completed scan carries a report id.
+        // Doing it once per scan is what lets a deliberately chosen older report
+        // survive a close and a re-open: an unconditional jump would reselect on
+        // every open and take the reviewer's marked copies with it.
+        if (!latest?.report_id || handledJobIdRef.current === latest.job_id) return;
+        handledJobIdRef.current = latest.job_id;
+        selectReportId(latest.report_id);
+      })
       .catch(() => undefined);
-  }, [open, refreshReports]);
+  }, [databaseIdentity, open, refreshReports, selectReportId]);
 
   useEffect(() => {
-    if (!job || !activeJobStates.includes(job.state)) return;
+    // A closed dialog has nothing to show a job on, and completion here would
+    // move the report and reload the listing behind the user's back. Re-opening
+    // re-reads both the latest job and the reports.
+    if (!open || !job || !activeJobStates.includes(job.state)) return;
     const timer = window.setInterval(() => {
       void api
         .audioDedupJob(job.job_id)
@@ -101,13 +132,16 @@ export function useAudioDedup({ open }: { open: boolean }) {
           setJob(next);
           if (next.state === "completed") {
             void refreshReports();
-            if (next.report_id) selectReportId(next.report_id);
+            if (next.report_id) {
+              handledJobIdRef.current = next.job_id;
+              selectReportId(next.report_id);
+            }
           }
         })
         .catch((cause) => setError(errorText(cause)));
     }, jobPollIntervalMs);
     return () => window.clearInterval(timer);
-  }, [job, refreshReports, selectReportId]);
+  }, [job, open, refreshReports, selectReportId]);
 
   const loadGroups = useCallback(
     async (targetReportId: string, targetOffset: number, targetFilters: AudioDedupFilters) => {
@@ -239,7 +273,6 @@ export function useAudioDedup({ open }: { open: boolean }) {
     setError,
     startScan,
     cancelScan,
-    refreshReports,
     selectReport: selectReportId,
     applyFilters,
     setOffset,

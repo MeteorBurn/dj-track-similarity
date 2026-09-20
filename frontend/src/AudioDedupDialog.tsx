@@ -31,18 +31,20 @@ import { errorText } from "./errors";
 
 export function AudioDedupDialog({
   open,
+  databaseIdentity,
   playingTrackId,
   onPreview,
   onClose,
   onDeleted
 }: {
   open: boolean;
+  databaseIdentity: string | null;
   playingTrackId: number | null;
   onPreview: (file: AudioDedupFile) => void;
   onClose: () => void;
   onDeleted: (message: string) => void;
 }) {
-  const dedup = useAudioDedup({ open });
+  const dedup = useAudioDedup({ open, databaseIdentity });
   const [wholeLibrary, setWholeLibrary] = useState(true);
   const [root, setRoot] = useState("");
   const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint_scan");
@@ -53,6 +55,9 @@ export function AudioDedupDialog({
     useConfirmation();
 
   useEffect(() => {
+    // A closed dialog owns no key: without this the listener would answer
+    // Escape anywhere in the app by closing a dialog that is not on screen.
+    if (!open) return;
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       // Escape answers whatever is on top: the delete prompt first, the dialog after.
@@ -61,7 +66,7 @@ export function AudioDedupDialog({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cancelConfirmation, confirmation, onClose]);
+  }, [cancelConfirmation, confirmation, onClose, open]);
 
   const activeReport = useMemo(
     () => dedup.reports.find((report) => report.report_id === dedup.reportId) ?? null,
@@ -268,6 +273,12 @@ export function AudioDedupDialog({
                   Искать дубликаты
                 </button>
               )}
+              {wholeLibrary ? (
+                <span className="dedup-scan-hint">
+                  Отчёт по всей базе — только для просмотра: удалять можно из отчёта с корнем
+                  поиска
+                </span>
+              ) : null}
             </div>
             {dedup.scanRunning ? (
               <div className="dedup-progress">

@@ -347,16 +347,14 @@ export function selectionSummary(groups: AudioDedupGroup[], selection: DedupSele
   for (const group of groups) for (const file of group.files) byId.set(file.track_id, file);
   let files = 0;
   let bytes = 0;
-  let unknownSize = 0;
   for (const ids of Object.values(selection)) {
     for (const trackId of ids) {
       files += 1;
       const file = byId.get(trackId);
       if (file) bytes += file.size;
-      else unknownSize += 1;
     }
   }
-  return { files, bytes, unknownSize, groups: selectionGroupCount(selection) };
+  return { files, bytes, groups: selectionGroupCount(selection) };
 }
 
 export function buildDeleteRequest(

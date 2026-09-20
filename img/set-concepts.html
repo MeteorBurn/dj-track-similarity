@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DJ Track Similarity — Set Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#06090e; --panel:rgba(255,255,255,.025); --stroke:rgba(255,255,255,.065);
+    --muted:#96a5b4; --gold:#fbbf24; --violet:#a78bfa;
+    --acc:#34d399; --acc2:#6ee7b7; --accsoft:rgba(52,211,153,.07); --accglow:rgba(52,211,153,.55);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:#fff;font-family:'Inter',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;
+    min-height:100vh;background-image:
+      radial-gradient(1000px 520px at 4% -6%, rgba(16,185,129,.09), transparent 62%),
+      radial-gradient(1100px 560px at 52% -10%, rgba(139,92,246,.10), transparent 60%),
+      radial-gradient(900px 520px at 100% 30%, rgba(244,114,182,.07), transparent 62%);
+    background-attachment:fixed}
+  .wrap{max-width:1600px;margin:0 auto;padding:30px clamp(16px,3vw,52px) 60px}
+
+  /* ---- top bar ---- */
+  .top{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:20px}
+  .brand{display:flex;align-items:center;gap:11px;font-size:14.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase}
+  .brand .bars{display:flex;align-items:flex-end;gap:2.5px;height:17px}
+  .brand .bars i{width:2.5px;border-radius:2px;background:#22d3ee;display:block}
+  .brand .n1{color:#22d3ee}.brand .sep{color:#54646f;font-weight:500}.brand .n2{color:#c6d2de}
+  .status{display:flex;align-items:center;gap:9px;padding:9px 17px;border-radius:999px;border:1px solid rgba(255,255,255,.09);
+    background:rgba(255,255,255,.028);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:#a9b6c3;font-weight:500}
+  .status .dot{width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 9px rgba(251,191,36,.8)}
+
+  /* ---- tabs ---- */
+  .tabs{position:sticky;top:0;z-index:20;display:flex;gap:8px;flex-wrap:wrap;padding:12px 0 12px;margin-bottom:26px;
+    background:linear-gradient(180deg,rgba(6,9,14,.96) 70%,rgba(6,9,14,0));backdrop-filter:blur(8px)}
+  .tab{appearance:none;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:9px;padding:10px 16px;border-radius:10px;
+    border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.028);color:#9aa8b6;font-size:13.5px;font-weight:600;
+    letter-spacing:.01em;transition:.18s ease}
+  .tab i{width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.75;flex:none}
+  .tab .num{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#64748b}
+  .tab:hover{background:rgba(255,255,255,.06);color:#dbe4ec;transform:translateY(-1px)}
+  .tab[aria-selected="true"]{color:#fff;border-color:var(--tc,rgba(255,255,255,.3));background:color-mix(in srgb,var(--tc,#fff) 14%,transparent);
+    box-shadow:0 0 22px color-mix(in srgb,var(--tc,#fff) 18%,transparent)}
+  .tab[aria-selected="true"] i{opacity:1;color:var(--tc,#fff);box-shadow:0 0 10px var(--tc,#fff)}
+  .tab[aria-selected="true"] .num{color:#cbd5e1}
+
+  /* ---- scheme head ---- */
+  .view[hidden]{display:none}
+  .titleline{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+  h1{font-size:clamp(34px,4vw,54px);line-height:1;font-weight:800;letter-spacing:-.022em}
+  h1 .grad{-webkit-background-clip:text;background-clip:text;color:transparent}
+  .badge{padding:9px 16px;border-radius:9px;font-size:14.5px;font-weight:500;color:#c4b5fd;background:rgba(139,92,246,.14);border:1px solid rgba(139,92,246,.32)}
+  .sub{font-size:clamp(15px,1.2vw,18.5px);line-height:1.5;color:var(--muted);max-width:1380px;margin-bottom:26px}
+  .sub b{color:#e9eff5;font-weight:600}
+
+  /* ---- chart ---- */
+  .charthead{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:10px}
+  .seclabel{font-size:11.5px;letter-spacing:.19em;text-transform:uppercase;color:#5d6d7c;font-weight:600}
+  .legend{display:flex;gap:20px;align-items:center;font-size:12.5px;color:#8a99a8}
+  .legend span{display:flex;align-items:center;gap:8px}
+  .legend .sw{width:26px;height:2px;border-radius:2px;background:linear-gradient(90deg,#22d3ee,#a78bfa)}
+  .legend .sw.d{background:none;border-top:2px dashed #63748a}
+  .chart{margin-bottom:8px}
+  .chartnote{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#5d6d7c;letter-spacing:.05em;text-align:right;margin-bottom:14px}
+  .chart svg{width:100%;height:auto;display:block;overflow:visible}
+  .node{cursor:pointer;transition:.18s ease}
+  .node circle{transition:.18s ease}
+  .node:hover circle,.node.hot circle{r:16;filter:drop-shadow(0 0 10px currentColor)}
+  .guide{transition:.18s ease}
+  .guide.hot{stroke:rgba(255,255,255,.4)}
+  .dim{opacity:.32;transition:.18s ease}
+
+  /* ---- transitions strip ---- */
+  .ramp{display:flex;align-items:stretch;flex-wrap:wrap;border:1px solid rgba(255,255,255,.07);border-radius:11px;overflow:hidden;margin-bottom:24px;
+    background:linear-gradient(90deg,rgba(52,211,153,.06),rgba(139,92,246,.06) 55%,rgba(244,114,182,.07))}
+  .ramp .tag{display:flex;align-items:center;gap:9px;padding:13px 18px;font-size:11.5px;letter-spacing:.15em;text-transform:uppercase;
+    color:#d7c9a0;font-weight:600;border-right:1px solid rgba(255,255,255,.07);background:rgba(251,191,36,.07);white-space:nowrap}
+  .ramp .tag .dot{width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px rgba(251,191,36,.7)}
+  .ramp .steps{display:flex;flex:1;align-items:stretch;flex-wrap:wrap}
+  .ramp .step{flex:1;min-width:190px;display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 12px;font-size:13.5px;color:#93a3b2;text-align:center}
+  .ramp .step + .step{border-left:1px dashed rgba(255,255,255,.08)}
+  .ramp .step b{color:#e9eff5;font-weight:600}
+  .ramp .step.hot{flex:2.4;background:rgba(251,191,36,.09);border-left:1px solid rgba(251,191,36,.35);border-right:1px solid rgba(251,191,36,.35);color:#cdbf9c}
+  .ramp .step.hot b{color:#fde3a0}
+  .ramp .chip{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#0b1117;background:var(--gold);padding:4px 9px;border-radius:6px;white-space:nowrap}
+  .ramp .chip.cool{background:linear-gradient(90deg,#5eead4,#38bdf8)}
+
+  /* ---- cards ---- */
+  .cards{display:grid;gap:16px;align-items:stretch}
+  .card{background:linear-gradient(180deg,rgba(17,24,33,.85),rgba(10,15,21,.7));border:1px solid var(--stroke);border-radius:14px;
+    padding:0 0 18px;position:relative;overflow:hidden;transition:.2s ease;min-width:0}
+  .card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--acc);z-index:2}
+  .card::after{content:"";position:absolute;inset:0 0 auto 0;height:120px;background:linear-gradient(180deg,var(--accsoft),transparent);pointer-events:none}
+  .card > *{position:relative;z-index:1}
+  .card:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--acc) 40%,transparent);box-shadow:0 14px 40px rgba(0,0,0,.45),0 0 30px var(--accsoft)}
+  .card.peak{border-color:color-mix(in srgb,var(--acc) 35%,transparent);box-shadow:0 0 42px var(--accsoft)}
+  .cardhead{padding:18px 17px 0}
+  .kicker{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;color:var(--acc);margin-bottom:7px}
+  .cname{font-size:clamp(17px,1.4vw,21px);font-weight:700;letter-spacing:-.01em;margin-bottom:14px}
+  .block{margin:0 17px 11px;background:var(--panel);border:1px solid rgba(255,255,255,.05);border-radius:11px;padding:13px 14px}
+  .blabel{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px}
+  .blabel .l{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#8492a1;font-weight:600}
+  .blabel .l i{width:6px;height:6px;border-radius:2px;display:block}
+  .tagp{font-size:10.5px;font-weight:600;padding:4px 8px;border-radius:6px;white-space:nowrap}
+  .tag-prompt{color:#c4b5fd;background:rgba(139,92,246,.16);border:1px solid rgba(139,92,246,.3)}
+  .tag-mert{color:#67e8f9;background:rgba(34,211,238,.14);border:1px solid rgba(34,211,238,.28)}
+  .quote{display:flex;gap:8px;font-size:clamp(14px,1.1vw,16px);font-style:italic;color:#e3eaf1;line-height:1.35}
+  .quote .q{font-family:Georgia,serif;font-size:24px;font-style:normal;line-height:.9;color:var(--violet);opacity:.85}
+  .layers{display:flex;align-items:baseline;gap:10px;margin-bottom:11px}
+  .layers .num{font-size:clamp(24px,2.2vw,31px);font-weight:800;letter-spacing:-.02em;line-height:1;
+    background:linear-gradient(95deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .layers .of{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#7b8a99;line-height:1.25;font-weight:600}
+  .strip{display:flex;gap:2.5px;margin-bottom:10px}
+  .strip i{flex:1;height:8px;border-radius:2px;background:rgba(255,255,255,.07);display:block;transition:.2s ease}
+  .strip i.on{background:var(--acc);box-shadow:0 0 7px var(--accglow)}
+  .cap{font-size:13.5px;color:#b9c6d3}
+  .rows{display:flex;flex-direction:column;gap:8px}
+  .row{display:flex;align-items:baseline;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:#7f8e9d;font-weight:500}
+  .row .dots{flex:1;margin:0 8px;border-bottom:2px dotted rgba(255,255,255,.22);transform:translateY(-4px)}
+  .row .v{font-size:13px;letter-spacing:0;text-transform:none;color:#e6edf4;font-weight:600;white-space:nowrap}
+  .row .v.gold{color:var(--gold)}
+  .rolebox{margin:0 17px;padding:12px 14px;border-radius:11px;border:1px solid color-mix(in srgb,var(--acc) 30%,transparent);
+    background:color-mix(in srgb,var(--acc) 7%,transparent)}
+  .rolebox .rl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);font-weight:700;margin-bottom:7px}
+  .rolebox .rt{font-size:13.5px;color:#d8e2ec;line-height:1.4}
+
+  /* ---- engine (scheme 2) ---- */
+  .engine{background:linear-gradient(180deg,rgba(28,22,10,.75),rgba(12,12,14,.7));border:1px solid rgba(251,191,36,.28);border-radius:14px;padding:18px 17px;position:relative;overflow:hidden}
+  .engine .kicker{color:var(--gold)}
+  .estep{display:flex;gap:12px;padding:12px 13px;border-radius:11px;background:rgba(255,255,255,.028);border:1px solid rgba(255,255,255,.05);margin-bottom:9px}
+  .estep .n{flex:none;width:23px;height:23px;border-radius:50%;background:rgba(251,191,36,.16);border:1px solid rgba(251,191,36,.4);
+    color:var(--gold);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .estep h4{font-size:15px;font-weight:700;margin-bottom:4px}
+  .estep p{font-size:13px;line-height:1.42;color:#9dabb9}
+  .estep p em{color:#c9d5e1;font-style:italic}
+  .eresult{display:flex;gap:10px;align-items:baseline;padding:12px 13px;border-radius:11px;border:1px solid rgba(52,211,153,.25);background:rgba(52,211,153,.07);font-size:13px;color:#cfe0d9;line-height:1.42}
+  .eresult b{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#6ee7b7;font-weight:700}
+  .vibebar{display:flex;align-items:center;justify-content:center;gap:10px;padding:11px;border-radius:10px;margin-bottom:22px;
+    border:1px solid rgba(139,92,246,.28);background:linear-gradient(90deg,rgba(139,92,246,.10),rgba(34,211,238,.08));
+    font-size:13px;letter-spacing:.06em;color:#c8bde8;text-transform:uppercase;font-weight:600}
+  .vibebar em{font-style:italic;color:#e6dcff;text-transform:none;letter-spacing:0}
+  .meter{margin-top:2px}
+  .meter .mrow{display:flex;justify-content:space-between;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:#7f8e9d;margin-bottom:7px}
+  .meter .mrow b{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--gold);letter-spacing:0}
+  .mtrack{height:6px;border-radius:4px;background:rgba(255,255,255,.08);position:relative;margin-bottom:12px}
+  .mfill{position:absolute;inset:0 auto 0 0;border-radius:4px;background:linear-gradient(90deg,rgba(251,191,36,.35),var(--gold))}
+  .mfill::after{content:"";position:absolute;right:-5px;top:-3px;width:12px;height:12px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px rgba(251,191,36,.8)}
+
+  /* ---- overview ---- */
+  .ov{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  .ovcard{cursor:pointer;text-align:left;font-family:inherit;appearance:none;background:linear-gradient(180deg,rgba(17,24,33,.85),rgba(10,15,21,.7));
+    border:1px solid var(--stroke);border-radius:14px;padding:20px 20px 18px;position:relative;overflow:hidden;transition:.2s ease;color:#fff;
+    display:flex;flex-direction:column}
+  .ovcard::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--acc)}
+  .ovcard:hover{transform:translateY(-4px);border-color:color-mix(in srgb,var(--acc) 45%,transparent);box-shadow:0 16px 44px rgba(0,0,0,.5)}
+  .ovcard .no{font-family:'JetBrains Mono',monospace;font-size:11.5px;letter-spacing:.14em;color:var(--acc);margin-bottom:8px}
+  .ovcard h3{font-size:22px;font-weight:700;letter-spacing:-.01em;margin-bottom:6px;min-height:1.9em}
+  .ovcard .ovs{font-size:13.5px;color:#93a3b2;line-height:1.45;margin-bottom:14px;flex:1;min-height:6.4em}
+  .ovcard svg{width:100%;height:56px;display:block;margin-bottom:12px}
+  .ovmeta{display:flex;gap:14px;flex-wrap:wrap;margin-top:auto;font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:#7f8e9d}
+  .ovmeta b{font-family:'JetBrains Mono',monospace;color:#dbe4ec;letter-spacing:0;font-weight:500}
+  .ovhint{font-size:13.5px;color:#5f6e7d;margin-top:18px}
+
+  /* ---- footer ---- */
+  .foot{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-top:26px;padding-top:18px;border-top:1px solid rgba(255,255,255,.06)}
+  .keys{display:flex;gap:26px;flex-wrap:wrap;font-size:13.5px;color:#8b99a8}
+  .keys span{display:flex;align-items:center;gap:9px}
+  .keys i{width:8px;height:8px;border-radius:50%;display:block}
+  .keys b{color:#e6edf4;font-weight:700}
+  .note{font-size:13.5px;color:#5f6e7d;font-style:italic}
+  kbd{font-family:'JetBrains Mono',monospace;font-size:11px;padding:2px 6px;border-radius:5px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);color:#b9c6d3}
+  @media (max-width:820px){ .cards{grid-template-columns:1fr!important} .tabs{position:static} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <span class="bars"><i style="height:7px"></i><i style="height:14px"></i><i style="height:17px"></i><i style="height:10px"></i><i style="height:5px"></i></span>
+      <span class="n1">DJ Track Similarity</span><span class="sep">/</span><span class="n2">Set Concepts</span>
+    </div>
+    <div class="status"><span class="dot"></span>Concept · planned direction</div>
+  </div>
+
+  <div class="tabs" id="tabs" role="tablist"></div>
+  <div id="views"></div>
+
+  <div class="foot">
+    <div class="keys">
+      <span><i style="background:#8b5cf6"></i><b>Text prompt</b> what it should feel like</span>
+      <span><i style="background:#22d3ee"></i><b>Embedding</b> how it sounds</span>
+      <span><i style="background:#fbbf24"></i><b>SONARA</b> technical fit &amp; timing</span>
+      <span><kbd>←</kbd> <kbd>→</kbd> switch scheme</span>
+    </div>
+    <div class="note">Scores rank candidates — the final pick is made by ear.</div>
+  </div>
+</div>
+<script>
+/* ============================ data ============================ */
+const C = {green:'#34d399',green2:'#6ee7b7',cyan:'#22d3ee',cyan2:'#7dd3fc',violet:'#a78bfa',violet2:'#d8b4fe',
+           purple:'#8b5cf6',purple2:'#c4b5fd',pink:'#f472b6',pink2:'#fda4d0',blue:'#60a5fa',blue2:'#a5c9fd'};
+
+const SCHEMES = [
+{
+  n:1, key:'hypnotic-loop', tabName:'Hypnotic Loop', titleA:'Hypnotic ', titleB:'Loop', badge:null,
+  grad:'linear-gradient(95deg,#5eead4,#38bdf8 60%,#818cf8)',
+  sub:'The drama doesn’t come from pushing the tempo. <b>Small details, textural noise and modular arpeggios</b> slowly grow inside a steady, hypnotic groove.',
+  seclabel:'Dramaturgy · detail &amp; texture density', legendA:'detail density', legendB:'tempo ≈ flat, BPM',
+  tempoSpan:'124 → 125 BPM', shape:'Flat tempo, rising detail',
+  energy:[.15,.45,.86,.60], tempo:[124,124.5,125,123.6], tempoLabels:['124','124.5','125','↓'],
+  tempoNote:'tempo stays put — density does the work',
+  stages:[
+    {kicker:'Start', title:'Barebone Minimal', tag:'CLAP', prompt:'sub-bass focus, sparse textures',
+     layers:[1,6], cap:'Dry low end, crisp click', acc:C.green, acc2:C.green2,
+     rows:[['Tempo','124 BPM, fixed',1],['Groove','lazy swing ≥ 0.6'],['Spectrum','isolated low end']]},
+    {kicker:'Checkpoint', title:'Modular Texture', tag:'CLAP', prompt:'modular clicks, abstract texture',
+     layers:[7,12], cap:'Mid-level micro-patterns', acc:C.cyan, acc2:C.cyan2,
+     rows:[['Tempo','124.5 BPM',1],['Onsets','more percussive hits'],['Spectrum','mid-range resonances']]},
+    {kicker:'Peak', title:'Deep Enveloping Peak', tag:'MuQ-MuLan', prompt:'mesmerizing vibe, deep sub pressure',
+     layers:[13,18], cap:'Maximum vibe density', acc:C.purple, acc2:C.purple2, peak:true,
+     rows:[['Tempo','125 BPM',1],['Spectrum','dense sub-bass'],['Dynamics','compressed range']]},
+    {kicker:'Finish', title:'Organic Outro / Space', tag:'CLAP', prompt:'echo-laden pad, otherworldly drone',
+     layers:[19,24], cap:'Drift into reverb tails', acc:C.pink, acc2:C.pink2,
+     rows:[['Tempo','gradual slowdown',1],['Spectrum','kick fades out'],['Space','fully wet']]}
+  ],
+  ramp:{tag:'Sonara · continuity', steps:[
+    {t:'<b>124 → 124.5</b> · grid locked, swing kept'},
+    {t:'<b>124.5 → 125</b> · grid locked, density up'},
+    {t:'<b>125 → slowdown</b> · kick pulled out, tails carry over'}]}
+},
+{
+  n:3, key:'melancholic-plateau', tabName:'Melancholic Plateau', titleA:'Melancholic ', titleB:'Plateau', badge:'The Withdrawn Dynamic',
+  grad:'linear-gradient(95deg,#5eead4,#38bdf8 55%,#c4b5fd)',
+  sub:'Inspired by the deep, introverted <b>Romanian sound</b>. No peaks, no build-ups: the set holds a <b>long plateau</b> where energy drifts inside one emotional state — melancholy and reflection.',
+  seclabel:'Dramaturgy · energy drifts on a plateau', legendA:'energy', legendB:'tempo, BPM',
+  tempoSpan:'123.5 BPM · fixed', shape:'One emotional band, no peak',
+  energy:[.45,.70,.28,.80,.40], tempo:[123.5,123.5,123.5,123.5,123.5], tempoLabels:['','','','',''],
+  tempoNote:'123.5 BPM · stable across the plateau', band:'Emotional band · melancholy / reflection',
+  stages:[
+    {kicker:'1 · Start', title:'Withdrawn Minimal', tag:'MuQ-MuLan', prompt:'withdrawn minimalist',
+     layers:null, cap:'No layer constraint', acc:C.green, acc2:C.green2,
+     rows:[['Tempo','123.5 BPM',1],['State','plateau begins']]},
+    {kicker:'2 · Checkpoint', title:'Deepening', tag:'CLAP', prompt:'subdued organic warmth',
+     layers:[19,22], cap:'Closed-in, inward vibe', acc:C.cyan, acc2:C.cyan2,
+     rows:[['Tempo','123.5 BPM',1],['Spectral flatness','even']]},
+    {kicker:'3 · Dip', title:'Spatial Dip', tag:'CLAP', prompt:'otherworldly spacey drone',
+     layers:[23,24], cap:'Pure air', acc:'#38bdf8', acc2:'#93c5fd',
+     rows:[['Tempo','123.5 BPM',1],['Filter','low-pass, underwater']]},
+    {kicker:'4 · Checkpoint', title:'Hidden Drive', tag:'CLAP', prompt:'mesmerizing rolling low-end',
+     layers:[7,10], cap:'Micro-groove', acc:C.purple, acc2:C.purple2,
+     rows:[['Tempo','123.5 BPM',1],['Percussion','micro hits appear']]},
+    {kicker:'5 · Finish', title:'Quiet Resolution', tag:'MuQ-MuLan', prompt:'melancholic chord resolution',
+     layers:[21,24], cap:'Stillness', acc:C.pink, acc2:C.pink2,
+     rows:[['Tempo','123.5 BPM',1],['Rhythm','dissolves']]}
+  ],
+  ramp:{tag:'Sonara · plateau rule', steps:[
+    {t:'<b>No tempo move</b> · every transition stays at 123.5'},
+    {t:'<b>Energy drift only</b> · texture and filter carry the change'},
+    {t:'<b>No build-ups</b> · a candidate that lifts the floor is rejected'}]}
+},
+{
+  n:4, key:'progressive-acceleration', tabName:'Progressive Acceleration', titleA:'Progressive ', titleB:'Acceleration', badge:'The Linear Ramp',
+  grad:'linear-gradient(95deg,#5eead4,#38bdf8 55%,#818cf8)',
+  sub:'A straight climb from <b>118 to 130 BPM</b>. The set leaves a slow, viscous groove and arrives at <b>aggressive peak-time techno</b> — pressure rises continuously, with no dips and no release along the way.',
+  seclabel:'Dramaturgy · tempo and density rise together', legendA:'energy density', legendB:'tempo, BPM',
+  tempoSpan:'118 → 130 BPM', shape:'Linear climb, no release',
+  energy:[.22,.44,.70,.93], tempo:[118,122,126,130], tempoLabels:['118','122','126','130'],
+  tempoNote:'+12 BPM total · one direction only',
+  stages:[
+    {kicker:'1 · Start', title:'Viscous Groove', tag:'CLAP', prompt:'slow chunky deep house, heavy bass',
+     layers:[1,6], cap:'Clean, isolated low range', acc:C.green, acc2:C.green2,
+     rows:[['Tempo','118 BPM',1],['Dynamics','wide range'],['Transients','sparse'],['Bass','long notes']]},
+    {kicker:'2 · Checkpoint', title:'Percussive Build', tag:'CLAP', prompt:'hypnotic tech house, percussive',
+     layers:[7,12], cap:'Percussive textures enter', acc:C.cyan, acc2:C.cyan2,
+     rows:[['Tempo','122 BPM',1],['Grid','denser'],['Syncopation','index rising'],['Spectrum','mid resonances']]},
+    {kicker:'3 · Checkpoint', title:'Driving Tension', tag:'MuQ-MuLan', prompt:'driving minimal techno, forward momentum',
+     layers:[13,18], cap:'Vibe density grows', acc:C.purple, acc2:C.purple2,
+     rows:[['Tempo','126 BPM',1],['Kick','hard, straight'],['Onsets','high density'],['Top end','hats &amp; claps']]},
+    {kicker:'4 · Finish · Peak', title:'Peak Pressure', tag:'MuQ-MuLan', prompt:'raw energetic techno, peak time pressure',
+     layers:[19,24], cap:'Maximum spectral saturation', acc:C.pink, acc2:C.pink2, peak:true,
+     rows:[['Tempo','130 BPM',1],['Spectrum','compressed'],['Sub-bass','aggressive'],['Dynamics','flat, relentless']]}
+  ],
+  ramp:{tag:'Sonara · beat-grid sync', steps:[
+    {chip:'+4 BPM', cool:true, t:'<b>118 → 122</b> · pulled over 32–64 bars'},
+    {chip:'+4 BPM', cool:true, t:'<b>122 → 126</b> · pulled over 32–64 bars'},
+    {chip:'+4 BPM', cool:true, t:'<b>126 → 130</b> · pulled over 32–64 bars'}]}
+},
+{
+  n:5, key:'the-arch', tabName:'The Arch', titleA:'The ', titleB:'Arch', badge:'Classic Bell Curve',
+  grad:'linear-gradient(95deg,#5eead4,#f472b6 55%,#818cf8)',
+  sub:'The set is shaped like a bell. A slow warm-up out of <b>deep minimal house</b>, a bright <b>dancefloor climax</b> in the middle, then a long decay into a <b>spatial, beatless outro</b> on the last tracks.',
+  seclabel:'Dramaturgy · rise · peak · decay', legendA:'energy density', legendB:'tempo, BPM',
+  tempoSpan:'120 → 128 → 118 BPM', shape:'Rise, climax, long decay',
+  energy:[.30,.62,.97,.55,.20], tempo:[120,124,128,122,118], tempoLabels:['120','124','128','122','118'],
+  tempoNote:'', peakGlow:2, marker:{after:2, label:'⚠ DROP &amp; SWITCH'},
+  stages:[
+    {kicker:'1 · Warm-up', title:'Organic Opening', tag:'CLAP', prompt:'warm deep minimal, organic textures',
+     layers:[1,8], cap:'Soft textures, open space', acc:C.green, acc2:C.green2,
+     rows:[['Tempo','120 BPM',1],['Kick','soft attack'],['Groove','strong swing'],['Spectrum','warm']]},
+    {kicker:'2 · Build-up', title:'Rising Tension', tag:'CLAP', prompt:'tension building, rolling bassline',
+     layers:[9,16], cap:'Patterns thicken', acc:C.cyan, acc2:C.cyan2,
+     rows:[['Tempo','124 BPM',1],['Mid / high','rising'],['Transients','frequent'],['Patterns','complex']]},
+    {kicker:'3 · Climax', title:'Peak Floor', tag:'MuQ-MuLan', prompt:'high energy club banger, intense',
+     layers:[17,24], cap:'Maximum detail', acc:C.pink, acc2:C.pink2, peak:true,
+     rows:[['Tempo','128 BPM',1],['Density','maximum'],['Groove','hard'],['Sub-bass','dominant']]},
+    {kicker:'4 · Cooldown', title:'Broken Descent', tag:'CLAP', prompt:'melancholic breakbeat, sparse minimal',
+     layers:[5,12], cap:'Back to mid density', acc:C.violet, acc2:C.violet2,
+     rows:[['Tempo','122 BPM',1],['Grid','broken'],['Rhythm','syncopated'],['Onsets','thinning']]},
+    {kicker:'5 · Outro', title:'Spatial Dissolve', tag:'MuQ-MuLan', prompt:'ambient outro, drone, beatless',
+     layers:[20,24], cap:'Space and reverb', acc:C.blue, acc2:C.blue2,
+     rows:[['Tempo','118 BPM',1],['Kick','gone'],['Filter','low-pass'],['Spectrum','reverb tails']]}
+  ],
+  ramp:{tag:'Sonara · transitions', steps:[
+    {t:'<b>120 → 124</b> · grid sync'},
+    {t:'<b>124 → 128</b> · grid sync'},
+    {chip:'Drop &amp; Switch', hot:true, t:'<b>128 → 122</b> · find the beatless breakdown, enter on the first onset after the pause — two tempo grids never collide'},
+    {t:'<b>122 → 118</b> · filtered fade'}]}
+}];
+
+/* scheme #2 is a transition study, not a set arc — its own layout */
+const SCHEME2 = {
+  n:2, key:'textural-blend', tabName:'Textural Blend', titleA:'Textural ', titleB:'Blend', badge:'Rominimal ⇄ RoBreaks',
+  grad:'linear-gradient(95deg,#5eead4,#38bdf8 55%,#f472b6)', custom:true, acc:C.cyan,
+  sub:'A near-invisible flow from a <b>straight Rominimal kick</b> into the <b>broken, equally deep and rolling RoBreaks groove</b>. The seam disappears because one shared semantic atmosphere and the sub-bass line stay constant.',
+  tempoSpan:'one tempo, two grids', shape:'Single transition, zero seam',
+  a:{lane:'A · Rominimal', name:'Rominimal', tag:'CLAP', prompt:'mesmerizing deep hypnotic loop', layers:[1,4],
+     cap:'Straight, pulsing low end', sync:.30, groove:'soft straight bounce', acc:C.green, acc2:C.green2,
+     role:'Kick fades out and hands over its hypnotic bass loop.'},
+  b:{lane:'B · RoBreaks', name:'RoBreaks', tag:'CLAP', prompt:'deep spacey syncopated breaks', layers:[7,12],
+     cap:'Complex broken percussion', sync:.75, groove:'shifted break groove', acc:C.pink, acc2:C.pink2,
+     role:'Enters on its first snare onset, right on top of that loop.'},
+  steps:[
+    ['Hold the vibe','CLAP and MERT keep one shared mood across both tracks: <em>“otherworldly, melancholic”</em>.'],
+    ['Find the gap','Scan the tail of Track A for the moment the straight kick fades, leaving only the hypnotic bass loop.'],
+    ['Catch the onset','On that bass loop, detect the first transient of Track B’s broken snare.'],
+    ['Lock the grids','Stitch the two beat grids together at that onset.']],
+  result:'The dance floor doesn’t notice the grid change — the physical sub-bass density never moves.'
+};
+const ALL = [SCHEMES[0], SCHEME2, SCHEMES[1], SCHEMES[2], SCHEMES[3]];
+/* ============================ helpers ============================ */
+const W = 1496, H = 210;
+const esc = s => s;
+const smooth = pts => {
+  let d = `M${pts[0][0]} ${pts[0][1]}`;
+  for (let i=0;i<pts.length-1;i++){
+    const p0=pts[i-1]||pts[i], p1=pts[i], p2=pts[i+1], p3=pts[i+2]||p2;
+    const c1=[p1[0]+(p2[0]-p0[0])/6, p1[1]+(p2[1]-p0[1])/6];
+    const c2=[p2[0]-(p3[0]-p1[0])/6, p2[1]-(p3[1]-p1[1])/6];
+    d += ` C${c1[0].toFixed(1)} ${c1[1].toFixed(1)}, ${c2[0].toFixed(1)} ${c2[1].toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d;
+};
+const centers = (n, w=W, gap=16) => {
+  const col = (w - (n-1)*gap)/n;
+  return Array.from({length:n}, (_,i)=> i*(col+gap) + col/2);
+};
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+
+function chartSVG(s){
+  const n = s.stages.length, xs = centers(n);
+  const eY = e => 162 - e*134;
+  const tmin = Math.min(...s.tempo), tmax = Math.max(...s.tempo), flat = tmax - tmin < .01;
+  const tY = t => flat ? 168 : 190 - (t-tmin)/(tmax-tmin)*56;
+  const pts = xs.map((x,i)=>[x, eY(s.energy[i])]);
+  const head = [0, clamp(pts[0][1] + (pts[0][1]-pts[1][1])*.45, 14, 198)];
+  const tail = [W, clamp(pts[n-1][1] + (pts[n-1][1]-pts[n-2][1])*.45, 14, 198)];
+  const all = [head, ...pts, tail];
+  const dCurve = smooth(all);
+  const dArea = dCurve + ` L${W} ${H} L0 ${H} Z`;
+  const tp = [[0, tY(s.tempo[0])], ...xs.map((x,i)=>[x, tY(s.tempo[i])]), [W, tY(s.tempo[n-1])]];
+  const dTempo = tp.map((p,i)=>(i?'L':'M')+p[0].toFixed(0)+' '+p[1].toFixed(1)).join(' ');
+  const stops = s.stages.map((st,i)=>`<stop offset="${(i/(n-1)*100).toFixed(0)}%" stop-color="${st.acc}"/>`).join('');
+  const gid = 'g'+s.n;
+
+  let deco = '';
+  if (s.band){
+    deco += `<rect x="1" y="16" width="${W-2}" height="118" rx="8" fill="none" stroke="rgba(255,255,255,.12)" stroke-dasharray="6 6"/>
+      <text x="16" y="34" font-family="JetBrains Mono" font-size="11" letter-spacing=".15em" fill="#6b7b8a">${s.band.toUpperCase()}</text>`;
+  }
+  if (s.peakGlow != null){
+    deco += `<ellipse cx="${xs[s.peakGlow]}" cy="${eY(s.energy[s.peakGlow])+42}" rx="245" ry="150" fill="url(#pg${s.n})"/>
+      <text x="${xs[s.peakGlow]-52}" y="204" text-anchor="middle" font-family="JetBrains Mono" font-size="11" letter-spacing=".16em" fill="#8a6a79">PEAK ZONE</text>`;
+  }
+  let marker = '';
+  if (s.marker){
+    const mx = (xs[s.marker.after] + xs[s.marker.after+1])/2;
+    marker = `<path d="M${mx} 24 L${mx} ${H}" stroke="rgba(251,191,36,.55)" stroke-width="1.6" stroke-dasharray="6 5"/>
+      <rect x="${mx-95}" y="0" width="190" height="26" rx="13" fill="rgba(251,191,36,.12)" stroke="rgba(251,191,36,.5)"/>
+      <text x="${mx}" y="17" text-anchor="middle" font-size="11.5" font-weight="600" letter-spacing=".12em" fill="#fbbf24">${s.marker.label}</text>`;
+  }
+  const guides = xs.map((x,i)=>`<path class="guide" data-i="${i}" d="M${x} ${eY(s.energy[i])} L${x} ${H}" stroke="rgba(255,255,255,.13)" stroke-width="1" stroke-dasharray="4 5"/>`).join('');
+  const bpm = xs.map((x,i)=> s.tempoLabels[i] ? `<text x="${x}" y="${(flat?168:tY(s.tempo[i]))-13}" text-anchor="middle" font-family="JetBrains Mono" font-size="13" fill="#9aacbe">${s.tempoLabels[i]}</text>` : '').join('');
+  const note = '';
+  const nodes = xs.map((x,i)=>{
+    const st = s.stages[i], y = eY(s.energy[i]), r = st.peak ? 14.5 : 13;
+    return `<g class="node" data-i="${i}" style="color:${st.acc}">
+      <circle cx="${x}" cy="${y}" r="${r}" fill="#0a1017" stroke="${st.acc}" stroke-width="${st.peak?2.6:2.2}"/>
+      <text x="${x}" y="${y+5}" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">${i+1}</text></g>`;
+  }).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" font-family="Inter">
+    <defs>
+      <linearGradient id="${gid}" x1="0" y1="0" x2="${W}" y2="0" gradientUnits="userSpaceOnUse">${stops}</linearGradient>
+      <linearGradient id="a${s.n}" x1="0" y1="0" x2="0" y2="${H}" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="${s.stages[Math.floor(n/2)].acc}" stop-opacity=".18"/>
+        <stop offset="1" stop-color="${s.stages[Math.floor(n/2)].acc}" stop-opacity="0"/></linearGradient>
+      <radialGradient id="pg${s.n}"><stop offset="0" stop-color="#f472b6" stop-opacity=".22"/>
+        <stop offset=".45" stop-color="#f472b6" stop-opacity=".09"/><stop offset="1" stop-color="#f472b6" stop-opacity="0"/></radialGradient>
+      <filter id="gl${s.n}" x="-20%" y="-60%" width="140%" height="240%">
+        <feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+    ${deco}
+    <path d="${dArea}" fill="url(#a${s.n})"/>
+    <path d="${dTempo}" stroke="#66798d" stroke-width="2" stroke-dasharray="9 7" fill="none"/>
+    <path d="${dCurve}" stroke="url(#${gid})" stroke-width="3.2" stroke-linecap="round" fill="none" filter="url(#gl${s.n})"/>
+    ${marker}<g>${guides}</g>${bpm}${note}${nodes}
+  </svg>`;
+}
+
+function stripHTML(layers, acc){
+  let out = '';
+  for (let i=1;i<=24;i++){
+    const on = layers && i>=layers[0] && i<=layers[1];
+    out += `<i class="${on?'on':''}"></i>`;
+  }
+  return `<div class="strip">${out}</div>`;
+}
+function rowsHTML(rows){
+  return `<div class="rows">${rows.map(r=>`<div class="row">${r[0]}<span class="dots"></span><span class="v${r[2]?' gold':''}">${r[1]}</span></div>`).join('')}</div>`;
+}
+function blockPrompt(st){
+  return `<div class="block"><div class="blabel"><span class="l"><i style="background:#8b5cf6"></i>Prompt</span>
+    <span class="tagp tag-prompt">${st.tag}</span></div>
+    <div class="quote"><span class="q">“</span><span>${st.prompt}</span></div></div>`;
+}
+function blockEmb(st){
+  const num = st.layers ? `${st.layers[0]} – ${st.layers[1]}` : 'any';
+  return `<div class="block"><div class="blabel"><span class="l"><i style="background:#22d3ee"></i>Embedding</span>
+    <span class="tagp tag-mert">MERT-v2</span></div>
+    <div class="layers"><span class="num">${num}</span><span class="of">layers<br>of 24</span></div>
+    ${stripHTML(st.layers)}<div class="cap">${st.cap}</div></div>`;
+}
+function cardHTML(st, i){
+  return `<article class="card${st.peak?' peak':''}" data-i="${i}" tabindex="0"
+    style="--acc:${st.acc};--acc2:${st.acc2};--accsoft:color-mix(in srgb,${st.acc} 8%,transparent);--accglow:color-mix(in srgb,${st.acc} 55%,transparent)">
+    <div class="cardhead"><div class="kicker">${st.kicker}</div><div class="cname">${st.title}</div></div>
+    ${blockPrompt(st)}${blockEmb(st)}
+    <div class="block"><div class="blabel"><span class="l"><i style="background:#fbbf24"></i>Sonara</span></div>${rowsHTML(st.rows)}</div>
+  </article>`;
+}
+function rampHTML(r){
+  if(!r) return '';
+  return `<div class="ramp"><div class="tag"><span class="dot"></span>${r.tag}</div><div class="steps">${
+    r.steps.map(s=>`<div class="step${s.hot?' hot':''}">${s.chip?`<span class="chip${s.cool?' cool':''}">${s.chip}</span>`:''}<span>${s.t}</span></div>`).join('')
+  }</div></div>`;
+}
+function schemeHTML(s){
+  return `<div class="titleline"><h1>${s.titleA}<span class="grad" style="background-image:${s.grad}">${s.titleB}</span></h1>
+      ${s.badge?`<span class="badge">${s.badge}</span>`:''}</div>
+    <p class="sub">${s.sub}</p>
+    <div class="charthead"><div class="seclabel">${s.seclabel}</div>
+      <div class="legend"><span><i class="sw"></i>${s.legendA}</span><span><i class="sw d"></i>${s.legendB}</span></div></div>
+    <div class="chart">${chartSVG(s)}</div>
+    ${s.tempoNote?`<div class="chartnote">${s.tempoNote}</div>`:''}
+    ${rampHTML(s.ramp)}
+    <div class="cards" style="grid-template-columns:repeat(${s.stages.length},minmax(0,1fr))">${s.stages.map(cardHTML).join('')}</div>`;
+}
+/* ============================ scheme #2 ============================ */
+function timeline2(){
+  let ticksA = '';
+  for (let x=200; x<=690; x+=24){
+    const strong = (Math.round((x-200)/24) % 4 === 0);
+    ticksA += `<path d="M${x} ${strong?26:31} L${x} ${strong?62:57}" stroke="#34d399" stroke-width="${strong?2.6:1.8}" stroke-opacity="${strong?.95:.6}" stroke-linecap="round"/>`;
+  }
+  let ticksB = '';
+  [0,14,38,52,86,100,124,152,166,190,224,238,262,290,304,338,352,376,404,418,442,470].forEach((o,i)=>{
+    const x = 1020 + o*0.68, strong = i%3===0;
+    ticksB += `<path d="M${x.toFixed(0)} ${strong?76:81} L${x.toFixed(0)} ${strong?112:107}" stroke="#f472b6" stroke-width="${strong?2.6:1.8}" stroke-opacity="${strong?.95:.6}" stroke-linecap="round"/>`;
+  });
+  let wave = 'M300 162';
+  for (let x=300; x<=W; x+=8){ wave += ` L${x} ${(162 + Math.sin((x-300)/26)*8).toFixed(1)}`; }
+  return `<svg viewBox="0 0 ${W} 196" xmlns="http://www.w3.org/2000/svg" font-family="Inter">
+    <defs>
+      <pattern id="hatch" width="9" height="9" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+        <line x1="0" y="0" x2="0" y2="9" stroke="rgba(52,211,153,.35)" stroke-width="2"/></pattern>
+      <filter id="wg" x="-10%" y="-200%" width="120%" height="500%">
+        <feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+    <rect x="0" y="34" width="1120" height="44" rx="8" fill="rgba(52,211,153,.07)"/>
+    <rect x="700" y="34" width="420" height="44" fill="url(#hatch)" opacity=".5"/>
+    <text x="16" y="61" font-size="12" font-weight="700" letter-spacing=".14em" fill="#6ee7b7">A · ROMINIMAL</text>
+    ${ticksA}
+    <text x="340" y="92" font-family="JetBrains Mono" font-size="11.5" fill="#6b7b8a">straight 4/4 kick</text>
+    <text x="910" y="92" font-family="JetBrains Mono" font-size="11.5" text-anchor="middle" fill="#7d8a97">kick drops out → bass loop only</text>
+    <rect x="1000" y="84" width="496" height="44" rx="8" fill="rgba(244,114,182,.10)"/>
+    <text x="1482" y="111" text-anchor="end" font-size="12" font-weight="700" letter-spacing=".14em" fill="#fda4d0">B · ROBREAKS</text>
+    ${ticksB}
+    <path d="M1000 26 L1000 196" stroke="rgba(251,191,36,.6)" stroke-width="1.6" stroke-dasharray="6 5"/>
+    <rect x="910" y="0" width="180" height="26" rx="13" fill="rgba(251,191,36,.12)" stroke="rgba(251,191,36,.5)"/>
+    <text x="1000" y="17" text-anchor="middle" font-size="11.5" font-weight="600" letter-spacing=".12em" fill="#fbbf24">⚠ BLEND POINT</text>
+    <circle cx="1000" cy="106" r="6.5" fill="#0a1017" stroke="#fbbf24" stroke-width="2.2"/>
+    <text x="1014" y="142" font-family="JetBrains Mono" font-size="11.5" fill="#b9829b">first snare onset</text>
+    <text x="1482" y="142" text-anchor="end" font-family="JetBrains Mono" font-size="11.5" fill="#7d8a97">broken, syncopated groove</text>
+    <text x="16" y="166" font-size="11.5" font-weight="600" letter-spacing=".1em" fill="#67e8f9">SUB-BASS · DENSITY UNCHANGED</text>
+    <path d="${wave}" stroke="#22d3ee" stroke-width="2.4" fill="none" filter="url(#wg)" stroke-opacity=".9"/>
+  </svg>`;
+}
+function trackCard(t, side){
+  return `<article class="card" style="--acc:${t.acc};--acc2:${t.acc2};--accsoft:color-mix(in srgb,${t.acc} 8%,transparent);--accglow:color-mix(in srgb,${t.acc} 55%,transparent)">
+    <div class="cardhead"><div class="kicker">Track ${side}</div><div class="cname">${t.name}</div></div>
+    ${blockPrompt(t)}${blockEmb(t)}
+    <div class="block"><div class="blabel"><span class="l"><i style="background:#fbbf24"></i>Sonara features</span></div>
+      <div class="meter"><div class="mrow"><span>Syncopation</span><b>~${t.sync.toFixed(2)}</b></div>
+        <div class="mtrack"><div class="mfill" style="width:${t.sync*100}%"></div></div></div>
+      ${rowsHTML([['Groove', t.groove]])}</div>
+    <div class="rolebox"><div class="rl">Role in the blend</div><div class="rt">${t.role}</div></div>
+  </article>`;
+}
+function scheme2HTML(s){
+  return `<div class="titleline"><h1>${s.titleA}<span class="grad" style="background-image:${s.grad}">${s.titleB}</span></h1>
+      <span class="badge">${s.badge}</span></div>
+    <p class="sub">${s.sub}</p>
+    <div class="charthead"><div class="seclabel">Transition timeline</div>
+      <div class="legend"><span style="font-family:'JetBrains Mono',monospace;color:#5d6d7c">time →</span></div></div>
+    <div class="chart">${timeline2()}</div>
+    <div class="vibebar">Shared vibe · CLAP + MERT hold <em>“otherworldly, melancholic”</em></div>
+    <div class="cards" style="grid-template-columns:1fr 1.12fr 1fr">
+      ${trackCard(s.a,'A')}
+      <article class="engine"><div class="cardhead" style="padding:0 0 14px"><div class="kicker">Transition engine</div>
+        <div class="cname">SONARA · moment-by-moment alignment</div></div>
+        ${s.steps.map((st,i)=>`<div class="estep"><span class="n">${i+1}</span><div><h4>${st[0]}</h4><p>${st[1]}</p></div></div>`).join('')}
+        <div class="eresult"><b>Result</b><span>${s.result}</span></div></article>
+      ${trackCard(s.b,'B')}
+    </div>`;
+}
+
+/* ============================ overview ============================ */
+function sparkline(s){
+  const e = s.energy || [.5,.52,.48,.53];
+  const n = e.length, w = 300, h = 56;
+  const xs = e.map((_,i)=> 6 + i*(w-12)/(n-1));
+  const pts = xs.map((x,i)=>[x, 48 - e[i]*40]);
+  const acc = s.stages ? s.stages.map(st=>st.acc) : [C.green, C.cyan, C.pink];
+  const stops = acc.map((c,i)=>`<stop offset="${(i/(acc.length-1)*100).toFixed(0)}%" stop-color="${c}"/>`).join('');
+  const dots = pts.map((p,i)=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.4" fill="#0a1017" stroke="${acc[i]||acc[acc.length-1]}" stroke-width="1.8"/>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="sp${s.n}" x1="0" y1="0" x2="${w}" y2="0" gradientUnits="userSpaceOnUse">${stops}</linearGradient></defs>
+    <path d="${smooth(pts)}" stroke="url(#sp${s.n})" stroke-width="2.6" fill="none" stroke-linecap="round"/>${dots}</svg>`;
+}
+function overviewHTML(){
+  return `<div class="titleline"><h1>Five ways to <span class="grad" style="background-image:linear-gradient(95deg,#5eead4,#38bdf8 55%,#f472b6)">build a set</span></h1></div>
+    <p class="sub">Each scheme is a different dramaturgy over the same engine: a <b>text prompt</b> says what it should feel like, an <b>audio embedding</b> says how it sounds, and <b>SONARA</b> checks whether it actually fits. Pick one to see its stages.</p>
+    <div class="ov">${ALL.map(s=>{
+      const acc = s.stages ? s.stages[Math.floor(s.stages.length/2)].acc : s.acc;
+      return `<button class="ovcard" data-key="${s.key}" style="--acc:${acc}">
+        <div class="no">Scheme #${s.n}</div><h3>${s.titleA}${s.titleB}</h3>
+        <div class="ovs">${s.sub.replace(/<\/?b>/g,'')}</div>
+        ${sparkline(s)}
+        <div class="ovmeta"><span>Tempo <b>${s.tempoSpan}</b></span><span>${s.stages?s.stages.length+' stages':'2 tracks'}</span></div>
+      </button>`;}).join('')}</div>
+    <div class="ovhint">Hover a stage card inside a scheme to light up its point on the curve — or click a point to jump to the card.</div>`;
+}
+
+/* ============================ init ============================ */
+const tabsEl = document.getElementById('tabs'), viewsEl = document.getElementById('views');
+const items = [{key:'overview', n:0, tabName:'Overview', acc:'#cbd5e1'}, ...ALL];
+
+items.forEach(s=>{
+  const acc = s.key==='overview' ? '#94a3b8' : (s.stages ? s.stages[Math.floor(s.stages.length/2)].acc : s.acc);
+  const b = document.createElement('button');
+  b.className='tab'; b.type='button'; b.setAttribute('role','tab'); b.dataset.key=s.key;
+  b.style.setProperty('--tc', acc);
+  b.innerHTML = s.key==='overview' ? `<i></i>Overview` : `<i></i><span class="num">#${s.n}</span>${s.tabName}`;
+  b.addEventListener('click', ()=>show(s.key));
+  tabsEl.appendChild(b);
+
+  const v = document.createElement('section');
+  v.className='view'; v.dataset.key=s.key; v.hidden=true;
+  v.innerHTML = s.key==='overview' ? overviewHTML() : (s.custom ? scheme2HTML(s) : schemeHTML(s));
+  viewsEl.appendChild(v);
+});
+
+function wire(view){
+  const cards = [...view.querySelectorAll('.card[data-i]')];
+  const nodes = [...view.querySelectorAll('.node')];
+  const guides = [...view.querySelectorAll('.guide')];
+  const setHot = (i, on) => {
+    nodes.forEach(nd=>{
+      const same = +nd.dataset.i === i;
+      nd.classList.toggle('hot', on && same);
+      nd.classList.toggle('dim', on && !same);
+    });
+    guides.forEach(g=> g.classList.toggle('hot', on && +g.dataset.i === i));
+    cards.forEach(c=> c.classList.toggle('dim', on && +c.dataset.i !== i));
+  };
+  cards.forEach(c=>{
+    const i = +c.dataset.i;
+    c.addEventListener('mouseenter', ()=>setHot(i,true));
+    c.addEventListener('focus', ()=>setHot(i,true));
+    c.addEventListener('mouseleave', ()=>setHot(i,false));
+    c.addEventListener('blur', ()=>setHot(i,false));
+  });
+  nodes.forEach(nd=>{
+    const i = +nd.dataset.i;
+    nd.addEventListener('mouseenter', ()=>setHot(i,true));
+    nd.addEventListener('mouseleave', ()=>setHot(i,false));
+    nd.addEventListener('click', ()=>{
+      const c = cards[i]; if(!c) return;
+      c.scrollIntoView({behavior:'smooth', block:'center'});
+      c.classList.add('flash'); setTimeout(()=>c.classList.remove('flash'), 900);
+    });
+  });
+  view.querySelectorAll('.ovcard').forEach(b=> b.addEventListener('click', ()=>show(b.dataset.key)));
+}
+[...viewsEl.children].forEach(wire);
+
+function show(key){
+  const valid = items.some(s=>s.key===key) ? key : 'overview';
+  [...viewsEl.children].forEach(v=> v.hidden = v.dataset.key !== valid);
+  [...tabsEl.children].forEach(t=> t.setAttribute('aria-selected', String(t.dataset.key===valid)));
+  if (location.hash.slice(1) !== valid) history.replaceState(null,'','#'+valid);
+  window.scrollTo({top:0, behavior:'auto'});
+}
+window.addEventListener('hashchange', ()=>show(location.hash.slice(1)));
+document.addEventListener('keydown', e=>{
+  if (e.target.matches('input,textarea')) return;
+  if (e.key!=='ArrowLeft' && e.key!=='ArrowRight') return;
+  const cur = items.findIndex(s=>s.key===(location.hash.slice(1)||'overview'));
+  const next = (cur + (e.key==='ArrowRight'?1:-1) + items.length) % items.length;
+  show(items[next].key);
+});
+show(location.hash.slice(1) || 'overview');
+</script>
+<style>
+  .card.flash{border-color:var(--acc)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--acc) 45%,transparent),0 0 40px var(--accsoft)!important}
+  .card.dim{opacity:.5}
+</style>
+</body>
+</html>

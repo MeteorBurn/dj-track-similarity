@@ -3,38 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import config as config_module
 from . import models as models_module
-from . import rhythm_lab as rhythm_lab_module
 from . import xlsx_report as xlsx_report_module
 
 
 def write_text_log(path: Path, payload: dict[str, object], *, apply_result: models_module.ApplyResult | None = None) -> None:
-    rhythm_lab = payload.get("rhythm_lab", {})
     lines = [
         "audio_dedup apply run" if apply_result is not None else "audio_dedup report-only run",
         f"generated_at={payload['generated_at']}",
         f"database={payload.get('database_path') or ''}",
-        f"root={payload['root']}",
         f"search_mode={payload.get('search_mode', '')}",
-        f"preset={payload['preset']}",
-        "sources=" + ",".join(
-            str(item)
-            for item in payload.get(
-                "sources",
-                list(config_module.SUPPORTED_EMBEDDINGS),
-            )
-        ),
-        "weights=" + ",".join(
-            f"{key}={value}"
-            for key, value in dict(
-                payload.get("weights", config_module.DEFAULT_SOURCE_WEIGHTS)
-            ).items()
-        ),
-        f"min_score={payload['min_score']}",
-        f"min_similarity={payload['min_similarity']}",
-        "min_similarity_semantics=audio-to-audio content gate over enabled MERT-v2/MAEST/MuQ/CLAP embeddings; not CLAP text-search score",
-        "muq_similarity_semantics=audio-to-audio cosine over structurally valid current-generation stored MuQ embeddings",
         f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",
@@ -45,16 +23,6 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: mode
             else 0
         ),
     ]
-    if isinstance(rhythm_lab, dict):
-        lines.extend(
-            [
-                f"rhythm_lab_summary={rhythm_lab_module.rhythm_lab_summary_text(rhythm_lab)}",
-                f"rhythm_lab_database={rhythm_lab.get('database_path', '')}",
-                f"rhythm_lab_database_exists={rhythm_lab.get('database_exists', False)}",
-                f"rhythm_lab_affected_track_count={rhythm_lab.get('affected_track_count', 0)}",
-                f"rhythm_lab_affected_row_count={rhythm_lab.get('affected_row_count', 0)}",
-            ]
-        )
     if apply_result is None:
         lines.append("no files deleted; no databases mutated")
     else:

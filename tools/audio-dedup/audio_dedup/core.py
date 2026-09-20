@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Mapping
 
 from dj_track_similarity.database import LibraryDatabase
 
 from .fingerprints import (
+    fingerprint_candidate_pairs,
     fingerprint_match_scores,
     load_fingerprint_sketches,
     sonara_duplicate_clusters,
@@ -18,14 +18,11 @@ from .spectral import (
     skipped_result,
 )
 
-from . import candidates as candidates_module
 from . import config as config_module
 from . import models as models_module
 from . import progress as progress_module
 from . import report_files as report_files_module
 from . import report_payload as report_payload_module
-from . import report_selection as report_selection_module
-from . import rhythm_lab as rhythm_lab_module
 from . import scoring as scoring_module
 from . import track_loading as track_loading_module
 
@@ -34,36 +31,17 @@ def run_report(
     *,
     db_path: Path | None = None,
     database: LibraryDatabase | None = None,
-    root: Path | None,
     path_contains: list[str],
-    preset_name: str,
-    min_score: float | None,
-    min_similarity: float | None = None,
     limit_groups: int | None,
     out_dir: Path,
-    sources: Iterable[str] | None = None,
-    weights: Mapping[str, float] | None = None,
     mode: str = config_module.MODE_FINGERPRINT_SCAN,
     detect_fake_bitrate: bool = False,
     progress_callback: models_module.ProgressCallback | None = None,
     should_cancel: models_module.CancelCheck | None = None,
 ) -> models_module.ReportResult:
-    config = config_module.resolve_preset(preset_name, min_score=min_score, min_similarity=min_similarity)
     if mode not in config_module.SEARCH_MODES:
         raise ValueError(f"Unsupported search mode: {mode}")
     scan_mode = mode == config_module.MODE_FINGERPRINT_SCAN
-    fingerprint_mode = mode in (
-        config_module.MODE_FINGERPRINT_SCAN,
-        config_module.MODE_FINGERPRINT_LSH,
-    )
-    if fingerprint_mode:
-        if sources is not None or weights is not None:
-            raise ValueError(
-                "--source and --weight require --embedding"
-            )
-        source_config = models_module.SourceConfig(sources=(), weights={})
-    else:
-        source_config = config_module.resolve_source_config(sources=sources, weights=weights)
 
     def cancel_hook() -> None:
         progress_module._raise_if_cancelled(should_cancel)
@@ -76,9 +54,7 @@ def run_report(
     progress_module._report_progress(progress_callback, 0, database_track_count, "Loading scoped tracks")
     tracks = track_loading_module.load_tracks(
         selected_database,
-        root=root,
         path_contains=path_contains,
-        sources=source_config.sources,
         progress_callback=progress_callback,
     )
     progress_module._raise_if_cancelled(should_cancel)
@@ -124,8 +100,6 @@ def run_report(
         groups = scoring_module.groups_from_fingerprint_clusters(
             scan.clusters,
             tracks,
-            config,
-            source_config=source_config,
             limit_groups=limit_groups,
             progress_callback=progress_callback,
             should_cancel=should_cancel,
@@ -147,26 +121,14 @@ def run_report(
             )
         finally:
             connection.close()
-        candidate_sources = candidates_module._candidate_pair_sources(
-            tracks,
-            config,
-            source_config,
-            fingerprint_sketches=fingerprint_load.sketches,
-            fingerprint_only=fingerprint_mode,
-        )
-        fingerprint_lsh_pairs = {
-            pair
-            for pair, sources_for_pair in candidate_sources.items()
-            if "fingerprint_lsh" in sources_for_pair
-        }
-        fingerprint_exact_pairs = candidates_module._fingerprint_exact_candidate_pairs(candidate_sources)
+        candidate_pairs = fingerprint_candidate_pairs(list(fingerprint_load.sketches))
         progress_module._raise_if_cancelled(should_cancel)
-        progress_module._report_progress(progress_callback, 0, max(1, len(fingerprint_exact_pairs)), "Verifying SONARA fingerprint candidates")
+        progress_module._report_progress(progress_callback, 0, max(1, len(candidate_pairs)), "Verifying SONARA fingerprint candidates")
         connection = selected_database.connect()
         try:
             fingerprint_scores = fingerprint_match_scores(
                 connection,
-                fingerprint_exact_pairs,
+                candidate_pairs,
                 track_uuids,
                 progress_callback=lambda completed, total: progress_module._report_progress(
                     progress_callback,
@@ -181,22 +143,20 @@ def run_report(
         fingerprint_retrieval = {
             "valid_stored_fingerprint_count": len(fingerprint_load.sketches),
             "rejected_stored_fingerprint_count": fingerprint_load.rejected_rows,
-            "fingerprint_lsh_candidate_pair_count": len(fingerprint_lsh_pairs),
-            "fingerprint_exact_candidate_pair_count": len(fingerprint_exact_pairs),
+            "fingerprint_lsh_candidate_pair_count": len(candidate_pairs),
             "exact_fingerprint_pair_count": len(fingerprint_scores),
             "fingerprint_review_pair_count": sum(
                 score >= config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY
                 for score in fingerprint_scores.values()
             ),
             "fingerprint_review_min_similarity": config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY,
+            "fingerprint_confidence_high": config_module.FINGERPRINT_CONFIDENCE_HIGH,
+            "fingerprint_confidence_medium": config_module.FINGERPRINT_CONFIDENCE_MEDIUM,
         }
-        groups = scoring_module.find_duplicate_groups(
+        groups = scoring_module.groups_from_fingerprint_pairs(
             tracks,
-            config,
+            fingerprint_scores,
             limit_groups=limit_groups,
-            source_config=source_config,
-            candidate_sources=candidate_sources,
-            fingerprint_scores=fingerprint_scores,
             progress_callback=progress_callback,
             should_cancel=should_cancel,
         )
@@ -212,19 +172,12 @@ def run_report(
     payload = report_payload_module.build_report(
         groups,
         tracks,
-        config,
         mode=mode,
         db_path=selected_db,
         database_track_count=database_track_count,
-        root=root,
         path_contains=path_contains,
-        source_config=source_config,
         fingerprint_retrieval=fingerprint_retrieval,
         spectral_results=spectral_results,
-    )
-    payload["rhythm_lab"] = rhythm_lab_module.rhythm_lab_impact_payload(
-        config_module.DEFAULT_RHYTHM_LAB_DB,
-        report_selection_module.safe_delete_candidates(payload),
     )
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # One directory per report keeps its JSON, workbook and log together, and

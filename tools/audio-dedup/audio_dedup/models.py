@@ -4,27 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-import numpy as np
-
 ProgressCallback = Callable[[int, int, str], None]
 CancelCheck = Callable[[], bool]
-
-
-@dataclass(frozen=True)
-class PresetConfig:
-    name: str
-    min_score: float
-    min_similarity: float
-    duration_seconds: float
-    duration_ratio: float
-    direct_keeper_score: float
-    strict_duration_ratio: float
-
-
-@dataclass(frozen=True)
-class SourceConfig:
-    sources: tuple[str, ...]
-    weights: dict[str, float]
 
 
 @dataclass(frozen=True)
@@ -40,7 +21,6 @@ class TrackRecord:
     musical_key: str | None
     duration: float | None
     metadata: dict[str, object]
-    embeddings: dict[str, np.ndarray]
     catalog_uuid: str = ""
     track_uuid: str = ""
     file_modified_ns: int = 0
@@ -48,19 +28,13 @@ class TrackRecord:
 
 @dataclass(frozen=True)
 class PairEvidence:
+    """One verified SONARA fingerprint match between two copies."""
+
     left_id: int
     right_id: int
-    score: float
-    content_similarity: float | None
-    mert_v2_similarity: float | None
-    maest_similarity: float | None
-    muq_similarity: float | None
-    clap_similarity: float | None
-    sonara_similarity: float | None
+    fingerprint_similarity: float
     duration_diff_seconds: float | None
     duration_diff_ratio: float | None
-    blocked_reasons: tuple[str, ...]
-    fingerprint_similarity: float | None = None
     candidate_sources: tuple[str, ...] = ()
 
 

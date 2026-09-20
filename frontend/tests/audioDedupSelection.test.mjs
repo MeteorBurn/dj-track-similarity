@@ -18,17 +18,17 @@ function loadAudioDedupView() {
   return module.exports;
 }
 
-function group(groupId, files) {
+function group(groupId, files, hiddenFileCount = 0) {
   return {
     group_id: groupId,
     confidence: "high",
-    score: 1,
     fingerprint_similarity: 1,
     suspected_transcode_count: 0,
     stale_file_count: 0,
+    hidden_file_count: hiddenFileCount,
     files,
     pairs: [],
-    blocked_reasons: []
+    review_reasons: []
   };
 }
 
@@ -55,11 +55,14 @@ test("a delete batch carries the confirmation phrase the delete endpoint require
   const { applyDeleteConfirmation, buildDeleteRequest } = loadAudioDedupView();
   const groups = [group(1, [file(10, "keeper"), file(11, "duplicate")])];
 
-  const built = buildDeleteRequest(groups, { 1: [11] }, "trash");
+  const built = buildDeleteRequest(groups, { 1: [11] }, "trash", "Abstracted");
 
   assert.equal(built.ok, true);
   assert.equal(built.payload.confirmation, applyDeleteConfirmation);
   assert.equal(built.payload.deletion_mode, "trash");
+  // The server re-checks this filter, so a batch that forgets it deletes copies
+  // the reviewer never had on screen.
+  assert.equal(built.payload.path_filter, "Abstracted");
   assert.deepEqual(JSON.parse(JSON.stringify(built.payload.selections)), [
     { group_id: 1, track_ids: [11] }
   ]);

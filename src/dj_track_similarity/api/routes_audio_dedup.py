@@ -27,15 +27,9 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
         try:
             with state.job_start():
                 return state.require_audio_dedup_jobs().start(
-                    root=request.root,
                     path_contains=list(request.path_contains),
                     search_mode=request.search_mode,
-                    preset=request.preset,
-                    min_score=request.min_score,
-                    min_similarity=request.min_similarity,
                     limit_groups=request.limit_groups,
-                    sources=list(request.sources) if request.sources else None,
-                    weights=dict(request.weights) if request.weights else None,
                     detect_fake_bitrate=request.detect_fake_bitrate,
                 )
         except ValueError as error:
@@ -154,15 +148,12 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         deletion_module = load_audio_dedup_module("deletion")
-        root = str(payload.get("root", ""))
-        if not root:
-            raise HTTPException(status_code=400, detail="Report has no root to delete inside")
         try:
             with state.exclusive_db("delete duplicate files") as database:
                 _require_matching_database(payload, database.path)
                 result = deletion_module.apply_duplicate_deletions(
                     database=database,
-                    root=Path(root),
+                    path_filter=request.path_filter,
                     payload=payload,
                     selected_track_ids=selected_track_ids,
                     deletion_mode=request.deletion_mode,

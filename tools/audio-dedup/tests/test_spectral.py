@@ -141,7 +141,6 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
             musical_key=None,
             duration=300.0,
             metadata={},
-            embeddings={},
         )
 
     # The fake is the copy the library would otherwise prefer: it wins the format
@@ -171,20 +170,14 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
     assert keeper_module.choose_keeper(tracks, spectral_results=spectral_map).track_id == 2
     assert keeper_module.choose_keeper(tracks).track_id == 1
 
-    config = config_module.resolve_preset("safe", min_score=None)
-    groups = scoring_module.find_duplicate_groups(
+    groups = scoring_module.groups_from_fingerprint_pairs(
         tracks,
-        config,
-        limit_groups=None,
-        candidate_sources={(1, 2): ("fingerprint_lsh",)},
-        fingerprint_scores={(1, 2): 0.97},
+        {(1, 2): 0.97},
     )
     payload = report_payload_module.build_report(
         groups,
         tracks,
-        config,
         mode=config_module.MODE_FINGERPRINT_LSH,
-        root=Path("C:/music"),
         path_contains=[],
         spectral_results=spectral_map,
     )
@@ -198,7 +191,7 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
     assert candidate["track_id"] == 1
     assert candidate["suspected_transcode"] is True
     assert candidate["spectral_note"] == "brickwall at 16.0 kHz"
-    assert any("transcoded" in line for line in candidate["why_delete_or_review"])
+    assert any("transcoded" in line for line in candidate["review_reasons"])
     assert payload["spectral_analysis"]["suspected_transcode_count"] == 1
     assert payload["statistics"]["fake_bitrate_candidate_count"] == 1
     assert payload["statistics"]["fake_bitrate_group_count"] == 1
@@ -210,7 +203,7 @@ def test_suspected_transcode_loses_keepership_and_is_labeled(tmp_path: Path) -> 
         groups_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
 
     assert "Fake-bitrate duplicate candidates" in summary_xml
-    assert "fake_bitrate_candidates" in groups_xml
+    assert "fake_bitrate_copies" in groups_xml
 
 
 def test_group_the_comparator_cannot_judge_is_review_only() -> None:
@@ -246,7 +239,6 @@ def test_group_the_comparator_cannot_judge_is_review_only() -> None:
                     "loudness_range_lu": 8.0,
                 },
             },
-            embeddings={},
         )
 
     original = _track(1, "C:/music/original.flac", 12.4)
@@ -258,28 +250,22 @@ def test_group_the_comparator_cannot_judge_is_review_only() -> None:
     # Inside one master the wider range still ranks; across masters it does not.
     assert keeper_module.choose_keeper([original, near_copy]).track_id == 1
 
-    config = config_module.resolve_preset("safe", min_score=None)
-    groups = scoring_module.find_duplicate_groups(
+    groups = scoring_module.groups_from_fingerprint_pairs(
         [original, remaster],
-        config,
-        limit_groups=None,
-        candidate_sources={(1, 2): ("fingerprint_lsh",)},
-        fingerprint_scores={(1, 2): 0.99},
+        {(1, 2): 0.99},
     )
     payload = report_payload_module.build_report(
         groups,
         [original, remaster],
-        config,
         mode=config_module.MODE_FINGERPRINT_LSH,
-        root=Path("C:/music"),
         path_contains=[],
     )
 
     group_payload = payload["groups"][0]
     candidate = group_payload["candidate_deletes"][0]
     assert group_payload["possible_different_master"] is True
-    assert candidate["safe_to_delete"] == "false"
-    assert any("possible different master" in reason for reason in candidate["blocked_reasons"])
+    assert group_payload["quality_comparison_requires_review"] is True
+    assert any("possible different master" in reason for reason in candidate["review_reasons"])
 
     # An extension names a container, not the codec inside it, and DSD does not
     # compare to PCM by depth and rate. Both leave the comparator with nothing.

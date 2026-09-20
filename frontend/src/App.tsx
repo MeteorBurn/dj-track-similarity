@@ -305,11 +305,14 @@ export function App() {
     setDatabaseValidationJob,
     databaseOptimizationJob,
     setDatabaseOptimizationJob,
+    audioDedupJob,
+    setAudioDedupJob,
     scanRunning,
     analysisRunning,
     genreTagRunning,
     databaseValidationRunning,
     databaseOptimizationRunning,
+    audioDedupRunning,
     loadLatestJobs,
   } = useJobState({
     classifiers,
@@ -333,15 +336,16 @@ export function App() {
   const trackDetailRequestGuard = useRef(createRequestTokenGuard());
   const trackDetailAbortController = useRef<AbortController | null>(null);
 
-  const stageRunning = scanImportStartToast || scanRunning || analysisRunning || genreTagRunning || databaseValidationRunning || databaseOptimizationRunning;
+  const stageRunning = scanImportStartToast || scanRunning || analysisRunning || genreTagRunning || databaseValidationRunning || databaseOptimizationRunning || audioDedupRunning;
   const rhythmLabRunning = Boolean(rhythmLabStatus?.running);
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
       || (analysisJob?.events || []).some((event) => event.level === "error")
-      || (genreTagJob?.events || []).some((event) => event.level === "error");
-    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length) || Boolean(databaseValidationJob?.errors) || Boolean(databaseOptimizationJob?.error);
-  }, [activityLog, analysisJob, databaseOptimizationJob, databaseValidationJob, genreTagJob, scanJob]);
+      || (genreTagJob?.events || []).some((event) => event.level === "error")
+      || (audioDedupJob?.events || []).some((event) => event.level === "error");
+    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length) || Boolean(databaseValidationJob?.errors) || Boolean(databaseOptimizationJob?.error) || Boolean(audioDedupJob?.error);
+  }, [activityLog, analysisJob, audioDedupJob, databaseOptimizationJob, databaseValidationJob, genreTagJob, scanJob]);
   // The library reports the one BPM range it analyses SONARA with. Once an
   // analysis job has claimed it, the range is fixed until that analysis is
   // reset or the library is cleared.
@@ -1118,6 +1122,18 @@ export function App() {
     );
   }
 
+  async function handleCancelAudioDedup() {
+    if (!audioDedupJob) return;
+    await run(
+      () => api.cancelAudioDedupJob(audioDedupJob.job_id),
+      (job) => {
+        setAudioDedupJob(job);
+        appendActivity("warn", "Audio dedup cancel requested", job.job_id.slice(0, 8));
+        return `Cancel requested: ${job.job_id.slice(0, 8)}`;
+      }
+    );
+  }
+
   async function handleStopActiveStage() {
     if (scanRunning) {
       await handleCancelScan();
@@ -1133,6 +1149,10 @@ export function App() {
     }
     if (databaseValidationRunning) {
       await handleCancelDatabaseValidation();
+      return;
+    }
+    if (audioDedupRunning) {
+      await handleCancelAudioDedup();
       return;
     }
   }
@@ -1346,7 +1366,7 @@ export function App() {
           >
             <Square size={15} />
           </button>
-          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob)}>
+          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob, audioDedupJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, databaseOptimizationJob, audioDedupJob)}>
             <RefreshCcw size={17} />
           </span>
           <div className={`notice ${notice.kind}`} title={notice.text} role="status">
@@ -1371,6 +1391,7 @@ export function App() {
           onChooseDatabase={() => void handleChooseDatabase()}
           busy={busy}
           stageRunning={stageRunning}
+          audioDedupRunning={audioDedupRunning}
           hasTracks={hasTracks}
           libraryTrackCount={librarySummary.tracks}
           maestGenreTrackCount={librarySummary.maest_analysis}
@@ -1643,6 +1664,7 @@ export function App() {
           genreTagJob={genreTagJob}
           databaseValidationJob={databaseValidationJob}
           databaseOptimizationJob={databaseOptimizationJob}
+          audioDedupJob={audioDedupJob}
           activityLog={activityLog}
           onClose={() => setLogFrameOpen(false)}
         />
@@ -1650,6 +1672,12 @@ export function App() {
       <AudioDedupDialog
         open={audioDedupOpen}
         databaseIdentity={databasePath && databaseCatalogUuid ? JSON.stringify([databasePath, databaseCatalogUuid]) : null}
+        job={audioDedupJob}
+        jobRunning={audioDedupRunning}
+        onJobChange={(job) => {
+          setAudioDedupJob(job);
+          setProcessLogKind("audio_dedup");
+        }}
         playingTrackId={playingTrackId}
         onPreview={(file) => togglePreview({ track_id: file.track_id })}
         onClose={() => setAudioDedupOpen(false)}

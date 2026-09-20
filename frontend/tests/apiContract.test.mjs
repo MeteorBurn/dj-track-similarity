@@ -402,6 +402,7 @@ test("audio dedup client serializes review filters and the confirmed delete batc
   });
   await api.audioDedupDelete("audio_dedup_report_20260827_120000", {
     selections: [{ group_id: 3, track_ids: [7, 9] }],
+    path_filter: "Abstracted",
     deletion_mode: "trash",
     confirmation: "APPLY DELETE"
   });
@@ -420,6 +421,7 @@ test("audio dedup client serializes review filters and the confirmed delete batc
   assert.equal(calls[1].options.method, "POST");
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     selections: [{ group_id: 3, track_ids: [7, 9] }],
+    path_filter: "Abstracted",
     deletion_mode: "trash",
     confirmation: "APPLY DELETE"
   });

@@ -3,8 +3,7 @@ import type {
   AudioDedupDeletionMode,
   AudioDedupFile,
   AudioDedupGroup,
-  AudioDedupReportSummary,
-  AudioDedupSearchMode
+  AudioDedupReportSummary
 } from "./api";
 
 /**
@@ -33,25 +32,6 @@ export function reconcileReportId(
 ): string | null {
   if (current && reports.some((report) => report.report_id === current)) return current;
   return reports[0]?.report_id ?? null;
-}
-
-/**
- * Blocked reasons that only say the embedding evidence was not loaded.
- *
- * Fingerprint mode never loads embeddings, so these describe the mode rather
- * than the pair. Showing them next to a 1.000 fingerprint match reads as doubt
- * about the match, which is the opposite of what the report means.
- */
-const embeddingAbsencePatterns = [
-  /source disabled$/i,
-  /^missing (mert_v2|maest|muq|clap) embedding$/i,
-  /^missing content similarity$/i,
-  /^content similarity below threshold$/i,
-  /weight is not positive$/i
-];
-
-function isEmbeddingAbsence(reason: string) {
-  return embeddingAbsencePatterns.some((pattern) => pattern.test(reason));
 }
 
 /**
@@ -173,48 +153,20 @@ const reasonTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> =
     (m) => `Лучшая в группе полнота тегов: ${m[1]}`
   ],
   [
-    /^Direct score vs keeper meets threshold: ([\d.]+) >= ([\d.]+)$/i,
-    (m) => `Прямое совпадение с сохраняемой копией ${Number(m[1]).toFixed(3)} при пороге ${Number(m[2]).toFixed(3)}`
+    // The copy reached the keeper only through another copy, so the reviewer,
+    // not the chain, decides whether it is the same recording.
+    /^no direct fingerprint match with the keeper$/i,
+    () => "Нет прямого совпадения отпечатков с сохраняемой копией"
   ],
   [
-    /^Content similarity meets threshold: ([\d.]+) >= ([\d.]+)$/i,
-    (m) => `Схожесть содержимого ${Number(m[1]).toFixed(3)} при пороге ${Number(m[2]).toFixed(3)}`
+    /^candidate spectrum looks transcoded \((.+)\); the keeper holds the wider band$/i,
+    (m) => `Спектр копии похож на транскод (${m[1]}) — у сохраняемой полоса шире`
   ],
   [
-    /^Keeper track_id=(\d+) outranks candidate track_id=(\d+) by [^$]+tie-break$/i,
-    (m) => `Сохраняемая копия (track_id ${m[1]}) выигрывает у этой (track_id ${m[2]}) по разрешению, формату, битрейту, тегам, дате или id`
+    /^ambiguous chain: not every copy matched the keeper's fingerprint directly$/i,
+    () => "Неоднозначная цепочка: не каждая копия совпала с отпечатком сохраняемой напрямую"
   ],
-  [
-    /^Duration difference is ([\d.]+) seconds?$/i,
-    (m) => `Разница длительностей ${Number(m[1]).toFixed(2)} с`
-  ],
-  [
-    /^Full-band spectrum while (\d+) duplicate cop(?:y|ies) look transcoded$/i,
-    (m) => `Полный спектр, тогда как копий с признаками фейк-битрейта: ${m[1]}`
-  ],
-  [
-    /^SONARA fingerprint-only candidate: exact fingerprint match ([\d.]+) is strong duplicate evidence, but fingerprint evidence alone never authorizes automatic deletion$/i,
-    (m) => `Точный матч отпечатков ${m[1]}`
-  ],
-  [
-    /^SONARA fingerprint-only candidate requires manual review$/i,
-    () => "Кандидат найден только по отпечатку — нужна ручная проверка"
-  ],
-  [/^ambiguous chain: not every candidate has a direct high-confidence match to keeper$/i, () => "Неоднозначная цепочка: не у каждой копии есть прямое уверенное совпадение с сохраняемой"],
-  [/^ambiguous chain$/i, () => "Неоднозначная цепочка совпадений"],
-  [/^weak direct keeper match$/i, () => "Слабое прямое совпадение с сохраняемой копией"],
-  [/^every remaining copy is a suspected transcode; verify spectra by ear$/i, () => "Все оставшиеся копии похожи на фейк-битрейт — сверьте спектры на слух"],
-  [/^duration mismatch$/i, () => "Длительности расходятся сильнее допуска"],
-  [/^missing duration$/i, () => "Нет длительности"],
-  [/^missing content similarity$/i, () => "Нет оценки схожести содержимого"],
-  [/^content similarity below threshold$/i, () => "Схожесть содержимого ниже порога"],
-  [/^(\w+) source disabled$/i, (m) => `Источник ${m[1].toUpperCase()} выключен`],
-  [/^missing (\w+) embedding$/i, (m) => `Нет эмбеддинга ${m[1].toUpperCase()}`],
-  [/^(\w+) weight is not positive$/i, (m) => `Вес ${m[1].toUpperCase()} не положительный`],
-  [
-    /^MERT_V2\+MAEST corroboration below delete safety threshold \(([^)]+)\)$/i,
-    (m) => `Подтверждение MERT-v2+MAEST ниже порога безопасного удаления (${m[1]})`
-  ]
+  [/^every remaining copy is a suspected transcode; verify spectra by ear$/i, () => "Все оставшиеся копии похожи на фейк-битрейт — сверьте спектры на слух"]
 ];
 
 export function translateReason(reason: string) {
@@ -243,57 +195,62 @@ export function groupFingerprintLine(group: AudioDedupGroup): string | null {
       + " — так бывает у винил-рипа против цифры и у ремастеров.";
 }
 
-export type DedupCopyVerdict = { text: string; tone: "safe" | "blocked" | "manual" };
-
 /**
- * Whether the tool may delete this copy on its own, and why not.
+ * What this copy's fingerprint says against the kept one, and who decides.
  *
- * The blocked verdict names the hold and nothing else: its reasons are listed
- * once underneath it by `copyDetailReasons`, and repeating the first of them
- * here printed the same sentence twice on every blocked card.
+ * The tool deletes nothing by itself: the fingerprint is the evidence and the
+ * reviewer is the one who acts on it, so the line states the match and names
+ * whose call the deletion is instead of issuing a verdict of its own.
  */
-export function copyVerdict(
-  file: AudioDedupFile,
-  searchMode: AudioDedupSearchMode | ""
-): DedupCopyVerdict | null {
+export function copyVerdict(file: AudioDedupFile): string | null {
   if (file.role === "keeper") return null;
-  if (file.safe_to_delete) {
-    return {
-      text: "MERT-v2 и MAEST подтвердили совпадение — копию можно удалять автоматически.",
-      tone: "safe"
-    };
-  }
-  if (copyDetailReasons(file, searchMode).length > 0) {
-    return { text: "Автоудаление заблокировано", tone: "blocked" };
-  }
-  return { text: "Требуется ручная проверка.", tone: "manual" };
+  const match = file.fingerprint_vs_keeper;
+  const evidence =
+    match === null
+      ? "Прямого совпадения отпечатков с сохраняемой копией нет"
+      : `Отпечаток против сохраняемой копии ${formatSimilarity(match)}`;
+  return `${evidence} — удаление только по вашей отметке.`;
 }
 
+function normalizeReason(reason: string) {
+  // The keeper's `why_keep` lines end in a period and the review lines do not,
+  // and they are the same sentences to whoever reads them.
+  return reason.replace(/\.$/, "").trim();
+}
+
+/** The one review line `copyVerdict` already opens a duplicate's card with. */
+const verdictReason = /^no direct fingerprint match with the keeper$/i;
+
 /**
- * The report's own wording about this pair, deduplicated.
+ * The report's own wording about this copy, deduplicated.
  *
- * `Manual review required: X.` and `X` are the same fact, so the prefix and the
- * trailing period are stripped before matching. In fingerprint mode the
- * embedding-absence lines are dropped rather than listed: no embedding was
- * loaded by design, so they describe the run, not this pair, and reading them as
- * findings is what made the card confusing.
+ * The keeper carries its `why_keep` lines and a duplicate carries the reasons
+ * the group still needs a look, so the two lists are read together. What the
+ * group or the verdict already states is dropped: the report repeats a
+ * quality-comparison note on every copy it applies to, and printing it once per
+ * card buried the lines that are about that copy alone.
  */
-export function copyDetailReasons(
-  file: AudioDedupFile,
-  searchMode: AudioDedupSearchMode | ""
-): string[] {
-  const seen = new Set<string>();
+export function copyDetailReasons(file: AudioDedupFile, groupReasons: string[] = []): string[] {
+  const seen = new Set(groupReasons.map((reason) => normalizeReason(reason).toLowerCase()));
   const reasons: string[] = [];
-  for (const raw of [...file.reasons, ...file.blocked_reasons]) {
-    const reason = raw.replace(/^manual review required:\s*/i, "").replace(/\.$/, "").trim();
+  for (const raw of [...file.reasons, ...file.review_reasons]) {
+    const reason = normalizeReason(raw);
     if (!reason || isEmptyReason(reason)) continue;
-    if (searchMode !== "embedding" && isEmbeddingAbsence(reason)) continue;
+    if (file.role === "duplicate" && verdictReason.test(reason)) continue;
     const key = reason.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     reasons.push(translateReason(reason));
   }
   return reasons;
+}
+
+/** The group-wide notes: what to look at before marking anything inside it. */
+export function groupReviewReasons(group: AudioDedupGroup): string[] {
+  return group.review_reasons
+    .map(normalizeReason)
+    .filter((reason) => reason && !isEmptyReason(reason))
+    .map(translateReason);
 }
 
 export function selectedTrackIds(selection: DedupSelection, groupId: number): number[] {
@@ -332,16 +289,27 @@ export function selectionGroupCount(selection: DedupSelection) {
  *
  * The server decides for real, including whether the surviving file is still on
  * disk. This mirrors the rule so an impossible choice is refused while the
- * reviewer is still making it.
+ * reviewer is still making it — but only where the screen holds the whole
+ * group: a copy the filter kept off screen survives whatever is marked here.
  */
 export function groupSurvivesSelection(group: AudioDedupGroup, trackIds: number[]) {
+  if (group.hidden_file_count > 0) return true;
   return group.files.some((file) => !trackIds.includes(file.track_id));
 }
 
-/** The tool's own recommendation: keep the suggested keeper, drop the rest. */
+/**
+ * The tool's own recommendation for the copies on screen.
+ *
+ * With the whole group visible it is the usual one: keep the suggested keeper,
+ * drop the rest. Under a filter that hid part of the group the keeper on screen
+ * is a copy like any other, because what survives is off screen, so every shown
+ * copy may be marked. A stale row is left out either way: the report no longer
+ * describes the file behind it.
+ */
 export function suggestedGroupSelection(group: AudioDedupGroup): number[] {
+  const partlyHidden = group.hidden_file_count > 0;
   return group.files
-    .filter((file) => file.role === "duplicate" && !file.stale)
+    .filter((file) => !file.stale && (partlyHidden || file.role === "duplicate"))
     .map((file) => file.track_id);
 }
 
@@ -363,7 +331,10 @@ export function selectionSummary(groups: AudioDedupGroup[], selection: DedupSele
 export function buildDeleteRequest(
   groups: AudioDedupGroup[],
   selection: DedupSelection,
-  deletionMode: AudioDedupDeletionMode
+  deletionMode: AudioDedupDeletionMode,
+  // The filter the review was reading under, carried so the server can refuse a
+  // copy that was never on screen.
+  pathFilter: string
 ): { ok: true; payload: AudioDedupDeleteRequest } | { ok: false; error: string } {
   const selections = Object.entries(selection)
     .map(([groupId, trackIds]) => ({ group_id: Number(groupId), track_ids: trackIds }))
@@ -384,6 +355,7 @@ export function buildDeleteRequest(
     ok: true,
     payload: {
       selections,
+      path_filter: pathFilter,
       deletion_mode: deletionMode,
       confirmation: applyDeleteConfirmation
     }
@@ -512,17 +484,103 @@ function bitDepthLabel(bits: number | null) {
  * at 900 kbps next to the WAV it came from at 1411 kbps carries the same
  * 44,100 Hz / 16-bit samples.
  */
-export function fileSpecLine(file: AudioDedupFile) {
+export type DedupSpecCell = { key: string; text: string };
+
+export function fileSpecCells(file: AudioDedupFile): DedupSpecCell[] {
   return [
-    file.audio_format || "—",
-    fileBitrateLabel(file),
-    sampleRateLabel(file.sample_rate_hz),
-    bitDepthLabel(file.bit_depth),
-    formatBytes(file.size),
-    formatSeconds(file.duration)
-  ]
-    .filter(Boolean)
-    .join(" / ");
+    { key: "format", text: file.audio_format || "—" },
+    { key: "bitrate", text: fileBitrateLabel(file) ?? "—" },
+    { key: "sample_rate", text: sampleRateLabel(file.sample_rate_hz) ?? "—" },
+    { key: "bit_depth", text: bitDepthLabel(file.bit_depth) ?? "—" },
+    { key: "size", text: formatBytes(file.size) },
+    { key: "duration", text: formatSeconds(file.duration) }
+  ];
+}
+
+/**
+ * The spec keys that actually separate the copies on screen.
+ *
+ * Two copies of one recording agree on most of this line, and reading six
+ * identical tokens twice to find the one that differs is the work the review
+ * should not ask for. The cards keep every token in the same position and lift
+ * only the ones that disagree.
+ */
+export function differingSpecKeys(files: AudioDedupFile[]): Set<string> {
+  const differing = new Set<string>();
+  if (files.length < 2) return differing;
+  const byKey = new Map<string, Set<string>>();
+  for (const file of files) {
+    for (const cell of fileSpecCells(file)) {
+      const seen = byKey.get(cell.key) ?? new Set<string>();
+      seen.add(cell.text);
+      byKey.set(cell.key, seen);
+    }
+  }
+  for (const [key, values] of byKey) {
+    if (values.size > 1) differing.add(key);
+  }
+  return differing;
+}
+
+/** The folder holding a copy: the file name is already the card's heading. */
+export function copyDirectory(path: string) {
+  const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return separator > 0 ? path.slice(0, separator) : path;
+}
+
+/**
+ * The scan reports its progress in the engine's own English. The review is
+ * Russian, and the counter in the section title is the one place a long run
+ * speaks to the reviewer, so the step and the finished state are translated
+ * here rather than renamed in the engine.
+ */
+const scanStepTranslations: Record<string, string> = {
+  "Reading database": "чтение базы",
+  "Loading scoped tracks": "загрузка треков",
+  "Matching SONARA fingerprints": "сверка отпечатков",
+  "Loading saved SONARA fingerprint sketches": "загрузка отпечатков",
+  "Verifying SONARA fingerprint candidates": "проверка кандидатов",
+  "Searching duplicate pairs": "поиск пар",
+  "Building duplicate groups": "сборка групп",
+  "No fingerprint duplicates": "дубликатов нет",
+  "Analyzing spectra of duplicate-group files": "анализ спектра",
+  "Writing reports": "запись отчёта",
+  "Reports written": "отчёт записан"
+};
+
+const scanStateTranslations: Record<string, string> = {
+  queued: "в очереди",
+  running: "идёт поиск",
+  completed: "готово",
+  cancelled: "остановлено",
+  failed: "ошибка"
+};
+
+export function scanStepLabel(step: string) {
+  const known = scanStepTranslations[step];
+  if (known) return known;
+  // The one step that carries its own number: "Loaded 63220 scoped tracks".
+  const loaded = step.match(/^Loaded (\d+) scoped tracks$/);
+  if (loaded) return `загружено треков: ${loaded[1]}`;
+  return step;
+}
+
+export function scanStateLabel(state: string) {
+  return scanStateTranslations[state] ?? state;
+}
+
+/** The copy that survives leads the group, whatever order the report kept. */
+export function orderedGroupFiles(files: AudioDedupFile[]) {
+  return [...files].sort((left, right) => {
+    if (left.role === right.role) return left.track_id - right.track_id;
+    return left.role === "keeper" ? -1 : 1;
+  });
+}
+
+/** What this group's current marks amount to: what goes, what is left. */
+export function groupSelectionOutcome(group: AudioDedupGroup, trackIds: number[]) {
+  const marked = group.files.filter((file) => trackIds.includes(file.track_id)).length;
+  return { marked, surviving: group.files.length - marked + group.hidden_file_count };
 }
 
 /**

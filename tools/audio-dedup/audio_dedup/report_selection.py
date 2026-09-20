@@ -5,36 +5,15 @@ from typing import Collection, Iterable
 from dj_track_similarity.track_models import TrackIdentity
 
 
-def _safe_candidate_count(payload: dict[str, object]) -> int:
-    stats = payload.get("statistics", {})
-    if isinstance(stats, dict):
-        return int(stats.get("safe_candidate_count", 0) or 0)
-    return len(safe_delete_candidates(payload))
-
-
-def safe_delete_candidates(payload: dict[str, object]) -> list[dict[str, object]]:
-    candidates: list[dict[str, object]] = []
-    for group in payload.get("groups", []):
-        if not isinstance(group, dict):
-            continue
-        for candidate in group.get("candidate_deletes", []):
-            if not isinstance(candidate, dict):
-                continue
-            if candidate.get("decision") == "delete_candidate" and candidate.get("safe_to_delete") == "true_candidate":
-                candidates.append(candidate)
-    return candidates
-
-
 def selected_delete_candidates(
     payload: dict[str, object],
     selected_track_ids: Collection[int],
 ) -> list[dict[str, object]]:
     """Report entries a reviewer explicitly chose to delete.
 
-    Fingerprint mode never marks a candidate safe to delete, so manual review is
-    the only path to deletion there. The selection therefore replaces the
-    safe-delete filter instead of narrowing it, and any group member can be
-    chosen, including the suggested keeper.
+    A fingerprint match is duplicate evidence, never an authorization to
+    delete, so the reviewer's selection is the only path to deletion. Any group
+    member can be chosen, including the suggested keeper.
     """
     selected = set()
     for track_id in selected_track_ids:

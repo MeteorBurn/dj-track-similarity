@@ -1,37 +1,44 @@
-import { AlertTriangle, CheckCircle2, Crown, Pause, Play, ShieldAlert, Trash2 } from "lucide-react";
-import type { AudioDedupFile, AudioDedupGroup, AudioDedupSearchMode } from "./api";
+import { AlertTriangle, Crown, Pause, Play, Trash2 } from "lucide-react";
+import type { AudioDedupFile, AudioDedupGroup } from "./api";
 import { helpText } from "./helpText";
 import {
   confidenceLabel,
   copiesWord,
   copyDetailReasons,
+  copyDirectory,
   copyVerdict,
+  differingSpecKeys,
   fileQualityLine,
-  fileSpecLine,
+  fileSpecCells,
   fileSpectralBadge,
   formatSimilarity,
   groupFingerprintLine,
+  groupReviewReasons,
+  groupSelectionOutcome,
   groupSurvivesSelection,
+  orderedGroupFiles,
   suggestedGroupSelection
 } from "./audioDedupView";
 
 function FileCard({
   file,
-  searchMode,
+  groupReasons,
+  differingSpecs,
   selected,
   playing,
   onToggle,
   onPreview
 }: {
   file: AudioDedupFile;
-  searchMode: AudioDedupSearchMode | "";
+  groupReasons: string[];
+  differingSpecs: Set<string>;
   selected: boolean;
   playing: boolean;
   onToggle: () => void;
   onPreview: () => void;
 }) {
-  const verdict = copyVerdict(file, searchMode);
-  const details = copyDetailReasons(file, searchMode);
+  const verdict = copyVerdict(file);
+  const details = copyDetailReasons(file, groupReasons);
   const spectral = fileSpectralBadge(file);
   const quality = fileQualityLine(file);
   const isKeeper = file.role === "keeper";
@@ -74,11 +81,22 @@ function FileCard({
       </header>
 
       <p className="dedup-copy-path" title={file.path}>
-        {file.path}
+        {copyDirectory(file.path)}
       </p>
 
       <div className="dedup-copy-specs">
-        <span className="dedup-spec-main">{fileSpecLine(file)}</span>
+        {/* Same six positions on every card, so two copies compare column by
+            column; the tokens that disagree are the only ones lifted. */}
+        <span className="dedup-spec-main">
+          {fileSpecCells(file).map((cell) => (
+            <span
+              className={`dedup-spec-cell ${differingSpecs.has(cell.key) ? "differs" : ""}`}
+              key={cell.key}
+            >
+              {cell.text}
+            </span>
+          ))}
+        </span>
         <span className={`dedup-spectral dedup-spectral-${spectral.tone}`}>
           {spectral.tone === "warn" ? <AlertTriangle size={12} /> : null}
           {spectral.text}
@@ -93,19 +111,13 @@ function FileCard({
         </p>
       ) : null}
 
-      {verdict ? (
-        <p className={`dedup-verdict dedup-verdict-${verdict.tone}`}>
-          {verdict.tone === "safe" ? <CheckCircle2 size={12} /> : null}
-          {verdict.tone === "blocked" ? <ShieldAlert size={12} /> : null}
-          {verdict.text}
-        </p>
-      ) : null}
+      {verdict ? <p className="dedup-verdict dedup-verdict-manual">{verdict}</p> : null}
 
       {details.length > 0 ? (
         <div className="dedup-copy-details">
-          {/* The blocked verdict above already titles this list; the kept copy
-              has no verdict, so its reasons need a label of their own. */}
-          {verdict ? null : <span className="dedup-copy-details-title">Подробности</span>}
+          {/* The verdict above states the fingerprint rather than titling this
+              list, so the evidence under it is labelled on every card. */}
+          <span className="dedup-copy-details-title">Подробности</span>
           <ul>
             {details.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -132,7 +144,6 @@ function FileCard({
 
 export function AudioDedupGroupCard({
   group,
-  searchMode,
   selectedTrackIds,
   playingTrackId,
   onToggleFile,
@@ -140,7 +151,6 @@ export function AudioDedupGroupCard({
   onPreview
 }: {
   group: AudioDedupGroup;
-  searchMode: AudioDedupSearchMode | "";
   selectedTrackIds: number[];
   playingTrackId: number | null;
   onToggleFile: (groupId: number, trackId: number) => void;
@@ -149,6 +159,11 @@ export function AudioDedupGroupCard({
 }) {
   const survives = groupSurvivesSelection(group, selectedTrackIds);
   const fingerprintLine = groupFingerprintLine(group);
+  const reviewReasons = groupReviewReasons(group);
+  const hiddenCopies = group.hidden_file_count;
+  const files = orderedGroupFiles(group.files);
+  const differingSpecs = differingSpecKeys(group.files);
+  const outcome = groupSelectionOutcome(group, selectedTrackIds);
 
   return (
     <section className={`dedup-group ${selectedTrackIds.length > 0 ? "has-selection" : ""}`}>
@@ -172,11 +187,22 @@ export function AudioDedupGroupCard({
             фейк-битрейт {group.suspected_transcode_count}
           </span>
         ) : null}
+        {/* The outcome of the marks, where the marks are made: how many copies
+            leave and how many stay, counting the ones the filter hides. */}
+        {outcome.marked > 0 ? (
+          <span className="dedup-chip dedup-chip-outcome">
+            удалить {outcome.marked} · останется {outcome.surviving}
+          </span>
+        ) : null}
         <div className="dedup-group-actions">
           <button
             className="dedup-ghost-button"
             type="button"
-            title="Пометить всё, кроме предложенной к сохранению копии"
+            title={
+              hiddenCopies > 0
+                ? "Пометить все показанные копии — вне фильтра остаются другие"
+                : "Пометить всё, кроме предложенной к сохранению копии"
+            }
             onClick={() => onSetGroup(group.group_id, suggestedGroupSelection(group))}
           >
             По рекомендации
@@ -195,6 +221,23 @@ export function AudioDedupGroupCard({
 
       {fingerprintLine ? <p className="dedup-group-fingerprint">{fingerprintLine}</p> : null}
 
+      {/* The filter shows part of the group. The rest is still on disk and
+          still survives, which is why everything visible here may be marked. */}
+      {hiddenCopies > 0 ? (
+        <p className="dedup-group-hidden">
+          Ещё {hiddenCopies} {copiesWord(hiddenCopies)} вне фильтра — они останутся на диске.
+        </p>
+      ) : null}
+
+      {/* What holds for the whole group, stated once above the cards rather
+          than repeated on each copy it applies to. */}
+      {reviewReasons.map((reason) => (
+        <p className="dedup-group-warning" key={reason}>
+          <AlertTriangle size={13} />
+          {reason}
+        </p>
+      ))}
+
       {!survives ? (
         <p className="dedup-group-warning">
           <AlertTriangle size={13} />
@@ -203,11 +246,12 @@ export function AudioDedupGroupCard({
       ) : null}
 
       <div className="dedup-copies">
-        {group.files.map((file) => (
+        {files.map((file) => (
           <FileCard
             key={file.track_id}
             file={file}
-            searchMode={searchMode}
+            groupReasons={group.review_reasons}
+            differingSpecs={differingSpecs}
             selected={selectedTrackIds.includes(file.track_id)}
             playing={playingTrackId === file.track_id}
             onToggle={() => onToggleFile(group.group_id, file.track_id)}

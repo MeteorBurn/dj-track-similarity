@@ -9,10 +9,6 @@ from . import models as models_module
 _T = TypeVar("_T")
 
 
-def _bool_text(value: bool) -> str:
-    return "true" if value else "false"
-
-
 def normalize_path_text(path: str | Path) -> str:
     text = str(path).strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
@@ -65,11 +61,6 @@ def _string_or_none(value: object) -> str | None:
 def _round_float(value: object) -> float | None:
     number = _float_or_none(value)
     return None if number is None else round(number, 6)
-
-
-def _format_float(value: object) -> str:
-    number = _float_or_none(value)
-    return "" if number is None else f"{number:.6f}"
 
 
 def _chunks(values: list[_T], size: int) -> Iterable[list[_T]]:

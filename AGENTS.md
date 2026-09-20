@@ -176,11 +176,12 @@ work unverified rather than inventing its instructions.
   backup on failure; it deletes the backup after a verified write or a
   successful restore (a failed restore keeps it). `--no-backup` (rejected with
   `--backup-dir` under `--apply`) drops both backup and rollback. Audio Dedup
-  is report-first; deletion needs `APPLY DELETE`, stays inside the report root,
-  rechecks track identity and file facts, and keeps at least one copy on disk
-  per group. The CLI permanently deletes only safe candidates; the browser
-  deletes reviewer-selected copies (any group member, recycle bin by default).
-  Never run apply modes for QA.
+  finds duplicates from stored SONARA fingerprints alone; a fingerprint match is
+  evidence, never authorization. It is report-first: deletion needs
+  `APPLY DELETE`, stays inside the report root, rechecks track identity and file
+  facts, and keeps at least one copy on disk per group. Its CLI is report-only;
+  the browser deletes reviewer-selected copies (any group member, recycle bin by
+  default). Never run apply modes for QA.
 - Classifier scoring is database-only, scoped by classifier key, and must
   validate promoted manifest feature order and artifact hashes.
 - Automated model/audio/database tests use temporary SQLite/WAV fixtures and

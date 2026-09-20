@@ -21,12 +21,12 @@ def test_main_prints_absolute_report_paths(monkeypatch, capsys, tmp_path: Path) 
         json_path=Path("reports/dedup.json"),
         xlsx_path=Path("reports/dedup.xlsx"),
         log_path=Path("reports/dedup.log"),
-        payload={"statistics": {}, "rhythm_lab": {}},
+        payload={"statistics": {}, "fingerprint_retrieval": {"valid_stored_fingerprint_count": 2}},
         groups=0,
     )
     monkeypatch.setattr(core_module, "run_report", lambda **_kwargs: result)
 
-    assert cli_module.main(["--root", "C:/music"]) == 0
+    assert cli_module.main([]) == 0
 
     output = capsys.readouterr().out
     assert f"json={result.json_path.resolve()}" in output

@@ -3,6 +3,7 @@ import {
   api,
   type AnalysisJobStatus,
   type AnalysisPipelineStatus,
+  type AudioDedupJobStatus,
   type ScanStats,
   type GenreTagJobStatus,
   type DatabaseValidationJobStatus,
@@ -49,6 +50,7 @@ export function useJobState({
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
   const [databaseValidationJob, setDatabaseValidationJob] = useState<DatabaseValidationJobStatus | null>(null);
   const [databaseOptimizationJob, setDatabaseOptimizationJob] = useState<DatabaseOptimizationJobStatus | null>(null);
+  const [audioDedupJob, setAudioDedupJob] = useState<AudioDedupJobStatus | null>(null);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(
     (analysisJob && ["queued", "running"].includes(analysisJob.state))
@@ -57,6 +59,7 @@ export function useJobState({
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const databaseValidationRunning = Boolean(databaseValidationJob && ["queued", "running"].includes(databaseValidationJob.state));
   const databaseOptimizationRunning = Boolean(databaseOptimizationJob && ["queued", "running"].includes(databaseOptimizationJob.state));
+  const audioDedupRunning = Boolean(audioDedupJob && ["queued", "running"].includes(audioDedupJob.state));
 
   const reportPollError = (error: unknown) => {
     setNotice({ kind: "error", text: errorText(error) });
@@ -140,6 +143,19 @@ export function useJobState({
       }
     }
   }, reportPollError);
+
+  // The scan only reads the library, so nothing is refreshed when it ends: what
+  // it produced is a report, and the dedup dialog reads that listing itself.
+  useJobPolling(audioDedupJob, 1200, (job) => api.audioDedupJob(job.job_id), (job) => {
+    setAudioDedupJob(job);
+    if (job.state === "completed") {
+      appendActivity("ok", "Поиск дубликатов завершён", audioDedupJobSummary(job));
+    }
+    if (job.state === "cancelled") {
+      appendActivity("warn", "Поиск дубликатов остановлен", audioDedupJobSummary(job));
+    }
+  }, reportPollError);
+
   async function loadLatestJobs(promotedClassifiers = classifiers) {
     await Promise.all([
       api.latestScanJob().then((job) => {
@@ -182,6 +198,12 @@ export function useJobState({
           setDatabaseOptimizationJob(job);
           if (["queued", "running"].includes(job.state)) setProcessLogKind("database_optimization");
         }
+      }).catch(() => undefined),
+      api.latestAudioDedupJob().then((job) => {
+        if (job) {
+          setAudioDedupJob(job);
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("audio_dedup");
+        }
       }).catch(() => undefined)
     ]);
   }
@@ -199,17 +221,25 @@ export function useJobState({
     setDatabaseValidationJob,
     databaseOptimizationJob,
     setDatabaseOptimizationJob,
+    audioDedupJob,
+    setAudioDedupJob,
     scanRunning,
     analysisRunning,
     genreTagRunning,
     databaseValidationRunning,
     databaseOptimizationRunning,
+    audioDedupRunning,
     loadLatestJobs,
   };
 }
 
 function genreTagJobSummary(job: GenreTagJobStatus) {
   return `записано ${job.applied} · пропущено ${job.skipped} · ошибок ${job.failed} · всего ${job.total}`;
+}
+
+function audioDedupJobSummary(job: AudioDedupJobStatus) {
+  // Copies to review: every group member other than the suggested keeper.
+  return `групп ${job.groups} · копий на разбор ${job.duplicate_copies} · отпечатков ${job.valid_fingerprints}`;
 }
 
 function useJobPolling<Job extends { job_id?: string | null; state?: string }>(

@@ -2,27 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 import sqlite3
-from typing import Iterable
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db.embeddings import read_valid_embeddings
 from dj_track_similarity.db.tracks import canonical_file_path, ordinal_path_key
 
-from . import config as config_module
 from . import models as models_module
 from . import progress as progress_module
 from . import values as values_module
 
 TRACK_LOAD_CHUNK_SIZE = 200
-EMBEDDING_LOAD_CHUNK_SIZE = 200
 
 
 def load_tracks(
     database: LibraryDatabase | Path,
     *,
-    root: Path | None,
     path_contains: list[str],
-    sources: Iterable[str] | None = None,
     progress_callback: models_module.ProgressCallback | None = None,
 ) -> list[models_module.TrackRecord]:
     selected_database = (
@@ -30,15 +24,7 @@ def load_tracks(
         if isinstance(database, LibraryDatabase)
         else _resolve_database(database=None, db_path=database)
     )
-    root_text = canonical_file_path(root) if root is not None else ""
     contains = [ordinal_path_key(item) for item in path_contains if item.strip()]
-    selected_sources = tuple(config_module.SUPPORTED_EMBEDDINGS if sources is None else sources)
-    unsupported_sources = set(selected_sources) - set(config_module.SUPPORTED_EMBEDDINGS)
-    if unsupported_sources:
-        raise ValueError(
-            "Unsupported embedding source(s): "
-            + ", ".join(sorted(unsupported_sources))
-        )
     connection = selected_database.connect()
     try:
         active_track_count = int(
@@ -71,13 +57,6 @@ def load_tracks(
                 ft.tag_bpm,
                 ft.tag_key,
                 ft.genres_json,
-                s.detected_bpm,
-                s.danceability_score,
-                s.energy_score,
-                s.valence_score,
-                s.acousticness_score,
-                s.spectral_centroid_hz,
-                s.onset_density_per_second,
                 s.dynamic_range_db,
                 s.loudness_range_lu,
                 s.true_peak_dbtp,
@@ -95,7 +74,7 @@ def load_tracks(
         processed = 0
         while rows := cursor.fetchmany(TRACK_LOAD_CHUNK_SIZE):
             for row in rows:
-                if _path_matches(row["file_path"], root_text, contains):
+                if _path_matches(row["file_path"], contains):
                     tracks.append(
                         _track_from_row(
                             row,
@@ -109,13 +88,6 @@ def load_tracks(
                 active_track_count,
                 "Loading scoped tracks",
             )
-        _attach_embeddings(
-            connection,
-            tracks,
-            catalog_uuid=selected_database.catalog_uuid,
-            sources=selected_sources,
-            progress_callback=progress_callback,
-        )
     finally:
         connection.close()
     return tracks
@@ -160,13 +132,6 @@ def _track_from_row(
     sonara_features = {
         key: value
         for key, value in {
-            "bpm": row["detected_bpm"],
-            "danceability": row["danceability_score"],
-            "energy": row["energy_score"],
-            "valence": row["valence_score"],
-            "acousticness": row["acousticness_score"],
-            "spectral_centroid_mean": row["spectral_centroid_hz"],
-            "onset_density": row["onset_density_per_second"],
             "dynamic_range_db": row["dynamic_range_db"],
             "loudness_range_lu": row["loudness_range_lu"],
             "true_peak_dbtp": row["true_peak_dbtp"],
@@ -200,76 +165,13 @@ def _track_from_row(
         musical_key=values_module._string_or_none(row["tag_key"]),
         duration=values_module._float_or_none(row["audio_duration_seconds"]),
         metadata=metadata,
-        embeddings={},
         catalog_uuid=catalog_uuid,
         track_uuid=str(row["track_uuid"]),
         file_modified_ns=modified_ns,
     )
 
 
-def _attach_embeddings(
-    connection: sqlite3.Connection,
-    tracks: list[models_module.TrackRecord],
-    *,
-    catalog_uuid: str,
-    sources: Iterable[str] = config_module.SUPPORTED_EMBEDDINGS,
-    progress_callback: models_module.ProgressCallback | None = None,
-) -> None:
-    if not tracks:
-        return
-    embeddings_by_track = {track.track_id: {} for track in tracks}
-    identity_by_track = {
-        track.track_id: track.track_uuid
-        for track in tracks
-    }
-    track_ids = [track.track_id for track in tracks]
-    for family in sources:
-        if family not in config_module.SUPPORTED_EMBEDDINGS:
-            raise ValueError(f"Unsupported embedding source: {family}")
-        message = f"Loading {family.upper()} embeddings"
-        progress_module._report_progress(progress_callback, 0, len(track_ids), message)
-        processed = 0
-        for chunk in values_module._chunks(track_ids, EMBEDDING_LOAD_CHUNK_SIZE):
-            # The application's own reader owns "what is a valid stored
-            # embedding", including MERT-v2's one-layer-per-family rule. A
-            # second copy here is what previously let all 24 layers land in
-            # one slot.
-            vectors = read_valid_embeddings(
-                family=family,
-                identities={
-                    track_id: identity_by_track[track_id] for track_id in chunk
-                },
-                catalog_uuid=catalog_uuid,
-                connection=connection,
-            )
-            for track_id, vector in vectors.items():
-                embeddings_by_track[track_id][family] = vector
-            processed += len(chunk)
-            progress_module._report_progress(progress_callback, processed, len(track_ids), message)
-    for index, track in enumerate(tracks):
-        tracks[index] = models_module.TrackRecord(
-            track_id=track.track_id,
-            path=track.path,
-            size=track.size,
-            mtime=track.mtime,
-            artist=track.artist,
-            title=track.title,
-            album=track.album,
-            bpm=track.bpm,
-            musical_key=track.musical_key,
-            duration=track.duration,
-            metadata=track.metadata,
-            embeddings=embeddings_by_track[track.track_id],
-            catalog_uuid=track.catalog_uuid,
-            track_uuid=track.track_uuid,
-            file_modified_ns=track.file_modified_ns,
-        )
-
-def _path_matches(path: str, root: str, contains: list[str]) -> bool:
-    """An empty root means the whole database; deletion never passes one."""
+def _path_matches(path: str, contains: list[str]) -> bool:
+    """Whether one stored path carries every requested fragment."""
     key = canonical_file_path(path)
-    if root:
-        root_key = canonical_file_path(root).rstrip("/")
-        if key != root_key and not key.startswith(root_key + "/"):
-            return False
     return all(item in key for item in contains)

@@ -74,6 +74,6 @@ are relative to this file. These guides are read by task, not imported as a batc
   classifier scores; never write them to `classifier_scores` or audio files.
 - Browser search tabs are rank-only: use `Limit`, preserve descending scores,
   and do not add a minimum-similarity threshold. API/CLI thresholds and Audio
-  Dedup content gates are separate workflows.
+  Dedup fingerprint thresholds are separate workflows.
 - Delegate text-search/model-choice work with `text-music-search`. Reliability claims
   require a committed `scripts/text_prompt_benchmark.py` table.

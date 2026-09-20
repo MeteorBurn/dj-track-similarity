@@ -4953,9 +4953,9 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 }
 
 .dedup-dialog {
-  /* The natural width of the widest search mode, shared with the run button in
-     the row below so the two read as one column instead of two ragged edges. */
-  --dedup-run-control-width: 241px;
+  /* The natural width of the widest search mode, so the select does not
+     resize as the reviewer switches between the two. */
+  --dedup-mode-control-width: 241px;
   background: var(--surface);
   border: 1px solid var(--button-border);
   border-radius: 10px;
@@ -5067,11 +5067,15 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   flex: 1 1 220px;
 }
 
-.dedup-mode-control,
+.dedup-mode-control {
+  flex: 0 0 var(--dedup-mode-control-width);
+  width: var(--dedup-mode-control-width);
+}
+
+/* The run button sits in the same row as the mode and the spectral toggle, so
+   it takes the width of its own label rather than mirroring the select. */
 .dedup-run-button {
-  flex: 0 0 var(--dedup-run-control-width);
   justify-content: center;
-  width: var(--dedup-run-control-width);
 }
 
 .dedup-control-narrow {
@@ -5116,14 +5120,14 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   outline: none;
 }
 
-.dedup-path-row {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 34px;
-}
-
-.dedup-path-row > input {
-  text-overflow: ellipsis;
+/* A filter with no report behind it, or one a running scan is about to
+   replace, has to read as unavailable rather than as an empty field. */
+.dedup-control input:disabled,
+.dedup-control select:disabled {
+  background: var(--surface-disabled);
+  border-color: var(--surface-disabled-border);
+  color: var(--text-disabled);
+  cursor: not-allowed;
 }
 
 .dedup-toggle {
@@ -5159,11 +5163,22 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   border-color: var(--border-strong);
 }
 
-/* Sits in the scan row beside the search button, at its baseline. */
-.dedup-scan-hint {
-  align-self: center;
+/* The selected mode explained in full under the row that selects it: the
+   modes differ in what they can find, not only in how long they take, and a
+   tooltip is the wrong place for the one decision taken before a long run. */
+.dedup-mode-description {
   color: var(--text-muted);
   font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 76ch;
+}
+
+/* What the applied filter caught, stated under the row that applied it. */
+.dedup-filter-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
 }
 
 .dedup-primary-button,
@@ -5324,10 +5339,12 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   margin-left: -3px;
 }
 
-/* The fingerprint verdict is about the pair rather than about either copy, so
-   it reads as a full sentence under the group's chips and above both cards,
-   where it no longer competes with the group actions for the same row. */
-.dedup-group-fingerprint {
+/* Sentences about the group as a whole: the fingerprint verdict is about the
+   pair rather than about either copy, and the hidden-copy count is about what
+   the filter left off screen. Both read under the group's chips and above the
+   cards, where they no longer compete with the group actions for the same row. */
+.dedup-group-fingerprint,
+.dedup-group-hidden {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.4;
@@ -5384,6 +5401,15 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   background: var(--warning-bg);
   border-color: var(--warning-border);
   color: var(--warning-text);
+}
+
+/* What the marks in this group add up to. It appears only once something is
+   marked, so a head with no chip here is a group nothing will happen to. */
+.dedup-chip-outcome {
+  background: var(--danger-soft-bg);
+  border-color: var(--danger-soft-border);
+  color: var(--danger-text);
+  font-variant-numeric: tabular-nums;
 }
 
 .dedup-group-warning {
@@ -5513,10 +5539,10 @@ button.dedup-play-button {
 .dedup-copy-path {
   color: var(--text-muted);
   cursor: text;
-  /* Two copies usually share a file name and differ only by folder, so the
-     directory is the discriminator and has to stay readable. Two lines of it
-     are reserved in every card and the rest is in the tooltip: a deep path
-     must not push one column's technical lines below the other's. */
+  /* The folder alone: the file name is already the card's heading, and two
+     copies of one recording differ by directory. Two lines are reserved in
+     every card and the full path is in the tooltip, so a deep path cannot push
+     one column's technical lines below the other's. */
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   display: -webkit-box;
@@ -5537,13 +5563,37 @@ button.dedup-play-button {
   justify-items: start;
 }
 
-/* The comparison payload: whichever copy wins, it wins on this line. */
+/* The comparison payload: whichever copy wins, it wins on this line. The six
+   facts sit in fixed tracks rather than flowing, so the bitrate of one copy is
+   directly above the bitrate of the other and the eye compares by position
+   instead of by reading. The tracks fit the widest realistic value of each
+   fact: "1,411 kbps", "192,000 Hz", "1.42 GB". */
 .dedup-spec-main {
-  color: var(--text-strong);
+  color: var(--text-muted);
+  display: grid;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  gap: 3px 12px;
+  /* Three tracks over two rows rather than six across: six columns of this
+     type do not fit the narrowest card, where the last fact would be clipped
+     away. Capped tracks keep the positions identical on a wide card too. */
+  grid-template-columns: repeat(3, minmax(0, 116px));
+  justify-content: start;
   letter-spacing: 0.01em;
+  width: 100%;
+}
+
+.dedup-spec-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Only the facts that disagree between the copies of this group carry full
+   contrast: the shared ones are context, not the decision. */
+.dedup-spec-cell.differs {
+  color: var(--text-strong);
 }
 
 .dedup-spec-muted {
@@ -5583,8 +5633,8 @@ button.dedup-play-button {
 }
 
 /* The verdict and the stale note share one shape: a tinted line that says in
-   one glance whether this copy may be deleted by the tool, by hand, or not at
-   all. Everything under it explains that line rather than restating it. */
+   one glance what the fingerprint found against the kept copy, or why this one
+   can no longer be acted on. Everything under it explains that line. */
 .dedup-verdict,
 .dedup-copy-stale-note {
   align-items: flex-start;
@@ -5607,16 +5657,6 @@ button.dedup-play-button {
 .dedup-copy-stale-note {
   background: var(--danger-soft-bg);
   color: var(--danger-text);
-}
-
-.dedup-verdict-safe {
-  background: var(--accent-muted-bg);
-  color: var(--accent);
-}
-
-.dedup-verdict-blocked {
-  background: var(--warning-soft-bg);
-  color: var(--warning-text);
 }
 
 .dedup-verdict-manual {

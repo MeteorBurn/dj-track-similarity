@@ -6,23 +6,24 @@ Local duplicate-audio report and cleanup helper for `dj-track-similarity`.
 .\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --help
 ```
 
-Runs are report-only by default and write JSON, XLSX, and log files under
-`tools\audio-dedup\data\reports`. Apply mode remains explicit and destructive:
-it requires `--apply` plus the `APPLY DELETE` confirmation prompt.
+Duplicates are found from stored SONARA fingerprints and nothing else. The CLI
+is report-only: it writes JSON, XLSX, and log files under
+`tools\audio-dedup\data\reports` and never touches audio. Copies are deleted
+only in the browser, where a reviewer selects them and types `APPLY DELETE`.
 
-Two search modes exist:
+Two search modes exist, both over the same stored fingerprints:
 
-- `--fingerprint` (primary, also the default): search exclusively over stored
-  SONARA fingerprints. No embeddings are loaded, candidates come from
-  fingerprint LSH only, every candidate is verified with the exact native
-  matcher, and only that exact score forms groups. Every reported candidate
-  stays manual-review.
-- `--embedding` (secondary): duplicates are scored from the enabled embedding
-  families (`--source`/`--weight`) with the preset gates; exact fingerprint
-  checks of embedding-shortlisted pairs still add manual-review pairs. This is
-  the only mode that can produce safe delete candidates for `--apply`.
+- `--fingerprint-scan` (primary, also the default): the upstream SONARA
+  duplicate recipe. Each track is matched against the representatives seen so
+  far and joins the first one scoring above 0.30, with candidates bucketed by
+  rounded duration. A copy with a noticeably different duration is out of
+  reach, and this is the slowest of the two.
+- `--fingerprint-lsh`: the same exact native matcher, but candidates come from
+  version-separated fingerprint LSH instead of duration buckets, so copies with
+  different trims and padding pair up too. An exact match needs 0.45 to form a
+  group.
 
-`--detect-fake-bitrate` adds a spectral check to the report step of both modes.
+`--detect-fake-bitrate` adds a spectral check to the report step.
 It is off by default because it decodes every file in every duplicate group.
 With the flag it decodes each duplicate-group file with FFmpeg and
 measures its spectral cutoff. A brickwall below ~19.5 kHz marks the copy as a

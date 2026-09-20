@@ -115,15 +115,9 @@ class RelocateLibraryRequest(BaseModel):
 class AudioDedupScanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    root: str
     path_contains: list[str] = Field(default_factory=list)
-    search_mode: Literal["fingerprint_scan", "fingerprint_lsh", "embedding"] = "fingerprint_scan"
-    preset: Literal["safe", "balanced", "aggressive"] = "safe"
-    min_score: float | None = None
-    min_similarity: float | None = None
+    search_mode: Literal["fingerprint_scan", "fingerprint_lsh"] = "fingerprint_scan"
     limit_groups: int | None = None
-    sources: list[EmbeddingSource] | None = None
-    weights: dict[str, float] | None = None
     detect_fake_bitrate: bool = False
 
 
@@ -137,13 +131,16 @@ class AudioDedupGroupSelection(BaseModel):
 class AudioDedupDeleteRequest(BaseModel):
     """One confirmed batch of reviewer-selected duplicates.
 
-    The confirmation phrase matches the CLI apply prompt: deletion stays an
-    explicit act in both surfaces.
+    Nothing else deletes audio: the scan is report-only, so a copy leaves the
+    disk exactly when a reviewer marked it and typed the confirmation phrase.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     selections: list[AudioDedupGroupSelection] = Field(min_length=1)
+    # The path filter the reviewer had applied. The delete gate re-checks it, so
+    # a copy that was off screen cannot be deleted by a request naming it.
+    path_filter: str = ""
     deletion_mode: Literal["trash", "permanent"] = "trash"
     confirmation: str
 

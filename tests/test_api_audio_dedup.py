@@ -57,7 +57,6 @@ def _track_entry(identity: TrackIdentity, path: Path) -> dict:
         "format_rank": 60,
         "size_per_second": float(stat.st_size),
         "metadata_completeness": 3,
-        "embeddings": [],
         "spectral_cutoff_hz": 22050.0,
         "spectral_sharpness_db": None,
         "suspected_transcode": False,
@@ -69,7 +68,6 @@ def _write_report(
     out_dir: Path,
     *,
     database: LibraryDatabase,
-    root: Path,
     keeper: tuple[TrackIdentity, Path],
     duplicate: tuple[TrackIdentity, Path],
     report_id: str = "audio_dedup_report_20260827_120000",
@@ -79,26 +77,20 @@ def _write_report(
     candidate = {
         **duplicate_entry,
         "role": "DUPLICATE",
-        "decision": "review",
-        "action": "REVIEW MANUALLY",
-        "score_vs_keeper": 1.0,
-        "content_similarity_vs_keeper": None,
-        "safe_to_delete": "false",
-        "blocked_reasons": ["SONARA fingerprint-only candidate requires manual review"],
-        "why_delete_or_review": ["Manual review required: fingerprint-only candidate."],
+        "fingerprint_vs_keeper": 1.0,
+        "review_reasons": ["codec is not stored for ambiguous container(s)"],
     }
     payload = {
-        "mode": "report-only",
         "generated_at": "2026-08-27T12:00:00",
         "database_path": str(database.path),
-        "root": str(root),
         "path_contains": [],
-        "sources": [],
-        "weights": {},
-        "preset": "safe",
-        "min_score": 0.965,
-        "min_similarity": 0.985,
         "search_mode": "fingerprint_scan",
+        "fingerprint_retrieval": {
+            "valid_stored_fingerprint_count": 2,
+            "fingerprint_review_min_similarity": 0.3,
+            "fingerprint_confidence_high": 0.95,
+            "fingerprint_confidence_medium": 0.7,
+        },
         "database_track_count": 2,
         "scoped_track_count": 2,
         "track_count": 2,
@@ -106,46 +98,37 @@ def _write_report(
         "statistics": {
             "candidate_count": 1,
             "duplicate_track_count": 1,
-            "safe_candidate_count": 0,
-            "review_candidate_count": 1,
             "fake_bitrate_candidate_count": 0,
             "fake_bitrate_group_count": 0,
+            "confidence_counts": {"high": 1, "medium": 0, "review": 0},
         },
         "groups": [
             {
                 "group_id": 1,
-                "score": 1.0,
+                "fingerprint_similarity": 1.0,
                 "confidence": "high",
-                "preset": "safe",
-                "blocked_reasons": ["missing content similarity"],
+                "review_reasons": ["codec is not stored for ambiguous container(s)"],
+                "possible_different_master": False,
+                "quality_comparison_requires_review": True,
                 "suggested_keeper": {
                     **keeper_entry,
                     "role": "KEEP",
-                    "decision": "keep",
                     "keeper_reasons": {},
                     "why_keep": ["Highest keeper ranking inside this duplicate group."],
                 },
                 "candidate_deletes": [candidate],
                 "tracks": [
-                    {**keeper_entry, "role": "KEEP", "decision": None},
-                    {**duplicate_entry, "role": "DUPLICATE", "decision": None},
+                    {**keeper_entry, "role": "KEEP"},
+                    {**duplicate_entry, "role": "DUPLICATE"},
                 ],
                 "pairwise_evidence": [
                     {
                         "left_track_id": keeper[0].track_id,
                         "right_track_id": duplicate[0].track_id,
-                        "score": 1.0,
-                        "content_similarity": None,
-                        "mert_v2_similarity": None,
-                        "maest_similarity": None,
-                        "muq_similarity": None,
-                        "clap_similarity": None,
-                        "sonara_similarity": 1.0,
                         "fingerprint_similarity": 1.0,
-                        "candidate_sources": ["fingerprint_lsh"],
+                        "candidate_sources": ["fingerprint_scan"],
                         "duration_diff_seconds": 0.0,
                         "duration_diff_ratio": 0.0,
-                        "blocked_reasons": ["missing content similarity"],
                     }
                 ],
             }
@@ -174,7 +157,6 @@ def _fixture(tmp_path: Path):
     report_id = _write_report(
         out_dir,
         database=database,
-        root=audio_dir,
         keeper=(keeper, keeper_path),
         duplicate=(duplicate, duplicate_path),
     )
@@ -188,7 +170,7 @@ def test_audio_dedup_report_groups_expose_evidence_and_live_staleness(tmp_path, 
     listing = client.get("/api/audio-dedup/reports")
     assert listing.status_code == 200
     assert [item["report_id"] for item in listing.json()] == [report_id]
-    assert listing.json()[0]["review_candidate_count"] == 1
+    assert listing.json()[0]["candidate_count"] == 1
 
     page = client.get(f"/api/audio-dedup/reports/{report_id}/groups")
     assert page.status_code == 200
@@ -196,11 +178,15 @@ def test_audio_dedup_report_groups_expose_evidence_and_live_staleness(tmp_path, 
     assert body["total_groups"] == 1
     assert body["search_mode"] == "fingerprint_scan"
     group = body["groups"][0]
+    assert group["confidence"] == "high"
     assert group["fingerprint_similarity"] == 1.0
     files = {item["track_id"]: item for item in group["files"]}
     assert files[keeper.track_id]["role"] == "keeper"
     assert files[duplicate.track_id]["role"] == "duplicate"
-    assert files[duplicate.track_id]["safe_to_delete"] is False
+    assert files[duplicate.track_id]["fingerprint_vs_keeper"] == 1.0
+    assert files[duplicate.track_id]["review_reasons"] == [
+        "codec is not stored for ambiguous container(s)"
+    ]
     assert files[duplicate.track_id]["stale"] is False
     assert files[duplicate.track_id]["playable"] is True
 
@@ -222,7 +208,6 @@ def test_audio_dedup_reports_list_only_the_selected_database(tmp_path, monkeypat
     other_report_id = _write_report(
         out_dir,
         database=other_database,
-        root=other_root,
         keeper=(_add_track(other_database, other_keeper_path, title="other keeper"), other_keeper_path),
         duplicate=(
             _add_track(other_database, other_duplicate_path, title="other duplicate"),
@@ -275,26 +260,25 @@ def test_audio_dedup_delete_rejects_a_track_outside_its_group(tmp_path, monkeypa
     assert duplicate_path.exists()
 
 
-def test_audio_dedup_delete_refuses_a_whole_database_report(tmp_path, monkeypatch) -> None:
-    """A rootless scan is report-only: deletion has no root to stay inside."""
+def test_audio_dedup_delete_refuses_a_copy_outside_the_review_filter(tmp_path, monkeypatch) -> None:
+    """The filter the reviewer worked under is the boundary of that batch."""
     db_path, out_dir, _, _, duplicate, keeper_path, duplicate_path, report_id = _fixture(tmp_path)
-    report_path = out_dir / report_id / f"{report_id}.json"
-    payload = json.loads(report_path.read_text(encoding="utf-8"))
-    payload["root"] = ""
-    report_path.write_text(json.dumps(payload), encoding="utf-8")
     client = _client(monkeypatch, db_path, out_dir)
 
     response = client.post(
         f"/api/audio-dedup/reports/{report_id}/delete",
         json={
             "selections": [{"group_id": 1, "track_ids": [duplicate.track_id]}],
+            "path_filter": "SomeOtherBranch",
             "deletion_mode": "permanent",
             "confirmation": "APPLY DELETE",
         },
     )
 
-    assert response.status_code == 400
-    assert "root" in response.json()["detail"]
+    assert response.status_code == 200
+    body = response.json()
+    assert body["deleted_track_ids"] == []
+    assert any("outside the review filter" in item for item in body["skipped"])
     assert keeper_path.exists()
     assert duplicate_path.exists()
 
@@ -320,13 +304,19 @@ def test_audio_dedup_delete_removes_the_confirmed_selection(tmp_path, monkeypatc
     assert keeper_path.exists()
 
 
-def test_audio_dedup_scan_rejects_sources_without_embedding_mode(tmp_path, monkeypatch) -> None:
+def test_audio_dedup_scan_request_accepts_only_fingerprint_options(tmp_path, monkeypatch) -> None:
+    """The scan request is the whole option surface: two modes, nothing else."""
     db_path, out_dir, audio_dir, *_ = _fixture(tmp_path)
     client = _client(monkeypatch, db_path, out_dir)
 
-    response = client.post(
+    unknown_option = client.post(
         "/api/audio-dedup/jobs",
-        json={"root": str(audio_dir), "search_mode": "fingerprint_scan", "sources": ["mert_v2"]},
+        json={"search_mode": "fingerprint_scan", "sources": ["mert_v2"]},
+    )
+    unknown_mode = client.post(
+        "/api/audio-dedup/jobs",
+        json={"search_mode": "embedding"},
     )
 
-    assert response.status_code == 400
+    assert unknown_option.status_code == 422
+    assert unknown_mode.status_code == 422

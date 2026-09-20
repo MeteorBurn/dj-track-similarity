@@ -34,14 +34,9 @@ MAX_GROUP_PAGE_LIMIT = 200
 class AudioDedupReportSummary:
     report_id: str
     generated_at: str
-    root: str
     search_mode: str
-    preset: str
-    mode: str
     group_count: int
     candidate_count: int
-    safe_candidate_count: int
-    review_candidate_count: int
     fake_bitrate_candidate_count: int
     fingerprint_min_similarity: float | None
     fingerprint_confidence_high: float | None
@@ -77,10 +72,9 @@ class AudioDedupFile:
     spectral_sharpness_db: float | None
     suspected_transcode: bool
     spectral_note: str | None
-    score_vs_keeper: float | None
-    safe_to_delete: bool
+    fingerprint_vs_keeper: float | None
     reasons: list[str] = field(default_factory=list)
-    blocked_reasons: list[str] = field(default_factory=list)
+    review_reasons: list[str] = field(default_factory=list)
     stale: bool = False
     stale_reason: str | None = None
     playable: bool = False
@@ -90,14 +84,7 @@ class AudioDedupFile:
 class AudioDedupPair:
     left_track_id: int
     right_track_id: int
-    score: float | None
     fingerprint_similarity: float | None
-    sonara_similarity: float | None
-    mert_v2_similarity: float | None
-    maest_similarity: float | None
-    muq_similarity: float | None
-    clap_similarity: float | None
-    content_similarity: float | None
     duration_diff_seconds: float | None
     duration_diff_ratio: float | None
     candidate_sources: list[str] = field(default_factory=list)
@@ -107,23 +94,29 @@ class AudioDedupPair:
 class AudioDedupGroup:
     group_id: int
     confidence: str
-    score: float | None
     fingerprint_similarity: float | None
     suspected_transcode_count: int
     stale_file_count: int
+    # Copies the path filter kept out of `files`. They still exist on disk and
+    # still count as survivors, so the review must know the group is only
+    # partly on screen before marking everything it can see.
+    hidden_file_count: int = 0
     files: list[AudioDedupFile] = field(default_factory=list)
     pairs: list[AudioDedupPair] = field(default_factory=list)
-    blocked_reasons: list[str] = field(default_factory=list)
+    review_reasons: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class AudioDedupGroupPage:
     report_id: str
-    root: str
     search_mode: str
     generated_at: str
     total_groups: int
     filtered_groups: int
+    # Copies the current path filter selects across the whole report, not just
+    # this page: the review shows it so a filter like "mp3" reveals its reach
+    # before anything is marked.
+    filtered_copies: int
     offset: int
     limit: int
     groups: list[AudioDedupGroup] = field(default_factory=list)
@@ -227,45 +220,36 @@ def list_reports(out_dir: Path) -> list[AudioDedupReportSummary]:
     return summaries
 
 
-def _is_fingerprint_scan(payload: dict) -> bool:
-    config_module = load_audio_dedup_module("config")
-    return str(payload.get("search_mode", "")) == config_module.MODE_FINGERPRINT_SCAN
-
-
 def _confidence_bands(payload: dict) -> tuple[float | None, float | None]:
-    """The fingerprint bands a scan report's confidence levels stand for.
+    """The fingerprint bands a report's confidence levels stand for.
 
     A run records its own bands. Reports written before it did are still read
     with the same rule below, so they get the bands in force now rather than
     leaving the review with levels it cannot explain.
     """
-    retrieval = _mapping(payload.get("fingerprint_retrieval"))
-    high = _float_or_none(retrieval.get("fingerprint_confidence_high"))
-    medium = _float_or_none(retrieval.get("fingerprint_confidence_medium"))
+    retrieval = _mapping(payload.get('fingerprint_retrieval'))
+    high = _float_or_none(retrieval.get('fingerprint_confidence_high'))
+    medium = _float_or_none(retrieval.get('fingerprint_confidence_medium'))
     if high is not None and medium is not None:
         return high, medium
-    if not _is_fingerprint_scan(payload):
-        return None, None
-    config_module = load_audio_dedup_module("config")
+    config_module = load_audio_dedup_module('config')
     return (
         float(config_module.FINGERPRINT_CONFIDENCE_HIGH),
         float(config_module.FINGERPRINT_CONFIDENCE_MEDIUM),
     )
 
 
-def _resolved_confidence(group: dict, *, scan_mode: bool) -> str:
+def _resolved_confidence(group: dict) -> str:
     """The confidence the review shows for one group.
 
-    In a fingerprint scan the fingerprint decides it, and deriving it here means
-    a report written before that rule reads the same way as one written after,
-    instead of the level depending on the day its scan ran.
+    The fingerprint decides it, and deriving it here means a report written
+    before that rule reads the same way as one written after, instead of the
+    level depending on the day its scan ran.
     """
-    if not scan_mode:
-        return str(group.get("confidence", ""))
-    keeper_module = load_audio_dedup_module("keeper")
+    keeper_module = load_audio_dedup_module('keeper')
     scores = [
-        _float_or_none(entry.get("fingerprint_similarity"))
-        for entry in _entries(group, "pairwise_evidence")
+        _float_or_none(entry.get('fingerprint_similarity'))
+        for entry in _entries(group, 'pairwise_evidence')
     ]
     best = max((score for score in scores if score is not None), default=None)
     return str(keeper_module.fingerprint_confidence_category(best))
@@ -276,14 +260,9 @@ def _summary(json_path: Path, payload: dict) -> AudioDedupReportSummary:
     return AudioDedupReportSummary(
         report_id=json_path.stem,
         generated_at=str(payload.get("generated_at", "")),
-        root=str(payload.get("root", "")),
         search_mode=str(payload.get("search_mode", "")),
-        preset=str(payload.get("preset", "")),
-        mode=str(payload.get("mode", "")),
         group_count=_int(payload.get("group_count")),
         candidate_count=_int(statistics.get("candidate_count")),
-        safe_candidate_count=_int(statistics.get("safe_candidate_count")),
-        review_candidate_count=_int(statistics.get("review_candidate_count")),
         fake_bitrate_candidate_count=_int(statistics.get("fake_bitrate_candidate_count")),
         # The run's own fingerprint boundary, which the search mode decides. The
         # review filters by it instead of asking the reviewer for a number.
@@ -318,8 +297,8 @@ def group_page(
     path_contains: str = "",
 ) -> AudioDedupGroupPage:
     raw_groups = _groups(payload)
-    scan_mode = _is_fingerprint_scan(payload)
-    resolved = [(group, _resolved_confidence(group, scan_mode=scan_mode)) for group in raw_groups]
+    path_filter = path_filter_key(path_contains)
+    resolved = [(group, _resolved_confidence(group)) for group in raw_groups]
     matching = [
         (group, group_confidence)
         for group, group_confidence in resolved
@@ -329,33 +308,61 @@ def group_page(
             confidence=confidence,
             min_fingerprint=min_fingerprint,
             fake_bitrate_only=fake_bitrate_only,
-            path_contains=path_contains.strip().lower(),
+            path_filter=path_filter,
         )
     ]
     selected_limit = max(1, min(int(limit), MAX_GROUP_PAGE_LIMIT))
     selected_offset = max(0, int(offset))
     window = matching[selected_offset : selected_offset + selected_limit]
-    live_states = _file_states(database, _window_track_ids([group for group, _ in window]))
+    live_states = _file_states(
+        database,
+        _window_track_ids([group for group, _ in window], path_filter=path_filter),
+    )
     return AudioDedupGroupPage(
         report_id=report_id,
-        root=str(payload.get("root", "")),
         search_mode=str(payload.get("search_mode", "")),
         generated_at=str(payload.get("generated_at", "")),
         total_groups=len(raw_groups),
         filtered_groups=len(matching),
+        filtered_copies=sum(
+            len(_selected_members(group, path_filter)) for group, _ in matching
+        ),
         offset=selected_offset,
         limit=selected_limit,
         groups=[
-            _group(group, live_states, confidence=group_confidence)
+            _group(group, live_states, confidence=group_confidence, path_filter=path_filter)
             for group, group_confidence in window
         ],
     )
 
 
-def _window_track_ids(groups: list[dict]) -> list[int]:
+def path_filter_key(text: str) -> str:
+    """One reading of the reviewer's path filter, shared by review and delete.
+
+    Stored paths are POSIX and compared case-insensitively, so typing
+    ``M:\\Volumes\\Abstracted``, ``Volumes/Abstracted`` or ``Abstracted`` selects
+    the same copies. Matching is containment, not a resolved folder: the
+    reviewer types the branch they mean.
+    """
+    return str(text).strip().replace("\\", "/").lower()
+
+
+def _selected_members(group: dict, path_filter: str) -> list[dict]:
+    """Group members the filter shows; without a filter, every member."""
+    members = _members(group)
+    if not path_filter:
+        return members
+    return [
+        entry
+        for entry in members
+        if path_filter in str(entry.get("path", "")).replace("\\", "/").lower()
+    ]
+
+
+def _window_track_ids(groups: list[dict], *, path_filter: str = "") -> list[int]:
     track_ids: list[int] = []
     for group in groups:
-        for entry in _members(group):
+        for entry in _selected_members(group, path_filter):
             track_id = _int(entry.get("track_id"), default=-1)
             if track_id > 0:
                 track_ids.append(track_id)
@@ -395,6 +402,7 @@ def _group(
     live_states: dict[int, TrackFileState],
     *,
     confidence: str,
+    path_filter: str = "",
 ) -> AudioDedupGroup:
     keeper = _mapping(group.get("suggested_keeper"))
     keeper_id = _int(keeper.get("track_id"), default=-1)
@@ -402,9 +410,11 @@ def _group(
         _int(entry.get("track_id"), default=-1): entry
         for entry in _entries(group, "candidate_deletes")
     }
+    members = _members(group)
+    selected = _selected_members(group, path_filter)
     files = [
         _file(entry, keeper=keeper, candidate=candidates.get(_int(entry.get("track_id"), default=-1)), keeper_id=keeper_id, live_states=live_states)
-        for entry in _members(group)
+        for entry in selected
     ]
     pairs = [_pair(entry) for entry in _entries(group, "pairwise_evidence")]
     fingerprint_scores = [
@@ -413,13 +423,13 @@ def _group(
     return AudioDedupGroup(
         group_id=_int(group.get("group_id")),
         confidence=confidence,
-        score=_float_or_none(group.get("score")),
         fingerprint_similarity=max(fingerprint_scores) if fingerprint_scores else None,
         suspected_transcode_count=sum(1 for item in files if item.suspected_transcode),
         stale_file_count=sum(1 for item in files if item.stale),
+        hidden_file_count=len(members) - len(selected),
         files=files,
         pairs=pairs,
-        blocked_reasons=_strings(group.get("blocked_reasons")),
+        review_reasons=_strings(group.get("review_reasons")),
     )
 
 
@@ -435,7 +445,7 @@ def _file(
     path_text = str(entry.get("path", ""))
     is_keeper = track_id == keeper_id
     source = candidate if candidate is not None else entry
-    reasons = _strings(keeper.get("why_keep")) if is_keeper else _strings(source.get("why_delete_or_review"))
+    reasons = _strings(keeper.get("why_keep")) if is_keeper else []
     stale_reason = _stale_reason(entry, live_states.get(track_id))
     state = live_states.get(track_id)
     return AudioDedupFile(
@@ -463,10 +473,9 @@ def _file(
         spectral_sharpness_db=_float_or_none(entry.get("spectral_sharpness_db")),
         suspected_transcode=bool(entry.get("suspected_transcode", False)),
         spectral_note=_text_or_none(entry.get("spectral_note")),
-        score_vs_keeper=_float_or_none(source.get("score_vs_keeper")),
-        safe_to_delete=source.get("safe_to_delete") == "true_candidate",
+        fingerprint_vs_keeper=_float_or_none(source.get("fingerprint_vs_keeper")),
         reasons=reasons,
-        blocked_reasons=_strings(source.get("blocked_reasons")),
+        review_reasons=_strings(source.get("review_reasons")),
         stale=stale_reason is not None,
         stale_reason=stale_reason,
         # A stale copy is still worth hearing, so playability is judged on its
@@ -508,19 +517,12 @@ def _stale_reason(entry: dict, state: TrackFileState | None) -> str | None:
 
 def _pair(entry: dict) -> AudioDedupPair:
     return AudioDedupPair(
-        left_track_id=_int(entry.get("left_track_id")),
-        right_track_id=_int(entry.get("right_track_id")),
-        score=_float_or_none(entry.get("score")),
-        fingerprint_similarity=_float_or_none(entry.get("fingerprint_similarity")),
-        sonara_similarity=_float_or_none(entry.get("sonara_similarity")),
-        mert_v2_similarity=_float_or_none(entry.get("mert_v2_similarity")),
-        maest_similarity=_float_or_none(entry.get("maest_similarity")),
-        muq_similarity=_float_or_none(entry.get("muq_similarity")),
-        clap_similarity=_float_or_none(entry.get("clap_similarity")),
-        content_similarity=_float_or_none(entry.get("content_similarity")),
-        duration_diff_seconds=_float_or_none(entry.get("duration_diff_seconds")),
-        duration_diff_ratio=_float_or_none(entry.get("duration_diff_ratio")),
-        candidate_sources=_strings(entry.get("candidate_sources")),
+        left_track_id=_int(entry.get('left_track_id')),
+        right_track_id=_int(entry.get('right_track_id')),
+        fingerprint_similarity=_float_or_none(entry.get('fingerprint_similarity')),
+        duration_diff_seconds=_float_or_none(entry.get('duration_diff_seconds')),
+        duration_diff_ratio=_float_or_none(entry.get('duration_diff_ratio')),
+        candidate_sources=_strings(entry.get('candidate_sources')),
     )
 
 
@@ -531,7 +533,7 @@ def _group_matches(
     confidence: tuple[str, ...],
     min_fingerprint: float | None,
     fake_bitrate_only: bool,
-    path_contains: str,
+    path_filter: str,
 ) -> bool:
     if confidence and group_confidence not in confidence:
         return False
@@ -547,9 +549,7 @@ def _group_matches(
         best = max((score for score in scores if score is not None), default=None)
         if best is None or best < min_fingerprint:
             return False
-    if path_contains and not any(
-        path_contains in str(entry.get("path", "")).lower() for entry in _members(group)
-    ):
+    if path_filter and not _selected_members(group, path_filter):
         return False
     return True
 

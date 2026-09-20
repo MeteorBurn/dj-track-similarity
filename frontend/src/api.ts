@@ -586,20 +586,14 @@ export type AnalysisPipelineRequest = {
   ml?: MlPipelineSettings;
 };
 
-export type AudioDedupSearchMode = "fingerprint_scan" | "fingerprint_lsh" | "embedding";
+export type AudioDedupSearchMode = "fingerprint_scan" | "fingerprint_lsh";
 
 export type AudioDedupDeletionMode = "trash" | "permanent";
 
 export type AudioDedupScanRequest = {
-  root: string;
   path_contains?: string[];
   search_mode?: AudioDedupSearchMode;
-  preset?: "safe" | "balanced" | "aggressive";
-  min_score?: number | null;
-  min_similarity?: number | null;
   limit_groups?: number | null;
-  sources?: EmbeddingSource[] | null;
-  weights?: Record<string, number> | null;
   detect_fake_bitrate?: boolean;
 };
 
@@ -613,21 +607,15 @@ export type AudioDedupJobEvent = {
 export type AudioDedupJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
-  root: string;
   search_mode: AudioDedupSearchMode;
-  preset: string;
   path_contains: string[];
-  sources: string[];
-  weights: Record<string, number>;
-  min_score: number | null;
-  min_similarity: number | null;
   limit_groups: number | null;
   detect_fake_bitrate: boolean;
   total: number;
   processed: number;
   groups: number;
-  review_candidates: number;
-  safe_candidates: number;
+  // Group members other than the suggested keeper: the copies to review.
+  duplicate_copies: number;
   valid_fingerprints: number;
   current_step: string | null;
   step_started_at: number | null;
@@ -643,14 +631,10 @@ export type AudioDedupJobStatus = {
 export type AudioDedupReportSummary = {
   report_id: string;
   generated_at: string;
-  root: string;
   search_mode: AudioDedupSearchMode | "";
-  preset: string;
-  mode: string;
   group_count: number;
+  // Copies to review: every group member other than the suggested keeper.
   candidate_count: number;
-  safe_candidate_count: number;
-  review_candidate_count: number;
   fake_bitrate_candidate_count: number;
   fingerprint_min_similarity: number | null;
   fingerprint_confidence_high: number | null;
@@ -685,10 +669,10 @@ export type AudioDedupFile = {
   spectral_sharpness_db: number | null;
   suspected_transcode: boolean;
   spectral_note: string | null;
-  score_vs_keeper: number | null;
-  safe_to_delete: boolean;
+  fingerprint_vs_keeper: number | null;
+  // Non-empty only on the keeper, which carries its own why_keep lines.
   reasons: string[];
-  blocked_reasons: string[];
+  review_reasons: string[];
   stale: boolean;
   stale_reason: string | null;
   playable: boolean;
@@ -697,14 +681,7 @@ export type AudioDedupFile = {
 export type AudioDedupPair = {
   left_track_id: number;
   right_track_id: number;
-  score: number | null;
   fingerprint_similarity: number | null;
-  sonara_similarity: number | null;
-  mert_v2_similarity: number | null;
-  maest_similarity: number | null;
-  muq_similarity: number | null;
-  clap_similarity: number | null;
-  content_similarity: number | null;
   duration_diff_seconds: number | null;
   duration_diff_ratio: number | null;
   candidate_sources: string[];
@@ -713,22 +690,25 @@ export type AudioDedupPair = {
 export type AudioDedupGroup = {
   group_id: number;
   confidence: string;
-  score: number | null;
   fingerprint_similarity: number | null;
   suspected_transcode_count: number;
   stale_file_count: number;
+  // Copies the review's path filter kept out of `files`. They are still on disk
+  // and still survive a deletion, so a partly shown group is marked differently.
+  hidden_file_count: number;
   files: AudioDedupFile[];
   pairs: AudioDedupPair[];
-  blocked_reasons: string[];
+  review_reasons: string[];
 };
 
 export type AudioDedupGroupPage = {
   report_id: string;
-  root: string;
   search_mode: AudioDedupSearchMode | "";
   generated_at: string;
   total_groups: number;
   filtered_groups: number;
+  // Copies the filter selects across the whole report, not just this page.
+  filtered_copies: number;
   offset: number;
   limit: number;
   groups: AudioDedupGroup[];
@@ -749,6 +729,9 @@ export type AudioDedupGroupSelection = {
 
 export type AudioDedupDeleteRequest = {
   selections: AudioDedupGroupSelection[];
+  // The filter the review was reading under. The server re-checks it and
+  // refuses a copy whose path does not contain it.
+  path_filter: string;
   deletion_mode: AudioDedupDeletionMode;
   confirmation: string;
 };

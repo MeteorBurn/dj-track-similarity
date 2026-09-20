@@ -20,9 +20,7 @@ from audio_dedup.fingerprints import (  # noqa: E402
     load_fingerprint_sketches,
     sonara_duplicate_clusters,
 )
-from audio_dedup import candidates as candidates_module  # noqa: E402
 from audio_dedup import config as config_module  # noqa: E402
-from audio_dedup import core as core_module  # noqa: E402
 from audio_dedup import models as models_module  # noqa: E402
 from audio_dedup import report_payload as report_payload_module  # noqa: E402
 from audio_dedup import scoring as scoring_module  # noqa: E402
@@ -188,7 +186,7 @@ def test_fingerprint_scan_matches_representatives_only_above_the_upstream_thresh
     assert result.duration_bucket_count == 2
 
 
-def test_missing_fingerprint_table_disables_only_the_fingerprint_signal() -> None:
+def test_missing_fingerprint_table_yields_no_duplicate_evidence() -> None:
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
 
@@ -205,212 +203,49 @@ def test_missing_fingerprint_table_disables_only_the_fingerprint_signal() -> Non
     assert scores == {}
 
 
-def test_fingerprint_only_match_forms_review_group_without_duration_or_embedding_gate() -> (
-    None
-):
-    tracks = [
-        models_module.TrackRecord(
-            track_id=1,
-            path="C:/music/one.flac",
-            size=100,
-            mtime=1.0,
-            artist=None,
-            title=None,
-            album=None,
-            bpm=None,
-            musical_key=None,
-            duration=None,
-            metadata={},
-            embeddings={},
-        ),
-        models_module.TrackRecord(
-            track_id=2,
-            path="C:/music/two.flac",
-            size=90,
-            mtime=1.0,
-            artist=None,
-            title=None,
-            album=None,
-            bpm=None,
-            musical_key=None,
-            duration=None,
-            metadata={},
-            embeddings={},
-        ),
-    ]
-    config = config_module.resolve_preset("safe", min_score=None)
-    groups = scoring_module.find_duplicate_groups(
-        tracks,
-        config,
-        limit_groups=None,
-        candidate_sources={(1, 2): ("fingerprint_lsh",)},
-        fingerprint_scores={(1, 2): 0.88},
-    )
+def test_lsh_pairs_group_only_at_the_review_threshold() -> None:
+    """The LSH mode groups a verified pair and drops one below the threshold.
 
-    assert len(groups) == 1
-    evidence = groups[0].pair_evidence[0]
-    assert evidence.fingerprint_similarity == pytest.approx(0.88)
-    assert evidence.candidate_sources == ("fingerprint_lsh",)
-    payload = report_payload_module.build_report(
-        groups,
-        tracks,
-        config,
-        mode=config_module.MODE_FINGERPRINT_LSH,
-        root=Path("C:/music"),
-        path_contains=[],
-    )
-    group_payload = payload["groups"][0]
-    assert group_payload["candidate_deletes"][0]["decision"] == "review"
-    blocked_reasons = group_payload["candidate_deletes"][0]["blocked_reasons"]
-    assert any(
-        "SONARA fingerprint-only candidate" in reason and "0.880000" in reason
-        for reason in blocked_reasons
-    )
-    assert group_payload["pairwise_evidence"][0]["candidate_sources"] == [
-        "fingerprint_lsh"
-    ]
-
-
-def test_fingerprint_scan_confidence_reads_the_fingerprint_not_the_weighted_score() -> (
-    None
-):
-    """The scan mode has only the fingerprint, so the fingerprint sets confidence.
-
-    No embeddings are loaded there, which leaves the weighted score with nothing
-    to weigh but SONARA features and duration. A pair whose fingerprints match
-    exactly scores low on that and would read as manual review, which says
-    nothing about the evidence that actually formed the group.
+    Retrieval only shortlists; the exact native score decides, so a shortlisted
+    pair scoring under the review threshold forms no group at all.
     """
-    tracks = [
-        models_module.TrackRecord(
-            track_id=1,
-            path="C:/music/one.flac",
-            size=100,
-            mtime=1.0,
-            artist=None,
-            title=None,
-            album=None,
-            bpm=None,
-            musical_key=None,
-            duration=None,
-            metadata={},
-            embeddings={},
-        ),
-        models_module.TrackRecord(
-            track_id=2,
-            path="C:/music/two.flac",
-            size=90,
-            mtime=1.0,
-            artist=None,
-            title=None,
-            album=None,
-            bpm=None,
-            musical_key=None,
-            duration=None,
-            metadata={},
-            embeddings={},
-        ),
-    ]
-    config = config_module.resolve_preset("safe", min_score=None)
-    groups = scoring_module.find_duplicate_groups(
-        tracks,
-        config,
-        limit_groups=None,
-        candidate_sources={(1, 2): ("fingerprint_lsh",)},
-        fingerprint_scores={(1, 2): 1.0},
-    )
-    arguments = {"root": Path("C:/music"), "path_contains": []}
-    scan_group = report_payload_module.build_report(
-        groups,
-        tracks,
-        config,
-        mode=config_module.MODE_FINGERPRINT_SCAN,
-        **arguments,
-    )["groups"][0]
-    lsh_group = report_payload_module.build_report(
-        groups,
-        tracks,
-        config,
-        mode=config_module.MODE_FINGERPRINT_LSH,
-        **arguments,
-    )["groups"][0]
 
-    assert scan_group["score"] < config.min_score
-    assert scan_group["confidence"] == "high"
-    assert lsh_group["confidence"] == "review"
-
-
-def test_fingerprint_mode_candidates_come_only_from_fingerprint_lsh() -> None:
-    shared = np.linspace(-1.0, 1.0, 96, dtype=np.float32)
-
-    def _track(track_id: int, embedding: np.ndarray | None = None) -> models_module.TrackRecord:
+    def _track(track_id: int) -> models_module.TrackRecord:
         return models_module.TrackRecord(
             track_id=track_id,
             path=f"C:/music/{track_id}.flac",
-            size=100,
+            size=100 - track_id,
             mtime=1.0,
             artist=None,
             title=None,
             album=None,
             bpm=None,
             musical_key=None,
-            duration=180.0,
+            duration=None,
             metadata={},
-            embeddings={} if embedding is None else {"mert_v2": embedding},
         )
 
-    source_words = np.tile(np.array([0x11111111, 0xABCD1234], dtype=np.uint32), 240)
-    nearby_words = source_words.copy()
-    nearby_words[40:50] ^= np.uint32(0x00000001)
-    tracks = [
-        _track(1, shared),
-        _track(2, shared.copy()),
-        _track(3),
-        _track(4),
-        _track(5),
-    ]
-    sketches = [
-        fingerprint_sketch(3, 1, _fingerprint_base64(np.bitwise_not(source_words))),
-        fingerprint_sketch(4, 1, _fingerprint_base64(source_words)),
-        fingerprint_sketch(5, 1, _fingerprint_base64(nearby_words)),
-    ]
-    config = config_module.resolve_preset("safe", min_score=None)
-    empty_sources = models_module.SourceConfig(sources=(), weights={})
+    tracks = [_track(track_id) for track_id in (1, 2, 3, 4)]
+    below_threshold = config_module.FINGERPRINT_REVIEW_MIN_SIMILARITY - 0.01
 
-    result = candidates_module._candidate_pair_sources(
+    groups = scoring_module.groups_from_fingerprint_pairs(
         tracks,
-        config,
-        empty_sources,
-        fingerprint_sketches=sketches,
-        fingerprint_only=True,
+        {(1, 2): 0.88, (3, 4): below_threshold},
     )
 
-    assert result == {(4, 5): ("fingerprint_lsh",)}
+    assert len(groups) == 1
+    assert groups[0].track_ids == (1, 2)
+    evidence = groups[0].pair_evidence[0]
+    assert evidence.fingerprint_similarity == pytest.approx(0.88)
+    assert evidence.candidate_sources == ("fingerprint_lsh",)
 
-
-def test_default_fingerprint_mode_rejects_embedding_source_selection(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(ValueError, match="--embedding"):
-        core_module.run_report(
-            db_path=tmp_path / "missing.sqlite",
-            root=Path("C:/music"),
-            path_contains=[],
-            preset_name="safe",
-            min_score=None,
-            limit_groups=None,
-            out_dir=tmp_path,
-            sources=("mert_v2",),
-        )
-
-
-def test_exact_fingerprint_checks_skip_duration_only_candidates() -> None:
-    pairs = candidates_module._fingerprint_exact_candidate_pairs(
-        {
-            (1, 2): ("duration_window",),
-            (3, 4): ("mert_v2_lsh",),
-            (5, 6): ("fingerprint_lsh",),
-        }
+    payload = report_payload_module.build_report(
+        groups,
+        tracks,
+        mode=config_module.MODE_FINGERPRINT_LSH,
+        path_contains=[],
     )
-
-    assert pairs == {(3, 4), (5, 6)}
+    group_payload = payload["groups"][0]
+    assert group_payload["fingerprint_similarity"] == pytest.approx(0.88)
+    assert group_payload["candidate_deletes"][0]["fingerprint_vs_keeper"] == pytest.approx(0.88)
+    assert group_payload["pairwise_evidence"][0]["candidate_sources"] == ["fingerprint_lsh"]

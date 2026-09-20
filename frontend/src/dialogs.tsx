@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
-import type { AnalysisJobStatus, DatabaseOptimizationJobStatus, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import type { AnalysisJobStatus, AudioDedupJobStatus, DatabaseOptimizationJobStatus, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import type { ActivityEvent, ProcessLogKind } from "./jobUi";
 import { UnifiedLog } from "./jobUi";
@@ -12,6 +12,7 @@ export function LogFrameDialog({
   genreTagJob,
   databaseValidationJob,
   databaseOptimizationJob,
+  audioDedupJob,
   activityLog,
   onClose
 }: {
@@ -21,6 +22,7 @@ export function LogFrameDialog({
   genreTagJob: GenreTagJobStatus | null;
   databaseValidationJob: DatabaseValidationJobStatus | null;
   databaseOptimizationJob: DatabaseOptimizationJobStatus | null;
+  audioDedupJob: AudioDedupJobStatus | null;
   activityLog: ActivityEvent[];
   onClose: () => void;
 }) {
@@ -52,6 +54,7 @@ export function LogFrameDialog({
             genreTagJob={genreTagJob}
             databaseValidationJob={databaseValidationJob}
             databaseOptimizationJob={databaseOptimizationJob}
+            audioDedupJob={audioDedupJob}
             events={activityLog}
             className="log-frame-panel"
           />

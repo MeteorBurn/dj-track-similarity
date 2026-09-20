@@ -4,7 +4,6 @@ import {
   CopyX,
   Download,
   FileSpreadsheet,
-  FolderOpen,
   Loader2,
   Search,
   SlidersHorizontal,
@@ -20,7 +19,7 @@ import type {
 } from "./api";
 import { AudioDedupGroupCard } from "./AudioDedupReview";
 import { ConfirmationDialog } from "./dialogs";
-import { helpText } from "./helpText";
+import { audioDedupModeDescription, helpText } from "./helpText";
 import {
   confidenceLabel,
   copiesWord,
@@ -28,12 +27,13 @@ import {
   fingerprintBandText,
   formatBytes,
   pluralRu,
+  scanStateLabel,
+  scanStepLabel,
   selectionSummary
 } from "./audioDedupView";
 import { useAudioDedup } from "./useAudioDedup";
 import type { AudioDedupFilters } from "./useAudioDedup";
 import { useConfirmation } from "./useConfirmation";
-import { errorText } from "./errors";
 import { formatEta } from "./trackDisplay";
 
 function scanCounterText(
@@ -43,11 +43,20 @@ function scanCounterText(
 ) {
   const parts: string[] = [];
   if (job.state === "running" || job.state === "queued") {
-    parts.push(job.current_step ?? "подготовка", `${job.processed}/${job.total}`);
+    parts.push(
+      job.current_step ? scanStepLabel(job.current_step) : "подготовка",
+      `${job.processed}/${job.total}`
+    );
     if (elapsedSeconds != null) parts.push(`прошло ${formatEta(elapsedSeconds)}`);
     if (etaSeconds != null) parts.push(`осталось ~${formatEta(etaSeconds)}`);
   } else {
-    parts.push(job.state, `${job.groups} ${pluralRu(job.groups, "группа", "группы", "групп")}`);
+    parts.push(
+      scanStateLabel(job.state),
+      `${job.groups} ${pluralRu(job.groups, "группа", "группы", "групп")}`,
+      // Every group member other than the suggested keeper: the tool deletes
+      // none of them by itself, so this is the whole pile waiting for a decision.
+      `${job.duplicate_copies} ${copiesWord(job.duplicate_copies)} на разбор`
+    );
     if (elapsedSeconds != null) parts.push(`заняло ${formatEta(elapsedSeconds)}`);
   }
   return parts.join(" · ");
@@ -56,6 +65,9 @@ function scanCounterText(
 export function AudioDedupDialog({
   open,
   databaseIdentity,
+  job,
+  jobRunning,
+  onJobChange,
   playingTrackId,
   onPreview,
   onClose,
@@ -63,14 +75,15 @@ export function AudioDedupDialog({
 }: {
   open: boolean;
   databaseIdentity: string | null;
+  job: AudioDedupJobStatus | null;
+  jobRunning: boolean;
+  onJobChange: (job: AudioDedupJobStatus) => void;
   playingTrackId: number | null;
   onPreview: (file: AudioDedupFile) => void;
   onClose: () => void;
   onDeleted: (message: string) => void;
 }) {
-  const dedup = useAudioDedup({ open, databaseIdentity });
-  const [wholeLibrary, setWholeLibrary] = useState(true);
-  const [root, setRoot] = useState("");
+  const dedup = useAudioDedup({ open, databaseIdentity, job, setJob: onJobChange });
   const [searchMode, setSearchMode] = useState<AudioDedupSearchMode>("fingerprint_scan");
   const [detectFakeBitrate, setDetectFakeBitrate] = useState(false);
   const [deletionMode, setDeletionMode] = useState<AudioDedupDeletionMode>("trash");
@@ -96,11 +109,11 @@ export function AudioDedupDialog({
   // The job poll lands every 1.2s and a step can sit silent for much longer, so
   // the elapsed time keeps its own second instead of stepping in poll-sized jumps.
   useEffect(() => {
-    if (!open || !dedup.scanRunning) return;
+    if (!open || !jobRunning) return;
     setNowSeconds(Date.now() / 1000);
     const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 1000);
     return () => window.clearInterval(timer);
-  }, [dedup.scanRunning, open]);
+  }, [jobRunning, open]);
 
   const activeReport = useMemo(
     () => dedup.reports.find((report) => report.report_id === dedup.reportId) ?? null,
@@ -110,45 +123,39 @@ export function AudioDedupDialog({
     () => selectionSummary(dedup.page?.groups ?? [], dedup.selection),
     [dedup.page, dedup.selection]
   );
-  // A report written without a search root has no boundary to delete inside, and
-  // the delete endpoint refuses it. Say so here instead of letting the reviewer
-  // mark copies and collect a 400.
-  const rootMissing = !wholeLibrary && root.trim() === "";
   // Manual review is the one filter that goes through what the tool would not
   // decide by itself, so it is the one that hands the boundary back.
   const manualConfidence = draftFilters.confidence.includes("review");
+  // Every filter narrows one report, so without a report there is nothing to
+  // narrow, and a running scan is about to replace what the row would read.
+  const filtersDisabled = !activeReport || jobRunning;
   const fingerprintBand = fingerprintBandText(draftFilters.confidence[0] ?? "", activeReport);
-  const rootlessReport = activeReport !== null && !activeReport.root;
-  const canDelete = summary.files > 0 && !dedup.busy && !rootlessReport;
+  const canDelete = summary.files > 0 && !dedup.busy;
+  // The filter the page on screen was read under, which is what the counts
+  // below it describe. The field may already hold a different draft.
+  const appliedPathFilter = dedup.filters.pathContains.trim();
   const selectionText =
     `${summary.files} ${copiesWord(summary.files)}`
     + ` в ${summary.groups} ${pluralRu(summary.groups, "группе", "группах", "группах")}`;
 
   if (!open) return null;
 
-  const job = dedup.job;
   const progressPercent = job && job.total > 0 ? Math.min(100, (job.processed / job.total) * 100) : 0;
   const elapsedSeconds =
     job?.started_at == null ? null : Math.max(0, (job.finished_at ?? nowSeconds) - job.started_at);
   // Only the step in flight has a measured rate, and only it can be extrapolated:
   // the steps that follow count other things at other speeds.
   const etaSeconds =
-    job && dedup.scanRunning && job.step_seconds_per_unit && job.total > job.processed
+    job && jobRunning && job.step_seconds_per_unit && job.total > job.processed
       ? (job.total - job.processed) * job.step_seconds_per_unit
       : null;
 
   function updateFilters(next: AudioDedupFilters) {
     setDraftFilters(next);
-    dedup.applyFilters(next);
-  }
-
-  async function chooseRoot() {
-    try {
-      const selected = await api.chooseFolder();
-      if (selected.path) setRoot(selected.path);
-    } catch (error) {
-      dedup.setError(errorText(error));
-    }
+    // Confidence and the fingerprint floor read the report the reviewer already
+    // has, so they apply at once. The folder filter does not travel with them:
+    // it waits for its own button, and half-typed text is not a request.
+    dedup.applyFilters({ ...next, pathContains: dedup.filters.pathContains });
   }
 
   function requestReportDelete() {
@@ -156,7 +163,7 @@ export function AudioDedupDialog({
     requestConfirmation({
       title: "Удалить отчёт?",
       message:
-        `${activeReport.generated_at.replace("T", " ")} · ${activeReport.root || "вся база"} · `
+        `${activeReport.generated_at.replace("T", " ")} · `
         + `${activeReport.group_count} `
         + `${pluralRu(activeReport.group_count, "группа", "группы", "групп")}. `
         + "Будут удалены файлы отчёта: JSON, XLSX и лог. Сами копии на диске останутся.",
@@ -237,67 +244,27 @@ export function AudioDedupDialog({
                 <select
                   name="dedup-search-mode"
                   value={searchMode}
-                  title={helpText.audioDedupSearchMode[searchMode]}
-                  disabled={dedup.scanRunning}
+                  disabled={jobRunning}
                   onChange={(event) => setSearchMode(event.target.value as AudioDedupSearchMode)}
                 >
                   <option value="fingerprint_scan">Fingerprints</option>
                   <option value="fingerprint_lsh">Fingerprints + LSH</option>
-                  <option value="embedding">Fingerprints + Embeddings</option>
                 </select>
               </label>
               <label
-                className={`dedup-toggle ${dedup.scanRunning ? "disabled" : ""}`}
+                className={`dedup-toggle ${jobRunning ? "disabled" : ""}`}
                 title={helpText.audioDedupDetectFakeBitrate}
               >
                 <input
                   name="dedup-detect-fake-bitrate"
                   type="checkbox"
                   checked={detectFakeBitrate}
-                  disabled={dedup.scanRunning}
+                  disabled={jobRunning}
                   onChange={(event) => setDetectFakeBitrate(event.target.checked)}
                 />
                 <span>Определение поддельного битрейта</span>
               </label>
-              <label
-                className={`dedup-toggle ${dedup.scanRunning ? "disabled" : ""}`}
-                title={helpText.audioDedupWholeLibrary}
-              >
-                <input
-                  name="dedup-whole-library"
-                  type="checkbox"
-                  checked={wholeLibrary}
-                  disabled={dedup.scanRunning}
-                  onChange={(event) => setWholeLibrary(event.target.checked)}
-                />
-                <span>Вся база</span>
-              </label>
-              <label className="dedup-control dedup-control-grow">
-                <span>Корень поиска</span>
-                <div className="dedup-path-row">
-                  <input
-                    name="dedup-root"
-                    value={root}
-                    title={helpText.audioDedupDedupRoot}
-                    placeholder={wholeLibrary ? "Вся база" : "Папка, внутри которой искать дубликаты"}
-                    disabled={dedup.scanRunning || wholeLibrary}
-                    onChange={(event) => setRoot(event.target.value)}
-                  />
-                  <button
-                    className="icon-button"
-                    type="button"
-                    title="Выбрать папку"
-                    aria-label="Выбрать папку"
-                    disabled={dedup.scanRunning || wholeLibrary}
-                    onClick={() => void chooseRoot()}
-                  >
-                    <FolderOpen size={16} />
-                  </button>
-                </div>
-              </label>
-            </div>
-            <div className="dedup-scan-grid">
-              {dedup.scanRunning ? (
+              {jobRunning ? (
                 <button
                   className="dedup-secondary-button dedup-run-button"
                   type="button"
@@ -309,15 +276,10 @@ export function AudioDedupDialog({
                 <button
                   className="dedup-primary-button dedup-run-button"
                   type="button"
-                  disabled={dedup.busy || rootMissing}
-                  title={
-                    rootMissing
-                      ? "Укажите корень поиска или верните «Вся база»"
-                      : "Искать дубликаты"
-                  }
+                  disabled={dedup.busy}
+                  title="Искать дубликаты по всей базе"
                   onClick={() =>
                     void dedup.startScan({
-                      root: wholeLibrary ? "" : root.trim(),
                       search_mode: searchMode,
                       detect_fake_bitrate: detectFakeBitrate
                     })
@@ -327,14 +289,11 @@ export function AudioDedupDialog({
                   Искать дубликаты
                 </button>
               )}
-              {wholeLibrary ? (
-                <span className="dedup-scan-hint">
-                  Отчёт по всей базе — только для просмотра: удалять можно из отчёта с корнем
-                  поиска
-                </span>
-              ) : null}
             </div>
-            {dedup.scanRunning ? (
+            {/* What the selected mode actually does, on screen rather than in a
+                tooltip: it is the one choice made before a long run. */}
+            <p className="dedup-mode-description">{audioDedupModeDescription[searchMode]}</p>
+            {jobRunning ? (
               <div className="dedup-progress">
                 <div className="dedup-progress-track">
                   <div
@@ -355,7 +314,8 @@ export function AudioDedupDialog({
                 <span className="dedup-section-counter">
                   {activeReport.group_count}{" "}
                   {pluralRu(activeReport.group_count, "группа", "группы", "групп")} ·{" "}
-                  {activeReport.candidate_count} {copiesWord(activeReport.candidate_count)}
+                  {activeReport.candidate_count} {copiesWord(activeReport.candidate_count)} на
+                  разбор
                   {activeReport.fake_bitrate_candidate_count > 0
                     ? ` · фейк-битрейт ${activeReport.fake_bitrate_candidate_count}`
                     : ""}
@@ -376,8 +336,7 @@ export function AudioDedupDialog({
                   ) : null}
                   {dedup.reports.map((report) => (
                     <option key={report.report_id} value={report.report_id}>
-                      {report.generated_at.replace("T", " ")} · {report.root || "вся база"} ·{" "}
-                      {report.group_count}{" "}
+                      {report.generated_at.replace("T", " ")} · {report.group_count}{" "}
                       {pluralRu(report.group_count, "группа", "группы", "групп")}
                     </option>
                   ))}
@@ -413,6 +372,7 @@ export function AudioDedupDialog({
                 <select
                   name="dedup-confidence"
                   title={helpText.audioDedupConfidence}
+                  disabled={filtersDisabled}
                   value={draftFilters.confidence[0] ?? ""}
                   onChange={(event) =>
                     updateFilters({
@@ -439,7 +399,7 @@ export function AudioDedupDialog({
                   max={1}
                   step={0.05}
                   placeholder={fingerprintBand}
-                  disabled={!manualConfidence}
+                  disabled={filtersDisabled || !manualConfidence}
                   value={manualConfidence ? draftFilters.minFingerprint ?? "" : ""}
                   onChange={(event) =>
                     updateFilters({
@@ -450,20 +410,34 @@ export function AudioDedupDialog({
                 />
               </label>
               <label className="dedup-control dedup-control-grow">
-                <span>Путь содержит</span>
+                <span>Корень папки</span>
                 <input
                   name="dedup-path-contains"
                   value={draftFilters.pathContains}
-                  placeholder="vinyl"
+                  title={helpText.audioDedupPathFilter}
+                  disabled={filtersDisabled}
+                  // The field is wide and usually empty, so the placeholder
+                  // carries the explanation instead of a bare example.
+                  placeholder="Часть пути папки: Abstracted или M:\Volumes\Abstracted — показать дубли только в ней"
                   onChange={(event) =>
                     setDraftFilters({ ...draftFilters, pathContains: event.target.value })
                   }
-                  onBlur={() => dedup.applyFilters(draftFilters)}
+                  // Typing asks for nothing: the report is filtered when the
+                  // reviewer says so, by the button or by Enter in the field.
                   onKeyDown={(event) => {
                     if (event.key === "Enter") dedup.applyFilters(draftFilters);
                   }}
                 />
               </label>
+              <button
+                className="dedup-secondary-button"
+                type="button"
+                title={helpText.audioDedupPathFilter}
+                disabled={filtersDisabled}
+                onClick={() => dedup.applyFilters(draftFilters)}
+              >
+                Применить фильтр
+              </button>
               <button
                 className="dedup-secondary-button"
                 type="button"
@@ -482,6 +456,16 @@ export function AudioDedupDialog({
                 Снять всё
               </button>
             </div>
+            {/* What the applied filter caught, across the whole report rather
+                than the page: the reach of «mp3» is worth seeing before
+                anything is marked. */}
+            {appliedPathFilter && dedup.page ? (
+              <p className="dedup-filter-summary">
+                Фильтр «{appliedPathFilter}»: {dedup.page.filtered_copies}{" "}
+                {copiesWord(dedup.page.filtered_copies)} в {dedup.page.filtered_groups}{" "}
+                {pluralRu(dedup.page.filtered_groups, "группе", "группах", "группах")}
+              </p>
+            ) : null}
           </section>
 
           {dedup.error ? (
@@ -514,7 +498,6 @@ export function AudioDedupDialog({
               <AudioDedupGroupCard
                 key={group.group_id}
                 group={group}
-                searchMode={dedup.page?.search_mode ?? ""}
                 selectedTrackIds={dedup.selection[group.group_id] ?? []}
                 playingTrackId={playingTrackId}
                 onToggleFile={dedup.toggleFile}
@@ -552,11 +535,7 @@ export function AudioDedupDialog({
 
         <footer className="dedup-footer">
           <div className="dedup-footer-summary">
-            {rootlessReport ? (
-              <span className="dedup-footer-idle">
-                Отчёт по всей базе: удалять можно только из отчёта с корнем поиска
-              </span>
-            ) : summary.files > 0 ? (
+            {summary.files > 0 ? (
               <>
                 <strong>{summary.files}</strong> {copiesWord(summary.files)} в {summary.groups}{" "}
                 {pluralRu(summary.groups, "группе", "группах", "группах")} ·{" "}
@@ -582,11 +561,9 @@ export function AudioDedupDialog({
             type="button"
             disabled={!canDelete}
             title={
-              rootlessReport
-                ? "Отчёт построен по всей базе. Удаление держится внутри корня поиска, поэтому повторите поиск, указав корень."
-                : summary.files === 0
-                  ? "Пометьте копии на удаление"
-                  : `Удалить ${summary.files} ${pluralRu(summary.files, "копию", "копии", "копий")}`
+              summary.files === 0
+                ? "Пометьте копии на удаление"
+                : `Удалить ${summary.files} ${pluralRu(summary.files, "копию", "копии", "копий")}`
             }
             onClick={requestDelete}
           >

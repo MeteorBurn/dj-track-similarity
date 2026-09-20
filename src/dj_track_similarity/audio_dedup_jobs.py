@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 import threading
 import time
-from typing import Callable, Mapping
+from typing import Callable
 import uuid
 
 from .audio_dedup_bridge import load_audio_dedup_module
@@ -35,21 +35,14 @@ class AudioDedupEvent:
 class AudioDedupJobStatus:
     job_id: str
     state: str
-    root: str
     search_mode: str
-    preset: str
     path_contains: list[str] = field(default_factory=list)
-    sources: list[str] = field(default_factory=list)
-    weights: dict[str, float] = field(default_factory=dict)
-    min_score: float | None = None
-    min_similarity: float | None = None
     limit_groups: int | None = None
     detect_fake_bitrate: bool = False
     total: int = 0
     processed: int = 0
     groups: int = 0
-    review_candidates: int = 0
-    safe_candidates: int = 0
+    duplicate_copies: int = 0
     valid_fingerprints: int = 0
     current_step: str | None = None
     step_started_at: float | None = None
@@ -64,15 +57,9 @@ class AudioDedupJobStatus:
 
 @dataclass(frozen=True)
 class AudioDedupJobPayload:
-    root: Path | None
     path_contains: list[str]
     search_mode: str
-    preset: str
-    min_score: float | None
-    min_similarity: float | None
     limit_groups: int | None
-    sources: list[str]
-    weights: dict[str, float]
     detect_fake_bitrate: bool
     out_dir: Path
 
@@ -103,37 +90,20 @@ class AudioDedupJobManager:
     def _queue_job(
         self,
         *,
-        root: str | Path,
         path_contains: list[str] | None = None,
         search_mode: str | None = None,
-        preset: str = "safe",
-        min_score: float | None = None,
-        min_similarity: float | None = None,
         limit_groups: int | None = None,
-        sources: list[str] | None = None,
-        weights: Mapping[str, float] | None = None,
         detect_fake_bitrate: bool = False,
         out_dir: str | Path | None = None,
     ) -> str:
         config_module = load_audio_dedup_module("config")
-        root_text = str(root).strip()
         selected_mode = search_mode or config_module.MODE_FINGERPRINT_SCAN
+        # Validate before queueing so a bad mode is a request error instead of a
+        # job that dies inside its own thread.
         if selected_mode not in config_module.SEARCH_MODES:
             raise ValueError(f"Unsupported search mode: {selected_mode}")
         if limit_groups is not None and limit_groups < 1:
             raise ValueError("limit_groups must be greater than zero")
-        # Validate before queueing so a bad preset, source, or weight is a request
-        # error instead of a job that dies inside its own thread.
-        config_module.resolve_preset(preset, min_score=min_score, min_similarity=min_similarity)
-        if selected_mode != config_module.MODE_EMBEDDING:
-            if sources or weights:
-                raise ValueError("Sources and weights require the embedding search mode")
-            selected_sources: list[str] = []
-            selected_weights: dict[str, float] = {}
-        else:
-            source_config = config_module.resolve_source_config(sources=sources, weights=weights)
-            selected_sources = list(source_config.sources)
-            selected_weights = dict(source_config.weights)
         selected_path_contains = [item.strip() for item in (path_contains or []) if item.strip()]
         selected_out_dir = Path(out_dir) if out_dir is not None else self.out_dir
 
@@ -145,33 +115,21 @@ class AudioDedupJobManager:
             status = AudioDedupJobStatus(
                 job_id=job_id,
                 state="queued",
-                root=root_text,
                 search_mode=selected_mode,
-                preset=preset,
                 path_contains=selected_path_contains,
-                sources=selected_sources,
-                weights=selected_weights,
-                min_score=min_score,
-                min_similarity=min_similarity,
                 limit_groups=limit_groups,
                 detect_fake_bitrate=detect_fake_bitrate,
             )
             payload = AudioDedupJobPayload(
-                root=Path(root_text) if root_text else None,
                 path_contains=selected_path_contains,
                 search_mode=selected_mode,
-                preset=preset,
-                min_score=min_score,
-                min_similarity=min_similarity,
                 limit_groups=limit_groups,
-                sources=selected_sources,
-                weights=selected_weights,
                 detect_fake_bitrate=detect_fake_bitrate,
                 out_dir=selected_out_dir,
             )
             self._cancel_flags[job_id] = threading.Event()
             self._store.add(job_id, status, payload=payload)
-        self._append_event(job_id, "info", f"Audio dedup queued: {root_text or 'whole database'}")
+        self._append_event(job_id, "info", "Audio dedup queued over the whole library")
         return job_id
 
     def run_job(self, job_id: str) -> AudioDedupJobStatus:
@@ -182,19 +140,13 @@ class AudioDedupJobManager:
             raise KeyError(f"Unknown audio dedup job: {job_id}")
         cancelled = self._cancel_flags.get(job_id, threading.Event())
         self._store.update(job_id, state="running", started_at=time.time())
-        LOGGER.info("Audio dedup started job_id=%s root=%s", job_id, payload.root)
+        LOGGER.info("Audio dedup started job_id=%s mode=%s", job_id, payload.search_mode)
         try:
             result = core_module.run_report(
                 database=self.db,
-                root=payload.root,
                 path_contains=list(payload.path_contains),
-                preset_name=payload.preset,
-                min_score=payload.min_score,
-                min_similarity=payload.min_similarity,
                 limit_groups=payload.limit_groups,
                 out_dir=payload.out_dir,
-                sources=payload.sources or None,
-                weights=payload.weights or None,
                 mode=payload.search_mode,
                 detect_fake_bitrate=payload.detect_fake_bitrate,
                 progress_callback=self._progress_reporter(job_id),
@@ -226,9 +178,9 @@ class AudioDedupJobManager:
             self._append_event(job_id, "error", f"Audio dedup failed: {summary}")
             log_failure(
                 LOGGER,
-                "Audio dedup failed job_id=%s root=%s error=%s",
+                "Audio dedup failed job_id=%s mode=%s error=%s",
                 job_id,
-                payload.root,
+                payload.search_mode,
                 summary,
             )
             return self.get(job_id)
@@ -246,8 +198,7 @@ class AudioDedupJobManager:
             step_started_at=None,
             step_seconds_per_unit=None,
             groups=result.groups,
-            safe_candidates=int(statistics.get("safe_candidate_count", 0) or 0),
-            review_candidates=int(statistics.get("review_candidate_count", 0) or 0),
+            duplicate_copies=int(statistics.get("candidate_count", 0) or 0),
             valid_fingerprints=int(retrieval.get("valid_stored_fingerprint_count", 0) or 0),
             report_id=report_id,
         )
@@ -329,8 +280,6 @@ class AudioDedupJobManager:
             **{
                 **value.__dict__,
                 "path_contains": list(value.path_contains),
-                "sources": list(value.sources),
-                "weights": dict(value.weights),
                 "events": list(value.events),
             }
         )

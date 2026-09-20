@@ -11,7 +11,6 @@ from .spectral import (
 
 from . import config as config_module
 from . import models as models_module
-from . import scoring as scoring_module
 from . import values as values_module
 
 # Deterministic library-format preference, not an audio-quality rank.
@@ -471,28 +470,17 @@ def metadata_completeness(track: models_module.TrackRecord) -> int:
 
 
 def fingerprint_confidence_category(fingerprint: float | None) -> str:
-    """Confidence for a scan whose evidence is the fingerprint itself.
+    """Confidence read from the fingerprint that put the group together.
 
-    The weighted score has nothing to weigh in that mode - no embeddings are
-    loaded, so it collapses to SONARA features and duration - while the
-    fingerprint is what put the group together in the first place. The bands
-    come from upstream: a gain-changed copy lands above 0.95, genuine
-    duplicates above 0.70, and below that the pair is only above the threshold
-    for being the same recording at all.
+    The bands come from upstream: a gain-changed copy lands above 0.95,
+    genuine duplicates above 0.70, and below that the pair is only above the
+    threshold for being the same recording at all.
     """
     if fingerprint is None:
         return "review"
     if fingerprint >= config_module.FINGERPRINT_CONFIDENCE_HIGH:
         return "high"
     if fingerprint >= config_module.FINGERPRINT_CONFIDENCE_MEDIUM:
-        return "medium"
-    return "review"
-
-
-def confidence_category(score: float, config: models_module.PresetConfig) -> str:
-    if score >= max(0.98, config.min_score):
-        return "high"
-    if score >= max(0.94, config.min_score):
         return "medium"
     return "review"
 
@@ -544,51 +532,3 @@ def _deciding_key(
         if key.value(keeper) != key.value(rival):
             return key
     return None
-
-
-def _candidate_reason_lines(
-    candidate: models_module.TrackRecord,
-    keeper: models_module.TrackRecord,
-    pair: models_module.PairEvidence | None,
-    config: models_module.PresetConfig,
-    *,
-    safe: bool,
-    reasons: list[str],
-) -> list[str]:
-    if not safe:
-        return [f"Manual review required: {reason}." for reason in reasons] or [
-            "Manual review required before deleting this file."
-        ]
-    lines = [
-        f"Direct score vs keeper meets threshold: {values_module._format_float(pair.score if pair else None)} >= {values_module._format_float(config.direct_keeper_score)}.",
-        f"Content similarity meets threshold: {values_module._format_float(pair.content_similarity if pair else None)} >= {values_module._format_float(config.min_similarity)}.",
-    ]
-    if pair and pair.duration_diff_seconds is not None:
-        lines.append(f"Duration difference is {values_module._format_float(pair.duration_diff_seconds)} seconds.")
-    return lines
-
-
-def _candidate_safety(pair: models_module.PairEvidence | None, config: models_module.PresetConfig, *, ambiguous: bool) -> tuple[bool, list[str]]:
-    reasons: list[str] = []
-    if ambiguous:
-        reasons.append("ambiguous chain")
-    if pair is None:
-        reasons.append("weak direct keeper match")
-    else:
-        if pair.candidate_sources in {("fingerprint_lsh",), ("fingerprint_scan",)}:
-            if pair.fingerprint_similarity is not None:
-                reasons.append(
-                    f"SONARA fingerprint-only candidate: exact fingerprint match "
-                    f"{values_module._format_float(pair.fingerprint_similarity)} is strong duplicate evidence, but "
-                    "fingerprint evidence alone never authorizes automatic deletion"
-                )
-            else:
-                reasons.append("SONARA fingerprint-only candidate requires manual review")
-        if pair.score < config.direct_keeper_score:
-            reasons.append("weak direct keeper match")
-        if not scoring_module._passes_content_similarity(pair, config):
-            reasons.append("content similarity below threshold")
-        if pair.duration_diff_ratio is not None and pair.duration_diff_ratio > config.strict_duration_ratio:
-            reasons.append("duration mismatch")
-        reasons.extend(pair.blocked_reasons)
-    return not reasons, sorted(set(reasons))

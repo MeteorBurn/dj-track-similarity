@@ -1,5 +1,6 @@
-import { AnalysisJobStatus, AnalysisModel, api, DatabaseOptimizationJobStatus, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobStatus, DatabaseOptimizationJobStatus, DatabaseValidationJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { analysisModelDisplayLabel, audioAnalysisModelOrder } from "./analysisSelection";
+import { copiesWord, pluralRu, scanStateLabel, scanStepLabel } from "./audioDedupView";
 import { basename, formatEta } from "./trackDisplay";
 
 const ACTIVE_JOB_STATES = ["queued", "running"] as const;
@@ -30,7 +31,7 @@ type UnifiedLogEvent = {
   detail?: string;
 };
 
-export type ProcessLogKind = "scan" | "analysis" | "genre_tags" | "database_validation" | "database_optimization";
+export type ProcessLogKind = "scan" | "analysis" | "genre_tags" | "database_validation" | "database_optimization" | "audio_dedup";
 
 export function UnifiedLog({
   processKind,
@@ -39,6 +40,7 @@ export function UnifiedLog({
   genreTagJob,
   databaseValidationJob,
   databaseOptimizationJob = null,
+  audioDedupJob = null,
   events,
   className = ""
 }: {
@@ -48,10 +50,11 @@ export function UnifiedLog({
   genreTagJob: GenreTagJobStatus | null;
   databaseValidationJob: DatabaseValidationJobStatus | null;
   databaseOptimizationJob?: DatabaseOptimizationJobStatus | null;
+  audioDedupJob?: AudioDedupJobStatus | null;
   events: ActivityEvent[];
   className?: string;
 }) {
-  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, databaseValidationJob, databaseOptimizationJob, events);
+  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, databaseValidationJob, databaseOptimizationJob, audioDedupJob, events);
   return (
     <section className={`log-panel ${className}`.trim()}>
       <div className="log-title">
@@ -59,7 +62,7 @@ export function UnifiedLog({
         <span>{mergedEvents.length}</span>
       </div>
       <div className="log-body">
-        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} databaseValidationJob={databaseValidationJob} databaseOptimizationJob={databaseOptimizationJob} />
+        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} databaseValidationJob={databaseValidationJob} databaseOptimizationJob={databaseOptimizationJob} audioDedupJob={audioDedupJob} />
         <UnifiedEventList events={mergedEvents} />
       </div>
     </section>
@@ -72,7 +75,8 @@ function ProcessStatus({
   analysisJob,
   genreTagJob,
   databaseValidationJob,
-  databaseOptimizationJob
+  databaseOptimizationJob,
+  audioDedupJob
 }: {
   kind: ProcessLogKind;
   scanJob: ScanStats | null;
@@ -80,7 +84,9 @@ function ProcessStatus({
   genreTagJob: GenreTagJobStatus | null;
   databaseValidationJob: DatabaseValidationJobStatus | null;
   databaseOptimizationJob: DatabaseOptimizationJobStatus | null;
+  audioDedupJob: AudioDedupJobStatus | null;
 }) {
+  if (kind === "audio_dedup") return <AudioDedupProcessStatus job={audioDedupJob} />;
   if (kind === "database_optimization") return <DatabaseOptimizationProcessStatus job={databaseOptimizationJob} />;
   if (kind === "database_validation") return <DatabaseValidationProcessStatus job={databaseValidationJob} />;
   if (kind === "genre_tags") {
@@ -98,6 +104,7 @@ function unifiedLogEvents(
   genreTagJob: GenreTagJobStatus | null,
   databaseValidationJob: DatabaseValidationJobStatus | null,
   databaseOptimizationJob: DatabaseOptimizationJobStatus | null,
+  audioDedupJob: AudioDedupJobStatus | null,
   activityEvents: ActivityEvent[]
 ) {
   const uiEvents = transformUiEvents(activityEvents);
@@ -109,7 +116,8 @@ function unifiedLogEvents(
   const genreTagEvents = transformJobEvents("genre tags", genreTagJob?.events || [], { idPrefix: "genre-tags" });
   const validationEvents = transformJobEvents("validation", databaseValidationJob?.events || [], { idPrefix: "validation" });
   const optimizationEvents = transformJobEvents("optimization", databaseOptimizationJob?.events || [], { idPrefix: "optimization" });
-  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents, ...optimizationEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, MAX_LOG_EVENTS);
+  const audioDedupEvents = transformJobEvents("audio_dedup", audioDedupJob?.events || [], { idPrefix: "audio-dedup" });
+  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...validationEvents, ...optimizationEvents, ...audioDedupEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, MAX_LOG_EVENTS);
 }
 
 type JobEvent = { timestamp: number; level: string; message: string; path?: string | null };
@@ -217,6 +225,7 @@ function sourceLabel(source: string) {
   if (source === "scan") return "scan";
   if (source === "analysis") return "analysis";
   if (source === "genre tags") return "genre tags";
+  if (source === "audio_dedup") return "audio dedup";
   return "UI";
 }
 
@@ -307,13 +316,15 @@ export function stageIndicatorLabel(
   analysisJob: AnalysisJobStatus | null,
   genreTagJob?: GenreTagJobStatus | null,
   databaseOptimizationJob?: DatabaseOptimizationJobStatus | null,
+  audioDedupJob?: AudioDedupJobStatus | null,
 ) {
   if (databaseOptimizationJob && ["queued", "running"].includes(databaseOptimizationJob.state)) return "Идет оптимизация БД";
   if (scanJob?.state && ["queued", "running"].includes(scanJob.state)) return "Идет сканирование";
   if (analysisJob?.state === "running" && analysisJob.phase === "warmup") return "Прогрев моделей";
   if (analysisJob && ["queued", "running"].includes(analysisJob.state)) return "Идет анализ";
   if (genreTagJob && ["queued", "running"].includes(genreTagJob.state)) return "Идет запись жанров";
-  if (scanJob?.state === "cancelled" || analysisJob?.state === "cancelled" || genreTagJob?.state === "cancelled") return "Этап остановлен";
+  if (audioDedupJob && ["queued", "running"].includes(audioDedupJob.state)) return "Идет поиск дубликатов";
+  if (scanJob?.state === "cancelled" || analysisJob?.state === "cancelled" || genreTagJob?.state === "cancelled" || audioDedupJob?.state === "cancelled") return "Этап остановлен";
   return "Процесс не запущен";
 }
 
@@ -389,6 +400,47 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
       {job.model_progress && <ModelProgress job={job} />}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
       {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].model ? `${job.errors[0].model}: ` : ""}{job.errors[0].path}: {job.errors[0].error}</span>}
+    </div>
+  );
+}
+
+function AudioDedupProcessStatus({ job }: { job: AudioDedupJobStatus | null }) {
+  if (!job) {
+    return <div className="process-box">Поиск дубликатов не запущен</div>;
+  }
+  const percent = calculateProgressPercent(job.processed, job.total);
+  const running = isJobActive(job.state);
+  // Only the step in flight has a measured rate, and only it can be
+  // extrapolated: the steps that follow count other things at other speeds.
+  const etaSeconds = calculateEta(running, job.step_seconds_per_unit, job.total, job.processed);
+  const elapsedSeconds = job.started_at == null
+    ? null
+    : Math.max(0, (job.finished_at ?? Date.now() / SECONDS_TO_MS) - job.started_at);
+  return (
+    <div className="process-box">
+      <div className="process-head">
+        <strong>{scanStateLabel(job.state)}</strong>
+        <span>{job.processed}/{job.total} · {percent}%</span>
+      </div>
+      <progress max={job.total || 1} value={job.processed} />
+      {/* The tallies are written when the run ends, so they only state
+          something once it has: during the run they would read as zero. */}
+      {!running && (
+        <div className="process-grid">
+          <span>{job.groups} {pluralRu(job.groups, "группа", "группы", "групп")}</span>
+          {/* Every group member other than the suggested keeper. */}
+          <span>{job.duplicate_copies} {copiesWord(job.duplicate_copies)} на разбор</span>
+          <span>отпечатков {job.valid_fingerprints}</span>
+        </div>
+      )}
+      {elapsedSeconds != null && (
+        <span className="analysis-muted">
+          {running ? "прошло" : "заняло"} {formatEta(elapsedSeconds)}
+          {etaSeconds != null ? ` · осталось на шаге ~${formatEta(etaSeconds)}` : ""}
+        </span>
+      )}
+      {job.current_step && <span className="analysis-current">Сейчас: {scanStepLabel(job.current_step)}</span>}
+      {job.error && <span className="analysis-error">{job.error}</span>}
     </div>
   );
 }

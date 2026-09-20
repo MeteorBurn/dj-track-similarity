@@ -19,37 +19,38 @@ def apply_duplicate_deletions(
     *,
     db_path: Path | None = None,
     database: LibraryDatabase | None = None,
-    root: Path,
+    path_filter: str = "",
     payload: dict[str, object],
     rhythm_lab_db: Path | None = None,
-    selected_track_ids: Collection[int] | None = None,
+    selected_track_ids: Collection[int],
     deletion_mode: str = config_module.DELETION_MODE_PERMANENT,
 ) -> models_module.ApplyResult:
+    """Delete the copies a reviewer selected, inside the filter they reviewed under.
+
+    ``path_filter`` is the same fragment the review filtered by, so a copy the
+    reviewer could not see on screen cannot be deleted by a request that names
+    it anyway. An empty filter reviews the whole report and deletes anywhere.
+    """
     selected_database = track_loading_module._resolve_database(database=database, db_path=db_path)
     remove_file = _file_remover(deletion_mode)
-    root_text = canonical_file_path(root)
+    selected_filter = str(path_filter).strip().replace("\\", "/").lower()
     deleted_ids: list[int] = []
     deleted_paths: list[str] = []
     skipped: list[str] = []
     failed: list[str] = []
-    if selected_track_ids is None:
-        candidates = report_selection_module.safe_delete_candidates(payload)
-        retained_paths = _keeper_retained_paths(payload)
-        retained_missing_reason = "keeper file is missing on disk"
-    else:
-        candidates = report_selection_module.selected_delete_candidates(payload, selected_track_ids)
-        retained_paths = _selection_retained_paths(
-            payload,
-            {report_selection_module._candidate_track_id(candidate) for candidate in candidates},
-        )
-        retained_missing_reason = "group would lose every copy"
+    candidates = report_selection_module.selected_delete_candidates(payload, selected_track_ids)
+    retained_paths = _selection_retained_paths(
+        payload,
+        {report_selection_module._candidate_track_id(candidate) for candidate in candidates},
+    )
+    retained_missing_reason = "group would lose every copy"
     retained_on_disk: dict[str, bool] = {}
     deleted_identities: list[TrackIdentity] = []
     for candidate in candidates:
         track_id = report_selection_module._candidate_track_id(candidate)
         path_text = str(candidate.get("path", ""))
-        if not track_loading_module._path_matches(path_text, root_text, []):
-            skipped.append(f"track_id={track_id}: path outside root")
+        if selected_filter and not track_loading_module._path_matches(path_text, [selected_filter]):
+            skipped.append(f"track_id={track_id}: path outside the review filter")
             continue
         try:
             expected = report_selection_module._candidate_identity(candidate)
@@ -127,19 +128,6 @@ def apply_duplicate_deletions(
         failed=tuple(failed),
         rhythm_lab_deleted_rows=rhythm_lab_deleted_rows,
     )
-
-def _keeper_retained_paths(payload: dict[str, object]) -> dict[int, tuple[str, ...]]:
-    """Copy that must survive each safe delete: the report's suggested keeper."""
-    retained: dict[int, tuple[str, ...]] = {}
-    for group in report_selection_module._payload_groups(payload):
-        keeper = group.get("suggested_keeper")
-        keeper_path = str(keeper.get("path", "")) if isinstance(keeper, dict) else ""
-        if not keeper_path:
-            continue
-        for candidate in report_selection_module._entry_list(group, "candidate_deletes"):
-            retained[report_selection_module._candidate_track_id(candidate)] = (keeper_path,)
-    return retained
-
 
 def _selection_retained_paths(
     payload: dict[str, object],

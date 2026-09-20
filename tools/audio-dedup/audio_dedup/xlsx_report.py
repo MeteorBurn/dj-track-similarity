@@ -6,8 +6,6 @@ import re
 from xml.sax.saxutils import escape
 import zipfile
 
-from . import config as config_module
-
 
 def write_xlsx_report(path: Path, payload: dict[str, object]) -> None:
     sheets = [
@@ -15,7 +13,6 @@ def write_xlsx_report(path: Path, payload: dict[str, object]) -> None:
         ("Groups", _groups_sheet_rows(payload)),
         ("Candidates", _candidates_sheet_rows(payload)),
         ("Pair Evidence", _pair_evidence_sheet_rows(payload)),
-        ("Rhythm Lab", _rhythm_lab_sheet_rows(payload)),
     ]
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml", _xlsx_content_types(len(sheets)))
@@ -33,31 +30,14 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     stats = payload.get("statistics", {})
     assert isinstance(stats, dict)
     confidence = stats.get("confidence_counts", {})
-    embeddings = stats.get("embedding_coverage", {})
-    rhythm_lab = payload.get("rhythm_lab", {})
     path_contains = payload.get("path_contains") or []
     path_filter = ", ".join(str(item) for item in path_contains) if isinstance(path_contains, list) else str(path_contains)
-    sources = payload.get("sources", list(config_module.SUPPORTED_EMBEDDINGS))
-    source_text = (
-        ", ".join(str(item) for item in sources)
-        if isinstance(sources, list)
-        else str(sources)
-    )
-    weights = payload.get("weights", config_module.DEFAULT_SOURCE_WEIGHTS)
-    weight_text = (
-        ", ".join(
-            f"{key}={value}"
-            for key, value in weights.items()
-        )
-        if isinstance(weights, dict)
-        else str(weights)
-    )
     fingerprint_retrieval = payload.get("fingerprint_retrieval", {})
     spectral_analysis = payload.get("spectral_analysis", {})
     rows: list[list[object]] = [
         ["Audio Dedup Report", "", "", "", ""],
         [
-            "Review workbook before deleting files. Report mode is read-only; apply mode deletes only safe candidates after exact confirmation.",
+            "Review workbook before deleting files. This report is read-only; copies are deleted only where a reviewer selects them and confirms.",
             "",
             "",
             "",
@@ -66,17 +46,10 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         [],
         ["Run settings", "Value", "Notes", "", ""],
         ["Generated at", payload["generated_at"], "Local timestamp when this report was written.", "", ""],
-        ["Database", payload.get("database_path") or "", "SQLite library that was read for track metadata and embeddings.", "", ""],
-        ["Root", payload["root"], "Only stored track paths inside this root were considered.", "", ""],
+        ["Database", payload.get("database_path") or "", "SQLite library that was read for track metadata and stored fingerprints.", "", ""],
         ["Path filter", path_filter or "(none)", "Optional case-insensitive path substring filters.", "", ""],
-        ["Mode", payload.get("mode", "report-only"), "Report-only writes evidence and does not delete audio.", "", ""],
-        ["Search mode", payload.get("search_mode", ""), "fingerprint_scan: upstream SONARA recipe, greedy first match above 0.30 inside rounded-duration buckets. fingerprint_lsh: same exact match after LSH retrieval, threshold 0.45. Both stay manual-review. embedding: weighted embedding score decides and can mark safe delete candidates.", "", ""],
-        ["Preset", payload["preset"], "safe is conservative; balanced/aggressive widen review scope.", "", ""],
-        ["Sources", source_text, "Enabled audio embedding families.", "", ""],
-        ["Source weights", weight_text, "Raw weights are renormalized over available enabled evidence.", "", ""],
-        ["Min score", payload["min_score"], "Overall duplicate score threshold.", "", ""],
-        ["Min content similarity", payload["min_similarity"], "Audio-to-audio embedding gate over enabled MERT-v2, MAEST, MuQ, and CLAP sources; not CLAP text-search score.", "", ""],
-        ["Fingerprint review threshold", fingerprint_retrieval.get("fingerprint_review_min_similarity", "") if isinstance(fingerprint_retrieval, dict) else "", "Exact SONARA scores at or above this threshold add manual-review candidates only.", "", ""],
+        ["Search mode", payload.get("search_mode", ""), "fingerprint_scan: upstream SONARA recipe, greedy first match above 0.30 inside rounded-duration buckets. fingerprint_lsh: same exact match after LSH retrieval, threshold 0.45.", "", ""],
+        ["Fingerprint review threshold", fingerprint_retrieval.get("fingerprint_review_min_similarity", "") if isinstance(fingerprint_retrieval, dict) else "", "Exact SONARA scores at or above this threshold form duplicate groups.", "", ""],
         [],
         ["Decision summary", "Count", "Meaning", "Next action", ""],
         [
@@ -87,14 +60,14 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "",
         ],
         [
-            "Tracks inside selected root",
+            "Tracks after the path filter",
             payload.get("scoped_track_count", payload["track_count"]),
-            "Tracks that matched root and optional path filters.",
+            "Tracks that matched the optional path filters.",
             "This is the search scope.",
             "",
         ],
         ["Duplicate groups", payload["group_count"], "Potential duplicate clusters found.", "Open the Groups sheet.", ""],
-        ["Duplicate candidates", stats.get("candidate_count", 0), "Tracks proposed for delete or manual review.", "Open the Candidates sheet.", ""],
+        ["Duplicate copies to review", stats.get("candidate_count", 0), "Group members other than the suggested keeper.", "Open the Candidates sheet.", ""],
         ["Valid stored fingerprints", fingerprint_retrieval.get("valid_stored_fingerprint_count", 0) if isinstance(fingerprint_retrieval, dict) else 0, "Identity-bound SONARA fingerprints used for independent LSH retrieval.", "Reference only.", ""],
         [
             "Suspected transcodes in groups",
@@ -125,32 +98,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "",
         ],
         ["Fingerprint review pairs", fingerprint_retrieval.get("fingerprint_review_pair_count", 0) if isinstance(fingerprint_retrieval, dict) else 0, "Exact SONARA matches that met the review threshold.", "Open Pair Evidence.", ""],
-        [
-            "Safe delete candidates",
-            stats.get("safe_candidate_count", 0),
-            "Direct high-confidence matches to the suggested keeper.",
-            "Open the Candidates sheet and review every row before apply mode.",
-            "",
-        ],
-        [
-            "Manual review candidates",
-            stats.get("review_candidate_count", 0),
-            "Candidates with blockers or weaker evidence.",
-            "Do not delete automatically.",
-            "",
-        ],
     ]
-    if isinstance(rhythm_lab, dict):
-        rows.extend(
-            [
-                [],
-                ["Rhythm Lab impact", "Value", "Meaning", "", ""],
-                ["Database", rhythm_lab.get("database_path", ""), "Lab database checked for labels/predictions on safe candidates.", "", ""],
-                ["Database exists", rhythm_lab.get("database_exists", False), "False means no lab rows can be affected.", "", ""],
-                ["Affected tracks on apply", rhythm_lab.get("affected_track_count", 0), "Safe candidates with lab rows.", "", ""],
-                ["Affected rows on apply", rhythm_lab.get("affected_row_count", 0), "Rows that apply mode would remove after audio deletion.", "", ""],
-            ]
-        )
     rows.extend(
         [
             [],
@@ -159,35 +107,22 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     )
     if isinstance(confidence, dict):
         meanings = {
-            "high": "Score is strong and has no major blockers.",
-            "medium": "Likely duplicate, but review evidence before deletion.",
-            "review": "Needs manual inspection.",
+            "high": "Fingerprint match at or above 0.95: essentially the same file.",
+            "medium": "Fingerprint match at or above 0.70: a genuine duplicate.",
+            "review": "Same recording, but the copies differ; inspect before deleting.",
         }
         for label in ("high", "medium", "review"):
             rows.append([label, confidence.get(label, 0), meanings[label], "", ""])
-    rows.extend([[], ["Embeddings loaded (this run)", "Tracks", "Meaning", "", ""]])
-    if isinstance(embeddings, dict):
-        for label in config_module.SUPPORTED_EMBEDDINGS:
-            rows.append([label.upper(), embeddings.get(label, 0), "Vectors loaded for this run's scoring; 0 when the family was not selected (always 0 in fingerprint mode).", "", ""])
     semantics = payload.get("score_semantics", {})
     if isinstance(semantics, dict):
         rows.extend([[], ["Score semantics", "Kind", "Range", "Notes", ""]])
-        for key in (
-            "score",
-            "content_similarity",
-            "mert_v2_similarity",
-            "maest_similarity",
-            "muq_similarity",
-            "clap_similarity",
-            "fingerprint_similarity",
-        ):
-            item = semantics.get(key, {})
+        for key, item in semantics.items():
             if isinstance(item, dict):
                 rows.append([key, item.get("kind", ""), item.get("range", ""), item.get("notes", ""), ""])
     return rows
 
 
-GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX = 8
+GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX = 6
 
 
 def _groups_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
@@ -195,18 +130,16 @@ def _groups_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         [
             "group_id",
             "confidence",
-            "score",
+            "fingerprint_similarity",
             "keeper_track_id",
             "keeper_path",
-            "candidate_count",
-            "safe_candidates",
-            "review_candidates",
-            "fake_bitrate_candidates",
+            "copy_count",
+            "fake_bitrate_copies",
             "why_keep",
-            "blocked_reasons",
+            "review_reasons",
         ]
     ]
-    assert rows[0][GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX] == "fake_bitrate_candidates"
+    assert rows[0][GROUPS_SHEET_FAKE_BITRATE_COLUMN_INDEX] == "fake_bitrate_copies"
     for group in payload["groups"]:  # type: ignore[index]
         assert isinstance(group, dict)
         keeper = group["suggested_keeper"]
@@ -216,50 +149,38 @@ def _groups_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             [
                 group["group_id"],
                 group["confidence"],
-                group["score"],
+                group["fingerprint_similarity"],
                 keeper["track_id"],
                 keeper["path"],
                 len(candidates),
-                sum(1 for candidate in candidates if candidate.get("decision") == "delete_candidate"),
-                sum(1 for candidate in candidates if candidate.get("decision") != "delete_candidate"),
                 sum(1 for candidate in candidates if candidate.get("suspected_transcode")),
                 "; ".join(str(item) for item in keeper.get("why_keep", [])),
-                "; ".join(str(item) for item in group.get("blocked_reasons", [])),
+                "; ".join(str(item) for item in group.get("review_reasons", [])),
             ]
         )
     return rows
 
 
-CANDIDATES_SHEET_SUSPECTED_TRANSCODE_COLUMN = 10
-CANDIDATES_SHEET_KEEPER_SUSPECTED_TRANSCODE_COLUMN = 12
+CANDIDATES_SHEET_SUSPECTED_TRANSCODE_COLUMN = 7
+CANDIDATES_SHEET_KEEPER_SUSPECTED_TRANSCODE_COLUMN = 9
 
 
 def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     rows: list[list[object]] = [
         [
             "group_id",
-            "action",
-            "delete_track_id",
-            "delete_path",
+            "copy_track_id",
+            "copy_path",
             "keeper_track_id",
             "keeper_path",
-            "score_vs_keeper",
-            "content_similarity_vs_keeper",
-            "safe_to_delete",
+            "fingerprint_vs_keeper",
             "suspected_transcode",
             "spectral_note",
             "keeper_suspected_transcode",
             "keeper_spectral_note",
-            "mert_v2_similarity",
-            "maest_similarity",
-            "muq_similarity",
-            "sonara_similarity",
-            "fingerprint_similarity",
-            "clap_similarity",
             "duration_diff_seconds",
             "duration_diff_ratio",
-            "blocked_reasons",
-            "why_delete_or_review",
+            "review_reasons",
         ]
     ]
     assert rows[0][CANDIDATES_SHEET_SUSPECTED_TRANSCODE_COLUMN - 1] == "suspected_transcode"
@@ -275,28 +196,18 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             rows.append(
                 [
                     group["group_id"],
-                    candidate["action"],
                     candidate["track_id"],
                     candidate["path"],
                     keeper["track_id"],
                     keeper["path"],
-                    candidate["score_vs_keeper"],
-                    candidate.get("content_similarity_vs_keeper"),
-                    candidate["safe_to_delete"],
+                    candidate["fingerprint_vs_keeper"],
                     candidate.get("suspected_transcode"),
                     candidate.get("spectral_note"),
                     keeper.get("suspected_transcode"),
                     keeper.get("spectral_note"),
-                    evidence.get("mert_v2_similarity"),
-                    evidence.get("maest_similarity"),
-                    evidence.get("muq_similarity"),
-                    evidence.get("sonara_similarity"),
-                    evidence.get("fingerprint_similarity"),
-                    evidence.get("clap_similarity"),
                     evidence.get("duration_diff_seconds"),
                     evidence.get("duration_diff_ratio"),
-                    "; ".join(str(item) for item in candidate.get("blocked_reasons", [])),
-                    "; ".join(str(item) for item in candidate.get("why_delete_or_review", [])),
+                    "; ".join(str(item) for item in candidate.get("review_reasons", [])),
                 ]
             )
     return rows
@@ -308,18 +219,10 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "group_id",
             "left_track_id",
             "right_track_id",
-            "score",
-            "content_similarity",
-            "mert_v2_similarity",
-            "maest_similarity",
-            "muq_similarity",
-            "sonara_similarity",
             "fingerprint_similarity",
-            "clap_similarity",
             "candidate_sources",
             "duration_diff_seconds",
             "duration_diff_ratio",
-            "blocked_reasons",
         ]
     ]
     for group in payload["groups"]:  # type: ignore[index]
@@ -331,58 +234,12 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     group["group_id"],
                     evidence["left_track_id"],
                     evidence["right_track_id"],
-                    evidence["score"],
-                    evidence["content_similarity"],
-                    evidence["mert_v2_similarity"],
-                    evidence["maest_similarity"],
-                    evidence["muq_similarity"],
-                    evidence["sonara_similarity"],
-                    evidence.get("fingerprint_similarity"),
-                    evidence["clap_similarity"],
+                    evidence["fingerprint_similarity"],
                     "; ".join(str(item) for item in evidence.get("candidate_sources", [])),
                     evidence["duration_diff_seconds"],
                     evidence["duration_diff_ratio"],
-                    "; ".join(str(item) for item in evidence.get("blocked_reasons", [])),
                 ]
             )
-    return rows
-
-
-def _rhythm_lab_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
-    rows: list[list[object]] = [
-        [
-            "action",
-            "catalog_uuid",
-            "track_uuid",
-            "table_name",
-            "classifier_key",
-            "label",
-            "path",
-            "feature_set",
-            "model_artifact",
-            "confidence",
-        ]
-    ]
-    rhythm_lab = payload.get("rhythm_lab", {})
-    if not isinstance(rhythm_lab, dict):
-        return rows
-    for row in rhythm_lab.get("affected_rows", []):
-        if not isinstance(row, dict):
-            continue
-        rows.append(
-            [
-                row.get("action", ""),
-                row.get("catalog_uuid", ""),
-                row.get("track_uuid", ""),
-                row.get("table_name", ""),
-                row.get("classifier_key", ""),
-                row.get("label", ""),
-                row.get("path", ""),
-                row.get("feature_set", ""),
-                row.get("model_artifact", ""),
-                row.get("confidence", ""),
-            ]
-        )
     return rows
 
 

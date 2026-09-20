@@ -36,6 +36,7 @@ export function LibraryPanel({
   onChooseDatabase,
   busy,
   stageRunning,
+  audioDedupRunning,
   hasTracks,
   libraryTrackCount,
   maestGenreTrackCount,
@@ -65,6 +66,7 @@ export function LibraryPanel({
   onChooseDatabase: () => void;
   busy: boolean;
   stageRunning: boolean;
+  audioDedupRunning: boolean;
   hasTracks: boolean;
   libraryTrackCount: number;
   maestGenreTrackCount: number;
@@ -89,6 +91,10 @@ export function LibraryPanel({
   onResetAnalysis: (adapter: AnalysisModel) => void;
 }) {
   const stagesDisabled = busy || stageRunning;
+  // This button opens the review, it does not start anything, so a dedup scan
+  // of its own must not lock the reviewer out of watching it. Another stage
+  // still does: a scan cannot start while the library is busy elsewhere.
+  const audioDedupDisabled = busy || !hasTracks || (stageRunning && !audioDedupRunning);
   const isSelected = (stage: StageSelection) => selectedStages.includes(stage);
 
   const stageRow = ({
@@ -220,7 +226,7 @@ export function LibraryPanel({
           <button className="icon-button genre-save-button" disabled={stagesDisabled || !maestGenreTrackCount} title="Сохранить жанры" aria-label="Сохранить жанры" onClick={onWriteMaestGenres} type="button"><Save size={16} />Save Genres</button>
           <button className="icon-button database-validation-button" disabled={stagesDisabled || !hasTracks} title="Проверить базу" aria-label="Проверить базу" onClick={onValidateDatabase} type="button"><ShieldCheck size={16} />Validate DB</button>
           <button className={`icon-button rhythm-lab-button ${rhythmLabRunning ? "active" : ""}`} disabled={busy} title={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"} aria-label={rhythmLabRunning ? "Открыть Rhythm Lab" : "Запустить Rhythm Lab"} aria-pressed={rhythmLabRunning} onClick={onLaunchRhythmLab} type="button"><FlaskConical size={16} />Rhythm-Lab</button>
-          <button className="icon-button audio-dedup-button" disabled={stagesDisabled || !hasTracks} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyX size={16} />Audio Dedup</button>
+          <button className={`icon-button audio-dedup-button ${audioDedupRunning ? "active" : ""}`} disabled={audioDedupDisabled} title="Найти и разобрать дубликаты" aria-label="Найти и разобрать дубликаты" onClick={onOpenAudioDedup} type="button"><CopyX size={16} />Audio Dedup</button>
         </div>
 
         <div className="stage-section-description">

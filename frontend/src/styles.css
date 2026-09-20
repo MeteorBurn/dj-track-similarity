@@ -5008,6 +5008,8 @@ button.metadata-copy-value-button:hover:not(:disabled) {
      a fallback so the group list below it never gets squeezed out of view. */
   overflow-y: auto;
   padding: 14px 2px 0;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .dedup-section {
@@ -5169,16 +5171,26 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   padding: 0 10px;
 }
 
+/* Armed, this button erases audio, so it carries the same weight the app gives
+   its other terminal action rather than reading as one more pale control. */
 .dedup-delete-button {
-  background: var(--danger-bg);
-  border: 1px solid var(--danger-border);
-  color: var(--danger-text);
+  background: var(--danger-deep-bg);
+  border: 1px solid var(--danger-deep-bg);
+  color: var(--inverse-text);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .dedup-delete-button:not(:disabled):hover {
-  background: var(--danger-muted-bg);
-  border-color: var(--danger-border-hover);
-  color: var(--danger-text-hover);
+  background: var(--danger-deep-hover);
+  border-color: var(--danger-deep-hover);
+  color: var(--inverse-text);
+}
+
+.dedup-delete-button:disabled {
+  background: var(--surface-disabled);
+  border-color: var(--surface-disabled-border);
+  color: var(--text-disabled);
+  opacity: 1;
 }
 
 .dedup-progress-track {
@@ -5189,10 +5201,14 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   width: 100%;
 }
 
+/* Scaled rather than resized: the fill is repainted on every poll, and a
+   transform keeps that off the layout path. */
 .dedup-progress-fill {
   background: var(--accent-deep-bg);
   height: 100%;
-  transition: width 240ms ease;
+  transform-origin: left center;
+  transition: transform 240ms ease;
+  width: 100%;
 }
 
 .dedup-alert {
@@ -5216,6 +5232,8 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   min-height: 220px;
   overflow-y: auto;
   padding-right: 4px;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .dedup-loading {
@@ -5225,6 +5243,12 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   font-size: 12px;
   gap: 6px;
   margin: 0;
+}
+
+/* The same turning spinner the running process indicators use, so a waiting
+   group list looks like every other wait in the app. */
+.dedup-loading svg {
+  animation: spin 1s linear infinite;
 }
 
 .dedup-group {
@@ -5248,24 +5272,28 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 }
 
 .dedup-group-id {
-  color: var(--text-muted);
+  color: var(--text-strong);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
 
+/* Pulled in tighter than the head's gap: the count belongs to the group number
+   beside it, not to the chips that follow. */
 .dedup-group-count {
   color: var(--text-muted);
   font-size: 11px;
+  margin-left: -3px;
 }
 
-/* The fingerprint verdict is about the pair, so it sits centred between the
-   group's identity on the left and its actions on the right. */
+/* The fingerprint verdict is about the pair rather than about either copy, so
+   it reads as a full sentence under the group's chips and above both cards,
+   where it no longer competes with the group actions for the same row. */
 .dedup-group-fingerprint {
   color: var(--text-muted);
-  flex: 1 1 auto;
   font-size: 11px;
-  text-align: center;
+  line-height: 1.4;
+  margin: -3px 0 0;
 }
 
 .dedup-group-actions {
@@ -5282,7 +5310,10 @@ button.metadata-copy-value-button:hover:not(:disabled) {
   font-size: 11px;
   font-weight: 600;
   gap: 4px;
-  padding: 2px 9px;
+  /* One height for every chip in the head, with or without an icon, so the row
+     reads as one band instead of a ragged line. */
+  line-height: 18px;
+  padding: 0 9px;
   white-space: nowrap;
 }
 
@@ -5332,40 +5363,55 @@ button.metadata-copy-value-button:hover:not(:disabled) {
 
 .dedup-copies {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
 .dedup-copy {
+  --dedup-copy-rule: var(--border-soft);
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 7px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* A floor rather than a fixed height: a sparse copy still gets room for the
-     detail lines, and a richer one grows past it. */
-  min-height: 310px;
   padding: 11px;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
 .dedup-copy-keeper {
-  border-color: var(--accent-soft-border);
+  --dedup-copy-rule: var(--accent-soft-border);
+  border-color: var(--accent-muted-border);
 }
 
 .dedup-copy-doomed {
+  --dedup-copy-rule: var(--danger-muted-border);
   background: var(--danger-muted-bg);
   border-color: var(--danger-border);
 }
 
+/* A copy whose file moved is dimmed in its facts, never in its warning: the
+   line saying the report went stale is the one thing worth reading here. */
 .dedup-copy-stale {
-  opacity: 0.7;
+  background: var(--surface-disabled);
+  border-color: var(--surface-disabled-border);
+  border-style: dashed;
 }
 
+.dedup-copy-stale :is(.dedup-copy-name, .dedup-copy-artist, .dedup-spec-main, .dedup-copy-path) {
+  color: var(--text-disabled);
+}
+
+/* The head is the ruler the columns line up on: fixed height, closed by a
+   hairline, so the technical lines of two copies start at the same y and can
+   be compared by eye instead of by reading. */
 .dedup-copy-head {
   align-items: center;
+  border-bottom: 1px solid var(--dedup-copy-rule);
   display: flex;
   gap: 8px;
+  min-height: 42px;
+  padding-bottom: 9px;
 }
 
 button.dedup-play-button {
@@ -5375,15 +5421,20 @@ button.dedup-play-button {
 }
 
 .dedup-copy-identity {
+  align-content: center;
   display: grid;
   flex: 1;
   gap: 1px;
+  /* Two lines of room whether or not tags gave this copy an artist, so a
+     titled copy and an untitled one keep the same head height. */
+  min-height: 32px;
   min-width: 0;
 }
 
 .dedup-copy-name {
   font-size: 13px;
   font-weight: 700;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5392,6 +5443,7 @@ button.dedup-play-button {
 .dedup-copy-artist {
   color: var(--text-muted);
   font-size: 11px;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5423,11 +5475,18 @@ button.dedup-play-button {
 .dedup-copy-path {
   color: var(--text-muted);
   cursor: text;
-  font-size: 10px;
+  /* Two copies usually share a file name and differ only by folder, so the
+     directory is the discriminator and has to stay readable. Two lines of it
+     are reserved in every card and the rest is in the tooltip: a deep path
+     must not push one column's technical lines below the other's. */
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  font-size: 11px;
   line-height: 1.35;
   margin: 0;
-  /* Two copies usually share a file name and differ only by folder, so the
-     directory is the discriminator and has to stay readable. */
+  min-height: 30px;
+  overflow: hidden;
   overflow-wrap: anywhere;
   user-select: text;
 }
@@ -5436,14 +5495,17 @@ button.dedup-play-button {
    they stay comparable between the two copies only when they line up. */
 .dedup-copy-specs {
   display: grid;
-  gap: 4px;
+  gap: 5px;
   justify-items: start;
 }
 
+/* The comparison payload: whichever copy wins, it wins on this line. */
 .dedup-spec-main {
+  color: var(--text-strong);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .dedup-spec-muted {
@@ -5454,41 +5516,74 @@ button.dedup-play-button {
 
 .dedup-spectral {
   align-items: center;
+  border: 1px solid transparent;
   border-radius: 4px;
   display: flex;
   font-size: 11px;
   font-weight: 600;
   gap: 4px;
-  padding: 3px 7px;
+  padding: 2px 7px;
   width: fit-content;
 }
 
 .dedup-spectral-ok {
   background: var(--accent-muted-bg);
+  border-color: var(--accent-muted-border);
   color: var(--accent);
 }
 
 .dedup-spectral-warn {
   background: var(--warning-bg);
+  border-color: var(--warning-border);
   color: var(--warning-text);
 }
 
 .dedup-spectral-muted {
   background: var(--surface-subtle);
+  border-color: var(--border);
   color: var(--text-muted);
+}
+
+/* The verdict and the stale note share one shape: a tinted line that says in
+   one glance whether this copy may be deleted by the tool, by hand, or not at
+   all. Everything under it explains that line rather than restating it. */
+.dedup-verdict,
+.dedup-copy-stale-note {
+  align-items: flex-start;
+  border-radius: 5px;
+  display: flex;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 5px;
+  line-height: 1.35;
+  margin: 0;
+  padding: 4px 7px;
+}
+
+.dedup-verdict > svg,
+.dedup-copy-stale-note > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 .dedup-copy-stale-note {
+  background: var(--danger-soft-bg);
   color: var(--danger-text);
-  font-size: 11px;
-  margin: 0;
 }
 
-.dedup-copy-status {
+.dedup-verdict-safe {
+  background: var(--accent-muted-bg);
+  color: var(--accent);
+}
+
+.dedup-verdict-blocked {
+  background: var(--warning-soft-bg);
+  color: var(--warning-text);
+}
+
+.dedup-verdict-manual {
+  background: var(--surface-subtle);
   color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  margin: 0;
 }
 
 .dedup-copy-details {
@@ -5497,15 +5592,32 @@ button.dedup-play-button {
 }
 
 .dedup-copy-details-title {
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .dedup-copy-details ul {
   display: grid;
-  gap: 2px;
-  line-height: 1.35;
-  margin: 2px 0 0;
-  padding-left: 15px;
+  gap: 3px;
+  line-height: 1.4;
+  margin: 3px 0 0;
+  padding-left: 14px;
+}
+
+.dedup-copy-details li::marker {
+  color: var(--text-faint);
+}
+
+/* The card's closing rule, mirroring the head's. It pins the action to one line
+   across the whole group however much evidence each copy carries, and the space
+   it leaves above reads as the evidence area rather than as a gap. */
+.dedup-copy-foot {
+  border-top: 1px solid var(--dedup-copy-rule);
+  display: grid;
+  margin-top: auto;
+  padding-top: 9px;
 }
 
 .dedup-copy-action {
@@ -5521,13 +5633,26 @@ button.dedup-play-button {
   gap: 6px;
   height: 32px;
   justify-content: center;
-  margin-top: auto;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-.dedup-copy-action.selected {
-  background: var(--danger-bg);
-  border-color: var(--danger-border);
+.dedup-copy-action:hover:not(:disabled) {
+  border-color: var(--danger-border-hover);
   color: var(--danger-text);
+}
+
+/* On a marked card the button lifts out of the tinted surface instead of
+   blending into it: the card says "going", the control says "press to keep". */
+.dedup-copy-action.selected {
+  background: var(--surface);
+  border-color: var(--danger-border-hover);
+  color: var(--danger-deep-text);
+}
+
+.dedup-copy-action.selected:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--danger-border-hover);
+  color: var(--danger-text-hover);
 }
 
 .dedup-paging {
@@ -5558,6 +5683,11 @@ button.dedup-play-button {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   padding-bottom: 7px;
+}
+
+.dedup-footer-summary strong {
+  color: var(--danger-deep-text);
+  font-size: 15px;
 }
 
 .dedup-footer-idle {

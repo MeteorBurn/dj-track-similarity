@@ -240,24 +240,30 @@ export function groupFingerprintLine(group: AudioDedupGroup): string | null {
       + " — так бывает у винил-рипа против цифры и у ремастеров.";
 }
 
+export type DedupCopyVerdict = { text: string; tone: "safe" | "blocked" | "manual" };
+
 /**
- * Why this copy is a candidate and what still has to be decided by hand.
+ * Whether the tool may delete this copy on its own, and why not.
  *
- * "Needs manual review" on its own said nothing: not what matched, not how
- * strongly, not why the tool refuses to act. The basis is the exact fingerprint
- * score, so the line states it.
+ * The blocked verdict names the hold and nothing else: its reasons are listed
+ * once underneath it by `copyDetailReasons`, and repeating the first of them
+ * here printed the same sentence twice on every blocked card.
  */
-export function copyStatusLine(
+export function copyVerdict(
   file: AudioDedupFile,
   searchMode: AudioDedupSearchMode | ""
-): string | null {
+): DedupCopyVerdict | null {
   if (file.role === "keeper") return null;
   if (file.safe_to_delete) {
-    return "MERT-v2 и MAEST подтвердили совпадение — копию можно удалять автоматически.";
+    return {
+      text: "MERT-v2 и MAEST подтвердили совпадение — копию можно удалять автоматически.",
+      tone: "safe"
+    };
   }
-  const blockers = copyDetailReasons(file, searchMode);
-  if (blockers.length > 0) return `Автоудаление заблокировано: ${blockers[0]}.`;
-  return "Требуется ручная проверка.";
+  if (copyDetailReasons(file, searchMode).length > 0) {
+    return { text: "Автоудаление заблокировано", tone: "blocked" };
+  }
+  return { text: "Требуется ручная проверка.", tone: "manual" };
 }
 
 /**
@@ -381,6 +387,28 @@ export function buildDeleteRequest(
       confirmation: applyDeleteConfirmation
     }
   };
+}
+
+/**
+ * The Russian count form for a number: 1 копия, 2 копии, 5 копий.
+ *
+ * The screen states these counts next to the delete control, so a single
+ * hard-coded form read as broken next to the one number the reviewer checks
+ * before erasing audio. The caller supplies the three forms because the case
+ * differs between "2 копии в группе" and "удалить 2 копии".
+ */
+export function pluralRu(count: number, one: string, few: string, many: string) {
+  const tail = Math.abs(count) % 100;
+  if (tail >= 11 && tail <= 14) return many;
+  const last = tail % 10;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
+}
+
+/** "копия / копии / копий" in the nominative, the form every count line uses. */
+export function copiesWord(count: number) {
+  return pluralRu(count, "копия", "копии", "копий");
 }
 
 export function formatBytes(bytes: number) {

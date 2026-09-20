@@ -18,8 +18,10 @@ import { ConfirmationDialog } from "./dialogs";
 import { helpText } from "./helpText";
 import {
   confidenceLabel,
+  copiesWord,
   dedupConfidenceOptions,
   formatBytes,
+  pluralRu,
   selectionSummary
 } from "./audioDedupView";
 import { useAudioDedup } from "./useAudioDedup";
@@ -69,6 +71,9 @@ export function AudioDedupDialog({
     [dedup.page, dedup.selection]
   );
   const canDelete = summary.files > 0 && !dedup.busy;
+  const selectionText =
+    `${summary.files} ${copiesWord(summary.files)}`
+    + ` в ${summary.groups} ${pluralRu(summary.groups, "группе", "группах", "группах")}`;
 
   if (!open) return null;
 
@@ -96,7 +101,7 @@ export function AudioDedupDialog({
           ? "Удалить помеченные копии в корзину?"
           : "Удалить помеченные копии безвозвратно?",
       message:
-        `${summary.files} копий в ${summary.groups} группах · ${formatBytes(summary.bytes)}. `
+        `${selectionText} · ${formatBytes(summary.bytes)}. `
         + (deletionMode === "trash"
           ? "Файлы уйдут в корзину, их строки будут удалены из базы."
           : "Файлы будут стёрты с диска мимо корзины, их строки будут удалены из базы."),
@@ -154,7 +159,8 @@ export function AudioDedupDialog({
                 <span className="dedup-section-counter">
                   {job.state === "running" || job.state === "queued"
                     ? `${job.current_step ?? "подготовка"} · ${job.processed}/${job.total}`
-                    : `${job.state} · групп ${job.groups}`}
+                    : `${job.state} · ${job.groups} `
+                      + pluralRu(job.groups, "группа", "группы", "групп")}
                 </span>
               ) : null}
             </div>
@@ -237,7 +243,10 @@ export function AudioDedupDialog({
             {dedup.scanRunning ? (
               <div className="dedup-progress">
                 <div className="dedup-progress-track">
-                  <div className="dedup-progress-fill" style={{ width: `${progressPercent}%` }} />
+                  <div
+                    className="dedup-progress-fill"
+                    style={{ transform: `scaleX(${progressPercent / 100})` }}
+                  />
                 </div>
               </div>
             ) : null}
@@ -250,7 +259,9 @@ export function AudioDedupDialog({
               Отчёт и фильтры
               {activeReport ? (
                 <span className="dedup-section-counter">
-                  {activeReport.group_count} групп · {activeReport.candidate_count} копий
+                  {activeReport.group_count}{" "}
+                  {pluralRu(activeReport.group_count, "группа", "группы", "групп")} ·{" "}
+                  {activeReport.candidate_count} {copiesWord(activeReport.candidate_count)}
                   {activeReport.fake_bitrate_candidate_count > 0
                     ? ` · фейк-битрейт ${activeReport.fake_bitrate_candidate_count}`
                     : ""}
@@ -271,8 +282,9 @@ export function AudioDedupDialog({
                   ) : null}
                   {dedup.reports.map((report) => (
                     <option key={report.report_id} value={report.report_id}>
-                      {report.generated_at.replace("T", " ")} · {report.root || "вся база"} · групп{" "}
-                      {report.group_count}
+                      {report.generated_at.replace("T", " ")} · {report.root || "вся база"} ·{" "}
+                      {report.group_count}{" "}
+                      {pluralRu(report.group_count, "группа", "группы", "групп")}
                     </option>
                   ))}
                 </select>
@@ -447,7 +459,8 @@ export function AudioDedupDialog({
           <div className="dedup-footer-summary">
             {summary.files > 0 ? (
               <>
-                <strong>{summary.files}</strong> копий в {summary.groups} группах ·{" "}
+                <strong>{summary.files}</strong> {copiesWord(summary.files)} в {summary.groups}{" "}
+                {pluralRu(summary.groups, "группе", "группах", "группах")} ·{" "}
                 {formatBytes(summary.bytes)}
               </>
             ) : (
@@ -470,7 +483,9 @@ export function AudioDedupDialog({
             type="button"
             disabled={!canDelete}
             title={
-              summary.files === 0 ? "Пометьте копии на удаление" : `Удалить ${summary.files} копий`
+              summary.files === 0
+                ? "Пометьте копии на удаление"
+                : `Удалить ${summary.files} ${pluralRu(summary.files, "копию", "копии", "копий")}`
             }
             onClick={requestDelete}
           >

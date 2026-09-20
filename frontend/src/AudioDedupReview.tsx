@@ -1,9 +1,10 @@
-import { AlertTriangle, Crown, Pause, Play, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Crown, Pause, Play, ShieldAlert, Trash2 } from "lucide-react";
 import type { AudioDedupFile, AudioDedupGroup, AudioDedupSearchMode } from "./api";
 import {
   confidenceLabel,
+  copiesWord,
   copyDetailReasons,
-  copyStatusLine,
+  copyVerdict,
   fileQualityLine,
   fileSpecLine,
   fileSpectralBadge,
@@ -28,7 +29,7 @@ function FileCard({
   onToggle: () => void;
   onPreview: () => void;
 }) {
-  const status = copyStatusLine(file, searchMode);
+  const verdict = copyVerdict(file, searchMode);
   const details = copyDetailReasons(file, searchMode);
   const spectral = fileSpectralBadge(file);
   const quality = fileQualityLine(file);
@@ -71,7 +72,9 @@ function FileCard({
         </span>
       </header>
 
-      <p className="dedup-copy-path">{file.path}</p>
+      <p className="dedup-copy-path" title={file.path}>
+        {file.path}
+      </p>
 
       <div className="dedup-copy-specs">
         <span className="dedup-spec-main">{fileSpecLine(file)}</span>
@@ -83,14 +86,25 @@ function FileCard({
       </div>
 
       {file.stale && file.stale_reason ? (
-        <p className="dedup-copy-stale-note">Отчёт устарел: {file.stale_reason}</p>
+        <p className="dedup-copy-stale-note">
+          <AlertTriangle size={12} />
+          Отчёт устарел: {file.stale_reason}
+        </p>
       ) : null}
 
-      {status ? <p className="dedup-copy-status">{status}</p> : null}
+      {verdict ? (
+        <p className={`dedup-verdict dedup-verdict-${verdict.tone}`}>
+          {verdict.tone === "safe" ? <CheckCircle2 size={12} /> : null}
+          {verdict.tone === "blocked" ? <ShieldAlert size={12} /> : null}
+          {verdict.text}
+        </p>
+      ) : null}
 
       {details.length > 0 ? (
         <div className="dedup-copy-details">
-          <span className="dedup-copy-details-title">Подробности:</span>
+          {/* The blocked verdict above already titles this list; the kept copy
+              has no verdict, so its reasons need a label of their own. */}
+          {verdict ? null : <span className="dedup-copy-details-title">Подробности</span>}
           <ul>
             {details.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -99,16 +113,18 @@ function FileCard({
         </div>
       ) : null}
 
-      <button
-        className={`dedup-copy-action ${selected ? "selected" : ""}`}
-        type="button"
-        aria-pressed={selected}
-        title={selected ? "Оставить эту копию" : "Пометить копию на удаление"}
-        onClick={onToggle}
-      >
-        <Trash2 size={14} />
-        {selected ? "Помечена на удаление" : "Удалить эту копию"}
-      </button>
+      <footer className="dedup-copy-foot">
+        <button
+          className={`dedup-copy-action ${selected ? "selected" : ""}`}
+          type="button"
+          aria-pressed={selected}
+          title={selected ? "Оставить эту копию" : "Пометить копию на удаление"}
+          onClick={onToggle}
+        >
+          <Trash2 size={14} />
+          {selected ? "Помечена на удаление" : "Удалить эту копию"}
+        </button>
+      </footer>
     </article>
   );
 }
@@ -137,16 +153,15 @@ export function AudioDedupGroupCard({
     <section className={`dedup-group ${selectedTrackIds.length > 0 ? "has-selection" : ""}`}>
       <header className="dedup-group-head">
         <span className="dedup-group-id">#{group.group_id}</span>
+        <span className="dedup-group-count">
+          {group.files.length} {copiesWord(group.files.length)}
+        </span>
         <span className={`dedup-chip dedup-chip-${group.confidence || "review"}`}>
           {confidenceLabel(group.confidence)}
         </span>
         <span className="dedup-chip dedup-chip-score" title="Точный матч отпечатков SONARA">
           отпечаток {formatSimilarity(group.fingerprint_similarity)}
         </span>
-        <span className="dedup-group-count">{group.files.length} копии</span>
-        {fingerprintLine ? (
-          <span className="dedup-group-fingerprint">{fingerprintLine}</span>
-        ) : null}
         {group.suspected_transcode_count > 0 ? (
           <span className="dedup-chip dedup-chip-warn">
             <AlertTriangle size={12} />
@@ -173,6 +188,8 @@ export function AudioDedupGroupCard({
           </button>
         </div>
       </header>
+
+      {fingerprintLine ? <p className="dedup-group-fingerprint">{fingerprintLine}</p> : null}
 
       {!survives ? (
         <p className="dedup-group-warning">

@@ -208,6 +208,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [serverShutdownAccepted, setServerShutdownAccepted] = useState(false);
   const [libraryPlaybackShuffle, setLibraryPlaybackShuffle] = useState(false);
+  const [repeatTrack, setRepeatTrack] = useState(false);
   const [filters, setFilters] = useState<SearchFiltersState>({
     limit: 20,
     sonaraMixer: {
@@ -567,6 +568,10 @@ export function App() {
   }
 
   function handleLibraryPreviewEnded(track: PreviewTarget) {
+    if (repeatTrack) {
+      togglePreview(track);
+      return;
+    }
     const nextTrack = nextLibraryPlaybackTrack(
       orderedTracks,
       track.track_id,
@@ -1581,7 +1586,7 @@ export function App() {
           handleExport={(format) => void handleExport(format)}
         />
       </section>
-      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} onToggleLiked={(track) => void handleToggleTrackLiked(track)} />
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} />
       {sourceUrl ? (
         <audio
           key={sourceKey}

@@ -1,4 +1,4 @@
-import { AudioLines, Heart, Pause, Play, Volume2 } from "lucide-react";
+import { AudioLines, Heart, Pause, Play, Repeat1, Volume2 } from "lucide-react";
 import type { RefObject } from "react";
 import { useEffect, useState } from "react";
 import type { Track } from "./api";
@@ -8,13 +8,15 @@ import type { PreviewTarget } from "./useSearchPlaylist";
 
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
-export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, onToggleLiked }: {
+export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, repeat, onToggleRepeat, onToggleLiked }: {
   preview: PreviewTarget | null;
   playing: boolean;
   audioRef: RefObject<HTMLAudioElement | null>;
   sourceKey?: number;
   onToggle: (track: PreviewTarget) => void;
   onSeek: (track: PreviewTarget, seconds: number) => void;
+  repeat: boolean;
+  onToggleRepeat: () => void;
   onToggleLiked: (track: Track) => void;
 }) {
   const position = usePreviewPosition();
@@ -39,6 +41,16 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
         <input name="player-position" type="range" min={0} max={duration || 1} step={0.1} value={duration > 0 ? currentTime : 0} disabled={!preview || !duration} onChange={(event) => preview && onSeek(preview, Number(event.target.value))} aria-label="Позиция воспроизведения" />
         <span>{time(currentTime)} / {duration > 0 ? time(duration) : "—"}</span>
       </div>
+      <button
+        type="button"
+        className={`icon-button player-repeat-button ${repeat ? "active" : ""}`}
+        title={repeat ? "Выключить повтор трека" : "Повторять трек"}
+        aria-label={repeat ? "Выключить повтор трека" : "Повторять текущий трек"}
+        aria-pressed={repeat}
+        onClick={onToggleRepeat}
+      >
+        <Repeat1 size={21} />
+      </button>
       <button
         type="button"
         className={`icon-button track-liked-button ${track?.liked ? "active" : ""}`}

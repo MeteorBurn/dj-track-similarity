@@ -5932,6 +5932,10 @@ button.dedup-play-button {
 .player-timeline span { color: var(--text-muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* Bare heart, like the library rows: the frame would compete with the BPM/KEY boxes. */
 .player-dock > button.icon-button.track-liked-button { width: 40px; min-height: 40px; background: transparent; border-color: transparent; }
+/* Sits tight against the heart: the dock gap would read as a separate group. */
+.player-dock > button.icon-button.player-repeat-button { width: 40px; min-height: 40px; margin-right: -16px; color: var(--text-muted); background: transparent; border-color: transparent; }
+.player-dock > button.icon-button.player-repeat-button:hover { color: var(--text); border-color: transparent; }
+.player-dock > button.icon-button.player-repeat-button.active { color: var(--accent); }
 .player-bpm, .player-key { display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 40px; min-width: 62px; text-align: center; padding: 0 8px; border: 1px solid var(--border); border-radius: 5px; }
 .player-bpm span, .player-key span { color: var(--text-muted); font-size: 9px; letter-spacing: .1em; }
 .player-key strong { color: var(--preset-texture-text); }

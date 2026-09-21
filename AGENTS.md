@@ -147,10 +147,15 @@ work unverified rather than inventing its instructions.
   file; it must not rewrite or cache the source audio.
 - Use `LibraryDatabase` for the main application's library reads and writes;
   explicit read-only inspection follows [SQLITE TOOLKIT](docs/agent-guides/sqlite-toolkit.md#sqlite-toolkit). Preserve WAL,
-  busy-timeout and per-database locking on application write connections.
+  the busy timeout and `BEGIN IMMEDIATE` on library writes: each write is one
+  transaction that runs its identity and freshness checks (track ID/UUID, file
+  facts, locked settings) inside it, never before it. SQLite's write lock is
+  the only guard between the server, CLI, Rhythm Lab and scripts; the per-path
+  `RLock` orders threads of one process, and the server's job exclusion does
+  not see another process's jobs.
   Rhythm Lab keeps its existing `SourceDatabase` boundary: query-only library
   reads, a read-only `ATTACH` that syncs `track_sightings` into the lab
-  database, and the explicit liked-track toggle with its shared write-lock and
+  database, and the explicit liked-track toggle with its in-transaction
   ID/UUID checks. It switches libraries at runtime: the launcher's catalog pin
   covers only the first open, a switch is refused while a profile operation
   runs, and the main app verifies the catalog a managed lab returns after a

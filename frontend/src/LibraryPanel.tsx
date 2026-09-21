@@ -197,7 +197,7 @@ export function LibraryPanel({
         </div>
         <div className="path-row database-path-row">
           <input name="database-path" value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
-          <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={stagesDisabled} onClick={onChooseDatabase} type="button"><Database size={17} /></button>
+          <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={stagesDisabled} onClick={onChooseDatabase} type="button"><Database size={22} /></button>
         </div>
 
         <div className="stage-card database-stage">

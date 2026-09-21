@@ -1374,14 +1374,16 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 42px;
 }
 
-/* The stage cards below carry an 8px pad inside a 1px border, so their content
-   starts nine pixels in from the panel. The database row has neither, and its
-   field and button sat nine pixels wider on each side than everything under
-   them. The inset lines the controls up with the cards instead of with the
-   panel edge. */
+/* The field starts at the stage card's own left edge, and the picker sits
+   exactly over the card's row action button: on the right the row repeats the
+   card's 1px border (transparent) and 8px pad, and its gap is the stage row's
+   6px. Borrowing the border keeps it exact when zoom renders it thinner than
+   one pixel. */
 .database-path-row {
   grid-template-columns: minmax(0, 1fr) 34px;
-  padding: 0 9px;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px solid transparent;
 }
 
 .database-path-row .icon-button,

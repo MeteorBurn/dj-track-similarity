@@ -229,11 +229,12 @@ def _add_track(
     title: str,
     artist: str,
 ):
+    path.write_bytes(b"\0" * 100)
     mutation = database.upsert_scanned_track(
         file=ScannedFile(
             file_path=str(path),
             file_size_bytes=100,
-            file_modified_ns=1_000,
+            file_modified_ns=path.stat().st_mtime_ns,
             audio_format="wav",
         ),
         tags=FileTags(

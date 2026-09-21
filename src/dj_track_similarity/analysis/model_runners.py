@@ -84,6 +84,8 @@ class AnalysisWriteRepository(Protocol):
     def save_sonara_results(
         self,
         writes: Sequence[SonaraWrite],
+        *,
+        bpm_range: tuple[float, float],
     ) -> tuple[AnalysisWriteResult, ...]: ...
 
     def save_maest_results(
@@ -203,7 +205,10 @@ class SonaraModelRunner:
                     analysis,
                     analyzed_at=utc_timestamp(),
                 ),
-                store_write=_store_staged_sonara_write,
+                store_write=partial(
+                    _store_staged_sonara_write,
+                    bpm_range=(self.bpm_min, self.bpm_max),
+                ),
                 cancelled=self.cancelled,
                 executor_factory=lambda: sonara_process_executor(self.staging_config),
                 result_callback=self.track_result,
@@ -236,8 +241,10 @@ class SonaraModelRunner:
 def _store_staged_sonara_write(
     repository: AnalysisWriteRepository,
     write: SonaraWrite,
+    *,
+    bpm_range: tuple[float, float],
 ) -> None:
-    results = tuple(repository.save_sonara_results((write,)))
+    results = tuple(repository.save_sonara_results((write,), bpm_range=bpm_range))
     if len(results) != 1:
         raise RuntimeError("SONARA staged storage did not return one result")
     result = results[0]

@@ -10,7 +10,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 from dj_track_similarity.search.sonara import SonaraSimilaritySearch
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -196,7 +196,8 @@ def _add_sonara_track(
         track_id=mutation.identity.track_id,
         track_uuid=mutation.identity.track_uuid,
     )
-    result = database.save_sonara_results(
+    result = save_sonara_writes(
+        database,
         (
             complete_sonara_write(target, _core_row(target, features)),
         )
@@ -722,7 +723,8 @@ def test_sonara_feature_rows_refresh_after_typed_core_write(tmp_path: Path) -> N
     output = db.active_analysis_output("sonara", "core")
     assert output is not None
     first_rows = db.load_sonara_feature_rows(output, targets=(target,))
-    result = db.save_sonara_results(
+    result = save_sonara_writes(
+        db,
         (
             complete_sonara_write(
                 target,

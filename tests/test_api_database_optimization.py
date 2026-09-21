@@ -19,11 +19,13 @@ def test_optimization_job_api_backs_up_and_reports_the_library(
 ) -> None:
     database_path = tmp_path / "library.sqlite"
     database = LibraryDatabase(database_path)
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"\0")
     mutation = database.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / "track.wav"),
+            file_path=str(audio_path),
             file_size_bytes=1,
-            file_modified_ns=1,
+            file_modified_ns=audio_path.stat().st_mtime_ns,
             audio_format="wav",
         ),
         tags=FileTags(title="Fixture", artist="Artist"),

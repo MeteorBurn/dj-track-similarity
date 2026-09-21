@@ -19,7 +19,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 from embedding_test_support import same_vector_layers
 from dj_track_similarity.evaluation.seed_sampling import (
     export_seed_sample,
@@ -103,11 +103,13 @@ def test_seed_sample_keeps_saved_analysis_after_track_scan_update(
     )
     _save_complete_analysis(db, original, bpm=90.0, energy=0.9, axis=0)
 
+    rescanned = tmp_path / "stale.wav"
+    rescanned.write_bytes(b"\0" * 11)
     current = db.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / "stale.wav"),
+            file_path=str(rescanned),
             file_size_bytes=11,
-            file_modified_ns=2,
+            file_modified_ns=rescanned.stat().st_mtime_ns,
         ),
         tags=FileTags(
             artist="Stale",
@@ -235,11 +237,13 @@ def _track(
     bpm: float,
     musical_key: str = "1A",
 ) -> TrackIdentity:
+    path = tmp_path / f"{stem}.wav"
+    path.write_bytes(b"\0" * 10)
     mutation = db.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / f"{stem}.wav"),
+            file_path=str(path),
             file_size_bytes=10,
-            file_modified_ns=1,
+            file_modified_ns=path.stat().st_mtime_ns,
         ),
         tags=FileTags(
             artist=artist,
@@ -342,7 +346,8 @@ def _save_sonara_core(
             "analyzed_at": _NOW,
         }
     )
-    result = db.save_sonara_results(
+    result = save_sonara_writes(
+        db,
         (
             complete_sonara_write(target, SonaraRow(**values)),
         )

@@ -602,6 +602,18 @@ class TrackRepository:
             with closing(self.connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
+                    # The file must still be what was read, in any process: a
+                    # genre write rewrites it while holding the database write
+                    # lock, and a duplicate delete removes it before its row.
+                    # A missing file raises FileNotFoundError.
+                    current_stat = Path(stored_path).stat()
+                    if (
+                        int(current_stat.st_size) != int(file.file_size_bytes)
+                        or int(current_stat.st_mtime_ns) != int(file.file_modified_ns)
+                    ):
+                        raise OSError(
+                            f"Source file changed after scan metadata was read: {stored_path}"
+                        )
                     track_id = _track_id_for_path(connection, stored_path)
                     row = connection.execute(
                         """

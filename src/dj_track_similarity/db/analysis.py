@@ -65,6 +65,7 @@ from .classifier_storage import (
     _upsert_classifier_score,
     _validate_classifier_score,
 )
+from .library_queries import _stored_sonara_range
 from .search_fts import upsert_track_search_fts
 from .tracks import utc_now_text
 from ..maest_analysis_validation import validate_maest_analysis_row
@@ -609,12 +610,20 @@ class AnalysisRepository:
     def save_sonara_results(
         self,
         writes: Sequence[SonaraWrite],
+        *,
+        bpm_range: tuple[float, float],
     ) -> tuple[AnalysisWriteResult, ...]:
+        """Store SONARA runs analysed with ``bpm_range``, the range their job claimed.
+
+        The claim is checked inside the write transaction: a SONARA reset in
+        another process may have released it, and a later job claimed another.
+        """
         selected = tuple(writes)
         if any(not isinstance(write, SonaraWrite) for write in selected):
             raise TypeError("writes must contain only SonaraWrite values")
         if not selected:
             return ()
+        job_range = (float(bpm_range[0]), float(bpm_range[1]))
         results: list[AnalysisWriteResult] = []
         self._discard_library_vectors()
         with self._write_lock:
@@ -622,6 +631,7 @@ class AnalysisRepository:
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     catalog_uuid = _catalog_uuid(connection)
+                    library_range = _stored_sonara_range(connection)
                     for index, write in enumerate(selected):
                         name = _savepoint(connection, index)
                         try:
@@ -631,6 +641,18 @@ class AnalysisRepository:
                                 write.target,
                                 catalog_uuid=catalog_uuid,
                             )
+                            if library_range != job_range:
+                                held = (
+                                    "no BPM range"
+                                    if library_range is None
+                                    else f"BPM range {library_range[0]:g}-{library_range[1]:g}"
+                                )
+                                raise StaleAnalysisTargetError(
+                                    "stale SONARA result rejected: track_id="
+                                    f"{write.target.track_id} was analysed with BPM range "
+                                    f"{job_range[0]:g}-{job_range[1]:g}, but the library now "
+                                    f"holds {held}"
+                                )
                             _upsert_sonara_core(
                                 connection,
                                 write=write,

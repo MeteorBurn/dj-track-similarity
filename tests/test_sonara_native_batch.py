@@ -83,7 +83,7 @@ class RecordingRepository:
             f"{output.analysis_family}/{output.output_kind}" for output in selected
         )
 
-    def save_sonara_results(self, writes):
+    def save_sonara_results(self, writes, *, bpm_range):
         selected = tuple(writes)
         self.save_calls.append(selected)
         results = [

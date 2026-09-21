@@ -42,6 +42,8 @@ class SonaraAnalysisRepository(Protocol):
     def save_sonara_results(
         self,
         writes: Sequence[SonaraWrite],
+        *,
+        bpm_range: tuple[float, float],
     ) -> tuple[AnalysisWriteResult, ...]: ...
 
 
@@ -162,7 +164,9 @@ def analyze_and_store_sonara_batch(
 
     pending_writes = tuple(item for item in prepared if isinstance(item, SonaraWrite))
     store_started = time.perf_counter()
-    write_results = tuple(repository.save_sonara_results(pending_writes))
+    write_results = tuple(
+        repository.save_sonara_results(pending_writes, bpm_range=(bpm_min, bpm_max))
+    )
     store_seconds = time.perf_counter() - store_started
     _validate_write_results(pending_writes, write_results)
     write_results_iter = iter(write_results)

@@ -15,7 +15,7 @@ from dj_track_similarity.analysis.model_runners import (
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.analysis_models import AnalysisOutput
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
 
 
@@ -67,6 +67,25 @@ def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(
         second.resolve().as_posix(),
     }
     assert all(Path(item.file_path).stat().st_size > 0 for item in states)
+
+    # A scan record goes stale when another writer, possibly in another
+    # process, rewrites or deletes the file before the record is stored.
+    before = database.get_track_file_state(first)
+    stale = scanner.prepare_audio_file(database, first)
+    first.write_bytes(b"genre tag written")
+    with pytest.raises(OSError, match="changed after scan metadata was read"):
+        database.upsert_scanned_track(file=stale.file, tags=stale.tags)
+    assert database.get_track_file_state(first) == before
+
+    gone = scanner.prepare_audio_file(database, second)
+    removed = database.get_track_identity(database.get_track_file_state(second).track_id)
+    second.unlink()
+    database.remove_deleted_track(expected=removed, file_path=second)
+    with pytest.raises(FileNotFoundError):
+        database.upsert_scanned_track(file=gone.file, tags=gone.tags)
+    assert [item.file_path for item in database.list_track_paths(include_missing=True)] == [
+        first.resolve().as_posix()
+    ]
 
 
 def test_scan_library_skips_appledouble_resource_fork_audio_names(
@@ -238,7 +257,8 @@ def test_analysis_candidates_are_path_ordered_limited_and_skip_missing_tracks(
         chroma_mean_blob=struct.pack("<12f", *([0.0] * 12)),
         spectral_contrast_mean_blob=struct.pack("<7f", *([0.0] * 7)),
     )
-    written = database.save_sonara_results(
+    written = save_sonara_writes(
+        database,
         (complete_sonara_write(target, SonaraRow(**values)),),
     )
     assert written[0].ok, written[0].error

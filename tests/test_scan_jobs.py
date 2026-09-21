@@ -353,17 +353,19 @@ def test_tag_refresh_job_rejects_stale_missing_snapshot_as_file_failure(
     assert expected is not None
     job_id = manager.create_tag_refresh_job()
 
-    audio_path.unlink()
+    audio_path.write_bytes(audio_path.read_bytes() + b"\0")
+    generation_2 = audio_path.stat()
     mutation = database.upsert_scanned_track(
         file=ScannedFile(
             file_path=str(audio_path),
-            file_size_bytes=expected.file_size_bytes + 1,
-            file_modified_ns=expected.file_modified_ns + 1,
+            file_size_bytes=generation_2.st_size,
+            file_modified_ns=generation_2.st_mtime_ns,
             audio_format="wav",
         ),
         tags=FileTags(title="Generation 2"),
     )
     assert mutation.action == "updated"
+    audio_path.unlink()
 
     status = manager.run_tag_refresh_job(job_id)
 

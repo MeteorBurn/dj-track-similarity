@@ -16,15 +16,18 @@ def test_validation_job_api_exposes_completed_job_and_its_ui_events(
 ) -> None:
     database_path = tmp_path / "library.sqlite"
     database = LibraryDatabase(database_path)
+    missing_path = tmp_path / "missing.wav"
+    missing_path.write_bytes(b"\0")
     database.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / "missing.wav"),
+            file_path=str(missing_path),
             file_size_bytes=1,
-            file_modified_ns=1,
+            file_modified_ns=missing_path.stat().st_mtime_ns,
             audio_format="wav",
         ),
         tags=FileTags(title="Missing fixture"),
     )
+    missing_path.unlink()
     monkeypatch.setattr(DatabaseValidationJobManager, "start", DatabaseValidationJobManager.run_sync)
     client = TestClient(api.create_app(database_path))
 

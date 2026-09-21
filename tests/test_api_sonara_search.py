@@ -23,7 +23,7 @@ from dj_track_similarity.analysis.model_runners import (
 from dj_track_similarity.api.application import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 from embedding_test_support import same_vector_layers
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -379,7 +379,8 @@ def _add_sonara_track(
             "analyzed_at": _NOW,
         }
     )
-    result = db.save_sonara_results(
+    result = save_sonara_writes(
+        db,
         (
             complete_sonara_write(target, SonaraRow(**values)),
         )

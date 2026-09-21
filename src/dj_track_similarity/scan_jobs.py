@@ -627,14 +627,6 @@ class ScanJobManager:
             return
         payload = cast(ScanJobPayload, self._store.payload(job_id))
         try:
-            current_stat = Path(prepared.file.file_path).stat()
-            if (
-                int(current_stat.st_size) != prepared.file.file_size_bytes
-                or int(current_stat.st_mtime_ns) != prepared.file.file_modified_ns
-            ):
-                raise RuntimeError(
-                    "Source file changed after scan metadata was read"
-                )
             mutation = self.repository.upsert_scanned_track(
                 file=prepared.file,
                 tags=prepared.tags,

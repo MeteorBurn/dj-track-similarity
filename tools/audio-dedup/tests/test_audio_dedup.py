@@ -9,14 +9,16 @@ import sqlite3
 import sys
 import types
 from pathlib import Path
+import uuid
 import zipfile
 
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.audio_dedup_jobs import AudioDedupJobManager
+from dj_track_similarity.db.search_fts import upsert_track_search_fts
+from dj_track_similarity.db.tracks import resolved_file_path
 from dj_track_similarity.rhythm_lab_collections import sonara_content_key
-from dj_track_similarity.track_models import FileTags, ScannedFile
 
 TOOL_ROOT = Path(__file__).resolve().parents[1]
 if str(TOOL_ROOT) not in sys.path:
@@ -84,29 +86,35 @@ def _insert_track(
     duration: float = 300.0,
     fingerprint: str | None = None,
 ) -> None:
+    # Paths, sizes and times here are report data, not files on disk, and the
+    # scan write path stores only a file it can stat. So the fixture writes
+    # the rows a scan would have written.
     database = LibraryDatabase(db_path)
-    mutation = database.upsert_scanned_track(
-        file=ScannedFile(
-            file_path=path,
-            file_size_bytes=size,
-            file_modified_ns=int(mtime * 1_000_000_000),
-            audio_duration_seconds=duration,
-        ),
-        tags=FileTags(
-            artist=artist,
-            title=title,
-            album=album,
-            tag_bpm=bpm,
-            tag_key=musical_key,
-            genres=("Test",),
-        ),
-        scanned_at="2026-07-24T00:00:00.000000Z",
-    )
-    identity = mutation.identity
-    assert identity.track_id == track_id
-
-    if fingerprint is not None:
-        with database.connect() as connection:
+    track_uuid = str(uuid.uuid4())
+    scanned_at = "2026-07-24T00:00:00.000000Z"
+    with closing(database.connect()) as connection, connection:
+        connection.execute(
+            """
+            INSERT INTO tracks(
+                track_id, track_uuid, file_path, file_size_bytes, file_modified_ns,
+                audio_duration_seconds, last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                track_id, track_uuid, resolved_file_path(path), size,
+                int(mtime * 1_000_000_000), duration, scanned_at, scanned_at, scanned_at,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO tags(
+                track_id, title, artist, album, tag_key, tag_bpm, genres_json, tags_read_at
+            ) VALUES (?, ?, ?, ?, ?, ?, '["Test"]', ?)
+            """,
+            (track_id, title, artist, album, musical_key, bpm, scanned_at),
+        )
+        upsert_track_search_fts(connection, track_id)
+        if fingerprint is not None:
             connection.execute(
                 """
                 INSERT INTO sonara_fingerprints(
@@ -114,9 +122,8 @@ def _insert_track(
                     fingerprint_base64, analyzed_at
                 ) VALUES(?, ?, 1, ?, '2026-07-24T00:00:00.000000Z')
                 """,
-                (identity.track_id, identity.track_uuid, fingerprint),
+                (track_id, track_uuid, fingerprint),
             )
-            connection.commit()
 
 
 def _record(

@@ -31,7 +31,7 @@ from dj_track_similarity.db.embeddings import (
 )
 from dj_track_similarity.scanner import scan_library
 from dj_track_similarity.track_models import TrackIdentity
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 
 
 def _write_embedding(
@@ -539,7 +539,7 @@ def test_stored_embedding_sonara_and_maest_readiness_does_not_read_payload(tmp_p
         chroma_mean_blob=np.zeros(12, dtype="<f4").tobytes(),
         spectral_contrast_mean_blob=np.zeros(7, dtype="<f4").tobytes(),
     )
-    sonara = database.save_sonara_results((complete_sonara_write(
+    sonara = save_sonara_writes(database, (complete_sonara_write(
         AnalysisTarget(target.catalog_uuid, target.track_id, target.track_uuid),
         SonaraRow(**sonara_values),
     ),))

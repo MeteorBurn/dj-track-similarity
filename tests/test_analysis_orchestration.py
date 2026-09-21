@@ -1107,11 +1107,13 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"\0" * 128)
     mutation = database.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / "track.wav"),
+            file_path=str(audio_path),
             file_size_bytes=128,
-            file_modified_ns=1_000,
+            file_modified_ns=audio_path.stat().st_mtime_ns,
             audio_format="wav",
             sample_rate_hz=24_000,
             channel_count=2,
@@ -1178,11 +1180,13 @@ def test_job_defers_full_decode_failure_to_mulan_ffmpeg_recovery(
     tmp_path: Path,
 ) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"\0" * 128)
     mutation = database.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / "track.flac"),
+            file_path=str(audio_path),
             file_size_bytes=128,
-            file_modified_ns=1_000,
+            file_modified_ns=audio_path.stat().st_mtime_ns,
             audio_format="flac",
             sample_rate_hz=24_000,
             channel_count=2,

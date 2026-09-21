@@ -25,7 +25,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 from embedding_test_support import same_vector_layers
 from dj_track_similarity.track_models import (
     FileTags,
@@ -947,11 +947,13 @@ def _upsert_cli_candidate_track(
     db: LibraryDatabase, tmp_path: Path, stem: str, *, bpm: float, energy: float
 ) -> int:
     del energy
+    path = tmp_path / f"{stem}.wav"
+    path.write_bytes(b"\0" * 10)
     return db.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / f"{stem}.wav"),
+            file_path=str(path),
             file_size_bytes=10,
-            file_modified_ns=1,
+            file_modified_ns=path.stat().st_mtime_ns,
         ),
         tags=FileTags(
             artist=f"Artist {stem}",
@@ -999,7 +1001,8 @@ def _save_cli_candidate_analysis(
         )
     )
     assert embedding_result[0].ok
-    sonara_result = db.save_sonara_results(
+    sonara_result = save_sonara_writes(
+        db,
         (
             complete_sonara_write(
                 target,
@@ -1082,11 +1085,13 @@ def _add_cli_track(
     tmp_path: Path,
     stem: str,
 ) -> int:
+    path = tmp_path / f"{stem}.wav"
+    path.write_bytes(b"\0" * 10)
     return db.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / f"{stem}.wav"),
+            file_path=str(path),
             file_size_bytes=10,
-            file_modified_ns=1,
+            file_modified_ns=path.stat().st_mtime_ns,
         ),
         tags=FileTags(title=stem.replace("_", " ").title()),
         scanned_at=_NOW,

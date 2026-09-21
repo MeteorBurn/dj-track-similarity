@@ -24,7 +24,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 from dj_track_similarity.library_models import (
     AnalysisCoverage,
     ClassifierScoreDetail,
@@ -164,7 +164,7 @@ def test_tracks_endpoint_returns_paginated_typed_current_summaries(
         analysis_schema_version=6,
         analyzed_at="2026-09-14T00:00:00Z",
     )
-    saved = database.save_sonara_results((
+    saved = save_sonara_writes(database, (
         complete_sonara_write(
             AnalysisTarget(beta.catalog_uuid, beta.track_id, beta.track_uuid),
             SonaraRow(**sonara_values),

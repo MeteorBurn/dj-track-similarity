@@ -185,7 +185,9 @@ def test_repository_saves_sonara_core_and_embedding_together(tmp_path: Path) -> 
         analyzed_at="2026-07-23T12:00:00.000000Z",
     )
 
-    result = database.save_sonara_results((write,))
+    result = database.save_sonara_results(
+        (write,), bpm_range=database.claim_sonara_analysis_range(70.0, 180.0)
+    )
 
     assert result[0].ok
     with closing(database.connect()) as connection:
@@ -311,7 +313,9 @@ def test_repository_rolls_back_core_when_embedding_write_fails(
         fail_embedding_write,
     )
 
-    result = database.save_sonara_results((write,))
+    result = database.save_sonara_results(
+        (write,), bpm_range=database.claim_sonara_analysis_range(70.0, 180.0)
+    )
 
     assert not result[0].ok
     assert "forced embedding failure" in str(result[0].error)
@@ -635,9 +639,35 @@ def test_only_a_sonara_reset_or_a_library_clear_releases_the_claimed_range(
     summary = database.library_summary()
     assert (summary.sonara_bpm_min, summary.sonara_bpm_max) == (None, None)
 
-    _track(database, tmp_path, 12)
+    # A job still running under the released range, in this or another
+    # process, cannot store into the library: not while it holds no range, and
+    # not once a later job claimed another one.
+    track_id = _track(database, tmp_path, 12)
+    write = prepare_sonara_write(
+        AnalysisCandidate(
+            target=AnalysisTarget(database.catalog_uuid, track_id, str(uuid.UUID(int=12))),
+            file_path=(tmp_path / "track-12.wav").as_posix(),
+            file_size_bytes=1,
+            file_modified_ns=1,
+            missing_outputs=(AnalysisOutput("sonara", "core"),),
+        ),
+        _analysis(),
+        analyzed_at="2026-07-23T12:00:00.000000Z",
+    )
+    stale = database.save_sonara_results((write,), bpm_range=(79.0, 192.0))
+    assert stale[0].error is not None and stale[0].error.endswith(
+        f"track_id={track_id} was analysed with BPM range 79-192, "
+        "but the library now holds no BPM range"
+    )
     manager.create_job(models=["sonara"], sonara_bpm_min=70, sonara_bpm_max=180)
     assert database.library_summary().sonara_bpm_min == 70.0
+    stale = database.save_sonara_results((write,), bpm_range=(79.0, 192.0))
+    assert stale[0].error is not None and stale[0].error.endswith(
+        f"track_id={track_id} was analysed with BPM range 79-192, "
+        "but the library now holds BPM range 70-180"
+    )
+    assert database.list_analysis_candidates((AnalysisOutput("sonara", "core"),))
+    assert database.save_sonara_results((write,), bpm_range=(70.0, 180.0))[0].ok
 
     database.clear_library()
     summary = database.library_summary()

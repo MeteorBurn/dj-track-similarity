@@ -268,6 +268,7 @@ def test_evaluation_feedback_does_not_touch_audio_path(
     database = LibraryDatabase(db_path)
     absent_audio = tmp_path / "not-created.wav"
     seed = _track(database, absent_audio)
+    absent_audio.unlink()
     candidate = _track(database, tmp_path / "candidate.wav")
 
     response = _client(monkeypatch, db_path).post(
@@ -288,11 +289,12 @@ def _client(monkeypatch, db_path: Path) -> TestClient:
 
 
 def _track(database: LibraryDatabase, path: Path):
+    path.write_bytes(b"\0" * 10)
     return database.upsert_scanned_track(
         file=ScannedFile(
             file_path=str(path),
             file_size_bytes=10,
-            file_modified_ns=1_000,
+            file_modified_ns=path.stat().st_mtime_ns,
             audio_format="wav",
         ),
         tags=FileTags(title=path.stem, artist="Evaluation fixture"),

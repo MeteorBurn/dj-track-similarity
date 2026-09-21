@@ -17,7 +17,7 @@ from dj_track_similarity.analysis.model_runners import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 from embedding_test_support import same_vector_layers
 from dj_track_similarity.library_models import TrackSummary
 from dj_track_similarity.search.reference_compare import (
@@ -35,11 +35,13 @@ def _insert_track(
     root: Path,
     name: str,
 ) -> AnalysisTarget:
+    path = root / f"{name}.wav"
+    path.write_bytes(b"\0" * 1024)
     mutation = database.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(root / f"{name}.wav"),
+            file_path=str(path),
             file_size_bytes=1024,
-            file_modified_ns=123456789,
+            file_modified_ns=path.stat().st_mtime_ns,
             audio_format="wav",
             sample_rate_hz=44_100,
             channel_count=2,
@@ -168,7 +170,8 @@ def test_reference_compare_uses_current_outputs_and_current_summaries(
         (sonara_top, 0.8, 0.8),
         (muq_top, 0.1, 0.1),
     ):
-        result = database.save_sonara_results(
+        result = save_sonara_writes(
+            database,
             (
                 complete_sonara_write(
                     target,

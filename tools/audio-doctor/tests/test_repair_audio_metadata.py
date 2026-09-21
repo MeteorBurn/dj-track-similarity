@@ -660,17 +660,21 @@ def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path:
     missing = file_root / "Album" / "missing.wav"
     existing.parent.mkdir()
     existing.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-    existing_stat = existing.stat()
     database = LibraryDatabase(db_path)
+    # The library was scanned under db_root; its files now live under file_root.
+    (db_root / "Album").mkdir()
     for database_path in (db_root / "Album" / "track.wav", db_root / "Album" / "missing.wav"):
+        database_path.write_bytes(existing.read_bytes())
+        scanned_stat = database_path.stat()
         database.upsert_scanned_track(
             file=ScannedFile(
                 file_path=str(database_path),
-                file_size_bytes=existing_stat.st_size,
-                file_modified_ns=existing_stat.st_mtime_ns,
+                file_size_bytes=scanned_stat.st_size,
+                file_modified_ns=scanned_stat.st_mtime_ns,
             ),
             tags=FileTags(),
         )
+        database_path.unlink()
     processed: list[Path] = []
 
     def fake_repair_file(path: Path, **_kwargs):

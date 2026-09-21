@@ -11,18 +11,21 @@ from dj_track_similarity.track_models import FileTags, ScannedFile
 def test_job_retains_every_finding_while_ok_rows_rotate_out_of_the_event_log(tmp_path: Path, caplog) -> None:
     database = LibraryDatabase(tmp_path / "library.sqlite")
     # More broken tracks than the event log can hold, so the capped tail loses
-    # the earliest of them. Their files are never created; scanning does not
-    # touch the filesystem, so each becomes a `track_path_missing` warning.
+    # the earliest of them. Each file is removed once its track is stored, so
+    # each becomes a `track_path_missing` warning.
     for index in range(300):
+        missing_path = tmp_path / f"missing-{index}.wav"
+        missing_path.write_bytes(b"\0")
         database.upsert_scanned_track(
             file=ScannedFile(
-                file_path=str(tmp_path / f"missing-{index}.wav"),
+                file_path=str(missing_path),
                 file_size_bytes=1,
-                file_modified_ns=1,
+                file_modified_ns=missing_path.stat().st_mtime_ns,
                 audio_format="wav",
             ),
             tags=FileTags(title=f"Missing {index}"),
         )
+        missing_path.unlink()
     # Validation walks tracks by id, so the healthy track goes in last and its
     # `ok` finding is the one still inside the tail at the end of the run.
     track_path = tmp_path / "present.wav"

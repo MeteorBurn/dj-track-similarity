@@ -5,15 +5,34 @@ import struct
 
 import numpy as np
 
+from dj_track_similarity.analysis.sonara_runtime import (
+    DEFAULT_SONARA_BPM_MAX,
+    DEFAULT_SONARA_BPM_MIN,
+)
 from dj_track_similarity.analysis_models import (
     SONARA_EMBEDDING_DIM,
     AnalysisTarget,
+    AnalysisWriteResult,
     EmbeddingOutput,
     FingerprintOutput,
     SonaraWrite,
     TimelineOutput,
 )
+from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
+
+
+def save_sonara_writes(
+    database: LibraryDatabase,
+    writes: tuple[SonaraWrite, ...],
+) -> tuple[AnalysisWriteResult, ...]:
+    """Store SONARA fixtures as a job does: under the library's claimed BPM range."""
+
+    bpm_range = database.claim_sonara_analysis_range(
+        DEFAULT_SONARA_BPM_MIN,
+        DEFAULT_SONARA_BPM_MAX,
+    )
+    return database.save_sonara_results(writes, bpm_range=bpm_range)
 
 
 def complete_sonara_write(target: AnalysisTarget, core: SonaraRow) -> SonaraWrite:

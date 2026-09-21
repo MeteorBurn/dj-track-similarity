@@ -16,11 +16,13 @@ def test_optimize_database_backs_up_library_and_existing_evaluation_sidecar(
 ) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"\0" * 10)
     mutation = db.upsert_scanned_track(
         file=ScannedFile(
-            file_path=str(tmp_path / "track.wav"),
+            file_path=str(audio_path),
             file_size_bytes=10,
-            file_modified_ns=1,
+            file_modified_ns=audio_path.stat().st_mtime_ns,
             audio_format="wav",
         ),
         tags=FileTags(title="Track", artist="Artist", genres=("Breakbeat",)),

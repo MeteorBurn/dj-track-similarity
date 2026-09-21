@@ -25,7 +25,7 @@ from dj_track_similarity.classifier.scoring import (
 )
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db.ddl import SonaraRow
-from sonara_test_support import complete_sonara_write
+from sonara_test_support import complete_sonara_write, save_sonara_writes
 
 
 _NOW = "2026-07-24T14:00:00.000000Z"
@@ -124,7 +124,8 @@ def _write_sonara_core(
             "analyzed_at": _NOW,
         }
     )
-    result = db.save_sonara_results(
+    result = save_sonara_writes(
+        db,
         (complete_sonara_write(target, SonaraRow(**values)),)
     )[0]
     assert result.ok, result.error

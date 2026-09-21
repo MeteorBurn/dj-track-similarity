@@ -14,7 +14,7 @@ from .fingerprints import (
 from .spectral import (
     SpectralResult,
     analyze_file,
-    ffmpeg_available,
+    decoder_available,
     skipped_result,
 )
 
@@ -207,7 +207,7 @@ def _spectral_results_for_groups(
     group_track_ids = sorted({track_id for group in groups for track_id in group.track_ids})
     if not group_track_ids:
         return {}
-    if not ffmpeg_available():
+    if not decoder_available():
         return {
             track_id: skipped_result("ffmpeg unavailable")
             for track_id in group_track_ids

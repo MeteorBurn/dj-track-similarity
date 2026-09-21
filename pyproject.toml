@@ -38,6 +38,9 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+av = [
+  { path = "libs/wheels/av-17.1.0-1audio-cp310-cp310-win_amd64.whl", marker = "python_version == '3.10' and sys_platform == 'win32' and platform_machine == 'AMD64'" },
+]
 sonara = { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.3.6-meteorburn.1/sonara-0.3.6-cp310-abi3-win_amd64.whl" }
 torch = [
   { index = "pytorch-cu130", marker = "python_version == '3.10' and sys_platform == 'win32' and platform_machine == 'AMD64'" },

@@ -74,7 +74,7 @@ if errorlevel 1 (
     goto :setup_error
 )
 
-if exist "%PROJECT_ROOT%\libs\ffmpeg\bin\ffmpeg.exe" set "PATH=%PATH%;%PROJECT_ROOT%\libs\ffmpeg\bin"
+if exist "%PROJECT_ROOT%\libs\ffmpeg\bin\avcodec-62.dll" set "PATH=%PATH%;%PROJECT_ROOT%\libs\ffmpeg\bin"
 if exist "%PROJECT_ROOT%\.tools\install\node\npm.cmd" set "PATH=%PROJECT_ROOT%\.tools\install\node;%PATH%"
 
 where npm >nul 2>nul

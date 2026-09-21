@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import sys
+import wave
 import zipfile
 
 import numpy as np
+import pytest
 
 TOOL_ROOT = Path(__file__).resolve().parents[1]
 if str(TOOL_ROOT) not in sys.path:
@@ -25,8 +28,31 @@ from audio_dedup import spectral_check  # noqa: E402
 from audio_dedup.spectral import (  # noqa: E402
     SpectralResult,
     TRANSCODE_MIN_SHARPNESS_DB,
+    analyze_file,
     estimate_cutoff,
 )
+
+
+def test_analyze_file_decodes_through_the_shared_libraries(monkeypatch, tmp_path: Path) -> None:
+    def forbidden_process(*_args, **_kwargs):
+        pytest.fail("the spectral check must decode in process, not through a program")
+
+    monkeypatch.setattr(subprocess, "run", forbidden_process)
+    monkeypatch.setattr(subprocess, "Popen", forbidden_process)
+    rate = 44_100
+    samples = np.random.default_rng(20260921).standard_normal(rate * 30) * 0.2
+    audio_path = tmp_path / "tone.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes((samples * 32_767.0).astype("<i2").tobytes())
+
+    result = analyze_file(str(audio_path), sample_rate=rate, duration_seconds=30.0)
+
+    assert result.sample_rate == rate
+    assert result.cutoff_hz is not None
+    assert result.suspected_transcode is False
 
 
 def test_estimate_cutoff_flags_brickwall_but_not_full_band_noise() -> None:

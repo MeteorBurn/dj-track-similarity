@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import time
+import wave
 from pathlib import Path
 import zipfile
 
@@ -27,6 +28,33 @@ from audio_doctor import path_sources as path_sources_module  # noqa: E402
 from audio_doctor import result_formatting as result_formatting_module  # noqa: E402
 from audio_doctor import run_state as run_state_module  # noqa: E402
 from audio_doctor import xlsx_report as xlsx_report_module  # noqa: E402
+
+
+def test_inspection_decodes_in_process_and_still_fails_a_truncated_file(
+    monkeypatch, tmp_path: Path
+) -> None:
+    def forbidden_process(*_args, **_kwargs):
+        pytest.fail("inspection must decode in process, not through a program")
+
+    monkeypatch.setattr(subprocess, "Popen", forbidden_process)
+    healthy_path = tmp_path / "healthy.wav"
+    with wave.open(str(healthy_path), "wb") as handle:
+        handle.setnchannels(2)
+        handle.setsampwidth(2)
+        handle.setframerate(44100)
+        handle.writeframes(bytes(44100 * 4))
+    # The cut lands on a frame boundary, so every remaining packet decodes and only
+    # the demuxer's corrupt flag separates this file from a healthy one.
+    payload = healthy_path.read_bytes()
+    truncated_path = tmp_path / "truncated.wav"
+    truncated_path.write_bytes(payload[: 44 + ((len(payload) - 44) // 2 // 4) * 4])
+
+    healthy = inspection_module.inspect_file(healthy_path)
+    truncated = inspection_module.inspect_file(truncated_path)
+
+    assert healthy.status == "ok", healthy.message
+    assert healthy.detected_codec == "pcm_s16le"
+    assert truncated.status == "failed", truncated.message
 
 
 def test_audio_doctor_module_entrypoint_exposes_help() -> None:

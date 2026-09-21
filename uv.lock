@@ -124,6 +124,22 @@ wheels = [
 name = "av"
 version = "17.1.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and platform_machine != 'AMD64' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.13.*' and platform_machine != 'AMD64' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.11' and python_full_version < '3.13' and platform_machine != 'AMD64' and sys_platform == 'win32'",
+    "python_full_version >= '3.11' and python_full_version < '3.13' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version >= '3.11' and python_full_version < '3.13' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.11' and python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.11' and sys_platform != 'win32'",
+    "python_full_version < '3.11' and platform_machine != 'AMD64' and sys_platform == 'win32'",
+]
 sdist = { url = "https://files.pythonhosted.org/packages/5e/e3/477fa20578c284abeda08d91b63ee9abaebc93445d8feeb989d3d444bae1/av-17.1.0.tar.gz", hash = "sha256:7f1e71ff621b66253333926f948e00faae11d855b2442133c65128bca64cdeb3", size = 4288546, upload-time = "2026-06-07T05:52:55.999Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ca/92/c9d0cea4f6f8f93f5b15a39f99d2d593f922484f22a2d98a8d482283e15b/av-17.1.0-cp310-cp310-macosx_11_0_x86_64.whl", hash = "sha256:19c84fd72af5ef81a20f18fbc6f9aedff9e1455e53a7062c1d4c95926d73da4e", size = 22622703, upload-time = "2026-06-07T05:51:40.405Z" },
@@ -155,6 +171,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/38/c7d9c3e746209a1a695c13e3aa7d817229e84a85d0a84271f313d1befdd3/av-17.1.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:1284addf3c0dd939887a9722dc30df2241a97471ad52c3c507e31583ae22ff02", size = 39490680, upload-time = "2026-06-07T05:52:48.887Z" },
     { url = "https://files.pythonhosted.org/packages/a1/25/9d42da561b7b8f7dabdfaebba07b52977bee58c5c7e4285ac991abcfaa72/av-17.1.0-cp314-cp314t-win_amd64.whl", hash = "sha256:ec630be6321b04e317862f6082e84812bbd801e55a3c2298312e3fc8a0a4af4f", size = 28355673, upload-time = "2026-06-07T05:52:51.614Z" },
     { url = "https://files.pythonhosted.org/packages/a8/41/562a61d5a61fba3ffb273a115e249f1d8471b9515c59fcc38b4b9deda238/av-17.1.0-cp314-cp314t-win_arm64.whl", hash = "sha256:b41647e42884bf543b8e8d0a1dabd4d1b006c99183eb1a2d7afc5b01f73eeff4", size = 21324700, upload-time = "2026-06-07T05:52:53.972Z" },
+]
+
+[[package]]
+name = "av"
+version = "17.1.0"
+source = { path = "libs/wheels/av-17.1.0-1audio-cp310-cp310-win_amd64.whl" }
+resolution-markers = [
+    "python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+wheels = [
+    { filename = "av-17.1.0-1audio-cp310-cp310-win_amd64.whl", hash = "sha256:dd8581814593b1139a5479cea4695af5443f3278c66b69c65806f7d9d8178f4c" },
 ]
 
 [[package]]
@@ -489,7 +516,8 @@ name = "dj-track-similarity"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "av" },
+    { name = "av", version = "17.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or platform_machine != 'AMD64' or sys_platform != 'win32'" },
+    { name = "av", version = "17.1.0", source = { path = "libs/wheels/av-17.1.0-1audio-cp310-cp310-win_amd64.whl" }, marker = "python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'" },
     { name = "fastapi" },
     { name = "httpx2" },
     { name = "huggingface-hub" },
@@ -523,7 +551,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "av", specifier = "==17.1.0" },
+    { name = "av", marker = "python_full_version != '3.10.*' or platform_machine != 'AMD64' or sys_platform != 'win32'", specifier = "==17.1.0" },
+    { name = "av", marker = "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'", path = "libs/wheels/av-17.1.0-1audio-cp310-cp310-win_amd64.whl" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx2", specifier = ">=2.0.0" },
     { name = "huggingface-hub", specifier = "==1.22.0" },

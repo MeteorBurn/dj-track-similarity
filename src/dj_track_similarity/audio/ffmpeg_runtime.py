@@ -22,6 +22,7 @@ REQUIRED_FFMPEG_LIBRARIES = {
 REQUIRED_PYAV_VERSION = "17.1.0"
 _PROJECT_FFMPEG_DIRECTORY = Path(__file__).resolve().parents[3] / "libs" / "ffmpeg" / "bin"
 _DLL_DIRECTORY_HANDLES: dict[Path, object] = {}
+_RESOLVED_DIRECTORIES: dict[tuple[str, str], Path] = {}
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,22 @@ def load_project_pyav() -> ModuleType:
 
 
 def _configured_or_path_shared_directory() -> Path:
+    """Resolve the runtime directory, reusing the answer the environment implies.
+
+    Every decode, probe and preview asks for it, and each resolution walks PATH and
+    loads libavutil to read its release. The answer only changes when the override
+    or PATH changes, so it is keyed on exactly those.
+    """
+
+    key = (os.environ.get(FFMPEG_SHARED_DIR_ENV_VAR, ""), os.environ.get("PATH", ""))
+    resolved = _RESOLVED_DIRECTORIES.get(key)
+    if resolved is None:
+        resolved = _resolved_shared_directory()
+        _RESOLVED_DIRECTORIES[key] = resolved
+    return resolved
+
+
+def _resolved_shared_directory() -> Path:
     rejected: list[str] = []
     configured = os.environ.get(FFMPEG_SHARED_DIR_ENV_VAR)
     if configured:
@@ -107,15 +124,17 @@ def _configured_or_path_shared_directory() -> Path:
             return configured_runtime
         raise RuntimeError(_missing_runtime_message(rejected))
 
+    # The build that ships with the project wins over whatever the machine has on
+    # PATH: the project is verified against its own libraries.
+    project_runtime = _validated_candidate(_PROJECT_FFMPEG_DIRECTORY, "project", rejected)
+    if project_runtime is not None:
+        return project_runtime
     for entry in os.environ.get("PATH", "").split(os.pathsep):
         if not entry:
             continue
         path_runtime = _validated_candidate(Path(entry), "PATH", rejected)
         if path_runtime is not None:
             return path_runtime
-    project_runtime = _validated_candidate(_PROJECT_FFMPEG_DIRECTORY, "project", rejected)
-    if project_runtime is not None:
-        return project_runtime
     raise RuntimeError(_missing_runtime_message(rejected))
 
 
@@ -145,8 +164,9 @@ def _missing_runtime_message(rejected: list[str]) -> str:
     )
     detail = f" Rejected candidates: {'; '.join(rejected)}." if rejected else ""
     return (
-        f"FFmpeg {REQUIRED_FFMPEG_VERSION} full shared build is required "
-        f"({required}). Run install.ps1, put its library directory on PATH, or set "
+        f"FFmpeg {REQUIRED_FFMPEG_VERSION} shared libraries are required "
+        f"({required}). They ship in libs/ffmpeg/bin; restore them from the "
+        f"repository, put another build's library directory on PATH, or set "
         f"{FFMPEG_SHARED_DIR_ENV_VAR}. "
         f"ffmpeg.exe alone is not sufficient.{detail}"
     )

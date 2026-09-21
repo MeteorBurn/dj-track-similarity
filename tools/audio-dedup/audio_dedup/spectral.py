@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import shutil
-import subprocess
+import time
 from typing import Callable
 
 import numpy as np
+
+from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
 
 
 SPECTRAL_SEGMENT_SECONDS = 24.0
@@ -69,8 +70,12 @@ def skipped_result(note: str) -> SpectralResult:
     )
 
 
-def ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
+def decoder_available() -> bool:
+    try:
+        load_project_pyav()
+    except RuntimeError:
+        return False
+    return True
 
 
 def analyze_file(
@@ -84,7 +89,7 @@ def analyze_file(
     """Estimate the effective frequency cutoff of one audio file from a mid-track segment."""
     if sample_rate is None or sample_rate <= 0:
         return skipped_result("unknown sample rate")
-    selected_decoder = decoder or _ffmpeg_decode
+    selected_decoder = decoder or _pyav_decode
     if duration_seconds is not None and duration_seconds > SPECTRAL_SEGMENT_SECONDS:
         starts = sorted(
             {
@@ -99,7 +104,7 @@ def analyze_file(
     for start_seconds in starts:
         try:
             payload = selected_decoder(path, start_seconds)
-        except (OSError, subprocess.SubprocessError, ValueError):
+        except (OSError, ValueError):
             continue
         samples = np.frombuffer(payload, dtype="<f4")
         if samples.size < SPECTRAL_WINDOW_SAMPLES * 4:
@@ -260,30 +265,74 @@ def _frame_spectra_db(
     return frames_db, frequencies
 
 
-def _ffmpeg_decode(path: str, start_seconds: float) -> bytes:
-    command = [
-        "ffmpeg",
-        "-v",
-        "error",
-        "-ss",
-        f"{start_seconds:.3f}",
-        "-t",
-        f"{SPECTRAL_SEGMENT_SECONDS:.3f}",
-        "-i",
-        path,
-        "-map",
-        "a:0",
-        "-ac",
-        "1",
-        "-f",
-        "f32le",
-        "-",
-    ]
-    completed = subprocess.run(
-        command,
-        shell=False,
-        capture_output=True,
-        timeout=DECODE_TIMEOUT_SECONDS,
-        check=True,
-    )
-    return completed.stdout
+def _pyav_decode(path: str, start_seconds: float) -> bytes:
+    """Decode one mono float32 segment at the file's own sample rate, in process.
+
+    The segment has to line up with the window the caller asked for, so the
+    decoder starts before it and the run-up is dropped here. The mix down to mono
+    stays FFmpeg's own rematrix, and nothing is resampled: the frequency axis of
+    the caller's FFT is the source rate.
+    """
+
+    try:
+        av = load_project_pyav()
+    except RuntimeError as error:
+        # One unusable window skips a window; it must not abort the run.
+        raise ValueError(f"FFmpeg runtime unavailable: {error}") from error
+    deadline = time.monotonic() + DECODE_TIMEOUT_SECONDS
+    chunks: list[np.ndarray] = []
+    collected = 0
+    wanted = 0
+    skip: int | None = None
+    try:
+        with av.open(path, mode="r", metadata_errors="replace") as container:
+            streams = container.streams.audio
+            if not streams:
+                raise ValueError(f"no audio stream: {path}")
+            stream = streams[0]
+            resampler = av.AudioResampler(format="flt", layout="mono", rate=None)
+            origin = (
+                float(stream.start_time * stream.time_base)
+                if stream.start_time is not None
+                else 0.0
+            )
+            # The start keeps the millisecond precision it had as an FFmpeg
+            # argument, and it travels in microseconds from here on: seconds in
+            # floating point land half a sample off and move the whole window.
+            start_microseconds = round((origin + round(start_seconds, 3)) * 1_000_000)
+            start = start_microseconds / 1_000_000
+            # Even a seek to zero matters: an AAC stream decoded from the seek lands
+            # on different samples than one decoded from the first packet.
+            container.seek(int(start / stream.time_base), stream=stream, backward=True)
+            for frame in container.decode(stream):
+                if time.monotonic() > deadline:
+                    raise ValueError(
+                        f"decode timed out after {DECODE_TIMEOUT_SECONDS} seconds: {path}"
+                    )
+                if skip is None:
+                    rate = frame.sample_rate
+                    # Both points become sample indices before they are subtracted,
+                    # each rounded half away from zero the way FFmpeg rescales a
+                    # timestamp.
+                    target = (start_microseconds * rate + 500_000) // 1_000_000
+                    frame_index = (
+                        int(frame.pts * frame.time_base * rate) if frame.pts is not None else target
+                    )
+                    skip = max(0, target - frame_index)
+                    wanted = int(SPECTRAL_SEGMENT_SECONDS * rate + 0.5)
+                for resampled in resampler.resample(frame):
+                    samples = np.asarray(resampled.to_ndarray(), dtype=np.float32).reshape(-1)
+                    if skip:
+                        dropped = min(skip, samples.size)
+                        samples = samples[dropped:]
+                        skip -= dropped
+                    if samples.size:
+                        chunks.append(samples.copy())
+                        collected += samples.size
+                if collected >= wanted:
+                    break
+    except av.FFmpegError as error:
+        raise ValueError(f"segment decode failed: {path}: {error}") from error
+    if not chunks:
+        return b""
+    return np.concatenate(chunks)[:wanted].tobytes()

@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 import time
 from typing import Callable, Iterable
 
-from .spectral import LOSSY_EXTENSIONS, SpectralResult, analyze_file, skipped_result
+from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
+
+from .spectral import (
+    LOSSY_EXTENSIONS,
+    SpectralResult,
+    analyze_file,
+    decoder_available,
+    skipped_result,
+)
 
 
 LOSSLESS_EXTENSIONS = (
@@ -25,7 +30,6 @@ LOSSLESS_EXTENSIONS = (
     ".mp4",
 )
 AUDIO_EXTENSIONS = LOSSLESS_EXTENSIONS + LOSSY_EXTENSIONS
-PROBE_TIMEOUT_SECONDS = 30
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -39,9 +43,9 @@ def main(argv: list[str] | None = None) -> int:
         if not files:
             print("spectral_check failed: no audio files to analyze", file=sys.stderr)
             return 2
-        if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        if not decoder_available():
             print(
-                "spectral_check failed: ffmpeg and ffprobe must be on PATH",
+                "spectral_check failed: the project FFmpeg runtime is not available",
                 file=sys.stderr,
             )
             return 2
@@ -189,39 +193,24 @@ def write_output(rows: list[dict[str, object]], *, csv_path: Path | None) -> Non
 
 def probe_audio_facts(path: Path) -> tuple[int | None, float | None, int | None]:
     """Read sample rate, duration, and declared bitrate from the file itself."""
-    command = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-select_streams",
-        "a:0",
-        "-show_entries",
-        "stream=sample_rate,duration,bit_rate:format=duration,bit_rate",
-        "-of",
-        "json",
-        str(path),
-    ]
     try:
-        completed = subprocess.run(
-            command,
-            shell=False,
-            capture_output=True,
-            timeout=PROBE_TIMEOUT_SECONDS,
-            check=True,
-        )
-        payload = json.loads(completed.stdout.decode("utf-8", errors="replace"))
-    except (OSError, subprocess.SubprocessError, ValueError):
+        av = load_project_pyav()
+        with av.open(str(path), mode="r", metadata_errors="replace") as container:
+            streams = container.streams.audio
+            if not streams:
+                return None, None, None
+            stream = streams[0]
+            sample_rate = _int_or_none(stream.codec_context.rate)
+            duration = _float_or_none(
+                float(stream.duration * stream.time_base)
+                if stream.duration is not None
+                else None
+            ) or _float_or_none(
+                container.duration / av.time_base if container.duration is not None else None
+            )
+            bit_rate = _int_or_none(stream.bit_rate) or _int_or_none(container.bit_rate)
+    except Exception:
         return None, None, None
-    streams = payload.get("streams") or [{}]
-    stream = streams[0] if isinstance(streams[0], dict) else {}
-    container = payload.get("format") or {}
-    sample_rate = _int_or_none(stream.get("sample_rate"))
-    duration = _float_or_none(stream.get("duration")) or _float_or_none(
-        container.get("duration")
-    )
-    bit_rate = _int_or_none(stream.get("bit_rate")) or _int_or_none(
-        container.get("bit_rate")
-    )
     return sample_rate, duration, bit_rate
 
 

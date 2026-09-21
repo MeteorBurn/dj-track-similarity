@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-import shutil
-import subprocess
+import logging
+import time
 from pathlib import Path
+
+from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
 
 from . import config as config_module
 from . import container_repair as container_repair_module
 from . import models as models_module
+
+
+# libav reports through this logger; without a handler Python prints its lines to
+# stderr past the report, and every failure then reads the same.
+logging.getLogger("libav").addHandler(logging.NullHandler())
 
 
 def inspect_file(path: Path) -> models_module.FileInspectionResult:
@@ -83,45 +90,55 @@ def inspect_file(path: Path) -> models_module.FileInspectionResult:
 
 
 def full_decode_error(path: Path) -> str | None:
-    """Return a strict full-decode error, or ``None`` when FFmpeg reads all audio."""
+    """Return a strict full-decode error, or ``None`` when FFmpeg reads all audio.
 
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        return "ffmpeg is not available"
+    Every packet of the first audio stream has to decode, and nothing is discarded:
+    this is the check that separates a healthy file from a damaged one. Only the
+    decode decides. An error libav reports while reading tags or an attached
+    picture is not one, exactly as ``ffmpeg -xerror`` keeps going after it. The
+    captured log supplies the wording when the decode does fail, and the
+    elapsed-time check replaces the timeout a subprocess used to provide.
+    """
+
     try:
-        result = subprocess.run(
-            [
-                ffmpeg,
-                "-v",
-                "error",
-                "-xerror",
-                "-nostdin",
-                "-i",
-                str(path),
-                "-map",
-                "0:a:0",
-                "-f",
-                "null",
-                "-",
-            ],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=config_module.FULL_DECODE_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return f"timed out after {config_module.FULL_DECODE_TIMEOUT_SECONDS} seconds"
-    except OSError as error:
+        av = load_project_pyav()
+    except RuntimeError as error:
         return str(error)
-    if result.returncode == 0:
-        return None
-    return next(
-        (line.strip() for line in result.stderr.splitlines() if line.strip()),
-        f"ffmpeg exited with status {result.returncode}",
-    )
+    deadline = time.monotonic() + config_module.FULL_DECODE_TIMEOUT_SECONDS
+    av.logging.set_level(av.logging.ERROR)
+    # Repeat folding holds a message back until the next distinct one arrives, which
+    # would deliver one file's error into the next file's report.
+    av.logging.set_skip_repeated(False)
+    logged: list[tuple[int, str, str]] = []
+    try:
+        with av.open(str(path), mode="r", metadata_errors="replace") as container:
+            streams = container.streams.audio
+            if not streams:
+                return "no audio stream"
+            with av.logging.Capture(local=True) as logged:
+                for packet in container.demux(streams[0]):
+                    if time.monotonic() > deadline:
+                        return (
+                            "timed out after "
+                            f"{config_module.FULL_DECODE_TIMEOUT_SECONDS} seconds"
+                        )
+                    # A packet the demuxer marked corrupt is a failure even when the
+                    # decoder swallows it: a file truncated on a frame boundary
+                    # decodes cleanly and is still damaged.
+                    if packet.is_corrupt:
+                        return _logged_error(logged) or "corrupt input packet in stream 0"
+                    packet.decode()
+    except (av.FFmpegError, OSError, ValueError) as error:
+        return _logged_error(logged) or str(error)
+    return None
+
+
+def _logged_error(logged: list[tuple[int, str, str]]) -> str | None:
+    for _level, component, message in logged:
+        text = message.strip()
+        if text:
+            return f"[{component}] {text}" if component else text
+    return None
 
 
 def detect_format_from_header(path: Path) -> str | None:
@@ -156,42 +173,23 @@ def detect_format_from_header(path: Path) -> str | None:
 
 
 def probe_file(path: Path) -> tuple[str | None, str | None]:
-    ffprobe = shutil.which("ffprobe")
-    if ffprobe is None:
-        return None, None
+    """Read the container format and the first audio codec, as ffprobe named them.
+
+    The codec has to be the canonical name (``mp3``), not the decoder that libav
+    picked for it (``mp3float``), because the expected-codec tables speak the
+    canonical vocabulary.
+    """
+
     try:
-        result = subprocess.run(
-            [
-                ffprobe,
-                "-hide_banner",
-                "-v",
-                "error",
-                "-select_streams",
-                "a:0",
-                "-show_entries",
-                "format=format_name:stream=codec_name",
-                "-of",
-                "default=nokey=1:noprint_wrappers=1",
-                str(path),
-            ],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
+        av = load_project_pyav()
+        with av.open(str(path), mode="r", metadata_errors="replace") as container:
+            container_format = container.format.name or None
+            streams = container.streams.audio
+            if not streams:
+                return container_format, None
+            return container_format, streams[0].codec_context.codec.canonical_name
     except Exception:
         return None, None
-    if result.returncode != 0:
-        return None, None
-    values = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    if not values:
-        return None, None
-    codec = values[0]
-    fmt = values[-1] if len(values) > 1 else None
-    return fmt, codec
 
 
 def read_mutagen_tag_summary(path: Path) -> str:

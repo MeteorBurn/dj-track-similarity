@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,6 +29,7 @@ def _no_executable_probe(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(subprocess, "Popen", forbidden_process)
     monkeypatch.setattr(ffmpeg_runtime, "_PROJECT_FFMPEG_DIRECTORY", tmp_path / "project")
     monkeypatch.setattr(ffmpeg_runtime, "_DLL_DIRECTORY_HANDLES", {})
+    monkeypatch.setattr(ffmpeg_runtime, "_RESOLVED_DIRECTORIES", {})
 
 
 def _mock_avutil(monkeypatch, version: bytes = b"8.1.1-full_build") -> list[Path]:
@@ -62,7 +64,9 @@ def test_configure_shared_runtime_prefers_explicit_environment_over_path(
     assert loaded == [explicit_runtime / "avutil-60.dll"]
 
 
-def test_configure_shared_runtime_registers_path_dll_directory(monkeypatch, tmp_path: Path) -> None:
+def test_configure_shared_runtime_prefers_the_libraries_shipped_with_the_project(
+    monkeypatch, tmp_path: Path
+) -> None:
     _write_required_libraries(tmp_path)
     project_runtime = ffmpeg_runtime._PROJECT_FFMPEG_DIRECTORY
     _write_required_libraries(project_runtime)
@@ -72,14 +76,17 @@ def test_configure_shared_runtime_registers_path_dll_directory(monkeypatch, tmp_
     registered: list[str] = []
     monkeypatch.setattr(os, "add_dll_directory", registered.append)
 
-    assert configure_shared_ffmpeg_runtime() == tmp_path
-    assert registered == [str(tmp_path)]
-    assert loaded == [tmp_path / "avutil-60.dll"]
-
-    monkeypatch.setenv("PATH", "")
     assert configure_shared_ffmpeg_runtime() == project_runtime
-    assert registered == [str(tmp_path), str(project_runtime)]
-    assert loaded == [tmp_path / "avutil-60.dll", project_runtime / "avutil-60.dll"]
+    assert registered == [str(project_runtime)]
+    assert loaded == [project_runtime / "avutil-60.dll"]
+
+    # The resolution is cached against the environment, so a runtime that leaves
+    # the disk is only noticed by a fresh resolution.
+    shutil.rmtree(project_runtime)
+    ffmpeg_runtime._RESOLVED_DIRECTORIES.clear()
+    assert configure_shared_ffmpeg_runtime() == tmp_path
+    assert registered == [str(project_runtime), str(tmp_path)]
+    assert loaded == [project_runtime / "avutil-60.dll", tmp_path / "avutil-60.dll"]
 
 
 @pytest.mark.parametrize("failure", ["missing", "wrong-version", "unloadable"])
@@ -92,5 +99,5 @@ def test_configure_shared_runtime_rejects_invalid_explicit_shared_libraries(
     if failure == "wrong-version":
         _mock_avutil(monkeypatch, b"8.1.0-full_build")
 
-    with pytest.raises(RuntimeError, match="FFmpeg 8.1.1 full shared build is required"):
+    with pytest.raises(RuntimeError, match="FFmpeg 8.1.1 shared libraries are required"):
         configure_shared_ffmpeg_runtime()

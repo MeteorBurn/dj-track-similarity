@@ -92,8 +92,8 @@ Package versions and sources follow [pyproject.toml](pyproject.toml), [uv.lock](
 
 **🔊 Audio**
 
-- **[FFmpeg](https://ffmpeg.org/) 8.1.1 full shared** - Shared audio libraries.
-- **[PyAV](https://pyav.org/) 17.1.0** - Audio decode recovery.
+- **[FFmpeg](https://ffmpeg.org/) 8.1.1 audio shared (LGPL)** - Shared audio libraries, built for this project and shipped in `libs/ffmpeg/`.
+- **[PyAV](https://pyav.org/) 17.1.0** - Audio decode recovery, built against those libraries and shipped in `libs/wheels/`.
 - **Mutagen 1.48.1** - Audio tags.
 
 **🧮 Numerical and classifier utilities**
@@ -104,7 +104,7 @@ Package versions and sources follow [pyproject.toml](pyproject.toml), [uv.lock](
 - **joblib 1.5.3** - Model persistence.
 
 > [!NOTE]
-> **🔧 Runtime setup:** FFmpeg includes the shared DLLs. An executable alone is insufficient. Downloaded portable tools stay inside the project, and the installer does not change your user or system `PATH`.
+> **🔧 Runtime setup:** the audio libraries ship with the repository, so the installer downloads nothing for them and prefers them over any FFmpeg on your `PATH`. Downloaded portable tools stay inside the project, and the installer does not change your user or system `PATH`.
 >
 > **🪟 Windows runtime.** Installing the Microsoft runtime may request administrator approval or report that Windows needs a restart. The installer never restarts the computer itself.
 
@@ -249,7 +249,7 @@ The app keeps evidence sources separate and never folds them into one score scal
 - **MERT-v2**, **MuQ**, **MuQ-MuLan**, and **CLAP** each store their own audio embedding in a separate seed-search space. MERT-v2 stores all 24 transformer layers instead of one vector. CLAP and MuQ-MuLan also serve text-to-track search. MuQ-MuLan does not reuse MuQ embeddings.
 - **Rhythm Lab classifiers** score from stored inputs only and save results under a classifier key (see workflow 5).
 
-The ML families share one in-process decode per track: TorchCodec `0.16` over the shared FFmpeg `8.1.1` libraries, with a per-family PyAV `17.1.0` retry that discards malformed packets and keeps the valid audio around them. SONARA decodes natively and uses the same PyAV retry. The retry recovers a readable file. It does not repair a damaged one. Decoding never launches `ffmpeg.exe`, and the runtime check reads the release version from `libavutil` without starting a process. Only the Audio Dedup spectral check runs `ffmpeg` from `PATH`. The CPU or CUDA device applies to inference only. See [Analysis families](docs/dj-track-similarity/reference/analysis-families.md).
+The ML families share one in-process decode per track: TorchCodec `0.16` over the shared FFmpeg `8.1.1` libraries, with a per-family PyAV `17.1.0` retry that discards malformed packets and keeps the valid audio around them. SONARA decodes natively and uses the same PyAV retry. The retry recovers a readable file. It does not repair a damaged one. Nothing in the project launches `ffmpeg.exe` or `ffprobe.exe`: Audio Doctor and the Audio Dedup spectral check read through the same libraries, and the runtime check reads the release version from `libavutil` without starting a process. The CPU or CUDA device applies to inference only. See [Analysis families](docs/dj-track-similarity/reference/analysis-families.md).
 
 Tempo comparisons weight SONARA BPM by its confidence and beat-grid stability. Unreliable tempo drifts toward a neutral score instead of earning a bonus or a hard rejection. Transition diagnostics also consult SONARA tempo candidates and the file BPM tag at low confidence, while SONARA similarity search uses stored SONARA values only.
 

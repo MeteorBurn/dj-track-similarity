@@ -19,12 +19,12 @@ are relative to this file. These guides are read by task, not imported as a batc
   SQLite is bundled with that interpreter: verify `sqlite3.sqlite_version`
   when compatibility matters instead of inferring it from the Python version.
 - `.\install.ps1` is the complete Windows x64 installation entry point. It
-  requires 64-bit PowerShell 7. It prepares uv, Node.js/npm and the shared
-  FFmpeg runtime, synchronizes the root
-  `.venv`, installs and builds the frontend, downloads every pinned model asset,
-  and checks the audio and ML runtime. Reuse compatible installed tools; missing
-  portable tools and archive caches stay under `.tools/install/`, with FFmpeg
-  in `libs/ffmpeg/bin/`. The installer makes no user or system `PATH` changes.
+  requires 64-bit PowerShell 7. It prepares uv and Node.js/npm, synchronizes the
+  root `.venv`, installs and builds the frontend, downloads every pinned model
+  asset, and checks the audio and ML runtime. Reuse compatible installed tools;
+  missing portable tools and archive caches stay under `.tools/install/`. The
+  installer makes no user or system `PATH` changes and downloads nothing for
+  audio: the FFmpeg libraries are tracked in `libs/ffmpeg/bin/`.
 - If the Microsoft Visual C++ x64 runtime DLLs are unavailable, the installer
   verifies the pinned Microsoft redistributable's SHA-256 and Authenticode
   signature and runs it. This system prerequisite may request Windows UAC
@@ -61,12 +61,15 @@ are relative to this file. These guides are read by task, not imported as a batc
   the installer performs both. Install `docs/dj-track-similarity` dependencies
   only for requested docs work. Use npm's install/update commands for dependency
   changes. The docs site is independent of the application installation.
-- Audio requires the full shared FFmpeg runtime specified in
+- Audio requires the shared FFmpeg runtime specified in
   `src/dj_track_similarity/audio/ffmpeg_runtime.py` (currently 8.1.1), including DLLs.
-  Discovery uses `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR`, PATH or the installer's
-  `libs/ffmpeg/bin/`. An explicit environment override must be valid. Verify with
-  `inspect_audio_runtime()`, which also checks project PyAV; finding
-  `ffmpeg.exe` alone is insufficient.
+  The repository ships an LGPL audio-only build in `libs/ffmpeg/bin/` and a PyAV
+  wheel built against it in `libs/wheels/`; that wheel carries no libraries of its
+  own, so `configure_shared_ffmpeg_runtime()` must run before anything imports
+  `av`. Discovery takes `DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR` first, then
+  `libs/ffmpeg/bin/`, then PATH, and an explicit override must be valid. Verify
+  with `inspect_audio_runtime()`, which also checks project PyAV; finding
+  `ffmpeg.exe` alone is insufficient. Nothing in the project launches a program.
 - On Windows x64 with Python 3.10.20, the lock selects PyTorch/TorchAudio
   `2.11.0+cu130`, TorchVision `0.26.0+cu130`, TorchCodec `0.16.0+cu130` and PyAV
   `17.1.0`. The binaries provide the CUDA 13.0 runtime. A separate CUDA Toolkit

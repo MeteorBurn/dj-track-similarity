@@ -36,7 +36,8 @@ Without the flag nothing is decoded: the report carries no spectral columns or
 verdicts, and keeper choice falls back to the declared file facts.
 
 The same detector also runs standalone over arbitrary files, directories, or a
-`--list` of paths — no library database needed, file facts come from ffprobe —
+`--list` of paths — no library database needed, file facts are read from the
+files themselves —
 and can write every verdict to `--csv`:
 
 ```powershell

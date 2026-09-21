@@ -12,7 +12,6 @@ venv/
 
 # Local app state
 /database/
-/libs/ffmpeg/
 *.sqlite
 *.sqlite-*
 *.sqlite.*.bak

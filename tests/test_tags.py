@@ -1,11 +1,13 @@
 from collections.abc import Callable
+from fractions import Fraction
 from pathlib import Path
 import hashlib
-import shutil
-import subprocess
 import wave
 
+import numpy as np
 import pytest
+
+from dj_track_similarity.audio.ffmpeg_runtime import load_project_pyav
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.analysis.model_runners import MaestModelRunner
@@ -130,56 +132,44 @@ def _wave_chunk_spans(path: Path, chunk_id: bytes) -> list[tuple[int, int]]:
     return spans
 
 
-def _require_ffmpeg() -> str:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        pytest.skip("ffmpeg is required for real audio container tag tests")
-    return ffmpeg
+def _make_tone(path: Path, codec: str, bit_rate: int | None = None) -> None:
+    """Encode half a second of a 440 Hz tone into a real container."""
 
-
-def _make_tone(path: Path, codec_args: list[str]) -> None:
-    subprocess.run(
-        [
-            _require_ffmpeg(),
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "sine=frequency=440:duration=0.5:sample_rate=44100",
-            *codec_args,
-            str(path),
-        ],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+    av = load_project_pyav()
+    rate = 44_100
+    tone = np.sin(2.0 * np.pi * 440.0 * np.arange(rate // 2) / rate) * 0.5
+    frame = av.AudioFrame.from_ndarray(
+        (tone * 32_767.0).astype(np.int16).reshape(1, -1), format="s16", layout="mono"
     )
+    frame.sample_rate = rate
+    frame.time_base = Fraction(1, rate)
+    frame.pts = 0
+    with av.open(str(path), mode="w") as container:
+        stream = container.add_stream(codec, rate=rate)
+        if bit_rate is not None:
+            stream.bit_rate = bit_rate
+        for packet in stream.encode(frame):
+            container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
 
 
 def _decoded_audio_md5(path: Path) -> str:
-    result = subprocess.run(
-        [
-            _require_ffmpeg(),
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(path),
-            "-map",
-            "0:a:0",
-            "-f",
-            "s16le",
-            "-acodec",
-            "pcm_s16le",
-            "-",
-        ],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    return hashlib.md5(result.stdout).hexdigest()
+    av = load_project_pyav()
+    digest = hashlib.md5()
+    with av.open(str(path), mode="r") as container:
+        stream = container.streams.audio[0]
+        resampler = av.AudioResampler(
+            format="s16",
+            layout=stream.codec_context.layout,
+            rate=stream.codec_context.rate,
+        )
+        for frame in container.decode(stream):
+            for resampled in resampler.resample(frame):
+                digest.update(resampled.to_ndarray().tobytes())
+        for resampled in resampler.resample(None):
+            digest.update(resampled.to_ndarray().tobytes())
+    return digest.hexdigest()
 
 
 def test_genre_tags_apply_api_rejects_specific_track_ids(
@@ -484,7 +474,7 @@ def test_write_genre_tag_upserts_mp3_genre_field_without_touching_audio(
     tmp_path: Path, old_genres: list[str]
 ) -> None:
     audio_path = tmp_path / "track.mp3"
-    _make_tone(audio_path, ["-codec:a", "libmp3lame", "-q:a", "4"])
+    _make_tone(audio_path, "libmp3lame")
     old_tags = ID3(audio_path)
     old_tags.add(TIT2(encoding=3, text=["Existing Title"]))
     if old_genres:
@@ -504,28 +494,23 @@ def test_write_genre_tag_upserts_mp3_genre_field_without_touching_audio(
 
 
 @pytest.mark.parametrize(
-    ("suffix", "codec_args", "old_key", "expected_getter"),
+    ("suffix", "codec", "old_key", "expected_getter"),
     [
-        (".flac", ["-codec:a", "flac"], "GENRE", lambda audio: audio.get("GENRE")),
-        (
-            ".m4a",
-            ["-codec:a", "aac", "-b:a", "128k"],
-            "\xa9gen",
-            lambda audio: audio.get("\xa9gen"),
-        ),
+        (".flac", "flac", "GENRE", lambda audio: audio.get("GENRE")),
+        (".m4a", "aac", "\xa9gen", lambda audio: audio.get("\xa9gen")),
     ],
 )
 @pytest.mark.parametrize("old_genres", [[], ["One", "Two", "Three", "Four", "Five"]])
 def test_write_genre_tag_upserts_vorbis_and_mp4_genre_fields_without_touching_audio(
     tmp_path: Path,
     suffix: str,
-    codec_args: list[str],
+    codec: str,
     old_key: str,
     expected_getter: Callable[[object], list[str] | None],
     old_genres: list[str],
 ) -> None:
     audio_path = tmp_path / f"track{suffix}"
-    _make_tone(audio_path, codec_args)
+    _make_tone(audio_path, codec)
     audio = MutagenFile(audio_path)
     if old_genres:
         audio[old_key] = old_genres
@@ -547,7 +532,7 @@ def test_write_genre_tag_upserts_aiff_genre_field_without_touching_audio(
     tmp_path: Path, old_genres: list[str]
 ) -> None:
     audio_path = tmp_path / "track.aiff"
-    _make_tone(audio_path, ["-codec:a", "pcm_s16be"])
+    _make_tone(audio_path, "pcm_s16be")
     audio = MutagenFile(audio_path)
     audio.add_tags()
     audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))

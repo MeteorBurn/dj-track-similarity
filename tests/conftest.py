@@ -5,7 +5,18 @@ from pathlib import Path
 
 import pytest
 
+from dj_track_similarity.audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime
 from dj_track_similarity.logging_config import LOG_ENV_VAR
+
+
+try:
+    # The project's PyAV carries no FFmpeg libraries of its own, so the shared
+    # directory has to be registered before any test module imports ``av``.
+    configure_shared_ffmpeg_runtime()
+except RuntimeError:
+    # A missing runtime is what tests/test_ffmpeg_runtime.py is about; it must not
+    # take down collection of the suites that never touch audio.
+    pass
 
 
 @pytest.fixture(autouse=True, scope="session")

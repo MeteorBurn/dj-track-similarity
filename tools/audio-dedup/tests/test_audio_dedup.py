@@ -56,7 +56,7 @@ def _exact_fingerprint_match(left: str, right: str) -> float:
 @pytest.fixture(autouse=True)
 def _isolate_external_resources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config_module, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
-    monkeypatch.setattr(core_module, "ffmpeg_available", lambda: False)
+    monkeypatch.setattr(core_module, "decoder_available", lambda: False)
     monkeypatch.setattr(fingerprints_module, "_native_fingerprint_match", _exact_fingerprint_match)
 
 

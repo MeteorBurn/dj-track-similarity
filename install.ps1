@@ -124,15 +124,13 @@ try {
         }
     }
 
+    # The audio runtime ships in libs/ffmpeg/bin, so nothing is downloaded for it.
     & $python -c 'from dj_track_similarity.audio.ffmpeg_runtime import configure_shared_ffmpeg_runtime; print(configure_shared_ffmpeg_runtime())' 2>$null
     if ($LASTEXITCODE -ne 0) {
         if ($env:DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR) {
             throw 'DJ_TRACK_SIMILARITY_FFMPEG_SHARED_DIR points to an invalid runtime. Correct or unset it, then rerun the installer.'
         }
-        Install-PortableArchive -Name 'ffmpeg' -Destination (Join-Path $projectRoot 'libs/ffmpeg') `
-            -ArchiveRoot 'ffmpeg-8.1.1-full_build-shared' `
-            -Url 'https://github.com/GyanD/codexffmpeg/releases/download/8.1.1/ffmpeg-8.1.1-full_build-shared.zip' `
-            -Sha256 '4296b396bdfd5fbc3dfc75ab4c8703354a56963232d65c4182993543df2d2f45'
+        throw 'The FFmpeg shared libraries in libs/ffmpeg/bin are missing or invalid. Restore them from the repository, then rerun the installer.'
     }
 
     Write-Host 'Checking the installed audio and ML runtime...'

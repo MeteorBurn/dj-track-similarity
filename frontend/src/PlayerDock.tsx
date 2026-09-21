@@ -1,4 +1,4 @@
-import { AudioLines, Heart, Pause, Play, Repeat1, Volume2 } from "lucide-react";
+import { AudioLines, Heart, Pause, Play, Repeat1, Tags, Volume2 } from "lucide-react";
 import type { RefObject } from "react";
 import { useEffect, useState } from "react";
 import type { Track } from "./api";
@@ -8,7 +8,7 @@ import type { PreviewTarget } from "./useSearchPlaylist";
 
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
 
-export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, repeat, onToggleRepeat, onToggleLiked }: {
+export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, onSeek, repeat, onToggleRepeat, onToggleLiked, onDetails }: {
   preview: PreviewTarget | null;
   playing: boolean;
   audioRef: RefObject<HTMLAudioElement | null>;
@@ -18,6 +18,7 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
   repeat: boolean;
   onToggleRepeat: () => void;
   onToggleLiked: (track: Track) => void;
+  onDetails: (track: Track) => void;
 }) {
   const position = usePreviewPosition();
   const [volume, setVolume] = useState(1);
@@ -61,6 +62,16 @@ export function PlayerDock({ preview, playing, audioRef, sourceKey, onToggle, on
         onClick={() => track && onToggleLiked(track)}
       >
         <Heart size={22} fill={track?.liked ? "currentColor" : "none"} />
+      </button>
+      <button
+        type="button"
+        className="icon-button track-metadata-button"
+        disabled={!track}
+        title="Теги и жанры"
+        aria-label="Теги и жанры текущего трека"
+        onClick={() => track && onDetails(track)}
+      >
+        <Tags size={21} />
       </button>
       <div className="player-bpm"><strong>{track?.sonara_bpm?.toFixed(2) ?? "—"}</strong><span>BPM</span></div>
       <div className="player-key"><strong>{track?.sonara_key_camelot || "—"}</strong><span>KEY</span></div>

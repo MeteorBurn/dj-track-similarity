@@ -1611,7 +1611,7 @@ export function App() {
           handleExport={(format) => void handleExport(format)}
         />
       </section>
-      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} />
+      <PlayerDock preview={preview} playing={preview != null && playingTrackId === preview.track_id} audioRef={previewAudioRef} sourceKey={sourceKey} onToggle={togglePreview} onSeek={seekPreview} repeat={repeatTrack} onToggleRepeat={() => setRepeatTrack((value) => !value)} onToggleLiked={(track) => void handleToggleTrackLiked(track)} onDetails={(track) => void handleTrackDetails(track)} />
       {sourceUrl ? (
         <audio
           key={sourceKey}

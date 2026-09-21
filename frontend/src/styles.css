@@ -5925,12 +5925,17 @@ button.dedup-play-button {
 .text-preset-axis-labels { gap: 6px; }
 .text-preset-axis-block { gap: 9px; }
 .text-preset-chip { border-radius: 999px; }
-.player-dock { display: flex; gap: 18px; align-items: center; height: 76px; margin-top: 10px; padding: 10px 16px; border: 2px solid transparent; border-radius: 9px; background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--player-edge) border-box; box-shadow: inset 0 1px 15px var(--shadow-soft), 0 0 24px -6px var(--player-glow-violet), -24px 0 34px -12px var(--player-glow-warm), 24px 0 34px -12px var(--player-glow-cool); background-size: auto, 200% 100%; animation: player-edge-travel 14s linear infinite; }
+.player-dock { position: relative; isolation: isolate; display: flex; gap: 18px; align-items: center; height: 76px; margin-top: 10px; padding: 10px 16px; border: 2px solid transparent; border-radius: 9px; background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--player-edge) border-box; background-size: auto, 200% 100%; animation: player-edge-travel 14s linear infinite; }
+/* Glow: the travelling edge itself, blurred outward, so it fades in the same colours. */
+.player-dock::before { content: ""; position: absolute; inset: var(--player-glow-reach); z-index: -1; border-radius: inherit; background: var(--player-edge); background-size: 200% 100%; filter: blur(var(--player-glow-blur)); opacity: var(--player-glow-opacity); animation: player-glow-travel 14s linear infinite; pointer-events: none; }
+/* Covers the glow inside the edge, so only the outside shines. */
+.player-dock::after { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 7px; background: var(--surface); box-shadow: inset 0 1px 15px var(--shadow-soft); pointer-events: none; }
 @keyframes player-edge-travel { from { background-position: 0 0, 0 0; } to { background-position: 0 0, 100% 0; } }
-@media (prefers-reduced-motion: reduce) { .player-dock { animation: none; } }
+@keyframes player-glow-travel { from { background-position: 0 0; } to { background-position: 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .player-dock, .player-dock::before { animation: none; } }
 .player-dock input[type="range"] { border: 0; padding: 0; }
 .player-artwork { display: grid; place-items: center; width: 50px; height: 50px; flex-shrink: 0; color: var(--preset-texture-text); border: 1px solid var(--preset-texture-border); border-radius: 6px; background: var(--preset-texture-bg); }
-.player-track-info { display: flex; flex-direction: column; gap: 6px; width: clamp(420px, 24vw, 520px); min-width: 0; }
+.player-track-info { display: flex; flex-direction: column; gap: 6px; width: clamp(380px, 22vw, 480px); min-width: 0; }
 .player-track-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .player-track-info span { color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .player-play { display: grid; place-items: center; width: 49px; height: 49px; min-width: 49px; border-radius: 50%; color: var(--accent-active-text); border: 1px solid var(--accent); background: var(--accent-deep-bg); box-shadow: 0 0 15px var(--accent-soft-bg); }
@@ -5939,6 +5944,8 @@ button.dedup-play-button {
 .player-timeline span { color: var(--text-muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* Bare heart, like the library rows: the frame would compete with the BPM/KEY boxes. */
 .player-dock > button.icon-button.track-liked-button { width: 40px; min-height: 40px; background: transparent; border-color: transparent; }
+/* Same bare tag button as the library rows, sized like its dock neighbours. */
+.player-dock > button.icon-button.track-metadata-button { width: 40px; min-height: 40px; margin-left: -16px; background: transparent; border-color: transparent; }
 /* Sits tight against the heart: the dock gap would read as a separate group. */
 .player-dock > button.icon-button.player-repeat-button { width: 40px; min-height: 40px; margin-right: -16px; color: var(--text-muted); background: transparent; border-color: transparent; }
 .player-dock > button.icon-button.player-repeat-button:hover { color: var(--text); border-color: transparent; }
@@ -5981,9 +5988,9 @@ button.dedup-play-button {
   /* Player dock edge: the spectrum twice over, so a one-width shift loops seamlessly. */
   --player-edge: linear-gradient(90deg, #f43f5e, #fb923c, #facc15, #4ade80, #22d3ee, #6366f1, #d946ef,
     #f43f5e, #fb923c, #facc15, #4ade80, #22d3ee, #6366f1, #d946ef, #f43f5e);
-  --player-glow-warm: rgba(244, 63, 94, 0.62);
-  --player-glow-cool: rgba(34, 211, 238, 0.62);
-  --player-glow-violet: rgba(217, 70, 239, 0.34);
+  --player-glow-reach: -4px;
+  --player-glow-blur: 20px;
+  --player-glow-opacity: 0.7;
   --workbench-radius: 6px;
   --workbench-dialog-radius: 9px;
   --workbench-control-height: 34px;
